@@ -51,6 +51,10 @@ pub(super) fn yaml_path_lines(source: &str) -> Vec<(Vec<String>, usize, usize, u
     // The indentation a block scalar's text (or a scalar continued over
     // lines) runs past: its lines are text, not keys or items.
     let mut block_owner: Option<usize> = None;
+    // The explicit key (`? k`) last read: its column and path, until its
+    // `: value` line.
+    let mut explicit: Option<(usize, Vec<String>)> = None;
+    let all_lines: Vec<&str> = source.lines().collect();
     for (index, raw_line) in source.lines().enumerate() {
         let line = raw_line.trim_end_matches('\r');
         let trimmed = line.trim_start();
@@ -109,11 +113,43 @@ pub(super) fn yaml_path_lines(source: &str) -> Vec<(Vec<String>, usize, usize, u
         }
 
         if rest.is_empty() {
-            // An empty item, or one whose value is below its dash: just
-            // after the dash, where its value is typed.
+            // An item whose value is a block below its dash: at the dash;
+            // an empty item just after it, where its value is typed.
             if let Some(path) = array_item_path {
-                let column = line[..content_indent].chars().count() + 1;
+                let column = if block_below(&all_lines[index + 1..], dash_column - 1) {
+                    dash_column
+                } else {
+                    line[..content_indent.min(line.len())].chars().count() + 1
+                };
                 entries.push((path, index + 1, column, column + 1));
+            }
+            continue;
+        }
+        // An explicit key (`? k`), its value on a line of its own (`: v`).
+        if let Some(key_raw) = explicit_key(rest) {
+            if let Some(path) = array_item_path {
+                entries.push((path, index + 1, dash_column, dash_column + 1));
+            }
+            while stack.last().is_some_and(|(level, _, _)| *level >= content_indent) {
+                stack.pop();
+            }
+            let mut path = stack.last().map(|(_, path, _)| path.clone()).unwrap_or_default();
+            path.push(key_raw.trim_matches(['\'', '"']).to_string());
+            let offset = key_raw.as_ptr() as usize - rest.as_ptr() as usize;
+            let column = line[..content_indent].chars().count() + rest[..offset].chars().count() + 1;
+            entries.push((path.clone(), index + 1, column, column + key_raw.chars().count()));
+            explicit = Some((content_indent, path));
+            continue;
+        }
+        if let Some((at, path)) = explicit.take()
+            && at == content_indent
+            && (rest == ":" || rest.starts_with(": "))
+        {
+            let value = without_node_properties(rest[1..].trim());
+            if value.is_empty() || value.starts_with('#') {
+                stack.push((content_indent, path, true));
+            } else if is_block_scalar(code_before_comment(value).trim()) || continues_as_text(value) {
+                block_owner = Some(content_indent);
             }
             continue;
         }
@@ -237,6 +273,7 @@ fn continues_as_text(value: &str) -> bool {
     !value.is_empty()
         && !value.starts_with(['[', '{', '#', '|', '>'])
         && value != "-"
+        && explicit_key(value).is_none()
         && !value.starts_with("- ")
         && key_colon(value).is_none()
 }
@@ -320,6 +357,26 @@ fn key_colon(rest: &str) -> Option<usize> {
         .match_indices(':')
         .map(|(at, _)| from + at)
         .find(|&at| code[at + 1..].chars().next().is_none_or(char::is_whitespace))
+}
+
+/// Whether the first entry of `below` (the lines after a dash at byte
+/// `dash`) is indented past it: the item's value is a block there.
+fn block_below(below: &[&str], dash: usize) -> bool {
+    below
+        .iter()
+        .map(|line| line.trim_end_matches('\r'))
+        .find(|line| {
+            let trimmed = line.trim_start();
+            !trimmed.is_empty() && !trimmed.starts_with('#')
+        })
+        .is_some_and(|line| line.len() - line.trim_start().len() > dash)
+}
+
+/// The key an explicit key line (`? k`, `? "k" # c`) writes, as written:
+/// a scalar, not a collection (`? [a, b]`) or a mapping (`? a: b`).
+fn explicit_key(rest: &str) -> Option<&str> {
+    let key = code_before_comment(rest.strip_prefix("? ")?).trim();
+    (!key.is_empty() && !key.starts_with(['[', '{', '-', '?', '|', '>']) && key_colon(key).is_none()).then_some(key)
 }
 
 /// `value` without the anchors and tags before it (`&base`, `!!map`): a
@@ -416,6 +473,10 @@ fn first_key_lines(source: &str) -> std::rc::Rc<FirstKeyLines> {
             let Some((candidate, _)) = line.trim_start().split_once(':') else {
                 continue;
             };
+            // Nothing before `:` (an explicit key's `: value`) is no key.
+            if candidate.trim().is_empty() {
+                continue;
+            }
             let Some(candidate_offset) = line[indent..].find(candidate) else {
                 continue;
             };

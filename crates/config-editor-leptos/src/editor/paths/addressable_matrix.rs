@@ -2,7 +2,8 @@
 //! (list items written as blocks, repeated HCL blocks, TOML `[[arrays]]`
 //! included) has a range, `path_at` at its start gives the path back, and
 //! a schema problem with a list item is marked on that item. Five
-//! languages, lines ended by LF and CRLF.
+//! languages, lines ended by LF and CRLF; hand-written documents and random
+//! data each serializer writes.
 
 use serde_json::{Value, json};
 
@@ -28,6 +29,10 @@ fn lists() -> Vec<(Language, &'static str)> {
         (Language::YAML, "l:\n  -\n    x: 1\n  - a\n"),
         (
             Language::YAML,
+            "l:\n  - ? k\n    : v\n  - ? m\n    :\n      x: 1\n? top\n: 2\n",
+        ),
+        (
+            Language::YAML,
             "spec:\n  containers:\n    - name: web\n      ports:\n        - containerPort: 80\n        - containerPort: 443\n    - name: side\n",
         ),
         (Language::JSON, "{\"l\": [{\"n\": 1}, {\"n\": 2}]}\n"),
@@ -38,6 +43,15 @@ fn lists() -> Vec<(Language, &'static str)> {
             "a = 1\n\n[t]\n[[t.l]]\nn = 1\n[[t.l]]\nn = 2\n",
         ),
         (Language::TOML, "l = [{n = 1}, {n = 2}]\n"),
+        // Arrays of tables in a later entry of their parent count from 0.
+        (
+            Language::TOML,
+            "[[r]]\n[[r.t]]\nq = 1\n[[r.t]]\nq = 2\n[[r]]\n[[r.t]]\nq = 3\n",
+        ),
+        (
+            Language::TOML,
+            "[[root]]\n[[root.c]]\nx = 1\n[[root]]\n[root.c.a]\ny = 2\n",
+        ),
         (Language::HCL, "b {\n  x = 1\n}\nb {\n  x = 2\n}\n"),
         (
             Language::HCL,
@@ -58,7 +72,80 @@ fn cases() -> Vec<(Language, String)> {
             .into_iter()
             .map(|(language, text)| (language, text.to_string())),
     );
+    cases.extend(generated());
     cases
+}
+
+/// Random data written by each language's serializer: nested lists of
+/// objects (TOML `[[a.b]]` in later entries of `[[a]]`), implicit tables,
+/// lists of lists and scalars.
+fn generated() -> Vec<(Language, String)> {
+    let mut random = Lcg(24);
+    let mut cases = Vec::new();
+    for _ in 0..120 {
+        let mut document = serde_json::Map::new();
+        document.insert("root".into(), random_value(&mut random, 0));
+        if random.next(2) == 0 {
+            document.insert("other".into(), random_value(&mut random, 1));
+        }
+        let document = Value::Object(document);
+        for &language in Language::ALL {
+            let value = if language == Language::XML {
+                json!({ "doc": document })
+            } else {
+                document.clone()
+            };
+            if let Ok(text) = language.serialize(&value) {
+                cases.push((language, text));
+            }
+        }
+    }
+    cases
+}
+
+fn random_value(random: &mut Lcg, depth: usize) -> Value {
+    const KEYS: [&str; 4] = ["a", "b", "c", "d"];
+    let roll = random.next(20);
+    if depth > 3 || roll < 5 {
+        return [json!(1), json!("x"), json!(true), json!(2.5)][random.next(4)].clone();
+    }
+    let count = 1 + random.next(3);
+    if roll < 12 {
+        let mut members = serde_json::Map::new();
+        for _ in 0..count {
+            let key = KEYS[random.next(4)];
+            members.insert(key.into(), random_value(random, depth + 1));
+        }
+        return Value::Object(members);
+    }
+    let objects = random.next(10) < 7;
+    Value::Array(
+        (0..count)
+            .map(|index| {
+                if objects {
+                    let mut item = serde_json::Map::new();
+                    item.insert(KEYS[index % 4].into(), random_value(random, depth + 1));
+                    item.insert("z".into(), random_value(random, depth + 2));
+                    Value::Object(item)
+                } else {
+                    random_value(random, depth + 1)
+                }
+            })
+            .collect(),
+    )
+}
+
+/// A small deterministic generator, so the matrix needs no dependency.
+struct Lcg(u64);
+
+impl Lcg {
+    fn next(&mut self, bound: usize) -> usize {
+        self.0 = self
+            .0
+            .wrapping_mul(6_364_136_223_846_793_005)
+            .wrapping_add(1_442_695_040_888_963_407);
+        ((self.0 >> 33) as usize) % bound.max(1)
+    }
 }
 
 /// Whether `found` (from `path_at`) names the field at `pointer` of

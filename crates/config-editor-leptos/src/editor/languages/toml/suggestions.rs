@@ -20,19 +20,12 @@ pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionConte
         let inner = header_text.trim_start_matches('[');
         let (parents, typed) = inner.rsplit_once('.').unwrap_or(("", inner));
         let parents: Vec<&str> = parents.split('.').map(str::trim).filter(|part| !part.is_empty()).collect();
-        let arrays: HashSet<String> = lines[..line_index]
-            .iter()
-            .filter_map(|line| parse_header(split_toml_comment(line).0))
-            .filter(|(_, array)| *array)
-            .map(|(segments, _)| segments.join("."))
-            .collect();
-        let mut header_path = Vec::new();
-        for (depth, part) in parents.iter().enumerate() {
-            header_path.push(SchemaPathSegment::Key(unquote_key(part)));
-            if arrays.contains(&parents[..=depth].join(".")) {
-                header_path.push(SchemaPathSegment::ArrayItem(0));
-            }
+        let mut tables = Tables::default();
+        for (segments, is_array) in lines[..line_index].iter().filter_map(|line| parse_header(split_toml_comment(line).0)) {
+            tables.enter(&segments, is_array);
         }
+        let parents: Vec<String> = parents.iter().map(|part| unquote_key(part)).collect();
+        let header_path = tables.resolve(&parents);
         let typed = typed.trim_start();
         let word_end = source[cursor..]
             .find(|character: char| matches!(character, '.' | ']' | '\n') || character.is_whitespace())
@@ -54,7 +47,7 @@ pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionConte
             // Renamed, the table's sub-tables and dotted keys follow it.
             paired_names: {
                 let old = format!("{typed}{name_after}");
-                let mut wanted: Vec<String> = parents.iter().map(|part| unquote_key(part)).collect();
+                let mut wanted = parents.clone();
                 wanted.push(unquote_key(&old));
                 let name_start = cursor - typed.len();
                 toml_key_occurrences(source, &wanted)
@@ -336,20 +329,16 @@ pub(super) fn existing_table_keys(
             .any(|code| key_assignment(code).is_some());
     let mut keys = HashSet::new();
     let mut section: Vec<SchemaPathSegment> = Vec::new();
-    let mut array_tables: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    let mut tables = Tables::default();
     for (index, line) in lines.iter().enumerate() {
         let (code, _) = split_toml_comment(line);
         if let Some((segments, is_array)) = parse_header(code) {
             // Every prefix that is an array of tables addresses its latest
             // entry: `[a.b.c]` after `[[a.b]]` is `a.b[last].c`.
-            let mut header: Vec<SchemaPathSegment> = Vec::new();
-            for (depth, segment) in segments.iter().enumerate() {
-                header.push(SchemaPathSegment::Key(segment.clone()));
-                let prefix = segments[..=depth].join(".");
-                let own = depth + 1 == segments.len() && is_array;
-                if !own && let Some(count) = array_tables.get(&prefix) {
-                    header.push(SchemaPathSegment::ArrayItem(count.saturating_sub(1)));
-                }
+            tables.enter(&segments, is_array);
+            let mut header = tables.path.clone();
+            if is_array {
+                header.pop();
             }
             // A header being named may still name a table that only its
             // sub-tables made (`[websocket]` with `[websocket.tls]` below),
@@ -357,12 +346,7 @@ pub(super) fn existing_table_keys(
             if index != line_index && (!in_header || current_has_keys || header.len() == path.len() + 1) {
                 keys.extend(child_of(&header));
             }
-            section = header;
-            if is_array {
-                let seen = array_tables.entry(segments.join(".")).or_insert(0);
-                section.push(SchemaPathSegment::ArrayItem(*seen));
-                *seen += 1;
-            }
+            section = tables.path.clone();
             continue;
         }
         if index == line_index {

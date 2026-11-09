@@ -645,7 +645,11 @@ on is not a change from elsewhere. Colors: the notice uses `raised`,
   fixes the text area's height. To fill a container of a set height, give
   the editor `height: 100%` (`.config-editor { height: 100%; }`): the text
   area takes what the toolbar and footer leave. The custom properties go
-  on `.config-editor` or any element above it.
+  on `.config-editor` or any element above it. `ConfigDocuments` sizes
+  itself the same way (the tab strip, then the shown editor); to fill a
+  container of a set height, give the view `height: 100%`
+  (`.config-editor-documents { height: 100%; }`): the strip keeps its
+  height and the shown editor takes the rest.
 - **Problems:** at most 20 of each source (the schema's, the secret
   placeholders') are listed and underlined, and the footer says how many
   were cut ("20+ errors · only the editor's first 20 are shown"); a problem with no
@@ -728,8 +732,9 @@ view! {
   answer is selected, its editor focused without scrolling the page. In
   answer: the first one added within 5 seconds of the click, before the
   focus moves to something outside the view (a dialog of the host's: select
-  the document with `DocumentsHandle::select` then) and before another tab
-  is picked. One added later (a server's) is listed, not selected. When the tabs
+  the document with `DocumentsHandle::select` then), before another tab is
+  picked and before the user clicks or types anywhere else in the view (in
+  a document's editor). One added later (a server's) is listed, not selected. When the tabs
   overflow, the "+" stays at the end of the strip, visible while they
   scroll. No key adds a document (`Ctrl+T` and `Ctrl+N` belong to the
   browser). Leave `on_add` unset for a view that only shows files.

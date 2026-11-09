@@ -593,3 +593,24 @@ fn an_integer_past_the_signed_64_bit_range_is_named_in_the_error() {
     let error = TomlBehavior.serialize(&value, None).unwrap_err();
     assert_eq!(error, "TOML integers end at 9223372036854775807 (at /big)");
 }
+
+#[test]
+fn a_header_in_a_later_array_entry_suggests_the_tables_that_entry_lacks() {
+    let schema_bundle = build_schema(
+        r#"{"type":"object","properties":{"r":{"type":"array","items":{"type":"object","properties":{
+            "s":{"type":"object"},"u":{"type":"object"}}}}}}"#,
+    )
+    .unwrap();
+    // `s` is taken in the first `[[r]]` entry, not in the second.
+    let source = "[[r]]\n[r.s]\n[[r]]\n[r.";
+    let options = completions(
+        source,
+        source.encode_utf16().count(),
+        false,
+        Some(&schema_bundle),
+        true,
+        &TomlBehavior,
+    );
+    let labels: Vec<&str> = options.iter().map(|option| option.label.as_str()).collect();
+    assert!(labels.contains(&"s") && labels.contains(&"u"), "{labels:?}");
+}

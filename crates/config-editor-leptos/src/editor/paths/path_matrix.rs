@@ -379,3 +379,54 @@ fn the_pointer_slash_names_the_empty_key_in_every_language_that_has_one() {
     }
     assert!(failures.is_empty(), "{failures:#?}");
 }
+
+/// Without an empty key, `/` names nothing, in every language.
+#[test]
+fn the_pointer_slash_is_none_without_an_empty_key() {
+    let cases = [
+        (Language::YAML, "a: 1\n"),
+        (Language::YAML, "l:\n  - ? k\n    : v\n"),
+        (Language::YAML, "? k\n: v\n"),
+        (Language::JSON, "{\"a\": 1}\n"),
+        (Language::TOML, "a = 1\n"),
+        (Language::HCL, "a = 1\n"),
+        (Language::XML, "<r><a>1</a></r>\n"),
+    ];
+    let mut failures = Vec::new();
+    for (language, text) in cases {
+        if let Some(range) = language.range_of(text, "/") {
+            failures.push(format!("{language} {text:?}: {range:?}"));
+        }
+    }
+    assert!(failures.is_empty(), "{failures:#?}");
+}
+
+/// YAML forms whose key or item marker is written apart: an item whose
+/// dash is alone on its line is marked at the dash, and an explicit key
+/// (`? k`) is addressable, its value after `:` on the next line.
+#[test]
+fn yaml_items_and_keys_written_apart_have_their_range() {
+    let cases = [
+        ("l:\n  -\n    x: 1\n  - a\n", "/l/0", "-"),
+        ("l:\n  -\n    x: 1\n", "/l/0/x", "x: 1"),
+        ("-\n  x: 1\n", "/0", "-"),
+        ("l:\n  - ? k\n    : v\n", "/l/0/k", "k"),
+        ("? k\n: v\n", "/k", "k"),
+        ("? k\n: v\nz: 1\n", "/z", "z: 1"),
+    ];
+    let mut failures = Vec::new();
+    for (text, pointer, expected) in cases {
+        let found = Language::YAML.range_of(text, pointer);
+        if found.map(|range| range.slice(text).to_string()).as_deref() != Some(expected) {
+            failures.push(format!("{pointer} in {text:?}: {found:?}"));
+            continue;
+        }
+        let back = Language::YAML
+            .path_at(text, found.unwrap().start)
+            .map(|path| path.to_pointer());
+        if back.as_deref() != Some(pointer) {
+            failures.push(format!("{pointer} in {text:?}: path_at gives {back:?}"));
+        }
+    }
+    assert!(failures.is_empty(), "{failures:#?}");
+}

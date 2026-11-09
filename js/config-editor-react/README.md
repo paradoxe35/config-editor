@@ -519,10 +519,15 @@ tabs.current?.editor("main")?.reveal("/public_address");
 ```
 
 See the [`@pngwasi/config-editor` README](https://www.npmjs.com/package/@pngwasi/config-editor#several-documents).
+To fill a set height (the component's element, styled through its class), give
+the view `height: 100%`
+(`.config-editor-documents { height: 100%; }`): the tab strip keeps its height
+and the shown editor takes the rest; see
+[Size](https://www.npmjs.com/package/@pngwasi/config-editor#size).
 
 ## Keyboard and screen readers
 
-The keys are those of [`@pngwasi/config-editor`](../config-editor/README.md#keyboard).
+The keys are those of [`@pngwasi/config-editor`](https://www.npmjs.com/package/@pngwasi/config-editor#keyboard).
 `Tab` indents while editing; to leave the editor with the keyboard,
 `Ctrl+M` switches `Tab` and `Shift+Tab` to moving the focus (announced, and
 shown in the footer as "Tab moves focus" until `Ctrl+M` again), and right

@@ -323,6 +323,7 @@ impl EditorState {
         // Typing on where a key was refused: the rest of the word, or the
         // spaces after it, would only be left there half-written.
         if let Some(at) = inserted_at(edit)
+            && holds_back(edit, at)
             && let Some(message) = self.protect().marks.with_value(|marks| {
                 marks
                     .refused
@@ -668,4 +669,27 @@ fn inserted_at(edit: &Edit) -> Option<usize> {
     };
     let (start, end) = edit.replaced(edit.caret());
     (typed && start == end && edit.text.len() > edit.before.len()).then_some(start)
+}
+
+/// Whether a refusal at UTF-16 `at` refuses `edit` inserting there too: the
+/// rest of an entry refused where a line starts (its key, the spaces and
+/// value after it), or more text glued on after a field. A line break ends
+/// what was refused, and whitespace after a field is free, like a comment
+/// after it: those are checked like any other edit.
+fn holds_back(edit: &Edit, at: usize) -> bool {
+    let added = edit.text.encode_utf16().count() - edit.before.encode_utf16().count();
+    let (from, to) = (
+        utf16_to_byte_index(&edit.text, at),
+        utf16_to_byte_index(&edit.text, at + added),
+    );
+    let inserted = &edit.text[from..to];
+    if inserted.contains(['\n', '\r']) {
+        return false;
+    }
+    let at = utf16_to_byte_index(&edit.before, at);
+    let line = edit.before[..at]
+        .rsplit(['\n', '\r'])
+        .next()
+        .unwrap_or_default();
+    line.trim().is_empty() || !inserted.trim().is_empty()
 }

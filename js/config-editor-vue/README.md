@@ -495,10 +495,15 @@ selected),
 `select(id)`, `isDirty(id)`, `save(id)`, `saveAll()`, `focus()`, `activeId`,
 `instance`, and `editor(id)`, the editor of a document, an `EditorView`
 (`value`, `reveal`, `rangeOf`, `fold`, `unifiedDiff`, …). See the [`@pngwasi/config-editor` README](https://www.npmjs.com/package/@pngwasi/config-editor#several-documents).
+To fill a set height (the component's element, styled through its class), give
+the view `height: 100%`
+(`.config-editor-documents { height: 100%; }`): the tab strip keeps its height
+and the shown editor takes the rest; see
+[Size](https://www.npmjs.com/package/@pngwasi/config-editor#size).
 
 ## Keyboard and screen readers
 
-The keys are those of [`@pngwasi/config-editor`](../config-editor/README.md#keyboard).
+The keys are those of [`@pngwasi/config-editor`](https://www.npmjs.com/package/@pngwasi/config-editor#keyboard).
 `Tab` indents while editing; `Ctrl+M` switches `Tab` to moving the focus,
 and right after an `Escape` that had nothing to close one `Tab` leaves.
 

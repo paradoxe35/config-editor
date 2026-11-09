@@ -39,6 +39,13 @@ pub(crate) fn settings_from(object: &JsValue) -> Result<EditorSettings, JsError>
         for key in setting_keys() {
             let value = field(object, &key);
             if !value.is_undefined() && !value.is_null() {
+                // A text or token set to `undefined` or `null` takes its
+                // default, as `update` reads it.
+                let value = if (key == "strings" || key == "colors") && is_record(&value) {
+                    merged_texts(&JsValue::UNDEFINED, &value)
+                } else {
+                    value
+                };
                 let _ = Reflect::set(&given, &JsValue::from_str(&key), &value);
             }
         }

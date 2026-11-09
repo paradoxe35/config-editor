@@ -6,7 +6,7 @@ use web_sys::{KeyboardEvent, MouseEvent};
 
 use super::super::entries::{Documents, Entry, Focus};
 use super::super::keys;
-use super::super::tab_names::split_name;
+use super::super::tab_names::{split_end, split_name};
 use crate::strings::fill;
 
 #[component]
@@ -146,10 +146,18 @@ pub(in crate::documents) fn DocumentTab(documents: Documents, entry: Entry) -> i
     }
 }
 
-/// A tab's name: its folder (in its own span), then the rest.
+/// A tab's name: its folder (in its own span) and the rest's start, which
+/// a narrow tab cuts, then the end of a long name, kept whole.
 fn name_view((folder, rest): (Option<String>, String)) -> impl IntoView {
+    let (start, end) = split_end(&rest);
+    let (start, end) = (start.to_string(), end.to_string());
+    let end = (!end.is_empty())
+        .then(|| view! { <span class="config-editor-documents__name-end">{end}</span> });
     view! {
-        {folder.map(|folder| view! { <span class="config-editor-documents__name-folder">{folder}</span> })}
-        {rest}
+        <span class="config-editor-documents__name-start">
+            {folder.map(|folder| view! { <span class="config-editor-documents__name-folder">{folder}</span> })}
+            {start}
+        </span>
+        {end}
     }
 }

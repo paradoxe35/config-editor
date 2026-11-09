@@ -5,7 +5,8 @@ import { setupEditor } from './helpers.mjs';
 // read off the editor in each theme, measured with the WCAG contrast ratio.
 // Text is held to 4.5:1 (QA 21: code, line numbers and the selected
 // suggestion's type were 3.4 to 4.4 in some themes; QA 24: tab names, the
-// hover card's link, preview code, kind icons and code on tinted lines),
+// hover card's link, preview code, kind icons, code on tinted lines and the
+// empty documents view's text),
 // the editor's other interface parts (glyphs, outlines) to 3:1, and a
 // disabled control looks disabled (clearly dimmer than when enabled) while
 // staying readable.
@@ -38,6 +39,8 @@ const PAIRS = [
   ['tab name', CODE, '.config-editor-documents__tab', ['tab-bar', 'tab-bg']],
   ['tab name, selected', CODE, '.config-editor-documents__tab-active', ['tab-bar', 'tab-active-bg']],
   ['add tab glyph', UI, 'tab-text', ['tab-bar']],
+  // "No open files" in a documents view with none.
+  ['no documents text', CODE, '.config-editor-documents__empty', ['bg']],
   ['toolbar text', CODE, 'toolbar-text', ['panel']],
   ['edit-as notice text', CODE, '.config-editor__edit-as-notice', ['panel']],
   ['popup text', CODE, 'raised-text', ['raised']],

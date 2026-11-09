@@ -2,7 +2,8 @@
 // Writes the table of contents of each README (a list of its `##` and `###`
 // sections, linked) between `<!-- toc -->` and `<!-- /toc -->`, inserted
 // before the first section when missing. `--check` changes nothing and
-// fails when a contents list is out of date (CI runs it).
+// fails when a contents list is out of date (CI runs it). Both fail when an
+// npm package's README links out of its folder (npmjs.com cannot follow it).
 //
 //   node scripts/readme-toc.mjs          # update
 //   node scripts/readme-toc.mjs --check  # verify
@@ -84,8 +85,19 @@ function updated(text) {
   return [...body.slice(0, at), ...contents(body), '', ...rest].join('\n');
 }
 
+/** Links an npm package's README cannot follow on npmjs.com: those out of its own folder. */
+function relativeLinks(text) {
+  return [...text.matchAll(/\]\((\.\.\/[^)\s]*|\/[^)\s]*)\)/g)].map((match) => match[1]);
+}
+
 const check = process.argv.includes('--check');
 let stale = 0;
+for (const name of READMES.filter((name) => name.startsWith('js/'))) {
+  for (const link of relativeLinks(readFileSync(join(root, name), 'utf8'))) {
+    console.error(`${name}: the link ${link} leaves the package, which npmjs.com cannot follow; link the published page`);
+    stale += 1;
+  }
+}
 for (const name of READMES) {
   const path = join(root, name);
   const text = readFileSync(path, 'utf8');

@@ -506,6 +506,144 @@ test.describe('JS example documents.html: the "+" and documents added later', ()
     await expect(tab(page, 'answer')).toHaveAttribute('aria-selected', 'true');
     await expect.poll(() => focusedDocument(page)).toBe('answer');
   });
+
+  // QA 24: clicking or typing in the document's editor after the "+" left
+  // the request waiting: a document pushed then took the next keys.
+  for (const how of ['click', 'type']) {
+    test(`a "+" the user goes on from (${how} in the editor) selects no document added later`, async ({ page }) => {
+      await page.goto(example('documents.html'));
+      await expect(page.locator('body')).toHaveAttribute('data-ready', 'true', { timeout: 20000 });
+      const input = page.locator('.config-editor__input').first();
+      await input.waitFor();
+      await page.evaluate(() => window.documentsView.update({ onAdd: () => {} }));
+      if (how === 'click') {
+        await plus(page).click();
+        await input.click();
+      } else {
+        await input.focus();
+        await plus(page).evaluate((element) => element.click());
+        await expect(input).toBeFocused();
+      }
+      await page.keyboard.press('Control+End');
+      await page.keyboard.type('# a');
+      await page.evaluate(() => window.addFile({ id: 'pushed', fileName: 'pushed.yaml', value: 'x: 1\n' }));
+      await expect(tab(page, 'pushed')).toHaveCount(1);
+      await page.keyboard.type('b');
+      await expect(tab(page, 'main')).toHaveAttribute('aria-selected', 'true');
+      expect(await focusedDocument(page)).toBe('main');
+      expect(await input.inputValue()).toMatch(/# ab$/);
+    });
+  }
+});
+
+// A new view on `#sized` (made by the example's own class), its container
+// styled with `css`.
+async function sizedView(page, css, documents) {
+  await page.goto(example('documents.html'));
+  await expect(page.locator('body')).toHaveAttribute('data-ready', 'true', { timeout: 20000 });
+  await page.evaluate(([css, documents]) => {
+    const style = document.createElement('style');
+    style.textContent = css;
+    document.head.append(style);
+    const host = document.createElement('div');
+    host.id = 'sized';
+    document.body.prepend(host);
+    window.sized = new window.documentsView.constructor(host, { documents, showFooter: true });
+  }, [css, documents]);
+  await page.locator('#sized .config-editor__input').first().waitFor();
+  await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => setTimeout(done, 100))));
+}
+
+const big = `${Array.from({ length: 200 }, (_, index) => `k${index}: ${index}`).join('\n')}\n`;
+
+test.describe('JS example documents.html: sizing and focus from code', () => {
+  test.skip(!built, 'js packages not built: run `npm run build` in js/');
+
+  // QA 24: with `height: 100%` the strip collapsed to a pixel and the
+  // editor ran past the container.
+  for (const count of [1, 3]) {
+    test(`height 100% fills a 60vh container: the strip shows, the editor fills the rest (${count} document${count > 1 ? 's' : ''})`, async ({ page }) => {
+      const documents = Array.from({ length: count }, (_, index) => ({ id: `d${index}`, fileName: `d${index}.yaml`, value: big }));
+      await sizedView(page, '#sized { height: 60vh; } #sized .config-editor-documents { height: 100%; }', documents);
+      const boxes = await page.evaluate(() => {
+        const box = (selector) => {
+          const rect = document.querySelector(selector).getBoundingClientRect();
+          return { top: Math.round(rect.top), bottom: Math.round(rect.bottom), height: Math.round(rect.height) };
+        };
+        const shown = '#sized .config-editor-documents__panel:not(.config-editor-documents__panel-hidden)';
+        return {
+          container: box('#sized'),
+          strip: box('#sized .config-editor-documents__strip'),
+          editor: box(`${shown} .config-editor`),
+          footer: box(`${shown} .config-editor__status`),
+        };
+      });
+      expect(boxes.strip.height).toBeGreaterThanOrEqual(35);
+      expect(boxes.strip.top).toBe(boxes.container.top);
+      expect(boxes.editor.top).toBe(boxes.strip.bottom);
+      // The editor and its footer end at the container's end.
+      expect(Math.abs(boxes.editor.bottom - boxes.container.bottom)).toBeLessThanOrEqual(1);
+      expect(Math.abs(boxes.footer.bottom - boxes.container.bottom)).toBeLessThanOrEqual(2);
+    });
+  }
+
+  test('without a height the view sizes itself, as an editor does', async ({ page }) => {
+    await sizedView(page, '', [{ id: 'a', fileName: 'a.yaml', value: 'a: 1\n' }, { id: 'b', fileName: 'b.yaml', value: big }]);
+    const heights = await page.evaluate(() => {
+      const height = (selector) => Math.round(document.querySelector(selector).getBoundingClientRect().height);
+      return { strip: height('#sized .config-editor-documents__strip'), surface: height('#sized .config-editor__surface') };
+    });
+    expect(heights.strip).toBeGreaterThanOrEqual(35);
+    expect(heights.surface).toBeGreaterThanOrEqual(200);
+  });
+
+  // QA 24: at phone width long names sharing a start were cut alike.
+  test('at phone width long names sharing a start keep the end that tells them apart', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 700 });
+    const names = ['conf.d/service-config-production.yaml', 'conf.d/service-config-staging.yaml'];
+    await sizedView(page, '', names.map((fileName, index) => ({ id: `d${index}`, fileName, value: 'a: 1\n' })));
+    const ends = await page.evaluate(() =>
+      [...document.querySelectorAll('#sized [role="tab"]')].map((tab) => {
+        const end = tab.querySelector('.config-editor-documents__name-end');
+        const name = tab.querySelector('.config-editor-documents__name').getBoundingClientRect();
+        const box = end.getBoundingClientRect();
+        return { text: end.textContent, whole: box.left >= name.left - 0.5 && box.right <= name.right + 0.5, cut: tab.querySelector('.config-editor-documents__name-start').scrollWidth > tab.querySelector('.config-editor-documents__name-start').clientWidth };
+      }),
+    );
+    expect(ends.map(({ text }) => text)).toEqual(['duction.yaml', 'staging.yaml']);
+    expect(ends.every(({ whole }) => whole)).toBe(true);
+    expect(ends.some(({ cut }) => cut)).toBe(true);
+  });
+
+  // QA 24: on a document not shown they answered true and did nothing.
+  for (const call of ['reveal', 'revealRange', 'focus']) {
+    test(`${call} on the editor of a document not shown selects it first`, async ({ page }) => {
+      await sizedView(page, '', [{ id: 'a', fileName: 'a.yaml', value: big }, { id: 'b', fileName: 'b.yaml', value: big }]);
+      await page.evaluate(async () => {
+        const frame = () => new Promise((done) => requestAnimationFrame(() => setTimeout(done, 50)));
+        window.sized.select('b');
+        await frame();
+        window.sized.select('a');
+        await frame();
+      });
+      const answer = await page.evaluate((call) => {
+        const editor = window.sized.editor('b');
+        if (call === 'reveal') return editor.reveal('/k150');
+        if (call === 'revealRange') return editor.revealRange(editor.rangeOf('/k150'));
+        editor.focus();
+        return true;
+      }, call);
+      expect(answer).toBe(true);
+      await expect.poll(() => page.evaluate(() => window.sized.activeId)).toBe('b');
+      const b = page.locator('#sized [role="tabpanel"][data-document-id="b"] .config-editor__input');
+      await expect(b).toBeFocused();
+      if (call !== 'focus') {
+        const caretLine = await b.evaluate((element) => element.value.slice(0, element.selectionStart).split('\n').length);
+        expect(caretLine).toBe(151);
+        await expect(page.locator('#sized [role="tabpanel"][data-document-id="b"] .config-editor__gutter-content > div[data-line="151"]')).toBeInViewport();
+      }
+    });
+  }
 });
 
 for (const name of ['documents.html', ...DOCUMENTS_FRAMEWORK_PAGES]) {

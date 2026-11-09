@@ -271,29 +271,42 @@ pub(super) fn table_paths(lines: &[&str]) -> Vec<Vec<SchemaPathSegment>> {
 
 /// The table the lines read so far are in, header by header.
 #[derive(Default)]
-struct Tables {
-    path: Vec<SchemaPathSegment>,
-    /// How many items each array of tables has had (`a.b` → 2).
-    arrays: HashMap<String, usize>,
+pub(super) struct Tables {
+    pub(super) path: Vec<SchemaPathSegment>,
+    /// How many items each array of tables has had, by its path with the
+    /// entries above it (`a/1/b` → 2): an array in a later entry of its
+    /// parent starts again at 0.
+    arrays: HashMap<Vec<SchemaPathSegment>, usize>,
 }
 
 impl Tables {
     /// After the header `[segments]` (`[[segments]]` with `is_array`).
-    fn enter(&mut self, segments: &[String], is_array: bool) {
-        let mut path = Vec::with_capacity(segments.len() + 2);
-        for (depth, segment) in segments.iter().enumerate() {
-            path.push(SchemaPathSegment::Key(segment.clone()));
-            let own = depth + 1 == segments.len() && is_array;
-            if !own && let Some(count) = self.arrays.get(&segments[..=depth].join(".")) {
-                path.push(SchemaPathSegment::ArrayItem(count.saturating_sub(1)));
-            }
-        }
-        if is_array {
-            let count = self.arrays.entry(segments.join(".")).or_insert(0);
+    pub(super) fn enter(&mut self, segments: &[String], is_array: bool) {
+        let (own, parents) = match segments.split_last() {
+            Some((own, parents)) if is_array => (Some(own), parents),
+            _ => (None, segments),
+        };
+        let mut path = self.resolve(parents);
+        if let Some(own) = own {
+            path.push(SchemaPathSegment::Key(own.clone()));
+            let count = self.arrays.entry(path.clone()).or_insert(0);
             path.push(SchemaPathSegment::ArrayItem(*count));
             *count += 1;
         }
         self.path = path;
+    }
+
+    /// The path of the table `segments` name now: each array of tables
+    /// among them at its latest entry.
+    pub(super) fn resolve<S: AsRef<str>>(&self, segments: &[S]) -> Vec<SchemaPathSegment> {
+        let mut path = Vec::with_capacity(segments.len() * 2);
+        for segment in segments {
+            path.push(SchemaPathSegment::Key(segment.as_ref().to_string()));
+            if let Some(count) = self.arrays.get(&path) {
+                path.push(SchemaPathSegment::ArrayItem(count.saturating_sub(1)));
+            }
+        }
+        path
     }
 }
 /// Array indices render as numbers, matching the validator's JSON-pointer segments.

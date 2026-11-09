@@ -82,6 +82,20 @@ impl Entry {
         })
     }
 
+    /// Its editor's `reveal`, `reveal_range` and `focus` select it first
+    /// when it is not shown, as [`crate::DocumentsHandle::select`] does.
+    fn show_with(&self, documents: Documents) {
+        let id = self.id.clone();
+        let show = self.owner.with(|| {
+            Callback::new(move |()| {
+                if documents.active_id().as_deref() != Some(id.as_str()) {
+                    documents.select(&id, Focus::Editor);
+                }
+            })
+        });
+        self.handle.show_with(show);
+    }
+
     /// Takes the host's new values for a document whose editor stays.
     fn update(&self, documents: Documents, document: &Document) {
         set_if_changed(self.file_name, &document.file_name);
@@ -354,11 +368,13 @@ impl Documents {
                         document.baseline = Some(old.baseline.get_untracked());
                     }
                     let entry = Entry::create(&document, setup, self.serial());
+                    entry.show_with(*self);
                     entry.dirty.set(old.dirty.get_untracked());
                     entries.push(entry);
                 }
                 Fate::Add => {
                     let entry = Entry::create(document, setup, self.serial());
+                    entry.show_with(*self);
                     added.push(entry.clone());
                     entries.push(entry);
                 }

@@ -31,6 +31,9 @@ use crate::reactive::later::Alive;
 #[derive(Clone, Copy)]
 pub struct EditorHandle {
     state: RwSignal<Option<EditorState>>,
+    /// Shows the editor when it is hidden (a `ConfigDocuments` panel not
+    /// selected) before it takes the focus.
+    show: StoredValue<Option<Callback<()>>>,
 }
 
 impl Default for EditorHandle {
@@ -53,6 +56,7 @@ impl EditorHandle {
     pub fn new() -> Self {
         EditorHandle {
             state: RwSignal::new(None),
+            show: StoredValue::new(None),
         }
     }
 
@@ -62,6 +66,19 @@ impl EditorHandle {
         on_cleanup(move || {
             let _ = self.state.try_set(None);
         });
+    }
+
+    /// Calls `show` before the editor takes the focus (`reveal`,
+    /// `reveal_range`, `focus`): the documents view selects its document.
+    pub(crate) fn show_with(self, show: Callback<()>) {
+        let _ = self.show.try_set_value(Some(show));
+    }
+
+    /// Shows the editor where it is hidden, before it takes the focus.
+    fn show(self) {
+        if let Some(show) = self.show.try_get_value().flatten() {
+            show.run(());
+        }
     }
 
     pub(super) fn editor(self) -> Option<EditorState> {
@@ -157,7 +174,8 @@ impl EditorHandle {
     /// Scrolls to the field at `path`, selects it (as
     /// [`range_of`](Self::range_of) gives it: the key and an inline value, or
     /// the key of a block), and focuses the editor. Returns whether the
-    /// field was found.
+    /// field was found. The editor of a `ConfigDocuments` document not
+    /// shown selects its document first.
     pub fn reveal(&self, path: impl Into<FieldPath>) -> bool {
         let Some(state) = self.editor() else {
             return false;
@@ -168,6 +186,7 @@ impl EditorHandle {
         let Some((start, end)) = self.offsets_of(range) else {
             return false;
         };
+        self.show();
         state.hide_shown_problem();
         state.focus_range(start, end).is_some()
     }
@@ -188,6 +207,7 @@ impl EditorHandle {
         let Some((start, end)) = self.offsets_of(range) else {
             return false;
         };
+        self.show();
         state.hide_shown_problem();
         state.focus_range(start, end).is_some()
     }
@@ -227,8 +247,12 @@ impl EditorHandle {
             .unwrap_or(false)
     }
 
-    /// Focuses the editor, keeping its selection.
+    /// Focuses the editor, keeping its selection; in `ConfigDocuments`,
+    /// selecting its document first.
     pub fn focus(&self) {
+        if self.editor().is_some() {
+            self.show();
+        }
         if let Some(element) = self.editor().and_then(|state| state.textarea()) {
             let _ = element.focus_in_place();
         }

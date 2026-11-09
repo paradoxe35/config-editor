@@ -108,8 +108,9 @@ pub fn ConfigDocuments(
     /// it adds in answer is selected and its editor focused. In answer: the
     /// first added within 5 seconds of the click, before the focus moves
     /// out of the view (into a dialog of the host's: select the document
-    /// with [`DocumentsHandle::select`]) and before another tab is picked;
-    /// one added later is listed, not selected. The button stays at
+    /// with [`DocumentsHandle::select`]), before another tab is picked and
+    /// before the user clicks or types anywhere else in the view; one added
+    /// later is listed, not selected. The button stays at
     /// the strip's end when the tabs overflow. No key adds one (`Ctrl+T`
     /// and `Ctrl+N` are the browser's). Leave it unset for a view that only
     /// shows documents.
@@ -174,8 +175,11 @@ pub fn ConfigDocuments(
         handle.attach(documents_view);
     }
     let root_class = format!("config-editor-documents {}", class.unwrap_or_default());
-    let keydown =
-        move |event: web_sys::KeyboardEvent| keys::on_root_keydown(documents_view, &event);
+    let keydown = move |event: web_sys::KeyboardEvent| {
+        adding::on_root_input(documents_view, &event);
+        keys::on_root_keydown(documents_view, &event);
+    };
+    let mousedown = move |event: web_sys::MouseEvent| adding::on_root_input(documents_view, &event);
     let focusout =
         move |event: web_sys::FocusEvent| adding::on_root_focusout(documents_view, &event);
     let panels = move || documents_view.entries.get();
@@ -197,6 +201,7 @@ pub fn ConfigDocuments(
             style=cssom(style)
             node_ref=documents_view.root
             on:keydown=keydown
+            on:mousedown=mousedown
             on:focusout=focusout
         >
             {move || styled.get().then(|| view! { <style>{PRESET_CSS}</style> })}

@@ -10,6 +10,7 @@ use super::super::edit::Edit;
 use super::super::paths::FieldPath;
 use super::super::state::EditorState;
 use super::super::test_state::TestEditor;
+use super::spanless_tests::{ENV, TEXT as ENV_TEXT};
 use super::tests::documents;
 
 /// Types `typed` one character at a time at the caret `at` (UTF-16, ASCII
@@ -108,6 +109,55 @@ fn refused_typing_leaves_nothing_half_written() {
             "typing elsewhere held back: {:?}",
             state.doc().text.get_untracked()
         ));
+    }
+    assert!(failures.is_empty(), "{failures:#?}");
+}
+
+/// After a key glued onto a read-only value is refused, what is free next
+/// to it is not held back by that refusal: a space, a comment after it, a
+/// new line (Enter or Shift+Enter alike), at the same caret.
+#[test]
+fn a_refused_key_does_not_hold_back_what_is_free_after_the_field() {
+    // Where in each of `documents()` an X glues onto `/id` (after the text
+    // here), and a comment after it. Nothing glues onto an XML element's
+    // end: there, the X renames the tag, and a space after its name is free.
+    let lines = [
+        ("id: abc", " # c"),
+        ("\"id\": \"abc\"", " "),
+        ("id = \"abc\"", " # c"),
+        ("id = \"abc\"", " # c"),
+        ("<id", " "),
+    ];
+    let mut cases: Vec<(Language, &str, &str, &str)> = documents()
+        .into_iter()
+        .zip(lines)
+        .map(|((language, text), (line, comment))| (language, text, line, comment))
+        .collect();
+    cases.push((Language::new(&ENV), ENV_TEXT, "ID=srv-1", " "));
+    let mut failures = Vec::new();
+    for (language, text, line, comment) in cases {
+        let breaks: &[&str] = if line == "<id" { &[] } else { &["\n", " \n"] };
+        for &next in [comment].iter().chain(breaks) {
+            let mut editor = TestEditor::new(language, text);
+            editor.read_only_paths = vec![FieldPath::from("/id"), FieldPath::from("/ID")];
+            let (_owner, state) = editor.mount();
+            let at = text.find(line).unwrap() + line.len();
+            type_at(state, at, "X");
+            if state.doc().text.get_untracked() != text {
+                failures.push(format!(
+                    "{language}: X glued onto the value was let through"
+                ));
+                continue;
+            }
+            type_at(state, at, next);
+            let wanted = format!("{}{next}{}", &text[..at], &text[at..]);
+            let now = state.doc().text.get_untracked();
+            if now != wanted {
+                failures.push(format!(
+                    "{language}: {next:?} after the refused X left {now:?}"
+                ));
+            }
+        }
     }
     assert!(failures.is_empty(), "{failures:#?}");
 }

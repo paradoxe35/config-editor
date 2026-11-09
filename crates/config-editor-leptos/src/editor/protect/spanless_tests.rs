@@ -19,7 +19,7 @@ use super::save::locked_pointers;
 
 /// `KEY=value` lines, `#` comments, `\\` at a line's end going on on the
 /// next line; nothing else.
-struct Env;
+pub(super) struct Env;
 
 impl ConfigLanguage for Env {
     fn info(&self) -> LanguageInfo {
@@ -69,7 +69,7 @@ impl ConfigLanguage for Env {
     }
 }
 
-const TEXT: &str = "# c\nID=srv-1\nNAME=a\nPORT=80\n";
+pub(super) const TEXT: &str = "# c\nID=srv-1\nNAME=a\nPORT=80\n";
 
 fn schema() -> Value {
     json!({"type": "object", "properties": {
@@ -284,7 +284,7 @@ fn edits_keeping_every_locked_value_stay_free_in_broken_text_without_spans() {
     assert!(failures.is_empty(), "refused: {failures:?}");
 }
 
-static ENV: Env = Env;
+pub(super) static ENV: Env = Env;
 
 /// The editor on `TEXT` in `Env`, `/PORT` and `/ID` read-only by path,
 /// with the saves it sends.

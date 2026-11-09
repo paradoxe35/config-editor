@@ -1,7 +1,8 @@
 //! The "+" (`on_add`): the document the host adds in answer is selected and
 //! its editor focused. Only in answer: the request expires
 //! [`ANSWER_MS`] after the click, when the focus moves to something outside
-//! the view, or when the user picks a document; a document the host adds
+//! the view, when the user picks a document, or clicks or types anywhere
+//! in the view but on the "+"; a document the host adds
 //! after that (one a server pushed) is listed without being selected. An
 //! update that adds nothing (an edit coming back) leaves it waiting.
 
@@ -51,6 +52,25 @@ impl Adding {
             }
             None => false,
         }
+    }
+}
+
+/// A press or a key anywhere in the view but on the "+" itself (a click or
+/// typing in a document's editor, a tab, a close button): the user went on
+/// with something else, and a waiting "+" expires.
+pub(super) fn on_root_input(documents: Documents, event: &web_sys::Event) {
+    let on_add = event
+        .target()
+        .and_then(|target| target.dyn_into::<web_sys::Element>().ok())
+        .and_then(|element| {
+            element
+                .closest(".config-editor-documents__add")
+                .ok()
+                .flatten()
+        })
+        .is_some();
+    if !on_add {
+        documents.adding.stop();
     }
 }
 

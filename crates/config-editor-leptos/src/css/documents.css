@@ -1,6 +1,9 @@
 
 /* The documents view (`ConfigDocuments`): a tab strip over one editor per
-   document. Colors come from the `--config-editor-tab-*` tokens. */
+   document. Colors come from the `--config-editor-tab-*` tokens. Given a
+   height (`height: 100%` in a container of a set height), the strip keeps
+   its own and the shown editor fills the rest; without one, the view is
+   as tall as the strip and the editor, which sizes itself. */
 .config-editor-documents {
   display: flex;
   flex-direction: column;
@@ -12,6 +15,7 @@
 /* The strip: the tab list, then the "+" (with `on_add`), which stays at
    the end while the tabs scroll. */
 .config-editor-documents__strip {
+  flex: none;
   display: flex;
   min-width: 0;
   overflow: hidden;
@@ -99,6 +103,17 @@
   text-overflow: ellipsis;
 }
 
+/* A long name's end stays whole (`service-con…production.yaml`): a narrow
+   tab cuts its start, so names sharing a start still differ. */
+.config-editor-documents__name-start {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: top;
+}
+.config-editor-documents__name-start:not(:last-child) { max-width: calc(100% - 12ch); }
+
 .config-editor-documents__tab-readonly .config-editor-documents__name { font-style: italic; }
 
 .config-editor-documents__close,
@@ -149,7 +164,25 @@
 
 .config-editor-documents__panels {
   position: relative;
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
   min-width: 0;
+  min-height: 0;
+}
+
+.config-editor-documents__panel {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/* The shown editor fills its panel when the view has a height, as an
+   editor with `height: 100%` fills its element. */
+.config-editor-documents__panel > .config-editor {
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
 .config-editor-documents__panels .config-editor__frame {
@@ -174,7 +207,7 @@
   border: 1px solid var(--config-editor-tab-border);
   border-radius: 0 0 6px 6px;
   background: var(--config-editor-bg);
-  color: var(--config-editor-muted);
+  color: var(--config-editor-text);
   font: 13px/1.4 ui-sans-serif, system-ui, sans-serif;
 }
 

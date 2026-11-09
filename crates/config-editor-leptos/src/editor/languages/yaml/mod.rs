@@ -264,6 +264,10 @@ impl ConfigLanguage for YamlBehavior {
         key_at_column(line, column)
     }
 
+    fn hover_path(&self, source: &str, line_index: usize, column: usize) -> Option<(Vec<SchemaPathSegment>, String, usize)> {
+        explicit_key_path(source, line_index, column)
+    }
+
     fn hover_cursor(&self, line: &str, column: usize) -> usize {
         hover_context_offset(line, column)
     }

@@ -1052,8 +1052,9 @@ view.isDirty("main");
   selected, its editor focused without scrolling the page. In answer: the
   first one added within 5 seconds of the click, before the focus moves to
   something outside the view (a dialog of yours: select the document with
-  `select(id)` then) and before another tab is picked. One added later (a
-  server's) is listed, not selected. When the tabs
+  `select(id)` then), before another tab is picked and before the user
+  clicks or types anywhere else in the view (in a document's editor). One
+  added later (a server's) is listed, not selected. When the tabs
   overflow, the "+" stays at the end of the strip. No key adds a document
   (`Ctrl+T` and `Ctrl+N` belong to the browser). `onClose` and `onAdd`
   cannot be added by `update` to a view mounted without them.
@@ -1391,6 +1392,21 @@ the text area takes what the toolbar and footer leave.
 /* Or a fixed text area: */
 .config-editor {
   --config-editor-height: 400px;
+}
+```
+
+`ConfigDocuments` sizes itself the same way: the tab strip, then the shown
+editor, as tall as its text. To fill an element of a set height, give the
+view `height: 100%`: the strip keeps its height and the shown editor (its
+text area, between its toolbar and footer) takes the rest, with one
+document or many.
+
+```css
+#files {
+  height: 60vh;
+}
+#files .config-editor-documents {
+  height: 100%;
 }
 ```
 
