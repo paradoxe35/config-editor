@@ -68,11 +68,13 @@ impl FoldState {
         text: RwSignal<String>,
         edit_language: RwSignal<super::languages::Language>,
         enabled: Memo<bool>,
+        readings: super::readings::Readings,
     ) -> Self {
-        let fold_ranges = Memo::new(move |_| {
+        let fold_ranges = readings.memo(text, move || {
             if !enabled.get() {
                 return Vec::new();
             }
+            super::work_count::note(super::work_count::Work::FoldRanges);
             text.with(|text| edit_language.get().behavior().fold_ranges(text))
         });
         Self {

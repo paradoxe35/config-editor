@@ -30,14 +30,17 @@ pub(crate) struct Around<'a> {
 /// `options` without what a protected field rules out, or the reference
 /// forms in a secret field's value.
 pub(crate) fn adjust(options: Vec<Completion>, around: &Around<'_>) -> Vec<Completion> {
-    let behavior = around.behavior;
-    if behavior
-        .lexical_state(around.source, around.cursor)
-        .in_comment
-    {
+    // Nothing to leave out, and without a schema no secret field to offer
+    // reference forms in.
+    if options.is_empty() && around.schema.is_none() {
         return options;
     }
-    let context = behavior.completion_context(around.source, around.cursor);
+    let behavior = around.behavior;
+    if super::super::parse_cache::lexical_state(behavior, around.source, around.cursor).in_comment {
+        return options;
+    }
+    let context =
+        super::super::parse_cache::completion_context(behavior, around.source, around.cursor);
     let repeats = behavior.repetition() != Repetition::None;
     if let Some(key) = context.value_key.as_deref() {
         let path = path_with_key(&context.path, key);

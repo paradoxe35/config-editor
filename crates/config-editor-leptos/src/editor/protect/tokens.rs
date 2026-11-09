@@ -372,10 +372,8 @@ pub(crate) fn widen(
     after: &str,
     region: Range<usize>,
 ) -> Option<(String, Range<usize>, usize)> {
-    let old: Vec<u16> = before.encode_utf16().collect();
-    let new: Vec<u16> = after.encode_utf16().collect();
-    let inserted_len = (new.len() + region.len()).checked_sub(old.len())?;
-    let inserted = &new[region.start..region.start + inserted_len];
+    use super::super::text_change::utf16_len;
+    let inserted_len = (utf16_len(after) + region.len()).checked_sub(utf16_len(before))?;
     let mut wide = region.clone();
     loop {
         let grown = tokens.iter().fold(wide.clone(), |wide, token| {
@@ -393,6 +391,9 @@ pub(crate) fn widen(
     if wide == region {
         return None;
     }
+    let old: Vec<u16> = before.encode_utf16().collect();
+    let new: Vec<u16> = after.encode_utf16().collect();
+    let inserted = &new[region.start..region.start + inserted_len];
     let mut units = old[..wide.start].to_vec();
     units.extend_from_slice(inserted);
     units.extend_from_slice(&old[wide.end..]);

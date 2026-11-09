@@ -33,6 +33,7 @@ use hover::*;
 use editing::*;
 use convert::*;
 
+use super::super::parse_cache::string_bodies;
 use super::super::commands::indent_unit;
 use super::super::highlight::{MultilineConstruct, Token as HighlightToken, TokenKind, Tokens};
 use super::super::inline::{InlineEntry as CaretEntry, inline_caret, inline_key_at, inline_key_paths, inline_sibling_keys, inline_value_len, caret_value_end, statement_start_at, statements, entry_follows, in_front_of_inline_entry, matching_close};
@@ -355,7 +356,7 @@ impl ConfigLanguage for HclBehavior {
 
     #[cfg(feature = "folding")]
     fn fold_ranges(&self, source: &str) -> Vec<super::super::language::FoldRange> {
-        folding::hcl_fold_ranges(source, &self.string_body_lines(source))
+        folding::hcl_fold_ranges(source, &string_bodies(self, source))
     }
 
     fn string_body_lines(&self, source: &str) -> Vec<std::ops::Range<usize>> {

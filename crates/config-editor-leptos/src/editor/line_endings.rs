@@ -225,6 +225,11 @@ fn has_lone_cr(text: &str) -> bool {
 
 /// The ending most of `text`'s lines have (LF on a tie, and without breaks).
 fn most_common(text: &str) -> &'static str {
+    // A text without CR (the host's echo of each edit, mostly) breaks its
+    // lines with LF alone.
+    if !text.contains('\r') {
+        return "\n";
+    }
     let (mut crlf, mut lf, mut cr) = (0, 0, 0);
     for (_, ending) in split_lines(text) {
         match ending {

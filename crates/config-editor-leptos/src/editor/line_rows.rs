@@ -21,14 +21,15 @@ pub(super) struct RenderedLine {
 }
 
 /// Each line of `text` with its error flag (from `diagnostics`) and its
-/// protected-text marks.
+/// protected-text marks. Made again in place: after a keystroke only the
+/// lines it changed are new.
 pub(super) fn rendered_lines(
     text: RwSignal<String>,
     diagnostics: Memo<Vec<Diagnostic>>,
     protect: ProtectState,
     strings: Memo<crate::EditorStrings>,
 ) -> Memo<Vec<RenderedLine>> {
-    Memo::new(move |_| {
+    Memo::new_owning(move |previous: Option<Vec<RenderedLine>>| {
         let error_lines: std::collections::HashSet<usize> = diagnostics.with(|errors| {
             errors
                 .iter()
@@ -38,19 +39,45 @@ pub(super) fn rendered_lines(
         });
         text.with(|text| {
             let marks = strings.with(|strings| protect.line_marks(text, strings));
-            text.split('\n')
-                .enumerate()
-                .map(|(index, line)| RenderedLine {
-                    text: line.to_string(),
-                    has_error: error_lines.contains(&(index + 1)),
-                    marks: marks
-                        .get(index)
-                        .filter(|marks| **marks != LineMarks::default())
-                        .map(|marks| Box::new(marks.clone())),
-                })
-                .collect::<Vec<_>>()
+            let mut rows = previous.unwrap_or_default();
+            let mut changed = false;
+            let mut count = 0;
+            for (index, line) in text.split('\n').enumerate() {
+                count += 1;
+                let has_error = error_lines.contains(&(index + 1));
+                let marks = marks
+                    .get(index)
+                    .filter(|marks| **marks != LineMarks::default());
+                match rows.get_mut(index) {
+                    Some(row)
+                        if row.text == line
+                            && row.has_error == has_error
+                            && row.marks.as_deref() == marks => {}
+                    Some(row) => {
+                        *row = rendered_line(line, has_error, marks);
+                        changed = true;
+                    }
+                    None => {
+                        rows.push(rendered_line(line, has_error, marks));
+                        changed = true;
+                    }
+                }
+            }
+            if rows.len() > count {
+                rows.truncate(count);
+                changed = true;
+            }
+            (rows, changed)
         })
     })
+}
+
+fn rendered_line(line: &str, has_error: bool, marks: Option<&LineMarks>) -> RenderedLine {
+    RenderedLine {
+        text: line.to_string(),
+        has_error,
+        marks: marks.map(|marks| Box::new(marks.clone())),
+    }
 }
 
 /// What one line shows of protected text (see `protect`).

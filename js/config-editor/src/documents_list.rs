@@ -7,6 +7,7 @@ use config_editor_leptos::{Document, EditorSettings, Language, Schema, SecretOpt
 use js_sys::{Array, Object};
 use wasm_bindgen::prelude::*;
 
+use crate::given::Given;
 use crate::host_diagnostics::host_diagnostics_from;
 use crate::languages::{language_for_path, language_named, writable_edit_as};
 use crate::options::{bool_option, warn_unknown_keys};
@@ -43,11 +44,21 @@ pub(crate) struct Listed {
 
 /// What reading the list keeps from one reading to the next: each
 /// document's secret options, built once per id as its editor reads them
-/// when it mounts, and the schemas compiled, by their JSON text.
-#[derive(Clone, Default)]
+/// when it mounts; its texts, and its schema compiled (with its JSON text),
+/// each read again only when the host gives another string (see `given`).
+#[derive(Default)]
 pub(crate) struct Kept {
     secrets: HashMap<String, SecretOptions>,
-    schemas: HashMap<String, Schema>,
+    pub(crate) texts: Given<String>,
+    schemas: Given<(String, Schema)>,
+}
+
+impl Kept {
+    /// The list could not be read: what the last one read stays.
+    pub(crate) fn abandon(&mut self) {
+        self.texts.abandon();
+        self.schemas.abandon();
+    }
 }
 
 /// A console warning, once per file name, that no language claims
@@ -80,7 +91,6 @@ pub(crate) fn documents_from(
     view: &EditorSettings,
     kept: &mut Kept,
 ) -> Result<Listed, JsError> {
-    let mut schemas = HashMap::new();
     if !Array::is_array(list) {
         return Err(JsError::new(
             "documents must be an array of { id, fileName, value, … }",
@@ -102,7 +112,9 @@ pub(crate) fn documents_from(
             return Err(JsError::new(&format!("{} must not be empty", name("id"))));
         }
         let file_name = text_arg(&field(&item, "fileName"), &name("fileName"))?;
-        let value = optional_text(&field(&item, "value"), &name("value"))?.unwrap_or_default();
+        let value = text_of(kept, &id, &item, "value", &name("value"))?.unwrap_or_default();
+        let baseline = text_of(kept, &id, &item, "baseline", &name("baseline"))?;
+        let schema = schema_of(kept, &id, &field(&item, "schema"), &name("schema"))?;
         let mut document = Document::new(id, file_name, value);
         document = match optional_text(&field(&item, "language"), &name("language"))? {
             Some(language) => document.language(language_named(&language)?),
@@ -114,7 +126,7 @@ pub(crate) fn documents_from(
                 }
             },
         };
-        if let Some(baseline) = optional_text(&field(&item, "baseline"), &name("baseline"))? {
+        if let Some(baseline) = baseline {
             document = document.baseline(baseline);
         }
         if let Some(read_only) = bool_option(&item, "readOnly")? {
@@ -125,13 +137,7 @@ pub(crate) fn documents_from(
         if let Some(closable) = bool_option(&item, "closable")? {
             document = document.closable(closable);
         }
-        if let Some(json) = optional_text(&field(&item, "schema"), &name("schema"))? {
-            let schema = match schemas.get(&json).or_else(|| kept.schemas.get(&json)) {
-                Some(schema) => schema.clone(),
-                None => Schema::compile(&json)
-                    .map_err(|error| JsError::new(&format!("{}: {error}", name("schema"))))?,
-            };
-            schemas.insert(json, schema.clone());
+        if let Some(schema) = schema {
             document = document.schema(schema);
         }
         if let Some(edit_as) = optional_text(&field(&item, "editAs"), &name("editAs"))? {
@@ -166,7 +172,8 @@ pub(crate) fn documents_from(
     }
     kept.secrets
         .retain(|id, _| documents.iter().any(|document| document.id == *id));
-    kept.schemas = schemas;
+    kept.texts.finish();
+    kept.schemas.finish();
     Ok(Listed {
         documents,
         overrides,
@@ -207,6 +214,47 @@ fn with_protection(
         document = document.secrets(options);
     }
     Ok(document)
+}
+
+/// Document `id`'s text `key` of `item` (`name` in errors), if given.
+fn text_of(
+    kept: &mut Kept,
+    id: &str,
+    item: &JsValue,
+    key: &'static str,
+    name: &str,
+) -> Result<Option<String>, JsError> {
+    let given = field(item, key);
+    if given.is_undefined() || given.is_null() {
+        return Ok(None);
+    }
+    kept.texts
+        .get(id, key, &given, |_| text_arg(&given, name))
+        .map(Some)
+}
+
+/// Document `id`'s schema, given as `given` (the JSON text): compiled once
+/// per text, shared by the documents giving the same one.
+fn schema_of(
+    kept: &mut Kept,
+    id: &str,
+    given: &JsValue,
+    name: &str,
+) -> Result<Option<Schema>, JsError> {
+    if given.is_undefined() || given.is_null() {
+        return Ok(None);
+    }
+    let (_, schema) = kept.schemas.get(id, "schema", given, |known| {
+        let json = text_arg(given, name)?;
+        let schema = match known.values().find(|(text, _)| *text == json) {
+            Some((_, schema)) => schema.clone(),
+            None => {
+                Schema::compile(&json).map_err(|error| JsError::new(&format!("{name}: {error}")))?
+            }
+        };
+        Ok((json, schema))
+    })?;
+    Ok(Some(schema))
 }
 
 /// `error` with `name` in front, so it says which document it is about.

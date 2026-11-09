@@ -13,7 +13,7 @@ use super::super::state::EditorState;
 use crate::EditorStrings;
 use crate::cssom::cssom;
 use crate::reactive::Relay;
-use segments::{Segment, plan};
+use segments::{Plan, Segment, plan};
 
 mod entries;
 mod segments;
@@ -34,6 +34,10 @@ pub(crate) fn DiagnosticOverlay(state: EditorState) -> impl IntoView {
     // folded line's problem shows on the fold's line in the gutter, not as
     // an underline.
     let planned = Memo::new(move |_| {
+        // No problems (typing, mostly): nothing to place on the lines.
+        if state.problems().diagnostics.with(Vec::is_empty) {
+            return Plan::default();
+        }
         let projection = state.view().projection.get();
         state.doc().text.with(|text| {
             let lines: Vec<&str> = text.split('\n').collect();
@@ -51,14 +55,21 @@ pub(crate) fn DiagnosticOverlay(state: EditorState) -> impl IntoView {
             style:transform=move || format!("translate({}px, {}px)", -state.view().scroll_x.get(), -state.view().scroll_y.get())
         >
             {move || {
-                let text = state.doc().text.get();
+                // The problems first: read after the plan (made from them),
+                // a new list placed the same would not redraw.
+                let problems = state.problems().diagnostics.get();
+                // No problems: the lines are not read.
+                let text = if problems.is_empty() {
+                    String::new()
+                } else {
+                    state.doc().text.get()
+                };
                 let projection = state.view().projection.get();
                 let shown = shown.read();
                 // New texts redraw the underlines' names and details.
                 state.config().settings.strings.track();
                 // Each underline finds its line here, not by counting lines.
                 let lines: Vec<&str> = text.split('\n').collect();
-                let problems = state.problems().diagnostics.get();
                 let covered = covered(&problems);
                 planned
                     .get()

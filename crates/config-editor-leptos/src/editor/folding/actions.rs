@@ -31,6 +31,8 @@ impl EditorState {
     /// rewritten (its selection is then lost).
     pub(crate) fn settle_folds(&self, moved: Option<Vec<FoldRange>>) -> bool {
         if let Some(moved) = moved {
+            // The closed folds kept are those still foldable in the new text.
+            self.settle_readings();
             let kept = self
                 .fold()
                 .fold_ranges
@@ -251,6 +253,7 @@ impl EditorState {
     /// Folds the innermost open range starting at or around `line`
     /// (0-based). Returns whether one was found.
     pub(crate) fn fold_line(&self, line: usize) -> bool {
+        self.settle_readings();
         let range = self.fold().fold_ranges.with_untracked(|ranges| {
             self.fold().folded.with_untracked(|folded| {
                 ranges
@@ -272,6 +275,7 @@ impl EditorState {
     /// Folds the range starting at `line` (0-based). Returns whether there
     /// is one, open.
     pub(crate) fn fold_starting_at(&self, line: usize) -> bool {
+        self.settle_readings();
         let range = self.fold().fold_ranges.with_untracked(|ranges| {
             ranges
                 .binary_search_by_key(&line, |range| range.start)
@@ -314,6 +318,7 @@ impl EditorState {
 
     /// Folds or opens the range starting at `line` (a gutter chevron).
     pub(crate) fn toggle_fold(&self, line: usize) {
+        self.settle_readings();
         let mut folds = self.fold().folded.get_untracked();
         if let Some(index) = folds.iter().position(|fold| fold.start == line) {
             folds.remove(index);
@@ -332,6 +337,7 @@ impl EditorState {
 
     /// Folds every range (`Ctrl+K Ctrl+0`).
     pub(crate) fn fold_all(&self) {
+        self.settle_readings();
         let all = self.fold().fold_ranges.get_untracked();
         self.set_folds(all);
     }

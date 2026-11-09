@@ -43,6 +43,7 @@ use hover::*;
 use editing::*;
 use colors::*;
 
+use super::super::parse_cache::string_bodies;
 use super::super::commands::indent_unit;
 use super::super::highlight::{MultilineConstruct, Token, TokenKind, Tokens};
 use super::super::inline::{caret_value_end, 
@@ -376,7 +377,7 @@ impl ConfigLanguage for YamlBehavior {
 
     #[cfg(feature = "folding")]
     fn fold_ranges(&self, source: &str) -> Vec<super::super::language::FoldRange> {
-        folding::yaml_fold_ranges(source, &self.string_body_lines(source))
+        folding::yaml_fold_ranges(source, &string_bodies(self, source))
     }
 
     fn string_body_lines(&self, source: &str) -> Vec<std::ops::Range<usize>> {
@@ -388,7 +389,7 @@ impl ConfigLanguage for YamlBehavior {
     /// With a plain scalar's continuation lines (`p: plain` then
     /// `  continued`), which the editor leaves to be typed as keys.
     fn saved_string_lines(&self, source: &str) -> Vec<std::ops::Range<usize>> {
-        let mut bodies = self.string_body_lines(source);
+        let mut bodies = string_bodies(self, source).to_vec();
         let plain = plain_scalar_bodies(source, &bodies);
         bodies.extend(plain);
         bodies.sort_by_key(|range| range.start);
@@ -398,7 +399,7 @@ impl ConfigLanguage for YamlBehavior {
     /// Quoted scalars, plain scalars' continuation lines, and flow
     /// collections over lines.
     fn multiline_constructs(&self, source: &str) -> Vec<MultilineConstruct> {
-        constructs::multiline_constructs(source, &self.string_body_lines(source))
+        constructs::multiline_constructs(source, &string_bodies(self, source))
     }
 
     /// The inside of a flow collection: its entries.

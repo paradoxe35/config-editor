@@ -9,6 +9,7 @@ use super::history::EditHistory;
 use super::languages::Language;
 use super::paths::{FieldPath, KeptSpans, path_at};
 use super::positioning::{reveal_offset, set_caret_visible};
+use super::readings::Readings;
 use super::state::EditorState;
 
 /// The document part of the editor state.
@@ -32,6 +33,9 @@ pub(super) struct DocState {
     /// `range_of` and kept while the text stays the same: each lookup
     /// alone read the whole document again.
     pub(super) spans: StoredValue<KeptSpans, LocalStorage>,
+    /// The readings of the whole text the next frame can show late (see
+    /// `readings`).
+    pub(super) readings: Readings,
 }
 
 impl DocState {
@@ -52,6 +56,7 @@ impl DocState {
             indent: StoredValue::new(indent_unit(shown)),
             caret_path,
             spans: StoredValue::new_local(KeptSpans::default()),
+            readings: Readings::new(),
         }
     }
 }

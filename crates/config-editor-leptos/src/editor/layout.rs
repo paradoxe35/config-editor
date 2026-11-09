@@ -11,6 +11,7 @@ use super::languages::Language;
 use super::line_rows::RenderedLine;
 use super::metrics::read_editor_metrics;
 use super::projection::Projection;
+use super::readings::Readings;
 
 /// Rows rendered above and below the visible ones, so fast scrolling does
 /// not show blank lines before the next frame.
@@ -117,8 +118,13 @@ impl ViewState {
 pub(super) fn string_bodies(
     text: RwSignal<String>,
     edit_language: RwSignal<Language>,
+    readings: Readings,
 ) -> Memo<Vec<Range<usize>>> {
-    Memo::new(move |_| text.with(|text| edit_language.get().behavior().string_body_lines(text)))
+    readings.memo(text, move || {
+        text.with(|text| {
+            super::parse_cache::string_bodies(edit_language.get().behavior(), text).to_vec()
+        })
+    })
 }
 
 /// The comments, strings and structure `text` (in `edit_language`) writes
@@ -126,8 +132,10 @@ pub(super) fn string_bodies(
 pub(super) fn spanning(
     text: RwSignal<String>,
     edit_language: RwSignal<Language>,
+    readings: Readings,
 ) -> Memo<Spanning> {
-    Memo::new(move |_| {
+    readings.memo(text, move || {
+        super::work_count::note(super::work_count::Work::Spanning);
         text.with(|text| {
             let behavior = edit_language.get().behavior();
             Spanning::of(
@@ -145,6 +153,7 @@ impl super::state::EditorState {
     /// layer keeps anyway: the keys asking on every keystroke never parse
     /// the whole document again.
     pub(super) fn in_string_body(&self, offset: usize) -> bool {
+        self.settle_readings();
         let line = self.doc().text.with_untracked(|text| {
             let byte = super::keyboard::utf16_to_byte_index(text, offset);
             line_breaks(&text.as_bytes()[..byte])

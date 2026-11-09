@@ -64,7 +64,7 @@ pub(crate) struct Projection {
 impl Projection {
     /// `doc` with the lines `folds` hide removed.
     pub(crate) fn new(doc: &str, folds: &[FoldRange]) -> Self {
-        let line_count = doc.split('\n').count();
+        let line_count = doc.bytes().filter(|byte| *byte == b'\n').count() + 1;
         let mut hidden: Vec<(usize, usize)> = folds
             .iter()
             .filter(|fold| fold.start + 1 < line_count)

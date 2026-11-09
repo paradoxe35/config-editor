@@ -71,6 +71,7 @@ pub(in crate::editor) fn enter_at(state: EditorState, selection: (usize, usize),
     // In a comment or a multi-line string's body the line break is text:
     // keep the line's indentation, nothing more.
     let behavior = state.behavior();
+    state.settle_readings();
     let bodies = state.view().string_bodies.get_untracked();
     let in_body = |line: usize| bodies.iter().any(|lines| lines.contains(&line));
     let newline = newline_at(behavior, &text, start, &in_body);

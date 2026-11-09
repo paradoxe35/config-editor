@@ -116,9 +116,11 @@ impl Entry {
     /// Takes the host's new values for a document whose editor stays.
     fn update(&self, documents: Documents, document: &Document) {
         set_if_changed(self.file_name, &document.file_name);
-        set_if_changed(self.value, &document.value);
+        // A host lists every document again after each keystroke: only one
+        // whose text or baseline changed is compared again for being dirty.
+        let mut changed = set_if_changed(self.value, &document.value);
         if let Some(baseline) = &document.baseline {
-            set_if_changed(self.baseline, baseline);
+            changed |= set_if_changed(self.baseline, baseline);
         }
         if self.read_only.get_untracked() != document.read_only {
             self.read_only.set(document.read_only);
@@ -137,7 +139,7 @@ impl Entry {
         set_if_changed(self.host_diagnostics, &document.host_diagnostics);
         set_if_changed(self.read_only_paths, &document.read_only_paths);
         set_if_changed(self.read_only_ranges, &document.read_only_ranges);
-        if !untrack(|| self.handle.is_mounted()) {
+        if changed && !untrack(|| self.handle.is_mounted()) {
             let dirty = self
                 .value
                 .with_untracked(|value| self.baseline.with_untracked(|base| differs(value, base)));
@@ -172,14 +174,18 @@ fn differs(text: &str, baseline: &str) -> bool {
     text != baseline && text.replace("\r\n", "\n") != baseline.replace("\r\n", "\n")
 }
 
-fn set_if_changed<T, V>(signal: RwSignal<T>, value: &V)
+/// Sets `signal` to `value` unless it holds it already; returns whether
+/// it changed.
+fn set_if_changed<T, V>(signal: RwSignal<T>, value: &V) -> bool
 where
     T: std::borrow::Borrow<V> + Send + Sync + 'static,
     V: PartialEq + ToOwned<Owned = T> + ?Sized,
 {
-    if signal.with_untracked(|current| current.borrow() != value) {
+    let changed = signal.with_untracked(|current| current.borrow() != value);
+    if changed {
         signal.set(value.to_owned());
     }
+    changed
 }
 
 /// What the host was last told of a document's editor.

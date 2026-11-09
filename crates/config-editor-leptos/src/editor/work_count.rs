@@ -40,6 +40,31 @@ pub(crate) enum Work {
         allow(dead_code, reason = "only schema validation notes it")
     )]
     TokenScan,
+    /// The lines of a whole text's multi-line string bodies read
+    /// (`ConfigLanguage::string_body_lines`).
+    StringBodies,
+    /// What the caret is on, for the suggestions
+    /// (`ConfigLanguage::completion_context`): a read of the text from the
+    /// top.
+    CompletionContext,
+    /// Whether the caret is in a string or a comment
+    /// (`ConfigLanguage::lexical_state`): a read of the text before it.
+    LexicalState,
+    /// The code layer's constructs over several lines (comments, strings,
+    /// structure) read off a whole text.
+    Spanning,
+    /// A whole text's fold ranges read.
+    #[cfg_attr(
+        not(feature = "folding"),
+        allow(dead_code, reason = "only folding notes it")
+    )]
+    FoldRanges,
+    /// A whole text diffed against the baseline, line by line.
+    #[cfg_attr(
+        not(feature = "diff"),
+        allow(dead_code, reason = "only the diff notes it")
+    )]
+    LineDiff,
 }
 
 impl Work {
@@ -53,13 +78,19 @@ impl Work {
             Self::ElementPath => 4,
             Self::MarkerComparison => 5,
             Self::TokenScan => 6,
+            Self::StringBodies => 7,
+            Self::CompletionContext => 8,
+            Self::Spanning => 9,
+            Self::FoldRanges => 10,
+            Self::LineDiff => 11,
+            Self::LexicalState => 12,
         }
     }
 }
 
 #[cfg(test)]
 thread_local! {
-    static COUNTS: std::cell::Cell<[usize; 7]> = const { std::cell::Cell::new([0; 7]) };
+    static COUNTS: std::cell::Cell<[usize; 13]> = const { std::cell::Cell::new([0; 13]) };
 }
 
 /// `work` is starting (counted on this thread in tests).

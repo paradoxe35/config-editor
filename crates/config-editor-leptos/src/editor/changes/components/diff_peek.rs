@@ -154,6 +154,7 @@ fn Peek(state: EditorState, follows: PeekFollows, peek: DiffPeek) -> impl IntoVi
     } = peek.clone();
     let read_only = follows.read_only.read();
     let revert_ref = NodeRef::<leptos::html::Button>::new();
+    state.settle_readings();
     let span = state.changes().diff.with_untracked(|line_diff| {
         hunk_for_peek(line_diff, &peek).map(|hunk| (hunk.current.clone(), hunk.removed))
     });

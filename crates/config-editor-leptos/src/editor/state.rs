@@ -280,7 +280,7 @@ impl EditorState {
             problems.diagnosed_text,
             sync.host_text,
         );
-        let string_bodies = string_bodies(doc.text, sync.edit_language);
+        let string_bodies = string_bodies(doc.text, sync.edit_language, doc.readings);
         let completion = CompletionState::new(completion::Sources {
             text: doc.text,
             caret: doc.caret,
@@ -306,16 +306,21 @@ impl EditorState {
             &sync,
         );
         #[cfg(feature = "diff")]
-        let changes = ChangesState::new(doc.text, editing.shown_baseline, settings.diff);
+        let changes = ChangesState::new(
+            doc.text,
+            editing.shown_baseline,
+            settings.diff,
+            doc.readings,
+        );
         let projection = RwSignal::new(Arc::new(Projection::new(&shown, &[])));
         let view = ViewState::new(
             projection,
             rendered_lines(doc.text, problems.diagnostics, protect, settings.strings),
             string_bodies,
-            spanning(doc.text, sync.edit_language),
+            spanning(doc.text, sync.edit_language, doc.readings),
         );
         #[cfg(feature = "folding")]
-        let fold = FoldState::new(doc.text, sync.edit_language, settings.folding);
+        let fold = FoldState::new(doc.text, sync.edit_language, settings.folding, doc.readings);
         let state = Self(StoredValue::new(EditorFields {
             #[cfg(feature = "search")]
             search: SearchState::new(doc.text),

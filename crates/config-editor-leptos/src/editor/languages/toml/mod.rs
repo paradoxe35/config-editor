@@ -39,6 +39,7 @@ use super::super::language::{LanguageConfig, bracket_newline, CompletionContext,
 };
 use super::super::highlight::{MultilineConstruct, Token, TokenKind, Tokens};
 use serde_json::Value;
+use super::super::parse_cache::string_bodies;
 use std::collections::{HashMap, HashSet};
 
 pub(super) struct TomlBehavior;
@@ -302,7 +303,7 @@ impl ConfigLanguage for TomlBehavior {
 
     #[cfg(feature = "folding")]
     fn fold_ranges(&self, source: &str) -> Vec<super::super::language::FoldRange> {
-        folding::toml_fold_ranges(source, &self.config(), &self.string_body_lines(source))
+        folding::toml_fold_ranges(source, &self.config(), &string_bodies(self, source))
     }
 
     fn string_body_lines(&self, source: &str) -> Vec<std::ops::Range<usize>> {

@@ -78,7 +78,10 @@ pub(crate) fn over_balanced_lines(
 ) -> (usize, usize) {
     let lines: Vec<&str> = source.split('\n').collect();
     let mut body = vec![false; lines.len()];
-    for range in behavior.string_body_lines(source) {
+    for range in super::parse_cache::string_bodies(behavior, source)
+        .iter()
+        .cloned()
+    {
         let end = range.end.min(lines.len());
         if range.start < end {
             body[range.start..end].fill(true);

@@ -29,6 +29,7 @@ mod documents_list;
 mod documents_view;
 mod editor;
 mod editor_view;
+mod given;
 mod handle_calls;
 mod headless;
 mod host_diagnostics;

@@ -73,22 +73,23 @@ pub(crate) fn settings_change(
     current: &EditorSettings,
     options: &JsValue,
 ) -> Result<Option<EditorSettings>, JsError> {
+    let keys = setting_keys();
+    // Most updates set no setting (a host's list after each keystroke):
+    // the current settings are written out only to merge one into.
+    if !keys.iter().any(|key| given(options, key).is_some()) {
+        return Ok(None);
+    }
     let merged = settings_to_js(current);
-    let mut changed = false;
-    for key in setting_keys() {
+    for key in keys {
         let Some(value) = given(options, &key) else {
             continue;
         };
-        changed = true;
         let value = if (key == "strings" || key == "colors") && is_record(&value) {
             merged_texts(&field(&merged, &key), &value)
         } else {
             value
         };
         let _ = Reflect::set(&merged, &JsValue::from_str(&key), &value);
-    }
-    if !changed {
-        return Ok(None);
     }
     settings_from(&merged).map(Some)
 }

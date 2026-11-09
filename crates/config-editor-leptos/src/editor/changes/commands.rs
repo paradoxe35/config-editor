@@ -6,6 +6,7 @@ use leptos::prelude::*;
 use super::super::change_summary::ChangeSummary;
 use super::super::edit::Edit;
 use super::super::line_rows::row_state;
+use super::super::readings::Readings;
 use super::super::state::{EditorState, textarea_selection};
 use super::line_diff::{DiffPeek, LineDiff, diff_lines};
 use super::{adjacent_change, change_line, hunk_for_peek, revert_hunk};
@@ -32,8 +33,10 @@ impl ChangesState {
         text: RwSignal<String>,
         baseline: Memo<String>,
         enabled: Memo<bool>,
+        readings: Readings,
     ) -> Self {
-        let diff = Memo::new(move |_| {
+        let diff = readings.memo(text, move || {
+            super::super::work_count::note(super::super::work_count::Work::LineDiff);
             let enabled = enabled.get();
             text.with(|text| {
                 if enabled {
@@ -99,6 +102,7 @@ impl EditorState {
     pub(in crate::editor) fn go_to_change(&self, forward: bool, preview: bool) {
         let line_count = self.view().lines.with_untracked(Vec::len);
         let here = self.doc().current_line.get_untracked().saturating_sub(1);
+        self.settle_readings();
         let Some((line, peek, position, total)) = self.changes().diff.with_untracked(|line_diff| {
             let hunk = adjacent_change(line_diff, line_count, here, forward)?;
             let line = change_line(hunk, line_count);

@@ -128,42 +128,7 @@ pub(super) struct InputBurst {
 /// No selection recorded before the input (see [`changed_range`]).
 pub(super) const UNKNOWN_SELECTION: (usize, usize) = (usize::MAX, usize::MAX);
 
-/// The UTF-16 range of `before` that the edit to `after` replaced: what was
-/// selected (or the caret) when the edit was made.
-pub(super) fn changed_range(before: &str, after: &str) -> (usize, usize) {
-    let old: Vec<u16> = before.encode_utf16().collect();
-    let new: Vec<u16> = after.encode_utf16().collect();
-    let prefix = old.iter().zip(&new).take_while(|(a, b)| a == b).count();
-    let suffix = old[prefix..]
-        .iter()
-        .rev()
-        .zip(new[prefix..].iter().rev())
-        .take_while(|(a, b)| a == b)
-        .count();
-    (prefix, old.len() - suffix)
-}
-
-/// The UTF-16 range of `before` the edit to `after` replaced, placed by the
-/// caret it left (`caret`): inserted text ends there, which tells apart
-/// places the texts alone cannot (`aa|a` + `a`).
-pub(super) fn edit_range(before: &str, after: &str, caret: usize) -> (usize, usize) {
-    let (start, end) = changed_range(before, after);
-    let old: Vec<u16> = before.encode_utf16().collect();
-    let new: Vec<u16> = after.encode_utf16().collect();
-    let removed = end - start;
-    let Some(inserted) = (new.len() + removed).checked_sub(old.len()) else {
-        return (start, end);
-    };
-    if let Some(from) = caret.checked_sub(inserted)
-        && caret <= new.len()
-        && from + removed <= old.len()
-        && old[..from] == new[..from]
-        && old[from + removed..] == new[caret..]
-    {
-        return (from, from + removed);
-    }
-    (start, end)
-}
+pub(super) use super::text_change::{changed_range, edit_range};
 
 /// The edit that turned `before` into `latest`, made on `current` instead
 /// (where `before` became `current` meanwhile), and the caret after it.

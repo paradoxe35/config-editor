@@ -1088,7 +1088,10 @@ view.isDirty("main");
 - You own the list: `update({ documents })` adds, removes, renames and reorders. A
   document keeps its editor while its `id` stays listed (a new `value`,
   `baseline`, `fileName`, `readOnly` or `editAs` updates it in place; a new
-  `language` or `schema` mounts a new editor).
+  `language` or `schema` mounts a new editor). Handing the whole list back
+  after every edit is cheap: a `value`, `baseline` or `schema` that is the
+  same string as last time (the one `onChange` gave you included) is not
+  read again, so only the edited document costs anything.
 - `onProblems(id, problems)` gives each document's editor's own problems
   (as `ConfigEditor`'s `onProblems`): once its editor mounts, when the
   document is first shown, then each time they change.

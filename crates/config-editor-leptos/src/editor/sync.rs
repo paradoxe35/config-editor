@@ -785,24 +785,4 @@ fn key_offset(text: &str, from: usize, key: &str) -> Option<usize> {
     Some(text[..at].encode_utf16().count())
 }
 
-/// Where UTF-16 `offset` in `old` lands in `new`, when one region between a
-/// common prefix and suffix changed: before it stays, after it shifts,
-/// inside it goes to the region's start.
-pub(super) fn map_through_change(old: &str, new: &str, offset: usize) -> usize {
-    let old: Vec<u16> = old.encode_utf16().collect();
-    let new: Vec<u16> = new.encode_utf16().collect();
-    let prefix = old.iter().zip(&new).take_while(|(a, b)| a == b).count();
-    let suffix = old[prefix..]
-        .iter()
-        .rev()
-        .zip(new[prefix..].iter().rev())
-        .take_while(|(a, b)| a == b)
-        .count();
-    if offset <= prefix {
-        offset
-    } else if offset >= old.len() - suffix {
-        offset + new.len() - old.len()
-    } else {
-        prefix
-    }
-}
+pub(super) use super::text_change::map_through_change;

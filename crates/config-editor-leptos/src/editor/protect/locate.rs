@@ -9,6 +9,7 @@ use std::rc::Rc;
 use serde_json::Value;
 
 use super::super::language::{ConfigLanguage, Repetition};
+use super::super::parse_cache::string_bodies;
 use super::super::paths::{TextRange, batch_cached, field_range, key_range, path_at};
 use super::marks::escape;
 use super::scan::Written;
@@ -233,7 +234,7 @@ fn add_string_bodies(
     lines: &LineIndex<'_>,
     ranges: &mut Vec<Range<usize>>,
 ) {
-    let bodies = batch_cached(text, || Bodies(behavior.string_body_lines(text)));
+    let bodies = batch_cached(text, || Bodies(string_bodies(behavior, text)));
     if bodies.0.is_empty() {
         return;
     }
@@ -252,7 +253,7 @@ fn add_string_bodies(
 
 /// The lines of the multi-line strings' bodies of a text (see
 /// `ConfigLanguage::string_body_lines`), read once for all the locks.
-struct Bodies(Vec<Range<usize>>);
+struct Bodies(std::rc::Rc<Vec<Range<usize>>>);
 
 /// The UTF-16 ranges of the constructs a text writes over lines, read once
 /// for all the locks.

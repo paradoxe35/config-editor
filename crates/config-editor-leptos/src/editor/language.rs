@@ -76,6 +76,7 @@ pub use item_start::bracket_item_start;
 pub(crate) use item_start::cursor_at;
 
 mod item_start;
+use super::parse_cache::string_bodies;
 use serde_json::Value;
 use std::collections::HashSet;
 
@@ -1368,7 +1369,7 @@ pub trait ConfigLanguage: Send + Sync + 'static {
     /// YAML a plain scalar's continuation lines, which the editor leaves to
     /// be typed as keys.
     fn saved_string_lines(&self, source: &str) -> Vec<std::ops::Range<usize>> {
-        self.string_body_lines(source)
+        string_bodies(self, source).to_vec()
     }
 
     /// Lines (0-based, end exclusive) that lie wholly inside the body of a
@@ -1451,7 +1452,7 @@ pub trait ConfigLanguage: Send + Sync + 'static {
         if !cfg!(feature = "folding") {
             return Vec::new();
         }
-        default_fold_ranges(source, &self.config(), &self.string_body_lines(source))
+        default_fold_ranges(source, &self.config(), &string_bodies(self, source))
     }
 
     /// The byte offset where the trailing comment of `line` starts, outside
@@ -1476,7 +1477,7 @@ pub trait ConfigLanguage: Send + Sync + 'static {
     /// block comment, outside strings and multi-line string bodies. The
     /// Edit-as notice reads it: the data a conversion carries has none.
     fn has_comments(&self, source: &str) -> bool {
-        let bodies = self.string_body_lines(source);
+        let bodies = string_bodies(self, source);
         let block = self.config().block_comment.map(|(open, _)| [open]);
         source.lines().enumerate().any(|(index, line)| {
             !bodies.iter().any(|lines| lines.contains(&index))
@@ -1660,7 +1661,7 @@ pub(crate) fn line_comments(
 ) -> Vec<std::ops::Range<usize>> {
     let lines = source.split('\n').count();
     let mut body = vec![false; lines];
-    for range in behavior.string_body_lines(source) {
+    for range in string_bodies(behavior, source).iter().cloned() {
         let end = range.end.min(lines);
         if range.start < end {
             body[range.start..end].fill(true);
@@ -1751,7 +1752,7 @@ pub fn over_whole_strings(
     // Lines inside a string: the language's string bodies, and lines that
     // start inside an open quote (a quoted string over several lines).
     let mut inside = vec![false; lines.len()];
-    for range in behavior.string_body_lines(source) {
+    for range in string_bodies(behavior, source).iter().cloned() {
         let end = range.end.min(lines.len());
         if range.start < end {
             inside[range.start..end].fill(true);

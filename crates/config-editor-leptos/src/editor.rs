@@ -83,6 +83,7 @@ mod problems;
 mod projection;
 #[cfg_attr(not(feature = "protect"), path = "editor/off/protect.rs")]
 mod protect;
+mod readings;
 #[cfg_attr(not(feature = "search"), path = "editor/off/search.rs")]
 mod search;
 mod secret_options;
@@ -92,6 +93,7 @@ mod sync;
 // Used by the tests that mount a YAML editor (all of them need YAML).
 #[cfg(all(test, feature = "yaml"))]
 mod test_state;
+mod text_change;
 mod theme;
 mod touch;
 mod typing;
@@ -767,6 +769,19 @@ mod schema_message_tests;
     feature = "xml"
 ))]
 mod termination_matrix;
+// Reads what the view reads (folds, suggestions) on every language's sample.
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml",
+    feature = "folding",
+    feature = "diff",
+    feature = "schema-validation"
+))]
+mod keystroke_work_tests;
 #[cfg(test)]
 mod tests;
 // The timing tests' helper. Declared after the code, as every `#[cfg(test)]`

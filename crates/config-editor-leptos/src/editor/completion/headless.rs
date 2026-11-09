@@ -86,7 +86,7 @@ pub(crate) fn schema_suggestions(
     source: &str,
     cursor: usize,
 ) -> Vec<Suggestion> {
-    let bodies = behavior.string_body_lines(source);
+    let bodies = super::super::parse_cache::string_bodies(behavior, source);
     completions_in(
         source,
         cursor,

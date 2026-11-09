@@ -18,7 +18,7 @@ pub(super) fn hidden(behavior: &dyn ConfigLanguage, text: &str, offsets: &[usize
         .into_iter()
         .chain(behavior.multiline_strings(text))
         .collect();
-    let bodies = behavior.string_body_lines(text);
+    let bodies = crate::editor::parse_cache::string_bodies(behavior, text);
     let lines = LineIndex::new(text);
     offsets
         .iter()

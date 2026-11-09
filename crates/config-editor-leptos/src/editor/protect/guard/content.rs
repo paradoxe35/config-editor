@@ -77,7 +77,10 @@ pub(super) fn content_areas(
             start + 1..end.saturating_sub(1).max(start + 1)
         })
         .collect();
-    for body in behavior.string_body_lines(text) {
+    for body in crate::editor::parse_cache::string_bodies(behavior, text)
+        .iter()
+        .cloned()
+    {
         if body.start < body.end {
             areas.push(lines.line_bounds(body.start).start..lines.line_bounds(body.end - 1).end);
         }

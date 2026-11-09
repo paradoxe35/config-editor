@@ -155,10 +155,16 @@ impl State {
 
     /// Reads a list from JavaScript against the view's settings `view`.
     fn read(&self, list: &JsValue, view: &EditorSettings) -> Result<Listed, JsError> {
-        let mut kept = self.kept.try_get_value().unwrap_or_default();
-        let listed = documents_from(list, view, &mut kept)?;
+        let mut kept = self
+            .kept
+            .try_update_value(std::mem::take)
+            .unwrap_or_default();
+        let listed = documents_from(list, view, &mut kept);
+        if listed.is_err() {
+            kept.abandon();
+        }
         let _ = self.kept.try_set_value(kept);
-        Ok(listed)
+        listed
     }
 
     fn show(&self, listed: Listed) {
@@ -228,10 +234,12 @@ fn view(state: State, setup: Setup) -> AnyView {
             }
         });
         if let Some(callback) = host(state.on_change) {
-            call_host_with(
-                &callback,
-                &[JsValue::from_str(&id), JsValue::from_str(&text)],
-            );
+            // The host lists this string as the document's value next.
+            let value = JsValue::from_str(&text);
+            let _ = state.kept.try_update_value(|kept| {
+                kept.texts.remember(&id, "value", value.clone(), text);
+            });
+            call_host_with(&callback, &[JsValue::from_str(&id), value]);
         }
     };
     let saved = move |(id, request): (String, SaveRequest)| {

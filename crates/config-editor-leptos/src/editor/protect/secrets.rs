@@ -70,8 +70,9 @@ impl SecretState {
 
 /// UTF-16 `range` of `text`, as a string.
 fn utf16_slice(text: &str, range: Range<usize>) -> String {
-    let units: Vec<u16> = text.encode_utf16().collect();
-    String::from_utf16_lossy(&units[range.start.min(units.len())..range.end.min(units.len())])
+    let start = super::super::keyboard::utf16_to_byte_index(text, range.start);
+    let end = super::super::keyboard::utf16_to_byte_index(text, range.end).max(start);
+    text[start..end].to_string()
 }
 
 /// Whether `followed` (UTF-16 ranges of `text`) are each a token in its own
@@ -104,17 +105,7 @@ fn in_their_fields(
             .all(|(token, count)| held.get(token.as_str()) == Some(count))
 }
 
-/// Whether `after` is `before` with the UTF-16 range `start..end` replaced.
-fn replaces(before: &str, after: &str, (start, end): (usize, usize)) -> bool {
-    let old: Vec<u16> = before.encode_utf16().collect();
-    let new: Vec<u16> = after.encode_utf16().collect();
-    let kept = old.len().checked_sub(end).filter(|_| start <= end);
-    kept.is_some_and(|kept| {
-        new.len() >= start + kept
-            && old[..start] == new[..start]
-            && old[end..] == new[new.len() - kept..]
-    })
-}
+use super::super::text_change::replaces;
 
 /// The UTF-16 range of `before` an edit to `after` replaced when the
 /// browser did not say (an `insertFromPaste` input without a `beforeinput`)

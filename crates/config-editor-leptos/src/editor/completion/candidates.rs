@@ -298,7 +298,7 @@ pub(crate) fn completions_in(
         .bytes()
         .filter(|byte| *byte == b'\n')
         .count();
-    if behavior.lexical_state(source, cursor).in_comment
+    if super::super::parse_cache::lexical_state(behavior, source, cursor).in_comment
         || string_bodies.iter().any(|lines| lines.contains(&line))
     {
         return Vec::new();
@@ -325,7 +325,7 @@ pub(crate) fn completions_in(
             string_bodies,
         );
     }
-    let mut context = behavior.completion_context(source, cursor);
+    let mut context = super::super::parse_cache::completion_context(behavior, source, cursor);
     // A closing tag being typed is closed, never renamed.
     if let Some((name, close)) = &context.closing_name {
         let typed = context.typed.to_lowercase();

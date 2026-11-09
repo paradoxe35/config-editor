@@ -128,6 +128,9 @@ impl EditorState {
     /// selection is then lost).
     fn write_text(&self, text: String) -> bool {
         let moved = self.folds_through(&text);
+        self.doc()
+            .text
+            .with_untracked(|before| self.note_text_change(before, &text));
         self.doc().text.set(text);
         self.settle_folds(moved)
     }

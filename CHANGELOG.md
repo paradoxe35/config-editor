@@ -33,7 +33,11 @@ WebAssembly.
   smart indentation, comment toggling, find and replace with regular
   expressions, go to line, folding, `F8` through problems, undo and redo.
 - Fast on large files: only the visible lines are rendered, and typing stays
-  responsive in documents of nearly 10,000 lines.
+  responsive in documents of nearly 10,000 lines. A keystroke reads the whole
+  document once for each thing that needs it, and the colors of constructs
+  over several lines, the fold markers and the change bars just after the
+  frame that shows the typed text; a documents view handed its whole list
+  after each edit reads only the edited document again.
 
 ### For hosts
 
