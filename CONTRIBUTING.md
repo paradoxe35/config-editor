@@ -26,8 +26,9 @@ to change it); the specs that measure time run after the others, alone.
 CI builds the packages and the demo once, then splits the other specs over
 one machine per 500 tests (`TESTS_PER_MACHINE` in `.github/workflows/ci.yml`,
 Playwright's `--shard`), so the number of machines follows the suite's size;
-the timed specs are split the same way, 30 per machine
-(`TIMED_TESTS_PER_MACHINE`), each machine running its share one at a time. When a test fails, one HTML
+the timed specs are dealt round-robin, 30 per machine (`TIMED_TESTS_PER_MACHINE`),
+each machine running its share one at a time; a long timed check is one test
+per language, so its parts can land on different machines. When a test fails, one HTML
 report merges the machines' parts (the `e2e-report` artifact); the run's
 working artifacts (the shared build, each machine's part) are deleted when
 the tests are done. To run one part locally:

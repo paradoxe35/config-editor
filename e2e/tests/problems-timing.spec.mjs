@@ -83,10 +83,12 @@ test.describe('problem timing', () => {
     expect(Math.min(...moves), `longest task per move: ${moves.join(', ')}`).toBeLessThan(200);
   });
 
-  test('U20-N2: 3000 host ranges in a long document add little to any edit, in every language', async ({ page }) => {
-    test.setTimeout(600_000);
+  // One test per language, so CI can run them on different machines.
+  for (const language of ['yaml', 'json', 'toml', 'hcl', 'xml']) {
+  test(`U20-N2: 3000 host ranges in a long document add little to any edit (${language})`, async ({ page }) => {
+    test.setTimeout(240_000);
     const failures = [];
-    for (const language of ['yaml', 'json', 'toml', 'hcl', 'xml']) {
+    {
       const text = longDocument(language);
       await openLong(page, language, text, false);
       await input(page).click();
@@ -132,13 +134,15 @@ test.describe('problem timing', () => {
     }
     expect(failures).toEqual([]);
   });
+  }
 
-  test('H21-1/H21-2: 3000 host problems by path or range cost little to mount, update, edit or Edit as, in every language', async ({ page }) => {
-    test.setTimeout(900_000);
+  // One test per language, so CI can run them on different machines.
+  for (const language of ['yaml', 'json', 'toml', 'hcl', 'xml']) {
+  test(`H21-1/H21-2: 3000 host problems by path or range cost little to mount, update, edit or Edit as (${language})`, async ({ page }) => {
+    test.setTimeout(300_000);
     await open(page, { schema: '{}' });
     const failures = [];
-    const languages = ['yaml', 'json', 'toml', 'hcl', 'xml'];
-    for (const language of languages) {
+    {
       const text = longDocument(language);
       const other = language === 'yaml' ? 'json' : 'yaml';
       // Each step's longest task: none, then 3000 problems by path, then by
@@ -189,6 +193,7 @@ test.describe('problem timing', () => {
     await page.evaluate(() => window.scaled?.destroy());
     expect(failures).toEqual([]);
   });
+  }
 
   test('P23-2: typing in an Edit-as view with 5000 host ranges costs about what it costs without them', async ({ page }) => {
     test.setTimeout(300_000);

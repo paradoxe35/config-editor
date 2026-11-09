@@ -184,7 +184,12 @@ jobs:
         run: |
           npm ci
           npx playwright install --with-deps chromium
-          npx playwright test --reporter=line --project=timed --no-deps --shard=${{ matrix.shard }}/${{ strategy.job-total }}
+          # Dealt round-robin, not in runs: the slow specs sit together in the
+          # file order Playwright's --shard follows, and would share a machine.
+          npx playwright test --list --project=timed --no-deps | sed -n 's/^ *\(\[timed\] › .*\)$/\1/p' |
+            awk -v i=${{ matrix.shard }} -v n=${{ strategy.job-total }} '(NR - 1) % n == i - 1' > timed-tests.txt
+          echo "$(wc -l < timed-tests.txt) timed tests on this machine"
+          npx playwright test --reporter=line --project=timed --no-deps --test-list timed-tests.txt
 
   # One HTML report from every machine's part, only when a test failed (an
   # artifact of the run, to look into the failure).
