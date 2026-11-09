@@ -3,7 +3,9 @@
 
 use leptos::prelude::*;
 
-use super::paths::{FieldPath, TextPosition, TextRange, field_range, offset_of, path_at};
+use super::paths::{
+    FieldPath, TextPosition, TextRange, field_range, lines, offset_of, path_at, units_at,
+};
 use super::state::EditorState;
 use crate::reactive::later::Alive;
 
@@ -211,16 +213,41 @@ impl EditorHandle {
     /// The path of what `position` is on (see
     /// [`Language::path_at`](crate::Language::path_at)).
     pub fn path_at(&self, position: TextPosition) -> Option<FieldPath> {
+        self.path_in_text(|text| {
+            (position.line <= lines(text).count())
+                .then(|| offset_of(text, position, !text.contains('\r')))
+        })
+    }
+
+    /// [`path_at`](Self::path_at) the UTF-16 offset `offset` of the text on
+    /// screen (for the browser bindings, whose offsets are string indices).
+    pub(crate) fn path_at_offset(&self, offset: usize) -> Option<FieldPath> {
+        self.path_in_text(|text| {
+            if text.contains('\r') {
+                // As a position: a place inside a `\r\n` is the line's end.
+                let position = TextPosition::from_offset(text, offset);
+                return (offset <= units_at(text, text.len()))
+                    .then(|| offset_of(text, position, false));
+            }
+            (offset <= units_at(text, text.len())).then_some(offset)
+        })
+    }
+
+    /// The path at the offset `place` finds in the text on screen. What the
+    /// language reads of the whole text (its lines, its walk from the top)
+    /// is kept for the next lookup on the same text.
+    fn path_in_text(&self, place: impl FnOnce(&str) -> Option<usize>) -> Option<FieldPath> {
         let state = self.editor()?;
+        let behavior = state.behavior();
         state
             .doc()
             .text
             .try_with_untracked(|text| {
-                if position.line > text.split('\n').count() {
-                    return None;
-                }
-                path_at(state.behavior(), text, position.to_offset(text))
+                state.doc().spans.try_update_value(|kept| {
+                    kept.with_readings(behavior, text, || path_at(behavior, text, place(text)?))
+                })
             })
+            .flatten()
             .flatten()
     }
 

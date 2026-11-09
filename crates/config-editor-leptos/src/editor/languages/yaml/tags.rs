@@ -12,7 +12,7 @@ pub(super) fn yaml_tags(source: &str) -> Vec<(String, String)> {
     if !source.contains('!') {
         return Vec::new();
     }
-    let config = noyalib::ParserConfig::serde_yaml_compat();
+    let config = super::limits::parser_config(source);
     let Ok(document) = noyalib::from_str_with_config::<Yaml>(source, &config) else {
         return Vec::new();
     };

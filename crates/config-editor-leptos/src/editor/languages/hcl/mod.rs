@@ -22,6 +22,9 @@ mod floats;
 mod heredoc;
 mod expressions;
 mod list_items;
+mod read;
+mod big_objects;
+mod splice;
 // The fold ranges (the `folding` feature).
 #[cfg(feature = "folding")]
 mod folding;
@@ -363,7 +366,7 @@ impl ConfigLanguage for HclBehavior {
         if let Some(previous) = previous {
             renamed_labelled_types(&mut forms, previous, map);
         }
-        let rendered = hcl::format::to_string(&hcl_body(map, &forms, &[])?).map_err(|error| error.to_string())?;
+        let rendered = splice::writing(|| hcl::format::to_string(&hcl_body(map, &forms, &[])?).map_err(|error| error.to_string()))?;
         let rendered = fold_one_line_blocks(&rendered, &forms.one_line);
         // List items have no span of their own: the shared scanner finds them.
         let spans = |text: &str, pointers: &[String]| -> Vec<Option<Span>> {
@@ -447,3 +450,7 @@ fn line_column(source: &str, byte: usize) -> (usize, usize) {
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod splice_tests;
+#[cfg(test)]
+mod read_tests;

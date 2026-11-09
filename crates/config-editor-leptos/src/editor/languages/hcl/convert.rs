@@ -141,22 +141,24 @@ pub(super) fn fold_one_line_blocks(rendered: &str, one_line: &std::collections::
 
 /// The labelled blocks of `source`, so a rewrite keeps writing them that way.
 pub(super) fn labelled_blocks(source: &str) -> LabelledBlocks {
-    fn walk(body: &hcl::Body, path: &mut Vec<String>, found: &mut LabelledBlocks) {
-        for block in body.blocks() {
-            path.push(block.identifier().to_string());
-            let labels: Vec<String> = block.labels().iter().map(|label| label.as_str().to_string()).collect();
+    fn walk(body: &hcl_edit::structure::Body, path: &mut Vec<String>, found: &mut LabelledBlocks) {
+        for block in body.iter().filter_map(|structure| structure.as_block()) {
+            path.push(block.ident.as_str().to_string());
+            let labels: Vec<String> = block.labels.iter().map(|label| label.as_str().to_string()).collect();
             if !labels.is_empty() {
                 found.insert(path.clone(), labels.len());
             }
             let depth = path.len();
             path.extend(labels);
-            walk(block.body(), path, found);
+            walk(&block.body, path, found);
             path.truncate(depth - 1);
         }
     }
     let mut found = LabelledBlocks::new();
-    if let Ok(body) = hcl::from_str::<hcl::Body>(source) {
-        walk(&body, &mut Vec::new(), &mut found);
+    // Parsed with its objects of many entries in groups (see
+    // `big_objects`): blocks are never inside one.
+    if let Ok(parsed) = super::big_objects::parse(source.strip_prefix('\u{FEFF}').unwrap_or(source), true) {
+        walk(&parsed.body, &mut Vec::new(), &mut found);
     }
     found
 }
@@ -398,15 +400,7 @@ pub(super) fn hcl_expression_in(value: &Value, forms: &HostForms) -> hcl::Expres
             hcl::Expression::Array(items.iter().map(|item| hcl_expression_in(item, forms)).collect())
         }
         Value::Object(map) if !forms.templates.is_empty() || !forms.expressions.is_empty() => {
-            let hcl::Expression::Object(keys) = hcl_expression(value) else {
-                return hcl_expression(value);
-            };
-            hcl::Expression::Object(
-                keys.into_iter()
-                    .zip(map.values())
-                    .map(|((key, _), child)| (key, hcl_expression_in(child, forms)))
-                    .collect(),
-            )
+            object_expression(map, |child| hcl_expression_in(child, forms))
         }
         _ => hcl_expression(value),
     }
@@ -414,7 +408,7 @@ pub(super) fn hcl_expression_in(value: &Value, forms: &HostForms) -> hcl::Expres
 
 /// A document value as an HCL expression; identifier keys stay unquoted.
 pub(super) fn hcl_expression(value: &Value) -> hcl::Expression {
-    use hcl::expr::{Expression, Object, ObjectKey};
+    use hcl::expr::Expression;
     match value {
         Value::Null => Expression::Null,
         Value::Bool(flag) => Expression::Bool(*flag),
@@ -430,17 +424,24 @@ pub(super) fn hcl_expression(value: &Value) -> hcl::Expression {
             }
         }
         Value::Array(items) => Expression::Array(items.iter().map(hcl_expression).collect()),
-        Value::Object(map) => Expression::Object(
-            map.iter()
-                .map(|(key, value)| {
-                    let key = match hcl::Identifier::new(key.as_str()) {
-                        Ok(identifier) if is_ident(key) && !key.contains('-') => ObjectKey::Identifier(identifier),
-                        _ => ObjectKey::Expression(Expression::String(key.clone())),
-                    };
-                    (key, hcl_expression(value))
-                })
-                .collect::<Object<ObjectKey, Expression>>(),
-        ),
+        Value::Object(map) => object_expression(map, hcl_expression),
+    }
+}
+
+/// `map` as an object expression, each value written by `entry` (see
+/// `super::splice` for one of many entries).
+fn object_expression(map: &serde_json::Map<String, Value>, entry: impl Fn(&Value) -> hcl::Expression) -> hcl::Expression {
+    use hcl::expr::{Expression, Object, ObjectKey};
+    super::splice::object(map, object_key, &entry).unwrap_or_else(|| {
+        Expression::Object(map.iter().map(|(key, value)| (object_key(key), entry(value))).collect::<Object<ObjectKey, Expression>>())
+    })
+}
+
+/// An object's key: an identifier unquoted, anything else a string.
+fn object_key(key: &str) -> hcl::expr::ObjectKey {
+    match hcl::Identifier::new(key) {
+        Ok(identifier) if is_ident(key) && !key.contains('-') => hcl::expr::ObjectKey::Identifier(identifier),
+        _ => hcl::expr::ObjectKey::Expression(hcl::Expression::String(key.to_string())),
     }
 }
 

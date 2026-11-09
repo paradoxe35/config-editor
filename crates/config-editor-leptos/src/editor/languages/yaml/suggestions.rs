@@ -732,8 +732,6 @@ pub(super) fn existing_mapping_keys(
     cursor_byte: usize,
     path: &[SchemaPathSegment],
 ) -> Option<HashSet<String>> {
-    let parser_config =
-        ParserConfig::serde_yaml_compat().duplicate_key_policy(DuplicateKeyPolicy::Error);
     // A half-typed key makes the document unparsable, so parse without the
     // caret's line; the other keys in this mapping still get filtered.
     let line_start = source[..cursor_byte]
@@ -748,6 +746,8 @@ pub(super) fn existing_mapping_keys(
         return Some(keys.into_iter().collect());
     }
     let sanitized = format!("{}{}", &source[..line_start], &source[line_end..]);
+    let parser_config =
+        super::limits::parser_config(&sanitized).duplicate_key_policy(DuplicateKeyPolicy::Error);
     let Ok(document) = noyalib::from_str_with_config::<Value>(&sanitized, &parser_config) else {
         return Some(sibling_block_keys(source, line_start, line_end));
     };

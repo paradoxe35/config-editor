@@ -190,9 +190,17 @@ fn running<T>(batch: Batch, work: impl FnOnce() -> T) -> (T, Option<Batch>) {
 
 /// The spans of every field of one text and what was read of it, kept
 /// between lookups while the text stays the same (an editor's
-/// `range_of`: each lookup alone read the whole document again).
+/// `range_of`, `path_at`: each lookup alone read the whole document again).
 #[derive(Default)]
-pub(crate) struct KeptSpans(Option<(String, Batch)>);
+pub(crate) struct KeptSpans(Option<Kept>);
+
+/// A text kept, what was read of it, and whether that holds the spans of
+/// all its fields.
+struct Kept {
+    text: String,
+    batch: Batch,
+    fields_read: bool,
+}
 
 impl KeptSpans {
     /// Runs `work` with the key and value spans of every field of `source`
@@ -204,19 +212,42 @@ impl KeptSpans {
         source: &str,
         work: impl FnOnce() -> T,
     ) -> T {
+        self.run(behavior, source, true, work)
+    }
+
+    /// Runs `work` with what the language reads of all of `source` (its
+    /// lines, its walk from the top) kept from one call to the next while
+    /// `source` and its language are the same, without reading the spans of
+    /// every field (a `path_at` needs none).
+    pub(crate) fn with_readings<T>(
+        &mut self,
+        behavior: &dyn ConfigLanguage,
+        source: &str,
+        work: impl FnOnce() -> T,
+    ) -> T {
+        self.run(behavior, source, false, work)
+    }
+
+    fn run<T>(
+        &mut self,
+        behavior: &dyn ConfigLanguage,
+        source: &str,
+        fields: bool,
+        work: impl FnOnce() -> T,
+    ) -> T {
         let label = behavior.info().label;
         // The text kept with them, not copied again while it is the same.
-        let (kept, text) = match self.0.take() {
-            Some((text, mut batch)) if text == source && batch.label == label => {
-                batch.text = text_key(source);
-                (Some(batch), text)
+        let (kept, text, fields_read) = match self.0.take() {
+            Some(mut kept) if kept.text == source && kept.batch.label == label => {
+                kept.batch.text = text_key(source);
+                (Some(kept.batch), kept.text, kept.fields_read)
             }
-            _ => (None, source.to_string()),
+            _ => (None, source.to_string(), false),
         };
-        let fresh = kept.is_none();
         let batch = kept.unwrap_or_else(|| empty(behavior, source));
+        let read_fields = fields && !fields_read;
         let (result, batch) = running(batch, || {
-            if fresh {
+            if read_fields {
                 let pointers: Vec<String> = behavior
                     .parse(source)
                     .map(|document| super::fields::fields(&document))
@@ -228,7 +259,11 @@ impl KeptSpans {
             }
             work()
         });
-        self.0 = batch.map(|batch| (text, batch));
+        self.0 = batch.map(|batch| Kept {
+            text,
+            batch,
+            fields_read: fields_read || read_fields,
+        });
         result
     }
 }
@@ -263,7 +298,7 @@ pub(crate) fn value_span(
     pointer: &str,
 ) -> Option<Span> {
     known(behavior, source, pointer, false).unwrap_or_else(|| {
-        note(Work::DocumentRead);
+        note_alone(source);
         let span = behavior.value_span(source, pointer);
         remember(behavior, source, pointer, false, span);
         span
@@ -274,11 +309,23 @@ pub(crate) fn value_span(
 /// when it holds them.
 pub(crate) fn key_span(behavior: &dyn ConfigLanguage, source: &str, pointer: &str) -> Option<Span> {
     known(behavior, source, pointer, true).unwrap_or_else(|| {
-        note(Work::DocumentRead);
+        note_alone(source);
         let span = behavior.key_span(source, pointer);
         remember(behavior, source, pointer, true, span);
         span
     })
+}
+
+/// A lookup of one span is starting: a read of the document outside a
+/// batch; inside one, the language answers from its readings of the text,
+/// made once for the batch (and counted where they are made, see
+/// [`batch_cached`]).
+fn note_alone(source: &str) {
+    note(if in_batch(source) {
+        Work::SpanLookup
+    } else {
+        Work::DocumentRead
+    });
 }
 
 /// Keeps a span read alone in the running batch for its text, if any: the

@@ -12,6 +12,11 @@ pub(crate) enum Work {
     /// A read of a whole document for the spans of its keys or values
     /// (a language's span lookup, or one read shared by many).
     DocumentRead,
+    /// One key's or value's span looked up alone while a batch runs for
+    /// the text, outside what it read at once (the language answers from
+    /// its readings of the text, counted as [`Work::DocumentRead`] where
+    /// they are made).
+    SpanLookup,
     /// The path at a place of a text: a read of the text from the top.
     PathLookup,
     /// A whole text split into its lines.
@@ -87,13 +92,14 @@ impl Work {
             Self::LineDiff => 11,
             Self::LexicalState => 12,
             Self::IndentUnit => 13,
+            Self::SpanLookup => 14,
         }
     }
 }
 
 #[cfg(test)]
 thread_local! {
-    static COUNTS: std::cell::Cell<[usize; 14]> = const { std::cell::Cell::new([0; 14]) };
+    static COUNTS: std::cell::Cell<[usize; 15]> = const { std::cell::Cell::new([0; 15]) };
 }
 
 /// `work` is starting (counted on this thread in tests).

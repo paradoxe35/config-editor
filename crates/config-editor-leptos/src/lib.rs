@@ -153,6 +153,13 @@ pub mod js_support {
         handle.range_and_offsets_of(path)
     }
 
+    /// `handle.path_at` the UTF-16 offset `offset` of the text on screen
+    /// (what a JS string index is), read from what is kept for the text:
+    /// no copy of the text, and no read of it up to the offset, per call.
+    pub fn path_at_offset(handle: &crate::EditorHandle, offset: usize) -> Option<crate::FieldPath> {
+        handle.path_at_offset(offset)
+    }
+
     /// Makes the view of `handle` take `documents` (the list just given to
     /// its `documents` signal) now, not once its effects run, so the
     /// active id and every query answer for the new list at once.

@@ -23,6 +23,7 @@ use style::{comparable_yaml_line, node_properties_len};
 mod aliases;
 mod wide_negatives;
 mod tags;
+mod limits;
 // The fold ranges (the `folding` feature).
 #[cfg(feature = "folding")]
 mod folding;
@@ -55,7 +56,7 @@ use super::super::keyboard::utf16_to_byte_index;
 use super::super::language::{LanguageConfig, CompletionContext, Newline, EntryPosition, InsertContext, ConfigLanguage, LanguageInfo, Lexical, Span, ParseError,
     SchemaPathSegment,
 };
-use noyalib::{DuplicateKeyPolicy, ParserConfig};
+use noyalib::DuplicateKeyPolicy;
 use serde_json::Value;
 use std::collections::HashSet;
 

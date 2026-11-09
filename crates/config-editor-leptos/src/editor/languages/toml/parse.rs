@@ -468,7 +468,7 @@ pub(super) fn inline_item_end(text: &str, from: usize) -> usize {
 /// Every entry of the inline table that is the value on `code` (nested
 /// ones too), `base` being the outer assignment's path; none when the
 /// value is no inline table.
-fn inline_entries_on(code: &str, base: &[String]) -> Vec<InlineEntry> {
+pub(super) fn inline_entries_on(code: &str, base: &[String]) -> Vec<InlineEntry> {
     let mut entries = Vec::new();
     let Some((value_start, _)) = value_span_in_line(code) else {
         return entries;
@@ -484,210 +484,10 @@ fn inline_entries_on(code: &str, base: &[String]) -> Vec<InlineEntry> {
     entries
 }
 
-/// The paths a batch of lookups wants, indexed: where each is, which are
-/// below a path, which tables hold one.
-struct Wanted {
-    count: usize,
-    /// Each path's positions in the list asked for.
-    exact: HashMap<Vec<String>, Vec<usize>>,
-    /// Every path some wanted one is strictly below.
-    above: std::collections::HashSet<Vec<String>>,
-}
-
-impl Wanted {
-    fn new(paths: &[String]) -> Self {
-        let mut exact: HashMap<Vec<String>, Vec<usize>> = HashMap::new();
-        let mut above = std::collections::HashSet::new();
-        for (at, path) in paths.iter().enumerate() {
-            let segments = pointer_segments(path);
-            for end in 0..segments.len() {
-                above.insert(segments[..end].to_vec());
-            }
-            exact.entry(segments).or_default().push(at);
-        }
-        Self { count: paths.len(), exact, above }
-    }
-
-    /// Whether a path at or below `path` is wanted.
-    fn at_or_below(&self, path: &[String]) -> bool {
-        self.above.contains(path) || self.exact.contains_key(path)
-    }
-}
-
-/// Spans found for a batch, each kept from the first line it is found on.
-struct Found {
-    spans: Vec<Option<(usize, usize, usize)>>,
-    missing: usize,
-}
-
-impl Found {
-    fn new(count: usize) -> Self {
-        Self { spans: vec![None; count], missing: count }
-    }
-
-    fn set(&mut self, at: &[usize], span: impl Fn() -> Option<(usize, usize, usize)>) {
-        for at in at {
-            if self.spans[*at].is_none() {
-                self.spans[*at] = span();
-                if self.spans[*at].is_some() {
-                    self.missing -= 1;
-                }
-            }
-        }
-    }
-}
-
-pub(super) fn toml_key_span(source: &str, path: &str) -> Option<(usize, usize, usize)> {
-    toml_key_spans(source, &[path.to_string()]).pop().flatten()
-}
-
-/// [`toml_key_span`] for each of `paths`, reading the document once: each
-/// line's key looked up among the paths wanted, and the reading stops once
-/// each is found.
-pub(super) fn toml_key_spans(source: &str, paths: &[String]) -> Vec<Option<(usize, usize, usize)>> {
-    let wanted = Wanted::new(paths);
-    let mut found = Found::new(wanted.count);
-    let lines: Vec<&str> = source.lines().collect();
-    let tables = table_paths(&lines);
-    let mut offset = 0;
-    for (index, line) in lines.iter().enumerate() {
-        if found.missing == 0 {
-            break;
-        }
-        let line_offset = offset;
-        offset += line.len() + 1;
-        let (code, _) = split_toml_comment(line);
-        if let Some((key, start, end)) = key_assignment(code) {
-            let table = path_strings(&tables[index]);
-            let mut full = table.clone();
-            full.extend(split_key_path(&key).unwrap_or_else(|| vec![key.clone()]));
-            if let Some(at) = wanted.exact.get(&full) {
-                // A dotted key (`websocket.bogus`) names its last segment.
-                let start = start + last_segment_start(&code[start..end]);
-                found.set(at, || Some(span_between(source, line_offset + start, line_offset + end)));
-            }
-            // A dotted key below the path (`bogus.deep` for `/limits/bogus`)
-            // names it with one of its segments.
-            for length in table.len() + 1..full.len() {
-                if let Some(at) = wanted.exact.get(&full[..length]) {
-                    found.set(at, || {
-                        let (from, to) = segment_range(&code[start..end], length - table.len() - 1)?;
-                        Some(span_between(source, line_offset + start + from, line_offset + start + to))
-                    });
-                }
-            }
-            // `key = { nested = … }` keeps every nested key on this line.
-            if wanted.above.contains(&full) {
-                for entry in inline_entries_on(code, &full) {
-                    if let Some(at) = wanted.exact.get(&entry.path) {
-                        found.set(at, || Some(span_between(source, line_offset + entry.key.0, line_offset + entry.key.1)));
-                    }
-                }
-            }
-        }
-        if let Some((segments, is_array)) = parse_header(code)
-            && !segments.is_empty()
-        {
-            let header_start = line.find('[').unwrap_or(0);
-            let header = || Some(span_between(source, line_offset + header_start, line_offset + line.len()));
-            let full = &tables[index + 1];
-            // A `[table]` header names the table itself.
-            if let Some(at) = wanted.exact.get(&path_strings(full)) {
-                found.set(at, header);
-            }
-            // And what it is below: the array of an `[[array]]` header, by
-            // the header; a table it opens implicitly (`a` and `a.b` of
-            // `[a.b.c]`), by its segment.
-            let inner_start = header_start + if is_array { 2 } else { 1 };
-            let closing = if is_array { "]]" } else { "]" };
-            let inner = code.trim_end().strip_suffix(closing).and_then(|code| code.get(inner_start..)).unwrap_or("");
-            let mut keys = 0;
-            for cut in 1..full.len() {
-                let SchemaPathSegment::Key(_) = full[cut - 1] else {
-                    continue;
-                };
-                keys += 1;
-                let Some(at) = wanted.exact.get(&path_strings(&full[..cut])) else {
-                    continue;
-                };
-                if is_array && cut + 1 == full.len() {
-                    found.set(at, header);
-                } else {
-                    found.set(at, || {
-                        let (from, to) = segment_range(inner, keys - 1)?;
-                        Some(span_between(source, line_offset + inner_start + from, line_offset + inner_start + to))
-                    });
-                }
-            }
-        }
-    }
-    found.spans
-}
-
-pub(super) fn toml_value_span(source: &str, path: &str) -> Option<(usize, usize, usize)> {
-    toml_value_spans(source, &[path.to_string()]).pop().flatten()
-}
-
-/// [`toml_value_span`] for each of `paths`, reading the document once: a
-/// line is looked at only while it is in a table some path wanted lies
-/// under, and the reading stops once each is found.
-pub(super) fn toml_value_spans(source: &str, paths: &[String]) -> Vec<Option<(usize, usize, usize)>> {
-    let wanted = Wanted::new(paths);
-    let mut found = Found::new(wanted.count);
-    let mut tables = Tables::default();
-    let mut table: Vec<String> = Vec::new();
-    let mut offset = 0;
-    for line in source.lines() {
-        if found.missing == 0 {
-            break;
-        }
-        let line_offset = offset;
-        offset += line.len() + 1;
-        if line.trim_start().starts_with('[') {
-            let (code, _) = split_toml_comment(line);
-            if let Some((segments, is_array)) = parse_header(code) {
-                tables.enter(&segments, is_array);
-                table = path_strings(&tables.path);
-                continue;
-            }
-        }
-        if !wanted.at_or_below(&table) {
-            continue;
-        }
-        let (code, _) = split_toml_comment(line);
-        let Some((key, _, _)) = key_assignment(code) else {
-            continue;
-        };
-        let mut full = table.clone();
-        full.extend(split_key_path(&key).unwrap_or_else(|| vec![key.clone()]));
-        if let Some(at) = wanted.exact.get(&full) {
-            found.set(at, || {
-                let (start, end) = value_span_in_line(code)?;
-                Some(value_span_at(source, code, line_offset, start, end))
-            });
-        }
-        // A value nested in an inline table there.
-        if wanted.above.contains(&full) {
-            for entry in inline_entries_on(code, &full) {
-                let Some(at) = wanted.exact.get(&entry.path) else {
-                    continue;
-                };
-                let (start, end) = entry.value;
-                found.set(at, || {
-                    if start >= end && !code[start..].trim_start().starts_with(['{', '[']) {
-                        return None;
-                    }
-                    Some(value_span_at(source, code, line_offset, start, end))
-                });
-            }
-        }
-    }
-    found.spans
-}
 
 /// The span of the value from `start` to `end` of a line's `code` (at
 /// `offset`): a container is marked at its opening bracket.
-fn value_span_at(source: &str, code: &str, offset: usize, start: usize, end: usize) -> (usize, usize, usize) {
+pub(super) fn value_span_at(source: &str, code: &str, offset: usize, start: usize, end: usize) -> (usize, usize, usize) {
     if code[start..].trim_start().starts_with(['{', '[']) {
         let (line_number, column) = line_column(source, offset + start);
         return (line_number, column, column + 1);
@@ -757,7 +557,7 @@ pub(super) fn segment_range(key: &str, wanted: usize) -> Option<(usize, usize)> 
     (segment == wanted).then(|| trimmed(segment_start, key.len()))
 }
 
-fn last_segment_start(key: &str) -> usize {
+pub(super) fn last_segment_start(key: &str) -> usize {
     let mut quote: Option<char> = None;
     let mut last_dot = None;
     for (index, character) in key.char_indices() {

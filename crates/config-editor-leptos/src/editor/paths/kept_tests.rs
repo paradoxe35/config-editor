@@ -103,9 +103,87 @@ fn a_changed_text_is_read_again() {
             .find(|other| **other != language)
             .expect("another language")
             .behavior();
-        let (_, reads) = counted(Work::DocumentRead, || {
-            kept.with(other, &after, || field_range(other, &after, pointer))
+        let ((_, reads), lookups) = counted(Work::SpanLookup, || {
+            counted(Work::DocumentRead, || {
+                kept.with(other, &after, || field_range(other, &after, pointer))
+            })
         });
-        assert!(reads > 0, "{language}: read as another language");
+        assert!(reads + lookups > 0, "{language}: read as another language");
     }
+}
+
+/// The document reads `count` lookups of fields written nowhere take
+/// through one kept reading.
+fn miss_reads(language: Language, text: &str, count: usize) -> usize {
+    let behavior = language.behavior();
+    let mut kept = KeptSpans::default();
+    let (found, reads) = counted(Work::DocumentRead, || {
+        (0..count)
+            .map(|index| {
+                let pointer = format!("/root/svc_{index}/nope");
+                kept.with(behavior, text, || field_range(behavior, text, &pointer))
+            })
+            .collect::<Vec<_>>()
+    });
+    assert!(found.iter().all(Option::is_none), "{language}: {found:?}");
+    reads
+}
+
+/// A field written nowhere is as cheap to look up as one written: the
+/// lookups read the document once, however many miss.
+#[test]
+fn misses_on_the_same_text_read_it_once_in_every_language() {
+    let mut failures = Vec::new();
+    for &language in Language::ALL {
+        let text = text(language, 60);
+        let one = miss_reads(language, &text, 1);
+        let many = miss_reads(language, &text, 50);
+        if one != many {
+            failures.push(format!(
+                "{language}: {one} document reads for 1 miss, {many} for 50"
+            ));
+        }
+    }
+    assert!(failures.is_empty(), "{failures:#?}");
+}
+
+/// The paths at `count` places of one text through one kept reading (a
+/// host's `path_at` in a loop): the walks from the top they take, each
+/// path checked against what `path_at` alone gives.
+fn path_walks(language: Language, text: &str, count: usize) -> usize {
+    let behavior = language.behavior();
+    let mut kept = KeptSpans::default();
+    let places: Vec<usize> = (0..count).map(|index| index * text.len() / count).collect();
+    let (paths, walks) = counted(Work::PathLookup, || {
+        places
+            .iter()
+            .map(|place| {
+                kept.with_readings(behavior, text, || super::path_at(behavior, text, *place))
+            })
+            .collect::<Vec<_>>()
+    });
+    let alone: Vec<_> = places
+        .iter()
+        .map(|place| super::path_at(behavior, text, *place))
+        .collect();
+    assert_eq!(paths, alone, "{language}");
+    walks
+}
+
+/// Paths looked up one by one on the same text walk it from the top once,
+/// in every language.
+#[test]
+fn paths_at_on_the_same_text_walk_it_once_in_every_language() {
+    let mut failures = Vec::new();
+    for &language in Language::ALL {
+        let text = text(language, 60);
+        let few = path_walks(language, &text, 20);
+        let many = path_walks(language, &text, 60);
+        if few != many {
+            failures.push(format!(
+                "{language}: {few} walks for 20 paths, {many} for 60"
+            ));
+        }
+    }
+    assert!(failures.is_empty(), "{failures:#?}");
 }

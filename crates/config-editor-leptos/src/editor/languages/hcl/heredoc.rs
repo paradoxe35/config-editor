@@ -64,14 +64,17 @@ pub(super) fn string_expression(text: &str) -> hcl::Expression {
 /// marked, see [`super::floats::read_whole_floats`]). `hcl-rs` keeps a
 /// heredoc as its template written again, with [`quoted`]'s marker bug, so
 /// its text is taken from the parser's literal (escapes read, indentation
-/// stripped).
+/// stripped). (`hcl-rs`'s reading, which `super::read` reads as.)
+#[cfg(test)]
 pub(super) fn parse_body(source: &str) -> Result<hcl::Body, hcl::Error> {
     let mut body: hcl_edit::structure::Body = source.parse()?;
     read_heredocs(&mut body);
     Ok(body.into())
 }
 
-fn read_heredocs(body: &mut hcl_edit::structure::Body) {
+/// Each heredoc value of `body` holding no template sequence read as its
+/// text, and each whole float marked.
+pub(super) fn read_heredocs(body: &mut hcl_edit::structure::Body) {
     for mut structure in body.iter_mut() {
         if let Some(mut attribute) = structure.as_attribute_mut() {
             read_in(attribute.value_mut());

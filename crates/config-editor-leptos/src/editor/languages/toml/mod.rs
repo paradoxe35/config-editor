@@ -14,6 +14,7 @@ mod style;
 mod constructs;
 mod multiline;
 mod parse;
+mod spans;
 mod lines;
 mod suggestions;
 mod editing;
@@ -24,6 +25,7 @@ mod folding;
 
 use style::*;
 use parse::*;
+use spans::*;
 use suggestions::*;
 use editing::*;
 use colors::*;

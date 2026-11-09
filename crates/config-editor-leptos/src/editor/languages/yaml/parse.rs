@@ -4,7 +4,7 @@ use super::*;
 
 pub(super) fn yaml_parse(source: &str) -> Result<Value, ParseError> {
     let mut parser_config =
-        ParserConfig::serde_yaml_compat().duplicate_key_policy(DuplicateKeyPolicy::Error);
+        super::limits::parser_config(source).duplicate_key_policy(DuplicateKeyPolicy::Error);
     // A plain number too large for a float (`1e400`) is an infinity, as
     // YAML's float syntax says, never a string (TOML and JSON read it as a
     // number too, one too large).
@@ -20,7 +20,11 @@ pub(super) fn yaml_parse(source: &str) -> Result<Value, ParseError> {
             .as_ref()
             .map(|location| location.line().min(line_count));
         let column = location.as_ref().map(|location| location.column().max(1));
-        let mut message = error.to_string();
+        let mut message = if super::limits::is_expansion_refused(&error) {
+            super::limits::EXPANSION_REFUSED.to_string()
+        } else {
+            error.to_string()
+        };
         if let Some(location) = location
             && location.line() > line_count
         {
