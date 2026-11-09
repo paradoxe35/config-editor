@@ -22,6 +22,7 @@ pub(crate) const EDITOR_OPTIONS: &[&str] = &[
     "onEditAsChange",
     "onSyncChange",
     "onChangeSummary",
+    "onProblems",
     "onPathChange",
     "hostDiagnostics",
     "onSchemaWarning",

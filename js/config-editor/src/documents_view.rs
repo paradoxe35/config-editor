@@ -5,8 +5,8 @@
 use std::collections::HashMap;
 
 use config_editor_leptos::{
-    CloseRequest, ConfigDocuments as DocumentsView, Document, DocumentsHandle, EditorSettings,
-    Language, SaveRequest,
+    CloseRequest, ConfigDocuments as DocumentsView, Diagnostic, Document, DocumentsHandle,
+    EditorSettings, Language, SaveRequest,
 };
 use js_sys::Function;
 use leptos::prelude::*;
@@ -23,7 +23,7 @@ use crate::options::{function_option, string_option, warn_unknown_options};
 use crate::settings::{settings_from, settings_over, settings_result};
 use crate::typings::{DocumentEditorResult, DocumentsOptions, DocumentsUpdate, SettingsResult};
 use crate::update::{callback_change, given, plain_object, refuse_remount, settings_change};
-use crate::values::{field, text_arg, to_js};
+use crate::values::{diagnostics_to_js, field, text_arg, to_js};
 
 /// The options `new ConfigDocuments` takes apart from the settings.
 pub(crate) const DOCUMENTS_OPTIONS: &[&str] = &[
@@ -37,6 +37,7 @@ pub(crate) const DOCUMENTS_OPTIONS: &[&str] = &[
     "onChange",
     "onSave",
     "onDirtyChange",
+    "onProblems",
     "onEditAsChange",
     "onSyncChange",
 ];
@@ -69,6 +70,7 @@ pub(crate) struct State {
     on_change: StoredValue<Option<Function>, LocalStorage>,
     on_save: StoredValue<Option<Function>, LocalStorage>,
     on_dirty_change: StoredValue<Option<Function>, LocalStorage>,
+    on_problems: StoredValue<Option<Function>, LocalStorage>,
     on_edit_as_change: StoredValue<Option<Function>, LocalStorage>,
     on_sync_change: StoredValue<Option<Function>, LocalStorage>,
     /// Whether the view was mounted with `onClose`: closable documents'
@@ -110,6 +112,7 @@ impl State {
             self.on_add,
             self.on_save,
             self.on_dirty_change,
+            self.on_problems,
             self.on_edit_as_change,
             self.on_sync_change,
         ] {
@@ -243,6 +246,14 @@ fn view(state: State, setup: Setup) -> AnyView {
             );
         }
     };
+    let problems_changed = move |(id, problems): (String, Vec<Diagnostic>)| {
+        if let Some(callback) = host(state.on_problems) {
+            call_host_with(
+                &callback,
+                &[JsValue::from_str(&id), diagnostics_to_js(problems)],
+            );
+        }
+    };
     let dirty_changed = move |(id, dirty): (String, bool)| {
         if let Some(callback) = host(state.on_dirty_change) {
             call_host_with(
@@ -300,6 +311,7 @@ fn view(state: State, setup: Setup) -> AnyView {
             on_change=changed
             on_save=saved
             on_dirty_change=dirty_changed
+            on_problems=problems_changed
             on_edit_as_change=language_changed
             on_sync_change=sync_changed
             settings=settings
@@ -370,6 +382,7 @@ impl ConfigDocuments {
         let on_change = function_option(&options, "onChange")?;
         let on_save = function_option(&options, "onSave")?;
         let on_dirty_change = function_option(&options, "onDirtyChange")?;
+        let on_problems = function_option(&options, "onProblems")?;
         let on_edit_as_change = function_option(&options, "onEditAsChange")?;
         let on_sync_change = function_option(&options, "onSyncChange")?;
         let setup = Setup {
@@ -395,6 +408,7 @@ impl ConfigDocuments {
             on_change: StoredValue::new_local(on_change),
             on_save: StoredValue::new_local(on_save),
             on_dirty_change: StoredValue::new_local(on_dirty_change),
+            on_problems: StoredValue::new_local(on_problems),
             on_edit_as_change: StoredValue::new_local(on_edit_as_change),
             on_sync_change: StoredValue::new_local(on_sync_change),
             closes: setup.closes,
@@ -561,6 +575,7 @@ impl ConfigDocuments {
             ("onAdd", self.state.on_add),
             ("onChange", self.state.on_change),
             ("onDirtyChange", self.state.on_dirty_change),
+            ("onProblems", self.state.on_problems),
             ("onEditAsChange", self.state.on_edit_as_change),
             ("onSyncChange", self.state.on_sync_change),
         ] {

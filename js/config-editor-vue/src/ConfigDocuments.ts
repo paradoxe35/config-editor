@@ -1,4 +1,4 @@
-import type { CloseRequest, DocumentSpec, LanguageName } from "@pngwasi/config-editor";
+import type { CloseRequest, Diagnostic, DocumentSpec, LanguageName } from "@pngwasi/config-editor";
 import { DocumentsBinding, type DocumentsBindingProps } from "@pngwasi/config-editor/binding";
 import {
   type ExtractPublicPropTypes,
@@ -37,6 +37,8 @@ const documentsProps = {
   onSave: listener<(id: string, value: string, language: LanguageName) => void>(),
   /** `@dirty-change`: a document's id and whether it differs from its baseline, when added and then each time that changes. */
   onDirtyChange: listener<(id: string, dirty: boolean) => void>(),
+  /** `@problems`: a document's id and its editor's own problems, once its editor mounts (when first shown) and each time they change. */
+  onProblems: listener<(id: string, problems: Diagnostic[]) => void>(),
   /** `@edit-as-change`: called with a document's id and the language on screen in its editor: once when the editor mounts (the first time the document is shown), then each time that changes (a switch made, one that waited until the text converted, undo or redo across a switch). */
   onEditAsChange: listener<(id: string, language: LanguageName) => void>(),
   /** `@sync-change`: called with a document's id and whether the text on screen is written back to its `value`: once when its editor mounts, then each time that changes. */

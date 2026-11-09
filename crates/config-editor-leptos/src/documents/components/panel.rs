@@ -9,7 +9,7 @@ use leptos::prelude::*;
 
 use super::super::entries::{Documents, Entry};
 use crate::reactive::{later, mount_detached};
-use crate::{ConfigEditor, EditorSettings, Language, SaveRequest};
+use crate::{ConfigEditor, Diagnostic, EditorSettings, Language, SaveRequest};
 
 #[component]
 pub(in crate::documents) fn DocumentPanel(documents: Documents, entry: Entry) -> impl IntoView {
@@ -129,6 +129,9 @@ fn editor(documents: Documents, entry: Entry) -> impl IntoView {
     let saved = callbacks.on_save.map(|callback| {
         Callback::new(move |request: SaveRequest| callback.run((id.get_value(), request)))
     });
+    let problems_changed = callbacks.on_problems.map(|callback| {
+        Callback::new(move |problems: Vec<Diagnostic>| callback.run((id.get_value(), problems)))
+    });
     let dirty_entry = entry.clone();
     let dirty_changed = move |dirty: bool| documents.note_dirty(&dirty_entry, dirty);
     let language_entry = entry.clone();
@@ -175,6 +178,7 @@ fn editor(documents: Documents, entry: Entry) -> impl IntoView {
             on_change=changed
             nostrip:on_save=saved
             on_dirty_change=dirty_changed
+            nostrip:on_problems=problems_changed
             on_edit_as_change=language_changed
             on_sync_change=sync_changed
             handle=entry.handle

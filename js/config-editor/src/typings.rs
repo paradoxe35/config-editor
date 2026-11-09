@@ -39,6 +39,8 @@ export interface EditorOptions extends EditorSettings {
   onSyncChange?: (inSync: boolean) => void;
   /** Called with how the document differs from `baseline`: on mount, then whenever that changes. */
   onChangeSummary?: (summary: ChangeSummary) => void;
+  /** Called with the editor's own problems (syntax, schema, secret placeholders, conversion; `origin: "editor"`, never the host's `hostDiagnostics`), as checked after each pause in typing: once on mount, then each time they change, never while they stay the same. With the `showDiagnostics` setting off it finds none. */
+  onProblems?: (problems: Diagnostic[]) => void;
   /** Called with the path of what the caret is on each time it changes (and once on mount), for a breadcrumb. */
   onPathChange?: (path: EditorPath) => void;
   /** Problems the host found (a server's validation), shown next to the editor's own; `update` replaces them. */
@@ -142,6 +144,7 @@ export interface EditorUpdate extends SettingsUpdate {
   onEditAsChange?: ((language: LanguageName) => void) | null;
   onSyncChange?: ((inSync: boolean) => void) | null;
   onChangeSummary?: ((summary: ChangeSummary) => void) | null;
+  onProblems?: ((problems: Diagnostic[]) => void) | null;
   onPathChange?: ((path: EditorPath) => void) | null;
   onSchemaWarning?: ((message: string) => void) | null;
   /** `null` gives `Ctrl+S` back to the browser. */
@@ -269,6 +272,8 @@ export interface Diagnostic {
   endLine?: number;
   message: string;
   severity: Severity;
+  /** Who found it: the editor (syntax, schema, secret placeholders, conversion) or the host (`hostDiagnostics`). */
+  origin: "editor" | "host";
   /** `true` on the warning of a key the schema marks `deprecated` (the marker is the key). */
   deprecated?: boolean;
 }
@@ -387,6 +392,8 @@ export interface DocumentsOptions extends EditorSettings {
   onSave?: (id: string, value: string, language: LanguageName) => void;
   /** Called with a document's id and whether it differs from its baseline: when it is added, then each time that changes. */
   onDirtyChange?: (id: string, dirty: boolean) => void;
+  /** Called with a document's id and its editor's own problems (as `ConfigEditor`'s `onProblems`): once its editor mounts (when the document is first shown), then each time they change. */
+  onProblems?: (id: string, problems: Diagnostic[]) => void;
   /** Called with a document's id and the language on screen in its editor: once when the editor mounts (the first time the document is shown), then each time that changes (a switch made, one that waited until the text converted, undo or redo across a switch). */
   onEditAsChange?: (id: string, language: LanguageName) => void;
   /** Called with a document's id and whether the text on screen is written back to its `value`: once when its editor mounts, then each time that changes (see `ConfigEditor`'s `onSyncChange`). */
@@ -413,6 +420,7 @@ export interface DocumentsUpdate extends SettingsUpdate {
   /** `null` gives `Ctrl+S` back to the browser. */
   onSave?: ((id: string, value: string, language: LanguageName) => void) | null;
   onDirtyChange?: ((id: string, dirty: boolean) => void) | null;
+  onProblems?: ((id: string, problems: Diagnostic[]) => void) | null;
   onEditAsChange?: ((id: string, language: LanguageName) => void) | null;
   onSyncChange?: ((id: string, inSync: boolean) => void) | null;
   /** The view is built from it: create a new one to change it. */

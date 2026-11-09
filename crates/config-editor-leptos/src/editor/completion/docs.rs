@@ -44,10 +44,7 @@ pub(crate) fn docs_url(schema: &Value, root: &Value) -> Option<String> {
 pub(crate) fn docs_url_at(root: &Value, pointer: &str, repeats_arrays: bool) -> Option<String> {
     let path: Vec<SchemaPathSegment> = crate::editor::language::pointer_segments(pointer)
         .into_iter()
-        .map(|segment| match segment.parse::<usize>() {
-            Ok(index) => SchemaPathSegment::ArrayItem(index),
-            Err(_) => SchemaPathSegment::Key(segment),
-        })
+        .map(SchemaPathSegment::from_pointer_segment)
         .collect();
     schema_at_path(root, &path, repeats_arrays)
         .into_iter()

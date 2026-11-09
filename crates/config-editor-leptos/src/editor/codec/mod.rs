@@ -655,6 +655,26 @@ pub(super) fn inline_location(
     None
 }
 
+/// The byte offset of the inline container (`{…}` or `[…]`) written at
+/// value `span`, past its properties (a YAML tag or anchor); `None` when
+/// the value there is no inline container.
+fn inline_start(behavior: &dyn ConfigLanguage, source: &str, span: Span) -> Option<usize> {
+    let line_start = super::paths::line_start(source, span.line.saturating_sub(1));
+    let start = line_start
+        + source[line_start..]
+            .char_indices()
+            .nth(span.start_column.saturating_sub(1))
+            .map_or(0, |(index, _)| index);
+    let start = start + behavior.value_properties_len(&source[start..]);
+    source[start..].starts_with(['{', '[']).then_some(start)
+}
+
+/// Whether the value written at `span` is an inline container (`[]`,
+/// `{ a = 1 }`): a list written as one has no lone item to stand for it.
+pub(super) fn written_inline(behavior: &dyn ConfigLanguage, source: &str, span: Span) -> bool {
+    inline_start(behavior, source, span).is_some()
+}
+
 /// The span of what `rest` names inside the inline container whose value
 /// is written at `span` (`None` when no `{…}` or `[…]` is there): its key
 /// when `key`, else its value. A language whose root may be such a
@@ -667,23 +687,11 @@ pub(super) fn in_flow_container(
     key: bool,
 ) -> Option<Span> {
     use super::language::SchemaPathSegment;
-    let line_start = super::paths::line_start(source, span.line.saturating_sub(1));
-    let start = line_start
-        + source[line_start..]
-            .char_indices()
-            .nth(span.start_column.saturating_sub(1))
-            .map_or(0, |(index, _)| index);
-    let start = start + behavior.value_properties_len(&source[start..]);
+    let start = inline_start(behavior, source, span)?;
     let text = &source[start..];
-    if !text.starts_with(['{', '[']) {
-        return None;
-    }
     let rest: Vec<SchemaPathSegment> = rest
         .iter()
-        .map(|segment| match segment.parse::<usize>() {
-            Ok(index) => SchemaPathSegment::ArrayItem(index),
-            Err(_) => SchemaPathSegment::Key(segment.clone()),
-        })
+        .map(|segment| SchemaPathSegment::from_pointer_segment(segment.clone()))
         .collect();
     let (from, to) = super::inline::inline_path_span(text, &rest, key)?;
     let (from, to) = (start + from, start + to);

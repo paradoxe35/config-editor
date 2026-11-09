@@ -8,7 +8,9 @@ use wasm_bindgen::prelude::*;
 
 use crate::languages::language_named;
 use crate::typings::{ChangeSummaryResult, ConversionResult, Diagnostics, Names};
-use crate::values::{ChangeSummaryOut, DiagnosticOut, context_arg, optional_text, text_arg, to_js};
+use crate::values::{
+    ChangeSummaryOut, context_arg, diagnostics_to_js, optional_text, text_arg, to_js,
+};
 
 /// The unified diff (`diff -u`) of `baseline` against `current`, with
 /// `context` unchanged lines around each change (default 3): `--- baseline`
@@ -60,8 +62,7 @@ pub fn validate(
             .validate(language, text),
         None => config_editor_leptos::check_syntax(language, text),
     };
-    let out: Vec<DiagnosticOut> = problems.into_iter().map(DiagnosticOut::from).collect();
-    Ok(to_js(&out).unchecked_into())
+    Ok(diagnostics_to_js(problems).unchecked_into())
 }
 
 /// Converts `text` from one language to another. With a schema, lone XML

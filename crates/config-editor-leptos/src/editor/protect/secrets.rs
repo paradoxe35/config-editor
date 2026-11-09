@@ -10,7 +10,7 @@ use leptos::prelude::*;
 use web_sys::KeyboardEvent;
 
 use super::super::edit::Edit;
-use super::super::input::edit_range;
+use super::super::input::{UNKNOWN_SELECTION, edit_range};
 use super::super::language::ConfigLanguage;
 use super::super::parse_cache;
 use super::super::secret_options::SecretOptions;
@@ -116,6 +116,51 @@ fn replaces(before: &str, after: &str, (start, end): (usize, usize)) -> bool {
     })
 }
 
+/// The UTF-16 range of `before` an edit to `after` replaced when the
+/// browser did not say (an `insertFromPaste` input without a `beforeinput`)
+/// and the inserted text began a placeholder it replaced whole: a token
+/// pasted over another shares its first characters, which the diff of the
+/// texts keeps, reading the paste as an edit inside the token. The inserted
+/// text ends at `caret`; it is taken to start where the token it began in
+/// starts, when the range then cuts no token. `None` otherwise.
+fn ended_at_caret(
+    tokens: &[Range<usize>],
+    before: &str,
+    after: &str,
+    caret: usize,
+) -> Option<(usize, usize)> {
+    let old: Vec<u16> = before.encode_utf16().collect();
+    let new: Vec<u16> = after.encode_utf16().collect();
+    // What follows the caret is what followed the replaced range.
+    let kept = new.len().checked_sub(caret)?;
+    let end = old.len().checked_sub(kept)?;
+    if old[end..] != new[caret..] {
+        return None;
+    }
+    let prefix = old
+        .iter()
+        .zip(&new)
+        .take_while(|(old, new)| old == new)
+        .count();
+    let start = prefix.min(caret).min(end);
+    // Only text written past the shared characters (a deletion is no
+    // paste).
+    if caret <= start {
+        return None;
+    }
+    let token = tokens
+        .iter()
+        .find(|token| token.start < start && start < token.end)?;
+    let cuts = |range: &Range<usize>| {
+        tokens.iter().any(|token| {
+            (token.start < range.start && range.start < token.end)
+                || (token.start < range.end && range.end < token.end)
+        })
+    };
+    let whole = token.start..end;
+    (!cuts(&whole)).then_some((whole.start, whole.end))
+}
+
 impl EditorState {
     /// The edit pipeline's prepare stage: an edit cutting a placeholder
     /// takes it whole, leaving just the caret.
@@ -127,8 +172,14 @@ impl EditorState {
             // The selection the edit replaced when it is known and the
             // texts agree with it: a token pasted over another shares its
             // first characters, which a diff of the texts would keep.
-            let (start, end) = Some(edit.replaced(edit.caret()))
-                .filter(|selection| replaces(&edit.before, &edit.text, *selection))
+            let told = edit.selection != UNKNOWN_SELECTION;
+            let (start, end) = Some(edit.selection)
+                .filter(|selection| told && replaces(&edit.before, &edit.text, *selection))
+                .or_else(|| {
+                    (!told)
+                        .then(|| ended_at_caret(tokens, &edit.before, &edit.text, edit.caret()))
+                        .flatten()
+                })
                 .unwrap_or_else(|| edit_range(&edit.before, &edit.text, edit.caret()));
             widen(tokens, &edit.before, &edit.text, start..end)
         });

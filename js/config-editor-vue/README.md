@@ -104,6 +104,7 @@ so `Ctrl+S` is the editor's only while there is a `@save` listener.
 | `@save`               | `(value: string, language: string)` | `Ctrl+S` / `Cmd+S` (the browser's dialog prevented) and `save()`. Nothing saves by itself. Without a listener, `Ctrl+S` is the browser's.                                                                                                                                               |
 | `@dirty-change`       | `(dirty: boolean)`                  | Once on mount, then each time whether the document differs from `baseline` changes.                                                                                                                                                                                                     |
 | `@change-summary`     | `(summary: ChangeSummary)`          | `{ added, removed, modified, hunks }` against `baseline`, on mount and whenever it changes.                                                                                                                                                                                             |
+| `@problems`           | `(problems: Diagnostic[])`          | The editor's own problems (syntax, schema, secret placeholders, conversion; never `hostDiagnostics`), once on mount, then each time they change.                                                                                                                                        |
 | `@path-change`        | `(path: EditorPath)`                | The path of what the caret is on, each time it changes, for a breadcrumb. Computed only while a listener is set.                                                                                                                                                                        |
 | `@edit-as-change`     | `(language: string)`                | An `edit-as` switch completed, or undo / redo stepped back across one. Label the language shown from this, not from `edit-as`.                                                                                                                                                          |
 | `@sync-change`        | `(inSync: boolean)`                 | Once on mount, then each time whether the text on screen is written back to the document changes: `false` while an `edit-as` edit cannot convert back (`v-model` waits), whatever brought it there (typing, paste, undo, a switch, a reload, a new value). Always `true` in `language`. |
@@ -506,7 +507,8 @@ the focus where it is. Props: `documents`, `active-id`, `label`,
 document with `closable: false` never has one), `@add` (the "+" after the
 tabs, shown only with a listener: add the new document, which opens
 selected),
-`@dirty-change`, `@edit-as-change`, `@sync-change`, `@error`. The template ref is a `ConfigDocumentsHandle`:
+`@dirty-change`, `@edit-as-change`, `@sync-change`, `@problems` (a
+document's id and its editor's own problems), `@error`. The template ref is a `ConfigDocumentsHandle`:
 `select(id)`, `isDirty(id)`, `save(id)`, `saveAll()`, `editAs(id, language)`, `focus()`, `activeId`,
 `instance`, and `editor(id)`, the editor of a document, an `EditorView`
 (`value`, `reveal`, `rangeOf`, `fold`, `unifiedDiff`, …). See the [`@pngwasi/config-editor` README](https://www.npmjs.com/package/@pngwasi/config-editor#several-documents).

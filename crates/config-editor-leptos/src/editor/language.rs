@@ -705,12 +705,59 @@ pub struct CompletionContext {
     pub suffix_head: String,
 }
 
-/// Splits a JSON pointer into unescaped segments.
+/// Splits a JSON pointer into unescaped segments, each verbatim (RFC 6901:
+/// `~1` is `/`, then `~0` is `~`).
 pub fn pointer_segments(path: &str) -> Vec<String> {
     path.split('/')
         .skip(1)
         .map(|segment| segment.replace("~1", "/").replace("~0", "~"))
         .collect()
+}
+
+/// The array index an unescaped pointer segment names, as RFC 6901 reads
+/// it: `0`, or digits without a leading zero (`01`, `+1` and ` 1` are keys).
+/// It indexes only where the value is an array; anywhere else it is a key.
+pub fn pointer_index(segment: &str) -> Option<usize> {
+    let canonical = !segment.is_empty()
+        && segment.bytes().all(|byte| byte.is_ascii_digit())
+        && (segment == "0" || !segment.starts_with('0'));
+    canonical.then(|| segment.parse().ok()).flatten()
+}
+
+impl SchemaPathSegment {
+    /// One unescaped JSON pointer segment: an index when it is written as
+    /// one ([`pointer_index`]), else a key.
+    pub fn from_pointer_segment(segment: String) -> Self {
+        match pointer_index(&segment) {
+            Some(index) => SchemaPathSegment::ArrayItem(index),
+            None => SchemaPathSegment::Key(segment),
+        }
+    }
+
+    /// The segments of a JSON pointer.
+    pub fn from_pointer(pointer: &str) -> Vec<Self> {
+        pointer_segments(pointer)
+            .into_iter()
+            .map(Self::from_pointer_segment)
+            .collect()
+    }
+
+    /// The array index this step names in an array: an index, or a key
+    /// written as one (a pointer cannot tell them apart).
+    pub fn as_index(&self) -> Option<usize> {
+        match self {
+            SchemaPathSegment::ArrayItem(index) => Some(*index),
+            SchemaPathSegment::Key(key) => pointer_index(key),
+        }
+    }
+
+    /// The key this step names in an object: a key, or an index's digits.
+    pub fn as_key(&self) -> std::borrow::Cow<'_, str> {
+        match self {
+            SchemaPathSegment::Key(key) => std::borrow::Cow::Borrowed(key),
+            SchemaPathSegment::ArrayItem(index) => std::borrow::Cow::Owned(index.to_string()),
+        }
+    }
 }
 
 /// How a language writes arrays besides literal lists; see

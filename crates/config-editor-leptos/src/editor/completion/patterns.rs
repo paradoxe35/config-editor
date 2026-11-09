@@ -2,11 +2,7 @@
 //! on every key lookup, and checked so one the engine cannot read is
 //! reported instead of silently matching nothing.
 
-// The engine validation links anyway, else a small one.
-#[cfg(feature = "schema-validation")]
-use regex::Regex;
-#[cfg(not(feature = "schema-validation"))]
-use regex_lite::Regex;
+use crate::editor::pattern_engine::Regex;
 use serde_json::Value;
 use std::cell::RefCell;
 use std::collections::HashMap;

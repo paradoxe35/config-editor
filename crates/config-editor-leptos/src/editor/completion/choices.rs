@@ -198,17 +198,18 @@ pub(crate) fn matched_choice(
     }
 }
 
-/// The value at `path` in a parsed document. An item of something the
-/// document has as one value (an XML element written once) is that value.
+/// The value at `path` in a parsed document: a step written as an index
+/// names an item of an array and the key of its digits in an object. An
+/// item of something the document has as one value (an XML element written
+/// once) is that value.
 pub(crate) fn value_at<'v>(document: &'v Value, path: &[SchemaPathSegment]) -> Option<&'v Value> {
     path.iter()
-        .try_fold(document, |value, segment| match segment {
-            SchemaPathSegment::Key(key) => value.get(key),
-            SchemaPathSegment::ArrayItem(index) => match value {
-                Value::Array(items) => items.get(*index),
-                _ if *index == 0 => Some(value),
-                _ => None,
-            },
+        .try_fold(document, |value, segment| match value {
+            Value::Array(items) => items.get(segment.as_index()?),
+            Value::Object(members) => members
+                .get(&*segment.as_key())
+                .or_else(|| (*segment == SchemaPathSegment::ArrayItem(0)).then_some(value)),
+            _ => (*segment == SchemaPathSegment::ArrayItem(0)).then_some(value),
         })
 }
 

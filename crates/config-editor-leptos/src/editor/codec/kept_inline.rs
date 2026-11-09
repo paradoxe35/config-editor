@@ -291,7 +291,7 @@ fn same_place(value: &Value, segments: &[String], pointer: String, out: &mut Vec
         return;
     };
     match value {
-        Value::Array(items) if first.parse::<usize>().is_ok() => {
+        Value::Array(items) if crate::editor::language::pointer_index(first).is_some() => {
             for (index, item) in items.iter().enumerate() {
                 same_place(item, rest, format!("{pointer}/{index}"), out);
             }
@@ -418,7 +418,7 @@ fn on_one_line(pointer: &str, container: &Value, lines: &[&str]) -> bool {
     }
     let own = pointer.rsplit('/').next().unwrap_or_default();
     let mut texts = Vec::new();
-    if own.parse::<usize>().is_err() {
+    if crate::editor::language::pointer_index(own).is_none() {
         texts.push(own.replace("~1", "/").replace("~0", "~"));
     }
     leaves(container, &mut texts)

@@ -40,7 +40,15 @@ WebAssembly.
 - Read-only fields and regions that hold even while the text is invalid, and
   secret placeholders that are never shown.
 - Problems from your server shown with the editor's own, placed by path or
-  range (also while editing as another language).
+  range (also while editing as another language). `on_problems` /
+  `onProblems` (on `ConfigEditor`, and per document on `ConfigDocuments`)
+  hands you the editor's own problems (syntax, schema, secret placeholders,
+  conversion; never your server's) when they change, to gate a Save button
+  without parsing again.
+- A secret placeholder pasted whole stays whole: over another placeholder,
+  into an empty value, over a selection cutting into one, and from an
+  `insertFromPaste` input that no `beforeinput` announced (a synthetic
+  paste), read off the caret the paste left.
 - Saving with `Ctrl+S`, an unsaved-edits flag, a diff gutter against a
   baseline with a before/after preview, a change summary and a unified diff,
   and a notice when the file changes outside the editor.
@@ -61,6 +69,10 @@ WebAssembly.
 - A path API to jump to a field and follow the caret for a breadcrumb, and
   `reveal_range` / `revealRange` to jump to any stretch of text (a comment, a
   line); jumps and the editor's own focus never scroll the host page.
+  Paths are JSON pointers as RFC 6901 reads them (each segment verbatim:
+  `/ a` and `/01` are keys, only `0` or digits without a leading zero index
+  a list), and a path the document does not have (a missing parent, list
+  index or leaf) is found nowhere, never at another field.
 - Eleven themes, per-token colour overrides, and every built-in text
   replaceable (`strings`) for translations.
 - Runs under a strict Content-Security-Policy (`style-src 'self'`, no
@@ -71,7 +83,9 @@ WebAssembly.
 - A headless API (parse, serialize, convert, validate, diff, positions) for
   servers and build steps, in Rust and in `@pngwasi/config-editor/tools`.
 - Optional Cargo features (each language, schema validation, search, diff,
-  folding, protection) to keep the WebAssembly small.
+  folding, protection) to keep the WebAssembly small. A build links one
+  regular-expression engine: `regex` with `schema-validation` (its
+  validator needs it), else the smaller `regex-lite`.
 
 ### Packages
 

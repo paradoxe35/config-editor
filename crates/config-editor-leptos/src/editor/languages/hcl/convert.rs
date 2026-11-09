@@ -64,7 +64,7 @@ pub(super) fn host_forms(source: &str) -> HostForms {
             .filter(|header| header.labels.is_empty())
             .map(|header| {
                 let mut path: Vec<String> =
-                    body_path(&scan, header.parent).into_iter().filter(|segment| segment.parse::<usize>().is_err()).collect();
+                    body_path(&scan, header.parent).into_iter().filter(|segment| crate::editor::language::pointer_index(segment).is_none()).collect();
                 path.push(header.block_type.clone());
                 path
             })
@@ -76,7 +76,7 @@ pub(super) fn host_forms(source: &str) -> HostForms {
 /// attribute (`name = { … }`), and the other way round.
 pub(super) fn keeps_forms(previous: &str, patched: &str) -> bool {
     let (before, after) = (host_forms(previous), host_forms(patched));
-    let unnumbered = |path: &Vec<String>| -> Vec<String> { path.iter().filter(|segment| segment.parse::<usize>().is_err()).cloned().collect() };
+    let unnumbered = |path: &Vec<String>| -> Vec<String> { path.iter().filter(|segment| crate::editor::language::pointer_index(segment).is_none()).cloned().collect() };
     let attributes = |forms: &HostForms| -> std::collections::HashSet<Vec<String>> { forms.attributes.iter().map(unnumbered).collect() };
     let (attributes_before, attributes_after) = (attributes(&before), attributes(&after));
     !attributes_before.iter().any(|path| after.blocks.contains(path)) && !before.blocks.iter().any(|path| attributes_after.contains(path))
@@ -384,7 +384,7 @@ pub(super) fn one_line_block(source: &str, pointer: &str) -> Option<OneLine> {
 /// second `s { … }`), from its type to its `}`.
 pub(super) fn repeated_block_lines(source: &str, pointer: &str) -> Option<std::ops::Range<usize>> {
     let wanted = pointer_segments(pointer);
-    wanted.last()?.parse::<usize>().ok()?;
+    crate::editor::language::pointer_index(wanted.last()?)?;
     let scan = analyze(source, 0);
     let header = scan
         .headers

@@ -243,6 +243,7 @@ export class EditorBinding extends Binding {
       onEditAsChange: (language) => this.props.onEditAsChange?.(language),
       onSyncChange: (inSync) => this.props.onSyncChange?.(inSync),
       onChangeSummary: (summary) => this.props.onChangeSummary?.(summary),
+      onProblems: (problems) => this.props.onProblems?.(problems),
       onPathChange: props.onPathChange ? this.#followPath : undefined,
       hostDiagnostics: props.hostDiagnostics,
       readOnlyPaths: props.readOnlyPaths,
@@ -502,6 +503,7 @@ export class DocumentsBinding extends Binding {
       },
       onSave: this.#save,
       onDirtyChange: (id, dirty) => this.props.onDirtyChange?.(id, dirty),
+      onProblems: (id, problems) => this.props.onProblems?.(id, problems),
       onEditAsChange: (id, language) => this.props.onEditAsChange?.(id, language),
       onSyncChange: (id, inSync) => this.props.onSyncChange?.(id, inSync),
     });

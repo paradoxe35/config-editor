@@ -63,10 +63,7 @@ pub(super) fn header_path(source: &str, line_index: usize, column: usize) -> Opt
         .find(|(_, (_, (start, end)))| column >= char_column(*start) && column < char_column(*end))?;
     let mut path: Vec<SchemaPathSegment> = body_path(&scan, header.parent)
         .into_iter()
-        .map(|segment| match segment.parse::<usize>() {
-            Ok(index) => SchemaPathSegment::ArrayItem(index),
-            Err(_) => SchemaPathSegment::Key(segment),
-        })
+        .map(SchemaPathSegment::from_pointer_segment)
         .collect();
     path.push(SchemaPathSegment::Key(header.block_type.clone()));
     path.extend(header.labels[..index].iter().cloned().map(SchemaPathSegment::Key));

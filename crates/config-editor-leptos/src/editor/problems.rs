@@ -32,6 +32,9 @@ pub(super) struct ProblemsState {
     /// conversion read it.
     pub(super) diagnosed_text: RwSignal<String>,
     pub(super) diagnostics: Memo<Vec<Diagnostic>>,
+    /// The editor's own problems (syntax, schema, secret placeholders,
+    /// conversion), without the host's: what `on_problems` reports.
+    pub(super) own: Memo<Vec<Diagnostic>>,
     /// The order F8 walks `diagnostics` in, found when F8 first needs it
     /// after the text or the problems change (not on every press).
     pub(super) walk: Memo<Vec<Stop>>,
@@ -74,6 +77,13 @@ pub(super) struct Sources {
     pub(super) host_diagnostics: Signal<Vec<HostDiagnostic>>,
     /// The built-in texts the editor's own problems are worded with.
     pub(super) strings: Memo<EditorStrings>,
+}
+
+/// Tells `callback` the editor's own problems on mount and each time they
+/// change (the memo holding them notifies only then).
+pub(super) fn report_own(state: EditorState, callback: Callback<Vec<Diagnostic>>) {
+    let own = state.problems().own;
+    Effect::new(move |_| callback.run(own.get()));
 }
 
 impl ProblemsState {
@@ -207,6 +217,7 @@ impl ProblemsState {
         Self {
             diagnosed_text,
             diagnostics,
+            own: validated,
             walk,
             current: RwSignal::new(None),
             walked: RwSignal::new(None),

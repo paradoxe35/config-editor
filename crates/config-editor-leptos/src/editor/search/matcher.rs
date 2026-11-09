@@ -3,12 +3,7 @@
 
 use std::ops::Range;
 
-// The engine schema validation links anyway, else the small one (as for
-// `patternProperties` in completion).
-#[cfg(feature = "schema-validation")]
-use regex::{Regex, RegexBuilder};
-#[cfg(not(feature = "schema-validation"))]
-use regex_lite::{Regex, RegexBuilder};
+use crate::editor::pattern_engine::{Regex, RegexBuilder};
 
 /// Most matches found; past it the count reads "10000+" and later matches
 /// are neither highlighted nor stepped to (replace all still replaces them).

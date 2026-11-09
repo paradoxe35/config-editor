@@ -27,6 +27,8 @@ pub(super) struct TestEditor {
     pub(super) host_diagnostics: Signal<Vec<super::host_diagnostics::HostDiagnostic>>,
     /// The `settings` prop; a signal the test may switch.
     pub(super) settings: Signal<EditorSettings>,
+    /// The `schema` prop, built.
+    pub(super) schema: Option<std::sync::Arc<super::diagnostics::SchemaBundle>>,
     /// A text in the `edit_as` language to open with, as a documents
     /// view's `Document::edit_as_text`.
     pub(super) opening: Option<String>,
@@ -48,6 +50,7 @@ impl TestEditor {
             secrets: None,
             host_diagnostics: Signal::default(),
             settings: Signal::default(),
+            schema: None,
             opening: None,
             read_only_reason: None,
         }
@@ -61,7 +64,7 @@ impl TestEditor {
         let (state, _) = EditorState::new(Init {
             host_language: self.language,
             edit_language: self.edit_as.unwrap_or(self.language),
-            schema: None,
+            schema: self.schema,
             schema_error: None,
             host_text: self.text.clone(),
             baseline: self.text,

@@ -509,51 +509,11 @@ fn path_line(source: &str, wanted: &[String]) -> Option<(usize, usize, usize)> {
     path_lines(source).0.get(wanted).copied()
 }
 
+/// Where the key or item at `path` is written: a path the text does not
+/// have is written nowhere (never the first line with the same key).
 pub(super) fn yaml_span_for_path(source: &str, path: &str) -> Option<(usize, usize, usize)> {
     let wanted = crate::editor::language::pointer_segments(path);
-    let key = wanted.last()?.clone();
-
-    if let Some((line, column, end_column)) = path_line(source, &wanted) {
-        return Some((line, column, end_column));
-    }
-
-    if let Some(span) = flow_key_span(source, &wanted) {
-        return Some(span);
-    }
-
-    // Last resort for paths the scanner cannot represent: first line with this key.
-    first_key_lines(source).0.get(&key).copied()
-}
-
-/// The first line written with each key (`key:` at its start), by key: its
-/// line, first and last columns.
-struct FirstKeyLines(std::collections::HashMap<String, (usize, usize, usize)>);
-
-/// [`FirstKeyLines`] of `source`, read once for a batch of problems.
-fn first_key_lines(source: &str) -> std::rc::Rc<FirstKeyLines> {
-    crate::editor::paths::batch_cached(source, || {
-        let mut found = std::collections::HashMap::new();
-        for (index, line) in source.lines().enumerate() {
-            let indent = line.len() - line.trim_start().len();
-            let Some((candidate, _)) = line.trim_start().split_once(':') else {
-                continue;
-            };
-            // Nothing before `:` (an explicit key's `: value`) is no key.
-            if candidate.trim().is_empty() {
-                continue;
-            }
-            let Some(candidate_offset) = line[indent..].find(candidate) else {
-                continue;
-            };
-            let column = line[..indent].chars().count()
-                + line[indent..indent + candidate_offset].chars().count()
-                + 1;
-            found
-                .entry(candidate.trim_matches(['\'', '"']).to_string())
-                .or_insert((index + 1, column, column + candidate.chars().count()));
-        }
-        FirstKeyLines(found)
-    })
+    path_line(source, &wanted).or_else(|| flow_key_span(source, &wanted))
 }
 
 pub(super) fn yaml_value_span_for_path(source: &str, path: &str) -> Option<(usize, usize, usize)> {
@@ -568,7 +528,7 @@ pub(super) fn yaml_value_span_for_path(source: &str, path: &str) -> Option<(usiz
     // An item written at its dash holds a block (`- name: web`): no value
     // on the line of its own.
     let at_dash = line.chars().skip(key_column - 1).collect::<String>();
-    if wanted.last().is_some_and(|last| last.parse::<usize>().is_ok()) && (at_dash == "-" || at_dash.starts_with("- ")) {
+    if wanted.last().is_some_and(|last| crate::editor::language::pointer_index(last).is_some()) && (at_dash == "-" || at_dash.starts_with("- ")) {
         return None;
     }
     // The key starts after the line's indentation and dashes (ASCII), so its
@@ -625,7 +585,7 @@ fn block_scalar_end(source: &str, line_number: usize, value: &str, owner_indent:
 /// after its `- `, on its own line or after an outer item's dash (`- - a`).
 pub(super) fn sequence_item_span(source: &str, wanted: &[String]) -> Option<(usize, usize, usize)> {
     let (last, _) = wanted.split_last()?;
-    last.parse::<usize>().ok()?;
+    crate::editor::language::pointer_index(last)?;
     let (line_number, column, _) = path_line(source, wanted)?;
     let line = crate::editor::paths::text_line(source, line_number - 1)?;
     // After the line's indentation and dashes (ASCII): the column is a byte

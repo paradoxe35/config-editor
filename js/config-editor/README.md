@@ -130,6 +130,7 @@ document and its callbacks (below) and every [setting](#settings) (`theme`,
 | `onEditAsChange`     | `(language: string) => void`                | —                | Called with the language on screen when an `editAs` switch completes, and when undo or redo steps back across one (a switch is an undo step). A switch waits while the document cannot convert yet (TOML has no `null`): until then the host's language stays on screen, edited and sent to `onChange` as it is, with the reason on the value in the way. Label the language shown from this, not from `editAs`. |
 | `onSyncChange`       | `(inSync: boolean) => void`                 | —                | Called with whether the text on screen is written back to the document: once on mount, then each time that changes. `false` while an `editAs` edit cannot convert back (`value` is `null`, `onChange` waits), whatever brought it there (typing, paste, undo, a switch, a reload, a new `value`); read after each typing pause. Always `true` in `language`.                                                     |
 | `onChangeSummary`    | `(summary: ChangeSummary) => void`          | —                | Called with `{ added, removed, modified, hunks }`: the lines changed against `baseline` and the number of separate changes, on mount and whenever it changes.                                                                                                                                                                                                                                                    |
+| `onProblems`         | `(problems: Diagnostic[]) => void`          | —                | Called with the editor's own problems (syntax, schema, secret placeholders, values Edit-as cannot convert; `origin: "editor"`), never `hostDiagnostics`: once on mount, then each time they change after a pause in typing, not while they stay the same. With `showDiagnostics` off it finds none. Gate a Save button on it instead of calling `validate` again.                                                |
 | `hostDiagnostics`    | `HostDiagnostic[]`                          | —                | Problems the host found (a server's validation), shown with the editor's own; see [Host diagnostics](#host-diagnostics).                                                                                                                                                                                                                                                                                         |
 | `onPathChange`       | `(path: EditorPath) => void`                | —                | Called with the path of what the caret is on each time it changes (and once on mount), for a breadcrumb; see [Paths](#paths). The path is computed only while this is set.                                                                                                                                                                                                                                       |
 | `onSchemaWarning`    | `(message: string) => void`                 | console warning  | Called once per thing in `schema` the editor cannot use, such as a `patternProperties` regex its engine cannot compile (keys it matches get no completions or hover docs). Called a microtask after `new ConfigEditor` returns, never inside it, so the instance is yours by then.                                                                                                                               |
@@ -644,7 +645,9 @@ const editor = new ConfigEditor(element, {
   throws is logged, and the token is not real. `referencePrefixes` must be
   non-empty strings.
 - A placeholder is atomic: the caret never lands inside, `Backspace` and
-  `Delete` remove it whole, an edit cutting into it replaces it whole, and
+  `Delete` remove it whole, an edit cutting into it replaces it whole (a
+  placeholder pasted over another, or by a bare `insertFromPaste` input,
+  stays whole), and
   copying keeps its text. It shows as a chip (color tokens `secret-chip`,
   `secret-chip-border`) with a key in the gutter; hovering shows `hint`.
 - In a secret field, suggestions offer `${VAR}` and `file:` references.
@@ -660,7 +663,13 @@ A path names a field the same way in every language: a JSON pointer
 (`"/web/hosts/1"`, `""` for the whole document; as RFC 6901 has it, `"/"`
 is the key `""`) or its keys and indices (`["web", "hosts", 1]`). A pointer starts with `/`: `"web/hosts"` throws,
 everywhere a path is taken (the editor's methods, the tools,
-`readOnlyPaths`, host diagnostics).
+`readOnlyPaths`, host diagnostics). Each segment is verbatim (`"/ a"` is
+the key `" a"`; `~1` is `/` and `~0` is `~`), and only `0` or digits
+without a leading zero index a list, where the value is one (in an object
+`"/1"` is the key `"1"`; `"/01"` is always a key). A path the document does
+not have (a missing parent, list index or leaf) is found nowhere: `rangeOf`
+gives `null`, `reveal` `false`, a lock there locks nothing, and a host
+problem there is shown for the whole document, naming its path.
 
 ```ts
 editor.reveal("/web/listen"); // scroll to it, select it, focus; false when absent
@@ -739,6 +748,7 @@ interface Diagnostic {
   endLine?: number; // only when the marker covers several lines
   message: string;
   severity: "error" | "warning" | "info" | "hint";
+  origin: "editor" | "host"; // who found it (`validate` and `onProblems`: always "editor")
   deprecated?: boolean; // true on a deprecated key's warning (the marker is the key)
 }
 ```
@@ -1064,6 +1074,9 @@ view.isDirty("main");
   document keeps its editor while its `id` stays listed (a new `value`,
   `baseline`, `fileName`, `readOnly` or `editAs` updates it in place; a new
   `language` or `schema` mounts a new editor).
+- `onProblems(id, problems)` gives each document's editor's own problems
+  (as `ConfigEditor`'s `onProblems`): once its editor mounts, when the
+  document is first shown, then each time they change.
 - Nothing closes by itself: `onClose({ id, dirty })` asks you (close button,
   middle click, `Delete` on a tab). Only closable documents ask: a document
   with `closable: false` (switches live) stays open, with no close button,

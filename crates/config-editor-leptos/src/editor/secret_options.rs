@@ -64,7 +64,9 @@ impl std::fmt::Debug for SecretOptions {
 }
 
 impl SecretOptions {
-    /// The placeholder pattern (a regular expression).
+    /// The placeholder pattern: a regular expression, read by the build's one
+    /// engine (`regex` with `schema-validation`, so Unicode classes too; else
+    /// `regex-lite`).
     #[must_use]
     pub fn with_placeholder(mut self, pattern: impl Into<String>) -> Self {
         self.placeholder = pattern.into();
@@ -88,12 +90,13 @@ impl SecretOptions {
     ///
     /// What is wrong with the pattern.
     pub(crate) fn check_placeholder(&self) -> Result<(), String> {
-        let pattern = regex_lite::Regex::new(&self.placeholder).map_err(|error| {
-            format!(
-                "{:?} is not a regular expression: {error}",
-                self.placeholder
-            )
-        })?;
+        let pattern =
+            crate::editor::pattern_engine::Regex::new(&self.placeholder).map_err(|error| {
+                format!(
+                    "{:?} is not a regular expression: {error}",
+                    self.placeholder
+                )
+            })?;
         if pattern.is_match("") {
             return Err(format!(
                 "{:?} matches empty text; a placeholder pattern must match the token only",

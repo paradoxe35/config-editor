@@ -41,7 +41,7 @@ type Found = (u64, usize, Vec<Range<usize>>);
 
 /// [`SecretOptions`] made ready to match.
 pub(crate) struct SecretMatcher {
-    pattern: Option<regex_lite::Regex>,
+    pattern: Option<crate::editor::pattern_engine::Regex>,
     is_placeholder: Option<Callback<String, bool>>,
     /// The tokens of the last text searched whole: one edit's placement,
     /// check and problems each look for them in the same text, and the
@@ -55,10 +55,9 @@ impl SecretMatcher {
     /// token is ever real then.
     pub(crate) fn new(options: &SecretOptions) -> Self {
         SecretMatcher {
-            pattern: options
-                .check_placeholder()
-                .ok()
-                .and_then(|()| regex_lite::Regex::new(&options.placeholder).ok()),
+            pattern: options.check_placeholder().ok().and_then(|()| {
+                crate::editor::pattern_engine::Regex::new(&options.placeholder).ok()
+            }),
             is_placeholder: options.is_placeholder,
             last: std::sync::Mutex::new(None),
         }

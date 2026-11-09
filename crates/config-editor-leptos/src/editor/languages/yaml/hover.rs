@@ -29,10 +29,7 @@ pub(super) fn explicit_key_path(source: &str, line_index: usize, column: usize) 
     let key = path.last()?.clone();
     let path = path
         .into_iter()
-        .map(|segment| match segment.parse::<usize>() {
-            Ok(index) => SchemaPathSegment::ArrayItem(index),
-            Err(_) => SchemaPathSegment::Key(segment),
-        })
+        .map(SchemaPathSegment::from_pointer_segment)
         .collect();
     Some((path, key, key_column - 1))
 }

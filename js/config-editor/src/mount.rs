@@ -2,16 +2,16 @@
 //! `update` writes, and the props and callbacks wired to JavaScript.
 
 use config_editor_leptos::{
-    BaselineConflict, ChangeSummary, ConfigEditor as Editor, EditorHandle, EditorSettings,
-    FieldPath, HostDiagnostic, Language, SaveRequest, Schema, SchemaSource, SecretOptions,
-    TextRange,
+    BaselineConflict, ChangeSummary, ConfigEditor as Editor, Diagnostic, EditorHandle,
+    EditorSettings, FieldPath, HostDiagnostic, Language, SaveRequest, Schema, SchemaSource,
+    SecretOptions, TextRange,
 };
 use js_sys::Function;
 use leptos::prelude::*;
 use wasm_bindgen::prelude::*;
 
 use crate::catalog::language_name;
-use crate::values::{ChangeSummaryOut, path_to_js, to_js};
+use crate::values::{ChangeSummaryOut, diagnostics_to_js, path_to_js, to_js};
 
 thread_local! {
     /// How many host callbacks are running: `destroy` from inside one waits
@@ -57,6 +57,7 @@ pub(crate) struct State {
     pub(crate) on_edit_as_change: StoredValue<Option<Function>, LocalStorage>,
     pub(crate) on_sync_change: StoredValue<Option<Function>, LocalStorage>,
     pub(crate) on_change_summary: StoredValue<Option<Function>, LocalStorage>,
+    pub(crate) on_problems: StoredValue<Option<Function>, LocalStorage>,
     pub(crate) on_path_change: StoredValue<Option<Function>, LocalStorage>,
     pub(crate) on_save: StoredValue<Option<Function>, LocalStorage>,
     /// Whether `onSave` is set: only then does `Ctrl+S` save (with the
@@ -82,6 +83,7 @@ impl State {
             self.on_edit_as_change,
             self.on_sync_change,
             self.on_change_summary,
+            self.on_problems,
             self.on_path_change,
             self.on_save,
             self.on_dirty_change,
@@ -133,6 +135,11 @@ pub(crate) fn view(state: State, latest: Latest, setup: Setup) -> AnyView {
     let summarized = move |summary: ChangeSummary| {
         if let Some(callback) = state.on_change_summary.try_get_value().flatten() {
             call_host(&callback, &to_js(&ChangeSummaryOut::from(summary)));
+        }
+    };
+    let problems_changed = move |problems: Vec<Diagnostic>| {
+        if let Some(callback) = state.on_problems.try_get_value().flatten() {
+            call_host(&callback, &diagnostics_to_js(problems));
         }
     };
     let saved = move |request: SaveRequest| {
@@ -188,6 +195,7 @@ pub(crate) fn view(state: State, latest: Latest, setup: Setup) -> AnyView {
             on_edit_as_change=switched
             on_sync_change=sync_changed
             on_change_summary=summarized
+            on_problems=problems_changed
             on_save=saved
             on_dirty_change=dirty_changed
             on_baseline_conflict=conflicted

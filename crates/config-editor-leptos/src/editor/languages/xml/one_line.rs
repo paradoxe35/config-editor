@@ -23,7 +23,7 @@ fn one_line_paths(source: &str) -> HashSet<Vec<String>> {
 }
 
 fn unindexed(path: &[Seg]) -> Vec<String> {
-    strings(path).into_iter().filter(|segment| segment.parse::<usize>().is_err()).collect()
+    strings(path).into_iter().filter(|segment| crate::editor::language::pointer_index(segment).is_none()).collect()
 }
 
 /// The end tag's token of the element whose start tag is token `index`,

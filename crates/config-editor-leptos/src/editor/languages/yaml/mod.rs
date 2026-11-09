@@ -154,7 +154,11 @@ impl ConfigLanguage for YamlBehavior {
     fn key_span(&self, source: &str, pointer: &str) -> Option<Span> {
         super::super::byte_order_mark::span(source, |text| match root_flow_span(text) {
             Some(root) => in_flow_root(self, text, root, pointer, true),
-            None => yaml_span_for_path(text, pointer).map(Span::from),
+            // A key inside a flow collection over lines (`tcp: {` then
+            // `nodelay: true,`): in the collection its parent writes.
+            None => yaml_span_for_path(text, pointer)
+                .map(Span::from)
+                .or_else(|| super::super::codec::inline_location(self, text, pointer, true)),
         })
     }
 

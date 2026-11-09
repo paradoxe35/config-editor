@@ -69,8 +69,11 @@ mod outside_press;
 ))]
 mod live_settings_tests;
 mod metrics;
+#[cfg(all(test, feature = "yaml", feature = "schema-validation"))]
+mod own_problems_tests;
 mod parse_cache;
 mod paths;
+mod pattern_engine;
 mod positioning;
 #[cfg(all(test, feature = "yaml", feature = "protect"))]
 mod problem_cap_tests;
@@ -220,6 +223,17 @@ pub fn ConfigEditor(
     /// setting off. Needs the `diff` feature: without it, never called.
     #[prop(optional, into)]
     on_change_summary: Option<Callback<ChangeSummary>>,
+    /// Called with the editor's own problems: syntax errors, schema
+    /// problems, secret placeholders and values Edit-as cannot convert, each
+    /// with [`DiagnosticOrigin::Editor`]; never the `host_diagnostics`. They
+    /// are checked after each pause in typing, as the underlines are: this
+    /// is called once on mount, then each time they change (not while they
+    /// stay the same, whatever else is typed). Positions are in the text on
+    /// screen. With the `show_diagnostics` setting off the editor finds
+    /// none. A host gating a Save button on "no error" reads this instead
+    /// of parsing the text again.
+    #[prop(optional, into)]
+    on_problems: Option<Callback<Vec<Diagnostic>>>,
     /// Called once per problem with something in `schema` the editor cannot
     /// use (see [`Schema::warnings`]), such as a `patternProperties` regex
     /// its engine cannot compile, right after the editor mounts (a microtask
@@ -353,6 +367,9 @@ pub fn ConfigEditor(
     );
     if let Some(callback) = on_change_summary {
         changes::report_changes(state, callback);
+    }
+    if let Some(callback) = on_problems {
+        problems::report_own(state, callback);
     }
     input::attach_listeners(state);
     state.connect_protection();

@@ -421,6 +421,33 @@ export function frameworkCases(name) {
       await expect(input(browserPage)).toHaveValue(/listen: 7835/, { timeout: 10000 });
     });
 
+    test("onProblems hears the editor's own problems when they change, and only then", async ({ page: browserPage }) => {
+      await open(browserPage, name);
+      await browserPage.evaluate(() => {
+        window.heard = [];
+        window.setExtraProps({
+          onProblems: (problems) => window.heard.push(problems.map(({ origin, severity, message }) => ({ origin, severity, message }))),
+        });
+      });
+      const heard = () => browserPage.evaluate(() => window.heard);
+      await input(browserPage).click();
+      await browserPage.keyboard.press('Control+End');
+      await browserPage.keyboard.press('Enter');
+      // `[` closes itself: `[]` alone in a mapping is no YAML.
+      await browserPage.keyboard.type('[');
+      await expect.poll(async () => (await heard()).length).toBe(1);
+      const [broken] = await heard();
+      expect(broken.some((problem) => problem.origin === 'editor' && problem.severity === 'error')).toBe(true);
+      await browserPage.keyboard.press('Backspace');
+      await expect.poll(async () => (await heard()).length).toBe(2);
+      const fixed = (await heard())[1];
+      expect(fixed.length).toBeLessThan(broken.length);
+      // A comment at the end changes no problem: nothing more is heard.
+      await browserPage.keyboard.type('# note');
+      await browserPage.waitForTimeout(1200);
+      expect((await heard()).length).toBe(2);
+    });
+
     test('unmounted right after an edit, it calls nothing more', async ({ page: browserPage }) => {
       await open(browserPage, name);
       await browserPage.evaluate(() => {

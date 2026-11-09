@@ -128,6 +128,7 @@ strict Content-Security-Policy, serve it as a file instead (see
 | `class`                | `String`                                   | —                     | Extra class on the editor root.                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | `settings`             | `EditorSettings` or a signal               | defaults              | The theme, colors and every on/off switch (toolbar, footer, diagnostics, diff, completions, search, folding, …); see [Settings](#settings). Every setting switches live.                                                                                                                                                                                                                                                                                                   |
 | `on_change_summary`    | `Fn(ChangeSummary)`                        | —                     | Called with the lines added, removed and modified against `baseline`, and the number of changes, whenever that changes.                                                                                                                                                                                                                                                                                                                                                    |
+| `on_problems`          | `Fn(Vec<Diagnostic>)`                      | —                     | Called with the editor's own problems (syntax, schema, secret placeholders, values Edit-as cannot convert; `origin` `Editor`), never `host_diagnostics`: once on mount, then each time they change after a pause in typing, not while they stay the same. With `show_diagnostics` off it finds none. Gate a Save button on it instead of parsing again.                                                                                                                    |
 | `handle`               | `EditorHandle`                             | —                     | Find fields, follow the caret and jump to a field from the host; see [Paths and positions](#paths-and-positions).                                                                                                                                                                                                                                                                                                                                                          |
 | `on_path_change`       | `Fn(FieldPath)`                            | —                     | Called with the path of what the caret is on each time it changes (and once on mount), for a breadcrumb.                                                                                                                                                                                                                                                                                                                                                                   |
 | `host_diagnostics`     | `Signal<Vec<HostDiagnostic>>`              | —                     | Problems the host found (a server's validation), by path or range, shown with the editor's own; see [Host diagnostics](#host-diagnostics).                                                                                                                                                                                                                                                                                                                                 |
@@ -758,7 +759,10 @@ view! {
 - **Per-document callbacks carry the id:** `on_change((id, text))`,
   `on_save((id, SaveRequest))` (`Ctrl+S` / `Cmd+S` saves the document being
   edited), `on_dirty_change((id, dirty))` (when a document is added, then on
-  every change). Each tab shows a dot while its document is dirty.
+  every change), `on_problems((id, problems))` (its editor's own problems,
+  as `ConfigEditor`'s `on_problems`: once its editor mounts, when the
+  document is first shown, then on every change). Each tab shows a dot
+  while its document is dirty.
 - **What each document shows:** `on_edit_as_change((id, language))` says
   the language on screen, once when its editor mounts and then each time it
   changes: a switch made (also one that waited until the text could
@@ -865,6 +869,13 @@ widths included. Colors: the `Tab*` tokens, see
 
 A [`FieldPath`] names a field the same way in every language: a JSON pointer
 (`"/web/hosts/1"`) or segments (`FieldPath::root().key("web").key("hosts").index(1)`).
+A pointer reads as RFC 6901 has it: each segment verbatim (`"/ a"` is the
+key `" a"`; `~1` is `/` and `~0` is `~`), and only `0` or digits without a
+leading zero index a list, where the value is one (in an object, `"/1"` is
+the key `"1"`; `"/01"` is always a key). A path the document does not have
+(a missing parent, list index or leaf) is found nowhere: `range_of` gives
+`None`, `reveal` `false`, a lock there locks nothing, and a host problem
+there is shown for the whole document, naming its path.
 An [`EditorHandle`] passed as `handle` maps paths to the text on screen and
 back, and jumps to fields:
 
@@ -1091,7 +1102,11 @@ view! { <ConfigEditor value=text schema=SCHEMA secrets=secrets /> }
   `Home`/`End` and selections snap to its edges; `←`/`→` step over it),
   `Backspace` or `Delete` next to it removes it whole, an edit or a
   selection cutting into it replaces it whole, and copying it copies the
-  token as it is. Undo brings it back as a placeholder.
+  token as it is. Undo brings it back as a placeholder. A placeholder pasted
+  whole stays whole (over another one, which shares its first characters,
+  into an empty value, or over a selection cutting into one), also from an
+  `insertFromPaste` input no `beforeinput` announced (a synthetic paste):
+  the caret it leaves ends the pasted text.
 - It is drawn as a chip (`--config-editor-secret-chip`,
   `--config-editor-secret-chip-border`: `ThemeColor::SecretChip`,
   `SecretChipBorder`), with a key in the gutter; hovering it shows the hint.

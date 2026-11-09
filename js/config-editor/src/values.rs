@@ -2,7 +2,9 @@
 //! plain data, and the shapes returned to JavaScript.
 
 use config_editor_leptos::language::SchemaPathSegment;
-use config_editor_leptos::{ChangeSummary, Diagnostic, FieldPath, TextPosition, TextRange};
+use config_editor_leptos::{
+    ChangeSummary, Diagnostic, DiagnosticOrigin, FieldPath, TextPosition, TextRange,
+};
 use js_sys::{Array, Object, Reflect};
 
 use crate::text_lines::TextLines;
@@ -144,6 +146,8 @@ pub(crate) struct DiagnosticOut {
     end_line: Option<usize>,
     message: String,
     severity: &'static str,
+    /// `"editor"` (syntax, schema, secrets, conversion) or `"host"`.
+    origin: &'static str,
     /// Only on a deprecated key's warning (`true`).
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     deprecated: bool,
@@ -158,9 +162,19 @@ impl From<Diagnostic> for DiagnosticOut {
             end_line: problem.end_line,
             message: problem.message,
             severity: problem.severity.as_str(),
+            origin: match problem.origin {
+                DiagnosticOrigin::Host => "host",
+                _ => "editor",
+            },
             deprecated: problem.deprecated,
         }
     }
+}
+
+/// Problems as JavaScript `Diagnostic`s.
+pub(crate) fn diagnostics_to_js(problems: Vec<Diagnostic>) -> JsValue {
+    let out: Vec<DiagnosticOut> = problems.into_iter().map(DiagnosticOut::from).collect();
+    to_js(&out)
 }
 
 #[derive(Serialize)]

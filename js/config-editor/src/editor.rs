@@ -136,6 +136,7 @@ impl ConfigEditor {
         let on_edit_as_change = function_option(&options, "onEditAsChange")?;
         let on_sync_change = function_option(&options, "onSyncChange")?;
         let on_change_summary = function_option(&options, "onChangeSummary")?;
+        let on_problems = function_option(&options, "onProblems")?;
         let on_path_change = function_option(&options, "onPathChange")?;
         let on_save = function_option(&options, "onSave")?;
         let on_dirty_change = function_option(&options, "onDirtyChange")?;
@@ -170,6 +171,7 @@ impl ConfigEditor {
             on_edit_as_change: StoredValue::new_local(on_edit_as_change),
             on_sync_change: StoredValue::new_local(on_sync_change),
             on_change_summary: StoredValue::new_local(on_change_summary),
+            on_problems: StoredValue::new_local(on_problems),
             on_path_change: StoredValue::new_local(on_path_change),
             saves: RwSignal::new(on_save.is_some()),
             on_save: StoredValue::new_local(on_save),
@@ -323,6 +325,7 @@ impl ConfigEditor {
             ("onEditAsChange", state.on_edit_as_change),
             ("onSyncChange", state.on_sync_change),
             ("onChangeSummary", state.on_change_summary),
+            ("onProblems", state.on_problems),
             ("onDirtyChange", state.on_dirty_change),
             ("onBaselineConflict", state.on_baseline_conflict),
             ("onSchemaWarning", state.on_schema_warning),

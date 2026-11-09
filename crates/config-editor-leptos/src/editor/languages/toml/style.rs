@@ -195,7 +195,7 @@ pub(super) fn fold_dotted_tables(rendered: &str, dotted: &HashSet<Dotted>, previ
 /// (an inline table's key), or under an array of tables.
 pub(super) fn rename_toml_key(source: &str, pointer: &str, new_key: &str) -> Option<String> {
     let wanted = pointer_segments(pointer);
-    if wanted[..wanted.len().saturating_sub(1)].iter().any(|segment| segment.parse::<usize>().is_ok()) {
+    if wanted[..wanted.len().saturating_sub(1)].iter().any(|segment| crate::editor::language::pointer_index(segment).is_some()) {
         return None;
     }
     let edits = toml_key_occurrences(source, &wanted);

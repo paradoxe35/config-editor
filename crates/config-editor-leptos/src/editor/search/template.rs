@@ -12,10 +12,7 @@
 //! Anything else is copied as written. A group that took no part in the
 //! match is empty.
 
-#[cfg(feature = "schema-validation")]
-use regex::{Captures, Regex};
-#[cfg(not(feature = "schema-validation"))]
-use regex_lite::{Captures, Regex};
+use crate::editor::pattern_engine::{Captures, Regex};
 
 /// `template` with its references to `captures` (a match of `regex`)
 /// filled in.

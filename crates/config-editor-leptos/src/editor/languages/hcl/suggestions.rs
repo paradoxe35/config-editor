@@ -105,10 +105,7 @@ pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionConte
     let snapshot = &snapshot;
     let path: Vec<SchemaPathSegment> = body_path(&scan, snapshot.body)
         .into_iter()
-        .map(|segment| match segment.parse::<usize>() {
-            Ok(index) => SchemaPathSegment::ArrayItem(index),
-            Err(_) => SchemaPathSegment::Key(segment),
-        })
+        .map(SchemaPathSegment::from_pointer_segment)
         .collect();
 
     let line_start = source[..cursor].rfind('\n').map_or(0, |index| index + 1);
@@ -190,10 +187,7 @@ pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionConte
         let (outer, outer_snapshot) = analyze_at(source, statement);
         let mut full: Vec<SchemaPathSegment> = body_path(&outer, outer_snapshot.body)
             .into_iter()
-            .map(|segment| match segment.parse::<usize>() {
-                Ok(index) => SchemaPathSegment::ArrayItem(index),
-                Err(_) => SchemaPathSegment::Key(segment),
-            })
+            .map(SchemaPathSegment::from_pointer_segment)
             .collect();
         if outer_snapshot.in_map {
             full.extend(outer_snapshot.value_prefix.iter().cloned().map(SchemaPathSegment::Key));

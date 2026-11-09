@@ -11,8 +11,8 @@ use super::plan::{Fate, SchemaCache, Setup, active_after, reconcile};
 use crate::EditorStrings;
 use crate::reactive::{Relay, detached_owner, later};
 use crate::{
-    EditorHandle, EditorSettings, FieldPath, HostDiagnostic, Language, SaveRequest, SecretOptions,
-    TextRange,
+    Diagnostic, EditorHandle, EditorSettings, FieldPath, HostDiagnostic, Language, SaveRequest,
+    SecretOptions, TextRange,
 };
 use std::sync::Arc;
 
@@ -198,6 +198,7 @@ pub(super) struct Callbacks {
     pub(super) on_change: Option<Callback<(String, String)>>,
     pub(super) on_save: Option<Callback<(String, SaveRequest)>>,
     pub(super) on_dirty_change: Option<Callback<(String, bool)>>,
+    pub(super) on_problems: Option<Callback<(String, Vec<Diagnostic>)>>,
     pub(super) on_edit_as_change: Option<Callback<(String, Language)>>,
     pub(super) on_sync_change: Option<Callback<(String, bool)>>,
 }

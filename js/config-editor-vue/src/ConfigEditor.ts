@@ -1,6 +1,7 @@
 import type {
   BaselineConflict,
   ChangeSummary,
+  Diagnostic,
   EditorPath,
   FieldPath,
   HostDiagnostic,
@@ -46,6 +47,8 @@ const editorProps = {
   onSyncChange: listener<(inSync: boolean) => void>(),
   /** `@change-summary`: how the document differs from `baseline`, on mount and whenever that changes. */
   onChangeSummary: listener<(summary: ChangeSummary) => void>(),
+  /** `@problems`: the editor's own problems (syntax, schema, secret placeholders, conversion; never `hostDiagnostics`), on mount and each time they change. */
+  onProblems: listener<(problems: Diagnostic[]) => void>(),
   /** `@path-change`: the path of what the caret is on, each time it changes (and once on mount). The path is computed only while a listener is set. */
   onPathChange: listener<(path: EditorPath) => void>(),
   /** Problems the host found (a server's validation), by path or range, shown next to the editor's own. Updates live. */

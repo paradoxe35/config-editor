@@ -122,6 +122,60 @@ test.describe('secret placeholders', () => {
     expect(await selection(page)).toEqual([value.length - 1, value.length - 1]);
   });
 
+  test('a placeholder pasted from the clipboard stays whole: over another, into an empty value, over a cut', async ({ page, context }) => {
+    await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+    const ed = editor(page);
+    const original = await ed.value();
+    const pin = original.indexOf(PIN);
+    const select = (from, to) =>
+      ed.input.evaluate((element, [from, to]) => {
+        element.focus();
+        element.setSelectionRange(from, to);
+      }, [from, to]);
+    const pasteKey = async () => {
+      await page.evaluate((text) => navigator.clipboard.writeText(text), KEY);
+      await page.keyboard.press('Control+V');
+    };
+    // Over the pin's token selected whole (they share `«secret `).
+    await select(pin, pin + PIN.length);
+    await pasteKey();
+    await expect.poll(ed.value).toBe(original.slice(0, pin) + KEY + original.slice(pin + PIN.length));
+    await page.keyboard.press('Control+Z');
+    await expect.poll(ed.value).toBe(original);
+    // Into the value emptied first.
+    await select(pin, pin + PIN.length);
+    await page.keyboard.press('Backspace');
+    await pasteKey();
+    await expect.poll(ed.value).toBe(original.slice(0, pin) + KEY + original.slice(pin + PIN.length));
+    await page.keyboard.press('Control+Z');
+    await page.keyboard.press('Control+Z');
+    await expect.poll(ed.value).toBe(original);
+    // Over a selection from before the token into it: the token goes whole.
+    await select(pin - 1, pin + 5);
+    await pasteKey();
+    await expect.poll(ed.value).toBe(original.slice(0, pin - 1) + KEY + original.slice(pin + PIN.length));
+  });
+
+  test('an insertFromPaste input without a beforeinput keeps the pasted placeholder whole', async ({ page }) => {
+    const ed = editor(page);
+    const original = await ed.value();
+    const pin = original.indexOf(PIN);
+    // What a synthetic paste does: the textarea's text changed, one input
+    // event, no beforeinput telling what it replaced.
+    const synthetic = (from, to) =>
+      ed.input.evaluate(
+        (element, [from, to, text]) => {
+          element.focus();
+          element.value = element.value.slice(0, from) + text + element.value.slice(to);
+          element.setSelectionRange(from + text.length, from + text.length);
+          element.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertFromPaste', data: text }));
+        },
+        [from, to, KEY],
+      );
+    await synthetic(pin, pin + PIN.length);
+    await expect.poll(ed.value).toBe(original.slice(0, pin) + KEY + original.slice(pin + PIN.length));
+  });
+
   test('an untouched placeholder passes the schema check; a look-alike in a secret field is flagged', async ({ page }) => {
     const ed = editor(page);
     await page.waitForTimeout(400);
@@ -234,6 +288,36 @@ for (const name of ['vanilla.html', ...FRAMEWORK_PAGES]) {
       await page.keyboard.press('Backspace');
       await expect(input).toHaveValue(/secret: \n/);
       await expect(page.locator('#saved')).not.toContainText('secret 3f2a');
+    });
+
+    test('a placeholder pasted back stays whole, from the clipboard or a bare insertFromPaste', async ({ page, context }) => {
+      await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+      await page.goto(pathToFileURL(join(examples, 'examples', name)).href);
+      await expect(page.locator('body')).toHaveAttribute('data-ready', 'true', { timeout: 20000 });
+      const input = page.locator('.config-editor__input');
+      await page.locator('#load-secret').click();
+      await expect(input).toHaveValue(/secret: «secret 3f2a»/);
+      const original = await input.inputValue();
+      const at = original.indexOf(KEY);
+      // Emptied, then pasted back from the clipboard: whole, and real again.
+      await clickAt(page, KEY, KEY.length);
+      await page.keyboard.press('Backspace');
+      await expect(input).toHaveValue(/secret: \n/);
+      await page.evaluate((text) => navigator.clipboard.writeText(text), KEY);
+      await page.keyboard.press('Control+V');
+      await expect(input).toHaveValue(original);
+      await expect(page.locator('.config-editor__code-line .config-editor__secret')).toHaveCount(1);
+      // Over a selection cutting into it, with no beforeinput.
+      await input.evaluate(
+        (element, [from, to, text]) => {
+          element.focus();
+          element.value = element.value.slice(0, from) + text + element.value.slice(to);
+          element.setSelectionRange(from + text.length, from + text.length);
+          element.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertFromPaste', data: text }));
+        },
+        [at - 1, at + 5, KEY],
+      );
+      await expect(input).toHaveValue(original.slice(0, at - 1) + KEY + original.slice(at + KEY.length));
     });
   });
 }

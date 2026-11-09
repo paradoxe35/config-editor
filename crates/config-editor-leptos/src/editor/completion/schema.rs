@@ -238,45 +238,56 @@ pub(crate) fn child_schemas<'a>(
 ) -> Vec<&'a Value> {
     let mut next = Vec::new();
     for branch in resolve_branches(schema, root, 0) {
+        let named = named_properties(branch, &segment.as_key());
+        let item = segment
+            .as_index()
+            .and_then(|index| item_schema(branch, index));
         match segment {
-            SchemaPathSegment::ArrayItem(index) => {
-                if let Some(item_schema) = branch
-                    .get("prefixItems")
-                    .and_then(Value::as_array)
-                    .and_then(|prefix_items| prefix_items.get(*index))
-                {
-                    next.push(item_schema);
-                } else if let Some(items) = branch.get("items").filter(|items| items.is_object()) {
-                    next.push(items);
-                }
-            }
-            SchemaPathSegment::Key(key) => {
-                let mut matched = false;
-                if let Some(property) = branch
-                    .get("properties")
-                    .and_then(|properties| properties.get(key))
-                {
-                    next.push(property);
-                    matched = true;
-                }
-                if let Some(patterns) = branch.get("patternProperties").and_then(Value::as_object) {
-                    for (pattern, property) in patterns {
-                        if patterns::pattern_matches(pattern, key) {
-                            next.push(property);
-                            matched = true;
-                        }
-                    }
-                }
-                if !matched
-                    && let Some(additional) = branch.get("additionalProperties")
-                    && additional.is_object()
-                {
-                    next.push(additional);
-                }
-            }
+            // An index names an item of an array, and in an object the key
+            // of its digits when the object names that key.
+            SchemaPathSegment::ArrayItem(_) => match item {
+                Some(item) => next.push(item),
+                None => next.extend(named),
+            },
+            SchemaPathSegment::Key(_) if !named.is_empty() => next.extend(named),
+            // A key written as an index (`FieldPath::key("1")`) reads as one
+            // in an array.
+            SchemaPathSegment::Key(_) => match item {
+                Some(item) => next.push(item),
+                None => next.extend(
+                    branch
+                        .get("additionalProperties")
+                        .filter(|additional| additional.is_object()),
+                ),
+            },
         }
     }
     next
+}
+
+/// The schema of item `index` of an array of `branch`.
+fn item_schema(branch: &Value, index: usize) -> Option<&Value> {
+    branch
+        .get("prefixItems")
+        .and_then(Value::as_array)
+        .and_then(|prefix_items| prefix_items.get(index))
+        .or_else(|| branch.get("items").filter(|items| items.is_object()))
+}
+
+/// The schemas `branch` gives the key `key` by name: its property and the
+/// patterns matching it.
+fn named_properties<'a>(branch: &'a Value, key: &str) -> Vec<&'a Value> {
+    let property = branch
+        .get("properties")
+        .and_then(|properties| properties.get(key));
+    let patterns = branch
+        .get("patternProperties")
+        .and_then(Value::as_object)
+        .into_iter()
+        .flatten()
+        .filter(|(pattern, _)| patterns::pattern_matches(pattern, key))
+        .map(|(_, property)| property);
+    property.into_iter().chain(patterns).collect()
 }
 
 /// Reads `value` the way the schema expects for a language that writes arrays

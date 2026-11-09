@@ -4,6 +4,7 @@ import {
   type BaselineConflict,
   type ChangeSummary,
   type CloseRequest,
+  type Diagnostic,
   ConfigDocuments,
   ConfigEditor,
   type DocumentSpec,
@@ -41,6 +42,7 @@ export interface EditorBindingProps extends EditorSettings {
   onEditAsChange?: (language: LanguageName) => void;
   onSyncChange?: (inSync: boolean) => void;
   onChangeSummary?: (summary: ChangeSummary) => void;
+  onProblems?: (problems: Diagnostic[]) => void;
   onPathChange?: (path: EditorPath) => void;
   hostDiagnostics?: HostDiagnostic[];
   readOnlyPaths?: FieldPath[];
@@ -118,6 +120,7 @@ export interface DocumentsBindingProps extends EditorSettings {
   onChange?: (id: string, value: string) => void;
   onSave?: (id: string, value: string, language: LanguageName) => void;
   onDirtyChange?: (id: string, dirty: boolean) => void;
+  onProblems?: (id: string, problems: Diagnostic[]) => void;
   onEditAsChange?: (id: string, language: LanguageName) => void;
   onSyncChange?: (id: string, inSync: boolean) => void;
   label?: string;

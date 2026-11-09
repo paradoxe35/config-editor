@@ -24,7 +24,7 @@ pub use types::{FieldPath, TextPosition, TextRange};
 #[cfg(any(feature = "yaml", feature = "json", feature = "toml", feature = "xml"))]
 pub(crate) use walk::Checkpoints;
 
-use super::codec::inline_location;
+use super::codec::{inline_location, written_inline};
 use super::completion::{hovered_key, path_with_key};
 use super::keyboard::utf16_to_byte_index;
 use super::language::{ConfigLanguage, Repetition, Span};
@@ -32,12 +32,32 @@ use super::work_count::{Work, note};
 
 /// `pointer`, and for languages that repeat elements or blocks, the pointer
 /// without its `/0` steps: a lone XML element or HCL block read as a one-item
-/// list is addressed `…/0/…` but written without the index.
-fn spellings(behavior: &dyn ConfigLanguage, pointer: &str) -> Vec<String> {
+/// list is addressed `…/0/…` but written without the index. A list written
+/// as one (`ea = []`) has no lone item: its `/0` is only its first item.
+fn spellings(behavior: &dyn ConfigLanguage, source: &str, pointer: &str) -> Vec<String> {
     let mut spellings = vec![pointer.to_string()];
-    if behavior.repetition() != Repetition::None && pointer.contains("/0") {
-        let lone = pointer.replace("/0/", "/");
-        spellings.push(lone.strip_suffix("/0").unwrap_or(&lone).to_string());
+    if behavior.repetition() == Repetition::None || !pointer.contains("/0") {
+        return spellings;
+    }
+    let segments: Vec<&str> = pointer.split('/').skip(1).collect();
+    let mut lone = String::new();
+    for (index, segment) in segments.iter().enumerate() {
+        if *segment == "0" {
+            let list = segments[..index]
+                .iter()
+                .fold(String::new(), |at, segment| format!("{at}/{segment}"));
+            if memo_value_span(behavior, source, &list)
+                .is_some_and(|span| written_inline(behavior, source, span))
+            {
+                return spellings;
+            }
+            continue;
+        }
+        lone.push('/');
+        lone.push_str(segment);
+    }
+    if lone != pointer {
+        spellings.push(lone);
     }
     spellings
 }
@@ -83,7 +103,7 @@ pub(crate) fn field_range(
             TextPosition::new(lines, last.chars().count() + 1),
         ));
     }
-    spellings(behavior, pointer)
+    spellings(behavior, source, pointer)
         .iter()
         .find_map(|pointer| field_span(behavior, source, pointer))
         .or_else(|| first_repeated(behavior, source, pointer).map(range))
@@ -106,7 +126,7 @@ pub(crate) fn key_range(
     source: &str,
     pointer: &str,
 ) -> Option<TextRange> {
-    spellings(behavior, pointer)
+    spellings(behavior, source, pointer)
         .iter()
         .find_map(|pointer| key_span(behavior, source, pointer))
         .map(range)
@@ -227,7 +247,7 @@ pub(crate) fn problem_span(
                 .or_else(|| memo_value_span(behavior, source, path))
         }
     };
-    spellings(behavior, pointer)
+    spellings(behavior, source, pointer)
         .iter()
         .find_map(|pointer| locate(pointer))
         .or_else(|| first_repeated(behavior, source, pointer))
@@ -477,3 +497,23 @@ mod string_bodies_matrix;
     feature = "xml"
 ))]
 mod addressable_matrix;
+
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod pointer_matrix;
+
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod missing_matrix;

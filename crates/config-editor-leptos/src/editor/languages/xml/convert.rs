@@ -166,7 +166,7 @@ pub(super) fn rename_element(source: &str, pointer: &str, new_key: &str) -> Opti
             && plan.path_of(token.start).is_some_and(|path| {
                 let path = strings(path);
                 path == wanted
-                    || path.split_last().is_some_and(|(last, rest)| last.parse::<usize>().is_ok() && rest == wanted.as_slice())
+                    || path.split_last().is_some_and(|(last, rest)| crate::editor::language::pointer_index(last).is_some() && rest == wanted.as_slice())
             });
         if !matches {
             continue;
@@ -277,7 +277,7 @@ fn empty_with_end_tag(source: &str) -> std::collections::HashSet<Vec<String>> {
             && tokens.get(index + 1).is_some_and(|next| matches!(next.kind, Kind::EndTag) && next.start == token.end)
             && let Some(path) = plan.path_of(token.start)
         {
-            found.insert(strings(path).into_iter().filter(|segment| segment.parse::<usize>().is_err()).collect());
+            found.insert(strings(path).into_iter().filter(|segment| crate::editor::language::pointer_index(segment).is_none()).collect());
         }
     }
     found
@@ -298,7 +298,7 @@ pub(super) fn with_end_tags_of(rendered: &str, previous: &str) -> String {
             && rendered[..token.end].ends_with("/>")
             && let Some(path) = plan.path_of(token.start)
         {
-            let path: Vec<String> = strings(path).into_iter().filter(|segment| segment.parse::<usize>().is_err()).collect();
+            let path: Vec<String> = strings(path).into_iter().filter(|segment| crate::editor::language::pointer_index(segment).is_none()).collect();
             if wanted.contains(&path) {
                 let name = token_name(rendered, token);
                 let mut close = token.end - 2;

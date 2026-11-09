@@ -28,7 +28,7 @@ pub use model::{CloseRequest, Document};
 
 use crate::cssom::cssom;
 use crate::reactive::KeyedList;
-use crate::{EditorSettings, Language, PRESET_CSS, SaveRequest};
+use crate::{Diagnostic, EditorSettings, Language, PRESET_CSS, SaveRequest};
 use components::{DocumentPanel, TabStrip};
 use entries::{Callbacks, Documents, Entry};
 
@@ -132,6 +132,12 @@ pub fn ConfigDocuments(
     /// baseline: once when it is added, then each time that changes.
     #[prop(optional, into)]
     on_dirty_change: Option<Callback<(String, bool)>>,
+    /// Called with a document's id and its editor's own problems, as
+    /// `ConfigEditor`'s `on_problems` (never the document's
+    /// `host_diagnostics`): once its editor mounts (when the document is
+    /// first shown), then each time they change.
+    #[prop(optional, into)]
+    on_problems: Option<Callback<(String, Vec<Diagnostic>)>>,
     /// Called with a document's id and the language on screen in its
     /// editor: once when the editor mounts (the first time the document is
     /// shown), then each time that changes: an `edit_as` switch made, one
@@ -175,6 +181,7 @@ pub fn ConfigDocuments(
             on_change,
             on_save,
             on_dirty_change,
+            on_problems,
             on_edit_as_change,
             on_sync_change,
         },

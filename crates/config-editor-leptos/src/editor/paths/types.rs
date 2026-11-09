@@ -17,8 +17,10 @@ use super::super::language::SchemaPathSegment;
 /// assert_eq!(FieldPath::from("web/hosts"), FieldPath::from("/web/hosts"));
 /// ```
 ///
-/// A pointer cannot tell an array index from a key made of digits, so its
-/// numeric segments read as indices; locating a path treats both alike.
+/// A pointer cannot tell an array index from a key made of the same digits,
+/// so such a segment (`0`, or digits without a leading zero) reads as an
+/// index: it names an item where the value is an array and the key of those
+/// digits where it is an object. Any other segment is a key (`/01`, `/+1`).
 #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
 pub struct FieldPath(Vec<SchemaPathSegment>);
 
@@ -43,24 +45,15 @@ impl FieldPath {
     }
 
     /// The path read from a JSON pointer (RFC 6901): `""` is the root, and
-    /// `"/"` the key `""` under it. Whitespace is part of a key (`"/a "`
-    /// names the key `"a "`), but not before the first `/`.
+    /// `"/"` the key `""` under it. Each segment is verbatim (`"/ a"` names
+    /// the key `" a"`), and only `0` or digits without a leading zero index
+    /// an array (`"/01"` is the key `"01"`).
     pub fn from_pointer(pointer: &str) -> Self {
-        let pointer = pointer.trim_start();
         if pointer.is_empty() {
             return FieldPath::root();
         }
         let pointer = pointer.strip_prefix('/').unwrap_or(pointer);
-        FieldPath(
-            pointer
-                .split('/')
-                .map(|segment| segment.replace("~1", "/").replace("~0", "~"))
-                .map(|segment| match segment.parse::<usize>() {
-                    Ok(index) if !segment.starts_with('+') => SchemaPathSegment::ArrayItem(index),
-                    _ => SchemaPathSegment::Key(segment),
-                })
-                .collect(),
-        )
+        FieldPath(SchemaPathSegment::from_pointer(&format!("/{pointer}")))
     }
 
     /// The path as a JSON pointer (`""` for the root).

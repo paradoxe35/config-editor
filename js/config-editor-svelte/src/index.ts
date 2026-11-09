@@ -5,6 +5,7 @@ export type {
   BaselineConflict,
   ChangeSummary,
   CloseRequest,
+  Diagnostic,
   DocumentSpec,
   EditorPath,
   EditorRange,

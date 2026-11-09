@@ -2,6 +2,7 @@ import type {
   BaselineConflict,
   ChangeSummary,
   CloseRequest,
+  Diagnostic,
   DocumentSpec,
   EditorPath,
   EditorSettings,
@@ -34,6 +35,8 @@ export interface ConfigEditorProps extends EditorSettings {
   onSyncChange?: (inSync: boolean) => void;
   /** Called with how the document differs from `baseline`: on mount, then whenever that changes. */
   onChangeSummary?: (summary: ChangeSummary) => void;
+  /** Called with the editor's own problems (syntax, schema, secret placeholders, conversion; never `hostDiagnostics`): on mount, then each time they change. */
+  onProblems?: (problems: Diagnostic[]) => void;
   /** Called with the path of what the caret is on each time it changes (and once on mount). The path is computed only while set. */
   onPathChange?: (path: EditorPath) => void;
   /** Problems the host found (a server's validation), by path or range, shown next to the editor's own. Updates live. */
@@ -94,6 +97,8 @@ export interface ConfigDocumentsProps extends EditorSettings {
   onSave?: (id: string, value: string, language: LanguageName) => void;
   /** Called with a document's id and whether it differs from its baseline: when it is added, then each time that changes. */
   onDirtyChange?: (id: string, dirty: boolean) => void;
+  /** Called with a document's id and its editor's own problems: once its editor mounts (when first shown), then each time they change. */
+  onProblems?: (id: string, problems: Diagnostic[]) => void;
   /** Called with a document's id and the language on screen in its editor: once when the editor mounts (the first time the document is shown), then each time that changes (a switch made, one that waited until the text converted, undo or redo across a switch). */
   onEditAsChange?: (id: string, language: LanguageName) => void;
   /** Called with a document's id and whether the text on screen is written back to its `value`: once when its editor mounts, then each time that changes. */

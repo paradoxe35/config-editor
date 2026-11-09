@@ -763,7 +763,7 @@ fn field_caret(
             .next()?
             .replace("~1", "/")
             .replace("~0", "~");
-        if key.is_empty() || key.parse::<usize>().is_ok() {
+        if key.is_empty() || crate::editor::language::pointer_index(&key).is_some() {
             return None;
         }
         let from_start = from.range_of(before, path.clone())?.start.to_offset(before);

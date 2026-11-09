@@ -10,6 +10,7 @@ export {
   type CloseRequest,
   type CustomLanguage,
   type CustomLanguageContext,
+  type Diagnostic,
   type DocumentSpec,
   type DocumentsOptions,
   type DocumentsUpdate,

@@ -11,8 +11,8 @@ use std::sync::LazyLock;
 /// booleans, nulls, integers (with `_`, octal, hexadecimal, binary,
 /// sexagesimal), floats (with exponents, sexagesimal, `.inf`, `.nan`),
 /// timestamps, the merge key and the value key.
-static TYPED: LazyLock<regex_lite::Regex> = LazyLock::new(|| {
-    regex_lite::Regex::new(concat!(
+static TYPED: LazyLock<crate::editor::pattern_engine::Regex> = LazyLock::new(|| {
+    crate::editor::pattern_engine::Regex::new(concat!(
         r"^(?:",
         r"(?i:y|n|yes|no|true|false|on|off|null|~|<<|=|[-+]?\.inf|\.nan)",
         r"|[-+]?(?:0b[01_]+|0o?[0-7_]+|0x[0-9a-fA-F_]+|[0-9][0-9_]*(?::[0-5]?[0-9])*)",

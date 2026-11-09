@@ -273,7 +273,7 @@ fn yaml_1_1_reads_plain_as_text(written: &str, in_flow: bool) -> bool {
         && !written.ends_with([':', ' '])
         && !written.starts_with(' ')
         && resolvers.iter().all(|pattern| {
-            !regex_lite::Regex::new(pattern)
+            !crate::editor::pattern_engine::Regex::new(pattern)
                 .expect("a pattern")
                 .is_match(written)
         })
