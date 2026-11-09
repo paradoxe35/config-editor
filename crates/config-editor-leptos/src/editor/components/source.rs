@@ -32,8 +32,15 @@ pub(crate) fn SourceInput(state: EditorState) -> impl IntoView {
             aria-haspopup=move || (!read_only.get()).then_some("listbox")
             aria-invalid=move || (!state.problems().diagnostics.with(Vec::is_empty)).to_string()
             // What is at the caret: its problems, a read-only reason, a
-            // secret's hint (see `a11y`); then why the editor is read-only.
-            aria-describedby=format!("{} {}", state.a11y().caret_note_id(), state.a11y().reason_id())
+            // secret's hint (see `a11y`); then why the editor is read-only,
+            // only while it is and the host said why.
+            aria-describedby=move || {
+                let note = state.a11y().caret_note_id();
+                match state.read_only_reason() {
+                    Some(_) => format!("{note} {}", state.a11y().reason_id()),
+                    None => note,
+                }
+            }
             node_ref=state.view().textarea_ref
             spellcheck="false"
             autocapitalize="off"
