@@ -42,6 +42,32 @@ fn parse_error(source: &str) -> super::super::super::language::ParseError {
         .expect_err("the document should be rejected")
 }
 
+/// QA 24 (L24-U4): a comment holding `--` was accepted; XML forbids it
+/// (and a `-` right before `-->`). The error points at the dashes; other
+/// comments, dashes alone included, still parse.
+#[test]
+fn a_comment_holding_two_dashes_is_not_well_formed() {
+    for (source, line, column) in [
+        ("<r>\n  <!-- a -- comment -->\n</r>\n", 2, 10),
+        ("<!-- a --->\n<r>1</r>\n", 1, 8),
+        ("<r>1</r>\n<!-- end -- -->\n", 2, 10),
+    ] {
+        let error = parse_error(source);
+        assert_eq!((error.line, error.column), (Some(line), Some(column)), "{source:?}");
+        assert!(error.message.contains("--"), "{}", error.message);
+    }
+    // An empty comment (`<!---->`) is well-formed.
+    for source in [
+        "<r>\n  <!-- a - b -->\n</r>\n",
+        "<!-- -a- -->\n<r>1</r>\n",
+        "<r><!----><t>1</t></r>",
+        "<r><!-- x --><!-- y --></r>",
+    ] {
+        let parsed = XmlBehavior.parse(source);
+        assert!(parsed.is_ok(), "{source:?}: {parsed:?}");
+    }
+}
+
 #[test]
 fn mismatched_tags_are_a_parse_error_with_a_position() {
     let error = parse_error("<server>\n  <host></port></server>");

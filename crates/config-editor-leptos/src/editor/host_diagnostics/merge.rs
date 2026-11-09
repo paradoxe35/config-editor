@@ -7,41 +7,69 @@ use super::super::diagnostics::Diagnostic;
 
 /// The editor's `own` problems and the host's, each problem once: where the
 /// host marks the same text (an overlapping marker) with the same message,
-/// as serious or more, only the host's shows, as its text is what the host
-/// acts on. A different message (a host error on a line where the schema
-/// finds a deprecated key) is another problem, and a less serious one (a
-/// hint on a field the schema finds wrong) never hides the editor's: both
+/// the more serious of the two shows (the host's when as serious, as its
+/// text is what the host acts on), so a schema error the host repeats as a
+/// warning stays an error, once. A different message (a host error on a
+/// line where the schema finds a deprecated key) is another problem: both
 /// show.
 pub(in super::super) fn merge(own: &[Diagnostic], host: &[Diagnostic]) -> Vec<Diagnostic> {
-    // Each marker as `(start, end, severity)` by message: one look per own
-    // problem, not a pass over thousands of the host's.
-    let mut by_message: HashMap<&str, Vec<(Spot, Spot, u8)>> = HashMap::new();
+    // Each marker as `(start, end, severity)` by message: one look per
+    // problem, not a pass over thousands of the other side's.
+    let mut theirs_by_message: HashMap<&str, Vec<Marker>> = HashMap::new();
     for theirs in host {
-        if let Some((start, end)) = span(theirs) {
-            by_message.entry(theirs.message.trim()).or_default().push((
-                start,
-                end,
-                theirs.severity as u8,
-            ));
+        if let Some(marker) = marker(theirs) {
+            theirs_by_message
+                .entry(theirs.message.trim())
+                .or_default()
+                .push(marker);
         }
     }
-    let repeated = |mine: &Diagnostic| {
-        let Some((start, end)) = span(mine) else {
+    let mut mine_by_message: HashMap<&str, Vec<Marker>> = HashMap::new();
+    for mine in own {
+        if let Some(marker) = marker(mine) {
+            for message in same_messages(&mine.message) {
+                mine_by_message.entry(message).or_default().push(marker);
+            }
+        }
+    }
+    // Whether `problem`, saying one of `messages`, is repeated in `others`
+    // by one as serious as it (`or_more`), or more serious.
+    let repeated = |problem: &Diagnostic,
+                    messages: &[&str],
+                    others: &HashMap<&str, Vec<Marker>>,
+                    or_more: bool| {
+        let Some((start, end, severity)) = marker(problem) else {
             return false;
         };
-        same_messages(&mine.message).any(|message| {
-            by_message.get(message).is_some_and(|markers| {
-                markers.iter().any(|&(their_start, their_end, severity)| {
-                    start < their_end && their_start < end && severity <= mine.severity as u8
+        messages.iter().any(|message| {
+            others.get(message).is_some_and(|markers| {
+                markers.iter().any(|&(their_start, their_end, theirs)| {
+                    let serious = if or_more {
+                        theirs <= severity
+                    } else {
+                        theirs < severity
+                    };
+                    start < their_end && their_start < end && serious
                 })
             })
         })
     };
-    own.iter()
-        .filter(|mine| !repeated(mine))
-        .chain(host)
-        .cloned()
-        .collect()
+    let own_shown = own.iter().filter(|mine| {
+        let messages: Vec<&str> = same_messages(&mine.message).collect();
+        !repeated(mine, &messages, &theirs_by_message, true)
+    });
+    let host_shown = host
+        .iter()
+        .filter(|theirs| !repeated(theirs, &[theirs.message.trim()], &mine_by_message, false));
+    own_shown.chain(host_shown).cloned().collect()
+}
+
+/// Where a problem's marker starts and ends, and its severity (lower is
+/// more serious).
+type Marker = (Spot, Spot, u8);
+
+fn marker(problem: &Diagnostic) -> Option<Marker> {
+    span(problem).map(|(start, end)| (start, end, problem.severity as u8))
 }
 
 /// A one-based `(line, column)` place.

@@ -89,6 +89,8 @@ pub struct EditorStrings {
     pub hints_other: String,
     /// After the problem count when every problem has its place.
     pub problems_hint: String,
+    /// `problems_hint` on a touch screen, which has no hover.
+    pub problems_hint_touch: String,
     /// After the problem count when the editor's own problems were cut;
     /// `{count}` is how many of them are shown (the host's are all shown).
     pub problems_cut: String,
@@ -302,6 +304,9 @@ pub struct EditorStrings {
     pub one_of: String,
     /// The hover card's link to the schema's documentation.
     pub documentation: String,
+    /// Announced when a second `Ctrl+K Ctrl+I` moves the focus into the
+    /// hover card, to scroll it.
+    pub hover_focused: String,
     /// The link under a host problem's message.
     pub open_docs: String,
     /// An error, as a screen reader hears it.
@@ -470,6 +475,7 @@ impl Default for EditorStrings {
             hints_one: text("{count} hint"),
             hints_other: text("{count} hints"),
             problems_hint: text("hover or focus underlined text"),
+            problems_hint_touch: text("tap underlined text"),
             problems_cut: text("only the editor's first {count} are shown"),
             problems_more: text("Only the first {count} problems are shown; more follow."),
             underlines_cut: text("only {count} underlines are drawn, the most serious first"),
@@ -582,6 +588,9 @@ impl Default for EditorStrings {
             examples: text("Examples"),
             one_of: text("One of"),
             documentation: text("Documentation"),
+            hover_focused: text(
+                "In the docs: arrows, Page Up, Page Down, Home and End scroll them. Escape returns to the text.",
+            ),
             open_docs: text("Open docs ↗ (Alt+Enter)"),
             error: text("Error"),
             warning: text("Warning"),

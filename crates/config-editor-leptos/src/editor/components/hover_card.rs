@@ -35,7 +35,7 @@ pub(crate) fn HoverCardView(state: EditorState) -> impl IntoView {
     Effect::new(move |_| {
         state.hover().card.track();
         problems.track();
-        later::next_frame(scrolls, move |scrolls| measure(card_ref, scrolls));
+        later::next_frame(scrolls, move |scrolls| measure(state, card_ref, scrolls));
     });
     move || {
         state
@@ -59,8 +59,11 @@ pub(crate) fn HoverCardView(state: EditorState) -> impl IntoView {
                         class:config-editor__hover--interactive=interactive
                         class:config-editor__hover--scrolls=move || scrolls.get()
                         role="tooltip"
+                        // Focused by a second Ctrl+K Ctrl+I, to scroll it.
+                        tabindex="-1"
                         node_ref=state.hover().card_ref
                         style=cssom(card.style)
+                        on:keydown=move |event| card_key(state, &event)
                         on:focusout=move |event| leave_card_focus(state, &event)
                         on:mouseenter=move |_| enter_card(state)
                         on:mouseleave=move |_| leave_card(state)
@@ -118,11 +121,12 @@ pub(crate) fn HoverCardView(state: EditorState) -> impl IntoView {
 }
 
 /// Whether the card is taller than its room (its `max-height`), into
-/// `scrolls`.
-fn measure(card_ref: NodeRef<Div>, scrolls: RwSignal<bool>) {
+/// `scrolls` (and the hover state, for the way to it).
+fn measure(state: EditorState, card_ref: NodeRef<Div>, scrolls: RwSignal<bool>) {
     let overflows = card_ref
         .get_untracked()
         .is_some_and(|card| card.scroll_height() > card.client_height());
+    state.hover().scrolls.set_value(overflows);
     if scrolls.get_untracked() != overflows {
         scrolls.set(overflows);
     }
@@ -147,8 +151,15 @@ fn leave_card(state: EditorState) {
     state.hide_problem_tip();
 }
 
-/// The focus left a link in the card: it closes, unless the focus went to
-/// another of its links or back to the text.
+/// A key with the focus in the card: the scroll keys scroll it.
+fn card_key(state: EditorState, event: &web_sys::KeyboardEvent) {
+    if let Some(card) = state.hover().card_ref.get_untracked() {
+        super::super::hover_focus::card_keys(&card, event);
+    }
+}
+
+/// The focus left the card or a link in it: it closes, unless the focus
+/// went to another of its links or back to the text.
 fn leave_card_focus(state: EditorState, event: &web_sys::FocusEvent) {
     if !state.keep_card_for(event.related_target().as_ref()) {
         state.hide_hover();

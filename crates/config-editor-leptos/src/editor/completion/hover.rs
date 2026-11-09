@@ -151,13 +151,9 @@ fn value_hover(
                 .and_then(|candidate| value_doc(branch, &candidate))
         })?;
     // The docs of the property the value belongs to (an array's, for an item).
-    let mut property_path = path;
-    while matches!(property_path.last(), Some(SchemaPathSegment::ArrayItem(_))) {
-        property_path.pop();
-    }
     let mut hover = property_hover(
         source,
-        &property_path,
+        property_path(&path),
         key,
         line[..start].chars().count(),
         bundle,
@@ -168,6 +164,16 @@ fn value_hover(
         doc,
     });
     Some(hover)
+}
+
+/// The path of the property `path` is in: itself, or the array an item
+/// (a repeated block) belongs to.
+fn property_path(path: &[SchemaPathSegment]) -> &[SchemaPathSegment] {
+    let kept = path
+        .iter()
+        .rposition(|segment| !matches!(segment, SchemaPathSegment::ArrayItem(_)))
+        .map_or(0, |last| last + 1);
+    &path[..kept]
 }
 
 /// The byte range in `line` of the bare word at character `column`: a
@@ -199,14 +205,24 @@ fn property_hover(
     bundle: &SchemaBundle,
     behavior: &dyn ConfigLanguage,
 ) -> Option<KeyHover> {
-    let parent = &path[..path.len().checked_sub(1)?];
+    // A repeated block (TOML `[[svc]]`, HCL `svc {`, XML `<svc>`) is an
+    // item of the array its key names: the array's own docs come first,
+    // the item's after.
+    let property = property_path(path);
+    let parent = &property[..property.len().checked_sub(1)?];
     let root = &bundle.schema;
     let repeats = behavior.repetition() != Repetition::None;
     let schemas = schema_at_path(root, path, repeats);
     if schemas.is_empty() {
         return None;
     }
-    let branches: Vec<&Value> = schemas
+    let owners = if property.len() < path.len() {
+        schema_at_path(root, property, repeats)
+    } else {
+        Vec::new()
+    };
+    let documented: Vec<&Value> = owners.iter().chain(&schemas).copied().collect();
+    let branches: Vec<&Value> = documented
         .iter()
         .flat_map(|schema| resolve_branches(schema, root, 0))
         .collect();
@@ -281,11 +297,11 @@ fn property_hover(
         default,
         examples,
         required,
-        deprecated: schemas.iter().any(|schema| is_deprecated(schema, root)),
-        deprecation: schemas
+        deprecated: documented.iter().any(|schema| is_deprecated(schema, root)),
+        deprecation: documented
             .iter()
             .find_map(|schema| deprecation_message(schema, root)),
-        docs_url: schemas.iter().find_map(|schema| docs_url(schema, root)),
+        docs_url: documented.iter().find_map(|schema| docs_url(schema, root)),
         choice,
         value: None,
     })

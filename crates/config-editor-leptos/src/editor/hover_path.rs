@@ -10,7 +10,7 @@
 use leptos::prelude::*;
 use wasm_bindgen::JsCast;
 
-use super::positioning::schedule_hover;
+use super::positioning::{POPUP_GAP, schedule_hover};
 use super::problem_hit::{column_at_cell, covering};
 use super::state::EditorState;
 
@@ -56,6 +56,16 @@ fn heads_for(from: Point, to: Point, target: Rect) -> bool {
     (0..4).any(|side| in_triangle(to, from, corners[side], corners[(side + 1) % 4]))
 }
 
+/// Whether `point` is in the gap the popup `target` keeps from its line,
+/// above or below it (or on the popup).
+fn in_gap((x, y): Point, target: Rect) -> bool {
+    let reach = POPUP_GAP + SLACK;
+    x >= target.left - SLACK
+        && x <= target.right + SLACK
+        && y >= target.top - reach
+        && y <= target.bottom + reach
+}
+
 /// Whether `point` is inside the triangle `a`, `b`, `c` (or on its edge).
 fn in_triangle(point: Point, a: Point, b: Point, c: Point) -> bool {
     let cross =
@@ -72,11 +82,17 @@ impl EditorState {
     pub(super) fn on_the_way_to_popup(&self, x: f64, y: f64, line: usize, cell: usize) -> bool {
         let from = self.hover().pointer.get_value();
         self.hover().pointer.set_value(Some((x, y)));
+        let popup = self.reachable_popup();
+        // In the gap between the line and the popup: as good as on it, so
+        // resting there keeps it.
+        if popup.is_some_and(|popup| in_gap((x, y), popup)) && !self.on_popup_anchor(line, cell) {
+            self.hover().heading.set_value(true);
+            self.hold_popup();
+            return true;
+        }
         let heading = match from {
             Some(from) if from == (x, y) => self.hover().heading.get_value(),
-            Some(from) => self
-                .reachable_popup()
-                .is_some_and(|popup| heads_for(from, (x, y), popup)),
+            Some(from) => popup.is_some_and(|popup| heads_for(from, (x, y), popup)),
             None => false,
         };
         self.hover().heading.set_value(heading);
@@ -152,6 +168,17 @@ impl EditorState {
         })
     }
 
+    /// In the popup's gap: it (and the problems the card lists) stays, the
+    /// moment it was given to be reached called off.
+    fn hold_popup(&self) {
+        let problems = self.problems();
+        problems.tip_token.update_value(|token| *token += 1);
+        problems.tip_leaving.set_value(false);
+        if self.hover().card.with_untracked(Option::is_some) && !self.hover().at_caret.get_value() {
+            self.hover().token.update_value(|token| *token += 1);
+        }
+    }
+
     /// On the way to the popup: it (and the problems the card lists) stays
     /// a moment more, then goes unless the pointer got there.
     fn wait_on_the_way(&self) {
@@ -184,7 +211,7 @@ impl EditorState {
 
 #[cfg(test)]
 mod tests {
-    use super::{Rect, heads_for};
+    use super::{Rect, heads_for, in_gap};
 
     /// A card below a key's line, as the hover card opens.
     const CARD: Rect = Rect {
@@ -223,5 +250,18 @@ mod tests {
         assert!(!heads_for((390.0, 45.0), (420.0, 45.0), CARD));
         // Not moving decides nothing.
         assert!(!heads_for(key, key, CARD));
+    }
+
+    /// QA 24 (L24-U1): the pointer resting in the 4 px gap between the
+    /// line and the card let it close. The gap above and below it counts
+    /// as on it; the line itself, and beside the card, do not.
+    #[test]
+    fn the_gap_between_the_line_and_the_card_is_on_the_way() {
+        for y in [56.5, 58.0, 59.5, 60.0, 120.0, 203.0] {
+            assert!(in_gap((100.0, y), CARD), "{y}");
+        }
+        for (x, y) in [(100.0, 50.0), (100.0, 53.0), (20.0, 58.0), (400.0, 58.0)] {
+            assert!(!in_gap((x, y), CARD), "{x}, {y}");
+        }
     }
 }

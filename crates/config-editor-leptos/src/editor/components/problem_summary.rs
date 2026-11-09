@@ -27,8 +27,9 @@ pub(super) fn ProblemCount(state: EditorState) -> impl IntoView {
     let underlines_cut = state.problems().underlines_cut;
     let summary = Memo::new(move |_| {
         let underlines_cut = underlines_cut.get();
+        let touch = touch_screen();
         state.strings(|strings| {
-            diagnostics.with(|problems| summary_parts(strings, problems, underlines_cut))
+            diagnostics.with(|problems| summary_parts(strings, problems, underlines_cut, touch))
         })
     });
     // The whole summary, for when the footer is too narrow to show it.
@@ -107,12 +108,22 @@ fn is_more_note(problem: &Diagnostic) -> bool {
     problem.code.as_deref() == Some(MORE_PROBLEMS_CODE)
 }
 
+/// Whether the screen has no hover (a phone's, a tablet's): its hint says
+/// "tap".
+fn touch_screen() -> bool {
+    web_sys::window()
+        .and_then(|window| window.match_media("(hover: none)").ok().flatten())
+        .is_some_and(|query| query.matches())
+}
+
 /// The counts, then an unplaced problem's message and the notes that the
-/// list or (`underlines_cut`) the underlines were cut, or else a hint.
+/// list or (`underlines_cut`) the underlines were cut, or else a hint (for
+/// a `touch` screen, its own).
 fn summary_parts(
     strings: &EditorStrings,
     problems: &[Diagnostic],
     underlines_cut: bool,
+    touch: bool,
 ) -> Summary {
     // The notes that more problems follow are not among them: the count of
     // the kind each note cut says "20+" instead.
@@ -183,7 +194,9 @@ fn summary_parts(
     .into_iter()
     .flatten()
     .collect();
-    let detail = if notes.is_empty() {
+    let detail = if notes.is_empty() && touch {
+        strings.problems_hint_touch.clone()
+    } else if notes.is_empty() {
         strings.problems_hint.clone()
     } else {
         notes.join(" · ")
@@ -201,7 +214,7 @@ mod tests {
 
     /// "2 errors, 1 warning · …" as one text.
     fn summary(strings: &EditorStrings, problems: &[Diagnostic]) -> String {
-        summary_parts(strings, problems, false).text()
+        summary_parts(strings, problems, false, false).text()
     }
     use crate::EditorStrings;
 
@@ -249,12 +262,29 @@ mod tests {
         ];
         let mut failures = Vec::new();
         for (problems, cut, expected) in cases {
-            let found = summary_parts(&strings, problems, cut).text();
+            let found = summary_parts(&strings, problems, cut, false).text();
             if found != expected {
                 failures.push(format!("expected {expected:?}, found {found:?}"));
             }
         }
         assert!(failures.is_empty(), "{}", failures.join("\n"));
+    }
+
+    /// QA 24 (L24-U6): a phone has no hover, but its hint said "hover";
+    /// it says "tap" there, and the notes still take its place.
+    #[test]
+    fn a_touch_screens_hint_says_tap() {
+        let strings = EditorStrings::default();
+        let one = [placed(Severity::Error)];
+        let touch = summary_parts(&strings, &one, false, true).text();
+        assert_eq!(touch, "1 error · tap underlined text");
+        let pointer = summary_parts(&strings, &one, false, false).text();
+        assert_eq!(pointer, "1 error · hover or focus underlined text");
+        let cut = summary_parts(&strings, &one, true, true).text();
+        assert_eq!(
+            cut,
+            "1 error · only 200 underlines are drawn, the most serious first"
+        );
     }
 
     /// QA 19: the note counts the editor's own problems, the ones the cap
@@ -288,7 +318,7 @@ mod tests {
         .into_iter()
         .map(placed)
         .collect();
-        let found = summary_parts(&EditorStrings::default(), &problems, false);
+        let found = summary_parts(&EditorStrings::default(), &problems, false, false);
         assert_eq!(
             found,
             Summary {
@@ -302,7 +332,7 @@ mod tests {
             }
         );
         assert_eq!(
-            summary_parts(&EditorStrings::default(), &[], false),
+            summary_parts(&EditorStrings::default(), &[], false, false),
             Summary {
                 counts: Vec::new(),
                 detail: Some("No errors".to_string()),

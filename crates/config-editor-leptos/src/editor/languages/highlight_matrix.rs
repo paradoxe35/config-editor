@@ -366,6 +366,49 @@ fn qa23_marks() -> Vec<(Language, &'static str, &'static str, TokenKind)> {
     ]
 }
 
+/// QA 24 (L24-U4): a complex key written as a block scalar (`? |`) had
+/// its indicator coloured as the key and its text, on the lines below, no
+/// colour: the indicator is punctuation, as after `key:`, and the text a
+/// string body, as a value's.
+#[test]
+fn a_block_scalar_complex_key_has_its_indicator_and_its_text() {
+    let mut failures = Vec::new();
+    for (line, part) in [
+        ("? |", "|"),
+        ("? >-", ">-"),
+        ("? &k |", "|"),
+        ("? |2 # c", "|2"),
+    ] {
+        check(
+            &mut failures,
+            Language::YAML,
+            line,
+            part,
+            TokenKind::Punctuation,
+            &[],
+        );
+    }
+    check(
+        &mut failures,
+        Language::YAML,
+        "? |2 # c",
+        "# c",
+        TokenKind::Comment,
+        &[],
+    );
+    let yaml = Language::YAML.behavior();
+    for (text, body) in [
+        ("? |\n  block key\n: v\n", 1..2),
+        ("a:\n  ? >-\n    folded\n    key\n  : v\n", 2..4),
+    ] {
+        let found = yaml.string_body_lines(text);
+        if found != [body.clone()] {
+            failures.push(format!("{text:?}: body {found:?}, expected {body:?}"));
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
 /// QA 22: YAML's anchors, aliases, tags and block indicators were plain
 /// values (a flow mapping after an anchor one plain run), TOML's `=` and
 /// an inline table's key dots were not punctuation, and HCL's references

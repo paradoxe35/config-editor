@@ -37,6 +37,9 @@ pub(super) struct HoverState {
     /// The card's element while it shows: the keyboard reaches its links
     /// (see [`EditorState::keep_card_for`]).
     pub(super) card_ref: NodeRef<leptos::html::Div>,
+    /// The card is taller than its room (it scrolls), measured once
+    /// drawn: the pointer can enter it to scroll it, as one with a link.
+    pub(super) scrolls: StoredValue<bool>,
 }
 
 impl HoverState {
@@ -50,13 +53,15 @@ impl HoverState {
             pointer: StoredValue::new(None),
             heading: StoredValue::new(false),
             card_ref: NodeRef::new(),
+            scrolls: StoredValue::new(false),
         }
     }
 }
 
 impl EditorState {
-    /// Hides a card the pointer may be on its way to (one with a link)
-    /// after a moment, unless it gets there; hides any other card now.
+    /// Hides a card the pointer may be on its way to (one with a link, or
+    /// one that scrolls) after a moment, unless it gets there; hides any
+    /// other card now.
     pub(super) fn leave_hover(&self) {
         if self.hover().at_caret.get_value() {
             return;
@@ -163,9 +168,11 @@ impl EditorState {
         self.hover().pending.set_value(None);
         self.hover().card_entered.set_value(false);
         self.hover().at_caret.set_value(false);
+        self.hover().scrolls.set_value(false);
         if self.hover().card.with_untracked(Option::is_some) {
-            // A link in it had the focus (Tab, in `Ctrl+M` mode): the text
-            // takes it back instead of the page.
+            // The card or a link in it had the focus (Tab, in `Ctrl+M`
+            // mode; a second `Ctrl+K Ctrl+I`): the text takes it back
+            // instead of the page.
             let focused = self.card_has_focus();
             self.hover().card.set(None);
             if focused && let Some(element) = self.textarea() {
@@ -174,7 +181,7 @@ impl EditorState {
         }
     }
 
-    /// Whether the focus is in the hover card (on one of its links).
+    /// Whether the focus is in the hover card (on it or one of its links).
     pub(super) fn card_has_focus(&self) -> bool {
         let active = web_sys::window()
             .and_then(|window| window.document())

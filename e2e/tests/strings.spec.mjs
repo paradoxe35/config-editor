@@ -58,6 +58,8 @@ const ELSEWHERE = {
   showRemovedTitle: 'as addedLine',
   showRemovedAtEnd: 'as addedLine',
   revertTitle: 'the change previewed here spans two lines (revertLinesTitle): changes spec',
+  problemsHintTouch: 'a touch screen: problem_summary tests and the qa-round24-ux spec',
+  hoverFocused: 'a second Ctrl+K Ctrl+I on a card: the qa-round24-ux spec',
   revertLineAndRemovedTitle: 'as revertTitle',
   defaultValue: 'the hovered key has no default: schema help tests',
   warning: 'severity names: a11y tests',

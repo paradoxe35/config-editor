@@ -364,7 +364,9 @@ fn block_scalar_opener(line: &str) -> Option<usize> {
     }
     let properties = before.iter().rev().take_while(|token| token.starts_with(['&', '!'])).count();
     let owner = *before.get(before.len().checked_sub(properties + 1)?)?;
-    if owner == "-" {
+    // An item's (`- |`) or a complex key's (`? |`): past the indicator's
+    // indentation.
+    if owner == "-" || owner == "?" {
         return Some(indent);
     }
     if !owner.ends_with(':') {

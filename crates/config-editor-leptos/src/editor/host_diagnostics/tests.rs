@@ -226,7 +226,9 @@ fn the_host_problem_replaces_the_editors_own_on_the_same_text() {
 
 /// QA 19 (H19-F4): the host's message takes the place of the editor's own
 /// only when it is as serious: a host hint on a field kept its schema
-/// error out of sight (and the footer said there were no errors).
+/// error out of sight (and the footer said there were no errors). QA 24
+/// (L24-U5): a less serious one showed beside it, the same problem twice;
+/// the more serious one shows, once.
 #[test]
 fn a_less_serious_host_problem_never_hides_the_editors_own() {
     let at = |severity: Severity, origin: DiagnosticOrigin, message: &str| Diagnostic {
@@ -257,7 +259,7 @@ fn a_less_serious_host_problem_never_hides_the_editors_own() {
             let expected: &[DiagnosticOrigin] = if (theirs as u8) <= (own as u8) {
                 &[DiagnosticOrigin::Host]
             } else {
-                &[DiagnosticOrigin::Editor, DiagnosticOrigin::Host]
+                &[DiagnosticOrigin::Editor]
             };
             if merged != expected {
                 failures.push(format!("own {own:?}, host {theirs:?}: {merged:?}"));

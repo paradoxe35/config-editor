@@ -190,6 +190,12 @@ export interface EditorStrings {
    */
   problemsHint?: string;
   /**
+   * `problems_hint` on a touch screen, which has no hover.
+   *
+   * @default "tap underlined text"
+   */
+  problemsHintTouch?: string;
+  /**
    * After the problem count when the editor's own problems were cut; `{count}` is how many of them are shown (the host's are all shown).
    *
    * @default "only the editor's first {count} are shown"
@@ -741,6 +747,12 @@ export interface EditorStrings {
    * @default "Documentation"
    */
   documentation?: string;
+  /**
+   * Announced when a second `Ctrl+K Ctrl+I` moves the focus into the hover card, to scroll it.
+   *
+   * @default "In the docs: arrows, Page Up, Page Down, Home and End scroll them. Escape returns to the text."
+   */
+  hoverFocused?: string;
   /**
    * The link under a host problem's message.
    *

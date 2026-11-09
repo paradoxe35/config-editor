@@ -81,17 +81,28 @@ pub(super) fn hover_context_end(line: &str, column: usize) -> usize {
     }
 }
 
-/// The document path of the element whose start-tag name is at `column`
-/// (characters, from 0) of line `line_index`, its name and start column.
+/// The document path of the element whose start-tag (or end-tag) name is
+/// at `column` (characters, from 0) of line `line_index`, its name and
+/// start column there. An end tag is its element's, as its start tag.
 pub(super) fn element_hover_path(source: &str, line_index: usize, column: usize) -> Option<(Vec<SchemaPathSegment>, String, usize)> {
     let line_start: usize = source.split('\n').take(line_index).map(|line| line.len() + 1).sum();
     let line = source.get(line_start..)?.split('\n').next()?;
     let byte = line_start + line.char_indices().nth(column).map_or(line.len(), |(at, _)| at);
     let tokens = tokenize(source);
     let plan = plan_paths(source, &tokens);
-    let token = tokens.iter().find(|token| {
-        matches!(token.kind, Kind::OpenTag { name_end, .. } if token.start < byte && byte < name_end)
+    let (hovered, name_start) = tokens.iter().enumerate().find_map(|(index, token)| match token.kind {
+        Kind::OpenTag { name_end, .. } if token.start < byte && byte < name_end => Some((index, token.start + 1)),
+        Kind::EndTag => {
+            let start = token.start + 2;
+            let name_end = start + token_name(source, token).len();
+            (start <= byte && byte < name_end).then_some((index, start))
+        }
+        _ => None,
     })?;
+    let token = match tokens[hovered].kind {
+        Kind::EndTag => opening_of(source, &tokens, hovered)?,
+        _ => &tokens[hovered],
+    };
     let path = plan.path_of(token.start)?;
     if path.is_empty() {
         return None;
@@ -104,6 +115,35 @@ pub(super) fn element_hover_path(source: &str, line_index: usize, column: usize)
         })
         .collect();
     let name = decode_entities(&token_name(source, token));
-    let start_column = source[line_start..token.start + 1].chars().count();
+    let start_column = source[line_start..name_start].chars().count();
     Some((segments, name, start_column))
+}
+
+/// The start tag the end tag `tokens[end]` closes, matched as the path
+/// plan matches them (see `plan_text`): the innermost open element of its
+/// name.
+fn opening_of<'a>(source: &str, tokens: &'a [Token], end: usize) -> Option<&'a Token> {
+    let mut open: Vec<(&Token, String)> = Vec::new();
+    for token in &tokens[..end] {
+        match token.kind {
+            Kind::OpenTag { .. } => {
+                let name = token_name(source, token);
+                if !name.is_empty() && !opens_nothing(source, token) {
+                    open.push((token, name));
+                }
+            }
+            Kind::EndTag => {
+                let name = token_name(source, token);
+                match open.iter().rposition(|(_, open)| *open == name) {
+                    Some(position) => open.truncate(position),
+                    None => {
+                        open.pop();
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    let name = token_name(source, &tokens[end]);
+    open.iter().rev().find(|(_, open)| *open == name).map(|(token, _)| *token)
 }

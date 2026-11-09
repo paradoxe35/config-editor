@@ -192,7 +192,8 @@ pub(super) fn build_value(source: &str) -> Result<Value, ParseError> {
                     stack.is_empty(),
                 )?;
             }
-            Event::Comment(_) | Event::Decl(_) | Event::PI(_) | Event::DocType(_) => {}
+            Event::Comment(_) => check_comment(source, event_start)?,
+            Event::Decl(_) | Event::PI(_) | Event::DocType(_) => {}
         }
         buf.clear();
     }
@@ -417,6 +418,29 @@ pub(super) fn syntax_error(source: &str, byte: usize, message: impl Into<String>
         message: message.into(),
         line: Some(line),
         column: Some(column),
+    }
+}
+
+/// The comment starting at or after byte `from` keeps to XML's rule: no
+/// `--` inside it, and no `-` just before its `-->` (`<!-- a -- b -->`
+/// and `<!-- a --->` are not well-formed). The error points at the `--`.
+pub(super) fn check_comment(source: &str, from: usize) -> Result<(), ParseError> {
+    let Some(open) = source.get(from..).and_then(|rest| rest.find("<!--")) else {
+        return Ok(());
+    };
+    let body_start = from + open + 4;
+    let body_end = source[body_start..]
+        .find("-->")
+        .map_or(source.len(), |end| body_start + end);
+    let body = &source[body_start..body_end];
+    let dashes = body.find("--").or_else(|| body.ends_with('-').then(|| body.len() - 1));
+    match dashes {
+        Some(at) => Err(syntax_error(
+            source,
+            body_start + at,
+            "a comment cannot contain \"--\" (nor end with \"-\" before \"-->\")",
+        )),
+        None => Ok(()),
     }
 }
 

@@ -1234,6 +1234,12 @@
 
 .config-editor__hover--interactive { pointer-events: auto; }
 
+/* Focused from the keyboard (a second Ctrl+K Ctrl+I), to scroll it. */
+.config-editor__hover:focus-visible {
+  outline: 2px solid var(--config-editor-focus-ring);
+  outline-offset: -2px;
+}
+
 /* Text, held to 4.5:1 on the card like the footer's warning count (the
    underline's warning color is lighter in the light themes). */
 .config-editor__hover-deprecated {

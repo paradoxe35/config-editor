@@ -81,9 +81,13 @@ impl EditorState {
         }
     }
 
-    /// Whether the card has a link to reach (its docs', or a problem's it
-    /// lists), so the pointer leaving its key gives it a moment.
+    /// Whether the pointer may enter the card: it scrolls, or has a link to
+    /// reach (its docs', or a problem's it lists), so the pointer leaving
+    /// its key gives it a moment.
     pub(super) fn card_reachable(&self) -> bool {
+        if self.hover().card.with_untracked(Option::is_some) && self.hover().scrolls.get_value() {
+            return true;
+        }
         untrack(|| {
             let docs = self.hover().card.with(|card| {
                 card.as_ref()

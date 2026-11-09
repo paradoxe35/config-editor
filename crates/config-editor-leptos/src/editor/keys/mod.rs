@@ -26,8 +26,9 @@ pub(super) fn on_keydown(state: EditorState, event: &KeyboardEvent) {
         return;
     }
     // A modifier alone keeps the card: Alt for Alt+Enter, which opens its
-    // link, Ctrl for a chord.
-    if !matches!(event.key().as_str(), "Shift" | "Control" | "Alt" | "Meta") {
+    // link, Ctrl for a chord; so does `Ctrl+K Ctrl+I` again, to focus it.
+    let keeps_card = chord::keeps_card(state, event);
+    if !matches!(event.key().as_str(), "Shift" | "Control" | "Alt" | "Meta") && !keeps_card {
         state.hide_hover();
     }
     state.protect().hide_tip(false);
@@ -54,7 +55,8 @@ pub(super) fn on_keydown(state: EditorState, event: &KeyboardEvent) {
     if !matches!(
         event.key().as_str(),
         "F8" | "Shift" | "Control" | "Alt" | "Meta"
-    ) {
+    ) && !keeps_card
+    {
         state.hide_shown_problem();
     }
     if chord::chord(state, event) || super::folding::shortcuts(state, event) {

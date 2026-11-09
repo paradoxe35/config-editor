@@ -74,6 +74,16 @@ fn key_tokens(tokens: &mut Tokens, offset: usize, text: &str) {
         return;
     }
     let (key, comment) = split_yaml_comment(text.trim_start());
+    // A block scalar as the key (`? |`): its indicator, as after `key:`;
+    // its text is on the lines below.
+    if key
+        .split_whitespace()
+        .last()
+        .is_some_and(super::editing::is_block_scalar)
+    {
+        highlight_value(tokens, offset, text);
+        return;
+    }
     let key_end = start + key.trim_end().len();
     tokens.push(start, key_end, TokenKind::Key);
     if let Some(comment) = comment {

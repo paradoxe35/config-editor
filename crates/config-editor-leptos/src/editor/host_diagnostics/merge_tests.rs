@@ -138,6 +138,23 @@ fn a_host_problem_hides_the_editors_own_only_when_it_says_the_same() {
                 ));
             }
         }
+        // QA 24 (L24-U5): the same message, less serious from the host (a
+        // warning for the schema's error) showed twice; the more serious,
+        // the editor's, shows once.
+        for severity in [Severity::Warning, Severity::Hint] {
+            for host in [
+                HostDiagnostic::at_path("/listen", severity, bare(&too_big.message)),
+                HostDiagnostic::at_range(whole_line(text, line), severity, &too_big.message),
+            ] {
+                let host = placed(language, text, &[host]);
+                let merged = merge(&own, &host);
+                if merged != own {
+                    failures.push(format!(
+                        "{language} same message as a {severity:?}: {merged:?}"
+                    ));
+                }
+            }
+        }
     }
     report(failures);
 }
