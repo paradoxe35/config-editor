@@ -141,53 +141,93 @@ test.describe('N26-A2: page keys keep the on-screen column, as ArrowDown does', 
     tabs: ['a:\t\tx', null],
     'wide characters': ['a: 漢字漢字漢字', null],
     'combining marks': ['a: e\u0301e\u0301e\u0301', null],
+    'mixed widths': ['a: iWmlW.i', null],
+    'onto mixed widths': ['a: yyyyyyy', 'k: iWiWmlimW'],
     'onto tabs': ['a: yyyyyyy', 'k:\t\t\t\tz'],
     'onto emoji': ['a: yyyyyyy', 'k: 😀😀😀😀😀😀'],
     'onto combining marks': ['a: yyyyy', 'k: e\u0301e\u0301e\u0301e\u0301'],
   };
-  for (const [name, [first, landing]] of Object.entries(CASES)) {
-    test(`${name}: PageDown and PageUp land where ArrowDown and ArrowUp do`, async ({ page }) => {
-      const errors = await open(page, { value: `${first}\n${filler(80)}` });
-      await input(page).focus();
-      await page.keyboard.press('Control+Home');
-      await page.keyboard.press('PageDown');
-      const rows = Number((await caretAt(page)).split(':')[0]) - 1;
-      expect(rows).toBeGreaterThan(3);
-      if (landing) {
-        // The line a page lands on holds the characters to land among.
-        await input(page).evaluate(
-          (element, [rows, landing]) => {
-            const lines = element.value.split('\n');
-            lines[rows] = landing;
-            window.editor.update({ value: lines.join('\n') });
-          },
-          [rows, landing],
-        );
-        await frames(page);
+  // The column is where the text is drawn, in whatever font: the host's,
+  // or the machine's (which draws emoji and wide characters at widths of
+  // its own), so no count of columns finds it; in a proportional font no
+  // two lines' columns line up at all.
+  const FONTS = {
+    'the default font': null,
+    'a proportional font': 'sans-serif',
+    'a serif font': 'serif',
+  };
+  /** The caret's x on its row, measured on the rendered line, in pixels. */
+  const caretX = (page) =>
+    input(page).evaluate((element) => {
+      const before = element.value.slice(0, element.selectionStart).split('\n');
+      const row = element.closest('.config-editor').querySelector(`.config-editor__code-line[data-line="${before.length}"]`);
+      let left = before.at(-1).length;
+      const walker = document.createTreeWalker(row, NodeFilter.SHOW_TEXT);
+      const range = document.createRange();
+      range.setStart(row, 0);
+      range.setEnd(row, 0);
+      for (let node = walker.nextNode(); node && left; node = walker.nextNode()) {
+        const take = Math.min(left, node.length);
+        range.setEnd(node, take);
+        left -= take;
       }
-      const arrows = async (key) => {
-        for (let i = 0; i < rows; i += 1) await page.keyboard.press(key);
-        return caretAt(page);
-      };
-      await page.keyboard.press('Control+Home');
-      await page.keyboard.press('End');
-      const down = await arrows('ArrowDown');
-      await page.keyboard.press('Control+Home');
-      await page.keyboard.press('End');
-      await page.keyboard.press('PageDown');
-      expect(await caretAt(page), 'PageDown').toBe(down);
-      // And back up from there, onto the first line.
-      await page.keyboard.press('End');
-      const from = await caretAt(page);
-      const up = await arrows('ArrowUp');
-      await page.keyboard.press('Control+Home');
-      for (let i = 0; i < rows; i += 1) await page.keyboard.press('ArrowDown');
-      await page.keyboard.press('End');
-      expect(await caretAt(page)).toBe(from);
-      await page.keyboard.press('PageUp');
-      expect(await caretAt(page), 'PageUp').toBe(up);
-      expect(errors).toEqual([]);
+      return range.getBoundingClientRect().right - row.getBoundingClientRect().left;
     });
+  for (const [font, family] of Object.entries(FONTS)) {
+    for (const [name, [first, landing]] of Object.entries(CASES)) {
+      test(`${font}, ${name}: PageDown and PageUp land where ArrowDown and ArrowUp do`, async ({ page }) => {
+        const errors = await open(page, { value: `${first}\n${filler(80)}` });
+        if (family) {
+          await page.evaluate((family) => {
+            document.head.insertAdjacentHTML('beforeend', `<style>.config-editor{--config-editor-mono:${family}}</style>`);
+          }, family);
+          await frames(page);
+        }
+        await input(page).focus();
+        await page.keyboard.press('Control+Home');
+        await page.keyboard.press('PageDown');
+        const rows = Number((await caretAt(page)).split(':')[0]) - 1;
+        expect(rows).toBeGreaterThan(3);
+        if (landing) {
+          // The line a page lands on holds the characters to land among.
+          await input(page).evaluate(
+            (element, [rows, landing]) => {
+              const lines = element.value.split('\n');
+              lines[rows] = landing;
+              window.editor.update({ value: lines.join('\n') });
+            },
+            [rows, landing],
+          );
+          await frames(page);
+        }
+        /** Where `presses` of `key` take the caret: line and column, and x. */
+        const press = async (key, presses = 1) => {
+          for (let i = 0; i < presses; i += 1) await page.keyboard.press(key);
+          await frames(page);
+          return [await caretAt(page), await caretX(page)];
+        };
+        await page.keyboard.press('Control+Home');
+        await page.keyboard.press('End');
+        const [down, downX] = await press('ArrowDown', rows);
+        await page.keyboard.press('Control+Home');
+        await page.keyboard.press('End');
+        const [pagedDown, pagedDownX] = await press('PageDown');
+        expect(pagedDown, 'PageDown').toBe(down);
+        expect(Math.abs(pagedDownX - downX), 'PageDown, x').toBeLessThanOrEqual(1);
+        // And back up from there, onto the first line.
+        await page.keyboard.press('End');
+        const from = await caretAt(page);
+        const [up, upX] = await press('ArrowUp', rows);
+        await page.keyboard.press('Control+Home');
+        for (let i = 0; i < rows; i += 1) await page.keyboard.press('ArrowDown');
+        await page.keyboard.press('End');
+        expect(await caretAt(page)).toBe(from);
+        const [pagedUp, pagedUpX] = await press('PageUp');
+        expect(pagedUp, 'PageUp').toBe(up);
+        expect(Math.abs(pagedUpX - upX), 'PageUp, x').toBeLessThanOrEqual(1);
+        expect(errors).toEqual([]);
+      });
+    }
   }
 });
 

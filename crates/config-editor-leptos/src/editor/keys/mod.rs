@@ -8,6 +8,7 @@ pub(super) mod enter;
 pub(super) mod enter_newline;
 mod navigation;
 mod page_keys;
+mod page_ruler;
 mod suggestions;
 mod tab;
 mod typing;
