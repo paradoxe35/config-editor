@@ -36,6 +36,7 @@ which build on this package.
   - [Secrets](#secrets)
   - [Paths](#paths)
 - [Languages and themes](#languages-and-themes)
+  - [XML mapping](#xml-mapping)
 - [`@pngwasi/config-editor/tools`](#pngwasiconfig-editortools)
 - [`@pngwasi/config-editor/binding`](#pngwasiconfig-editorbinding)
 - [Keyboard](#keyboard)
@@ -720,6 +721,19 @@ languages().find((language) => language.extensions.includes("yml"));
 for (const theme of themes())
   picker.append(new Option(theme.label, theme.name));
 ```
+
+### XML mapping
+
+Child elements and attributes are object properties, element text is a typed
+scalar (`<listen>7835</listen>` is the number 7835), and repeated siblings are
+an array. An attribute sharing its name with a child element is the property
+`@name` (`<r a="1"><a>2</a></r>` is `{"r": {"@a": 1, "a": 2}}`), so the two
+stay apart. A top-level element marked `config-root="true"` is a transparent
+wrapper; without it, every top-level element is a document property, so a
+file may hold one top-level element or several (a fragment). The editor never
+adds a root: `{"listen": 4343, "port": 80}` writes `<listen>4343</listen>` and
+`<port>80</port>`, and a key added at the top in another view is one more
+top-level element.
 
 ## `@pngwasi/config-editor/tools`
 
