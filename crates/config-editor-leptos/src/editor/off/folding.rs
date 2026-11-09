@@ -32,6 +32,8 @@ impl EditorState {
 
     pub(super) fn unfold_touched(&self, _start: usize, _end: usize) {}
 
+    pub(crate) fn open_folds_for_edit(&self, _start: usize, _end: usize) {}
+
     pub(super) fn reveal_offsets(&self, _start: usize, _end: usize) {}
 
     pub(super) fn take_opened_folds(&self) -> Option<Vec<FoldRange>> {
