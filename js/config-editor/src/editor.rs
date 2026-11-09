@@ -10,16 +10,17 @@ use js_sys::Function;
 use leptos::prelude::*;
 use wasm_bindgen::prelude::*;
 
-use crate::echoes::{Echo, Echoes};
+use crate::echoes::{self, Echo, Echoes};
 use crate::handle_calls;
 use crate::host_diagnostics::host_diagnostics_from;
 use crate::languages::{language_named, writable_edit_as};
 use crate::mount::{self, IN_CALLBACK, Latest, Setup, State, call_host};
 use crate::options::{
-    EDITOR_OPTIONS, EDITOR_REMOUNT_OPTIONS, bool_option, function_option, string_option,
-    warn_unknown_options,
+    EDITOR_OPTIONS, EDITOR_REMOUNT_OPTIONS, EDITOR_UPDATE_ONLY_OPTIONS, bool_option,
+    function_option, string_option, warn_unknown_options,
 };
 use crate::protect::{paths_from, ranges_from, secrets_from};
+use crate::remap::Remap;
 use crate::settings::{settings_from, settings_result};
 use crate::settle;
 use crate::told::{self, Told};
@@ -263,7 +264,9 @@ impl ConfigEditor {
     /// token. A new `value`
     /// replaces the document as a host update (the caret kept when the
     /// text is unchanged). With `echoes`, a text `onChange` gave that has
-    /// not come back yet is its echo and keeps the document.
+    /// not come back yet is its echo and keeps the document. Ranges are in
+    /// `rangesFor`, else `value` (an echo included), else the document,
+    /// and are moved from that text to the document.
     /// `language`, `schema`, `fileName`, `className`,
     /// `secrets` and `echoes` are what the editor is built from: they throw (create
     /// a new editor instead), but for `language` naming the editor's own.
@@ -286,12 +289,17 @@ impl ConfigEditor {
             .filter(|key| !(same_language && *key == "language"))
             .collect();
         refuse_remount(&options, &remount, "ConfigEditor")?;
-        warn_unknown_options(&options, EDITOR_OPTIONS);
+        warn_unknown_options(
+            &options,
+            &[EDITOR_OPTIONS, EDITOR_UPDATE_ONLY_OPTIONS].concat(),
+        );
         let value = given(&options, "value")
             .map(|value| text_arg(&value, "value"))
             .transpose()?;
         // Input the browser sent in this task, and an Edit-as edit still
-        // waiting out the typing pause when the document is replaced, first.
+        // waiting out the typing pause when the document is replaced, first
+        // (the texts it sends from `flushed` on: the host did not know them).
+        let flushed = echoes::clock();
         if value.is_some() {
             config_editor_leptos::flush_pending_edits();
         } else {
@@ -306,7 +314,13 @@ impl ConfigEditor {
         let mut echoes = self.state.echoes.try_get_value().unwrap_or_default();
         let echo = value
             .as_ref()
-            .map(|value| echoes.received(value, &self.latest_text()));
+            .map(|value| echoes.received(value, &self.latest_text(), flushed));
+        // Ranges are in the text they were given for: `rangesFor`, else the
+        // update's `value` (an echo skipped included).
+        let ranges_for = given(&options, "rangesFor")
+            .map(|text| text_arg(&text, "rangesFor"))
+            .transpose()?
+            .or_else(|| value.clone());
         let value = value.filter(|_| echo == Some(Echo::Apply));
         let baseline = given(&options, "baseline")
             .map(|baseline| text_arg(&baseline, "baseline"))
@@ -334,23 +348,34 @@ impl ConfigEditor {
             .transpose()?;
         let current = self.state.settings.try_get_untracked().unwrap_or_default();
         let settings = settings_change(&current, &options)?;
-        // Ranges are in the document as it will be.
-        let host_text = value.clone().unwrap_or_else(|| self.latest_text());
+        // Ranges are checked in the text they were given for, and moved
+        // from it to the document as it will be.
+        let document = value.clone().unwrap_or_else(|| self.latest_text());
+        let host_text = ranges_for.as_deref().unwrap_or(&document);
+        let remap = (host_text != document).then(|| Remap::new(host_text, &document));
         let host_diagnostics = given(&options, "hostDiagnostics")
             .map(|list| {
                 if list.is_null() {
                     Ok(Vec::new())
                 } else {
-                    host_diagnostics_from(&list, &host_text)
+                    host_diagnostics_from(&list, host_text)
                 }
             })
-            .transpose()?;
+            .transpose()?
+            .map(|list| match &remap {
+                Some(remap) => remap.diagnostics(list),
+                None => list,
+            });
         let read_only_paths = given(&options, "readOnlyPaths")
             .map(|list| paths_from(&list, "readOnlyPaths"))
             .transpose()?;
         let read_only_ranges = given(&options, "readOnlyRanges")
-            .map(|list| ranges_from(&list, &host_text, "readOnlyRanges"))
-            .transpose()?;
+            .map(|list| ranges_from(&list, host_text, "readOnlyRanges"))
+            .transpose()?
+            .map(|list| match &remap {
+                Some(remap) => remap.ranges(list),
+                None => list,
+            });
         let state = self.state;
         let mut callbacks = Vec::new();
         for (name, slot) in [

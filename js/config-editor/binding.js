@@ -228,6 +228,7 @@ export class EditorBinding extends Binding {
     const value = this.#reset ?? this.#carried?.value ?? props.value ?? props.defaultValue ?? "";
     const baseline = props.baseline ?? this.#carried?.baseline ?? value;
     this.#carried = { value, baseline };
+    const inBoundValue = props.value === undefined || value === props.value;
     return new ConfigEditor(element, {
       ...settings,
       value,
@@ -251,9 +252,11 @@ export class EditorBinding extends Binding {
       onChangeSummary: (summary) => this.props.onChangeSummary?.(summary),
       onProblems: (problems) => this.props.onProblems?.(problems),
       onPathChange: props.onPathChange ? this.#followPath : undefined,
-      hostDiagnostics: props.hostDiagnostics,
+      // Ranges are in the bound value: on a document carried past it, they
+      // come from `sync` right after the mount, mapped to it.
+      hostDiagnostics: inBoundValue ? props.hostDiagnostics : undefined,
       readOnlyPaths: props.readOnlyPaths,
-      readOnlyRanges: props.readOnlyRanges,
+      readOnlyRanges: inBoundValue ? props.readOnlyRanges : undefined,
       secrets: props.secrets && {
         ...props.secrets,
         isPlaceholder: props.secrets.isPlaceholder
@@ -326,8 +329,9 @@ export class EditorBinding extends Binding {
         this.#handledValue = value;
         // First: an Edit-as edit still waiting out the typing pause is sent
         // now (reading `value` does), so its echo is told apart like any.
+        const flushed = this.#sync.mark();
         const current = editor.value;
-        const { apply, report, settle } = this.#sync.received(value, current);
+        const { apply, report, settle } = this.#sync.received(value, current, flushed);
         // Told apart here: the editor, which never sees the echoes this
         // absorbs, takes it as the host's own text whatever it is.
         if (apply !== null) editor.replaceValue(apply);
@@ -349,12 +353,18 @@ export class EditorBinding extends Binding {
       const list = JSON.stringify(props[name] ?? []);
       if (changed(name, list)) update[name] = JSON.parse(list);
     }
+    // Ranges are in the bound value, which may be an echo the user typed
+    // past: the editor maps them from it to the document.
+    const ranged = (key) => key === "hostDiagnostics" || key === "readOnlyRanges";
+    const rangesFor = (key) => (ranged(key) && value !== undefined ? { rangesFor: value } : {});
     const followsPath = props.onPathChange !== undefined;
     if (changed("followsPath", followsPath)) update.onPathChange = followsPath ? this.#followPath : null;
     // `Ctrl+S` is the editor's only while `onSave` is set.
     const saves = props.onSave !== undefined;
     if (changed("saves", saves)) update.onSave = saves ? this.#save : null;
-    for (const [key, value] of Object.entries(update)) this.guard((editor) => editor.update({ [key]: value }));
+    for (const [key, list] of Object.entries(update)) {
+      this.guard((editor) => editor.update({ [key]: list, ...rangesFor(key) }));
+    }
   }
 
   /** The document while there is no editor: a pending reset, the carried one, the props'. */

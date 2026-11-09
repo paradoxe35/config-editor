@@ -114,7 +114,10 @@ test.describe('QA round 27: host API', () => {
     expect(page.errors).toEqual([]);
   });
 
-  test("a host text of its own still wins over echoes on their way, and the host hears the document again", async ({ page }) => {
+  // A host still handing back every text it was sent (round 29: a text of
+  // its own given through `update` makes the texts sent before it its own
+  // too, so going back to one applies) resets through `replaceValue`.
+  test("a host text of its own set with replaceValue still wins over echoes on their way, and the host hears the document again", async ({ page }) => {
     await open(page);
     for (const host of HOSTS) {
       await mountEchoing(page, host, 150);
@@ -122,12 +125,8 @@ test.describe('QA round 27: host API', () => {
       // The host loads a file while those echoes are on their way.
       await page.evaluate(() => {
         window.store.a = 'reset: 1\n';
-        if (window.echoing.editor) {
-          const list = Object.entries(window.store).map(([id, value]) => ({ id, fileName: `${id}.yaml`, value }));
-          window.echoing.update({ documents: list });
-        } else {
-          window.echoing.update({ value: 'reset: 1\n' });
-        }
+        if (window.echoing.editor) window.echoing.replaceValue('a', 'reset: 1\n');
+        else window.echoing.replaceValue('reset: 1\n');
       });
       await page.waitForTimeout(800);
       const { text, store } = await page.evaluate(() => ({ text: window.textOf(), store: window.store }));

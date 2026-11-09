@@ -675,6 +675,9 @@ impl ConfigDocuments {
         )?;
         refuse_remount(&options, DOCUMENTS_REMOUNT_OPTIONS, "ConfigDocuments")?;
         warn_unknown_options(&options, DOCUMENTS_OPTIONS);
+        // Input the browser sent in this task first (the texts it sends from
+        // `flushed` on: the host did not know them).
+        let flushed = crate::echoes::clock();
         config_editor_leptos::js_support::flush_pending_input();
         if self.id.get().is_none() {
             return Ok(());
@@ -753,7 +756,7 @@ impl ConfigDocuments {
         }
         let mut resend = (Vec::new(), false);
         if let Some(mut listed) = listed {
-            resend = self.state.keep_moved_past(&mut listed);
+            resend = self.state.keep_moved_past(&mut listed, flushed);
             self.state.show(listed);
             // Taken now: `activeId` and every query answer for the new list
             // right after `update` returns.

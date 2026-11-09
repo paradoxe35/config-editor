@@ -2,6 +2,7 @@
 //! a listed text its editor sent and moved past keeps what the editor
 //! holds, and a host left on such a text hears the document again.
 
+use config_editor_leptos::Document;
 use config_editor_leptos::js_support::flush_pending_input;
 use leptos::prelude::{GetValue, UpdateValue, WithValue};
 use wasm_bindgen::JsValue;
@@ -10,15 +11,36 @@ use super::State;
 use crate::documents_list::Listed;
 use crate::echoes::{Echo, Echoes};
 use crate::mount::call_host_with;
+use crate::remap::Remap;
 use crate::settle;
+
+/// The listed `document`'s text is an echo: it keeps `current`, and the
+/// ranges listed with it (in the echoed text) move to `current`.
+fn keep(document: &mut Document, current: &str) {
+    if document.value == current {
+        return;
+    }
+    if !document.read_only_ranges.is_empty() || !document.host_diagnostics.is_empty() {
+        let remap = Remap::new(&document.value, current);
+        document.read_only_ranges = remap.ranges(std::mem::take(&mut document.read_only_ranges));
+        document.host_diagnostics =
+            remap.diagnostics(std::mem::take(&mut document.host_diagnostics));
+    }
+    current.clone_into(&mut document.value);
+}
 
 impl State {
     /// With `echoing`, takes echoes out of `listed`: a document whose
     /// listed text is one its editor sent and has moved past keeps what it
-    /// holds. Returns the documents whose host was left on such an echo,
+    /// holds (the texts sent from `flushed` on, while the list was read,
+    /// were unknown to the host). Returns the documents whose host was left on such an echo,
     /// with the text to send it again, and whether a document waits for
     /// the check after a pause ([`Echo::Settle`]).
-    pub(super) fn keep_moved_past(&self, listed: &mut Listed) -> (Vec<(String, String)>, bool) {
+    pub(super) fn keep_moved_past(
+        &self,
+        listed: &mut Listed,
+        flushed: u64,
+    ) -> (Vec<(String, String)>, bool) {
         let mut resend = Vec::new();
         let mut settles = false;
         if !self.echoing {
@@ -35,18 +57,14 @@ impl State {
                     echo.given(&document.value);
                     continue;
                 };
-                match echo.received(&document.value, &texts.value) {
-                    Echo::Apply => {}
-                    Echo::Skip => document.value = texts.value,
-                    Echo::Settle => {
-                        settles = true;
-                        document.value = texts.value;
-                    }
-                    Echo::Resend => {
-                        settles = true;
-                        document.value.clone_from(&texts.value);
-                        resend.push((document.id.clone(), texts.value));
-                    }
+                let echo = echo.listed(&document.value, &texts.value, flushed);
+                if echo == Echo::Apply {
+                    continue;
+                }
+                settles |= echo != Echo::Skip;
+                keep(document, &texts.value);
+                if echo == Echo::Resend {
+                    resend.push((document.id.clone(), texts.value));
                 }
             }
         });

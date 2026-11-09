@@ -35,6 +35,10 @@ pub(crate) const EDITOR_OPTIONS: &[&str] = &[
     "secrets",
 ];
 
+/// What `update` takes besides the constructor's options: `rangesFor` (the
+/// text the update's ranges were given for, when it is not the document).
+pub(crate) const EDITOR_UPDATE_ONLY_OPTIONS: &[&str] = &["rangesFor"];
+
 /// Logs a warning for each key of `options` that is neither one of `known`
 /// nor a setting (`readonly` for `readOnly`), which would otherwise be
 /// ignored without a word.

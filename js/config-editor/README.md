@@ -471,6 +471,12 @@ editor.update({ hostDiagnostics: problems, onSave: null });
   `readOnlyRanges` and host `range`s given with it are in the new document.
   For a host that hands every `onChange` text back, see
   [Hosts that echo](#hosts-that-echo).
+- `rangesFor` names the text an update's `readOnlyRanges` and host `range`s
+  were worked out for, when it is not the document (a check of a text the
+  user has typed past since): they are checked in it and moved to the
+  document, a range around an edit growing over it (a lock never lets a
+  locked character be edited). Ranges given with a `value` are in that
+  `value`, applied or an echo.
 - `language`, `schema`, `fileName`, `className`, `secrets` and `echoes` are what the
   editor is built from: they throw (`"language cannot change on a mounted
 ConfigEditor …"`); create a new editor to change them. The `language`
@@ -501,17 +507,25 @@ const editor = new ConfigEditor(element, {
 
 Then a `value` that `onChange` gave and that has not come back yet is its
 echo and keeps the document, whatever its order or delay: nothing typed is
-lost. The text you gave last, given again (a render for another reason, the
-whole `documents` list after another document's edit), is no news either. A
-text the editor never gave (a loaded file, a reset) applies; echoes of what
-was typed before it are still skipped when they come. When an echo
+lost. Ranges given with an echo (`readOnlyRanges`, host `range`s) are in
+the echoed text: they are moved to the document. Any other `value` is yours
+and applies, the text you gave last included (a reset to the text the
+editor was created with). The texts `onChange` gave before it belong to the
+text it replaced (another file, a discarded draft): they are yours from
+then on, so going back to one (a file switched back to) applies. So once
+you give a text of your own, drop the answers still to come for the texts
+before it, or hand them to the file they belong to; a host that cannot
+(every answer handed back, whatever happened since) resets with
+`replaceValue` instead. When an echo
 leaves your store holding an older text and nothing still on its way brings
 it back, `onChange` gives it the document again. A store that takes
 several texts in one render passes only the last, so the echo that would
 bring it back may never be seen: if the store is still on an older text
 250 ms after such an echo, `onChange` gives it the document again then. To go back to a text
 `onChange` gave that may still be on its way (a discard to what you saved, a
-revert), call `replaceValue(text)`, which always applies. The promise is
+revert), or to reset while the echoes of what was typed are still to come,
+call `replaceValue(text)`: it always applies, and the echoes on their way
+are still told apart. The promise is
 yours to keep: a host that hands back only some texts (the latest of
 several) leaves the others counted as echoes (the newest 256 are
 remembered), so set those with `replaceValue` too.
@@ -1175,9 +1189,11 @@ view.isDirty("main");
   any order (a store that re-renders after a delay), creates the view with
   `echoes: true`: a document's `value` its editor gave that has not come
   back yet is then its echo and keeps what the editor holds, as in
-  [Hosts that echo](#hosts-that-echo); `view.replaceValue(id, text)` goes
-  back to such a text (list the document with it from then on; `false` for
-  an id not listed).
+  [Hosts that echo](#hosts-that-echo) (the ranges listed with it are moved
+  to the document; a `value` listed as it was listed last is no news, as
+  an unchanged prop); `view.replaceValue(id, text)` goes back to such a
+  text (list the document with it from then on; `false` for an id not
+  listed).
 - `onProblems(id, problems)` gives each document's editor's own problems
   (as `ConfigEditor`'s `onProblems`): once its editor mounts, when the
   document is first shown, then each time they change.

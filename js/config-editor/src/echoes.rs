@@ -10,15 +10,28 @@
 //! With it, a text the editor sent that has not come back yet is an echo,
 //! whatever its order or delay: it is skipped (it is acknowledged, and
 //! forgotten). A text the editor never sent, or sent and saw come back, is
-//! the host's own and applies; to go back to a text still on its way, the
-//! host calls `replaceValue`. A skipped echo leaves the host holding an old
-//! text: unless an echo of the document is still to come (and set it right),
-//! the host is told the document again (`onChange`). A text sent before one
-//! that came back may still come (out of order) or never (a host handing
-//! back only the latest of several): it stays an echo, but is not counted on
-//! to come. The text the host gave last, given again (a store re-rendering
-//! for another reason, the whole `documents` list listed for another
-//! document's edit), is no news either: it keeps the document.
+//! the host's own and applies. When the host's own text replaces the
+//! document (another file, a discard), the texts sent before it belong to
+//! the text it replaced: they are no echoes any more, so going back to one
+//! of them (back to the first file) applies; but for an edit the editor
+//! still held, sent while that update is handled, which the host did not
+//! know. To go back to a text still on its way, or to reset while the
+//! echoes of what was typed are still to come (a host handing every one of
+//! them back late), the host calls `replaceValue`: the echoes on their way
+//! are still told apart. A skipped echo leaves the host
+//! holding an old text: unless an echo of the document is still to come
+//! (and set it right), the host is told the document again (`onChange`). A
+//! text sent before one that came back may still come (out of order) or
+//! never (a host handing back only the latest of several): it stays an
+//! echo, but is not counted on to come. An update's `value` is always the
+//! host's word, the text it gave last included (a reset to the
+//! constructor's text); a document's text listed again, as it was listed
+//! last (the whole `documents` list given for another document's edit), is
+//! no news, as a framework's binding passes an unchanged prop on.
+//!
+//! Ranges given with a skipped echo (`readOnlyRanges`, host diagnostics)
+//! are in the echoed text: they are mapped to the document (see
+//! `crate::remap`).
 //!
 //! An echo still to come may never be seen, though: a framework renders once
 //! for several changes (React, Vue and Svelte batch them), so a host storing
@@ -33,6 +46,7 @@
 //! The framework bindings' `ValueSync` (`js/config-editor/sync.js`) follows
 //! the same rule.
 
+use std::cell::Cell;
 use std::collections::VecDeque;
 
 /// How many sent texts are remembered at most: a host that hands back only
@@ -42,6 +56,25 @@ const MAX_PENDING: usize = 256;
 /// How long after an echo that left the host on an older text the editor
 /// checks the host came back to the document (see [`Echoes::settle`]).
 pub(crate) const SETTLE_MS: i32 = 250;
+
+thread_local! {
+    static CLOCK: Cell<u64> = const { Cell::new(0) };
+}
+
+/// How many texts every editor on the page has sent: a text sent from now
+/// on is sent at this or later (an update reads it before it sends an edit
+/// still held, to tell those texts apart).
+pub(crate) fn clock() -> u64 {
+    CLOCK.with(Cell::get)
+}
+
+fn tick() -> u64 {
+    CLOCK.with(|clock| {
+        let now = clock.get();
+        clock.set(now + 1);
+        now
+    })
+}
 
 /// A short stand-in for a text: its length and a 64-bit FNV-1a hash.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -68,6 +101,8 @@ struct Sent {
     /// The text the host held already was given again while this copy was
     /// on its way: that may have been its echo (see `received`).
     doubted: bool,
+    /// When it was sent (see [`clock`]).
+    serial: u64,
 }
 
 /// What to do with a text the host handed back.
@@ -106,8 +141,7 @@ impl Echoes {
     pub(crate) fn new(on: bool) -> Self {
         Self {
             on,
-            pending: VecDeque::new(),
-            last_given: None,
+            ..Self::default()
         }
     }
 
@@ -128,20 +162,38 @@ impl Echoes {
             print: Print::of(text),
             to_come: true,
             doubted: false,
+            serial: tick(),
         });
         if self.pending.len() > MAX_PENDING {
             self.pending.pop_front();
         }
     }
 
-    /// The host handed `value` back, the document being `current`.
-    pub(crate) fn received(&mut self, value: &str, current: &str) -> Echo {
+    /// The host gave `value` in an update (`update({ value })`), the
+    /// document being `current`; the texts sent from `flushed` on (see
+    /// [`clock`]) were sent while the update was handled (an edit still
+    /// held, sent first). A text the editor never sent is news, whatever
+    /// the host gave before (the constructor's text again: a discard).
+    pub(crate) fn received(&mut self, value: &str, current: &str, flushed: u64) -> Echo {
+        self.take(value, current, false, flushed)
+    }
+
+    /// The host listed `value` for the document (the whole `documents`
+    /// list), as [`Echoes::received`], but the text it listed last, listed
+    /// again, is no news (the list given for another document's edit), as
+    /// a framework's binding passes an unchanged prop on.
+    pub(crate) fn listed(&mut self, value: &str, current: &str, flushed: u64) -> Echo {
+        self.take(value, current, true, flushed)
+    }
+
+    fn take(&mut self, value: &str, current: &str, listed: bool, flushed: u64) -> Echo {
         if !self.on {
             return Echo::Apply;
         }
         let print = Print::of(value);
-        let news = if self.last_given.replace(print) == Some(print) {
-            // Given again: a render, or the echo of a copy sent since (and
+        let again = self.last_given.replace(print) == Some(print);
+        let news = if listed && again {
+            // Listed again: a render, or the echo of a copy sent since (and
             // a text sent after it may have come and gone in the same
             // render of the host's). That copy stays an echo, but is not
             // counted on to come; while the host is on an older text, it is
@@ -163,6 +215,15 @@ impl Echoes {
             // The newest copy (a typo fixed sends the same text twice): a
             // host handing back only the latest text hands back that one.
             let Some(at) = self.pending.iter().rposition(|sent| sent.print == print) else {
+                // The host's own text. When it replaces the document, the
+                // texts sent before belong to the text it replaced (another
+                // file, a discarded draft): no echoes any more, so going
+                // back to one of them applies. Those sent while it was
+                // handled (an edit still held, sent first) were unknown to
+                // the host: still echoes.
+                if value != current {
+                    self.pending.retain(|sent| sent.serial >= flushed);
+                }
                 return Echo::Apply;
             };
             self.pending.remove(at);
@@ -209,13 +270,16 @@ impl Echoes {
 mod tests {
     use super::{Echo, Echoes, MAX_PENDING, SETTLE_MS};
 
+    /// No text sent while the update is handled.
+    const NONE: u64 = u64::MAX;
+
     /// Without the option every text applies and nothing is kept.
     #[test]
     fn without_the_option_every_text_applies() {
         let mut echoes = Echoes::new(false);
         echoes.sent("a");
         echoes.sent("ab");
-        assert_eq!(echoes.received("a", "ab"), Echo::Apply);
+        assert_eq!(echoes.received("a", "ab", NONE), Echo::Apply);
         assert!(echoes.pending.is_empty());
     }
 
@@ -227,10 +291,10 @@ mod tests {
         let mut echoes = Echoes::new(true);
         echoes.sent("a");
         echoes.sent("ab");
-        assert_eq!(echoes.received("a", "ab"), Echo::Settle);
+        assert_eq!(echoes.received("a", "ab", NONE), Echo::Settle);
         echoes.sent("abc");
-        assert_eq!(echoes.received("ab", "abc"), Echo::Settle);
-        assert_eq!(echoes.received("abc", "abc"), Echo::Apply);
+        assert_eq!(echoes.received("ab", "abc", NONE), Echo::Settle);
+        assert_eq!(echoes.received("abc", "abc", NONE), Echo::Apply);
         assert!(echoes.pending.is_empty());
     }
 
@@ -242,11 +306,11 @@ mod tests {
         for text in ["a", "ab", "abc"] {
             echoes.sent(text);
         }
-        assert_eq!(echoes.received("abc", "abc"), Echo::Apply);
-        assert_eq!(echoes.received("a", "abc"), Echo::Resend);
+        assert_eq!(echoes.received("abc", "abc", NONE), Echo::Apply);
+        assert_eq!(echoes.received("a", "abc", NONE), Echo::Resend);
         // The resent document is on its way: the host comes back to it.
-        assert_eq!(echoes.received("ab", "abc"), Echo::Settle);
-        assert_eq!(echoes.received("abc", "abc"), Echo::Apply);
+        assert_eq!(echoes.received("ab", "abc", NONE), Echo::Settle);
+        assert_eq!(echoes.received("abc", "abc", NONE), Echo::Apply);
         assert!(echoes.pending.is_empty());
     }
 
@@ -277,7 +341,7 @@ mod tests {
             let mut resent = 0;
             for index in &order {
                 host = texts[*index].to_string();
-                match echoes.received(&host, current) {
+                match echoes.received(&host, current, NONE) {
                     Echo::Apply => assert_eq!(host, current, "{order:?}"),
                     Echo::Skip | Echo::Settle => {}
                     Echo::Resend => resent += 1,
@@ -286,7 +350,7 @@ mod tests {
             // The resent texts come back, in order: the host ends on them.
             for _ in 0..resent {
                 host = current.to_string();
-                assert_eq!(echoes.received(current, current), Echo::Apply);
+                assert_eq!(echoes.received(current, current, NONE), Echo::Apply);
             }
             assert_eq!(host, current, "{order:?}");
             assert!(echoes.pending.is_empty(), "{order:?}");
@@ -294,19 +358,33 @@ mod tests {
     }
 
     /// A text the editor never sent is the host's own, even with echoes on
-    /// their way; those echoes are skipped afterwards, and the host, left on
-    /// the last of them, hears the document again.
+    /// their way: it replaces the document, and the texts sent before it
+    /// are the host's own from then on too (they belong to the text it
+    /// replaced). Echoes of what is typed after it are told apart again.
     #[test]
     fn the_hosts_own_text_wins_over_echoes() {
         let mut echoes = Echoes::new(true);
         echoes.sent("a");
         echoes.sent("ab");
-        assert_eq!(echoes.received("reset", "ab"), Echo::Apply);
-        assert_eq!(echoes.received("ab", "reset"), Echo::Resend);
-        assert_eq!(echoes.received("a", "reset"), Echo::Settle);
-        assert_eq!(echoes.received("reset", "reset"), Echo::Apply);
-        // Every echo came back: a text sent earlier is the host's own now.
-        assert_eq!(echoes.received("a", "reset"), Echo::Apply);
+        assert_eq!(echoes.received("reset", "ab", NONE), Echo::Apply);
+        assert_eq!(echoes.received("a", "reset", NONE), Echo::Apply);
+        echoes.sent("ac");
+        echoes.sent("acd");
+        assert_eq!(echoes.received("ac", "acd", NONE), Echo::Settle);
+        assert_eq!(echoes.received("acd", "acd", NONE), Echo::Apply);
+    }
+
+    /// A reset through `replaceValue` (`given`) keeps telling the echoes on
+    /// their way apart: they are skipped when they come.
+    #[test]
+    fn echoes_on_their_way_stay_echoes_after_replace_value() {
+        let mut echoes = Echoes::new(true);
+        echoes.sent("a");
+        echoes.sent("ab");
+        echoes.given("reset");
+        assert_eq!(echoes.received("a", "reset", NONE), Echo::Resend);
+        assert_eq!(echoes.received("ab", "reset", NONE), Echo::Settle);
+        assert_eq!(echoes.received("reset", "reset", NONE), Echo::Apply);
     }
 
     /// The same text sent twice (a typo typed and undone) comes back twice:
@@ -317,12 +395,12 @@ mod tests {
         echoes.sent("a");
         echoes.sent("ax");
         echoes.sent("a");
-        assert_eq!(echoes.received("a", "a"), Echo::Apply);
+        assert_eq!(echoes.received("a", "a", NONE), Echo::Apply);
         // Taken for the newest copy, the first one is not counted on.
-        assert_eq!(echoes.received("ax", "a"), Echo::Resend);
-        assert_eq!(echoes.received("a", "a"), Echo::Apply);
+        assert_eq!(echoes.received("ax", "a", NONE), Echo::Resend);
+        assert_eq!(echoes.received("a", "a", NONE), Echo::Apply);
         // Given again (a render): no news.
-        assert_eq!(echoes.received("a", "a"), Echo::Apply);
+        assert_eq!(echoes.received("a", "a", NONE), Echo::Apply);
     }
 
     /// A host handing back only the latest of several texts: those before it
@@ -335,16 +413,16 @@ mod tests {
         echoes.sent("a");
         echoes.sent("ax");
         // Only the latest comes back; then the host sets the text between.
-        assert_eq!(echoes.received("ax", "ax"), Echo::Apply);
-        assert_eq!(echoes.received("a", "ax"), Echo::Resend);
-        assert_eq!(echoes.received("ax", "ax"), Echo::Apply);
+        assert_eq!(echoes.received("ax", "ax", NONE), Echo::Apply);
+        assert_eq!(echoes.received("a", "ax", NONE), Echo::Resend);
+        assert_eq!(echoes.received("ax", "ax", NONE), Echo::Apply);
         // Typed abc, the host coalesces to abc, then sets a: the document
         // stays and the host is told it again.
         for text in ["a", "ab", "abc"] {
             echoes.sent(text);
         }
-        assert_eq!(echoes.received("abc", "abc"), Echo::Apply);
-        assert_eq!(echoes.received("a", "abc"), Echo::Resend);
+        assert_eq!(echoes.received("abc", "abc", NONE), Echo::Apply);
+        assert_eq!(echoes.received("a", "abc", NONE), Echo::Resend);
     }
 
     /// Typing with backspaces (texts sent twice) against a host that hands
@@ -385,7 +463,7 @@ mod tests {
                 in_flight = waiting;
                 for (_, text) in arrived {
                     host = text;
-                    match echoes.received(&host, &document) {
+                    match echoes.received(&host, &document, NONE) {
                         Echo::Apply => assert_eq!(host, document, "round {round}"),
                         Echo::Skip | Echo::Settle => {}
                         Echo::Resend => in_flight.push((time + next(30), document.clone())),
@@ -393,7 +471,7 @@ mod tests {
                 }
                 // Now and then the host renders again with what it holds.
                 if next(4) == 0 {
-                    match echoes.received(&host, &document) {
+                    match echoes.listed(&host, &document, NONE) {
                         Echo::Apply => assert_eq!(host, document, "round {round}"),
                         Echo::Skip | Echo::Settle => {}
                         Echo::Resend => in_flight.push((time + next(30), document.clone())),
@@ -405,21 +483,101 @@ mod tests {
         }
     }
 
-    /// The host giving its last text again, its echoes still on their way,
-    /// keeps the document; a text of its own still applies.
+    /// The host listing its last text again (the whole list, for another
+    /// document's edit), its echoes still on their way, keeps the document;
+    /// a text of its own still applies.
     #[test]
-    fn the_last_text_given_again_is_no_news() {
+    fn the_last_text_listed_again_is_no_news() {
         let mut echoes = Echoes::new(true);
         echoes.given("a");
         echoes.sent("ab");
-        assert_eq!(echoes.received("a", "ab"), Echo::Skip);
-        assert_eq!(echoes.received("ab", "ab"), Echo::Apply);
+        assert_eq!(echoes.listed("a", "ab", NONE), Echo::Skip);
+        assert_eq!(echoes.listed("ab", "ab", NONE), Echo::Apply);
         echoes.sent("abc");
         // A re-render with what it holds, before the echo of `abc` comes.
-        assert_eq!(echoes.received("ab", "abc"), Echo::Skip);
-        assert_eq!(echoes.received("abc", "abc"), Echo::Apply);
-        assert_eq!(echoes.received("reset", "abc"), Echo::Apply);
-        assert_eq!(echoes.received("reset", "reset"), Echo::Apply);
+        assert_eq!(echoes.listed("ab", "abc", NONE), Echo::Skip);
+        assert_eq!(echoes.listed("abc", "abc", NONE), Echo::Apply);
+        assert_eq!(echoes.listed("reset", "abc", NONE), Echo::Apply);
+        assert_eq!(echoes.listed("reset", "reset", NONE), Echo::Apply);
+    }
+
+    /// An update giving the text the host gave last (the constructor's: a
+    /// discard, a reset) while echoes are on their way is the host's own:
+    /// it applies, and the echoes of the texts it replaced apply too when
+    /// they come (QA 29: the reset was ignored).
+    #[test]
+    fn the_last_text_given_again_in_an_update_applies() {
+        let mut echoes = Echoes::new(true);
+        echoes.given("a");
+        echoes.sent("ab");
+        echoes.sent("abc");
+        assert_eq!(echoes.received("a", "abc", NONE), Echo::Apply);
+        assert!(echoes.pending.is_empty());
+        echoes.sent("aQ");
+        assert_eq!(echoes.received("a", "aQ", NONE), Echo::Apply);
+        // A text that came back, given again: applies too.
+        echoes.sent("aR");
+        assert_eq!(echoes.received("aR", "aR", NONE), Echo::Apply);
+        echoes.sent("aRS");
+        assert_eq!(echoes.received("aR", "aRS", NONE), Echo::Apply);
+    }
+
+    /// An edit still held when the host's text came, sent while that
+    /// update is handled (`flushed`), was unknown to the host: its echo is
+    /// skipped when it comes, even though it is the text replaced.
+    #[test]
+    fn a_text_sent_while_the_hosts_text_is_handled_stays_an_echo() {
+        let mut echoes = Echoes::new(true);
+        echoes.given("listen: 7835");
+        let flushed = super::clock();
+        echoes.sent("listen: 78359");
+        assert_eq!(
+            echoes.received("listen: 9000", "listen: 78359", flushed),
+            Echo::Apply
+        );
+        assert_eq!(
+            echoes.received("listen: 78359", "listen: 9000", NONE),
+            Echo::Resend
+        );
+        assert_eq!(
+            echoes.received("listen: 9000", "listen: 9000", NONE),
+            Echo::Apply
+        );
+    }
+
+    /// A host switching files over one editor (QA 29): a text sent for file
+    /// A still on its way when file B replaces the document belongs to A;
+    /// switching back to A applies it, whichever way the host gives it,
+    /// and nothing tells the host B's text again.
+    #[test]
+    fn a_text_sent_before_the_hosts_own_one_is_no_echo_any_more() {
+        for listed in [false, true] {
+            let mut echoes = Echoes::new(true);
+            let give = |echoes: &mut Echoes, value: &str, current: &str| {
+                if listed {
+                    echoes.listed(value, current, NONE)
+                } else {
+                    echoes.received(value, current, NONE)
+                }
+            };
+            echoes.given("a: 1");
+            echoes.sent("a: 19");
+            assert_eq!(give(&mut echoes, "b: 2", "a: 19"), Echo::Apply);
+            assert_eq!(give(&mut echoes, "a: 19", "b: 2"), Echo::Apply);
+            assert!(!echoes.settle("a: 19"), "listed {listed}");
+            // On B again, typed, switched to A before B's echo came, then
+            // back.
+            assert_eq!(give(&mut echoes, "b: 2", "a: 19"), Echo::Apply);
+            echoes.sent("b: 27");
+            assert_eq!(give(&mut echoes, "a: 19", "b: 27"), Echo::Apply);
+            assert_eq!(give(&mut echoes, "b: 27", "a: 19"), Echo::Apply);
+            assert!(echoes.pending.is_empty(), "listed {listed}");
+            // Three files: typed in B, on to C and A, back to B.
+            echoes.sent("b: 278");
+            assert_eq!(give(&mut echoes, "c: 3", "b: 278"), Echo::Apply);
+            assert_eq!(give(&mut echoes, "a: 19", "c: 3"), Echo::Apply);
+            assert_eq!(give(&mut echoes, "b: 278", "a: 19"), Echo::Apply);
+        }
     }
 
     /// A host handing back only some texts leaves the others here, never
@@ -431,9 +589,8 @@ mod tests {
             echoes.sent(&index.to_string());
         }
         assert_eq!(echoes.pending.len(), MAX_PENDING);
-        assert_eq!(echoes.received("host", "4999"), Echo::Apply);
-        assert_eq!(echoes.received("0", "4999"), Echo::Apply);
-        assert_eq!(echoes.received("4998", "4999"), Echo::Settle);
+        assert_eq!(echoes.received("4998", "4999", NONE), Echo::Settle);
+        assert_eq!(echoes.received("0", "4999", NONE), Echo::Apply);
     }
 
     /// A host storing each text the editor sends after a delay and
@@ -528,7 +685,7 @@ mod tests {
                 return true;
             }
             self.render_due = false;
-            match self.echoes.received(&self.host, &self.document) {
+            match self.echoes.listed(&self.host, &self.document, NONE) {
                 Echo::Apply => assert_eq!(self.host, self.document, "a rollback"),
                 Echo::Skip => {}
                 echo => {
@@ -653,7 +810,7 @@ mod tests {
                               echoes: &mut Echoes,
                               again: &mut Vec<String>,
                               settle: &mut bool| {
-                    match echoes.received(host, document) {
+                    match echoes.listed(host, document, NONE) {
                         Echo::Apply => assert_eq!(host, document, "{order:?} {renders:b}"),
                         Echo::Skip => {}
                         Echo::Settle => *settle = true,

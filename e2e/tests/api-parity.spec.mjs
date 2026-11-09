@@ -354,6 +354,11 @@ const DOCUMENTS_OPTIONS_JS_ONLY = {
   echoes: 'a host listing every `onChange` text back through `update`: in Rust the `documents` prop is a signal the host sets; a component\'s binding always sets it (its parent lists every edit back)',
 };
 
+// `update` keys of `ConfigEditor` that are no option, and why.
+const UPDATE_ONLY = {
+  rangesFor: 'says which text an update\'s ranges were given for (a text the user typed past): the editor is built on the text it is given; a component\'s binding passes its bound value',
+};
+
 // Instance members of `ConfigEditor` / `ConfigDocuments` that a component
 // does not expose, and why.
 const EDITOR_JS_ONLY = {
@@ -766,6 +771,7 @@ const frameworks = Object.entries(FRAMEWORKS).map(([name, framework]) => ({ name
 // Where options and members are looked up: the editor's, or the view's.
 const EDITOR_SIDE = {
   what: 'ConfigEditor',
+  updateOnly: UPDATE_ONLY,
   options: (js) => js.options,
   remount: (js) => js.remount,
   typedOptions: (js) => js.typedOptions,
@@ -781,6 +787,7 @@ const EDITOR_SIDE = {
 };
 const DOCUMENTS_SIDE = {
   what: 'ConfigDocuments',
+  updateOnly: {},
   options: (js) => js.documentsOptions,
   remount: (js) => js.documentsRemount,
   typedOptions: (js) => js.typedDocumentsOptions,
@@ -914,6 +921,7 @@ function optionListProblems(side, { js }) {
   }
   for (const name of typed) if (!options.has(name)) problems.push(`${side.what} option \`${name}\` is typed but not in the options list`);
   for (const name of [...update, ...refusedKeys]) {
+    if (name in side.updateOnly) continue;
     if (!options.has(name) && !js.typedSettings.has(name)) problems.push(`${side.what} \`update\` key \`${name}\` is no option`);
   }
   return problems;

@@ -13,7 +13,13 @@
 // - a value the editor sent that has not come back yet is an echo, whatever
 //   its order or delay: skipped (and forgotten);
 // - any other value is the host's own and applies (the binding's `setValue`
-//   goes back to a value still on its way, through `replaceValue`);
+//   goes back to a value still on its way, through `replaceValue`, and
+//   keeps telling the echoes on their way apart). The values sent before it
+//   belong to the value it replaced (another file, a discarded draft): no
+//   echoes any more, so going back to one (a file switched back to)
+//   applies;
+// - ranges passed with a skipped echo are in the echoed value: the binding
+//   gives it as `rangesFor`, and the editor maps them to the document;
 // - a skipped echo leaves the host holding an old value: unless an echo of
 //   the document is still to come, the host is told the document again. A
 //   value sent before one that came back may still come (out of order) or
@@ -49,12 +55,13 @@ export class ValueSync {
   constructor(options = {}) {
     this.maxPending = options.maxPending ?? 256;
     // The values sent that the host has not passed back yet, oldest first:
-    // `{ print, toCome, doubted }`, `toCome` while no value sent after it
-    // came back, `doubted` once the value the host held was passed again
-    // while it was on its way.
+    // `{ print, toCome, doubted, serial }`, `toCome` while no value sent
+    // after it came back, `doubted` once the value the host held was passed
+    // again while it was on its way, `serial` counting the values sent.
     this.pending = [];
     // The value the host passed last.
     this.lastGiven = null;
+    this.serial = 0;
   }
 
   /**
@@ -65,8 +72,14 @@ export class ValueSync {
    * counted on).
    */
   sent(value, toCome = true) {
-    this.pending.push({ print: fingerprint(value), toCome, doubted: false });
+    this.pending.push({ print: fingerprint(value), toCome, doubted: false, serial: this.serial });
+    this.serial += 1;
     if (this.pending.length > this.maxPending) this.pending.shift();
+  }
+
+  /** What `received` takes as `flushed`: the values sent from now on are sent while it is handled. */
+  mark() {
+    return this.serial;
   }
 
   /**
@@ -81,14 +94,17 @@ export class ValueSync {
   /**
    * The host's value arrived. `current` is the editor's document now (read
    * `editor.value` first: it sends an edit still waiting out the typing
-   * pause). Returns the text to apply with `replaceValue`, if any, the text
-   * to report to the host through its change callback, if any (already
-   * recorded as sent), and whether to `settle` once a pause is over.
+   * pause; `flushed`, from `mark()` before, tells the values it sent apart:
+   * the host did not know them). Returns the text to apply with
+   * `replaceValue`, if any, the text to report to the host through its
+   * change callback, if any (already recorded as sent), and whether to
+   * `settle` once a pause is over.
    * @param {string} value
    * @param {string} current
+   * @param {number} [flushed]
    * @returns {{ apply: string | null, report: string | null, settle: boolean }}
    */
-  received(value, current) {
+  received(value, current, flushed = this.serial) {
     const none = { apply: null, report: null, settle: false };
     const print = fingerprint(value);
     let news;
@@ -105,7 +121,16 @@ export class ValueSync {
       // The newest copy (a typo fixed sends the same text twice): a parent
       // applying only the latest value hands back that one.
       const at = this.pending.findLastIndex((sent) => sent.print === print);
-      if (at < 0) return { ...none, apply: current !== value ? value : null };
+      if (at < 0) {
+        if (value === current) return none;
+        // The host's own value replaces the document: the values sent
+        // before belong to the one it replaced (another file, a discarded
+        // draft), no echoes any more. Those sent while it was handled (an
+        // edit still held, sent first) were unknown to the host: still
+        // echoes.
+        this.pending = this.pending.filter((sent) => sent.serial >= flushed);
+        return { ...none, apply: value };
+      }
       this.pending.splice(at, 1);
       for (const sent of this.pending.slice(0, at)) sent.toCome = false;
       news = true;

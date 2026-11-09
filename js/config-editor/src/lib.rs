@@ -17,7 +17,7 @@
 //! - `headless`, `documents`, `catalog`: the functions that need no editor
 //!   (checks and diffs; parsing, paths and folds; accepted names).
 //! - `languages`: language names and `registerLanguage`.
-//! - `options`, `values`, `host_diagnostics`, `protect`: reading what JavaScript passes
+//! - `options`, `values`, `host_diagnostics`, `protect`, `remap`: reading what JavaScript passes
 //!   and shaping what it gets back.
 //! - `typings`: the TypeScript declarations wasm-bindgen cannot derive.
 //! - `alloc_stats` (feature `alloc-stats`): heap statistics for hunting
@@ -41,6 +41,7 @@ mod languages;
 mod mount;
 mod options;
 mod protect;
+mod remap;
 mod settings;
 mod settle;
 mod text_lines;

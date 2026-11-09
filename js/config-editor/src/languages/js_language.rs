@@ -16,6 +16,9 @@ use super::assist;
 use super::ranges::{self, Multiline};
 use crate::values::{field, json_from_js, string_field, to_js};
 
+/// The kinds a custom language's `highlight` tokens take.
+const TOKEN_KINDS: &str = "\"key\", \"string\", \"value\", \"literal\", \"comment\", \"punctuation\", \"reference\" or \"interpolation\"";
+
 /// A language implemented in JavaScript. The editor gives it what the shared
 /// core provides from `parse` and the spans it locates: schema validation
 /// with positions, conversion to and from every other language, Edit-as,
@@ -105,11 +108,16 @@ impl JsLanguage {
     /// (`problem`), once per language, callback and problem: the result is
     /// read as `null`.
     pub(super) fn warn(&self, callback: &str, problem: &str) {
+        self.warn_read_as(callback, problem, "null");
+    }
+
+    /// As [`Self::warn`], the result read as `read_as`.
+    fn warn_read_as(&self, callback: &str, problem: &str, read_as: &str) {
         thread_local! {
             static WARNED: RefCell<HashSet<String>> = RefCell::new(HashSet::new());
         }
         let message = format!(
-            "config-editor: {}'s {callback}() {problem}; read as null",
+            "config-editor: {}'s {callback}() {problem}; read as {read_as}",
             self.info.get().label
         );
         if WARNED.with(|warned| warned.borrow_mut().insert(message.clone())) {
@@ -266,6 +274,13 @@ impl ConfigLanguage for JsLanguage {
             return Vec::new();
         };
         if !Array::is_array(&tokens) {
+            if !tokens.is_null() && !tokens.is_undefined() {
+                self.warn_read_as(
+                    "highlight",
+                    "must return an array of { start, end, kind }",
+                    "no tokens",
+                );
+            }
             return Vec::new();
         }
         let mut out = Tokens::new();
@@ -279,7 +294,18 @@ impl ConfigLanguage for JsLanguage {
                 Some("punctuation") => TokenKind::Punctuation,
                 Some("reference") => TokenKind::Reference,
                 Some("interpolation") => TokenKind::Interpolation,
-                _ => TokenKind::Value,
+                Some("value") => TokenKind::Value,
+                kind => {
+                    self.warn_read_as(
+                        "highlight",
+                        &format!(
+                            "gave a token of kind {}, not one of {TOKEN_KINDS}",
+                            kind.map_or_else(|| "(none)".to_string(), |kind| format!("{kind:?}"))
+                        ),
+                        "\"value\"",
+                    );
+                    TokenKind::Value
+                }
             };
             // JavaScript string indices (UTF-16 units, as `indexOf` gives).
             let byte = |unit: usize| {

@@ -397,13 +397,16 @@ export function frameworkCases(name) {
       expect(await browserPage.evaluate(() => window.editorHandle.current.value)).toBe('from-effect: 1\n');
     });
 
-    test('a slow parent replacing the value while echoes are in flight loses no keystroke', async ({ page: browserPage }) => {
+    // A parent still handing back every value late replaces it with
+    // `setValue` (a changed value prop makes the values sent before it its
+    // own: going back to one applies).
+    test('a slow parent replacing the value with setValue while echoes are in flight loses no keystroke', async ({ page: browserPage }) => {
       await browserPage.goto(page(name) + '?slow');
       await expect(browserPage.locator('body')).toHaveAttribute('data-ready', 'true', { timeout: 20000 });
       await input(browserPage).click();
       await browserPage.keyboard.press('Control+End');
       await browserPage.keyboard.type('abc', { delay: 80 });
-      await browserPage.locator('#replace').click();
+      await browserPage.evaluate(() => window.editorHandle.current.setValue('listen: 9000\n'));
       await expect(input(browserPage)).toHaveValue('listen: 9000\n');
       await input(browserPage).click();
       await browserPage.keyboard.press('Control+End');

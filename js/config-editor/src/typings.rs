@@ -126,8 +126,10 @@ export type SettingsUpdate = {
  * change: create a new editor.
  */
 export interface EditorUpdate extends SettingsUpdate {
-  /** Replaces the document (in `language`), as a host update: the caret stays when the text is unchanged. With `echoes`, a text `onChange` gave that has not come back yet is its echo and keeps the document. */
+  /** Replaces the document (in `language`), as a host update, whatever it is (the text given last included): the caret stays when the text is unchanged. With `echoes`, a text `onChange` gave that has not come back yet is its echo and keeps the document. */
   value?: string;
+  /** The text this update's `readOnlyRanges` and `hostDiagnostics` ranges were given for, when it is not the document (a check of a text the user has typed past): they are checked in it and moved to the document. Default: `value`, else the document. */
+  rangesFor?: string;
   /** The text the diff gutter compares against. */
   baseline?: string;
   /** Edit in another language; `null` edits in `language` again. */
@@ -140,7 +142,7 @@ export interface EditorUpdate extends SettingsUpdate {
   hostDiagnostics?: HostDiagnostic[] | null;
   /** Replaces the fields the user cannot change; `null` or `[]` clears them. */
   readOnlyPaths?: FieldPath[] | null;
-  /** Replaces the stretches the user cannot change (in the document as it is after this update); `null` or `[]` clears them. */
+  /** Replaces the stretches the user cannot change (in `rangesFor`, else `value`, else the document); `null` or `[]` clears them. */
   readOnlyRanges?: TextRangeInput[] | null;
   onChange?: ((value: string) => void) | null;
   onEditAsChange?: ((language: LanguageName) => void) | null;
