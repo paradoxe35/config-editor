@@ -68,3 +68,63 @@ fn a_locked_line_swapped_with_a_neighbour_is_judged_alike_both_ways() {
     }
     assert!(refused.is_empty(), "{refused:#?}");
 }
+
+/// A locked field's parent line moved past the locked line (`db:` below
+/// `image: pg`, `/services/db/image` locked) takes the locked value out of
+/// its parent: refused in every language, the text parsing or not.
+#[test]
+fn a_locked_fields_parent_moved_past_it_is_refused_in_every_language() {
+    use super::super::keys::line_edit::{Folded, LineCommand, line_edit};
+    let hosts = [
+        (
+            Language::YAML,
+            "services:\n  db:\n    image: pg\n    restart: always\n",
+            "  db:",
+        ),
+        (
+            Language::JSON,
+            "{\n  \"services\": {\n    \"db\": {\n      \"image\": \"pg\",\n      \"restart\": \"always\"\n    }\n  }\n}\n",
+            "\"db\"",
+        ),
+        (
+            Language::TOML,
+            "[services.db]\nimage = \"pg\"\nrestart = \"always\"\n",
+            "[services.db]",
+        ),
+        (
+            Language::HCL,
+            "services {\n  db {\n    image   = \"pg\"\n    restart = \"always\"\n  }\n}\n",
+            "  db {",
+        ),
+        (
+            Language::XML,
+            "<services>\n  <db>\n    <image>pg</image>\n    <restart>always</restart>\n  </db>\n</services>\n",
+            "  <db>",
+        ),
+    ];
+    let mut allowed = Vec::new();
+    for (language, before, parent) in hosts {
+        let paths = [FieldPath::from("/services/db/image")];
+        let behavior = language.behavior();
+        let protected = protect(
+            behavior,
+            before,
+            Sources {
+                paths: &paths,
+                ..Sources::default()
+            },
+        );
+        let at = before[..before.find(parent).unwrap()]
+            .encode_utf16()
+            .count();
+        let none = Folded {
+            folds: &[],
+            units: &[],
+        };
+        let edit = line_edit(before, (at, at), LineCommand::Move { down: true }, none).unwrap();
+        if check(behavior, None, &protected, before, &edit.text).is_ok() {
+            allowed.push(format!("{language}: {:?}", edit.text));
+        }
+    }
+    assert!(allowed.is_empty(), "{allowed:#?}");
+}

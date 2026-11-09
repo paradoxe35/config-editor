@@ -249,6 +249,15 @@ impl EditorState {
             return;
         }
         let (start, end) = edit_range(before, after, caret);
+        // Tokens the edit wrote again whole are found again by their text.
+        let region = secrets.tokens.with_untracked(|tokens| {
+            super::rewritten::rewritten_region(tokens, before, after, &(start..end))
+                .unwrap_or(start..end)
+        });
+        let Range { start, end } = secrets.known.with_untracked(|known| {
+            let texts: Vec<&str> = known.iter().map(|known| known.token.as_str()).collect();
+            super::rewritten::around_written(&texts, before, after, &region)
+        });
         let inserted_len = (after.encode_utf16().count() + end - start)
             .saturating_sub(before.encode_utf16().count());
         let followed = secrets

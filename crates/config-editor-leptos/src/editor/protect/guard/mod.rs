@@ -151,7 +151,11 @@ fn stretches_kept(edit: &Edited<'_>, repairing: bool) -> Result<(), Blocked> {
         if glued_to_content(edit, lock) {
             return Err(refused(&lock.reason));
         }
-        if !lock.guards.iter().all(|range| edit.kept(range)) && !free() {
+        let held = || {
+            lock.guards.iter().all(|range| edit.kept(range))
+                && edit.kept_together(&[lock.ranges.as_slice(), &lock.guards].concat())
+        };
+        if !held() && !free() {
             return Err(Blocked {
                 reason: lock.reason.clone(),
                 why: Why::Holds,

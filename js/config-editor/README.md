@@ -970,6 +970,14 @@ ConfigEditor` and `update()`.
 - `Tab` / `Shift+Tab`: indent / outdent
 - `Ctrl+/`: comment or uncomment the lines
 - `Ctrl+Enter` / `Ctrl+Shift+Enter`: new line below / above
+- `Alt+↑` / `Alt+↓`: move the line or selected lines up / down (a folded
+  line with its hidden lines, staying folded; past a folded block, over all
+  of it)
+- `Shift+Alt+↑` / `Shift+Alt+↓`: copy the line or selected lines up / down
+- `Ctrl+Shift+K`: delete the line or selected lines (the caret keeps its column)
+- `Ctrl+]` / `Ctrl+[`: indent / outdent the line or selected lines
+- `Ctrl+C` / `Ctrl+X` with nothing selected: copy / cut the whole line
+  (pasting it inserts above)
 - `Ctrl+Z` / `Ctrl+Y`: undo / redo (the last 500 steps, fewer in a large text: they keep up to 64 MB of earlier texts)
 - `Ctrl+S`: save (with `onSave`)
 - `Escape`: close what is open (suggestions, a preview, a widget)

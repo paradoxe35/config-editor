@@ -440,6 +440,10 @@ pub(crate) fn widen(
 ) -> Option<(String, Range<usize>, usize)> {
     use super::super::text_change::utf16_len;
     let inserted_len = (utf16_len(after) + region.len()).checked_sub(utf16_len(before))?;
+    // Whole tokens written again (lines swapped or copied): no cut.
+    if super::rewritten::rewritten_region(tokens, before, after, &region).is_some() {
+        return None;
+    }
     let mut wide = region.clone();
     loop {
         let grown = tokens.iter().fold(wide.clone(), |wide, token| {

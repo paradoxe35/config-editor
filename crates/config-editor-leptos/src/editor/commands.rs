@@ -188,6 +188,18 @@ pub(super) fn indent_lines(
     outdent: bool,
     unit: &str,
 ) -> Option<(String, usize, usize)> {
+    indent_lines_through(source, (selection_start, selection_end), 0, outdent, unit)
+}
+
+/// [`indent_lines`] on the selection's lines and on through line
+/// `through` (0-based): the hidden lines of a folded line.
+pub(super) fn indent_lines_through(
+    source: &str,
+    (selection_start, selection_end): (usize, usize),
+    through: usize,
+    outdent: bool,
+    unit: &str,
+) -> Option<(String, usize, usize)> {
     let start = utf16_to_byte_index(source, selection_start);
     let end = utf16_to_byte_index(source, selection_end);
     let first_line = source[..start]
@@ -195,8 +207,9 @@ pub(super) fn indent_lines(
         .filter(|byte| *byte == b'\n')
         .count();
     let newline_count = source[..end].bytes().filter(|byte| *byte == b'\n').count();
-    let last_line =
-        newline_count.saturating_sub(usize::from(start < end && source[..end].ends_with('\n')));
+    let last_line = newline_count
+        .saturating_sub(usize::from(start < end && source[..end].ends_with('\n')))
+        .max(through);
     let lines: Vec<_> = source.split_inclusive('\n').collect();
     if first_line >= lines.len() {
         return None;
@@ -276,6 +289,11 @@ pub(super) fn indent_lines(
         .copied()
         .filter(|(at, _, _)| (line_start..=line_end).contains(at));
     let updated_start = match start_line_edit {
+        // A caret in the indentation (or at the line's start) moves with
+        // the indent inserted after it, as in VS Code.
+        Some((_, 0, inserted)) if start == end && (at_line_start || in_indent) => {
+            map_offset(line_start, false) + (start - line_start) + inserted
+        }
         Some((_, removed, inserted)) if in_indent && start != end => {
             let column = start - line_start;
             let moved = (column + inserted).saturating_sub(removed);
@@ -284,7 +302,11 @@ pub(super) fn indent_lines(
         _ => map_offset(start, start == end || !at_line_start),
     }
     .min(updated.len());
-    let updated_end = map_offset(end, true).min(updated.len());
+    let updated_end = if start == end {
+        updated_start
+    } else {
+        map_offset(end, true).min(updated.len())
+    };
     let updated_selection_start = updated[..updated_start].encode_utf16().count();
     let updated_selection_end = updated[..updated_end].encode_utf16().count();
     Some((updated, updated_selection_start, updated_selection_end))
@@ -384,6 +406,25 @@ mod tab_tests {
         assert_eq!(tab_insert("a:\n  b: 1\nabc", 13, "  "), " ");
         assert_eq!(tab_insert("a:\n  b: 1\n ", 11, "  "), " ");
         assert_eq!(tab_insert("a:\n  b: 1\n", 10, "  "), "  ");
+    }
+
+    /// Ctrl+] with the caret in the leading whitespace: the caret moves
+    /// with the indent (VS Code), and Ctrl+[ takes it back.
+    #[test]
+    fn a_caret_in_the_indent_moves_with_it() {
+        let source = "a:\n  b: 1\n";
+        for (caret, indented, outdented) in [(3, 5, 3), (4, 6, 4), (5, 7, 5), (7, 9, 7)] {
+            let (updated, start, end) = indent_lines(source, caret, caret, false, "  ").unwrap();
+            assert_eq!(updated, "a:\n    b: 1\n");
+            assert_eq!((start, end), (indented, indented), "caret at {caret}");
+            let (back, start, end) = indent_lines(&updated, start, end, true, "  ").unwrap();
+            assert_eq!(back, source);
+            assert_eq!(
+                (start, end),
+                (outdented, outdented),
+                "caret at {caret} back"
+            );
+        }
     }
 
     #[test]

@@ -6,6 +6,9 @@ mod chord;
 pub(super) mod complete;
 pub(super) mod enter;
 pub(super) mod enter_newline;
+pub(super) mod line_edit;
+#[cfg(test)]
+mod line_edit_tests;
 mod lines;
 mod navigation;
 mod page_keys;

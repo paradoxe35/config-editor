@@ -7,7 +7,7 @@
 //! | Entry point | Built in | Origin |
 //! |---|---|---|
 //! | Typing, IME, paste, cut, drop, dictation (the browser's own edits) | `input::flush_input` | [`Origin::Input`] |
-//! | Enter, Tab, Shift+Tab, pairs and tags, Backspace in a pair, Ctrl+/, join lines | `keys::*` | [`Origin::Command`] |
+//! | Enter, Tab, Shift+Tab, pairs and tags, Backspace in a pair, Ctrl+/, join lines, the line commands (closed folds given) | `keys::*` | [`Origin::Command`] |
 //! | A line copied, cut or pasted whole, a cut across a fold | `input` | [`Origin::Command`] |
 //! | An accepted suggestion | `completion::live` | [`Origin::Command`] |
 //! | Replace, Replace All | `search::actions` | [`Origin::Command`] |
@@ -70,6 +70,7 @@ pub(super) use pipeline::{Stage, take_trace};
 
 use leptos::prelude::*;
 
+use super::fold_ranges::FoldRange;
 use super::history::{Selection, Snapshot};
 use super::input::{UNKNOWN_SELECTION, edit_range};
 use super::languages::Language;
@@ -91,6 +92,9 @@ pub(super) struct Edit {
     /// The language `text` is in, when the edit changes the language on
     /// screen: an Edit-as switch, or an undo or redo back across one.
     pub(super) language: Option<Language>,
+    /// The closed folds after the edit, when it says (a line command
+    /// moving folded lines whole); else they follow the change.
+    pub(super) folds: Option<Vec<FoldRange>>,
 }
 
 /// Where the selection goes after an edit.
@@ -129,6 +133,7 @@ impl Edit {
             },
             origin: Origin::Command,
             language: None,
+            folds: None,
         }
     }
 
@@ -137,6 +142,13 @@ impl Edit {
         if let After::Select { anchor, .. } = &mut self.after {
             *anchor = from;
         }
+        self
+    }
+
+    /// Leaves exactly `folds` closed after it (those still folding in the
+    /// new text), instead of following the change.
+    pub(super) fn folding(mut self, folds: Vec<FoldRange>) -> Self {
+        self.folds = Some(folds);
         self
     }
 
@@ -176,6 +188,7 @@ impl Edit {
             },
             origin: Origin::Input { kind, time },
             language: None,
+            folds: None,
         }
     }
 
@@ -194,6 +207,7 @@ impl Edit {
             },
             origin: if redo { Origin::Redo } else { Origin::Undo },
             language: to.language,
+            folds: None,
         }
     }
 
@@ -213,6 +227,7 @@ impl Edit {
             after,
             origin,
             language: None,
+            folds: None,
         }
     }
 

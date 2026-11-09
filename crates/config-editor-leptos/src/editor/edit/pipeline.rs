@@ -99,7 +99,7 @@ impl EditorState {
         if changed && !edit.origin.is_checked() {
             self.protect().trust_text();
         }
-        let rewritten = self.write_text(edit.text.clone());
+        let rewritten = self.write_text(edit.text.clone(), edit.folds.take());
         let rewritten = switching
             .is_some_and(|language| self.fold_fields(&folded_fields, language))
             || rewritten;
@@ -128,11 +128,11 @@ impl EditorState {
     }
 
     /// Writes `text` as the document, the only place that does: closed
-    /// folds move with the lines, and the textarea shows the result.
-    /// Returns whether the textarea's text had to be rewritten (its
-    /// selection is then lost).
-    fn write_text(&self, text: String) -> bool {
-        let moved = self.folds_through(&text);
+    /// folds move with the lines (or are `folds`, when the edit says), and
+    /// the textarea shows the result. Returns whether the textarea's text
+    /// had to be rewritten (its selection is then lost).
+    fn write_text(&self, text: String, folds: Option<Vec<FoldRange>>) -> bool {
+        let moved = folds.or_else(|| self.folds_through(&text));
         self.doc()
             .text
             .with_untracked(|before| self.note_text_change(before, &text));

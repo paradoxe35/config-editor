@@ -127,7 +127,7 @@ fn spans_lines(text: &str, start: usize, end: usize) -> bool {
 
 /// Indents (or with Shift outdents) the selected lines, keeping them
 /// selected.
-pub(super) fn indent_block(
+fn indent_block(
     state: EditorState,
     text: String,
     (start, end): (usize, usize),

@@ -40,7 +40,8 @@ React, Vue and Svelte.
   with a before/after preview, "Revert this change", `Alt+F5` between
   changes, a change count for the host and a unified diff for review.
 - **Editing you expect from VS Code:** auto-closed brackets, quotes and XML
-  tags, smart indentation, `Ctrl+/` comments, line copy/cut, find and replace
+  tags, smart indentation, `Ctrl+/` comments, moving, copying and deleting
+  lines (`Alt+↑` / `Alt+↓`, folded blocks whole), line copy/cut, find and replace
   (with regex), go to line, folding, `F8` through problems, undo/redo.
 - **Schema help:** deprecated keys, documentation links and documented values.
 - **Host control:** read-only fields and regions, secret placeholders that are

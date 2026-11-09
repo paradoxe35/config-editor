@@ -116,17 +116,48 @@ impl<'a> Edited<'a> {
     /// swapped keep one or the other: the edit and its undo, a line moved
     /// up or down past a locked one, are judged alike).
     pub(super) fn lines_kept(&self, range: &Range<usize>) -> bool {
+        self.kept_by_one_diff(std::slice::from_ref(range))
+    }
+
+    /// Whether every one of `ranges` of `before` survives the edit in the
+    /// same reading of it: each kept as text, or all the others' lines
+    /// kept whole by one line diff. A locked value and the keys holding it
+    /// are judged together: two lines swapped keep one or the other, not
+    /// both (`db:` moved below its `image: pg`).
+    pub(super) fn kept_together(&self, ranges: &[Range<usize>]) -> bool {
+        let moved: Vec<Range<usize>> = ranges
+            .iter()
+            .filter(|range| {
+                !kept(
+                    range,
+                    &self.old,
+                    &self.new,
+                    self.prefix,
+                    self.suffix,
+                    &|| self.strict(),
+                )
+            })
+            .cloned()
+            .collect();
+        moved.is_empty() || self.kept_by_one_diff(&moved)
+    }
+
+    /// Whether one line diff of the two texts keeps the lines of all of
+    /// `ranges` whole.
+    fn kept_by_one_diff(&self, ranges: &[Range<usize>]) -> bool {
         let lines = &self.lines;
-        let wanted = lines.line_of(range.start)..=lines.line_of(range.end.saturating_sub(1));
+        let wanted = || {
+            ranges.iter().flat_map(|range| {
+                lines.line_of(range.start)..=lines.line_of(range.end.saturating_sub(1))
+            })
+        };
         self.unchanged
             .get_or_init(|| unchanged_lines(self.before, self.after))
             .as_ref()
             .is_some_and(|diffs| {
-                diffs.iter().any(|same| {
-                    wanted
-                        .clone()
-                        .all(|line| same.get(line).copied().unwrap_or(false))
-                })
+                diffs
+                    .iter()
+                    .any(|same| wanted().all(|line| same.get(line).copied().unwrap_or(false)))
             })
     }
 

@@ -30,6 +30,7 @@ mod locate;
 mod locks;
 mod marks;
 mod problems;
+mod rewritten;
 mod save;
 mod scan;
 mod secrets;
@@ -197,6 +198,15 @@ mod indent_tests;
     feature = "xml"
 ))]
 mod large_broken_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod line_command_tokens_tests;
 #[cfg(all(
     test,
     feature = "yaml",
