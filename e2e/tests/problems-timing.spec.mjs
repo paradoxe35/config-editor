@@ -230,6 +230,55 @@ test.describe('problem timing', () => {
     expect(hosted.key - bare.key, `${Math.round(hosted.key)} ms with the ranges, ${Math.round(bare.key)} ms without`).toBeLessThan(150);
   });
 
+  test('P24-2: switching to Edit as with 5000 host ranges costs about what it costs without them, from every language', async ({ page }) => {
+    test.setTimeout(600_000);
+    // 2000 services, a range at the start of each of 5000 lines: half of
+    // them on lines writing no value of their own (a block's key or end),
+    // whose field was read from the top of the host's text for each.
+    const documents = {
+      yaml: (count) => Array.from({ length: count }, (_, i) => `svc_${i}:\n  host: h${i}.example.com # c\n  port: ${1000 + i}\n  on: true`).join('\n') + '\n',
+      json: (count) => '{\n' + Array.from({ length: count }, (_, i) => `  "svc_${i}": {\n    "host": "h${i}.example.com",\n    "port": ${1000 + i}\n  }`).join(',\n') + '\n}\n',
+      toml: (count) => Array.from({ length: count }, (_, i) => `[svc_${i}]\nhost = "h${i}.example.com" # c\nport = ${1000 + i}\n`).join('\n'),
+      hcl: (count) => Array.from({ length: count }, (_, i) => `svc_${i} {\n  host = "h${i}.example.com"\n  port = ${1000 + i}\n}`).join('\n') + '\n',
+      xml: (count) => '<root>\n' + Array.from({ length: count }, (_, i) => `  <svc_${i}>\n    <host>h${i}.example.com</host>\n    <port>${1000 + i}</port>\n  </svc_${i}>`).join('\n') + '\n</root>\n',
+    };
+    const failures = [];
+    for (const [language, document] of Object.entries(documents)) {
+      const text = document(2000);
+      const lines = text.split('\n').length;
+      const ranges = Array.from({ length: 5000 }, (_, i) => ({
+        range: { startLine: 1 + (i % (lines - 2)), startColumn: 1, endLine: 2 + (i % (lines - 2)), endColumn: 1 },
+        severity: ['error', 'warning'][i % 2],
+        message: `p${i}`,
+      }));
+      const other = language === 'yaml' ? 'json' : 'yaml';
+      await open(page, { language, value: language === 'json' ? '{}\n' : '', schema: '{}', fileName: `x.${language}` });
+      await page.evaluate((value) => window.editor.update({ value }), text);
+      await page.waitForTimeout(1500);
+      // The longest task of the switch, without and with the ranges in
+      // turn, each the shorter of two (load only ever makes one longer).
+      const switched = async (problems) => {
+        await page.evaluate((list) => window.editor.update({ editAs: null, hostDiagnostics: list }), problems);
+        await page.waitForTimeout(1500);
+        return longestTask(page, async () => {
+          await page.evaluate((as) => window.editor.update({ editAs: as }), other);
+          await page.waitForTimeout(1500);
+        });
+      };
+      const bare = [];
+      const hosted = [];
+      for (let round = 0; round < 2; round += 1) {
+        bare.push(await switched([]));
+        hosted.push(await switched(ranges));
+      }
+      const [alone, withRanges] = [Math.min(...bare), Math.min(...hosted)];
+      console.log(`${language} as ${other}: longest task ${Math.round(alone)} ms alone, ${Math.round(withRanges)} ms with 5000 host ranges`);
+      // They took 2-24 s more (XML 23.7 s); 50-300 ms more here.
+      if (withRanges - alone >= 750) failures.push(`${language}: ${Math.round(withRanges)} ms, ${Math.round(alone)} ms alone`);
+    }
+    expect(failures).toEqual([]);
+  });
+
   test('U20-3: 400 lines committed in one command at the end of a long document with 3000 host ranges take a fraction of a bare textarea\'s time', async ({ page }) => {
     test.setTimeout(120_000);
     const text = longDocument('yaml');

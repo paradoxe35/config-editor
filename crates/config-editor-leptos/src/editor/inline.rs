@@ -674,42 +674,135 @@ pub fn statements(source: &str) -> Vec<(usize, usize)> {
 /// `:`, `=`, `,`, `-`, another opener, or a line's indentation), so brackets
 /// in prose (a YAML block scalar) do not open a container.
 pub fn statement_start(before_caret: &str) -> Option<usize> {
-    let bytes = before_caret.as_bytes();
-    let mut depth = 0usize;
-    let mut start = None;
-    let mut index = 0;
-    let mut previous = b'\n';
-    while index < bytes.len() {
-        let byte = bytes[index];
+    let mut walk = Statement::default();
+    while walk.index < before_caret.len() {
+        walk.step(before_caret);
+    }
+    walk.start()
+}
+
+#[cfg_attr(
+    not(any(feature = "yaml", feature = "toml", feature = "hcl")),
+    allow(dead_code, reason = "the YAML, TOML and HCL contexts read statements")
+)]
+/// [`statement_start`] of `source[..end]`. While a batch runs for the text
+/// (see `paths::paths_at`), walked on from the last of its states kept for
+/// the text before `end`, not from the top.
+pub(crate) fn statement_start_at(source: &str, end: usize) -> Option<usize> {
+    let before_caret = &source[..end];
+    if !super::paths::in_batch(source) {
+        return statement_start(before_caret);
+    }
+    let kept = super::paths::batch_cached(source, || {
+        super::paths::walked_from_top(source);
+        KeptStatements::walk(source)
+    });
+    // A state the walk of the whole text reached at or before `end` is the
+    // one the walk of `source[..end]` reaches there: each step before it
+    // read only text before it.
+    let at = kept.0.partition_point(|walk| walk.index <= end);
+    let mut walk = kept.0[at.saturating_sub(1)].clone();
+    while walk.index < before_caret.len() {
+        walk.step(before_caret);
+    }
+    walk.start()
+}
+
+#[cfg_attr(
+    not(any(feature = "yaml", feature = "toml", feature = "hcl")),
+    allow(dead_code, reason = "the YAML, TOML and HCL contexts read statements")
+)]
+/// Bytes walked between two kept states.
+const STATEMENT_EVERY: usize = 2048;
+
+#[cfg_attr(
+    not(any(feature = "yaml", feature = "toml", feature = "hcl")),
+    allow(dead_code, reason = "the YAML, TOML and HCL contexts read statements")
+)]
+/// The states of [`statement_start`]'s walk over a whole text, one at the
+/// first place past each [`STATEMENT_EVERY`] bytes.
+struct KeptStatements(Vec<Statement>);
+
+#[cfg_attr(
+    not(any(feature = "yaml", feature = "toml", feature = "hcl")),
+    allow(dead_code, reason = "the YAML, TOML and HCL contexts read statements")
+)]
+impl KeptStatements {
+    fn walk(source: &str) -> Self {
+        let mut kept = vec![Statement::default()];
+        let mut walk = Statement::default();
+        while walk.index < source.len() {
+            walk.step(source);
+            if walk.index >= kept.len() * STATEMENT_EVERY {
+                kept.push(walk.clone());
+            }
+        }
+        Self(kept)
+    }
+}
+
+/// Where [`statement_start`]'s walk is.
+#[derive(Clone)]
+struct Statement {
+    index: usize,
+    depth: usize,
+    start: Option<usize>,
+    previous: u8,
+}
+
+impl Default for Statement {
+    fn default() -> Self {
+        Statement {
+            index: 0,
+            depth: 0,
+            start: None,
+            previous: b'\n',
+        }
+    }
+}
+
+impl Statement {
+    /// The statement's start, when a container is still open.
+    fn start(&self) -> Option<usize> {
+        self.start.filter(|_| self.depth > 0)
+    }
+
+    /// Reads the byte at `index` of `code` (and a string or comment it
+    /// starts).
+    fn step(&mut self, code: &str) {
+        let index = self.index;
+        let byte = code.as_bytes()[index];
         match byte {
-            b'"' | b'\'' if depth > 0 || matches!(previous, b':' | b'=' | b',' | b'[' | b'{') => {
-                index = skip_quoted(before_caret, index);
-                previous = b'"';
-                continue;
+            b'"' | b'\''
+                if self.depth > 0 || matches!(self.previous, b':' | b'=' | b',' | b'[' | b'{') =>
+            {
+                self.index = skip_quoted(code, index);
+                self.previous = b'"';
+                return;
             }
-            b'#' if is_comment_start(before_caret, index) => {
-                index = line_end(before_caret, index);
-                continue;
+            b'#' if is_comment_start(code, index) => {
+                self.index = line_end(code, index);
+                return;
             }
-            b'{' | b'[' if matches!(previous, b':' | b'=' | b',' | b'[' | b'{' | b'-' | b'\n') => {
-                if depth == 0 {
-                    start = Some(
-                        before_caret[..index]
-                            .rfind('\n')
-                            .map_or(0, |newline| newline + 1),
-                    );
+            b'{' | b'['
+                if matches!(
+                    self.previous,
+                    b':' | b'=' | b',' | b'[' | b'{' | b'-' | b'\n'
+                ) =>
+            {
+                if self.depth == 0 {
+                    self.start = Some(code[..index].rfind('\n').map_or(0, |newline| newline + 1));
                 }
-                depth += 1;
+                self.depth += 1;
             }
-            b'}' | b']' if depth > 0 => depth -= 1,
+            b'}' | b']' if self.depth > 0 => self.depth -= 1,
             _ => {}
         }
         if !matches!(byte, b' ' | b'\t') {
-            previous = byte;
+            self.previous = byte;
         }
-        index += 1;
+        self.index += 1;
     }
-    start.filter(|_| depth > 0)
 }
 
 fn is_comment_start(code: &str, index: usize) -> bool {
@@ -860,6 +953,30 @@ mod tests {
         // Prose brackets and comments do not open containers.
         assert_eq!(statement_start("note: |\n  see [docs\nb: 1\n"), None);
         assert_eq!(statement_start("a = 1 # [x\nb = "), None);
+    }
+
+    /// Read from the states kept for a long text, the statement at every
+    /// place is the one walked from the top: over containers, strings and
+    /// comments running past the kept states' places.
+    #[cfg(feature = "toml")]
+    #[test]
+    fn statements_read_from_kept_states_are_the_ones_walked_from_the_top() {
+        let piece =
+            "a = [\n  \"x, [y\",\n  { b = 1 }, # ] c\n]\nd = { e = 'f\n' }\nn = \"long string ";
+        let source: String = (0..200)
+            .map(|index| format!("{piece}{index}\"\n"))
+            .collect();
+        let behavior = crate::editor::Language::TOML.behavior();
+        let ends: Vec<usize> = (0..=source.len()).collect();
+        let kept: Vec<Option<usize>> =
+            crate::editor::paths::with_spans(behavior, &source, &[], || {
+                ends.iter()
+                    .map(|end| statement_start_at(&source, *end))
+                    .collect()
+            });
+        for (end, kept) in ends.into_iter().zip(kept) {
+            assert_eq!(kept, statement_start(&source[..end]), "at {end}");
+        }
     }
 
     #[test]

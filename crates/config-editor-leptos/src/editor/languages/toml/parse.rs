@@ -243,15 +243,6 @@ pub(super) fn value_span_in_line(line: &str) -> Option<(usize, usize)> {
     (start < end).then_some((start, end))
 }
 
-/// Schema path of the table holding `line_index`: walks headers above it. A
-/// `[table]` header sets the absolute path from the root; `[[array]]`
-/// appends the occurrence index of that header so repeated tables address
-/// distinct array items. A blank path is the document root.
-pub(super) fn table_path_at(lines: &[&str], line_index: usize) -> Vec<SchemaPathSegment> {
-    table_paths(&lines[..line_index.min(lines.len())])
-        .pop()
-        .unwrap_or_default()
-}
 
 /// The table path in effect after each line, in one pass: `[[a.b]]` adds the
 /// entry's index, and a later `[a.b.c]` belongs to the latest `a.b` entry.
@@ -271,7 +262,7 @@ pub(super) fn table_paths(lines: &[&str]) -> Vec<Vec<SchemaPathSegment>> {
 }
 
 /// The table the lines read so far are in, header by header.
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub(super) struct Tables {
     pub(super) path: Vec<SchemaPathSegment>,
     /// How many items each array of tables has had, by its path with the

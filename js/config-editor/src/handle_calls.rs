@@ -9,7 +9,7 @@ use wasm_bindgen::prelude::*;
 
 use crate::typings::{LineRanges, PathResult, RangeResult};
 use crate::values::{
-    field, index_arg, line_ranges_to_js, path_at_index, path_from_js, path_to_js, range_to_js,
+    field, index_arg, line_ranges_to_js, path_at_index, path_from_js, path_to_js, range_out_to_js,
 };
 
 pub(crate) fn range_of(
@@ -18,9 +18,14 @@ pub(crate) fn range_of(
 ) -> Result<RangeResult, JsError> {
     config_editor_leptos::js_support::flush_pending_input();
     let path = path_from_js(path)?;
-    let found = handle.and_then(|handle| handle.range_of(path).zip(handle.text()));
+    // The offsets read from what the editor keeps for its text: no copy of
+    // the text, and no read of it up to the range, per call.
+    let found = handle
+        .and_then(|handle| config_editor_leptos::js_support::range_and_offsets_of(&handle, path));
     Ok(found
-        .map_or(JsValue::NULL, |(range, text)| range_to_js(&text, range))
+        .map_or(JsValue::NULL, |(range, start, end)| {
+            range_out_to_js(range, start, end)
+        })
         .unchecked_into())
 }
 

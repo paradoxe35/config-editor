@@ -30,6 +30,13 @@ pub(crate) enum Work {
         allow(dead_code, reason = "only the XML path plan notes it")
     )]
     ElementPath,
+    /// A pass over the host's secret placeholders (each compared with a
+    /// value or a path), where one lookup among them was wanted.
+    #[cfg_attr(
+        not(feature = "schema-validation"),
+        allow(dead_code, reason = "only schema validation notes it")
+    )]
+    TokenScan,
 }
 
 impl Work {
@@ -41,13 +48,14 @@ impl Work {
             Self::LineSplit => 2,
             Self::SpanScan => 3,
             Self::ElementPath => 4,
+            Self::TokenScan => 5,
         }
     }
 }
 
 #[cfg(test)]
 thread_local! {
-    static COUNTS: std::cell::Cell<[usize; 5]> = const { std::cell::Cell::new([0; 5]) };
+    static COUNTS: std::cell::Cell<[usize; 6]> = const { std::cell::Cell::new([0; 6]) };
 }
 
 /// `work` is starting (counted on this thread in tests).

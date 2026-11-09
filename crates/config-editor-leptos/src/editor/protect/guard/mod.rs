@@ -57,8 +57,8 @@ use crate::EditorStrings;
 use content::glued_to_content;
 use edit::Edited;
 use hiding::hidden;
-use joining::{is_near, joining_lines, near_lines, span};
-use pins::{is_pinned, pins_hold};
+use joining::{LinePaths, is_near, joining_lines, near_lines, span};
+use pins::pins_hold;
 use stretch::indent_kept;
 
 /// An edit that would change a locked field, and why it is locked.
@@ -124,7 +124,7 @@ pub(crate) fn check(
             return repair::repair_keeps_locks(&edit, edited);
         }
         pins_still_hold(edited, protected)?;
-        pointed.retain(|lock| !is_pinned(protected, lock));
+        pointed.retain(|lock| !edit.pinned().holds(lock));
     } else {
         spanless::hunks_keep_pins(&edit)?;
     }
@@ -193,10 +193,13 @@ fn pins_still_hold(edited: &Value, protected: &Protected) -> Result<(), Blocked>
 /// holding it.
 fn nothing_joins(edit: &Edited<'_>, pointed: &[&Lock]) -> Result<(), Blocked> {
     let new_lines = LineIndex::new(edit.after);
+    // Each line's path is read once for all the locks.
+    let old_paths = LinePaths::new(edit.behavior, edit.before, &edit.lines);
+    let new_paths = LinePaths::new(edit.behavior, edit.after, &new_lines);
     for lock in pointed {
         let pointer = lock.pointer.as_deref().unwrap_or_default();
-        let count = |text: &str, lines: &LineIndex<'_>, region: &Range<usize>, near| {
-            joining_lines(edit.behavior, text, lines, region, near, pointer)
+        let count = |paths: &LinePaths<'_>, region: &Range<usize>, near| {
+            joining_lines(paths, region, near, pointer)
         };
         let Some((low, high)) = span(lock) else {
             continue;
@@ -213,8 +216,8 @@ fn nothing_joins(edit: &Edited<'_>, pointed: &[&Lock]) -> Result<(), Blocked> {
             0..new_lines.line_count()
         };
         let (Some(was), Some(now)) = (
-            count(edit.before, &edit.lines, &edit.region, near_before),
-            count(edit.after, &new_lines, &edit.new_region, near_after),
+            count(&old_paths, &edit.region, near_before),
+            count(&new_paths, &edit.new_region, near_after),
         ) else {
             return Err(refused(&lock.reason));
         };

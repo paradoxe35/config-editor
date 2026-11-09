@@ -1,5 +1,6 @@
 //! Schema docs for the key or documented value under the pointer.
 
+use super::super::paths::{line_start, split_line, units_at};
 use super::*;
 use crate::editor::language::cursor_at;
 
@@ -106,20 +107,14 @@ pub(crate) fn hovered_key(
     column: usize,
     behavior: &dyn ConfigLanguage,
 ) -> Option<(Vec<SchemaPathSegment>, String, usize)> {
-    let line_start: usize = source
-        .split('\n')
-        .take(line_index)
-        .map(|line| line.len() + 1)
-        .sum();
-    let line = source.get(line_start..)?.split('\n').next()?;
+    let line = split_line(source, line_index)?;
+    let line_start = line_start(source, line_index);
     let resolved = behavior.hover_path(source, line_index, column);
     let (key, start_column) = match &resolved {
         Some((_, key, start)) => (key.clone(), *start),
         None => behavior.hover_key(line, column)?,
     };
-    let cursor = source[..line_start + behavior.hover_cursor(line, column)]
-        .encode_utf16()
-        .count();
+    let cursor = units_at(source, line_start + behavior.hover_cursor(line, column));
     let context = behavior.completion_context(source, cursor);
     // The hovered key is either the key whose value the context is in, or the
     // container the context is inside (a TOML `[table]` header, an HCL block

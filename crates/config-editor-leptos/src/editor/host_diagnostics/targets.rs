@@ -14,8 +14,10 @@ use std::sync::Arc;
 use leptos::prelude::*;
 
 use super::super::language::ConfigLanguage;
-use super::super::paths::{TextRange, memo_key_span, path_at, split_line, with_spans};
-use super::fields::{HostFields, fields};
+use super::super::paths::{
+    TextPosition, TextRange, fields, memo_key_span, offset_of, paths_at, split_line, with_spans,
+};
+use super::fields::HostFields;
 use super::place::RangeText;
 use super::{DiagnosticTarget, HostDiagnostic};
 
@@ -54,6 +56,19 @@ impl HostTargets {
             problems: problems.to_vec(),
             targets: resolve(host, text, problems),
         }
+    }
+
+    /// What each problem is placed by.
+    #[cfg(all(
+        test,
+        feature = "yaml",
+        feature = "json",
+        feature = "toml",
+        feature = "hcl",
+        feature = "xml"
+    ))]
+    pub(super) fn targets(&self) -> &[Target] {
+        &self.targets
     }
 
     /// [`HostTargets::new`], kept in `cache`: the ones found before while
@@ -130,52 +145,74 @@ fn resolve(
         .collect();
     with_spans(host, text, &pointers, || {
         let written = HostFields::new(host, text, host_fields);
-        problems
+        let starts: Vec<Option<Start>> = problems
             .iter()
             .map(|problem| match &problem.target {
-                DiagnosticTarget::Range(range) => field_of(host, text, &written, *range).map_or(
-                    Target::Nowhere,
-                    |(pointer, on_key)| Target::Field { pointer, on_key },
-                ),
+                DiagnosticTarget::Range(range) => start_of(text, &written, *range),
+                _ => None,
+            })
+            .collect();
+        // The places no field is written at, read in one pass of the text.
+        let line_breaks_only = !text.contains('\r');
+        let unwritten: Vec<usize> = starts
+            .iter()
+            .flatten()
+            .filter(|start| start.written.is_none())
+            .map(|start| offset_of(text, start.position, line_breaks_only))
+            .collect();
+        let mut read = paths_at(host, text, &unwritten).into_iter();
+        problems
+            .iter()
+            .zip(starts)
+            .map(|(problem, start)| match (&problem.target, start) {
+                (DiagnosticTarget::Range(_), Some(start)) => {
+                    let pointer = match start.written {
+                        Some(pointer) => Some(pointer),
+                        None => read
+                            .next()
+                            .flatten()
+                            .filter(|path| !path.is_root())
+                            .map(|path| path.to_pointer()),
+                    };
+                    pointer.map_or(Target::Nowhere, |pointer| {
+                        let on_key = memo_key_span(host, text, &pointer).is_some_and(|key| {
+                            key.line == start.position.line
+                                && (key.start_column..key.end_column)
+                                    .contains(&start.position.column)
+                        });
+                        Target::Field { pointer, on_key }
+                    })
+                }
+                (DiagnosticTarget::Range(_), None) => Target::Nowhere,
                 _ => of_path(problem),
             })
             .collect()
     })
 }
 
-/// The field of the host's `text` that `range` starts in, and whether it
-/// starts on its key: looked up where the fields are `written` when it
-/// starts on a key or a value, else read from the text. `None` when it
-/// starts in no field (past the text, or at the top level).
-fn field_of(
-    host: &'static dyn ConfigLanguage,
-    text: &str,
-    written: &HostFields,
-    range: TextRange,
-) -> Option<(String, bool)> {
+/// Where a range starts in the host's text, and the field written there
+/// when one is.
+struct Start {
+    position: TextPosition,
+    written: Option<String>,
+}
+
+/// Where `range` starts in the host's `text`: in the line's indentation (a
+/// whole line selected from its start), at the field written on that line;
+/// with the field whose key or value is written there, if one is (else
+/// only reading the text tells). `None` past the text.
+fn start_of(text: &str, written: &HostFields, range: TextRange) -> Option<Start> {
     let line_text = split_line(text, range.start.line.saturating_sub(1))?;
-    // Starting in the line's indentation (a whole line selected from its
-    // start), it starts at the field written on that line.
-    let mut start = range.start;
+    let mut position = range.start;
     let indent = line_text
         .chars()
         .take_while(|c| *c == ' ' || *c == '\t')
         .count();
-    if start.column <= indent && indent < line_text.chars().count() {
-        start.column = indent + 1;
+    if position.column <= indent && indent < line_text.chars().count() {
+        position.column = indent + 1;
     }
-    let pointer = match written.at(start) {
-        Some(pointer) => pointer.to_string(),
-        None => {
-            let path = path_at(host, text, start.to_offset(text))?;
-            if path.is_root() {
-                return None;
-            }
-            path.to_pointer()
-        }
-    };
-    let on_key = memo_key_span(host, text, &pointer).is_some_and(|key| {
-        key.line == start.line && (key.start_column..key.end_column).contains(&start.column)
-    });
-    Some((pointer, on_key))
+    Some(Start {
+        position,
+        written: written.at(position).map(str::to_string),
+    })
 }

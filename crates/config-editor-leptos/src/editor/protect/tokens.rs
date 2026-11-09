@@ -114,16 +114,26 @@ impl SecretMatcher {
     /// tokens); a text that does not parse is read token by token instead.
     pub(crate) fn known(&self, behavior: &dyn ConfigLanguage, text: &str) -> Vec<Known> {
         let mut known: Vec<Known> = Vec::new();
-        let mut add = |token: &str, pointer: String| match known
-            .iter_mut()
-            .find(|seen| seen.token == token && same_field(&seen.pointer, &pointer))
-        {
-            Some(seen) => seen.count += 1,
-            None => known.push(Known {
-                token: token.to_string(),
-                pointer,
-                count: 1,
-            }),
+        // Where each token is in `known`: a lookup per token, not a pass
+        // over all of them (thousands of placeholders).
+        let mut by_token: std::collections::HashMap<String, Vec<usize>> =
+            std::collections::HashMap::new();
+        let mut add = |token: &str, pointer: String| {
+            let seen = by_token.entry(token.to_string()).or_default();
+            match seen
+                .iter()
+                .find(|index| same_field(&known[**index].pointer, &pointer))
+            {
+                Some(index) => known[*index].count += 1,
+                None => {
+                    seen.push(known.len());
+                    known.push(Known {
+                        token: token.to_string(),
+                        pointer,
+                        count: 1,
+                    });
+                }
+            }
         };
         match behavior.parse(text) {
             Ok(document) => {

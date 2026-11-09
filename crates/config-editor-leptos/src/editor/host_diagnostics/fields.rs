@@ -6,41 +6,8 @@
 
 use std::collections::HashMap;
 
-use serde_json::Value;
-
 use super::super::language::ConfigLanguage;
 use super::super::paths::{TextPosition, memo_key_span, memo_value_span};
-
-/// Every field of a document, by pointer (the root left out), and whether
-/// it holds a scalar.
-pub(super) fn fields(document: &Value) -> Vec<(String, bool)> {
-    fn walk(value: &Value, pointer: &mut String, found: &mut Vec<(String, bool)>) {
-        let mut visit = |segment: &str, child: &Value, found: &mut Vec<(String, bool)>| {
-            let length = pointer.len();
-            pointer.push('/');
-            pointer.push_str(&segment.replace('~', "~0").replace('/', "~1"));
-            found.push((pointer.clone(), !(child.is_object() || child.is_array())));
-            walk(child, pointer, found);
-            pointer.truncate(length);
-        };
-        match value {
-            Value::Object(map) => {
-                for (key, child) in map {
-                    visit(key, child, found);
-                }
-            }
-            Value::Array(items) => {
-                for (index, child) in items.iter().enumerate() {
-                    visit(&index.to_string(), child, found);
-                }
-            }
-            _ => {}
-        }
-    }
-    let mut found = Vec::new();
-    walk(document, &mut String::new(), &mut found);
-    found
-}
 
 /// A stretch of one line naming a field: its key, or its value written on
 /// that line (a scalar: a container's span is only where it opens).

@@ -3,6 +3,10 @@ use super::language::ConfigLanguage;
 /// The byte index of UTF-16 offset `offset` (as the browser reports carets),
 /// clamped to the end of `source`.
 pub fn utf16_to_byte_index(source: &str, offset: usize) -> usize {
+    // Read off the text's lines while a batch runs for it.
+    if let Some(byte) = super::paths::byte_at(source, offset) {
+        return byte;
+    }
     let mut utf16_offset = 0;
     for (byte_index, character) in source.char_indices() {
         if utf16_offset >= offset {

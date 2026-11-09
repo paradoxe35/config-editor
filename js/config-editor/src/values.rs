@@ -412,6 +412,18 @@ struct RangeOut {
     end_column: usize,
 }
 
+/// `range` with the string indices `start` and `end` its ends are at.
+pub(crate) fn range_out_to_js(range: TextRange, start: usize, end: usize) -> JsValue {
+    to_js(&RangeOut {
+        start,
+        end,
+        start_line: range.start.line,
+        start_column: range.start.column,
+        end_line: range.end.line,
+        end_column: range.end.column,
+    })
+}
+
 pub(crate) fn range_to_js(text: &str, range: TextRange) -> JsValue {
     to_js(&RangeOut {
         start: range.start.to_offset(text),

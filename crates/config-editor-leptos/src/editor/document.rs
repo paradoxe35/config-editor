@@ -7,7 +7,7 @@ use leptos::prelude::*;
 use super::commands::{indent_unit, line_at_cursor, offset_at};
 use super::history::EditHistory;
 use super::languages::Language;
-use super::paths::{FieldPath, path_at};
+use super::paths::{FieldPath, KeptSpans, path_at};
 use super::positioning::{reveal_offset, set_caret_visible};
 use super::state::EditorState;
 
@@ -28,6 +28,10 @@ pub(super) struct DocState {
     /// The path of what the caret is on (see `paths::path_at`). Lazy: only
     /// computed while something reads it (`on_path_change`, a handle).
     pub(super) caret_path: Memo<FieldPath>,
+    /// The spans of every field of the text, read for the handle's
+    /// `range_of` and kept while the text stays the same: each lookup
+    /// alone read the whole document again.
+    pub(super) spans: StoredValue<KeptSpans, LocalStorage>,
 }
 
 impl DocState {
@@ -47,6 +51,7 @@ impl DocState {
             history: RwSignal::new(EditHistory::default()),
             indent: StoredValue::new(indent_unit(shown)),
             caret_path,
+            spans: StoredValue::new_local(KeptSpans::default()),
         }
     }
 }

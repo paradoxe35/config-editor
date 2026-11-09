@@ -183,3 +183,21 @@ pub fn is_web_url(url: &str) -> bool {
     feature = "xml"
 ))]
 mod batch_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod paths_at_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod switch_tests;

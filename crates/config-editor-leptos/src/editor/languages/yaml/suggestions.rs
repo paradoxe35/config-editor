@@ -376,25 +376,25 @@ pub(super) fn value_token_len(text: &str) -> usize {
     text[..end].trim_end().len()
 }
 
-pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionContext {
-    let cursor = utf16_to_byte_index(source, cursor);
-    let before_cursor = &source[..cursor];
-    let current_line_start = before_cursor.rfind('\n').map_or(0, |index| index + 1);
-    let current_line_end = source[cursor..]
-        .find('\n')
-        .map_or(source.len(), |index| cursor + index);
-    let current_line = &source[current_line_start..current_line_end];
-    let leading_whitespace =
-        current_line.len() - current_line.trim_start_matches([' ', '\t']).len();
-    let indent = leading_whitespace;
-    let prefix = &current_line[indent..];
+/// The keys and list items open above a line: each with its column, and
+/// how many items each list column has had.
+#[derive(Clone, Default)]
+pub(super) struct Ancestors {
+    ancestors: Vec<(usize, SchemaPathSegment)>,
+    item_counts: std::collections::BTreeMap<usize, usize>,
+}
 
-    let mut ancestors: Vec<(usize, SchemaPathSegment)> = Vec::new();
-    let mut item_counts = std::collections::BTreeMap::<usize, usize>::new();
-    for line in source[..current_line_start].lines() {
+impl Ancestors {
+    /// Past `line`.
+    fn walk(&mut self, line: &str) {
+        let Ancestors {
+            ancestors,
+            item_counts,
+        } = self;
+
         let trimmed = line.trim_start();
         if trimmed.is_empty() || trimmed.starts_with('#') {
-            continue;
+            return;
         }
         let line_indent = line.len() - trimmed.len();
         // Each leading `- ` opens an item at its own column, so `- - x: 1`
@@ -419,11 +419,11 @@ pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionConte
             mapping = after_dash;
         }
         let Some(colon) = mapping_colon_anywhere(mapping) else {
-            continue;
+            return;
         };
         let key = without_node_properties(mapping[..colon].trim()).trim_matches(['\'', '"']);
         if key.is_empty() {
-            continue;
+            return;
         }
         while ancestors
             .last()
@@ -434,7 +434,67 @@ pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionConte
         if opens_block(&mapping[colon + 1..]) {
             ancestors.push((mapping_indent, SchemaPathSegment::Key(key.to_string())));
         }
+    
     }
+}
+
+/// The lines of a text as `str::lines` gives them, and the walk of
+/// [`Ancestors`] over them kept every few lines, read once while a batch
+/// runs for the text (see `paths::paths_at`).
+struct Walked {
+    ranges: Vec<(usize, usize)>,
+    kept: crate::editor::paths::Checkpoints<Ancestors>,
+}
+
+/// The [`Ancestors`] above the line starting at byte `line_start`: walked
+/// over the lines above from the top, or while a batch runs for the text,
+/// from the last state kept before it.
+fn ancestors_before(source: &str, line_start: usize) -> Ancestors {
+    if !crate::editor::paths::in_batch(source) {
+        let mut walk = Ancestors::default();
+        for line in source[..line_start].lines() {
+            walk.walk(line);
+        }
+        return walk;
+    }
+    let walked = crate::editor::paths::batch_cached(source, || {
+        crate::editor::paths::walked_from_top(source);
+        let base = source.as_ptr() as usize;
+        let ranges: Vec<(usize, usize)> = source
+            .lines()
+            .map(|line| (line.as_ptr() as usize - base, line.as_ptr() as usize - base + line.len()))
+            .collect();
+        let kept = crate::editor::paths::Checkpoints::walk(Ancestors::default(), ranges.len(), |walk, index| {
+            let (start, end) = ranges[index];
+            walk.walk(&source[start..end]);
+        });
+        Walked { ranges, kept }
+    });
+    // The lines above: the ones starting before the line's start.
+    let above = walked.ranges.partition_point(|(start, _)| *start < line_start);
+    walked.kept.before(above, |walk, index| {
+        let (start, end) = walked.ranges[index];
+        walk.walk(&source[start..end]);
+    })
+}
+
+pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionContext {
+    let cursor = utf16_to_byte_index(source, cursor);
+    let before_cursor = &source[..cursor];
+    let current_line_start = before_cursor.rfind('\n').map_or(0, |index| index + 1);
+    let current_line_end = source[cursor..]
+        .find('\n')
+        .map_or(source.len(), |index| cursor + index);
+    let current_line = &source[current_line_start..current_line_end];
+    let leading_whitespace =
+        current_line.len() - current_line.trim_start_matches([' ', '\t']).len();
+    let indent = leading_whitespace;
+    let prefix = &current_line[indent..];
+
+    let Ancestors {
+        mut ancestors,
+        item_counts,
+    } = ancestors_before(source, current_line_start);
     let current_is_array_item = dash_item(prefix).is_some();
     while ancestors.last().is_some_and(|(level, segment)| {
         *level > indent
@@ -531,7 +591,7 @@ pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionConte
     let base_indent = format!("{}{}", &current_line[..indent], " ".repeat(content_offset));
     // Inside a flow mapping or sequence, opened on this line or an earlier one
     // (`key: { a: 1, se|`, `key: [\n  { mode: |`).
-    let flow = match statement_start(&source[..cursor]) {
+    let flow = match statement_start_at(source, cursor) {
         Some(statement) if statement < current_line_start => {
             // The path above the statement comes from its own first line.
             let first_line = &source[statement..];
@@ -539,7 +599,7 @@ pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionConte
             if source[content..].starts_with("- ") {
                 content += 2;
             }
-            let base = completion_context(source, source[..content].encode_utf16().count()).path;
+            let base = completion_context(source, crate::editor::paths::units_at(source, content)).path;
             Some((base, content))
         }
         Some(_) => Some((path.clone(), current_line_start + content_start)),
@@ -556,8 +616,8 @@ pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionConte
         let context = |path, typed, start: usize, end: usize| CompletionContext {
             path,
             typed,
-            replace_start: source[..content_byte + start].encode_utf16().count(),
-            replace_end: source[..end].encode_utf16().count(),
+            replace_start: crate::editor::paths::units_at(source, content_byte + start),
+            replace_end: crate::editor::paths::units_at(source, end),
             base_indent: base_indent.clone(),
             position: EntryPosition::Inline,
             ..Default::default()
@@ -618,7 +678,7 @@ pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionConte
         return CompletionContext {
             path,
             typed,
-            replace_start: source[..current_line_start].encode_utf16().count(),
+            replace_start: crate::editor::paths::units_at(source, current_line_start),
             replace_end: source[..if splits || entry_after_space { cursor + gap } else { replace_end_byte.min(source.len()) }]
                 .encode_utf16()
                 .count(),
@@ -632,7 +692,7 @@ pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionConte
     CompletionContext {
         path,
         typed,
-        replace_start: source[..typed_start_byte].encode_utf16().count(),
+        replace_start: crate::editor::paths::units_at(source, typed_start_byte),
         replace_end: source[..replace_end_byte.min(source.len())]
             .encode_utf16()
             .count(),
@@ -682,7 +742,7 @@ pub(super) fn existing_mapping_keys(
     let line_end = source[line_start..]
         .find('\n')
         .map_or(source.len(), |newline| line_start + newline);
-    if let Some(statement) = statement_start(&source[..cursor_byte])
+    if let Some(statement) = statement_start_at(source, cursor_byte)
         && let Some(keys) = inline_sibling_keys(&source[statement..], b':', cursor_byte - statement)
     {
         return Some(keys.into_iter().collect());

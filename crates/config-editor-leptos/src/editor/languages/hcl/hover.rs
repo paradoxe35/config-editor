@@ -34,14 +34,28 @@ pub(super) fn key_at_column(line: &str, column: usize) -> Option<(String, usize)
 /// word of a repeated block (`b` of a second `b {`) names its item
 /// (`/b/1`), as the document lists it.
 pub(super) fn header_path(source: &str, line_index: usize, column: usize) -> Option<(Vec<SchemaPathSegment>, String, usize)> {
-    let line = source.split('\n').nth(line_index)?;
-    let line_start: usize = source.split('\n').take(line_index).map(|line| line.len() + 1).sum();
+    let line = crate::editor::paths::split_line(source, line_index)?;
+    let line_start = crate::editor::paths::line_start(source, line_index);
     let indent = line.len() - line.trim_start().len();
     if line.trim().is_empty() {
         return None;
     }
-    let scan = analyze(source, line_start);
-    let header = scan.headers.iter().find(|header| header.type_span.0 == line_start + indent)?;
+    let at = line_start + indent;
+    let (scan, header) = match super::scan::walked(source) {
+        // The headers are in document order: found by halving.
+        Some(walked) => {
+            let scan = walked.scan.clone();
+            let index = scan.headers.partition_point(|header| header.type_span.0 < at);
+            let header = Some(index).filter(|index| scan.headers.get(*index).is_some_and(|header| header.type_span.0 == at))?;
+            (scan, header)
+        }
+        None => {
+            let scan = analyze(source, line_start);
+            let header = scan.headers.iter().position(|header| header.type_span.0 == at)?;
+            (scan, header)
+        }
+    };
+    let header = &scan.headers[header];
     let char_column = |byte: usize| line[..byte.saturating_sub(line_start).min(line.len())].chars().count();
     let names = std::iter::once((&header.block_type, header.type_span)).chain(header.labels.iter().zip(header.label_spans.iter().copied()));
     let (index, (name, (start, _))) = names

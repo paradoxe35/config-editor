@@ -4,14 +4,16 @@
 //! and the spans read at once for many fields are the ones read alone.
 
 use super::super::Language;
-use super::super::paths::{TextPosition, memo_key_span, memo_value_span, path_at, with_spans};
-use super::fields::{HostFields, fields};
+use super::super::paths::{
+    TextPosition, fields, memo_key_span, memo_value_span, path_at, with_spans,
+};
+use super::fields::HostFields;
 use super::tests::report;
 
 /// Documents in each language's forms: nested blocks, lists of scalars and
 /// of maps, inline (flow) containers, quoted and dotted keys, attributes,
 /// labels, comments.
-const FORMS: [(Language, &str); 5] = [
+pub(super) const FORMS: [(Language, &str); 5] = [
     (
         Language::YAML,
         "listen: 7835 # port\nweb:\n  http: 80\n  \"quoted key\": 'q'\n  hosts:\n    - a.example\n    - b.example\n  routes:\n    - path: /a\n      to: x\n    - {path: /b, to: y}\n  flow: {k: 1, l: [2, 3]}\n  empty: {}\n  text: |\n    line one\n    line two\nlast: true\n",
@@ -35,7 +37,7 @@ const FORMS: [(Language, &str); 5] = [
 ];
 
 /// The large samples of every language.
-const SAMPLES: [(Language, &str); 5] = [
+pub(super) const SAMPLES: [(Language, &str); 5] = [
     (
         Language::YAML,
         include_str!("../../../tests/fixtures/samples/burrow.large.yaml"),

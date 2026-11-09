@@ -4,10 +4,7 @@ use super::*;
 
 pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionContext {
     let cursor = utf16_to_byte_index(source, cursor);
-    let scan = analyze_caret(source, cursor);
-    let Some(snapshot) = scan.snapshot else {
-        unreachable!("analyze always captures a snapshot");
-    };
+    let snapshot = caret_snapshot(source, cursor);
     let typed_start = snapshot.partial.map_or(cursor, |token| token.start);
     let mut replace_end = snapshot.partial.map_or(cursor, |token| match token.kind {
         // An unclosed string has no closing quote to replace; stop at the caret.
@@ -157,8 +154,8 @@ pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionConte
         block: block.flatten(),
         path,
         typed: source[typed_start..cursor].to_string(),
-        replace_start: utf16(&source[..replace_start]),
-        replace_end: utf16(&source[..replace_end]),
+        replace_start: crate::editor::paths::units_at(source, replace_start),
+        replace_end: crate::editor::paths::units_at(source, replace_end),
         value_key,
         value_needs_space: snapshot.partial.is_none() && source[..cursor].ends_with(':'),
         is_array_item,

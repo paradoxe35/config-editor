@@ -639,17 +639,13 @@ pub(super) fn validate_with(
     let _ = accepted;
     #[cfg(feature = "schema-validation")]
     if let Some(schema) = schema {
-        let placeholders = accepted_pointers(&document, accepted);
-        let secrets = if schema.has_marks {
+        let placeholders = Fields::new(accepted_pointers(&document, accepted));
+        let secrets = Fields::new(if schema.has_marks {
             super::protect::secret_pointers(&document, &schema.schema)
         } else {
             Vec::new()
-        };
-        let inside = |path: &str, pointers: &[String]| {
-            pointers
-                .iter()
-                .any(|pointer| path == pointer || path.starts_with(&format!("{pointer}/")))
-        };
+        });
+        let inside = |path: &str, pointers: &Fields| pointers.holds(path);
         // Infinities and NaN are numbers to the schema (see `non_finite`).
         use super::codec::non_finite::{StandIn, for_validation};
         let validated = for_validation(&document, StandIn::Bounds);
@@ -870,19 +866,62 @@ pub(super) fn validate_with(
     deprecated
 }
 
-/// Pointers of the values of `document` that are one of `accepted`.
+/// Some fields of a document, by pointer: whether a path is one of them
+/// or inside one is a lookup of each of its ancestors, not a pass over
+/// them all (thousands of secret placeholders, checked for each problem).
+#[cfg(feature = "schema-validation")]
+struct Fields(std::collections::HashSet<String>);
+
+#[cfg(feature = "schema-validation")]
+impl Fields {
+    fn new(pointers: Vec<String>) -> Self {
+        super::work_count::note(super::work_count::Work::TokenScan);
+        Self(pointers.into_iter().collect())
+    }
+
+    /// Whether `path` is one of the fields or inside one.
+    fn holds(&self, path: &str) -> bool {
+        if self.0.is_empty() {
+            return false;
+        }
+        let mut end = path.len();
+        loop {
+            if self.0.contains(&path[..end]) {
+                return true;
+            }
+            if end == 0 {
+                return false;
+            }
+            end = path[..end].rfind('/').unwrap_or(0);
+        }
+    }
+}
+
+/// Pointers of the values of `document` that are one of `accepted`: each
+/// string looked up among the tokens (a pass over them all for each string
+/// took seconds with thousands of placeholders).
 #[cfg(feature = "schema-validation")]
 fn accepted_pointers(document: &Value, accepted: &[(String, String)]) -> Vec<String> {
     if accepted.is_empty() {
         return Vec::new();
+    }
+    super::work_count::note(super::work_count::Work::TokenScan);
+    let mut fields: std::collections::HashMap<&str, Vec<&str>> = std::collections::HashMap::new();
+    for (token, field) in accepted {
+        fields
+            .entry(token.as_str())
+            .or_default()
+            .push(field.as_str());
     }
     let mut found = Vec::new();
     let mut stack = vec![(String::new(), document)];
     while let Some((pointer, value)) = stack.pop() {
         match value {
             Value::String(text)
-                if accepted.iter().any(|(token, field)| {
-                    token == text && super::paths::same_field(field, &pointer)
+                if fields.get(text.as_str()).is_some_and(|fields| {
+                    fields
+                        .iter()
+                        .any(|field| super::paths::same_field(field, &pointer))
                 }) =>
             {
                 found.push(pointer)
@@ -1365,3 +1404,6 @@ mod key_placing_tests {
         assert!(failures.is_empty(), "{}", failures.join("\n"));
     }
 }
+
+#[cfg(all(test, feature = "schema-validation", feature = "json"))]
+mod placeholder_tests;

@@ -20,7 +20,7 @@ use super::tests::report;
 use super::{HostDiagnostic, HostTargets, RangeText, place};
 use crate::strings::default_strings;
 
-const LANGUAGES: [Language; 5] = [
+pub(super) const LANGUAGES: [Language; 5] = [
     Language::YAML,
     Language::JSON,
     Language::TOML,
@@ -30,7 +30,7 @@ const LANGUAGES: [Language; 5] = [
 
 /// `items` fields of two scalars each, under one root (every language
 /// writes it: XML needs the one root).
-fn document(items: usize) -> Value {
+pub(super) fn document(items: usize) -> Value {
     let mut root = serde_json::Map::new();
     for i in 0..items {
         root.insert(
@@ -212,7 +212,7 @@ fn thousands_of_host_problems_are_placed_in_linear_time_in_every_language_and_vi
 
 /// A problem over each line of `text`: block keys, closers and blank lines
 /// as well as scalars.
-fn on_every_line(text: &str) -> Vec<HostDiagnostic> {
+pub(super) fn on_every_line(text: &str) -> Vec<HostDiagnostic> {
     (1..text.split('\n').count())
         .map(|line| {
             HostDiagnostic::at_range(

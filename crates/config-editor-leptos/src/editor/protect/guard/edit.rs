@@ -13,7 +13,7 @@ use super::super::super::language::ConfigLanguage;
 use super::super::locate::LineIndex;
 use super::super::locks::Protected;
 use super::content::{content_areas, in_locked_content};
-use super::pins::{all_pinned, pins_hold};
+use super::pins::{Pinned, pins_hold};
 use super::spacing::between_tokens;
 use super::stretch::{is_blank, kept};
 
@@ -41,6 +41,7 @@ pub(super) struct Edited<'a> {
     reformat: OnceCell<bool>,
     spacing: OnceCell<bool>,
     content: OnceCell<Vec<Range<usize>>>,
+    pinned: OnceCell<Pinned<'a>>,
 }
 
 impl<'a> Edited<'a> {
@@ -84,6 +85,7 @@ impl<'a> Edited<'a> {
             reformat: OnceCell::new(),
             spacing: OnceCell::new(),
             content: OnceCell::new(),
+            pinned: OnceCell::new(),
         }
     }
 
@@ -131,7 +133,7 @@ impl<'a> Edited<'a> {
                 && self
                     .parsed()
                     .is_some_and(|document| pins_hold(document, self.protected).is_none())
-                && all_pinned(self.protected)
+                && self.pinned().all()
                 && (!self.behavior.indent_is_structure()
                     || indents(self.behavior, self.before) == indents(self.behavior, self.after))
         })
@@ -183,11 +185,16 @@ impl<'a> Edited<'a> {
             .get_or_init(|| content_areas(self.behavior, self.before, &self.lines))
     }
 
+    /// Which locked fields have a value pinned, read once.
+    pub(super) fn pinned(&self) -> &Pinned<'a> {
+        self.pinned.get_or_init(|| Pinned::new(self.protected))
+    }
+
     /// Without a parse to compare, a character typed next to a YAML plain
     /// value joins it, punctuation included (`abc<`, `2[x]`); so it does in
     /// any language next to a lock with no pinned value (`2/ 3` in HCL).
     fn strict(&self) -> bool {
-        (self.behavior.plain_scalars() && self.parsed().is_none()) || !all_pinned(self.protected)
+        (self.behavior.plain_scalars() && self.parsed().is_none()) || !self.pinned().all()
     }
 }
 

@@ -85,15 +85,24 @@ pub(super) fn hover_context_end(line: &str, column: usize) -> usize {
 /// at `column` (characters, from 0) of line `line_index`, its name and
 /// start column there. An end tag is its element's, as its start tag.
 pub(super) fn element_hover_path(source: &str, line_index: usize, column: usize) -> Option<(Vec<SchemaPathSegment>, String, usize)> {
-    let line_start: usize = source.split('\n').take(line_index).map(|line| line.len() + 1).sum();
-    let line = source.get(line_start..)?.split('\n').next()?;
+    let line = crate::editor::paths::split_line(source, line_index)?;
+    let line_start = crate::editor::paths::line_start(source, line_index);
     let byte = line_start + line.char_indices().nth(column).map_or(line.len(), |(at, _)| at);
-    let tokens = tokenize(source);
-    let plan = plan_paths(source, &tokens);
-    if let Some(found) = attribute_hover_path(source, &tokens, &plan, byte) {
+    let walked = super::scan::walked(source);
+    let read;
+    let (tokens, plan): (&[Token], &PathPlan) = match &walked {
+        Some(walked) => (&walked.tokens, &walked.plan),
+        None => {
+            let tokens = tokenize(source);
+            let plan = plan_paths(source, &tokens);
+            read = (tokens, plan);
+            (&read.0, &read.1)
+        }
+    };
+    if let Some(found) = attribute_hover_path(source, tokens, plan, byte, walked.is_some()) {
         return Some(found);
     }
-    let (hovered, name_start) = tokens.iter().enumerate().find_map(|(index, token)| match token.kind {
+    let hovered = |index: usize, token: &Token| match token.kind {
         Kind::OpenTag { name_end, .. } if token.start < byte && byte < name_end => Some((index, token.start + 1)),
         Kind::EndTag => {
             let start = token.start + 2;
@@ -101,9 +110,19 @@ pub(super) fn element_hover_path(source: &str, line_index: usize, column: usize)
             (start <= byte && byte < name_end).then_some((index, start))
         }
         _ => None,
-    })?;
-    let token = match tokens[hovered].kind {
-        Kind::EndTag => opening_of(source, &tokens, hovered)?,
+    };
+    let (hovered, name_start) = match &walked {
+        // Tokens do not overlap: only the last one starting before the
+        // place can hold it, found by halving.
+        Some(_) => {
+            let index = tokens.partition_point(|token| token.start < byte).checked_sub(1)?;
+            hovered(index, &tokens[index])?
+        }
+        None => tokens.iter().enumerate().find_map(|(index, token)| hovered(index, token))?,
+    };
+    let token = match (tokens[hovered].kind, &walked) {
+        (Kind::EndTag, Some(walked)) => walked.opening_of(source, hovered)?,
+        (Kind::EndTag, None) => opening_of(source, tokens, hovered)?,
         _ => &tokens[hovered],
     };
     let path = plan.path_of(token.start)?;
@@ -129,10 +148,16 @@ fn attribute_hover_path(
     tokens: &[Token],
     plan: &PathPlan,
     byte: usize,
+    halving: bool,
 ) -> Option<(Vec<SchemaPathSegment>, String, usize)> {
-    let open = tokens.iter().find(|token| {
-        matches!(token.kind, Kind::OpenTag { name_end, .. } if name_end <= byte && byte < token.end)
-    })?;
+    let in_attributes = |token: &&Token| matches!(token.kind, Kind::OpenTag { name_end, .. } if name_end <= byte && byte < token.end);
+    // Tokens do not overlap: with `halving`, only the last one starting
+    // before the place is looked at.
+    let open = if halving {
+        tokens[..tokens.partition_point(|token| token.start < byte)].last().filter(in_attributes)?
+    } else {
+        tokens.iter().find(in_attributes)?
+    };
     let name = tokenize_tag_inside(source, open).into_iter().find(|inner| {
         matches!(inner.kind, Kind::Text { quoted: false })
             && inner.start <= byte

@@ -98,6 +98,7 @@ pub(super) fn analyze(source: &str, cursor: usize) -> std::rc::Rc<Scan> {
 /// (the caret's path and its suggestions' context, on every keystroke:
 /// recording every element's spans took most of one in a long document).
 pub(super) fn analyze_caret(source: &str, cursor: usize) -> std::rc::Rc<Scan> {
+    crate::editor::paths::walked_from_top(source);
     remembered(source, cursor, false)
 }
 
@@ -151,10 +152,7 @@ pub(super) fn scan_text(source: &str, cursor: usize, spans: bool) -> Scan {
                 ));
             }
             if !empty {
-                frames.push(Frame {
-                    name: name.to_string(),
-                    start: tag.start,
-                });
+                open_frame(frames, name, tag);
             }
         };
 
@@ -163,7 +161,8 @@ pub(super) fn scan_text(source: &str, cursor: usize, spans: bool) -> Scan {
         let token = tokens[index];
         let is_partial = partial_index == Some(index);
         if scan.snapshot.is_none() && (is_partial || token.start >= cursor) {
-            scan.snapshot = Some(capture_snapshot(source, &tokens, &frames, &plan, cursor));
+            let partial = partial_index.map(|index| tokens[index]);
+            scan.snapshot = Some(capture_snapshot(source, partial, &frames, &plan, cursor));
         }
         match token.kind {
             Kind::OpenTag { .. } => {
@@ -198,18 +197,7 @@ pub(super) fn scan_text(source: &str, cursor: usize, spans: bool) -> Scan {
                     open_element(&mut scan, &mut frames, &name, &token, self_closing);
                 }
             }
-            Kind::EndTag => {
-                let name = token_name(source, &token);
-                if frames.last().is_some_and(|frame| frame.name == name) {
-                    frames.pop();
-                } else if let Some(position) = frames.iter().rposition(|frame| frame.name == name) {
-                    frames.truncate(position);
-                } else {
-                    // A misspelled end tag closes the innermost element, as
-                    // in the path plan.
-                    frames.pop();
-                }
-            }
+            Kind::EndTag => close_frame(&mut frames, &token_name(source, &token)),
             // A CDATA section is element text, its markers included.
             Kind::Text { quoted: false } | Kind::Special
                 if spans
@@ -247,7 +235,8 @@ pub(super) fn scan_text(source: &str, cursor: usize, spans: bool) -> Scan {
     }
 
     if scan.snapshot.is_none() {
-        scan.snapshot = Some(capture_snapshot(source, &tokens, &frames, &plan, cursor));
+        let partial = partial_index.map(|index| tokens[index]);
+        scan.snapshot = Some(capture_snapshot(source, partial, &frames, &plan, cursor));
     }
     scan
 }
@@ -314,22 +303,121 @@ pub(super) fn contains_caret(source: &str, token: &Token, cursor: usize) -> bool
     }
 }
 
+/// Opens the element `name` whose start tag is `tag`.
+fn open_frame(frames: &mut Vec<Frame>, name: &str, tag: &Token) {
+    frames.push(Frame {
+        name: name.to_string(),
+        start: tag.start,
+    });
+}
+
+/// Closes the element an end tag named `name` closes.
+fn close_frame(frames: &mut Vec<Frame>, name: &str) {
+    if frames.last().is_some_and(|frame| frame.name == name) {
+        frames.pop();
+    } else if let Some(position) = frames.iter().rposition(|frame| frame.name == name) {
+        frames.truncate(position);
+    } else {
+        // A misspelled end tag closes the innermost element, as in the
+        // path plan.
+        frames.pop();
+    }
+}
+
+/// Walks past `token` as the caret's walk does: the elements it opens or
+/// closes.
+fn walk_frames(source: &str, token: &Token, frames: &mut Vec<Frame>) {
+    match token.kind {
+        Kind::OpenTag { .. } => {
+            let name = token_name(source, token);
+            if !name.is_empty() && !opens_nothing(source, token) {
+                open_frame(frames, &name, token);
+            }
+        }
+        Kind::EndTag => close_frame(frames, &token_name(source, token)),
+        _ => {}
+    }
+}
+
+/// A document's tokens, its path plan and the caret's walk over them, read
+/// once while a batch runs for the text (see `paths::paths_at`).
+pub(super) struct Walked {
+    pub(super) tokens: Vec<Token>,
+    pub(super) plan: std::rc::Rc<PathPlan>,
+    kept: crate::editor::paths::Checkpoints<Vec<Frame>>,
+}
+
+impl Walked {
+    /// The start tag the end tag `tokens[end]` closes, as the path plan
+    /// matches them: the innermost open element of its name, from the
+    /// walk kept for the text.
+    pub(super) fn opening_of(&self, source: &str, end: usize) -> Option<&Token> {
+        let tokens = &self.tokens;
+        let frames = self
+            .kept
+            .before(end, |frames, index| walk_frames(source, &tokens[index], frames));
+        let name = token_name(source, &tokens[end]);
+        let start = frames.iter().rev().find(|frame| frame.name == name)?.start;
+        let index = tokens.partition_point(|token| token.start < start);
+        tokens.get(index).filter(|token| token.start == start)
+    }
+}
+
+/// The tokens and path plan of `source`, read once while a batch runs for
+/// it; `None` outside one.
+pub(super) fn walked(source: &str) -> Option<std::rc::Rc<Walked>> {
+    if !crate::editor::paths::in_batch(source) {
+        return None;
+    }
+    Some(crate::editor::paths::batch_cached(source, || {
+        crate::editor::paths::walked_from_top(source);
+        let tokens = tokenize(source);
+        let plan = plan_paths(source, &tokens);
+        let kept = crate::editor::paths::Checkpoints::walk(Vec::new(), tokens.len(), |frames, at| {
+            walk_frames(source, &tokens[at], frames)
+        });
+        Walked { tokens, plan, kept }
+    }))
+}
+
+/// The index of the token holding the caret at byte `cursor` (not a comment
+/// or processing instruction), found by halving `tokens`.
+fn holding(source: &str, tokens: &[Token], cursor: usize) -> Option<usize> {
+    let next = tokens.partition_point(|token| token.start < cursor);
+    next.checked_sub(1).filter(|before| {
+        let token = &tokens[*before];
+        contains_caret(source, token, cursor) && !matches!(token.kind, Kind::Special | Kind::Comment)
+    })
+}
+
+/// The caret's place at byte `cursor` of `source`: what [`analyze_caret`]
+/// captures. While a batch runs for the text, read from the walk kept for
+/// it, not a walk from the top.
+pub(super) fn caret_snapshot(source: &str, cursor: usize) -> Snapshot {
+    let Some(walked) = walked(source) else {
+        return analyze_caret(source, cursor)
+            .snapshot
+            .clone()
+            .unwrap_or_else(|| unreachable!("analyze always captures a snapshot"));
+    };
+    let tokens = &walked.tokens;
+    let partial = holding(source, tokens, cursor);
+    let at = partial.unwrap_or_else(|| tokens.partition_point(|token| token.start < cursor));
+    let frames = walked
+        .kept
+        .before(at, |frames, index| walk_frames(source, &tokens[index], frames));
+    capture_snapshot(source, partial.map(|index| tokens[index]), &frames, &walked.plan, cursor)
+}
+
 /// Captures the caret state: the holding element, the token under the caret,
 /// and the open tag around the caret when it sits inside one.
 pub(super) fn capture_snapshot(
     source: &str,
-    tokens: &[Token],
+    partial: Option<Token>,
     frames: &[Frame],
     plan: &PathPlan,
     cursor: usize,
 ) -> Snapshot {
-    let partial = tokens
-        .iter()
-        .find(|token| {
-            contains_caret(source, token, cursor)
-                && !matches!(token.kind, Kind::Special | Kind::Comment)
-        })
-        .copied();
     let open_tag = partial.filter(|token| matches!(token.kind, Kind::OpenTag { .. }));
     let inner = open_tag.map_or_else(Vec::new, |tag| tokenize_tag_inside(source, &tag));
     let pending_attr = open_tag.and_then(|_| pending_attribute(source, &inner, cursor));

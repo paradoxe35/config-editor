@@ -173,6 +173,7 @@ pub(super) fn analyze(source: &str, cursor: usize) -> Scan {
 /// [`analyze`] for the caret alone: its place and the keys written, no
 /// spans (completion and the caret's path, on every keystroke).
 pub(super) fn analyze_caret(source: &str, cursor: usize) -> Scan {
+    crate::editor::paths::walked_from_top(source);
     scan(source, cursor, false)
 }
 
@@ -186,8 +187,7 @@ fn scan(source: &str, cursor: usize, spans: bool) -> Scan {
             && cursor <= token.end
             && matches!(token.kind, Kind::Str { .. } | Kind::Word)
     });
-    let mut frames: Vec<Frame> = Vec::new();
-    let mut next_id = 0usize;
+    let mut walk = Walk::default();
     let mut scan = Scan {
         spans,
         ..Scan::default()
@@ -196,15 +196,44 @@ fn scan(source: &str, cursor: usize, spans: bool) -> Scan {
     for (index, token) in tokens.iter().enumerate() {
         let is_partial = partial_index == Some(index);
         if scan.snapshot.is_none() && (is_partial || token.start >= cursor) {
-            scan.snapshot = Some(Snapshot {
-                path: container_path(&frames),
-                frame: frames.last().cloned(),
-                partial: is_partial.then_some(*token),
-            });
+            scan.snapshot = Some(walk.snapshot(is_partial.then_some(*token)));
         }
+        walk.take(source, token, is_partial, Some(&mut scan));
+    }
+
+    if scan.snapshot.is_none() {
+        scan.snapshot = Some(walk.snapshot(None));
+    }
+    scan
+}
+
+/// Where the walk over a document's tokens is: its open containers.
+#[derive(Clone, Default)]
+struct Walk {
+    frames: Vec<Frame>,
+    next_id: usize,
+}
+
+impl Walk {
+    /// The state here, the caret on `partial`.
+    fn snapshot(&self, partial: Option<Token>) -> Snapshot {
+        Snapshot {
+            path: container_path(&self.frames),
+            frame: self.frames.last().cloned(),
+            partial,
+        }
+    }
+
+    /// Walks past `token` (`is_partial`: the one under the caret),
+    /// recording its keys and spans in `scan` when there is one.
+    fn take(&mut self, source: &str, token: &Token, is_partial: bool, mut scan: Option<&mut Scan>) {
+        let frames = &mut self.frames;
+        let mut take_value = |frames: &mut Vec<Frame>, start: usize, end: usize| match scan.as_deref_mut() {
+            Some(scan) => take_value(frames, scan, start, end),
+            None => move_past_value(frames),
+        };
         match token.kind {
             Kind::Str { closed } => {
-                let name = decode_string(&source[token.start..token.end], closed);
                 // A string where `:` or `,` was due is the next key: the line
                 // above is still being written (`"pub|"` then `"pool": {}`).
                 let in_key_slot = matches!(
@@ -215,34 +244,36 @@ fn scan(source: &str, cursor: usize, spans: bool) -> Scan {
                     })
                 );
                 if in_key_slot {
-                    if scan.spans {
-                        let path = with_segment(container_path(&frames), Seg::Key(name.clone()));
-                        scan.key_spans
-                            .push((strings(&path), token.start, token.end));
-                    }
-                    if !is_partial && let Some(frame) = frames.last() {
-                        scan.keys.push((frame.id(), name.clone(), token.start));
+                    let name = decode_string(&source[token.start..token.end], closed);
+                    if let Some(scan) = scan.as_mut() {
+                        if scan.spans {
+                            let path = with_segment(container_path(frames), Seg::Key(name.clone()));
+                            scan.key_spans.push((strings(&path), token.start, token.end));
+                        }
+                        if !is_partial && let Some(frame) = frames.last() {
+                            scan.keys.push((frame.id(), name.clone(), token.start));
+                        }
                     }
                     if let Some(Frame::Object { mode, .. }) = frames.last_mut() {
                         *mode = Mode::Colon(name);
                     }
                 } else {
-                    take_value(&mut frames, &mut scan, token.start, token.end);
+                    take_value(frames, token.start, token.end);
                 }
             }
-            Kind::Word => take_value(&mut frames, &mut scan, token.start, token.end),
+            Kind::Word => take_value(frames, token.start, token.end),
             Kind::Punct(character @ ('{' | '[')) => {
-                take_value(&mut frames, &mut scan, token.start, token.start + 1);
-                next_id += 1;
+                take_value(frames, token.start, token.start + 1);
+                self.next_id += 1;
                 frames.push(if character == '{' {
                     Frame::Object {
-                        id: next_id,
+                        id: self.next_id,
                         mode: Mode::Key,
                         slot: None,
                     }
                 } else {
                     Frame::Array {
-                        id: next_id,
+                        id: self.next_id,
                         index: 0,
                         awaiting: true,
                         slot: None,
@@ -279,15 +310,45 @@ fn scan(source: &str, cursor: usize, spans: bool) -> Scan {
             Kind::Punct(_) => {}
         }
     }
+}
 
-    if scan.snapshot.is_none() {
-        scan.snapshot = Some(Snapshot {
-            path: container_path(&frames),
-            frame: frames.last().cloned(),
-            partial: None,
-        });
+/// A document's tokens and the walk over them, read once while a batch
+/// runs for the text (see `paths::paths_at`).
+struct Walked {
+    tokens: Vec<Token>,
+    kept: crate::editor::paths::Checkpoints<Walk>,
+}
+
+/// The caret's place at byte `cursor` of `source`: what [`analyze_caret`]
+/// captures. While a batch runs for the text, read from the walk kept for
+/// it (tokens before the caret only), not a walk from the top.
+pub(super) fn caret_snapshot(source: &str, cursor: usize) -> Snapshot {
+    if !crate::editor::paths::in_batch(source) {
+        return analyze_caret(source, cursor)
+            .snapshot
+            .unwrap_or_else(|| unreachable!("analyze always captures a snapshot"));
     }
-    scan
+    let walked = crate::editor::paths::batch_cached(source, || {
+        crate::editor::paths::walked_from_top(source);
+        let tokens = tokenize(source);
+        let kept = crate::editor::paths::Checkpoints::walk(Walk::default(), tokens.len(), |walk, at| {
+            walk.take(source, &tokens[at], false, None)
+        });
+        Walked { tokens, kept }
+    });
+    let tokens = &walked.tokens;
+    // The first token at or past the caret, or the string or word holding
+    // it just before.
+    let next = tokens.partition_point(|token| token.start < cursor);
+    let partial = next.checked_sub(1).filter(|before| {
+        let token = &tokens[*before];
+        cursor <= token.end && matches!(token.kind, Kind::Str { .. } | Kind::Word)
+    });
+    let at = partial.unwrap_or(next);
+    let walk = walked
+        .kept
+        .before(at, |walk, index| walk.take(source, &tokens[index], false, None));
+    walk.snapshot(partial.map(|index| tokens[index]))
 }
 
 pub(super) fn utf16(text: &str) -> usize {

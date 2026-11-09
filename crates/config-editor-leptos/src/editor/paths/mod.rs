@@ -4,26 +4,25 @@
 //! (`key_span`, `value_span`, `hover_path`, `completion_context`), so a
 //! language gets them by implementing those.
 
+mod fields;
 mod lines;
 mod span_memo;
 mod types;
+mod walk;
 
+pub(crate) use fields::fields;
 #[cfg(feature = "yaml")]
 pub(crate) use lines::text_line;
-pub(crate) use lines::{Lines, line_column, line_start, lines, split_line};
-#[cfg(any(
-    feature = "yaml",
-    feature = "json",
-    feature = "hcl",
-    feature = "xml",
-    feature = "protect"
-))]
+pub(crate) use lines::{
+    Lines, byte_at, line_column, line_start, lines, offset_of, split_line, units_at,
+};
 pub(crate) use span_memo::batch_cached;
-#[cfg(feature = "xml")]
 pub(crate) use span_memo::in_batch;
-pub(crate) use span_memo::with_spans;
+pub(crate) use span_memo::{KeptSpans, with_spans};
 pub(crate) use span_memo::{key_span as memo_key_span, value_span as memo_value_span};
 pub use types::{FieldPath, TextPosition, TextRange};
+#[cfg(any(feature = "yaml", feature = "json", feature = "toml", feature = "xml"))]
+pub(crate) use walk::Checkpoints;
 
 use super::codec::inline_location;
 use super::completion::{hovered_key, path_with_key};
@@ -257,13 +256,17 @@ pub(crate) fn path_at(
     if let (text, true) = super::byte_order_mark::split(source) {
         return path_at(behavior, text, cursor.saturating_sub(1));
     }
-    note(Work::PathLookup);
-    if cursor > source.encode_utf16().count() {
+    // Inside a batch the walks from the top are counted where they start,
+    // each language's once for the text (see `walked_from_top`).
+    if !in_batch(source) {
+        note(Work::PathLookup);
+    }
+    if cursor > units_at(source, source.len()) {
         return None;
     }
     let byte = utf16_to_byte_index(source, cursor);
     let line_start = source[..byte].rfind('\n').map_or(0, |index| index + 1);
-    let line_index = source[..line_start].matches('\n').count();
+    let line_index = line_column(source, line_start).0 - 1;
     let column = source[line_start..byte].chars().count();
     let line = source[line_start..].split('\n').next().unwrap_or("");
     // In markup closing a value (`<a>1</a|>`): the value it closes.
@@ -273,7 +276,7 @@ pub(crate) fn path_at(
             .closing_markup_len(&line[open..])
             .is_some_and(|len| in_line <= open + len)
     {
-        let value_end = source[..line_start + open].encode_utf16().count();
+        let value_end = units_at(source, line_start + open);
         return path_at(behavior, source, value_end);
     }
     // On the key, just past it, past it and its separator (`listen =| 1`),
@@ -371,6 +374,46 @@ fn path_on_key_line(
     }
 }
 
+/// [`path_at`] at each of `cursors` (UTF-16) of `source`, reading the text
+/// once for all of them: what each language reads of it from the top (its
+/// lines, tokens, the state of its walk at places along it) is read once
+/// and shared, where each `path_at` alone reads it again.
+pub(crate) fn paths_at(
+    behavior: &dyn ConfigLanguage,
+    source: &str,
+    cursors: &[usize],
+) -> Vec<Option<FieldPath>> {
+    // A leading byte order mark is no part of the document: the text after
+    // it is the one read (and batched).
+    if let (text, true) = super::byte_order_mark::split(source) {
+        let after: Vec<usize> = cursors
+            .iter()
+            .map(|cursor| cursor.saturating_sub(1))
+            .collect();
+        return paths_at(behavior, text, &after);
+    }
+    let read = || {
+        cursors
+            .iter()
+            .map(|cursor| path_at(behavior, source, *cursor))
+            .collect()
+    };
+    if in_batch(source) {
+        read()
+    } else {
+        with_spans(behavior, source, &[], read)
+    }
+}
+
+/// A language's walk of `source` from the top for a place's path starts:
+/// counted while a batch runs for the text, where each should be read once
+/// (outside one, [`path_at`] counts its own read).
+pub(crate) fn walked_from_top(source: &str) {
+    if in_batch(source) {
+        note(Work::PathLookup);
+    }
+}
+
 #[cfg(all(
     test,
     feature = "yaml",
@@ -380,6 +423,16 @@ fn path_on_key_line(
     feature = "xml"
 ))]
 mod path_matrix;
+
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod kept_tests;
 
 #[cfg(all(
     test,

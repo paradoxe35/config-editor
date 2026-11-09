@@ -44,19 +44,6 @@ pub(crate) fn in_batch(source: &str) -> bool {
     BATCHES.with(|batches| batches.borrow().iter().any(|batch| batch.text == key))
 }
 
-#[cfg_attr(
-    not(any(
-        feature = "yaml",
-        feature = "json",
-        feature = "hcl",
-        feature = "xml",
-        feature = "protect"
-    )),
-    allow(
-        dead_code,
-        reason = "the YAML, JSON, HCL and XML readers and the locks share it"
-    )
-)]
 /// `make()`, a reading of all of `source` (the lines of its keys, say):
 /// made once while [`with_spans`] runs for that text, so the spans asked one
 /// by one inside it share it; made each time outside one. Each type is one
@@ -134,38 +121,107 @@ pub(crate) fn with_spans<T>(
     pointers: &[String],
     work: impl FnOnce() -> T,
 ) -> T {
+    let batch = empty(behavior, source);
+    running(batch, || {
+        read(behavior, source, pointers);
+        work()
+    })
+    .0
+}
+
+/// A batch for `source` holding nothing yet.
+fn empty(behavior: &dyn ConfigLanguage, source: &str) -> Batch {
+    Batch {
+        label: behavior.info().label,
+        text: text_key(source),
+        keys: HashMap::new(),
+        values: HashMap::new(),
+        scratch: Vec::new(),
+    }
+}
+
+/// Reads the spans of `pointers` (each one's ancestors and spellings too)
+/// in `source` at once into the running batch for it: the readings the
+/// language makes of the whole text are shared by both lookups.
+fn read(behavior: &dyn ConfigLanguage, source: &str, pointers: &[String]) {
     let wanted = wanted(pointers, behavior.repetition() != Repetition::None);
-    let text = text_key(source);
-    let label = behavior.info().label;
+    if wanted.is_empty() {
+        return;
+    }
+    note(Work::DocumentRead);
+    let values = behavior.value_spans(source, &wanted);
+    let keys = behavior.key_spans(source, &wanted);
     BATCHES.with(|batches| {
-        batches.borrow_mut().push(Batch {
-            label,
-            text,
-            keys: HashMap::new(),
-            values: HashMap::new(),
-            scratch: Vec::new(),
-        });
+        if let Some(batch) = batches.borrow_mut().last_mut() {
+            batch.values.extend(wanted.iter().cloned().zip(values));
+            batch.keys.extend(wanted.into_iter().zip(keys));
+        }
     });
+}
+
+/// Runs `work` with `batch` running, and gives it back with what `work`
+/// read into it (none after a panic).
+fn running<T>(batch: Batch, work: impl FnOnce() -> T) -> (T, Option<Batch>) {
+    BATCHES.with(|batches| batches.borrow_mut().push(batch));
     // Taken off on the way out, a panic included.
-    struct Pop;
+    struct Pop(bool);
     impl Drop for Pop {
         fn drop(&mut self) {
-            let _ = BATCHES.try_with(|batches| batches.borrow_mut().pop());
+            if self.0 {
+                let _ = BATCHES.try_with(|batches| batches.borrow_mut().pop());
+            }
         }
     }
-    let _pop = Pop;
-    if !wanted.is_empty() {
-        note(Work::DocumentRead);
-        let values = behavior.value_spans(source, &wanted);
-        let keys = behavior.key_spans(source, &wanted);
-        BATCHES.with(|batches| {
-            if let Some(batch) = batches.borrow_mut().last_mut() {
-                batch.values = wanted.iter().cloned().zip(values).collect();
-                batch.keys = wanted.into_iter().zip(keys).collect();
+    let mut pop = Pop(true);
+    let result = work();
+    pop.0 = false;
+    let batch = BATCHES.with(|batches| batches.borrow_mut().pop());
+    (result, batch)
+}
+
+/// The spans of every field of one text and what was read of it, kept
+/// between lookups while the text stays the same (an editor's
+/// `range_of`: each lookup alone read the whole document again).
+#[derive(Default)]
+pub(crate) struct KeptSpans(Option<(String, Batch)>);
+
+impl KeptSpans {
+    /// Runs `work` with the key and value spans of every field of `source`
+    /// (written in `behavior`) known: read the first time, then kept while
+    /// `source` and its language are the same.
+    pub(crate) fn with<T>(
+        &mut self,
+        behavior: &dyn ConfigLanguage,
+        source: &str,
+        work: impl FnOnce() -> T,
+    ) -> T {
+        let label = behavior.info().label;
+        // The text kept with them, not copied again while it is the same.
+        let (kept, text) = match self.0.take() {
+            Some((text, mut batch)) if text == source && batch.label == label => {
+                batch.text = text_key(source);
+                (Some(batch), text)
             }
+            _ => (None, source.to_string()),
+        };
+        let fresh = kept.is_none();
+        let batch = kept.unwrap_or_else(|| empty(behavior, source));
+        let (result, batch) = running(batch, || {
+            if fresh {
+                let pointers: Vec<String> = behavior
+                    .parse(source)
+                    .map(|document| super::fields::fields(&document))
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(|(pointer, _)| pointer)
+                    .collect();
+                read(behavior, source, &pointers);
+            }
+            work()
         });
+        self.0 = batch.map(|batch| (text, batch));
+        result
     }
-    work()
 }
 
 /// The span read for `pointer` in `source` by the running batch, if it read
@@ -199,7 +255,9 @@ pub(crate) fn value_span(
 ) -> Option<Span> {
     known(behavior, source, pointer, false).unwrap_or_else(|| {
         note(Work::DocumentRead);
-        behavior.value_span(source, pointer)
+        let span = behavior.value_span(source, pointer);
+        remember(behavior, source, pointer, false, span);
+        span
     })
 }
 
@@ -208,8 +266,37 @@ pub(crate) fn value_span(
 pub(crate) fn key_span(behavior: &dyn ConfigLanguage, source: &str, pointer: &str) -> Option<Span> {
     known(behavior, source, pointer, true).unwrap_or_else(|| {
         note(Work::DocumentRead);
-        behavior.key_span(source, pointer)
+        let span = behavior.key_span(source, pointer);
+        remember(behavior, source, pointer, true, span);
+        span
     })
+}
+
+/// Keeps a span read alone in the running batch for its text, if any: the
+/// next lookup of it answers from there.
+fn remember(
+    behavior: &dyn ConfigLanguage,
+    source: &str,
+    pointer: &str,
+    keys: bool,
+    span: Option<Span>,
+) {
+    let (label, text) = (behavior.info().label, text_key(source));
+    BATCHES.with(|batches| {
+        if let Some(batch) = batches
+            .borrow_mut()
+            .iter_mut()
+            .rev()
+            .find(|batch| batch.label == label && batch.text == text)
+        {
+            let spans = if keys {
+                &mut batch.keys
+            } else {
+                &mut batch.values
+            };
+            spans.insert(pointer.to_string(), span);
+        }
+    });
 }
 
 #[cfg(all(test, feature = "toml"))]

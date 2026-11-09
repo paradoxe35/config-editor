@@ -143,6 +143,16 @@ pub mod js_support {
         options.check_placeholder()
     }
 
+    /// `handle.range_of(path)`, with the UTF-16 offsets in the text on
+    /// screen its start and end are at (what a JS range's `start` and `end`
+    /// are), read from the spans kept for the text, not from the top.
+    pub fn range_and_offsets_of(
+        handle: &crate::EditorHandle,
+        path: impl Into<crate::FieldPath>,
+    ) -> Option<(crate::TextRange, usize, usize)> {
+        handle.range_and_offsets_of(path)
+    }
+
     /// Makes the view of `handle` take `documents` (the list just given to
     /// its `documents` signal) now, not once its effects run, so the
     /// active id and every query answer for the new list at once.

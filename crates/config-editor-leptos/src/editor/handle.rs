@@ -3,7 +3,7 @@
 
 use leptos::prelude::*;
 
-use super::paths::{FieldPath, TextPosition, TextRange, field_range, path_at};
+use super::paths::{FieldPath, TextPosition, TextRange, field_range, offset_of, path_at};
 use super::state::EditorState;
 use crate::reactive::later::Alive;
 
@@ -140,10 +140,43 @@ impl EditorHandle {
     pub fn range_of(&self, path: impl Into<FieldPath>) -> Option<TextRange> {
         let state = self.editor()?;
         let pointer = path.into().to_pointer();
+        let behavior = state.behavior();
         state
             .doc()
             .text
-            .try_with_untracked(|text| field_range(state.behavior(), text, &pointer))
+            .try_with_untracked(|text| {
+                state.doc().spans.try_update_value(|kept| {
+                    kept.with(behavior, text, || field_range(behavior, text, &pointer))
+                })
+            })
+            .flatten()
+            .flatten()
+    }
+
+    /// [`range_of`](Self::range_of), with the UTF-16 offsets in the text
+    /// on screen its start and end are at, read from what is kept for the
+    /// text (for the browser bindings, whose ranges carry string indices).
+    pub(crate) fn range_and_offsets_of(
+        &self,
+        path: impl Into<FieldPath>,
+    ) -> Option<(TextRange, usize, usize)> {
+        let state = self.editor()?;
+        let pointer = path.into().to_pointer();
+        let behavior = state.behavior();
+        state
+            .doc()
+            .text
+            .try_with_untracked(|text| {
+                state.doc().spans.try_update_value(|kept| {
+                    kept.with(behavior, text, || {
+                        let range = field_range(behavior, text, &pointer)?;
+                        let line_breaks_only = !text.contains('\r');
+                        let offset = |position| offset_of(text, position, line_breaks_only);
+                        Some((range, offset(range.start), offset(range.end)))
+                    })
+                })
+            })
+            .flatten()
             .flatten()
     }
 

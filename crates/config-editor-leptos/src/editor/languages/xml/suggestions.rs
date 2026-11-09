@@ -4,10 +4,7 @@ use super::*;
 
 pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionContext {
     let cursor = utf16_to_byte_index(source, cursor);
-    let scan = analyze_caret(source, cursor);
-    let Some(snapshot) = scan.snapshot.clone() else {
-        unreachable!("analyze always captures a snapshot");
-    };
+    let snapshot = caret_snapshot(source, cursor);
     let line_start = source[..cursor].rfind('\n').map_or(0, |index| index + 1);
     let base_indent: String = source[line_start..]
         .chars()
@@ -385,7 +382,7 @@ pub(super) fn text_typed(
 }
 
 pub(super) fn cursor_bytes(source: &str, cursor: usize) -> usize {
-    source[..cursor.min(source.len())].encode_utf16().count()
+    crate::editor::paths::units_at(source, cursor)
 }
 
 /// Names to filter from suggestions. Only attribute positions filter;
@@ -575,8 +572,22 @@ pub(super) fn escape_attribute(text: &str) -> String {
 /// The byte range of the name in the end tag matching the start tag at
 /// `tag_start`, if it has one.
 pub(super) fn end_tag_name(source: &str, tag_start: usize) -> Option<(usize, usize)> {
-    let tokens = tokenize(source);
-    let index = tokens.iter().position(|token| token.start == tag_start)?;
+    let walked = walked(source);
+    let read;
+    let tokens: &[Token] = match &walked {
+        Some(walked) => &walked.tokens,
+        None => {
+            read = tokenize(source);
+            &read
+        }
+    };
+    let index = if walked.is_some() {
+        // In document order: found by halving.
+        Some(tokens.partition_point(|token| token.start < tag_start))
+            .filter(|index| tokens.get(*index).is_some_and(|token| token.start == tag_start))?
+    } else {
+        tokens.iter().position(|token| token.start == tag_start)?
+    };
     if source[..tokens[index].end].ends_with("/>") || !source[..tokens[index].end].ends_with('>') {
         return None;
     }
@@ -599,12 +610,30 @@ pub(super) fn end_tag_name(source: &str, tag_start: usize) -> Option<(usize, usi
 /// The caret in an end tag's name (`</pu|bl>`): its element is renamed,
 /// the start tag with it, from the same names its start tag would offer.
 fn end_tag_name_context(source: &str, cursor: usize) -> Option<CompletionContext> {
-    let tokens = tokenize(source);
-    let index = tokens.iter().position(|token| {
+    let walked = walked(source);
+    let read;
+    let tokens: &[Token] = match &walked {
+        Some(walked) => &walked.tokens,
+        None => {
+            read = tokenize(source);
+            &read
+        }
+    };
+    let in_name = |token: &Token| {
         matches!(token.kind, Kind::EndTag)
             && token.start + 2 <= cursor
             && cursor <= local_name_start(source, token) + token_name(source, token).len()
-    })?;
+    };
+    // Tokens do not overlap: only the last one starting before the caret
+    // can hold it.
+    let index = if walked.is_some() {
+        tokens
+            .partition_point(|token| token.start < cursor)
+            .checked_sub(1)
+            .filter(|index| in_name(&tokens[*index]))?
+    } else {
+        tokens.iter().position(in_name)?
+    };
     let end = &tokens[index];
     let name_start = local_name_start(source, end).min(cursor.max(end.start + 2));
     let name_end = name_start + token_name(source, end).len();
@@ -623,7 +652,7 @@ fn end_tag_name_context(source: &str, cursor: usize) -> Option<CompletionContext
         Kind::OpenTag { .. } => true,
         _ => false,
     })?;
-    let plan = plan_paths(source, &tokens);
+    let plan = plan_paths(source, tokens);
     let mut path: Vec<SchemaPathSegment> = plan
         .path_of(open.start)?
         .iter()

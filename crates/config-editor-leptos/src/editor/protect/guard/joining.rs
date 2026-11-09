@@ -1,6 +1,8 @@
 //! Lines that would join a locked field once the text parses, read while
 //! its values cannot be compared.
 
+use std::cell::RefCell;
+use std::collections::HashMap;
 use std::ops::Range;
 
 use super::super::super::language::{ConfigLanguage, SchemaPathSegment};
@@ -14,7 +16,44 @@ use super::super::scan::names_word;
 /// unreadable next to a lock, is refused.
 const MAX_REGION_LINES: usize = 2000;
 
-/// How many lines touching `region` of `text` would join the field at
+/// The paths of the lines of one text, each read once however many locks
+/// ask for it (a read is a path read from the top of the text).
+pub(super) struct LinePaths<'a> {
+    behavior: &'a dyn ConfigLanguage,
+    text: &'a str,
+    lines: &'a LineIndex<'a>,
+    read: RefCell<HashMap<usize, Option<String>>>,
+}
+
+impl<'a> LinePaths<'a> {
+    pub(super) fn new(
+        behavior: &'a dyn ConfigLanguage,
+        text: &'a str,
+        lines: &'a LineIndex<'a>,
+    ) -> Self {
+        Self {
+            behavior,
+            text,
+            lines,
+            read: RefCell::new(HashMap::new()),
+        }
+    }
+
+    /// The pointer of what line `line` writes, read at its first character.
+    fn path(&self, line: usize) -> Option<String> {
+        if let Some(known) = self.read.borrow().get(&line) {
+            return known.clone();
+        }
+        let content = self.lines.line_text(line);
+        let indent = content.len() - content.trim_start().len();
+        let at = self.lines.line_bounds(line).start + content[..indent].encode_utf16().count();
+        let path = path_at(self.behavior, self.text, at).map(|path| path.to_pointer());
+        self.read.borrow_mut().insert(line, path.clone());
+        path
+    }
+}
+
+/// How many lines touching `region` of the text `paths` reads would join the field at
 /// `pointer`: lines whose path is inside it, and lines naming a key that
 /// holds it (a second `web:` above a locked `web/port`). Blank and comment
 /// lines join nothing. Only lines that could are read: those `near` the
@@ -23,13 +62,12 @@ const MAX_REGION_LINES: usize = 2000;
 /// TOML table or dotted key anywhere). `None` when they are too many to
 /// read.
 pub(super) fn joining_lines(
-    behavior: &dyn ConfigLanguage,
-    text: &str,
-    lines: &LineIndex<'_>,
+    paths: &LinePaths<'_>,
     region: &Range<usize>,
     near: Range<usize>,
     pointer: &str,
 ) -> Option<usize> {
+    let (behavior, lines) = (paths.behavior, paths.lines);
     let first = lines.line_of(region.start);
     let last = lines.line_of(region.end);
     let keys: Vec<String> = FieldPath::from(pointer)
@@ -51,12 +89,9 @@ pub(super) fn joining_lines(
         if read > MAX_REGION_LINES {
             return None;
         }
-        let indent = content.len() - content.trim_start().len();
-        let at = lines.line_bounds(line).start + content[..indent].encode_utf16().count();
-        let Some(path) = path_at(behavior, text, at) else {
+        let Some(path) = paths.path(line) else {
             continue;
         };
-        let path = path.to_pointer();
         let holds = !path.is_empty()
             && within(behavior, pointer, &path)
             && !within(behavior, &path, pointer);

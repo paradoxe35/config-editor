@@ -14,6 +14,7 @@ mod style;
 mod constructs;
 mod multiline;
 mod parse;
+mod lines;
 mod suggestions;
 mod editing;
 mod colors;
@@ -27,7 +28,7 @@ use suggestions::*;
 use editing::*;
 use colors::*;
 
-use super::super::inline::{InlineEntry as CaretEntry, inline_caret, inline_key_at, inline_keys, inline_sibling_keys, caret_value_end, string_end_at_caret, statement_start, entry_follows, in_front_of_inline_entry};
+use super::super::inline::{InlineEntry as CaretEntry, inline_caret, inline_key_at, inline_keys, inline_sibling_keys, caret_value_end, string_end_at_caret, statement_start_at, entry_follows, in_front_of_inline_entry};
 use super::super::completion::{
     array_branch, object_branch, fill_value, placeholder, schema_const, schema_default,
 };
@@ -319,10 +320,6 @@ impl ConfigLanguage for TomlBehavior {
         constructs::value_tokens(text, 0, &mut tokens);
         tokens.finish()
     }
-}
-
-fn utf16(text: &str) -> usize {
-    text.encode_utf16().count()
 }
 
 /// One-based line and character column of a byte offset.

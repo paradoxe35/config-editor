@@ -4,13 +4,14 @@ use super::*;
 
 pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionContext {
     let cursor = utf16_to_byte_index(source, cursor);
-    let lines: Vec<&str> = source.lines().collect();
-    let (line_index, line_start) = line_at(source, &lines, cursor);
-    let line = lines.get(line_index).copied().unwrap_or("");
+    let lines = super::lines::TextLines::new(source, false);
+    let (line_index, line_start) = lines.line_at(cursor);
+    let line = lines.get(line_index).unwrap_or("");
     let caret_in_line = cursor.saturating_sub(line_start).min(line.len());
     let before_caret = &line[..caret_in_line];
     let (code_before, _) = split_toml_comment(before_caret);
-    let mut path: Vec<SchemaPathSegment> = table_path_at(&lines, line_index);
+    let tables = lines.tables_after(line_index);
+    let mut path: Vec<SchemaPathSegment> = tables.path.clone();
     let (code_line, _) = split_toml_comment(line);
 
     // Inside a table header's brackets (`[web.lets|]`): complete that segment
@@ -20,10 +21,6 @@ pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionConte
         let inner = header_text.trim_start_matches('[');
         let (parents, typed) = inner.rsplit_once('.').unwrap_or(("", inner));
         let parents: Vec<&str> = parents.split('.').map(str::trim).filter(|part| !part.is_empty()).collect();
-        let mut tables = Tables::default();
-        for (segments, is_array) in lines[..line_index].iter().filter_map(|line| parse_header(split_toml_comment(line).0)) {
-            tables.enter(&segments, is_array);
-        }
         let parents: Vec<String> = parents.iter().map(|part| unquote_key(part)).collect();
         let header_path = tables.resolve(&parents);
         let typed = typed.trim_start();
@@ -41,8 +38,8 @@ pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionConte
         return CompletionContext {
             path: header_path,
             typed: typed.to_string(),
-            replace_start: utf16(&source[..cursor - typed.len()]),
-            replace_end: utf16(&source[..if name_after.is_empty() { word_end } else { cursor }]),
+            replace_start: crate::editor::paths::units_at(source, cursor - typed.len()),
+            replace_end: crate::editor::paths::units_at(source, if name_after.is_empty() { word_end } else { cursor }),
             entry_suffix: if name_after.is_empty() { String::new() } else { format!("{close}\n\n{open}{segments_before}") },
             // Renamed, the table's sub-tables and dotted keys follow it.
             paired_names: {
@@ -53,7 +50,7 @@ pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionConte
                 toml_key_occurrences(source, &wanted)
                     .into_iter()
                     .filter(|(start, _)| *start > word_end || *start < name_start)
-                    .map(|(start, end)| (utf16(&source[..start]), utf16(&source[..end])))
+                    .map(|(start, end)| (crate::editor::paths::units_at(source, start), crate::editor::paths::units_at(source, end)))
                     .collect()
             },
             suffix_caret: if name_after.is_empty() { 0 } else { close.len() + 1 },
@@ -75,8 +72,8 @@ pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionConte
         return CompletionContext {
             path,
             typed: String::new(),
-            replace_start: utf16(&source[..cursor]),
-            replace_end: utf16(&source[..cursor]),
+            replace_start: crate::editor::paths::units_at(source, cursor),
+            replace_end: crate::editor::paths::units_at(source, cursor),
             value_key: None,
             value_needs_space: false,
             is_array_item: false,
@@ -90,7 +87,7 @@ pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionConte
 
     // Inside `key = { … }` or `key = [ … ]` opened on this line.
     // The statement may span lines (`certificates = [` … the caret).
-    if let Some(statement) = statement_start(&source[..cursor])
+    if let Some(statement) = statement_start_at(source, cursor)
         && let Some(caret) = inline_caret(&source[statement..cursor], b'=')
     {
         let code_before = &source[statement..cursor];
@@ -115,8 +112,8 @@ pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionConte
             CaretEntry::Key { start } => in_front_of_inline_entry(
                 CompletionContext {
                     typed: code_before[start..].trim_end().to_string(),
-                    replace_start: utf16(&source[..at(caret.separator_at.unwrap_or(start))]),
-                    replace_end: utf16(&source[..cursor]),
+                    replace_start: crate::editor::paths::units_at(source, at(caret.separator_at.unwrap_or(start))),
+                    replace_end: crate::editor::paths::units_at(source, cursor),
                     entry_prefix: if caret.separator_at.is_some() { ", ".into() } else { String::new() },
                     explicit_entry_start: caret.separator_at.is_some(),
                     path: full,
@@ -128,8 +125,8 @@ pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionConte
             ),
             CaretEntry::Value { key, start } => CompletionContext {
                 typed: code_before[start..].trim_end().to_string(),
-                replace_start: utf16(&source[..at(start)]),
-                replace_end: utf16(&source[..value_end]),
+                replace_start: crate::editor::paths::units_at(source, at(start)),
+                replace_end: crate::editor::paths::units_at(source, value_end),
                 value_needs_space: start == code_before.len() && !code_before.ends_with([' ', '\t']),
                 value_key: Some(key),
                 path: full,
@@ -140,8 +137,8 @@ pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionConte
                 full.push(SchemaPathSegment::ArrayItem(index));
                 CompletionContext {
                     typed: code_before[start..].trim_end().to_string(),
-                    replace_start: utf16(&source[..at(start)]),
-                    replace_end: utf16(&source[..value_end]),
+                    replace_start: crate::editor::paths::units_at(source, at(start)),
+                    replace_end: crate::editor::paths::units_at(source, value_end),
                     is_array_item: true,
                     entry_wrap: Some(("{ ", " }")),
                     path: full,
@@ -181,8 +178,8 @@ pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionConte
             .unwrap_or_else(|| cursor + value_token_len(&source[cursor..line_end]));
         return CompletionContext {
             typed: source[typed_start..cursor].trim_end().to_string(),
-            replace_start: utf16(&source[..typed_start]),
-            replace_end: utf16(&source[..value_end]),
+            replace_start: crate::editor::paths::units_at(source, typed_start),
+            replace_end: crate::editor::paths::units_at(source, value_end),
             value_key,
             value_needs_space: source[typed_start..cursor].is_empty()
                 && !after_equals.trim_start().is_empty(),
@@ -231,15 +228,14 @@ pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionConte
     let before_header = parse_header(rest.trim()).is_some();
     let keys_follow = splits
         || lines
-            .iter()
-            .skip(line_index + 1)
+            .from(line_index + 1)
             .map(|line| split_toml_comment(line).0)
             .take_while(|code| parse_header(code).is_none())
             .any(|code| key_assignment(code).is_some());
     CompletionContext {
         typed,
-        replace_start: utf16(&source[..query_start]),
-        replace_end: utf16(&source[..cursor]),
+        replace_start: crate::editor::paths::units_at(source, query_start),
+        replace_end: crate::editor::paths::units_at(source, cursor),
         path,
         // In front of a `[table]` header the entry gets a line of its own;
         // the entry it splits from keeps the dotted head they shared
@@ -308,7 +304,7 @@ pub(super) fn existing_table_keys(
         .get(line_index)
         .is_some_and(|line| line.trim_start().starts_with('['));
     if !in_header
-        && let Some(statement) = statement_start(&source[..cursor_byte])
+        && let Some(statement) = statement_start_at(source, cursor_byte)
         && let Some(keys) = inline_sibling_keys(&source[statement..], b'=', cursor_byte - statement)
     {
         return Some(keys.into_iter().collect());
@@ -701,7 +697,7 @@ pub(super) fn dotted_hover_path(
     line_index: usize,
     column: usize,
 ) -> Option<(Vec<SchemaPathSegment>, String, usize)> {
-    let line = source.split('\n').nth(line_index)?;
+    let line = crate::editor::paths::split_line(source, line_index)?;
     let (code, _) = split_toml_comment(line);
     let segment_at = |text_start: usize, segments: &[String]| {
         let mut offset = text_start;
@@ -717,8 +713,7 @@ pub(super) fn dotted_hover_path(
     if let Some((segments, is_array)) = parse_header(code) {
         // The header's own path, arrays of tables above it at their latest
         // entry and its own `[[array]]` entry included.
-        let lines: Vec<&str> = source.split('\n').take(line_index + 1).collect();
-        let full = table_paths(&lines).pop().unwrap_or_default();
+        let full = super::lines::TextLines::new(source, true).tables_after(line_index + 1).path;
         let open = line.find('[')?;
         let inner_start = open + if is_array { 2 } else { 1 };
         let closing = if is_array { "]]" } else { "]" };
@@ -756,9 +751,9 @@ pub(super) fn dotted_hover_path(
         return None;
     }
     let (index, start_column) = segment_at(line[..start].chars().count(), &segments)?;
-    let line_start: usize = source.split('\n').take(line_index).map(|line| line.len() + 1).sum();
+    let line_start = crate::editor::paths::line_start(source, line_index);
     let mut path = language
-        .completion_context(source, source[..line_start].encode_utf16().count())
+        .completion_context(source, crate::editor::paths::units_at(source, line_start))
         .path;
     path.extend(segments[..=index].iter().cloned().map(SchemaPathSegment::Key));
     Some((path, segments[index].clone(), start_column))

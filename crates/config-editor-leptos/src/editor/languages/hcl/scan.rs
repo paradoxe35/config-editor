@@ -31,6 +31,7 @@ pub(super) struct AttributeInfo {
     pub(super) value_span: (usize, usize),
 }
 
+#[derive(Clone)]
 pub(super) struct Snapshot {
     pub(super) body: usize,
     pub(super) in_value: bool,
@@ -59,6 +60,7 @@ pub(super) struct Scan {
 
 /// An attribute value being read. It ends at a newline at bracket depth zero,
 /// or at a closing bracket that belongs to an enclosing body.
+#[derive(Clone)]
 pub(super) struct OpenValue {
     pub(super) attribute: usize,
     pub(super) depth: usize,
@@ -224,47 +226,129 @@ pub(super) fn scan_text(source: &str, cursor: usize) -> Scan {
             && matches!(token.kind, Kind::Ident | Kind::Str { .. })
     });
     let partial = partial_index.map(|index| tokens[index]);
-    let mut body_count = 1;
-    let mut headers: Vec<HeaderInfo> = Vec::new();
-    let mut totals: HashMap<(usize, String, String), usize> = HashMap::new();
-    let mut attributes: Vec<AttributeInfo> = Vec::new();
+    let mut record = Record::default();
     let mut snapshot: Option<Snapshot> = None;
-    // Open bodies, innermost last. A stray `{` repeats the current body so that
-    // its `}` pops cleanly without opening anything.
-    let mut stack: Vec<usize> = vec![0];
-    let mut open: Option<OpenValue> = None;
-
-    let mut index = 0;
-    while index < tokens.len() {
-        let token = tokens[index];
-        // A line break at bracket depth zero ends the value being read.
-        if token.nl_before
-            && token.kind != Kind::Comment
-            && open
-                .as_ref()
-                .is_some_and(|value| value.started && value.depth == 0)
-        {
-            open = None;
-        }
-        if snapshot.is_none() && (Some(index) == partial_index || token.start >= cursor) {
+    let mut walk = Walk::new();
+    while walk.index < tokens.len() {
+        let token = tokens[walk.index];
+        walk.line_break(&token);
+        if snapshot.is_none() && (Some(walk.index) == partial_index || token.start >= cursor) {
             snapshot = Some(take_snapshot(
-                &attributes,
-                &stack,
-                open.as_ref(),
+                &record.attributes,
+                &walk.stack,
+                walk.open.as_ref(),
                 cursor,
                 partial,
             ));
         }
+        walk.step(source, &tokens, Some(&mut record));
+    }
+    let snapshot = snapshot.unwrap_or_else(|| walk.last_snapshot(source, &tokens, &record.attributes, cursor, partial));
+    record.into_scan(snapshot, walk.body_count)
+}
+
+/// What the walk over a text's tokens writes down: every block header and
+/// attribute, with how often each header repeats.
+#[derive(Default)]
+struct Record {
+    headers: Vec<HeaderInfo>,
+    totals: HashMap<(usize, String, String), usize>,
+    attributes: Vec<AttributeInfo>,
+}
+
+impl Record {
+    fn into_scan(self, snapshot: Snapshot, body_count: usize) -> Scan {
+        let mut openers = vec![None; body_count];
+        for (index, header) in self.headers.iter().enumerate() {
+            if let Some(opener) = openers.get_mut(header.child) {
+                opener.get_or_insert(index);
+            }
+        }
+        Scan {
+            headers: self.headers,
+            openers,
+            totals: self.totals,
+            attributes: self.attributes,
+            snapshot,
+        }
+    }
+}
+
+/// Where the walk over a text's tokens is: the token it reads next, the
+/// open bodies, the value being read, and how many bodies and attributes
+/// it has met.
+#[derive(Clone)]
+struct Walk {
+    index: usize,
+    body_count: usize,
+    /// Open bodies, innermost last. A stray `{` repeats the current body
+    /// so that its `}` pops cleanly without opening anything.
+    stack: Vec<usize>,
+    open: Option<OpenValue>,
+    attributes: usize,
+}
+
+impl Walk {
+    fn new() -> Self {
+        Walk {
+            index: 0,
+            body_count: 1,
+            stack: vec![0],
+            open: None,
+            attributes: 0,
+        }
+    }
+
+    /// A line break at bracket depth zero before `token` ends the value
+    /// being read.
+    fn line_break(&mut self, token: &Token) {
+        if token.nl_before
+            && token.kind != Kind::Comment
+            && self
+                .open
+                .as_ref()
+                .is_some_and(|value| value.started && value.depth == 0)
+        {
+            self.open = None;
+        }
+    }
+
+    /// The caret's place past the last token: a line break before the caret
+    /// ends the value just as a following token's line break would
+    /// (`listen = 7835\n|` at the end).
+    fn last_snapshot(
+        &self,
+        source: &str,
+        tokens: &[Token],
+        attributes: &[AttributeInfo],
+        cursor: usize,
+        partial: Option<Token>,
+    ) -> Snapshot {
+        let last_end = tokens.last().map_or(0, |token| token.end);
+        let open = self.open.as_ref().filter(|value| {
+            !(source[last_end.min(cursor)..cursor.min(source.len())].contains('\n')
+                && value.started
+                && value.depth == 0)
+        });
+        take_snapshot(attributes, &self.stack, open, cursor, partial)
+    }
+
+    /// Reads the token at `index` (and the ones it takes along: an
+    /// attribute's `=`, a header's names), writing down what it finds in
+    /// `record` when there is one.
+    fn step(&mut self, source: &str, tokens: &[Token], mut record: Option<&mut Record>) {
+        let index = self.index;
+        let token = tokens[index];
         if token.kind == Kind::Comment {
-            index += 1;
-            continue;
+            self.index += 1;
+            return;
         }
         // Inside a value only brackets matter, plus the map layering that key
         // completion and nested key spans need. A closing bracket at depth
         // zero belongs to an enclosing body, so it ends the value and is read
         // below.
         let mut closes_value = false;
-        if let Some(value) = open.as_mut() {
+        if let Some(value) = self.open.as_mut() {
             match token.kind {
                 Kind::Punct('{') => {
                     value.depth += 1;
@@ -300,7 +384,9 @@ pub(super) fn scan_text(source: &str, cursor: usize) -> Scan {
             }
             if !closes_value {
                 value.started = true;
-                attributes[value.attribute].value_span.1 = token.end;
+                if let Some(record) = record.as_deref_mut() {
+                    record.attributes[value.attribute].value_span.1 = token.end;
+                }
                 // A `key =` written inside a map braces records the nested
                 // attribute, so its schema path and spans resolve there. The
                 // `=` is skipped so the next token (its value or `{`) is read
@@ -308,65 +394,73 @@ pub(super) fn scan_text(source: &str, cursor: usize) -> Scan {
                 if value.braces >= 1
                     && value.containers == 0
                     && matches!(token.kind, Kind::Ident | Kind::Str { .. })
-                    && let Some(equals) = next_significant(&tokens, index + 1)
+                    && let Some(equals) = next_significant(tokens, index + 1)
                         .filter(|next| tokens[*next].kind == Kind::Punct('='))
                     && let Some(name) = token_name(source, &token)
                 {
-                    let value_start = next_significant(&tokens, equals + 1)
-                        .map_or(source.len(), |next| tokens[next].start);
-                    attributes.push(AttributeInfo {
-                        body: stack.last().copied().unwrap_or(0),
-                        name: name.clone(),
-                        prefix: map_prefix(&attributes, value),
-                        key_span: (token.start, token.end),
-                        value_span: (value_start, value_start),
-                    });
-                    value.nested_value = Some(attributes.len() - 1);
+                    if let Some(record) = record.as_deref_mut() {
+                        let value_start = next_significant(tokens, equals + 1)
+                            .map_or(source.len(), |next| tokens[next].start);
+                        let prefix = map_prefix(&record.attributes, value);
+                        record.attributes.push(AttributeInfo {
+                            body: self.stack.last().copied().unwrap_or(0),
+                            name: name.clone(),
+                            prefix,
+                            key_span: (token.start, token.end),
+                            value_span: (value_start, value_start),
+                        });
+                    }
+                    self.attributes += 1;
+                    value.nested_value = Some(self.attributes - 1);
                     value.pending_key = Some(name);
-                    index = equals;
-                    index += 1;
-                    continue;
+                    self.index = equals + 1;
+                    return;
                 }
                 // A comma between entries ends the entry before it.
                 if token.kind == Kind::Punct(',') && value.containers == 0 {
                     value.nested_value = None;
                     value.pending_key = None;
-                    index += 1;
-                    continue;
+                    self.index += 1;
+                    return;
                 }
                 if let Some(nested) = value.nested_value {
-                    attributes[nested].value_span.1 = token.end;
+                    if let Some(record) = record.as_deref_mut() {
+                        record.attributes[nested].value_span.1 = token.end;
+                    }
                 } else {
                     value.pending_key = None;
                 }
-                index += 1;
-                continue;
+                self.index += 1;
+                return;
             }
-            open = None;
+            self.open = None;
         }
-        let body = stack.last().copied().unwrap_or(0);
+        let body = self.stack.last().copied().unwrap_or(0);
         match token.kind {
-            Kind::Punct('{') => stack.push(body),
+            Kind::Punct('{') => self.stack.push(body),
             Kind::Punct('}') => {
-                if stack.len() > 1 {
-                    stack.pop();
+                if self.stack.len() > 1 {
+                    self.stack.pop();
                 }
             }
             Kind::Ident | Kind::Str { .. } => {
-                let equals = next_significant(&tokens, index + 1)
+                let equals = next_significant(tokens, index + 1)
                     .filter(|next| tokens[*next].kind == Kind::Punct('='));
                 if let (Some(equals), Some(name)) = (equals, token_name(source, &token)) {
-                    let value_start = next_significant(&tokens, equals + 1)
-                        .map_or(source.len(), |next| tokens[next].start);
-                    attributes.push(AttributeInfo {
-                        body,
-                        name,
-                        prefix: Vec::new(),
-                        key_span: (token.start, token.end),
-                        value_span: (value_start, value_start),
-                    });
-                    open = Some(OpenValue {
-                        attribute: attributes.len() - 1,
+                    if let Some(record) = record.as_deref_mut() {
+                        let value_start = next_significant(tokens, equals + 1)
+                            .map_or(source.len(), |next| tokens[next].start);
+                        record.attributes.push(AttributeInfo {
+                            body,
+                            name,
+                            prefix: Vec::new(),
+                            key_span: (token.start, token.end),
+                            value_span: (value_start, value_start),
+                        });
+                    }
+                    self.attributes += 1;
+                    self.open = Some(OpenValue {
+                        attribute: self.attributes - 1,
                         depth: 0,
                         started: false,
                         braces: 0,
@@ -375,73 +469,138 @@ pub(super) fn scan_text(source: &str, cursor: usize) -> Scan {
                         pending_key: None,
                         nested_value: None,
                     });
-                    index = equals;
-                } else if let Some(brace) = classify_header(&tokens, index) {
-                    let mut names: Vec<(String, (usize, usize))> = tokens[index..brace]
+                    self.index = equals + 1;
+                    return;
+                } else if let Some(brace) = classify_header(tokens, index) {
+                    let names: Vec<&Token> = tokens[index..brace]
                         .iter()
-                        .filter_map(|name_token| {
-                            token_name(source, name_token)
-                                .map(|name| (name, (name_token.start, name_token.end)))
-                        })
+                        .filter(|name_token| token_name(source, name_token).is_some())
                         .collect();
                     if !names.is_empty() {
-                        let (block_type, type_span) = names.remove(0);
-                        let labels: Vec<String> =
-                            names.iter().map(|(name, _)| name.clone()).collect();
-                        let label_spans: Vec<(usize, usize)> =
-                            names.iter().map(|(_, span)| *span).collect();
-                        let count = totals
-                            .entry((body, block_type.clone(), labels.join("\0")))
-                            .or_insert(0);
-                        let ordinal = *count;
-                        *count += 1;
-                        let child = body_count;
-                        body_count += 1;
-                        headers.push(HeaderInfo {
-                            parent: body,
-                            child,
-                            block_type,
-                            labels,
-                            ordinal,
-                            type_span,
-                            label_spans,
-                        });
-                        stack.push(child);
+                        if let Some(record) = record.as_mut() {
+                            let mut names: Vec<(String, (usize, usize))> = names
+                                .iter()
+                                .filter_map(|name_token| {
+                                    token_name(source, name_token)
+                                        .map(|name| (name, (name_token.start, name_token.end)))
+                                })
+                                .collect();
+                            let (block_type, type_span) = names.remove(0);
+                            let labels: Vec<String> =
+                                names.iter().map(|(name, _)| name.clone()).collect();
+                            let label_spans: Vec<(usize, usize)> =
+                                names.iter().map(|(_, span)| *span).collect();
+                            let count = record
+                                .totals
+                                .entry((body, block_type.clone(), labels.join("\0")))
+                                .or_insert(0);
+                            let ordinal = *count;
+                            *count += 1;
+                            record.headers.push(HeaderInfo {
+                                parent: body,
+                                child: self.body_count,
+                                block_type,
+                                labels,
+                                ordinal,
+                                type_span,
+                                label_spans,
+                            });
+                        }
+                        self.stack.push(self.body_count);
+                        self.body_count += 1;
                     }
-                    index = brace;
+                    self.index = brace + 1;
+                    return;
                 }
             }
             _ => {}
         }
-        index += 1;
+        self.index += 1;
     }
+}
 
-    // Past the last token, a line break before the caret ends the value just
-    // as a following token's line break would (`listen = 7835\n|` at the end).
-    let last_end = tokens.last().map_or(0, |token| token.end);
-    if snapshot.is_none()
-        && source[last_end.min(cursor)..cursor.min(source.len())].contains('\n')
-        && open
-            .as_ref()
-            .is_some_and(|value| value.started && value.depth == 0)
-    {
-        open = None;
+/// Visits of the walk between two kept states.
+const KEEP_EVERY: usize = 64;
+
+/// A text's scan and the walk over its tokens, kept every [`KEEP_EVERY`]
+/// visits, read once while a batch runs for it (see `paths::paths_at`).
+pub(super) struct Walked {
+    tokens: Vec<Token>,
+    pub(super) scan: std::rc::Rc<Scan>,
+    kept: Vec<Walk>,
+    last: Walk,
+}
+
+/// The scan of `source` and its walk, read once while a batch runs for
+/// it; `None` outside one.
+pub(super) fn walked(source: &str) -> Option<std::rc::Rc<Walked>> {
+    if !crate::editor::paths::in_batch(source) {
+        return None;
     }
-    let snapshot = snapshot
-        .unwrap_or_else(|| take_snapshot(&attributes, &stack, open.as_ref(), cursor, partial));
-    let mut openers = vec![None; body_count];
-    for (index, header) in headers.iter().enumerate() {
-        if let Some(opener) = openers.get_mut(header.child) {
-            opener.get_or_insert(index);
+    Some(crate::editor::paths::batch_cached(source, || {
+        crate::editor::paths::walked_from_top(source);
+        let tokens = tokenize(source);
+        let mut record = Record::default();
+        let mut walk = Walk::new();
+        let mut kept = Vec::new();
+        let mut visits = 0;
+        while walk.index < tokens.len() {
+            if visits % KEEP_EVERY == 0 {
+                kept.push(walk.clone());
+            }
+            visits += 1;
+            let token = tokens[walk.index];
+            walk.line_break(&token);
+            walk.step(source, &tokens, Some(&mut record));
         }
+        let snapshot = walk.last_snapshot(source, &tokens, &record.attributes, 0, None);
+        let scan = std::rc::Rc::new(record.into_scan(snapshot, walk.body_count));
+        Walked {
+            tokens,
+            scan,
+            kept,
+            last: walk,
+        }
+    }))
+}
+
+/// The scan of `source` and the caret's place at byte `cursor`: what
+/// [`analyze`] reads there (its scan's own snapshot is the caret's
+/// outside a batch). While a batch runs for the text, the scan is read
+/// once and the place from the walk kept for it.
+pub(super) fn analyze_at(source: &str, cursor: usize) -> (std::rc::Rc<Scan>, Snapshot) {
+    let Some(walked) = walked(source) else {
+        let scan = analyze(source, cursor);
+        let snapshot = scan.snapshot.clone();
+        return (scan, snapshot);
+    };
+    let tokens = &walked.tokens;
+    // The string or name holding the caret, or the first token past it.
+    let next = tokens.partition_point(|token| token.start < cursor);
+    let partial_index = next.checked_sub(1).filter(|before| {
+        let token = &tokens[*before];
+        cursor <= token.end && matches!(token.kind, Kind::Ident | Kind::Str { .. })
+    });
+    let partial = partial_index.map(|index| tokens[index]);
+    let target = partial_index.unwrap_or(next);
+    let attributes = &walked.scan.attributes;
+    if target >= tokens.len() {
+        let snapshot = walked.last.last_snapshot(source, tokens, attributes, cursor, partial);
+        return (walked.scan.clone(), snapshot);
     }
-    Scan {
-        headers,
-        openers,
-        totals,
-        attributes,
-        snapshot,
-    }
+    let from = walked.kept.partition_point(|walk| walk.index <= target);
+    let mut walk = walked.kept[from.saturating_sub(1)].clone();
+    let snapshot = loop {
+        if walk.index >= tokens.len() {
+            break walk.last_snapshot(source, tokens, attributes, cursor, partial);
+        }
+        walk.line_break(&tokens[walk.index]);
+        if walk.index >= target {
+            break take_snapshot(attributes, &walk.stack, walk.open.as_ref(), cursor, partial);
+        }
+        walk.step(source, tokens, None);
+    };
+    (walked.scan.clone(), snapshot)
 }
 
 /// Index of the `{` opening a block header whose names start at `index`, or
