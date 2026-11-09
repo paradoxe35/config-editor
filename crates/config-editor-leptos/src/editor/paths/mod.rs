@@ -313,6 +313,20 @@ pub(crate) fn path_at(
     }))
 }
 
+/// The body lines of the strings a text writes over lines: read once for
+/// all the places a batch asks about (each place alone reads them again;
+/// a language without such strings reads nothing).
+struct StringBodies(Vec<std::ops::Range<usize>>);
+
+fn string_bodies(behavior: &dyn ConfigLanguage, source: &str) -> std::rc::Rc<StringBodies> {
+    let read = || StringBodies(behavior.saved_string_lines(source));
+    if in_batch(source) {
+        batch_cached(source, read)
+    } else {
+        std::rc::Rc::new(read())
+    }
+}
+
 /// On a line of a string written over lines (a YAML block scalar, a TOML
 /// `"""` string, an HCL heredoc, its closing line too): the string's
 /// field, the one its key's line names whose range runs over the caret.
@@ -322,18 +336,17 @@ fn in_string_over_lines(
     line_index: usize,
     cursor: usize,
 ) -> Option<FieldPath> {
-    let lines: Vec<&str> = source.split('\n').collect();
     // The body's lines, and the line ending it (`EOT`, `two"""`).
-    let key_line = behavior
-        .saved_string_lines(source)
-        .into_iter()
+    let key_line = string_bodies(behavior, source)
+        .0
+        .iter()
         .find(|body| body.start <= line_index && line_index <= body.end && body.start > 0)
         .map(|body| body.start - 1)?;
-    let key_line_end: usize = lines[..=key_line]
-        .iter()
-        .map(|line| line.encode_utf16().count() + 1)
-        .sum::<usize>()
-        - 1;
+    // The key's line ends before the next line's start (the body follows).
+    let key_line_end = units_at(
+        source,
+        lines::line_start(source, key_line + 1).checked_sub(1)?,
+    );
     if key_line == line_index || key_line_end >= cursor {
         return None;
     }
