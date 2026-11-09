@@ -250,3 +250,39 @@ fn a_yaml_str_tagged_value_edited_from_every_view_stays_plain() {
     );
     report(failures);
 }
+
+/// An element copied in an XML view (a value become a list):
+/// each copy keeps the type of the host's value it copies, strings stay
+/// strings (round 29 read `"1"` copied as `[1, 1]`).
+#[test]
+fn an_element_copied_in_an_xml_view_keeps_the_host_type_of_what_it_copies() {
+    let hosts = [
+        (Language::YAML, "s: \"1\"\nn: 2\nb: \"true\"\n"),
+        (
+            Language::JSON,
+            "{\n  \"s\": \"1\",\n  \"n\": 2,\n  \"b\": \"true\"\n}\n",
+        ),
+        (Language::TOML, "s = \"1\"\nn = 2\nb = \"true\"\n"),
+        (Language::HCL, "s = \"1\"\nn = 2\nb = \"true\"\n"),
+    ];
+    let mut failures = Vec::new();
+    for (host, text) in hosts {
+        let old = host.parse(text).expect("the host reads");
+        let copied = |value: &mut Value| {
+            for key in ["s", "n", "b"] {
+                let item = value[key].clone();
+                value[key] = Value::Array(vec![item.clone(), item]);
+            }
+        };
+        let mut expected = old.clone();
+        copied(&mut expected);
+        match super::save_matrix::save_value(host, Language::XML, text, &copied) {
+            Ok(saved) => match host.parse(&saved) {
+                Ok(read) if read == expected => {}
+                other => failures.push(format!("{host}: saved {saved:?}, reads {other:?}")),
+            },
+            Err(error) => failures.push(format!("{host}: {error}")),
+        }
+    }
+    report(failures);
+}

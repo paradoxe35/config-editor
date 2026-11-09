@@ -27,10 +27,15 @@ pub(crate) fn split(source: &str) -> (&str, bool) {
 /// `text` with the mark `source` starts with, if it does (an emptied
 /// document is empty).
 pub(crate) fn restore(source: &str, text: String) -> String {
-    if split(source).1 && !split(&text).1 && !text.is_empty() {
-        format!("{MARK}{text}")
-    } else {
+    if split(source).1 { marked(text) } else { text }
+}
+
+/// `text` starting with the mark, once (an emptied document is empty).
+pub(crate) fn marked(text: String) -> String {
+    if split(&text).1 || text.is_empty() {
         text
+    } else {
+        format!("{MARK}{text}")
     }
 }
 

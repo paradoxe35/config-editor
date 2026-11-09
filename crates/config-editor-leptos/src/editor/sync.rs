@@ -2,7 +2,7 @@
 //! debounced copy validation reads, and Edit-as (converting edits back to
 //! the host's language, and switching the language on screen).
 
-use super::line_endings::LineEndings;
+use super::line_endings::{LineEndings, editor_text};
 use leptos::prelude::*;
 
 use std::sync::Arc;
@@ -16,7 +16,7 @@ use super::history::EditHistory;
 use super::language::ConfigLanguage;
 use super::languages::Language;
 use super::paths::TextPosition;
-use super::state::{EditorState, normalize_newlines, textarea_selection};
+use super::state::{EditorState, textarea_selection};
 use crate::reactive::later;
 
 /// The host's side of the connection (from the component's props).
@@ -103,7 +103,7 @@ impl SyncState {
                 }
                 Err(_) => pending = Some(edit_language),
             }
-            if let Some(opening) = opening.map(normalize_newlines) {
+            if let Some(opening) = opening.map(editor_text) {
                 // The host's text as shown is what the opening text is
                 // compared with; one that cannot be shown matches no text.
                 synced = Some(if pending.is_some() {
@@ -295,7 +295,7 @@ fn follow_value(state: EditorState, value: Signal<String>) {
     leptos::reactive::effect::ImmediateEffect::new_scoped(move || {
         let value = value.get();
         state.sync().line_endings.note(&value);
-        take_host_value(state, normalize_newlines(value));
+        take_host_value(state, editor_text(value));
     });
 }
 

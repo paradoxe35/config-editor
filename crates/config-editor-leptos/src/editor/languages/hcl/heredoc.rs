@@ -26,6 +26,26 @@ pub(super) fn has_sequence(template: &str) -> bool {
     plain.contains("${") || plain.contains("%{")
 }
 
+/// The text a heredoc value `written` (as the host writes it: `<<-EOT`,
+/// its lines, the terminator) that holds a template sequence reads as, and
+/// that heredoc, its lines as written; `None` for any other value.
+pub(super) fn written_heredoc(written: &str) -> Option<(String, hcl::Heredoc)> {
+    let (header, rest) = written.split_once('\n')?;
+    let name = header.strip_prefix("<<")?;
+    let (strip, name) = match name.strip_prefix('-') {
+        Some(name) => (hcl::expr::HeredocStripMode::Indent, name),
+        None => (hcl::expr::HeredocStripMode::None, name),
+    };
+    let body = &rest[..rest.trim_end().rfind('\n').map_or(0, |at| at + 1)];
+    if !has_sequence(body) {
+        return None;
+    }
+    let read = hcl::from_str::<serde_json::Value>(&format!("v = {written}\n")).ok()?;
+    let text = read.get("v")?.as_str()?.to_string();
+    let delimiter = hcl::Identifier::new(name.trim()).ok()?;
+    Some((text, hcl::Heredoc::new(delimiter, body).with_strip_mode(strip)))
+}
+
 /// `text` written in a template: `${` as `$${`, `%{` as `%%{`.
 pub(super) fn escaped(text: &str) -> String {
     text.replace("${", "$${").replace("%{", "%%{")

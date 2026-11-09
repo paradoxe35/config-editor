@@ -195,3 +195,38 @@ fn an_expression_in_an_object_entry_is_saved_like_one_at_the_top() {
     );
     report(failures);
 }
+
+/// An expression moved from one block to another in a view (cut and
+/// pasted, or moved by lines) stays an expression there, as one moved
+/// within its block does: a reference, an interpolated string, a call, a
+/// heredoc holding an interpolation (round 29 wrote each as the escaped
+/// literal `"$${…}"`, the save reported done).
+#[test]
+fn an_expression_moved_to_another_block_stays_an_expression() {
+    let mut failures = Vec::new();
+    for written in [
+        "var.z",
+        "\"x-${var.y}\"",
+        "lower(var.q)",
+        "merge(local.t, { Name = \"${local.n}\" })",
+        "<<-EOT\n    echo ${var.y}\n  EOT",
+    ] {
+        let host = format!("locals {{\n  n = 1\n  r = {written}\n}}\n\nother {{\n  k = 1\n}}\n");
+        let expected =
+            format!("locals {{\n  n = 1\n}}\n\nother {{\n  k = 1\n  r = {written}\n}}\n");
+        for edit in ALL.into_iter().filter(|edit| *edit != Language::HCL) {
+            let moved = |value: &mut Value| {
+                let taken = value["locals"]
+                    .as_object_mut()
+                    .and_then(|locals| locals.shift_remove("r"))
+                    .expect("r");
+                value["other"]["r"] = taken;
+            };
+            match save_value(Language::HCL, edit, &host, &moved) {
+                Ok(saved) if saved == expected => {}
+                other => failures.push(format!("{written} via {edit}: {other:?}")),
+            }
+        }
+    }
+    report(failures);
+}

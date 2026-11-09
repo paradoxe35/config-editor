@@ -22,7 +22,8 @@ use std::sync::Arc;
 use super::bridge::Bridge;
 use super::diagnostics::SchemaBundle;
 use super::languages::Language;
-use super::state::{EditorState, normalize_newlines};
+use super::line_endings::editor_text;
+use super::state::EditorState;
 use super::sync::SyncState;
 
 /// What `on_save` receives: the document to store, in the host's
@@ -202,7 +203,7 @@ impl HostEditing {
             save_shortcut,
             on_conflict,
         } = init;
-        let baseline = RwSignal::new(normalize_newlines(baseline));
+        let baseline = RwSignal::new(editor_text(baseline));
         let SyncState {
             edit_language,
             shown_cache,
@@ -271,7 +272,7 @@ pub(super) fn connect(state: EditorState, host: Host) {
         on_dirty_change,
     } = host;
     Effect::new(move |_| {
-        let new = normalize_newlines(baseline.get());
+        let new = editor_text(baseline.get());
         untrack(|| state.offer_baseline(new));
     });
     conflict::settle_when_text_matches(state);

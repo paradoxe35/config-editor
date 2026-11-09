@@ -22,6 +22,9 @@ pub(super) struct HostForms {
     /// Strings the host writes as bare expressions (`var.azs`, `number`),
     /// which read as `${…}`: written as those expressions again.
     pub(super) expressions: std::collections::HashSet<String>,
+    /// Heredocs holding a template sequence, by the text they read as:
+    /// written as those heredocs again (moved to another block).
+    pub(super) heredocs: std::collections::HashMap<String, hcl::Heredoc>,
     /// Paths written as unlabelled blocks (`dns { … }`, once or repeated):
     /// a list there is written as repeated blocks, an empty map as a block.
     pub(super) blocks: std::collections::HashSet<Vec<String>>,
@@ -71,6 +74,12 @@ pub(super) fn host_forms(source: &str) -> HostForms {
             .filter_map(|value| value.get("v").and_then(serde_json::Value::as_str).map(str::to_string))
             .collect(),
         expressions: written_expressions(source),
+        heredocs: scan
+            .attributes
+            .iter()
+            .filter_map(|attribute| source.get(attribute.value_span.0..attribute.value_span.1))
+            .filter_map(super::heredoc::written_heredoc)
+            .collect(),
         blocks,
     }
 }
@@ -415,9 +424,9 @@ pub(super) fn hcl_expression_in(value: &Value, forms: &HostForms) -> hcl::Expres
     };
     match value {
         Value::String(text) if forms.templates.contains(text) => template(text),
-        Value::String(text) if forms.expressions.contains(text) => {
-            expression_of(text).unwrap_or_else(|| hcl_expression(value))
-        }
+        Value::String(text) if forms.expressions.contains(text) => expression_of(text)
+            .or_else(|| forms.heredocs.get(text).map(|heredoc| hcl::Expression::from(hcl::TemplateExpr::Heredoc(heredoc.clone()))))
+            .unwrap_or_else(|| hcl_expression(value)),
         Value::Array(items) if !forms.templates.is_empty() || !forms.expressions.is_empty() => {
             hcl::Expression::Array(items.iter().map(|item| hcl_expression_in(item, forms)).collect())
         }

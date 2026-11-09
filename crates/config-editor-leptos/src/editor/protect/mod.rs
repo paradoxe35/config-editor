@@ -29,6 +29,7 @@ mod live;
 mod locate;
 mod locks;
 mod marks;
+mod moved_off;
 mod problems;
 mod rewritten;
 mod save;
@@ -46,7 +47,7 @@ pub(crate) use hooks::secret_pointers;
 pub(crate) use live::{Inputs, ProtectInit, ProtectState};
 pub(crate) use marks::mentions_marks;
 pub(crate) use save::ReadOnlyChange;
-pub(crate) use texts::save_refused;
+pub(crate) use texts::{moved_placeholder, save_refused};
 
 #[cfg(all(test, feature = "yaml"))]
 mod pattern_tests;
@@ -117,6 +118,15 @@ mod broken_tests;
     feature = "xml"
 ))]
 mod browse_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod copied_field_tests;
 #[cfg(all(
     test,
     feature = "yaml",

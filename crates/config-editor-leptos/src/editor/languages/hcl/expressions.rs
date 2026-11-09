@@ -160,6 +160,52 @@ pub(super) fn changed_expression(previous: &str, patched: &str) -> Option<String
             && string(&new, pointer).is_some_and(|text| text.contains("${") || text.contains("%{"))
     });
     let to_expression = || after.iter().find(|pointer| !before.contains(pointer) && string(&old, pointer).is_some());
-    to_literal.or_else(to_expression).cloned()
+    to_literal.or_else(to_expression).cloned().or_else(|| moved_to_literal(&before, &after, &old, &new))
+}
+
+/// The first value `patched` writes as a literal string with a template
+/// sequence in its text where `previous` holds no such string, whose text
+/// an expression of `previous` (at `before`) that `patched` no longer
+/// writes (at `after`) reads as: that expression moved (to another block)
+/// and was written as a literal.
+fn moved_to_literal(before: &[String], after: &[String], old: &Value, new: &Value) -> Option<String> {
+    let string = |value: &Value, pointer: &str| value.pointer(pointer).and_then(Value::as_str).map(str::to_string);
+    let gone: Vec<String> = before.iter().filter(|pointer| !after.contains(pointer)).filter_map(|pointer| string(old, pointer)).collect();
+    if gone.is_empty() {
+        return None;
+    }
+    let mut strings = Vec::new();
+    strings_of(new, &mut String::new(), &mut strings);
+    strings
+        .into_iter()
+        .find(|(pointer, text)| {
+            !after.contains(pointer) && (text.contains("${") || text.contains("%{")) && string(old, pointer).as_ref() != Some(text) && gone.contains(text)
+        })
+        .map(|(pointer, _)| pointer)
+}
+
+/// Every string of `value`, with its pointer.
+fn strings_of(value: &Value, pointer: &mut String, found: &mut Vec<(String, String)>) {
+    match value {
+        Value::String(text) => found.push((pointer.clone(), text.clone())),
+        Value::Object(map) => {
+            for (key, child) in map {
+                let length = pointer.len();
+                pointer.push('/');
+                pointer.push_str(&key.replace('~', "~0").replace('/', "~1"));
+                strings_of(child, pointer, found);
+                pointer.truncate(length);
+            }
+        }
+        Value::Array(items) => {
+            for (index, item) in items.iter().enumerate() {
+                let length = pointer.len();
+                pointer.push_str(&format!("/{index}"));
+                strings_of(item, pointer, found);
+                pointer.truncate(length);
+            }
+        }
+        _ => {}
+    }
 }
 

@@ -551,8 +551,19 @@ impl EditorState {
                 .known
                 .with_untracked(|known| glued_in_save(behavior, known, old, new, reading))
         });
-        match glued {
-            Some(pointer) => Err(SaveError::GluedPlaceholder { pointer }),
+        if let Some(pointer) = glued {
+            return Err(SaveError::GluedPlaceholder { pointer });
+        }
+        let moved = self.config().schema.with_value(|schema| {
+            let reading = schema.as_deref().map(|bundle| &bundle.schema);
+            secrets.known.with_untracked(|known| {
+                secrets.matcher.with_value(|matcher| {
+                    super::moved_off::moved_off_in_save(behavior, matcher, known, new, reading)
+                })
+            })
+        });
+        match moved {
+            Some((pointer, owner)) => Err(SaveError::MovedPlaceholder { pointer, owner }),
             None => Ok(()),
         }
     }

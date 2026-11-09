@@ -42,8 +42,11 @@ pub(in super::super) fn patch_key_order(
     }
     let mut maps = Vec::new();
     reordered_maps(old, new, String::new(), &mut maps);
-    // One map at a time, each read from the text the one before wrote.
+    // One map at a time, each read from the text the one before wrote. A
+    // member the host writes elsewhere (an XML attribute, a YAML merged
+    // key) stays where it is; the map's own entries take the order.
     let (mut text, mut current) = (previous.to_string(), old.clone());
+    let mut own_orders = Vec::with_capacity(maps.len());
     for (pointer, order) in maps {
         let keys: Vec<String> = current
             .pointer(&pointer)?
@@ -51,15 +54,30 @@ pub(in super::super) fn patch_key_order(
             .keys()
             .cloned()
             .collect();
-        text = moved_entries(language, &text, &pointer, &keys, &order)?;
+        let (moved, own) = moved_entries(language, &text, &pointer, &keys, &order)?;
+        text = moved;
         let map = current.pointer_mut(&pointer)?.as_object_mut()?;
         let mut entries: Vec<(String, Value)> = std::mem::take(map).into_iter().collect();
         entries.sort_by_key(|(key, _)| order.iter().position(|other| other == key));
         map.extend(entries);
+        own_orders.push((pointer, own));
     }
     let reread = read(language, &text, schema).ok()?;
     let reread = language.spelled_like(&text, reread, new);
-    (reread == *new && same_order(&reread, new)).then_some(text)
+    (reread == *new && in_own_order(&reread, new, &own_orders)).then_some(text)
+}
+
+/// Whether `reread` holds its maps' keys in `new`'s order, but for the maps
+/// of `own_orders`, whose own entries alone must be in the order given.
+fn in_own_order(reread: &Value, new: &Value, own_orders: &[(String, Vec<String>)]) -> bool {
+    let mut differing = Vec::new();
+    reordered_maps(new, reread, String::new(), &mut differing);
+    differing.iter().all(|(pointer, keys)| {
+        own_orders
+            .iter()
+            .find(|(other, _)| other == pointer)
+            .is_some_and(|(_, own)| keys.iter().filter(|key| own.contains(key)).eq(own.iter()))
+    })
 }
 
 /// The maps whose keys `new` orders otherwise than `old` (the two equal
@@ -85,40 +103,45 @@ fn reordered_maps(old: &Value, new: &Value, pointer: String, out: &mut Vec<(Stri
     }
 }
 
-/// `text` with the entries of the map at `pointer` (its `keys`, in the
-/// order written) rewritten in `order`: each entry's lines (its own-line
-/// comments above it, its key's line, and the lines its value runs on)
-/// in the place of the entry `order` puts there.
+/// `text` with the own entries of the map at `pointer` (of its `keys`, in
+/// the order written) rewritten in `order`, and those entries' keys in
+/// `order`: each entry's lines (its own-line comments above it, its key's
+/// line, and the lines its value runs on) in the place of the entry
+/// `order` puts there. A member that is no entry of lines of its own in
+/// the map (an XML attribute, a key a YAML merge brings in) keeps its
+/// place.
 fn moved_entries(
     language: &dyn ConfigLanguage,
     text: &str,
     pointer: &str,
     keys: &[String],
     order: &[String],
-) -> Option<String> {
+) -> Option<(String, Vec<String>)> {
     let lines: Vec<&str> = text.split('\n').collect();
-    let mut slots: Vec<Range<usize>> = Vec::with_capacity(keys.len());
+    let mut own: Vec<(&String, Range<usize>)> = Vec::with_capacity(keys.len());
     for key in keys {
-        let slot = entry_lines(
-            language,
-            text,
-            &lines,
-            &format!("{pointer}/{}", escape(key)),
-        )?;
+        let Some(slot) = entry_lines(language, text, &lines, pointer, key) else {
+            continue;
+        };
         // In the order written, each apart from the one before.
-        if slots.last().is_some_and(|last| last.end > slot.start) {
+        if own.last().is_some_and(|(_, last)| last.end > slot.start) {
             return None;
         }
-        slots.push(slot);
+        own.push((key, slot));
     }
+    let order: Vec<String> = order
+        .iter()
+        .filter(|key| own.iter().any(|(own, _)| own == key))
+        .cloned()
+        .collect();
     let block = |key: &String| -> Option<&Range<usize>> {
-        keys.iter()
-            .position(|other| other == key)
-            .map(|at| &slots[at])
+        own.iter()
+            .find(|(other, _)| *other == key)
+            .map(|(_, slot)| slot)
     };
     let mut patched: Vec<String> = Vec::with_capacity(lines.len());
     let mut at = 0;
-    for (slot, key) in slots.iter().zip(order) {
+    for ((_, slot), key) in own.iter().zip(&order) {
         patched.extend(lines[at..slot.start].iter().map(|line| line.to_string()));
         let from = block(key)?;
         let mut moved: Vec<String> = lines[from.clone()]
@@ -132,23 +155,30 @@ fn moved_entries(
         at = slot.end;
     }
     patched.extend(lines[at..].iter().map(|line| line.to_string()));
-    Some(patched.join("\n"))
+    Some((patched.join("\n"), order))
 }
 
-/// The lines (0-based, end exclusive) of the entry at `pointer`: the
-/// comment lines right above its key, the key's line, and the lines its
-/// value runs on (a block scalar, a container to where it closes, or the
-/// lines indented under the key where indentation is structure). `None`
-/// when the key shares its line with something before it.
+/// The lines (0-based, end exclusive) of the entry `key` of the map at
+/// `map`: the comment lines right above its key, the key's line, and the
+/// lines its value runs on (a block scalar, a container to where it
+/// closes, or the lines indented under the key where indentation is
+/// structure). `None` when the key shares its line with something before
+/// it, or is written in another map (a key a YAML merge brings in).
 fn entry_lines(
     language: &dyn ConfigLanguage,
     text: &str,
     lines: &[&str],
-    pointer: &str,
+    map: &str,
+    key: &str,
 ) -> Option<Range<usize>> {
-    let key = language.key_span(text, pointer)?;
-    let line = key.line.checked_sub(1)?;
-    let name = byte_range(text, key)?;
+    let pointer = format!("{map}/{}", escape(key));
+    let span = language.key_span(text, &pointer)?;
+    let line = span.line.checked_sub(1)?;
+    let name = byte_range(text, span)?;
+    let at = text[..name.start].encode_utf16().count();
+    if super::super::paths::path_at(language, text, at)?.to_pointer() != pointer {
+        return None;
+    }
     let line_start = text[..name.start].rfind('\n').map_or(0, |at| at + 1);
     let opens = key_markup_start(language, text, name.start).unwrap_or(name.start);
     if !text[line_start..opens.min(name.start)].trim().is_empty() {
@@ -157,7 +187,7 @@ fn entry_lines(
     let mut last = line;
     // A value over lines (a block scalar, a heredoc) ends where it ends.
     if let Some(value) = language
-        .value_span(text, pointer)
+        .value_span(text, &pointer)
         .and_then(|span| byte_range(text, span))
     {
         last = last.max(text[..value.end].matches('\n').count());

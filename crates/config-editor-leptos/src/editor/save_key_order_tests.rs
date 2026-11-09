@@ -189,3 +189,114 @@ fn keys_reordered_while_a_value_is_edited_move_in_the_host() {
     }
     report(failures);
 }
+
+/// `value` with the keys `a` and `b` of the map at `pointer` trading places
+/// (the others where they are).
+fn swapped(value: &mut Value, pointer: &str, (a, b): (&str, &str)) {
+    let map = value
+        .pointer_mut(pointer)
+        .and_then(Value::as_object_mut)
+        .unwrap_or_else(|| panic!("no map at {pointer}"));
+    let mut entries: Vec<(String, Value)> = std::mem::take(map).into_iter().collect();
+    let at = |key: &str| entries.iter().position(|(other, _)| other == key);
+    let (Some(first), Some(second)) = (at(a), at(b)) else {
+        panic!("no {a} or {b} at {pointer}");
+    };
+    entries.swap(first, second);
+    map.extend(entries);
+}
+
+/// A label, the host and its text, the map, the keys swapped, the host
+/// text expected.
+type Case = (
+    &'static str,
+    Language,
+    &'static str,
+    &'static str,
+    (&'static str, &'static str),
+    String,
+);
+
+/// A map's own keys reordered in a view reach the host beside members the
+/// view shows as keys but the host writes elsewhere: an XML element's
+/// attributes, a YAML map's merged keys (round 29: the order was dropped,
+/// the save reported done).
+#[test]
+fn own_keys_reordered_beside_attributes_and_merged_keys_move_in_the_host() {
+    let mut failures = Vec::new();
+    let elements =
+        "<config a=\"1\">\n  <name>edge</name>\n  <port>80</port>\n  <host>h</host>\n</config>\n";
+    let nested = "<config>\n  <db xmlns=\"urn:x\" b=\"2\">\n    <name>edge</name>\n    <port>80</port>\n  </db>\n</config>\n";
+    let merged = "defaults: &D\n  a: 1 # da\n  b: 2\nsvc:\n  # merged\n  <<: *D\n  b: 20 # own\n  # about d\n  d: 4\n  e: 5\n";
+    let wrapped =
+        "<config\n    a=\"1\"\n    b=\"2\">\n  <name>edge</name>\n  <port>80</port>\n</config>\n";
+    let cases: [Case; 5] = [
+        (
+            "an element with attributes on lines of their own",
+            Language::XML,
+            wrapped,
+            "/config",
+            ("name", "port"),
+            wrapped.replace(
+                "  <name>edge</name>\n  <port>80</port>\n",
+                "  <port>80</port>\n  <name>edge</name>\n",
+            ),
+        ),
+        (
+            "an element with an attribute",
+            Language::XML,
+            elements,
+            "/config",
+            ("name", "port"),
+            elements.replace(
+                "  <name>edge</name>\n  <port>80</port>\n",
+                "  <port>80</port>\n  <name>edge</name>\n",
+            ),
+        ),
+        (
+            "a nested element with attributes",
+            Language::XML,
+            nested,
+            "/config/db",
+            ("name", "port"),
+            nested.replace(
+                "    <name>edge</name>\n    <port>80</port>\n",
+                "    <port>80</port>\n    <name>edge</name>\n",
+            ),
+        ),
+        (
+            "a map with a merge, its own keys swapped",
+            Language::YAML,
+            merged,
+            "/svc",
+            ("b", "e"),
+            merged.replace(
+                "  b: 20 # own\n  # about d\n  d: 4\n  e: 5\n",
+                "  e: 5\n  # about d\n  d: 4\n  b: 20 # own\n",
+            ),
+        ),
+        (
+            "a map with a merge, two own keys next to each other",
+            Language::YAML,
+            merged,
+            "/svc",
+            ("d", "e"),
+            merged.replace(
+                "  # about d\n  d: 4\n  e: 5\n",
+                "  e: 5\n  # about d\n  d: 4\n",
+            ),
+        ),
+    ];
+    for (label, host, text, pointer, pair, expected) in cases {
+        for edit in ALL.into_iter().filter(|edit| *edit != host) {
+            match save_value(host, edit, text, &|value| swapped(value, pointer, pair)) {
+                Ok(saved) if saved == expected => {}
+                Ok(saved) => failures.push(format!(
+                    "{label}: via {edit}:\n--- expected\n{expected}--- saved\n{saved}"
+                )),
+                Err(error) => failures.push(format!("{label}: via {edit}: {error}")),
+            }
+        }
+    }
+    report(failures);
+}

@@ -515,6 +515,15 @@ fn moves_editor(state: EditorState, event: &web_sys::Event) -> bool {
     feature = "hcl",
     feature = "xml"
 ))]
+mod bom_edits_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
 mod convert_messages_tests;
 #[cfg(all(
     test,

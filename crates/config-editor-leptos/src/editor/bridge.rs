@@ -350,7 +350,12 @@ impl Bridge {
                             .or_else(|| structure(&text, &current, &step))?;
                         current = step;
                     }
-                    Some(text)
+                    // A step reads the host's forms from the text the one
+                    // before wrote: a value one step removes and another
+                    // adds elsewhere (an HCL expression moved to another
+                    // block) is written anew in a form that reads the same.
+                    // The whole save made at once keeps it.
+                    host.changed_form(previous, &text).is_none().then_some(text)
                 })
                 .or_else(|| structure(previous, old, target))
                 // Block items no line patch tells apart (tagged maps)

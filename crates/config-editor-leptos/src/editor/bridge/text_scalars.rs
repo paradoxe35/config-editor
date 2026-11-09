@@ -52,6 +52,17 @@ fn in_host_types_at(
             }
             Ok(Value::Array(out))
         }
+        // A list grown or shrunk, or a scalar the view repeated into one (an
+        // element copied): each item the view showed before (a copy of it)
+        // keeps the type of the host's value it shows.
+        (Value::Array(old), Value::Array(items)) => {
+            let seen = seen.and_then(Value::as_array).map(Vec::as_slice);
+            items_in_host_types(old, seen.unwrap_or_default(), items, at)
+        }
+        (old, Value::Array(items)) if !old.is_object() && !old.is_null() => {
+            let seen = seen.map(std::slice::from_ref).unwrap_or_default();
+            items_in_host_types(std::slice::from_ref(old), seen, items, at)
+        }
         (Value::Object(_) | Value::Array(_) | Value::Null, value) => Ok(value),
         (old, value) if *old == value => Ok(value),
         // An element emptied where the view showed a scalar.
@@ -96,6 +107,30 @@ fn in_host_types_at(
         (Value::String(_), Value::Bool(flag)) => Ok(Value::String(flag.to_string())),
         (_, value) => Ok(value),
     }
+}
+
+/// `items` (a list the edit made of the host's `old` items, which the view
+/// showed as `seen`), each item equal to one the view showed in the type of
+/// the host's item there; an item new to the view as the view reads it.
+fn items_in_host_types(
+    old: &[Value],
+    seen: &[Value],
+    items: Vec<Value>,
+    at: &str,
+) -> Result<Value, String> {
+    items
+        .into_iter()
+        .enumerate()
+        .map(
+            |(index, item)| match seen.iter().zip(old).find(|(shown, _)| **shown == item) {
+                Some((shown, before)) => {
+                    in_host_types_at(before, Some(shown), item, &format!("{at}/{index}"))
+                }
+                None => Ok(item),
+            },
+        )
+        .collect::<Result<Vec<_>, _>>()
+        .map(Value::Array)
 }
 
 /// The number `text` writes in decimal (`2.50`, `.5`, `2e3`, `007`, `+6`):

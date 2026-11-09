@@ -9,8 +9,9 @@ use serde_json::Value;
 use super::super::diagnostics::{Diagnostic, Severity};
 use super::super::language::{ConfigLanguage, Repetition};
 use super::super::parse_cache;
-use super::super::paths::{FieldPath, path_at, same_field};
+use super::super::paths::{FieldPath, path_at};
 use super::marks::marks_at;
+use super::moved_off::is_own_field;
 use super::texts;
 use super::tokens::{Known, SecretMatcher, held_in_fields, in_comment};
 use crate::EditorStrings;
@@ -180,9 +181,9 @@ pub(crate) fn unknown_placeholders(
                     // In its own field (as often as the host wrote it
                     // there): real.
                     if let Some(slot) = left.get_mut(token).and_then(|fields| {
-                        fields
-                            .iter_mut()
-                            .find(|(field, count)| *count > 0 && same_field(field, &pointer))
+                        fields.iter_mut().find(|(field, count)| {
+                            *count > 0 && is_own_field(document, field, &pointer)
+                        })
                     }) {
                         slot.1 -= 1;
                         continue;

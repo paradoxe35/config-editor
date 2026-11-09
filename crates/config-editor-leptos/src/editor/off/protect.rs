@@ -224,6 +224,15 @@ pub(super) fn glued_message(strings: &EditorStrings, pointer: &str) -> String {
     crate::strings::fill(&strings.glued_placeholder, &[("pointer", &place)])
 }
 
+/// What a save waiting on a placeholder copied out of its field says:
+/// never one without the feature.
+pub(super) fn moved_placeholder(strings: &EditorStrings, pointer: &str, owner: &str) -> String {
+    crate::strings::fill(
+        &strings.moved_placeholder,
+        &[("pointer", &pointer), ("owner", &owner)],
+    )
+}
+
 /// No schema marks are read.
 pub(super) fn mentions_marks(_schema: &Value) -> bool {
     false

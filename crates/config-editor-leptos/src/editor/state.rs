@@ -24,7 +24,7 @@
 //! | `a11y()`       | `A11yState`         | `a11y`          |
 //! | `edit_as()`    | `EditAsState`       | `edit_as`       |
 
-use super::line_endings::LineEndings;
+use super::line_endings::{LineEndings, editor_text};
 use std::sync::Arc;
 
 use leptos::prelude::*;
@@ -234,9 +234,10 @@ impl EditorState {
         // What reaches the host is remembered: a baseline equal to it is the
         // user's own work coming back (see `host_editing`).
         let sent = StoredValue::new(SentTexts::default());
-        // The editor works on LF text; the host hears its own line endings.
+        // The editor works on LF text without a byte order mark; the host
+        // hears its own line endings and mark.
         let line_endings = LineEndings::of(&host_text, host_language);
-        let host_text = normalize_newlines(host_text);
+        let host_text = editor_text(host_text);
         let host_on_change =
             host_on_change.map(|callback| noting_sent(sent, line_endings.on_change(callback)));
         let on_save = on_save.map(|callback| line_endings.on_save(callback));

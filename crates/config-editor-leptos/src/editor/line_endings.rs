@@ -7,9 +7,14 @@
 //! common one. A lone CR the host's language does not read as a line break
 //! (TOML, HCL) is a syntax problem, worded by the language's reader, until
 //! the line is edited (an edited line takes a break the language reads).
+//!
+//! The host's leading byte order mark is kept the same way: the editor's
+//! text never holds it (see [`editor_text`]), so no edit can move, cut or
+//! copy it, and what the host hears starts with it again.
 
 use leptos::prelude::*;
 
+use super::byte_order_mark;
 use super::diagnostics::{Diagnostic, Severity};
 use super::host_editing::SaveRequest;
 use super::languages::Language;
@@ -29,6 +34,18 @@ struct Endings {
     /// Whether the language reads a lone CR as a line break (no when a text
     /// with one fails to parse while the same text with LF parses).
     lone_cr_breaks: bool,
+    /// Whether the host's text starts with a byte order mark.
+    marked: bool,
+}
+
+/// A host's text as the editor works on it: LF line breaks, no leading
+/// byte order mark (the host gets both back from [`LineEndings::restore`]).
+pub(super) fn editor_text(text: String) -> String {
+    let text = normalize_newlines(text);
+    match byte_order_mark::split(&text) {
+        (rest, true) => rest.to_string(),
+        (_, false) => text,
+    }
 }
 
 impl LineEndings {
@@ -39,6 +56,7 @@ impl LineEndings {
             common: "\n",
             language,
             lone_cr_breaks: true,
+            marked: false,
         };
         let this = Self(StoredValue::new(endings));
         this.note(text);
@@ -46,9 +64,12 @@ impl LineEndings {
     }
 
     /// A new text from the host: its line endings (a text without line
-    /// breaks keeps the most common ending seen before, for new lines).
+    /// breaks keeps the most common ending seen before, for new lines) and
+    /// its byte order mark.
     pub(super) fn note(&self, text: &str) {
+        let (text, marked) = byte_order_mark::split(text);
         self.0.update_value(|endings| {
+            endings.marked = marked;
             if text.contains(['\n', '\r']) {
                 endings.common = most_common(text);
             }
@@ -66,8 +87,8 @@ impl LineEndings {
         });
     }
 
-    /// `text` (LF) written with the host's line endings, kept as the text
-    /// last handed back.
+    /// `text` (LF, the editor's) written with the host's line endings and
+    /// byte order mark, kept as the text last handed back.
     pub(super) fn restore(&self, text: String) -> String {
         let restored = self.preview(text);
         self.0.update_value(|endings| {
@@ -77,7 +98,11 @@ impl LineEndings {
                 String::new()
             };
         });
-        restored
+        if self.0.with_value(|endings| endings.marked) {
+            byte_order_mark::marked(restored)
+        } else {
+            restored
+        }
     }
 
     /// `text` (LF) written with the host's line endings, not kept.

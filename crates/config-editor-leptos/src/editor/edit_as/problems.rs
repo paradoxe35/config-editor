@@ -33,6 +33,14 @@ pub(in crate::editor) enum SaveError {
         allow(dead_code, reason = "nothing is protected without the feature")
     )]
     GluedPlaceholder { pointer: String },
+    /// The save would write the placeholder of the field `owner` only at
+    /// `pointer`, where it is plain text (the field's element copied into
+    /// a list of copies): the secret would be gone.
+    #[cfg_attr(
+        not(feature = "protect"),
+        allow(dead_code, reason = "nothing is protected without the feature")
+    )]
+    MovedPlaceholder { pointer: String, owner: String },
 }
 
 impl From<ConvertError> for SaveError {
@@ -56,7 +64,8 @@ impl SaveError {
             }
             SaveError::NoNull { pointer }
             | SaveError::NoNonFinite { pointer }
-            | SaveError::GluedPlaceholder { pointer } => pointer.clone(),
+            | SaveError::GluedPlaceholder { pointer }
+            | SaveError::MovedPlaceholder { pointer, .. } => pointer.clone(),
             SaveError::ReadOnly(change) => change.pointer.clone(),
         }
     }
@@ -78,6 +87,9 @@ impl SaveError {
             }
             SaveError::GluedPlaceholder { pointer } => {
                 super::super::protect::glued_message(strings, pointer)
+            }
+            SaveError::MovedPlaceholder { pointer, owner } => {
+                super::super::protect::moved_placeholder(strings, pointer, owner)
             }
         }
     }
