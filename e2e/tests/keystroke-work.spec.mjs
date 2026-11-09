@@ -63,7 +63,7 @@ test.describe('ConfigDocuments.update after each keystroke', () => {
   // A framework host keeps the list in its state and renders the view with
   // it again after each edit: the binding hands it whole to `update`.
   for (const name of ['documents-react.html', 'documents-vue.html', 'documents-svelte.html']) {
-    test(`${name}: a keystroke re-sending every document copies none of them`, async ({ page }) => {
+    test(`${name}: a keystroke re-sending every document copies and serializes none of them`, async ({ page }) => {
       await page.goto(example(name));
       await expect(page.locator('body')).toHaveAttribute('data-ready', 'true', { timeout: 20000 });
       await page.evaluate(() => {
@@ -77,17 +77,31 @@ test.describe('ConfigDocuments.update after each keystroke', () => {
           if (source.length > LARGE) window.copied += 1;
           return encodeInto.call(this, source, into);
         };
+        // Whole documents serialized (the binding once compared the list
+        // as JSON on every render: every text and schema each keystroke).
+        window.serialized = 0;
+        const stringify = JSON.stringify;
+        JSON.stringify = function (...args) {
+          const written = stringify.apply(this, args);
+          if (typeof written === 'string' && written.length > LARGE) window.serialized += 1;
+          return written;
+        };
       });
       const input = page.locator('.config-editor__input:visible');
       await expect.poll(() => input.inputValue()).toContain('key3999: value 0');
       await input.click();
       await page.waitForTimeout(300);
-      await page.evaluate(() => (window.copied = 0));
+      await page.evaluate(() => {
+        window.copied = 0;
+        window.serialized = 0;
+      });
       await page.keyboard.type('x');
       await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => setTimeout(done, 100))));
       // The text area's text, read for the edit and to check that it shows
-      // the document; neither the echo nor the other documents are copied.
+      // the document; neither the echo nor the other documents are copied,
+      // nor serialized.
       expect(await page.evaluate(() => window.copied)).toBe(2);
+      expect(await page.evaluate(() => window.serialized)).toBe(0);
     });
   }
 

@@ -14,6 +14,7 @@ use serde_json::Value;
 
 use super::super::diagnostics::{Diagnostic, DiagnosticOrigin};
 use super::super::language::ConfigLanguage;
+use super::super::parse_cache::parsed;
 use super::super::paths::{
     Lines, TextPosition, TextRange, lines, memo_key_span, problem_span, with_spans,
 };
@@ -64,9 +65,13 @@ pub(in crate::editor) fn place(
             _ => None,
         })
         .collect();
+    // Parsed once for the text (validation read it already).
     let document = (!pointers.is_empty())
-        .then(|| behavior.parse(source).ok())
-        .flatten();
+        .then(|| parsed(behavior, source))
+        .filter(|document| document.is_ok());
+    let document = document
+        .as_deref()
+        .and_then(|document| document.as_ref().ok());
     with_spans(behavior, source, &pointers, || {
         let lines = lines(source);
         let mut placed: Vec<Diagnostic> = Vec::new();
@@ -79,8 +84,7 @@ pub(in crate::editor) fn place(
                         .then(|| memo_key_span(behavior, source, &pointer))
                         .flatten()
                         .map(|span| (span.line, span.start_column, None, span.end_column));
-                    let position =
-                        key.or_else(|| at_field(behavior, source, document.as_ref(), &pointer));
+                    let position = key.or_else(|| at_field(behavior, source, document, &pointer));
                     if position.is_none() && matches!(problem.target, DiagnosticTarget::Path(_)) {
                         // Told apart from the same message at another field.
                         message = fill(

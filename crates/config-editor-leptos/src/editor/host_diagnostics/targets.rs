@@ -14,6 +14,7 @@ use std::sync::Arc;
 use leptos::prelude::*;
 
 use super::super::language::ConfigLanguage;
+use super::super::parse_cache::parsed;
 use super::super::paths::{
     TextPosition, TextRange, fields, memo_key_span, offset_of, paths_at, split_line, with_spans,
 };
@@ -138,9 +139,11 @@ fn resolve(
     if !has_ranges {
         return problems.iter().map(of_path).collect();
     }
-    let host_fields = host
-        .parse(text)
-        .map(|document| fields(&document))
+    // Parsed once for the text (the conversion back read it already).
+    let host_fields = parsed(host, text)
+        .as_ref()
+        .as_ref()
+        .map(fields)
         .unwrap_or_default();
     let pointers: Vec<String> = host_fields
         .iter()

@@ -32,12 +32,12 @@ async function open(page, options) {
   });
 }
 
-/** The longest task while `work` runs and the page settles, in ms. */
-async function longestTask(page, work) {
+/** The longest task while `work` runs and the page settles (`settle` ms), in ms. */
+async function longestTask(page, work, settle = 400) {
   await page.waitForTimeout(300);
   await page.evaluate(() => (window.longest = 0));
   await work();
-  await page.waitForTimeout(400);
+  await page.waitForTimeout(settle);
   return page.evaluate(() => window.longest);
 }
 
@@ -240,16 +240,9 @@ test.describe('problem timing', () => {
     // 2000 services, a range at the start of each of 5000 lines: half of
     // them on lines writing no value of their own (a block's key or end),
     // whose field was read from the top of the host's text for each.
-    const documents = {
-      yaml: (count) => Array.from({ length: count }, (_, i) => `svc_${i}:\n  host: h${i}.example.com # c\n  port: ${1000 + i}\n  on: true`).join('\n') + '\n',
-      json: (count) => '{\n' + Array.from({ length: count }, (_, i) => `  "svc_${i}": {\n    "host": "h${i}.example.com",\n    "port": ${1000 + i}\n  }`).join(',\n') + '\n}\n',
-      toml: (count) => Array.from({ length: count }, (_, i) => `[svc_${i}]\nhost = "h${i}.example.com" # c\nport = ${1000 + i}\n`).join('\n'),
-      hcl: (count) => Array.from({ length: count }, (_, i) => `svc_${i} {\n  host = "h${i}.example.com"\n  port = ${1000 + i}\n}`).join('\n') + '\n',
-      xml: (count) => '<root>\n' + Array.from({ length: count }, (_, i) => `  <svc_${i}>\n    <host>h${i}.example.com</host>\n    <port>${1000 + i}</port>\n  </svc_${i}>`).join('\n') + '\n</root>\n',
-    };
     const failures = [];
-    for (const [language, document] of Object.entries(documents)) {
-      const text = document(2000);
+    for (const language of ['yaml', 'json', 'toml', 'hcl', 'xml']) {
+      const text = servicesDocument(language, 2000);
       const lines = text.split('\n').length;
       const ranges = Array.from({ length: 5000 }, (_, i) => ({
         range: { startLine: 1 + (i % (lines - 2)), startColumn: 1, endLine: 2 + (i % (lines - 2)), endColumn: 1 },
@@ -283,6 +276,52 @@ test.describe('problem timing', () => {
     }
     expect(failures).toEqual([]);
   });
+
+  // M26-P1: each typing pause that changes data in an Edit-as view places
+  // the host's ranges again and converts the text back. With 5000 ranges
+  // on 10,000 lines that was one task of 400-650 ms in every view (200-300
+  // without them): each range on a block's key read the host's text again
+  // (YAML split it, XML, JSON and HCL read its indent unit), and the
+  // conversion waited in the same task. One test per host language.
+  for (const language of ['yaml', 'json', 'toml', 'hcl', 'xml']) {
+    test(`M26-P1: a typing pause in every Edit-as view of 10,000 ${language} lines costs about the same with 5000 host ranges`, async ({ page }) => {
+      test.setTimeout(600_000);
+      const text = servicesDocument(language, 2500);
+      const lines = text.split('\n').length;
+      const ranges = Array.from({ length: 5000 }, (_, i) => ({
+        range: { startLine: 1 + (i % (lines - 2)), startColumn: 1, endLine: 2 + (i % (lines - 2)), endColumn: 1 },
+        severity: ['error', 'warning'][i % 2],
+        message: `p${i}`,
+      }));
+      await open(page, {});
+      const scaled = page.locator('#scaled .config-editor__input');
+      // The shortest longest task of three letters typed into a value,
+      // each followed by its pause.
+      const pauses = async (view, problems) => {
+        await mountEditor(page, language, text, problems, view);
+        await expect.poll(() => page.evaluate(() => window.scaledLanguage), { timeout: 30000 }).toBe(view);
+        await page.waitForTimeout(1000);
+        const value = 'h1250.example.com';
+        const at = (await scaled.inputValue()).indexOf(value) + 3;
+        await scaled.click({ position: { x: 300, y: 100 } });
+        await scaled.evaluate((area, at) => area.setSelectionRange(at, at), at);
+        const longest = [];
+        for (let press = 0; press < 3; press += 1) {
+          longest.push(await longestTask(page, () => page.keyboard.press('z'), 1200));
+        }
+        expect(await page.evaluate(() => window.scaledChanges)).toBe(3);
+        return Math.min(...longest);
+      };
+      const failures = [];
+      for (const view of ['yaml', 'json', 'toml', 'hcl', 'xml'].filter((other) => other !== language)) {
+        const bare = await pauses(view, []);
+        const hosted = await pauses(view, ranges);
+        console.log(`${language} as ${view}: longest task per pause ${Math.round(bare)} ms alone, ${Math.round(hosted)} ms with 5000 host ranges`);
+        if (hosted - bare >= 100) failures.push(`${language} as ${view}: ${Math.round(hosted)} ms, ${Math.round(bare)} ms alone`);
+      }
+      expect(failures).toEqual([]);
+    });
+  }
 
   test('U20-3: 400 lines committed in one command at the end of a long document with 3000 host ranges take a fraction of a bare textarea\'s time', async ({ page }) => {
     test.setTimeout(120_000);
@@ -318,6 +357,16 @@ test.describe('problem timing', () => {
     await expect.poll(() => input(page).inputValue()).toBe(text);
   });
 });
+
+/** `count` services of four lines (a block, its host and port) in `language`. */
+function servicesDocument(language, count) {
+  const services = Array.from({ length: count }, (_, i) => i);
+  if (language === 'yaml') return services.map((i) => `svc_${i}:\n  host: h${i}.example.com # c\n  port: ${1000 + i}\n  on: true`).join('\n') + '\n';
+  if (language === 'json') return '{\n' + services.map((i) => `  "svc_${i}": {\n    "host": "h${i}.example.com",\n    "port": ${1000 + i}\n  }`).join(',\n') + '\n}\n';
+  if (language === 'toml') return services.map((i) => `[svc_${i}]\nhost = "h${i}.example.com" # c\nport = ${1000 + i}\n`).join('\n');
+  if (language === 'hcl') return services.map((i) => `svc_${i} {\n  host = "h${i}.example.com"\n  port = ${1000 + i}\n}`).join('\n') + '\n';
+  return '<root>\n' + services.map((i) => `  <svc_${i}>\n    <host>h${i}.example.com</host>\n    <port>${1000 + i}</port>\n  </svc_${i}>`).join('\n') + '\n</root>\n';
+}
 
 /** A 4500–6000-line document in `language`: 1500 items of two fields, one in two the schema refuses. */
 function longDocument(language) {
@@ -382,10 +431,15 @@ function hostProblems(text, kind) {
   return problems;
 }
 
-/** Mounts a second editor (`window.scaled`) of `text` in `language` with `problems`, in place of the last one. */
-async function mountEditor(page, language, text, problems) {
+/**
+ * Mounts a second editor (`window.scaled`) of `text` in `language` with
+ * `problems`, in place of the last one, edited as `editAs` when given: the
+ * language on screen in `window.scaledLanguage`, the edits the host heard
+ * counted in `window.scaledChanges`.
+ */
+async function mountEditor(page, language, text, problems, editAs) {
   await page.evaluate(
-    async ({ language, text, problems }) => {
+    async ({ language, text, problems, editAs }) => {
       const { ConfigEditor } = await import(new URL('../config-editor/index.js', location.href).href);
       window.scaled?.destroy();
       document.getElementById('scaled')?.remove();
@@ -393,9 +447,20 @@ async function mountEditor(page, language, text, problems) {
       host.id = 'scaled';
       host.style.height = '400px';
       document.body.append(host);
-      window.scaled = new ConfigEditor(host, { language, value: text, schema: '{}', hostDiagnostics: problems, showFooter: true });
+      window.scaledLanguage = null;
+      window.scaledChanges = 0;
+      window.scaled = new ConfigEditor(host, {
+        language,
+        value: text,
+        schema: '{}',
+        hostDiagnostics: problems,
+        showFooter: true,
+        ...(editAs ? { editAs } : {}),
+        onEditAsChange: (shown) => (window.scaledLanguage = shown),
+        onChange: () => (window.scaledChanges += 1),
+      });
       await new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)));
     },
-    { language, text, problems },
+    { language, text, problems, editAs },
   );
 }

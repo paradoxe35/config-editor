@@ -137,3 +137,88 @@ fn checking_an_edit_next_to_many_locks_reads_as_much_as_next_to_two() {
     }
     assert!(grew.is_empty(), "{grew:#?}");
 }
+
+/// `text` broken by a line added after service `service`'s port, as the
+/// language's syntax breaks it, and the same text after an Enter at the
+/// end of that line.
+fn broken_then_entered(language: Language, text: &str, service: usize) -> (String, String) {
+    let value = format!("h{service}.example.com");
+    let at = text.find(&value).expect("written");
+    // The end of the port's line, below the host's.
+    let host_end = at + text[at..].find('\n').expect("a line below");
+    let port_end = host_end + 1 + text[host_end + 1..].find('\n').expect("a line below");
+    let breaking = match language.label() {
+        "YAML" => "\n  - x: [",
+        "JSON" => "{",
+        "TOML" => "\n[[",
+        "HCL" => "\n{{",
+        _ => "\n<a",
+    };
+    let broken = format!("{}{breaking}{}", &text[..port_end], &text[port_end..]);
+    let enter_at = port_end + breaking.len();
+    let entered = format!("{}\n{}", &broken[..enter_at], &broken[enter_at..]);
+    (broken, entered)
+}
+
+/// How long checking an Enter in a broken text of `blocks` services takes
+/// (the best of three), with five read-only paths the text does not have
+/// or, `present`, the first service's port locked; and whether it was let
+/// through.
+fn enter_in_broken_text(
+    language: Language,
+    blocks: usize,
+    present: bool,
+) -> (std::time::Duration, bool) {
+    let good = text(language, blocks);
+    let root = if language.label() == "XML" {
+        "/root"
+    } else {
+        ""
+    };
+    let paths: Vec<FieldPath> = if present {
+        vec![FieldPath::from(format!("{root}/svc_0/port").as_str())]
+    } else {
+        (0..5)
+            .map(|index| FieldPath::from(format!("{root}/nope_{index}/host").as_str()))
+            .collect()
+    };
+    let sources = |previous| Sources {
+        paths: &paths,
+        previous,
+        ..Sources::default()
+    };
+    let whole = protect(language.behavior(), &good, sources(None));
+    let (broken, entered) = broken_then_entered(language, &good, blocks / 2);
+    let protected = protect(language.behavior(), &broken, sources(Some(&whole)));
+    crate::editor::test_timing::best_of(3, || {
+        check(language.behavior(), None, &protected, &broken, &entered).is_ok()
+    })
+}
+
+/// Each Enter in a long text that does not parse, with read-only paths
+/// (one it has, or only ones it does not have), is checked in time growing
+/// with the text, in every language: four times the text, about four
+/// times the time (QA 26 and 27: XML counted each element's text from the
+/// top, 0.5 s per Enter at 8,000 lines with one lock once a tag name was
+/// typed into, 5.6 s at 20,000). Measured, as a ratio: the work is one
+/// pass per element either way, only each pass grew with the text.
+#[test]
+fn an_enter_in_a_long_broken_text_with_locks_is_checked_in_linear_time() {
+    let mut slow = Vec::new();
+    for &language in Language::ALL {
+        for present in [false, true] {
+            let (small, small_ok) = enter_in_broken_text(language, 500, present);
+            let (large, large_ok) = enter_in_broken_text(language, 2000, present);
+            assert!(small_ok && large_ok, "{language}: the Enter is let through");
+            // Linear is 4 times; a count from the top for each element was 16.
+            let ceiling = 8 * small.max(std::time::Duration::from_millis(1));
+            if large > ceiling {
+                let locks = if present { "a lock" } else { "missing paths" };
+                slow.push(format!(
+                    "{language} ({locks}): {small:?} for 500 services, {large:?} for 2000"
+                ));
+            }
+        }
+    }
+    assert!(slow.is_empty(), "{slow:#?}");
+}

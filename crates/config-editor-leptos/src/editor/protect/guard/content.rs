@@ -64,7 +64,10 @@ pub(super) fn content_areas(
     text: &str,
     lines: &LineIndex<'_>,
 ) -> Vec<Range<usize>> {
-    let units = |byte: usize| text[..byte].encode_utf16().count();
+    // From the lines (a count from the top for each area was a pass of
+    // the text per XML element: an Enter in a long broken text with locks
+    // took half a second).
+    let units = |byte: usize| lines.units_of(byte);
     let mut areas: Vec<Range<usize>> = behavior
         .multiline_constructs(text)
         .into_iter()

@@ -59,6 +59,16 @@ pub(crate) fn batch_cached_as<T: 'static>(
     source: &str,
     make: impl FnOnce() -> T,
 ) -> Rc<T> {
+    batch_kept(source, || {
+        note(work);
+        make()
+    })
+}
+
+/// `make()`, kept in the running batch for `source` (made each time
+/// outside one): [`batch_cached`] for a reading that counts its own work
+/// (`make` notes it), not as a read of the document.
+pub(crate) fn batch_kept<T: 'static>(source: &str, make: impl FnOnce() -> T) -> Rc<T> {
     let key = text_key(source);
     let cached = BATCHES.with(|batches| {
         batches
@@ -71,7 +81,6 @@ pub(crate) fn batch_cached_as<T: 'static>(
     if let Some(value) = cached {
         return value;
     }
-    note(work);
     // Made with nothing borrowed: a reading may ask for another one.
     let made = Rc::new(make());
     BATCHES.with(|batches| {

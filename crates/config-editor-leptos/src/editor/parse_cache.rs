@@ -7,7 +7,8 @@
 //! view, the folds, the comments and the multi-line constructs all read,
 //! and what the caret is on, which the suggestions read.
 //!
-//! One entry of each, kept only while an editor is mounted ([`hold`] on mount,
+//! Two parses (an Edit-as view's text and the host's, which each pause
+//! reads in turn) and one entry of each other reading, kept only while an editor is mounted ([`hold`] on mount,
 //! [`release`] on unmount), so closed editors leave no document behind
 //! and code outside an editor (the tools) keeps nothing.
 
@@ -20,6 +21,9 @@ use serde_json::Value;
 use super::language::{CompletionContext, ConfigLanguage, Lexical, ParseError};
 use super::work_count::{Work, note};
 
+/// How many parses are kept.
+const PARSES_KEPT: usize = 2;
+
 /// A parse: the language's label (its identity), the text and the result.
 type Entry = (&'static str, String, Rc<Result<Value, ParseError>>);
 
@@ -31,7 +35,8 @@ type Bodies = (&'static str, String, Rc<Vec<Range<usize>>>);
 type Place<T> = RefCell<Option<(&'static str, String, usize, T)>>;
 
 thread_local! {
-    static LAST: RefCell<Option<Entry>> = const { RefCell::new(None) };
+    /// The latest parses, the last read first.
+    static LAST: RefCell<Vec<Entry>> = const { RefCell::new(Vec::new()) };
     static BODIES: RefCell<Option<Bodies>> = const { RefCell::new(None) };
     static CONTEXT: Place<CompletionContext> = const { RefCell::new(None) };
     static LEXICAL: Place<Lexical> = const { RefCell::new(None) };
@@ -44,10 +49,14 @@ thread_local! {
 pub(crate) fn parsed(language: &dyn ConfigLanguage, text: &str) -> Rc<Result<Value, ParseError>> {
     let label = language.info().label;
     let cached = LAST.with(|last| {
-        last.borrow()
-            .as_ref()
-            .filter(|(known, written, _)| *known == label && written == text)
-            .map(|(_, _, result)| Rc::clone(result))
+        let mut last = last.borrow_mut();
+        let at = last
+            .iter()
+            .position(|(known, written, _)| *known == label && written == text)?;
+        let entry = last.remove(at);
+        let result = Rc::clone(&entry.2);
+        last.insert(0, entry);
+        Some(result)
     });
     if let Some(result) = cached {
         return result;
@@ -56,7 +65,11 @@ pub(crate) fn parsed(language: &dyn ConfigLanguage, text: &str) -> Rc<Result<Val
     if HOLDERS.with(Cell::get) == 0 {
         return result;
     }
-    LAST.with(|last| *last.borrow_mut() = Some((label, text.to_string(), Rc::clone(&result))));
+    LAST.with(|last| {
+        let mut last = last.borrow_mut();
+        last.insert(0, (label, text.to_string(), Rc::clone(&result)));
+        last.truncate(PARSES_KEPT);
+    });
     result
 }
 
@@ -155,7 +168,7 @@ pub(crate) fn hold() {
 /// it again once).
 pub(crate) fn release() {
     let _ = HOLDERS.try_with(|holders| holders.set(holders.get().saturating_sub(1)));
-    let _ = LAST.try_with(|last| last.borrow_mut().take());
+    let _ = LAST.try_with(|last| last.borrow_mut().clear());
     let _ = BODIES.try_with(|last| last.borrow_mut().take());
     let _ = CONTEXT.try_with(|last| last.borrow_mut().take());
     let _ = LEXICAL.try_with(|last| last.borrow_mut().take());

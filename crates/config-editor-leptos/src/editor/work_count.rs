@@ -65,6 +65,8 @@ pub(crate) enum Work {
         allow(dead_code, reason = "only the diff notes it")
     )]
     LineDiff,
+    /// A text's indent unit read off its first lines.
+    IndentUnit,
 }
 
 impl Work {
@@ -84,13 +86,14 @@ impl Work {
             Self::FoldRanges => 10,
             Self::LineDiff => 11,
             Self::LexicalState => 12,
+            Self::IndentUnit => 13,
         }
     }
 }
 
 #[cfg(test)]
 thread_local! {
-    static COUNTS: std::cell::Cell<[usize; 13]> = const { std::cell::Cell::new([0; 13]) };
+    static COUNTS: std::cell::Cell<[usize; 14]> = const { std::cell::Cell::new([0; 14]) };
 }
 
 /// `work` is starting (counted on this thread in tests).

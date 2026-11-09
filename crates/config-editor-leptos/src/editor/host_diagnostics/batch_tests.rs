@@ -305,3 +305,47 @@ fn an_edit_in_a_view_does_not_read_the_hosts_text_again_for_its_ranges() {
     }
     report(failures);
 }
+
+/// The fields of a range on every line of `items` items of `host`'s text
+/// found (as the first pause after a conversion back finds them): the
+/// reads of the text, path lookups, line splits and indent units it took.
+fn found_on_every_line(host: Language, items: usize) -> [usize; 4] {
+    let host_text = host.serialize(&document(items)).expect("the host's text");
+    let problems = on_every_line(&host_text);
+    let mut counts = [0; 4];
+    let (((((), units), lookups), splits), reads) = counted(Work::DocumentRead, || {
+        counted(Work::LineSplit, || {
+            counted(Work::PathLookup, || {
+                counted(Work::IndentUnit, || {
+                    HostTargets::new(host.behavior(), &host_text, &problems);
+                })
+            })
+        })
+    });
+    counts[0] = reads;
+    counts[1] = lookups;
+    counts[2] = splits;
+    counts[3] = units;
+    counts
+}
+
+/// Ranges starting where no field's key or value is written (a block's
+/// key, a closer, a blank line) are read from the text, all in one pass:
+/// none splits the whole text or reads its indent unit again (QA 26: each
+/// YAML block key's line split the host's text, each XML one read the
+/// indent unit off its first 400 lines: half a second per pause with 5000
+/// ranges on 8000 lines).
+#[test]
+fn ranges_on_every_line_of_the_hosts_text_find_their_fields_in_a_fixed_number_of_reads() {
+    let mut failures = Vec::new();
+    for host in LANGUAGES {
+        let few = found_on_every_line(host, 10);
+        let many = found_on_every_line(host, 100);
+        if few != many {
+            failures.push(format!(
+                "{host}: (reads, path lookups, line splits, indent units) {few:?} for 10 items, {many:?} for 100"
+            ));
+        }
+    }
+    report(failures);
+}

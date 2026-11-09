@@ -7,24 +7,26 @@ use super::*;
 /// value holds: the path there, the key and the column it starts at
 /// (0-based). `None` on any other line (the completion context reads it).
 pub(super) fn explicit_key_path(source: &str, line_index: usize, column: usize) -> Option<(Vec<SchemaPathSegment>, String, usize)> {
-    let lines: Vec<&str> = source.split('\n').collect();
+    // Split once per batch (thousands of places asked at once each split
+    // the whole text again).
+    let lines = &Text::new(source);
     let (start, text) = entry_body(lines.get(line_index)?);
     let entries = || yaml_path_lines(source).into_iter();
     let (path, key_column) = if text.starts_with("? ") {
-        if column < lines[line_index][..start].chars().count() {
+        if column < lines.at(line_index)[..start].chars().count() {
             return None;
         }
         let (path, _, key_column, _) = entries().rfind(|(_, line, _, _)| *line == line_index + 1)?;
         (path, key_column)
     } else if text == ":" || text.starts_with(": ") {
-        let key_line = explicit_key_above(&lines, line_index, start)?;
+        let key_line = explicit_key_above(lines, line_index, start)?;
         let (path, _, key_column, _) = entries().rfind(|(_, line, _, _)| *line == key_line + 1)?;
         (path, key_column)
-    } else if let Some(key_line) = (!text.is_empty()).then(|| explicit_block_key_above(&lines, line_index)).flatten() {
+    } else if let Some(key_line) = (!text.is_empty()).then(|| explicit_block_key_above(lines, line_index)).flatten() {
         // A line of the text of a key written as a block scalar (`? |`).
         let (path, _, key_column, _) = entries().rfind(|(_, line, _, _)| *line == key_line + 1)?;
         (path, key_column)
-    } else if !text.is_empty() && !text.starts_with('#') && under_explicit_value(&lines, line_index, start) {
+    } else if !text.is_empty() && !text.starts_with('#') && under_explicit_value(lines, line_index, start) {
         let (path, _, key_column, _) = entries().rfind(|(_, line, at, _)| *line == line_index + 1 && *at <= column + 1)?;
         (path, key_column)
     } else {
@@ -38,15 +40,36 @@ pub(super) fn explicit_key_path(source: &str, line_index: usize, column: usize) 
     Some((path, key, key_column - 1))
 }
 
+/// A text's lines (split on `\n`), read once while a batch runs for it.
+struct Text<'a> {
+    source: &'a str,
+    lines: std::rc::Rc<crate::editor::paths::Lines>,
+}
+
+impl<'a> Text<'a> {
+    fn new(source: &'a str) -> Self {
+        Self { source, lines: crate::editor::paths::lines(source) }
+    }
+
+    fn get(&self, index: usize) -> Option<&'a str> {
+        self.lines.line(self.source, index)
+    }
+
+    /// Line `index`, which must exist.
+    fn at(&self, index: usize) -> &'a str {
+        self.get(index).unwrap_or_default()
+    }
+}
+
 /// The line of the explicit key (`? k`) whose `: value` line is
 /// `line_index`, its body at byte `start`: the entry right above at that
 /// column.
-fn explicit_key_above(lines: &[&str], line_index: usize, start: usize) -> Option<usize> {
+fn explicit_key_above(lines: &Text<'_>, line_index: usize, start: usize) -> Option<usize> {
     let above = (0..line_index).rev().find(|&above| {
-        let (at, text) = entry_body(lines[above]);
+        let (at, text) = entry_body(lines.at(above));
         !text.is_empty() && !text.starts_with('#') && at <= start
     })?;
-    let (at, text) = entry_body(lines[above]);
+    let (at, text) = entry_body(lines.at(above));
     (at == start && text.starts_with("? ")).then_some(above)
 }
 
@@ -54,11 +77,11 @@ fn explicit_key_above(lines: &[&str], line_index: usize, start: usize) -> Option
 /// whose text line `line_index` is: up through the lines indented less (the
 /// text's own lines indented more than its first), the key whose `?` every
 /// one of them is indented past.
-fn explicit_block_key_above(lines: &[&str], line_index: usize) -> Option<usize> {
+fn explicit_block_key_above(lines: &Text<'_>, line_index: usize) -> Option<usize> {
     let indent = |line: &str| line.len() - line.trim_start_matches([' ', '\t']).len();
-    let mut least = indent(lines[line_index]);
+    let mut least = indent(lines.at(line_index));
     for above in (0..line_index).rev() {
-        let line = lines[above];
+        let line = lines.at(above);
         if line.trim().is_empty() {
             continue;
         }
@@ -76,10 +99,15 @@ fn explicit_block_key_above(lines: &[&str], line_index: usize) -> Option<usize> 
 
 /// Whether line `line_index` (its body at byte `start`) is inside the block
 /// an explicit key's `:` line holds, at any depth.
-fn under_explicit_value(lines: &[&str], line_index: usize, start: usize) -> bool {
+fn under_explicit_value(lines: &Text<'_>, line_index: usize, start: usize) -> bool {
+    // A top-level entry is under nothing (and every line above would be
+    // read to find so).
+    if start == 0 {
+        return false;
+    }
     let mut inside = start;
     for above in (0..line_index).rev() {
-        let line = lines[above];
+        let line = lines.at(above);
         let indent = line.len() - line.trim_start_matches([' ', '\t']).len();
         let (at, text) = entry_body(line);
         if text.is_empty() || text.starts_with('#') || indent >= inside {

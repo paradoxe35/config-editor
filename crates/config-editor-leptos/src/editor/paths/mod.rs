@@ -16,9 +16,9 @@ pub(crate) use lines::text_line;
 pub(crate) use lines::{
     Lines, byte_at, line_column, line_start, lines, offset_of, split_line, units_at,
 };
-pub(crate) use span_memo::batch_cached;
 pub(crate) use span_memo::in_batch;
 pub(crate) use span_memo::{KeptSpans, with_spans};
+pub(crate) use span_memo::{batch_cached, batch_kept};
 pub(crate) use span_memo::{key_span as memo_key_span, value_span as memo_value_span};
 pub use types::{FieldPath, TextPosition, TextRange};
 #[cfg(any(feature = "yaml", feature = "json", feature = "toml", feature = "xml"))]

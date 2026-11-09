@@ -1,6 +1,7 @@
 use super::keyboard::utf16_to_byte_index;
 use super::language::{ConfigLanguage, LanguageConfig};
 use super::projection::Projection;
+use super::work_count::{Work, note};
 
 pub(super) fn line_at_cursor(source: &str, cursor: usize) -> usize {
     source[..utf16_to_byte_index(source, cursor)]
@@ -144,8 +145,21 @@ pub(super) const MAX_INDENT_WIDTH: usize = 8;
 /// Indent width, in spaces, when no indented line is found.
 pub(super) const DEFAULT_INDENT_WIDTH: usize = 2;
 
-/// The document's indentation unit (a tab, or its narrowest space indent).
+/// The document's indentation unit (a tab, or its narrowest space indent):
+/// read once while a batch runs for the text (thousands of places asked
+/// at once each read its first lines again).
 pub fn indent_unit(source: &str) -> String {
+    struct Unit(String);
+    if super::paths::in_batch(source) {
+        return super::paths::batch_kept(source, || Unit(read_indent_unit(source)))
+            .0
+            .clone();
+    }
+    read_indent_unit(source)
+}
+
+fn read_indent_unit(source: &str) -> String {
+    note(Work::IndentUnit);
     let mut widths = Vec::new();
     for line in source.lines().take(INDENT_SCAN_LINE_LIMIT) {
         let trimmed = line.trim_start_matches([' ', '\t']);

@@ -495,12 +495,14 @@ export class DocumentsBinding extends Binding {
       return true;
     };
     const update = {};
-    const documents = props.documents ?? [];
-    if (changed("documents", JSON.stringify(documents))) update.documents = documents;
     // `Ctrl+S` is the view's only while `onSave` is set.
     const saves = props.onSave !== undefined;
     if (changed("saves", saves)) update.onSave = saves ? this.#save : null;
-    if (update.documents) this.guard((view) => view.update({ documents: update.documents }));
+    // The list goes to the view on each render, which reads again only what
+    // changed in it (a text or schema given again is not even copied): no
+    // key of it here, which would serialize every document on every key.
+    const documents = props.documents ?? [];
+    this.guard((view) => view.update({ documents }));
     if ("onSave" in update) this.guard((view) => view.update({ onSave: update.onSave }));
     // A new `activeId` shows that document (the mount took the first one).
     const activeId = props.activeId ?? null;

@@ -624,9 +624,11 @@ pub fn inline_block(
             end + (rest.len() - following.len()),
         )
     };
+    // Off the lines while a batch runs for the text (many places asked at
+    // once each counted the text up to theirs).
     Some(InlineBlock {
-        start: source[..block_start].encode_utf16().count(),
-        end: source[..block_end].encode_utf16().count(),
+        start: super::paths::units_at(source, block_start),
+        end: super::paths::units_at(source, block_end),
         indent,
         after,
     })

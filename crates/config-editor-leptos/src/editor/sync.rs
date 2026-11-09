@@ -353,19 +353,26 @@ fn debounce_validation(state: EditorState) {
 }
 
 /// While editing as another language, each pause in typing converts the
-/// text back and sends it to the host when it converts.
+/// text back and sends it to the host when it converts: in a task of its
+/// own, after the one checking the text and placing its problems, so
+/// neither waits for the other (together, a long document with thousands
+/// of host problems held the page for over half a second).
 fn convert_edits(state: EditorState) {
     Effect::new(move |_| {
         let text = state.problems().diagnosed_text.get();
         let language = state.sync().edit_language.get();
-        // A text the document no longer is (the first run, after the host
-        // replaced the text in the same task) is not an edit: converting it
-        // would send the old data under the host's new text. The pause
-        // after the new text converts that one.
-        if state.doc().text.with_untracked(|current| *current != text) {
-            return;
-        }
-        convert_now(state, text, language);
+        later::after(state, 0, move |state| {
+            // A text the document no longer is (the first run, after the
+            // host replaced the text in the same task, or typed on since)
+            // is not an edit: converting it would send the old data under
+            // the host's new text. The pause after the new text converts
+            // that one; `flush_pending_edits` converts it at once.
+            let current = state.doc().text.with_untracked(|current| *current == text)
+                && state.sync().edit_language.get_untracked() == language;
+            if current {
+                convert_now(state, text, language);
+            }
+        });
     });
     // `flush_pending_edits` converts an edit still waiting out the pause.
     let id = NEXT_EDITOR.with(|next| {
@@ -425,12 +432,12 @@ pub fn flush_pending_edits() {
 pub(super) fn convert_now(state: EditorState, text: String, language: Language) {
     {
         let Some(bridge) = state.bridge_to(language) else {
-            state.sync().conversion_problems.set(Vec::new());
+            note_conversion_problems(state, Vec::new());
             state.note_in_sync(true);
             return;
         };
         if text == state.sync().synced_edit.get_value() {
-            state.sync().conversion_problems.set(Vec::new());
+            note_conversion_problems(state, Vec::new());
             state.note_in_sync(true);
             return;
         }
@@ -470,10 +477,7 @@ pub(super) fn convert_now(state: EditorState, text: String, language: Language) 
                 .check_host_save(&previous, &conversion.text)
                 .map(|()| conversion)
         });
-        state
-            .sync()
-            .conversion_problems
-            .set(bridge.problems(&text, &result));
+        note_conversion_problems(state, bridge.problems(&text, &result));
         state.note_in_sync(result.is_ok());
         if let Ok(conversion) = result {
             state.sync().synced_edit.set_value(text);
@@ -484,6 +488,16 @@ pub(super) fn convert_now(state: EditorState, text: String, language: Language) 
                 }
             }
         }
+    }
+}
+
+/// The last conversion's problems are `problems`: told only when they
+/// change, as validation reads them (each pause would check the text
+/// again for the same, empty, list).
+fn note_conversion_problems(state: EditorState, problems: Vec<EditAsProblem>) {
+    let problems_of = state.sync().conversion_problems;
+    if problems_of.with_untracked(|known| *known != problems) {
+        problems_of.set(problems);
     }
 }
 
