@@ -81,6 +81,7 @@ const ELSEWHERE = {
   documentation: 'schema help tests (x-docs-url)',
   openDocs: 'host problems with a docs link: host diagnostics tests',
   openDocsTouch: 'a touch screen: the hover-card-text spec',
+  openDocsLabel: 'the docs links of a tip listing host problems: the qa-round26-a11y spec',
   examples: 'schema help tests',
   readOnlyText: 'read-only ranges: protect tests',
   holdsReadOnly: 'renaming a locked field’s key: protect tests',

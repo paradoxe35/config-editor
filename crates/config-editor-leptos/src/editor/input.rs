@@ -430,6 +430,7 @@ fn mouse_down(state: EditorState, event: &web_sys::MouseEvent) {
     if event.button() != 0 {
         return;
     }
+    state.view().page_goal.set_value(None);
     let Some(element) = target_textarea(state, event) else {
         return;
     };
@@ -625,7 +626,8 @@ fn copy_line(state: EditorState, event: &web_sys::ClipboardEvent, cut: bool) {
     }
     event.prevent_default();
     state.typing().copied_line.set_value(Some(line));
-    if !cut || state.config().read_only.get_untracked() {
+    // In a read-only editor the cut is refused, and says so.
+    if !cut {
         return;
     }
     // The last line takes the newline before it, leaving no empty line.
@@ -676,7 +678,8 @@ fn copy_across_folds(
         return;
     }
     event.prevent_default();
-    if !cut || state.config().read_only.get_untracked() {
+    // In a read-only editor the cut is refused, and says so.
+    if !cut {
         return;
     }
     let (updated, _) = replace_selection(&text, start, end, "");

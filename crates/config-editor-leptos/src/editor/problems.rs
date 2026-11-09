@@ -269,6 +269,21 @@ impl EditorState {
         self.hide_problem_tip();
     }
 
+    /// The focus moved from inside the editor (the text, the tip, a
+    /// control) `to` another element (or out of the window, `None`): out
+    /// of the editor, the tip closes, as the hover card does.
+    pub(super) fn tip_follows_focus(&self, to: Option<&web_sys::EventTarget>) {
+        use wasm_bindgen::JsCast;
+        let inside = self.view().root_ref.get_untracked().is_some_and(|root| {
+            to.and_then(|to| to.dyn_ref::<web_sys::Node>())
+                .is_some_and(|to| root.contains(Some(to)))
+        });
+        if !inside {
+            self.problems().tip_focused.set(false);
+            self.hide_shown_problem();
+        }
+    }
+
     /// Shows the problems covering one-based `place` (under the pointer, or
     /// a focused underline's start).
     pub(super) fn hover_problem(&self, place: (usize, usize)) {

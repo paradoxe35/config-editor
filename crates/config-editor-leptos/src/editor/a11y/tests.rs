@@ -592,3 +592,41 @@ fn a_read_only_editor_says_why_when_an_edit_is_refused() {
     let (_owner, state) = editor.mount();
     assert_eq!(untrack(|| state.read_only_reason()), None);
 }
+
+/// QA 26: the editing commands the browser types nothing for (cutting a
+/// line, Ctrl+/, Ctrl+Enter, undo) were refused in a read-only editor
+/// without a word, while typing said it cannot edit. Every edit the
+/// editor refuses there says so, whatever made it.
+#[cfg(feature = "yaml")]
+#[test]
+fn every_edit_refused_in_a_read_only_editor_says_so() {
+    use crate::editor::edit::Edit;
+    use crate::editor::test_state::TestEditor;
+    use leptos::prelude::*;
+    for language in crate::editor::languages::Language::ALL {
+        let text = "first\nsecond\n";
+        let mut editor = TestEditor::new(*language, text);
+        editor.read_only = true;
+        let (_owner, state) = editor.mount();
+        for (selection, updated, caret) in [
+            ((0, 0), "second\n", 0),
+            ((2, 2), "first\n\nsecond\n", 6),
+            ((0, 5), "// first\nsecond\n", 8),
+        ] {
+            state.a11y().announcement.set(String::new());
+            state.hide_read_only_notice();
+            let edit = Edit::new(text.into(), selection, updated.into(), caret);
+            assert!(!state.commit(edit), "{language:?}");
+            assert_eq!(state.doc().text.get_untracked(), text, "{language:?}");
+            assert_eq!(
+                state.a11y().announcement.get_untracked(),
+                "Cannot edit in a read-only editor",
+                "{language:?} {updated:?}"
+            );
+            assert!(
+                state.a11y().read_only_notice.get_untracked().is_some(),
+                "{language:?}"
+            );
+        }
+    }
+}

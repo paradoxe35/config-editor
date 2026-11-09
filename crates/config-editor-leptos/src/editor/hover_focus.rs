@@ -5,6 +5,7 @@
 //! `keys::on_root_keydown`). Tab still goes on to its links.
 
 use leptos::prelude::*;
+use wasm_bindgen::JsCast;
 use web_sys::{HtmlElement, KeyboardEvent};
 
 use super::state::EditorState;
@@ -64,8 +65,9 @@ impl EditorState {
 
 /// `Enter` on the focused `popup` (the card, the problem tip) itself (a
 /// link in it opens itself), or `Alt+Enter` anywhere in it: opens the
-/// docs `Alt+Enter` opens from the text, as the announcement says.
-/// Returns whether it did.
+/// docs of the link focused, else of the problem in view (see
+/// `docs_in_reach`); without a docs link in it, those `Alt+Enter` opens
+/// from the text. Returns whether it did.
 pub(super) fn opens_docs_from(
     state: EditorState,
     popup: &HtmlElement,
@@ -74,9 +76,52 @@ pub(super) fn opens_docs_from(
     if event.key() != "Enter" || event.ctrl_key() || event.meta_key() || event.shift_key() {
         return false;
     }
-    let popup: &web_sys::EventTarget = popup.as_ref();
-    let on_popup = event.target().as_ref() == Some(popup);
-    (event.alt_key() || on_popup) && super::a11y::open_docs(state, event)
+    let target = event.target();
+    let on_popup = target.as_ref() == Some(popup.as_ref());
+    if !(event.alt_key() || on_popup) {
+        return false;
+    }
+    let Some(url) = docs_in_reach(popup, target.as_ref()) else {
+        return super::a11y::open_docs(state, event);
+    };
+    event.prevent_default();
+    if let Some(window) = web_sys::window() {
+        let _ = window.open_with_url_and_target_and_features(&url, "_blank", "noopener");
+    }
+    true
+}
+
+/// The docs links of a popup: each problem's, and the card's own.
+const DOCS_LINKS: &str = ".config-editor__problem-tip-link, .config-editor__hover-link";
+
+/// The docs a key on `popup` opens: those of the docs link focused
+/// (`target`), else of the first problem (or the card's docs) in view in
+/// its scroll; `None` when it has no docs link.
+fn docs_in_reach(popup: &HtmlElement, target: Option<&web_sys::EventTarget>) -> Option<String> {
+    let href = |link: &web_sys::Element| link.get_attribute("href");
+    if let Some(link) = target.and_then(|target| target.dyn_ref::<web_sys::Element>())
+        && link.matches(DOCS_LINKS).unwrap_or(false)
+    {
+        return href(link);
+    }
+    let links = popup.query_selector_all(DOCS_LINKS).ok()?;
+    let frame = popup.get_bounding_client_rect();
+    let top = frame.top() + f64::from(popup.client_top());
+    let bottom = top + f64::from(popup.client_height());
+    let links: Vec<web_sys::Element> = (0..links.length())
+        .filter_map(|index| links.item(index)?.dyn_into().ok())
+        .collect();
+    let in_view = links.iter().find(|link| {
+        // A problem is in view when any of its lines is.
+        let shown = link
+            .closest(".config-editor__problem-tip-entry")
+            .ok()
+            .flatten()
+            .unwrap_or_else(|| (*link).clone())
+            .get_bounding_client_rect();
+        shown.bottom() > top && shown.top() < bottom
+    });
+    in_view.or(links.first()).and_then(href)
 }
 
 /// Where a scroll key takes the card's `scroll_top`, from `top` in a card

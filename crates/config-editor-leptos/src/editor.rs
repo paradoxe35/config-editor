@@ -411,6 +411,7 @@ pub fn ConfigEditor(
             style=cssom(move || shown.color_style())
             node_ref=state.view().root_ref
             on:keydown=move |event| keys::on_root_keydown(state, &event)
+            on:focusout=move |event| state.tip_follows_focus(event.related_target().as_ref())
         >
             {move || shown.styled.get().then(|| view! { <style>{PRESET_CSS}</style> })}
             <FillProbe fills=fills />

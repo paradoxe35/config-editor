@@ -9,6 +9,7 @@ use super::super::super::diagnostics::{Diagnostic, Severity};
 use super::super::super::problem_hit::covering;
 use super::super::super::state::EditorState;
 use crate::EditorStrings;
+use crate::strings::fill;
 
 /// The entries for the problems covering one-based `line`:`column` (tracks
 /// the problems, the texts and the one F8 went to; the text is read
@@ -42,18 +43,26 @@ pub(crate) struct Entry {
 /// The entries' lines (built once per content: no reactive reads inside).
 pub(crate) fn entries_view(state: EditorState, entries: Vec<Entry>) -> impl IntoView {
     let touch = super::super::super::touch::touch_screen();
-    let open_docs = state.strings_untracked(|strings| open_docs_text(strings, touch).to_string());
+    let (open_docs, label) = state.strings_untracked(|strings| {
+        (
+            open_docs_text(strings, touch).to_string(),
+            strings.open_docs_label.clone(),
+        )
+    });
     entries
         .into_iter()
         .map(|entry| {
             let docs = entry.docs_url.clone();
             let link = entry.docs_url.map(|url| {
+                // Named after its problem: a tip may list several.
+                let name = fill(&label, &[("link", &open_docs), ("message", &entry.message)]);
                 view! {
                     <a
                         class="config-editor__problem-tip-link"
                         href=url
                         target="_blank"
                         rel="noopener noreferrer"
+                        aria-label=name
                     >
                         {open_docs.clone()}
                     </a>

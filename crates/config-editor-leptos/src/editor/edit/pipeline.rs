@@ -137,7 +137,8 @@ impl EditorState {
 
     /// Ends a refused edit: the document never changed, so the textarea
     /// shows it again, folds as they were, with the selection the edit
-    /// started from; a read-only field's reason shows at the caret.
+    /// started from; a read-only field's reason shows at the caret, and a
+    /// read-only editor says it cannot edit (as for typing).
     fn refuse(&self, edit: &Edit, opened: Option<Vec<FoldRange>>, reason: Refusal) {
         if let Some(folds) = opened {
             self.restore_folds(folds);
@@ -148,12 +149,14 @@ impl EditorState {
             let _ = area.restore_selection(start as u32, end as u32);
         }
         self.note_caret(start);
-        if let Some(reason) = reason {
-            self.protect().flash(reason.clone(), start);
-            // Typing refused part-way: nothing half-written stays.
-            if let Some(take_back) = self.note_refused(edit, reason) {
-                self.commit(take_back);
-            }
+        let Some(reason) = reason else {
+            self.note_read_only();
+            return;
+        };
+        self.protect().flash(reason.clone(), start);
+        // Typing refused part-way: nothing half-written stays.
+        if let Some(take_back) = self.note_refused(edit, reason) {
+            self.commit(take_back);
         }
     }
 

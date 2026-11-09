@@ -130,6 +130,11 @@ fn measure(tip_ref: NodeRef<Div>, natural: RwSignal<f64>, again: bool) {
     if tip.offset_height() == 0 {
         return;
     }
+    // Shown (again) or with new entries: from its first problem, not where
+    // it was last scrolled to.
+    if again {
+        tip.set_scroll_top(0);
+    }
     // The borders, besides the scrolled content.
     let measured = f64::from(tip.scroll_height() + tip.offset_height() - tip.client_height());
     if natural.try_get_untracked() != Some(measured) && again {

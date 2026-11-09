@@ -36,6 +36,14 @@ pub(super) fn on_keydown(state: EditorState, event: &KeyboardEvent) {
     if !matches!(event.key().as_str(), "Shift" | "Control" | "Alt" | "Meta") {
         state.hide_read_only_notice();
     }
+    // A page key keeps the column it paged from only from where it left
+    // the caret, and only until another key moves it there.
+    if !matches!(
+        event.key().as_str(),
+        "PageUp" | "PageDown" | "Shift" | "Control" | "Alt" | "Meta"
+    ) {
+        state.view().page_goal.set_value(None);
+    }
     // Typing refused at a read-only field ends with any key that is not
     // more of it (see `note_refused`).
     if matches!(
@@ -73,24 +81,13 @@ pub(super) fn on_keydown(state: EditorState, event: &KeyboardEvent) {
         return;
     }
     if state.config().read_only.get_untracked() {
-        // Navigation works as usual: Escape collapses a selection (the root
-        // listener closes popups); suggestions never open.
-        if event.key() == "Escape" {
-            event.prevent_default();
-            navigation::escape(state, event);
-        } else if event.ctrl_key() && event.code() == "Space" {
-            event.prevent_default();
-        } else {
-            page_keys::page(state, event);
-        }
+        read_only_keys(state, event);
         return;
     }
     super::folding::unfold_before_edit(state, event);
-    let handled = navigation::undo_redo(state, event)
+    let handled = navigation::next_problem(state, event)
+        || commands(state, event)
         || suggestions::request(state, event)
-        || navigation::next_problem(state, event)
-        || typing::toggle_comments(state, event)
-        || typing::join_with_next_line(state, event)
         || (state.config().settings.auto_closing.get_untracked()
             && typing::pairs_and_tags(state, event))
         || typing::indentation(state, event);
@@ -111,6 +108,37 @@ pub(super) fn on_keydown(state: EditorState, event: &KeyboardEvent) {
             page_keys::page(state, event);
         }
         _ => {}
+    }
+}
+
+/// The editing commands of keys the browser types nothing for (typing,
+/// Enter, Backspace and the clipboard reach `input::before_input`): in a
+/// read-only editor too, where the edit is refused and says so.
+fn commands(state: EditorState, event: &KeyboardEvent) -> bool {
+    navigation::undo_redo(state, event)
+        || typing::toggle_comments(state, event)
+        || typing::join_with_next_line(state, event)
+}
+
+/// Keys in a read-only editor. Navigation works as usual: Escape collapses
+/// a selection (the root listener closes popups), F8 walks the problems,
+/// Tab leaves; suggestions never open; an editing command says it cannot
+/// edit, as typing does.
+fn read_only_keys(state: EditorState, event: &KeyboardEvent) {
+    if navigation::next_problem(state, event) || commands(state, event) {
+        return;
+    }
+    match event.key().as_str() {
+        "Escape" => {
+            event.prevent_default();
+            navigation::escape(state, event);
+        }
+        _ if event.ctrl_key() && event.code() == "Space" => event.prevent_default(),
+        // Ctrl+Enter and Ctrl+Shift+Enter open a line (Enter is typing).
+        "Enter" => enter::enter(state, event),
+        _ => {
+            page_keys::page(state, event);
+        }
     }
 }
 

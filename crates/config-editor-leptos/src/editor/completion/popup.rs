@@ -52,7 +52,7 @@ pub(crate) fn advance(column: f64, character: char) -> f64 {
 
 /// Whether `character` is drawn without a width of its own: a combining
 /// mark, a variation selector, or a zero-width joiner or space.
-fn zero_width(character: char) -> bool {
+pub(crate) fn zero_width(character: char) -> bool {
     matches!(
         u32::from(character),
         0x0300..=0x036F

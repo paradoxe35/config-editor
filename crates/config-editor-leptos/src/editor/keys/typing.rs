@@ -54,7 +54,10 @@ pub(super) fn toggle_comments(state: EditorState, event: &KeyboardEvent) -> bool
         (selection_start, selection_end)
     };
     if updated != before {
-        state.commit(Edit::new(before, (start, end), updated, caret).selecting_from(anchor));
+        // Refused (a read-only editor or field): the selection stays.
+        if !state.commit(Edit::new(before, (start, end), updated, caret).selecting_from(anchor)) {
+            return true;
+        }
     } else {
         state.note_caret(caret);
     }

@@ -2,18 +2,24 @@
 //! own page keys move the caret and scroll the text, but Chrome also
 //! scrolls every scroller around the text area (the host page too) to put
 //! the caret at their top, so the editor makes the move itself: the caret
-//! goes a page of rows down (or up), at the column it paged from, and the
-//! text scrolls by the same page. Nothing outside the editor moves (see
+//! goes a page of rows down (or up), at the on-screen column it paged from
+//! (as `ArrowDown` keeps it), and the text scrolls by the same page. A page
+//! is the rows in view: of the text area, or of the window when the text
+//! area is taller than it. Outside the editor, nothing moves but what
+//! brings the caret into view, as for `ArrowDown` (see
 //! [`crate::page_scroll`] for the keys from its other controls).
 
 use leptos::prelude::*;
 use web_sys::KeyboardEvent;
 
+use super::super::completion::{advance, visual_column, zero_width};
 use super::super::keyboard::utf16_to_byte_index;
 use super::super::metrics::read_editor_metrics;
 use super::super::positioning::reveal_offset;
 use super::super::projection::Projection;
+use super::super::source_area::SourceArea;
 use super::super::state::{EditorState, directed_selection, select};
+use crate::page_scroll::{band_in_view, reveal_band, scale_of};
 
 /// Pages the text on `PageDown` / `PageUp` (with Shift, selecting).
 /// Returns whether it took the key.
@@ -32,7 +38,7 @@ pub(super) fn page(state: EditorState, event: &KeyboardEvent) -> bool {
     event.prevent_default();
     let metrics = read_editor_metrics(area.element());
     let line_height = metrics.line_height.max(1.0);
-    let rows = page_rows(f64::from(area.client_height()), line_height);
+    let rows = page_rows(rows_height(&area), line_height);
     let (anchor, caret) = directed_selection(&area);
     let target = state.doc().text.with_untracked(|text| {
         let goal = state
@@ -66,8 +72,44 @@ pub(super) fn page(state: EditorState, event: &KeyboardEvent) -> bool {
         .doc()
         .text
         .with_untracked(|text| reveal_offset(&area, text, target, state.view().scroll_y));
+    reveal_in_page(&area, target, metrics.padding_top, line_height);
     state.note_caret(target);
     true
+}
+
+/// The height, in the text area's pixels, its rows show in: the part of
+/// it in view (inside the window and the boxes around it), or, when none
+/// is, its own height, no taller than the window.
+fn rows_height(area: &SourceArea) -> f64 {
+    let element: &web_sys::Element = area.element();
+    let scale = scale_of(element).max(f64::EPSILON);
+    let own = f64::from(area.client_height());
+    match band_in_view(element) {
+        Some((top, bottom)) => ((bottom - top) / scale).min(own),
+        None => web_sys::window()
+            .and_then(|window| window.inner_height().ok())
+            .and_then(|height| height.as_f64())
+            .map_or(own, |height| own.min(height / scale)),
+    }
+}
+
+/// Shows the caret's row, at document offset `target`, in the boxes
+/// around the text area (a text area taller than the window does not
+/// scroll itself): they move only as far as that takes.
+fn reveal_in_page(area: &SourceArea, target: usize, padding_top: f64, line_height: f64) {
+    let line = area.state().doc().text.with_untracked(|text| {
+        let byte = utf16_to_byte_index(text, target);
+        text[..byte].bytes().filter(|byte| *byte == b'\n').count()
+    });
+    let row = area.row_of_line(line) as f64;
+    let element: &web_sys::Element = area.element();
+    let scale = scale_of(element);
+    let rect = element.get_bounding_client_rect();
+    let top = rect.top()
+        + (f64::from(element.client_top()) + padding_top + row * line_height
+            - f64::from(area.scroll_top()))
+            * scale;
+    reveal_band(element, top, top + line_height * scale);
 }
 
 /// The rows a page key moves in a text area `height` pixels tall: all
@@ -78,17 +120,19 @@ fn page_rows(height: f64, line_height: f64) -> usize {
         .max(1)
 }
 
-/// The UTF-16 column of document offset `offset` on its line.
+/// The on-screen column of document offset `offset` (UTF-16) on its line:
+/// tabs to their stops, marks over the character before them taking none.
 fn column_of(text: &str, offset: usize) -> usize {
     let byte = utf16_to_byte_index(text, offset);
     let line_start = text[..byte].rfind('\n').map_or(0, |at| at + 1);
-    text[line_start..byte].encode_utf16().count()
+    visual_column(&text[line_start..byte]) as usize
 }
 
 /// Where a page key takes the caret at document offset `caret` (UTF-16):
-/// `rows` textarea rows down (or up), `goal` columns into that row's line
-/// (at most its end); from the last (first) row, the end (start) of the
-/// text. Folded lines are no rows.
+/// `rows` textarea rows down (or up), at on-screen column `goal` of that
+/// row's line (the nearest place between characters, at most its end);
+/// from the last (first) row, the end (start) of the text. Folded lines
+/// are no rows.
 fn paged(
     text: &str,
     projection: &Projection,
@@ -97,18 +141,14 @@ fn paged(
     rows: usize,
     down: bool,
 ) -> usize {
-    // UTF-16 offsets of each line's start, and its length.
-    let mut lines: Vec<(usize, usize)> = Vec::new();
-    let mut start = 0;
+    // Each line's start, as a UTF-16 offset, and its text.
+    let mut lines: Vec<(usize, &str)> = Vec::new();
     let mut units = 0;
-    for character in text.chars() {
-        if character == '\n' {
-            lines.push((start, units - start));
-            start = units + 1;
-        }
-        units += character.len_utf16();
+    for line in text.split('\n') {
+        lines.push((units, line));
+        units += line.encode_utf16().count() + 1;
     }
-    lines.push((start, units - start));
+    let units = units - 1;
     let line = lines
         .partition_point(|(line_start, _)| *line_start <= caret)
         .saturating_sub(1);
@@ -122,8 +162,33 @@ fn paged(
     if target_row == row {
         return if down { units } else { 0 };
     }
-    let (line_start, length) = lines[projection.line_of_row(target_row).min(lines.len() - 1)];
-    line_start + goal.min(length)
+    let (line_start, line) = lines[projection.line_of_row(target_row).min(lines.len() - 1)];
+    line_start + offset_at_column(line, goal as f64)
+}
+
+/// The UTF-16 offset into `line` nearest on-screen column `goal`: between
+/// characters (never between one and the marks drawn over it), the later
+/// of two as near.
+fn offset_at_column(line: &str, goal: f64) -> usize {
+    let mut best = (0, f64::INFINITY);
+    let (mut column, mut units) = (0.0, 0);
+    let mut characters = line.chars().peekable();
+    loop {
+        if !characters.peek().copied().is_some_and(zero_width) {
+            let distance = (column - goal).abs();
+            if distance <= best.1 {
+                best = (units, distance);
+            } else {
+                break;
+            }
+        }
+        let Some(character) = characters.next() else {
+            break;
+        };
+        column = advance(column, character);
+        units += character.len_utf16();
+    }
+    best.0
 }
 
 #[cfg(test)]
@@ -193,13 +258,56 @@ mod tests {
         );
     }
 
+    /// QA 26: the column was counted in UTF-16 units, so a page key from
+    /// after an emoji or a tab landed right or left of where `ArrowDown`
+    /// does. Every line pair pages from its first line's end onto the
+    /// on-screen column below it.
     #[test]
-    fn non_ascii_columns_count_utf16_units() {
-        let text = "é😀x\nab😀cd\n";
-        let flat = Projection::new(text, &[]);
-        // Column 4 (after the emoji's two units) on the next line.
-        assert_eq!(paged(text, &flat, 4, 4, 1, true), at(text, 1, 4));
-        assert_eq!(column_of(text, at(text, 1, 4)), 4);
+    fn a_page_keeps_the_on_screen_column() {
+        // (line paged from, its end's column, line paged to, where it lands)
+        let cases = [
+            ("a: 😀😀😀", 6, "k: yyyyyyyy", "k: yyy"),
+            ("a:\t\tx", 7, "k: yyyyyyyy", "k: yyyy"),
+            ("a: 漢字漢字", 7, "k: yyyyyyyy", "k: yyyy"),
+            ("a: e\u{301}e\u{301}", 5, "k: yyyyyyyy", "k: yy"),
+            ("a: yyyy", 7, "k:\t\t\tz", "k:\t\t\t"),
+            ("a: yyyyyy", 9, "k: 😀😀😀😀", "k: 😀😀😀😀"),
+            (
+                "a: yy",
+                5,
+                "k: e\u{301}e\u{301}e\u{301}",
+                "k: e\u{301}e\u{301}",
+            ),
+            ("a: yy", 5, "k: 漢字漢字", "k: 漢字"),
+        ];
+        let failures: Vec<String> = cases
+            .iter()
+            .filter_map(|(from, column, to, landed)| {
+                let text = format!("{from}\n{to}\n");
+                let flat = Projection::new(&text, &[]);
+                let end = from.encode_utf16().count();
+                let goal = column_of(&text, end);
+                let target = paged(&text, &flat, end, goal, 1, true);
+                let expected = at(&text, 1, landed.encode_utf16().count());
+                (goal != *column || target != expected).then(|| {
+                    format!("{from:?} -> {to:?}: column {goal} (not {column}), at {target} (not {expected})")
+                })
+            })
+            .collect();
+        assert!(failures.is_empty(), "{failures:#?}");
+    }
+
+    #[test]
+    fn a_column_inside_a_tab_lands_on_its_nearer_side_never_inside_a_mark() {
+        // Tabs at columns 0..2, 2..4: column 1 is as near either side.
+        assert_eq!(offset_at_column("\t\tx", 1.0), 1);
+        assert_eq!(offset_at_column("a\tx", 1.0), 1);
+        // `é` as `e` and a combining mark: after both, or before both.
+        assert_eq!(offset_at_column("e\u{301}x", 1.0), 2);
+        assert_eq!(offset_at_column("e\u{301}x", 0.0), 0);
+        // Past the end: the end.
+        assert_eq!(offset_at_column("ab", 9.0), 2);
+        assert_eq!(offset_at_column("", 9.0), 0);
     }
 
     #[test]

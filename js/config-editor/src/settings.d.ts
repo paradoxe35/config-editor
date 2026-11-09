@@ -808,6 +808,12 @@ export interface EditorStrings {
    */
   openDocsTouch?: string;
   /**
+   * A problem's docs link as a screen reader names it, told apart from the others in a tip: its `{link}` text (`open_docs`) and its problem's `{message}`.
+   *
+   * @default "{link}: {message}"
+   */
+  openDocsLabel?: string;
+  /**
    * An error, as a screen reader hears it.
    *
    * @default "Error"
