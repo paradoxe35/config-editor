@@ -185,8 +185,10 @@ fn host_ranges_read_each_text_a_fixed_number_of_times_in_every_language_and_view
 }
 
 /// And placing them stays linear: 3000 items written in two languages and
-/// their problems placed in 20 to 200 ms here (a debug build), where
-/// reading the text again for each took minutes.
+/// their problems placed in 20 to 200 ms here (a debug build; a shared CI
+/// runner took 600), where reading the text again for each took minutes.
+/// The counts above guard the repeated reads; this ceiling only catches a
+/// pass growing many times slower.
 #[test]
 fn thousands_of_host_problems_are_placed_in_linear_time_in_every_language_and_view() {
     let mut failures = Vec::new();
@@ -195,7 +197,7 @@ fn thousands_of_host_problems_are_placed_in_linear_time_in_every_language_and_vi
             for ranges in [false, true] {
                 let (took, (shown, _)) = best_of(2, || placed(host, view, 3000, ranges));
                 let wanted = if ranges { 6000 } else { 3000 };
-                if took > Duration::from_millis(600) || shown < wanted {
+                if took > Duration::from_millis(2000) || shown < wanted {
                     let kind = if ranges { "ranges" } else { "paths" };
                     failures.push(format!(
                         "{}: {shown} {kind} placed in {took:?}",
