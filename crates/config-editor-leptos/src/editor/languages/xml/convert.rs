@@ -153,45 +153,56 @@ pub(super) fn with_attributes(value: &Value, attributes: &AttributePaths, path: 
     }
 }
 
-/// `source` with the element at `pointer` renamed in its start and end tags;
+/// The names of `source`'s elements by path: each element's start and end
+/// tag names, under its path and, for a repeated one, its list's too.
+struct ElementNames(std::collections::HashMap<Vec<String>, Vec<(usize, usize)>>);
+
+/// The names of `source`'s elements: read once per batch over it.
+fn element_names(source: &str) -> std::rc::Rc<ElementNames> {
+    crate::editor::paths::batch_cached_as(crate::editor::work_count::Work::KeyScan, source, || {
+        let tokens = tokenize(source);
+        let plan = plan_paths(source, &tokens);
+        let mut names: std::collections::HashMap<Vec<String>, Vec<(usize, usize)>> = std::collections::HashMap::new();
+        for (index, token) in tokens.iter().enumerate() {
+            if !matches!(token.kind, Kind::OpenTag { .. }) {
+                continue;
+            }
+            let Some(path) = plan.path_of(token.start).map(strings) else {
+                continue;
+            };
+            let Some((open, close)) = element_from(source, &tokens, index) else {
+                continue;
+            };
+            let start = local_name_start(source, &tokens[open]);
+            let mut written = vec![(start, start + token_name(source, &tokens[open]).len())];
+            if let Some(close) = close {
+                let token = &tokens[close];
+                let at = local_name_start(source, token);
+                written.push((at, at + token_name(source, token).len()));
+            }
+            // A repeated element is renamed with its list.
+            if let Some((last, rest)) = path.split_last()
+                && crate::editor::language::pointer_index(last).is_some()
+            {
+                names.entry(rest.to_vec()).or_default().extend(written.iter().copied());
+            }
+            names.entry(path).or_default().extend(written);
+        }
+        ElementNames(names)
+    })
+}
+
+/// The edits renaming the element at `pointer` in its start and end tags;
 /// a repeated element (a list, `pointer` naming it without an index) is
 /// renamed in every repetition.
-pub(super) fn rename_element(source: &str, pointer: &str, new_key: &str) -> Option<String> {
-    let tokens = tokenize(source);
-    let wanted = pointer_segments(pointer);
-    let plan = plan_paths(source, &tokens);
-    let mut names: Vec<(usize, usize)> = Vec::new();
-    for (index, token) in tokens.iter().enumerate() {
-        let matches = matches!(token.kind, Kind::OpenTag { .. })
-            && plan.path_of(token.start).is_some_and(|path| {
-                let path = strings(path);
-                path == wanted
-                    || path.split_last().is_some_and(|(last, rest)| crate::editor::language::pointer_index(last).is_some() && rest == wanted.as_slice())
-            });
-        if !matches {
-            continue;
-        }
-        let Some((open, close)) = element_from(source, &tokens, index) else {
-            continue;
-        };
-        let start = local_name_start(source, &tokens[open]);
-        names.push((start, start + token_name(source, &tokens[open]).len()));
-        if let Some(close) = close {
-            let token = &tokens[close];
-            let name = token_name(source, token);
-            let at = local_name_start(source, token);
-            names.push((at, at + name.len()));
-        }
-    }
+pub(super) fn element_renames(source: &str, pointer: &str, new_key: &str) -> Option<Vec<crate::editor::language::KeyEdit>> {
+    let mut names = element_names(source).0.get(&pointer_segments(pointer)).cloned()?;
     if names.is_empty() {
         return None;
     }
     names.sort_unstable();
-    let mut renamed = source.to_string();
-    for (start, end) in names.into_iter().rev() {
-        renamed.replace_range(start..end, new_key);
-    }
-    Some(renamed)
+    names.dedup();
+    Some(names.into_iter().map(|(start, end)| (start..end, new_key.to_string())).collect())
 }
 
 /// The start tag at token `index` and its end tag, if it has one.

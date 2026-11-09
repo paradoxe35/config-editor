@@ -93,6 +93,14 @@ pub(crate) enum Work {
     /// line `n` starts, the line and column of a byte), outside a batch
     /// that splits its lines once.
     LineSeek,
+    /// A whole text scanned for where it writes its keys (every place a
+    /// rename writes the new key: a TOML key's headers and dotted keys, an
+    /// XML element's tags, an HCL block's type or label).
+    #[cfg_attr(
+        not(any(feature = "toml", feature = "hcl", feature = "xml")),
+        allow(dead_code, reason = "only the TOML, HCL and XML key scans note it")
+    )]
+    KeyScan,
 }
 
 impl Work {
@@ -119,13 +127,14 @@ impl Work {
             Self::Statements => 17,
             Self::OffsetBytes => 18,
             Self::LineSeek => 19,
+            Self::KeyScan => 20,
         }
     }
 }
 
 #[cfg(test)]
 thread_local! {
-    static COUNTS: std::cell::Cell<[usize; 20]> = const { std::cell::Cell::new([0; 20]) };
+    static COUNTS: std::cell::Cell<[usize; 21]> = const { std::cell::Cell::new([0; 21]) };
 }
 
 /// `work` is starting (counted on this thread in tests).

@@ -6,6 +6,7 @@ use super::super::flow_syntax::Flow;
 use super::super::language::ConfigLanguage;
 use super::{byte_range, comment_start, escape, inline_location, reads_as};
 use serde_json::Value;
+use std::collections::HashMap;
 use std::ops::Range;
 
 /// `previous` with the moved items' lines moved, when `new` is `old` with
@@ -38,11 +39,11 @@ pub(in super::super) fn patch_reorder(
             Some(slots) => slots,
             None => line_items(language, previous, &lines, &pointer, before)?,
         };
-        // Each new position takes the block of the old item it holds.
-        let mut used = vec![false; before.len()];
+        // Each new position takes the block of the old item it holds (the
+        // first of its equals not taken yet).
+        let mut places = places_of(before);
         for (slot, item) in after.iter().enumerate() {
-            let from = (0..before.len()).find(|at| !used[*at] && before[*at] == *item)?;
-            used[from] = true;
+            let from = places.get_mut(&item_text(item))?.pop()?;
             let (top, line, last) = slots[from];
             let mut block: Vec<String> = lines[top..line]
                 .iter()
@@ -84,9 +85,11 @@ fn line_items(
     pointer: &str,
     before: &[Value],
 ) -> Option<Vec<(usize, usize, usize)>> {
-    let line_of = |byte: usize| previous[..byte].matches('\n').count();
+    let line_of = |byte: usize| super::super::paths::line_column(previous, byte).0 - 1;
     let flow = Flow::of(language);
     let mut slots: Vec<(usize, usize, usize)> = Vec::new();
+    // The last line an item before ends on.
+    let mut ended: Option<usize> = None;
     for (index, item) in before.iter().enumerate() {
         let item_pointer = format!("{pointer}/{index}");
         let container = item.is_object() || item.is_array();
@@ -108,9 +111,10 @@ fn line_items(
             }
         };
         let (line, last) = (line_of(range.start), line_of(range.end));
-        if (!own && line != last) || slots.iter().any(|(_, _, end)| *end >= line) {
+        if (!own && line != last) || ended.is_some_and(|end| end >= line) {
             return None;
         }
+        ended = Some(ended.map_or(last, |end| end.max(last)));
         let line_start = previous[..range.start].rfind('\n').map_or(0, |at| at + 1);
         let last_start = previous[..range.end].rfind('\n').map_or(0, |at| at + 1);
         let before_value = previous[line_start..range.start].trim();
@@ -209,13 +213,11 @@ fn permuted_lists<'a>(
             Some(())
         }
         (Value::Array(left), Value::Array(right)) if left.len() == right.len() => {
-            let mut rest: Vec<&Value> = right.iter().collect();
-            let permuted = left.iter().all(|item| {
-                rest.iter()
-                    .position(|other| *other == item)
-                    .map(|at| rest.swap_remove(at))
-                    .is_some()
-            });
+            // Each item of `left` is one of `right`'s not counted yet.
+            let mut rest = places_of(right);
+            let permuted = left
+                .iter()
+                .all(|item| rest.get_mut(&item_text(item)).and_then(Vec::pop).is_some());
             if permuted {
                 out.push((pointer, left, right));
                 return Some(());
@@ -228,6 +230,38 @@ fn permuted_lists<'a>(
             Some(())
         }
         _ => None,
+    }
+}
+
+/// The places of `items` by each item's text ([`item_text`]), the first
+/// place last: a lookup of an item among many, where
+/// comparing it with each one was a pass over all of them per item.
+fn places_of(items: &[Value]) -> HashMap<String, Vec<usize>> {
+    let mut places: HashMap<String, Vec<usize>> = HashMap::new();
+    for (at, item) in items.iter().enumerate().rev() {
+        places.entry(item_text(item)).or_default().push(at);
+    }
+    places
+}
+
+/// `value`'s JSON with each map's keys sorted: equal values (`==` holds
+/// maps with their keys in any order equal) have equal texts.
+fn item_text(value: &Value) -> String {
+    match value {
+        Value::Object(map) => {
+            let mut entries: Vec<(&String, &Value)> = map.iter().collect();
+            entries.sort_by_key(|(key, _)| *key);
+            let entries: Vec<String> = entries
+                .into_iter()
+                .map(|(key, value)| format!("{}:{}", Value::from(key.as_str()), item_text(value)))
+                .collect();
+            format!("{{{}}}", entries.join(","))
+        }
+        Value::Array(items) => format!(
+            "[{}]",
+            items.iter().map(item_text).collect::<Vec<_>>().join(",")
+        ),
+        other => other.to_string(),
     }
 }
 
@@ -341,7 +375,7 @@ pub(in super::super) fn unmoved_comments(
         return None;
     }
     let lines: Vec<&str> = previous.split('\n').collect();
-    let line_of = |byte: usize| previous[..byte].matches('\n').count();
+    let line_of = |byte: usize| super::super::paths::line_column(previous, byte).0 - 1;
     lists.into_iter().find_map(|(pointer, before, _)| {
         // The lines from the first item to the end of the last.
         let span: Range<usize> = match block_items(language, previous, &lines, &pointer) {

@@ -213,7 +213,7 @@ const CONFIG_LANGUAGE = {
   text_key: { exempt: 'a custom language\'s values are what its `parse` returns; text beside child entries is XML\'s mixed content' },
   one_line_container: { exempt: SAVE_FORMS },
   item_lines: { exempt: SAVE_FORMS },
-  rename_key: { custom: 'keySpan' },
+  key_renames: { custom: 'keySpan' },
   written_key: { exempt: RUST_ONLY_REFINEMENT },
   scalar_edit: { exempt: SAVE_FORMS },
   changed_form: { exempt: SAVE_FORMS },

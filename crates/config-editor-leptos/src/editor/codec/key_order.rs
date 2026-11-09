@@ -3,9 +3,11 @@
 //! view's order (round 26: the order never reached the host).
 
 use super::super::language::ConfigLanguage;
+use super::super::paths;
 use super::reorder::{comment_only, indent_of};
 use super::{byte_range, comment_start, escape, key_markup_start, read};
 use serde_json::Value;
+use std::collections::HashMap;
 use std::ops::Range;
 
 /// Whether `left` and `right` hold their maps' keys in the same order
@@ -58,7 +60,12 @@ pub(in super::super) fn patch_key_order(
         text = moved;
         let map = current.pointer_mut(&pointer)?.as_object_mut()?;
         let mut entries: Vec<(String, Value)> = std::mem::take(map).into_iter().collect();
-        entries.sort_by_key(|(key, _)| order.iter().position(|other| other == key));
+        let places: HashMap<&String, usize> = order
+            .iter()
+            .enumerate()
+            .map(|(at, key)| (key, at))
+            .collect();
+        entries.sort_by_key(|(key, _)| places.get(key).copied());
         map.extend(entries);
         own_orders.push((pointer, own));
     }
@@ -118,27 +125,34 @@ fn moved_entries(
     order: &[String],
 ) -> Option<(String, Vec<String>)> {
     let lines: Vec<&str> = text.split('\n').collect();
-    let mut own: Vec<(&String, Range<usize>)> = Vec::with_capacity(keys.len());
-    for key in keys {
-        let Some(slot) = entry_lines(language, text, &lines, pointer, key) else {
-            continue;
-        };
-        // In the order written, each apart from the one before.
-        if own.last().is_some_and(|(_, last)| last.end > slot.start) {
-            return None;
+    // Every entry's key and value placed from one read of the text (alone,
+    // each read it from the top).
+    let pointers: Vec<String> = keys
+        .iter()
+        .map(|key| format!("{pointer}/{}", escape(key)))
+        .collect();
+    let own = paths::with_spans(language, text, &pointers, || {
+        let mut own: Vec<(&String, Range<usize>)> = Vec::with_capacity(keys.len());
+        for (key, entry) in keys.iter().zip(&pointers) {
+            let Some(slot) = entry_lines(language, text, &lines, entry) else {
+                continue;
+            };
+            // In the order written, each apart from the one before.
+            if own.last().is_some_and(|(_, last)| last.end > slot.start) {
+                return None;
+            }
+            own.push((key, slot));
         }
-        own.push((key, slot));
-    }
+        Some(own)
+    })?;
+    let blocks: HashMap<&String, &Range<usize>> =
+        own.iter().map(|(key, slot)| (*key, slot)).collect();
     let order: Vec<String> = order
         .iter()
-        .filter(|key| own.iter().any(|(own, _)| own == key))
+        .filter(|key| blocks.contains_key(key))
         .cloned()
         .collect();
-    let block = |key: &String| -> Option<&Range<usize>> {
-        own.iter()
-            .find(|(other, _)| *other == key)
-            .map(|(_, slot)| slot)
-    };
+    let block = |key: &String| -> Option<&Range<usize>> { blocks.get(key).copied() };
     let mut patched: Vec<String> = Vec::with_capacity(lines.len());
     let mut at = 0;
     for ((_, slot), key) in own.iter().zip(&order) {
@@ -158,8 +172,8 @@ fn moved_entries(
     Some((patched.join("\n"), order))
 }
 
-/// The lines (0-based, end exclusive) of the entry `key` of the map at
-/// `map`: the comment lines right above its key, the key's line, and the
+/// The lines (0-based, end exclusive) of the entry at `pointer` (a key
+/// of a map): the comment lines right above its key, the key's line, and the
 /// lines its value runs on (a block scalar, a container to where it
 /// closes, or the lines indented under the key where indentation is
 /// structure). `None` when the key shares its line with something before
@@ -168,15 +182,13 @@ fn entry_lines(
     language: &dyn ConfigLanguage,
     text: &str,
     lines: &[&str],
-    map: &str,
-    key: &str,
+    pointer: &str,
 ) -> Option<Range<usize>> {
-    let pointer = format!("{map}/{}", escape(key));
-    let span = language.key_span(text, &pointer)?;
+    let span = paths::memo_key_span(language, text, pointer)?;
     let line = span.line.checked_sub(1)?;
     let name = byte_range(text, span)?;
-    let at = text[..name.start].encode_utf16().count();
-    if super::super::paths::path_at(language, text, at)?.to_pointer() != pointer {
+    let at = paths::units_at(text, name.start);
+    if paths::path_at(language, text, at)?.to_pointer() != pointer {
         return None;
     }
     let line_start = text[..name.start].rfind('\n').map_or(0, |at| at + 1);
@@ -186,11 +198,10 @@ fn entry_lines(
     }
     let mut last = line;
     // A value over lines (a block scalar, a heredoc) ends where it ends.
-    if let Some(value) = language
-        .value_span(text, &pointer)
-        .and_then(|span| byte_range(text, span))
+    if let Some(value) =
+        paths::memo_value_span(language, text, pointer).and_then(|span| byte_range(text, span))
     {
-        last = last.max(text[..value.end].matches('\n').count());
+        last = last.max(paths::line_column(text, value.end).0 - 1);
     }
     // A container opened on its lines runs to where it closes.
     while last + 1 < lines.len() && language.unclosed_containers(&lines[line..=last].join("\n")) > 0

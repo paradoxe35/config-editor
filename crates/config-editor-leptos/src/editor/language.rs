@@ -714,6 +714,19 @@ pub struct CompletionContext {
     pub suffix_head_depth: usize,
 }
 
+/// An edit of a text: the bytes it replaces, and their new text.
+pub type KeyEdit = (std::ops::Range<usize>, String);
+
+/// `source` with `edits` (apart from each other) made.
+pub(crate) fn with_edits(source: &str, mut edits: Vec<KeyEdit>) -> String {
+    edits.sort_by_key(|(range, _)| std::cmp::Reverse(range.start));
+    let mut edited = source.to_string();
+    for (range, text) in edits {
+        edited.replace_range(range, &text);
+    }
+    edited
+}
+
 /// Splits a JSON pointer into unescaped segments, each verbatim (RFC 6901:
 /// `~1` is `/`, then `~0` is `~`).
 pub fn pointer_segments(path: &str) -> Vec<String> {
@@ -1768,12 +1781,17 @@ pub trait ConfigLanguage: Send + Sync + 'static {
         None
     }
 
-    /// `source` with the key at `pointer` renamed everywhere the language
-    /// writes it (an XML element's start and end tags), or `None` to rename
-    /// just the text at [`key_span`](Self::key_span). `new_key` is the new
-    /// key as [`written_key`](Self::written_key) writes it; a key the host
-    /// wrote in quotes keeps them.
-    fn rename_key(&self, source: &str, pointer: &str, new_key: &str) -> Option<String> {
+    /// The edits renaming the key at `pointer` everywhere the language
+    /// writes it (an XML element's start and end tags, a TOML key's headers
+    /// and dotted keys): byte ranges of `source`, apart from each other,
+    /// each with its new text; `None` to rename just the text at
+    /// [`key_span`](Self::key_span). `new_key` is the new key as
+    /// [`written_key`](Self::written_key) writes it; a key the host wrote
+    /// in quotes keeps them. A save renaming many keys asks for each in one
+    /// batch over `source` (see `paths::with_spans`): what the language
+    /// reads of all of it to find them is read once
+    /// (`paths::batch_cached`).
+    fn key_renames(&self, source: &str, pointer: &str, new_key: &str) -> Option<Vec<KeyEdit>> {
         let _ = (source, pointer, new_key);
         None
     }

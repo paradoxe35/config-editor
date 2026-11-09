@@ -371,8 +371,8 @@ impl ConfigLanguage for XmlBehavior {
         text.match_indices("></").map(|(at, _)| at + 1).collect()
     }
 
-    fn rename_key(&self, source: &str, pointer: &str, new_key: &str) -> Option<String> {
-        rename_element(source, pointer, new_key)
+    fn key_renames(&self, source: &str, pointer: &str, new_key: &str) -> Option<Vec<crate::editor::language::KeyEdit>> {
+        element_renames(source, pointer, new_key)
     }
 
     /// An XML name (`a.b`, `café`): a letter or `_` first, then letters,

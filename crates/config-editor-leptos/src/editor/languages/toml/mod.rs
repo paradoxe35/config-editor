@@ -122,8 +122,8 @@ impl ConfigLanguage for TomlBehavior {
         }
     }
 
-    fn rename_key(&self, source: &str, pointer: &str, new_key: &str) -> Option<String> {
-        rename_toml_key(source, pointer, new_key)
+    fn key_renames(&self, source: &str, pointer: &str, new_key: &str) -> Option<Vec<crate::editor::language::KeyEdit>> {
+        toml_key_renames(source, pointer, new_key)
     }
 
     /// A date or time the host writes bare stays one: written as TOML
@@ -133,9 +133,8 @@ impl ConfigLanguage for TomlBehavior {
         let Some(span) = self.value_span(previous, pointer) else {
             return Ok(None);
         };
-        let written = previous
-            .lines()
-            .nth(span.line.saturating_sub(1))
+        // (A lookup while a batch runs for the text.)
+        let written = crate::editor::paths::text_line(previous, span.line.saturating_sub(1))
             .map(|line| line.chars().skip(span.start_column.saturating_sub(1)).take(span.end_column.saturating_sub(span.start_column)).collect::<String>())
             .unwrap_or_default();
         let written = written.trim();

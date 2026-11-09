@@ -23,29 +23,57 @@ pub(in super::super) fn patch_renames(
     if renames.is_empty() {
         return None;
     }
-    // Each rename on the text so far: a renamed key's siblings and
-    // children keep their pointers (only equal values are renamed).
-    let mut patched = previous.to_string();
-    for (pointer, old_key, new_key) in renames {
-        let written = language.written_key(&patched, &pointer, &new_key)?;
-        patched = match language.rename_key(&patched, &pointer, &written) {
-            Some(renamed) => renamed,
-            None => rename_at_key_span(language, &patched, &pointer, &old_key, &written)?,
-        };
-    }
+    let patched = renamed(language, previous, &renames)?;
     reads_as(language, &patched, schema, new).then_some(patched)
 }
 
-/// `source` with the key at `pointer` written `new_key` (as the language
-/// writes it), found by the language's key span; quotes around it stay.
-fn rename_at_key_span(
+/// `previous` with every rename made where the language writes the key
+/// (its [`key_renames`](ConfigLanguage::key_renames), else the key's span),
+/// all placed from one read of `previous` (one at a time, each read the
+/// text so far again): renamed keys hold no other renamed key, so each is
+/// where `previous` writes it. `None` when one cannot be made, or two
+/// would write over each other.
+fn renamed(
+    language: &dyn ConfigLanguage,
+    previous: &str,
+    renames: &[(String, String, String)],
+) -> Option<String> {
+    let pointers: Vec<String> = renames
+        .iter()
+        .map(|(pointer, ..)| pointer.clone())
+        .collect();
+    let mut edits = super::super::paths::with_spans(language, previous, &pointers, || {
+        let mut edits = Vec::with_capacity(renames.len());
+        for (pointer, old_key, new_key) in renames {
+            let written = language.written_key(previous, pointer, new_key)?;
+            match language.key_renames(previous, pointer, &written) {
+                Some(own) => edits.extend(own),
+                None => edits.push(key_span_edit(
+                    language, previous, pointer, old_key, &written,
+                )?),
+            }
+        }
+        Some(edits)
+    })?;
+    edits.sort_by_key(|(range, _)| (range.start, range.end));
+    edits.dedup();
+    if edits.windows(2).any(|pair| pair[0].0.end > pair[1].0.start) {
+        return None;
+    }
+    Some(super::super::language::with_edits(previous, edits))
+}
+
+/// The bytes of `source` a rename at the key's span replaces (quotes
+/// around it stay), and their new text.
+fn key_span_edit(
     language: &dyn ConfigLanguage,
     source: &str,
     pointer: &str,
     old_key: &str,
     new_key: &str,
-) -> Option<String> {
-    let range = byte_range(source, language.key_span(source, pointer)?)?;
+) -> Option<(std::ops::Range<usize>, String)> {
+    let span = super::super::paths::memo_key_span(language, source, pointer)?;
+    let range = byte_range(source, span)?;
     let written = &source[range.clone()];
     let flow = super::super::flow_syntax::Flow::of(language);
     let quote = written.chars().next().filter(|quote| {
@@ -60,15 +88,12 @@ fn rename_at_key_span(
     if source[inner.clone()] != *old_key {
         return None;
     }
-    let mut renamed = source.to_string();
-    match quote {
+    let text = match quote {
         // A bare new key in the host's quotes.
-        Some(quote) if !flow.starts_quoted(new_key) => {
-            renamed.replace_range(range, &format!("{quote}{new_key}{quote}"));
-        }
-        _ => renamed.replace_range(range, new_key),
-    }
-    Some(renamed)
+        Some(quote) if !flow.starts_quoted(new_key) => format!("{quote}{new_key}{quote}"),
+        _ => new_key.to_string(),
+    };
+    Some((range, text))
 }
 
 /// `new` with each key it renames from `old` (in the same place, holding

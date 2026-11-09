@@ -183,8 +183,8 @@ impl ConfigLanguage for HclBehavior {
         }
     }
 
-    fn rename_key(&self, source: &str, pointer: &str, new_key: &str) -> Option<String> {
-        rename_block_key(source, pointer, new_key)
+    fn key_renames(&self, source: &str, pointer: &str, new_key: &str) -> Option<Vec<crate::editor::language::KeyEdit>> {
+        block_key_renames(source, pointer, new_key)
     }
 
     /// An identifier (`café`, `x-y`) bare; any other key quoted where a

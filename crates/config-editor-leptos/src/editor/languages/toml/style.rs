@@ -189,11 +189,11 @@ pub(super) fn fold_dotted_tables(rendered: &str, dotted: &HashSet<Dotted>, previ
     out
 }
 
-/// `source` with the key at `pointer` renamed `new_key` wherever TOML writes
+/// The edits renaming the key at `pointer` `new_key` wherever TOML writes
 /// it: in `[table]` headers and in every dotted key through it
 /// (`web.http`, `web.https`). `None` when it is written nowhere like that
 /// (an inline table's key), or under an array of tables.
-pub(super) fn rename_toml_key(source: &str, pointer: &str, new_key: &str) -> Option<String> {
+pub(super) fn toml_key_renames(source: &str, pointer: &str, new_key: &str) -> Option<Vec<crate::editor::language::KeyEdit>> {
     let wanted = pointer_segments(pointer);
     if wanted[..wanted.len().saturating_sub(1)].iter().any(|segment| crate::editor::language::pointer_index(segment).is_some()) {
         return None;
@@ -202,52 +202,59 @@ pub(super) fn rename_toml_key(source: &str, pointer: &str, new_key: &str) -> Opt
     if edits.is_empty() {
         return None;
     }
-    let mut renamed = source.to_string();
-    for (start, end) in edits.into_iter().rev() {
-        // A bare new key in the host's quotes.
-        let quoted = renamed[start..end].starts_with(['"', '\'']) && !new_key.starts_with(['"', '\'']);
-        renamed.replace_range(start..end, &if quoted { format!("\"{new_key}\"") } else { new_key.to_string() });
-    }
-    Some(renamed)
+    Some(
+        edits
+            .into_iter()
+            .map(|(start, end)| {
+                // A bare new key in the host's quotes.
+                let quoted = source[start..end].starts_with(['"', '\'']) && !new_key.starts_with(['"', '\'']);
+                (start..end, if quoted { format!("\"{new_key}\"") } else { new_key.to_string() })
+            })
+            .collect(),
+    )
 }
+
+/// Where `source` writes each key path's last segment (keys only): in
+/// `[table]` headers and in every dotted key through it, in document order.
+struct KeyPlaces(std::collections::HashMap<Vec<String>, Vec<(usize, usize)>>);
 
 /// The byte ranges where `source` writes the last segment of the key path
 /// `wanted` (keys only): in `[table]` headers and in every dotted key
-/// through it, in document order.
+/// through it, in document order. The text is scanned once per batch.
 pub(super) fn toml_key_occurrences(source: &str, wanted: &[String]) -> Vec<(usize, usize)> {
-    let Some((old, prefix)) = wanted.split_last() else {
-        return Vec::new();
-    };
-    let depth = prefix.len();
-    let mut found: Vec<(usize, usize)> = Vec::new();
+    let places = crate::editor::paths::batch_cached_as(crate::editor::work_count::Work::KeyScan, source, || key_places(source));
+    places.0.get(wanted).cloned().unwrap_or_default()
+}
+
+fn key_places(source: &str) -> KeyPlaces {
+    let mut found: std::collections::HashMap<Vec<String>, Vec<(usize, usize)>> = std::collections::HashMap::new();
     let mut table: Vec<String> = Vec::new();
     let mut offset = 0;
     for line in source.split_inclusive('\n') {
         let (code, _) = split_toml_comment(line.trim_end_matches('\n'));
         if let Some((segments, _)) = parse_header(code) {
-            if segments.len() > depth && segments[..depth] == *prefix && segments[depth] == *old
-                && let Some(open) = code.find(|character: char| character != '[' && !character.is_whitespace())
+            if let Some(open) = code.find(|character: char| character != '[' && !character.is_whitespace())
                 && let Some(close) = code.rfind(|character: char| character != ']' && !character.is_whitespace())
-                && let Some((start, end)) = segment_range(&code[open..close + 1], depth)
             {
-                found.push((offset + open + start, offset + open + end));
+                for depth in 0..segments.len() {
+                    if let Some((start, end)) = segment_range(&code[open..close + 1], depth) {
+                        found.entry(segments[..=depth].to_vec()).or_default().push((offset + open + start, offset + open + end));
+                    }
+                }
             }
             table = segments;
         } else if let Some((key, start, end)) = key_assignment(code) {
             let mut full = table.clone();
             full.extend(split_key_path(&key).unwrap_or_else(|| vec![key.clone()]));
-            if full.len() > depth
-                && depth >= table.len()
-                && full[..depth] == *prefix
-                && full[depth] == *old
-                && let Some((from, to)) = segment_range(&code[start..end], depth - table.len())
-            {
-                found.push((offset + start + from, offset + start + to));
+            for depth in table.len()..full.len() {
+                if let Some((from, to)) = segment_range(&code[start..end], depth - table.len()) {
+                    found.entry(full[..=depth].to_vec()).or_default().push((offset + start + from, offset + start + to));
+                }
             }
         }
         offset += line.len();
     }
-    found
+    KeyPlaces(found)
 }
 
 /// The line where `previous` first writes a key whose path (in `table`, a

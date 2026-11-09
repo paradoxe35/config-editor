@@ -525,30 +525,44 @@ pub(super) fn repeated_block_lines(source: &str, pointer: &str) -> Option<std::o
     None
 }
 
-/// `source` with the block type or label at `pointer` renamed `new_key` in
-/// every block header that writes it (`clients "a" { … }` and
-/// `clients "b" { … }` both become `peers …`). `None` when no header does.
-pub(super) fn rename_block_key(source: &str, pointer: &str, new_key: &str) -> Option<String> {
-    let wanted = pointer_segments(pointer);
-    let scan = analyze(source, 0);
-    // Each place: its span, and whether it is a label (which may be a
-    // string).
-    let mut edits: Vec<((usize, usize), bool)> = Vec::new();
-    for header in &scan.headers {
-        let mut path = body_path(&scan, header.parent);
-        path.push(header.block_type.clone());
-        if path == wanted {
-            edits.push((header.type_span, false));
-            continue;
-        }
-        for (label, span) in header.labels.iter().zip(&header.label_spans) {
-            path.push(label.clone());
-            if path == wanted {
-                edits.push((*span, true));
-                break;
+/// Where `source` writes its block types and labels by path (each place's
+/// span, and whether it is a label, which may be a string), and the paths
+/// of its block types and attributes written in a body (identifiers).
+struct KeyPlaces {
+    renames: std::collections::HashMap<Vec<String>, Vec<Place>>,
+    identifiers: std::collections::HashSet<Vec<String>>,
+}
+
+/// A key's place: its span, and whether it is a label.
+type Place = ((usize, usize), bool);
+
+/// The places of `source`'s keys: scanned once per batch over it.
+fn key_places(source: &str) -> std::rc::Rc<KeyPlaces> {
+    crate::editor::paths::batch_cached_as(crate::editor::work_count::Work::KeyScan, source, || {
+        let scan = analyze(source, 0);
+        let mut renames: std::collections::HashMap<Vec<String>, Vec<Place>> = std::collections::HashMap::new();
+        let mut identifiers = std::collections::HashSet::new();
+        for header in &scan.headers {
+            let mut path = body_path(&scan, header.parent);
+            path.push(header.block_type.clone());
+            renames.entry(path.clone()).or_default().push((header.type_span, false));
+            identifiers.insert(path.clone());
+            for (label, span) in header.labels.iter().zip(&header.label_spans) {
+                path.push(label.clone());
+                renames.entry(path.clone()).or_default().push((*span, true));
             }
         }
-    }
+        identifiers.extend(scan.attributes.iter().filter(|attribute| attribute.prefix.is_empty()).map(|attribute| attribute_path(&scan, attribute)));
+        KeyPlaces { renames, identifiers }
+    })
+}
+
+/// The edits renaming the block type or label at `pointer` `new_key` in
+/// every block written with it.
+pub(super) fn block_key_renames(source: &str, pointer: &str, new_key: &str) -> Option<Vec<crate::editor::language::KeyEdit>> {
+    let wanted = pointer_segments(pointer);
+    let places = key_places(source);
+    let mut edits: Vec<Place> = places.renames.get(&wanted).cloned().unwrap_or_default();
     // A string (`"host name"`) only as a label.
     let string = new_key.starts_with('"');
     if edits.is_empty() || string && edits.iter().any(|(_, label)| !label) {
@@ -556,27 +570,21 @@ pub(super) fn rename_block_key(source: &str, pointer: &str, new_key: &str) -> Op
     }
     edits.sort();
     edits.dedup();
-    let mut renamed = source.to_string();
-    for ((start, end), _) in edits.into_iter().rev() {
-        // A quoted label keeps its quotes around a bare new key.
-        let quoted = source[start..end].starts_with('"') && !string;
-        let (start, end) = if quoted { (start + 1, end - 1) } else { (start, end) };
-        renamed.replace_range(start..end, new_key);
-    }
-    Some(renamed)
+    Some(
+        edits
+            .into_iter()
+            .map(|((start, end), _)| {
+                // A quoted label keeps its quotes around a bare new key.
+                let quoted = source[start..end].starts_with('"') && !string;
+                let (start, end) = if quoted { (start + 1, end - 1) } else { (start, end) };
+                (start..end, new_key.to_string())
+            })
+            .collect(),
+    )
 }
 
 /// Whether `pointer` names a block type or an attribute written in a body
 /// of `source` (which HCL writes only as identifiers).
 pub(super) fn names_block_or_attribute(source: &str, pointer: &str) -> bool {
-    let wanted = pointer_segments(pointer);
-    let scan = analyze(source, 0);
-    scan.headers.iter().any(|header| {
-        let mut path = body_path(&scan, header.parent);
-        path.push(header.block_type.clone());
-        path == wanted
-    }) || scan
-        .attributes
-        .iter()
-        .any(|attribute| attribute.prefix.is_empty() && attribute_path(&scan, attribute) == wanted)
+    key_places(source).identifiers.contains(&pointer_segments(pointer))
 }

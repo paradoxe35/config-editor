@@ -548,7 +548,7 @@ pub(crate) fn completions_in(
 }
 
 /// Where else the key the option replaces is written (UTF-16 ranges), per
-/// the language's [`ConfigLanguage::rename_key`]: other dotted keys and
+/// the language's [`ConfigLanguage::key_renames`]: other dotted keys and
 /// headers through it, other blocks or elements of its name. Empty unless
 /// the replaced text is a whole key written in the document.
 fn other_places(
@@ -580,7 +580,10 @@ fn other_places(
     }
     pointer.push('/');
     pointer.push_str(&old.replace('~', "~0").replace('/', "~1"));
-    let Some(renamed) = behavior.rename_key(source, &pointer, STAND_IN) else {
+    let Some(renamed) = behavior
+        .key_renames(source, &pointer, STAND_IN)
+        .map(|edits| crate::editor::language::with_edits(source, edits))
+    else {
         return Vec::new();
     };
     // Each stand-in maps back to the word it replaced.

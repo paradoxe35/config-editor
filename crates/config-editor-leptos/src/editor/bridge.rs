@@ -15,6 +15,15 @@ use std::sync::Arc;
 
 mod emptied_quotes;
 mod host_strings;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod many_values_tests;
 mod merge;
 mod shared;
 mod tags;
@@ -303,14 +312,17 @@ impl Bridge {
         let previous_host = restored.as_deref().unwrap_or(previous_host);
         // The first patch that applies, of those that change only what one
         // edit touched. A patch that writes a map in another form (an HCL
-        // block as an attribute) is not taken.
+        // block as an attribute) is not taken. Each patch places what it
+        // writes from the text's lines split once (see `with_lines`).
         let first = |patches: &[Patch],
                      previous: &str,
                      old: &serde_json::Value,
                      target: &serde_json::Value| {
-            patches.iter().find_map(|patch| {
-                patch(host, previous, old, target, shape)
-                    .filter(|patched| host.changed_form(previous, patched).is_none())
+            with_lines(host, previous, || {
+                patches.iter().find_map(|patch| {
+                    patch(host, previous, old, target, shape)
+                        .filter(|patched| host.changed_form(previous, patched).is_none())
+                })
             })
         };
         let precise = |previous: &str, old: &serde_json::Value, target: &serde_json::Value| {
@@ -330,7 +342,9 @@ impl Bridge {
             // stage may part what the whole edit does not).
             let detached = shared::detached(host, previous, (old, target), shape);
             let previous = detached.as_deref().unwrap_or(previous);
-            if let Some(pointer) = codec::unmoved_comments(host, previous, old, target) {
+            if let Some(pointer) = with_lines(host, previous, || {
+                codec::unmoved_comments(host, previous, old, target)
+            }) {
                 return Err(ConvertError::Unsupported(format!(
                     "these items cannot be moved with their comments: move them editing as {} (at {pointer})",
                     self.host.label()
@@ -523,9 +537,18 @@ fn in_order(
     if current != *target || codec::same_order(&current, target) {
         return text;
     }
-    codec::patch_key_order(host, &text, &current, target, shape)
-        .filter(|moved| host.changed_form(&text, moved).is_none())
-        .unwrap_or(text)
+    with_lines(host, &text, || {
+        codec::patch_key_order(host, &text, &current, target, shape)
+            .filter(|moved| host.changed_form(&text, moved).is_none())
+    })
+    .unwrap_or(text)
+}
+
+/// `work` with what `host` reads of all of `text` (its lines, its scan)
+/// read once for every lookup in it: a save placing many values (a
+/// replace-all, a paste, a reorder) read the text from the top for each.
+fn with_lines<T>(host: &dyn ConfigLanguage, text: &str, work: impl FnOnce() -> T) -> T {
+    super::paths::with_spans(host, text, &[], work)
 }
 
 /// `value` with each scalar changed from `old` as the host saves it there
@@ -538,19 +561,23 @@ fn host_scalars(
 ) -> Result<serde_json::Value, SaveError> {
     let mut changed = Vec::new();
     changed_scalars(old, &value, String::new(), &mut changed);
-    for pointer in changed {
-        let Some(slot) = value.pointer_mut(&pointer) else {
-            continue;
-        };
-        match host.scalar_edit(previous, &pointer, slot) {
-            Ok(Some(own)) => *slot = own,
-            Ok(None) => {}
-            Err(reason) => {
-                return Err(ConvertError::Unsupported(format!("{reason} (at {pointer})")).into());
+    with_lines(host, previous, || {
+        for pointer in changed {
+            let Some(slot) = value.pointer_mut(&pointer) else {
+                continue;
+            };
+            match host.scalar_edit(previous, &pointer, slot) {
+                Ok(Some(own)) => *slot = own,
+                Ok(None) => {}
+                Err(reason) => {
+                    return Err(
+                        ConvertError::Unsupported(format!("{reason} (at {pointer})")).into(),
+                    );
+                }
             }
         }
-    }
-    Ok(value)
+        Ok(value)
+    })
 }
 
 /// `target` (what the host reads back from writing `value`) with the host's
