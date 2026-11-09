@@ -17,7 +17,7 @@ import { setupEditor } from './helpers.mjs';
 // the ones under it.
 const CODE = 4.5;
 const UI = 3;
-const TOKENS = ['text', 'key', 'string', 'literal', 'value', 'punctuation', 'comment', 'locked'];
+const TOKENS = ['text', 'key', 'string', 'literal', 'value', 'punctuation', 'reference', 'interpolation', 'comment', 'locked'];
 // A line's tints, alone and under the active line's (bottom layer first).
 const TINTS = ['active-line', 'error-line', 'added-line', 'modified-line'];
 const LINES = [

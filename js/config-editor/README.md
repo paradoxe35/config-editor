@@ -1371,7 +1371,8 @@ const env = registerLanguage({
   highlight(line) {
     // Optional: [{ start, end, kind }] ranges of one line, as JavaScript
     // string indices (what `indexOf` gives); kind is
-    // "key" | "string" | "value" | "literal" | "comment" | "punctuation".
+    // "key" | "string" | "value" | "literal" | "comment" | "punctuation" |
+    // "reference" (an anchor, an alias) | "interpolation" (`${…}` in a string).
   },
   // Optional syntax, as in VS Code's language configuration:
   comments: { lineComment: "#" }, // Ctrl+/ (a list: the first is written); blockComment: ["/*", "*/"] is unwrapped

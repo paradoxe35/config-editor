@@ -277,24 +277,24 @@ fn keys_and_literals_are_coloured_in_every_form() {
 }
 
 /// (language, line, a part of it, its kind): YAML's anchors and aliases
-/// (named like keys), tags (like literals), block scalar indicators and the
+/// (references, QA 28: they were named like keys), tags (like literals), block scalar indicators and the
 /// value indicator of a complex key (punctuation), a flow collection after
 /// an anchor or a tag; TOML's `=` and the dots of a dotted key in an
 /// inline table; HCL's references and function names (named like keys)
 /// and `for`/`in` (like literals), never coloured as strings.
 fn marks() -> Vec<(Language, &'static str, &'static str, TokenKind)> {
-    use TokenKind::{Key, Literal, Punctuation};
+    use TokenKind::{Key, Literal, Punctuation, Reference};
     vec![
         (Language::YAML, "    : y", ":", Punctuation),
         (Language::YAML, "  - ? x", "?", Punctuation),
-        (Language::YAML, "a: &anchor 1", "&anchor", Key),
+        (Language::YAML, "a: &anchor 1", "&anchor", Reference),
         (Language::YAML, "a: &anchor 1", "1", Literal),
-        (Language::YAML, "b: *anchor", "*anchor", Key),
-        (Language::YAML, "  <<: *base", "*base", Key),
-        (Language::YAML, "- *item", "*item", Key),
+        (Language::YAML, "b: *anchor", "*anchor", Reference),
+        (Language::YAML, "  <<: *base", "*base", Reference),
+        (Language::YAML, "- *item", "*item", Reference),
         (Language::YAML, "t: !!str 123", "!!str", Literal),
         (Language::YAML, "t: !local value", "!local", Literal),
-        (Language::YAML, "t: !!map &m {x: 1}", "&m", Key),
+        (Language::YAML, "t: !!map &m {x: 1}", "&m", Reference),
         (Language::YAML, "s: |", "|", Punctuation),
         (Language::YAML, "f: >-", ">-", Punctuation),
         (Language::YAML, "k: |2+ # c", "|2+", Punctuation),
@@ -343,15 +343,15 @@ fn marks() -> Vec<(Language, &'static str, &'static str, TokenKind)> {
 /// collection has its brackets, and a scalar tagged `!!str` is a string,
 /// in and out of a collection.
 fn qa23_marks() -> Vec<(Language, &'static str, &'static str, TokenKind)> {
-    use TokenKind::{Key, Literal, Punctuation, String, Value};
+    use TokenKind::{Key, Literal, Punctuation, Reference, String, Value};
     vec![
-        (Language::YAML, "- {a: &x 1, b: *x}", "&x", Key),
+        (Language::YAML, "- {a: &x 1, b: *x}", "&x", Reference),
         (Language::YAML, "- {a: &x 1, b: *x}", "1", Literal),
-        (Language::YAML, "- {a: &x 1, b: *x}", "*x", Key),
-        (Language::YAML, "l: [&a x, *a]", "&a", Key),
+        (Language::YAML, "- {a: &x 1, b: *x}", "*x", Reference),
+        (Language::YAML, "l: [&a x, *a]", "&a", Reference),
         (Language::YAML, "l: [&a x, *a]", "x", Value),
-        (Language::YAML, "l: [&a x, *a]", "*a", Key),
-        (Language::YAML, "  &m {k: v}", "&m", Key),
+        (Language::YAML, "l: [&a x, *a]", "*a", Reference),
+        (Language::YAML, "  &m {k: v}", "&m", Reference),
         (Language::YAML, "t: !!str 123", "123", String),
         (Language::YAML, "t: !!str true", "true", String),
         (Language::YAML, "t: !!int 123", "123", Literal),

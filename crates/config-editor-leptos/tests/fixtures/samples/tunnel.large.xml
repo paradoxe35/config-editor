@@ -43,350 +43,350 @@
     <allow>10.0.0.0/8</allow>
   </self>
   <clients>
-    <etiolles-pve>
-      <secret>«secret 5818670a»</secret>
-      <secret>«secret 19825b9e»</secret>
-    </etiolles-pve>
-    <etiolles-pve-ai>
-      <secret>«secret 705fde3f»</secret>
+    <site-a-node>
+      <secret>«secret f406d0bd»</secret>
+      <secret>«secret ceab0b0b»</secret>
+    </site-a-node>
+    <site-a-node-ai>
+      <secret>«secret d08633de»</secret>
       <max_connections>264</max_connections>
-    </etiolles-pve-ai>
-    <etiolles-pve-stagging>
-      <secret>«secret 48c47811»</secret>
-    </etiolles-pve-stagging>
-    <etiolles-pve-prod>
-      <secret>«secret d6a35514»</secret>
-      <secret>«secret 3785dc8c»</secret>
-    </etiolles-pve-prod>
-    <etiolles-ai-server>
-      <secret>«secret dec8b341»</secret>
-    </etiolles-ai-server>
-    <etiolles-nas>
-      <secret>«secret ace3ed09»</secret>
+    </site-a-node-ai>
+    <site-a-node-staging>
+      <secret>«secret ecc24019»</secret>
+    </site-a-node-staging>
+    <site-a-node-prod>
+      <secret>«secret 5b764a6d»</secret>
+      <secret>«secret 5372e49b»</secret>
+    </site-a-node-prod>
+    <site-a-ai-server>
+      <secret>«secret 344a0821»</secret>
+    </site-a-ai-server>
+    <site-a-storage>
+      <secret>«secret 4f62a716»</secret>
       <max_connections>296</max_connections>
-    </etiolles-nas>
-    <etiolles-edge>
-      <secret>«secret 543e0f0c»</secret>
-      <secret>«secret 510eaea4»</secret>
-    </etiolles-edge>
-    <etiolles-backup>
-      <secret>«secret 7119212f»</secret>
-    </etiolles-backup>
-    <hetzner-pve>
-      <secret>«secret 6529649b»</secret>
-    </hetzner-pve>
-    <hetzner-pve-ai>
-      <secret>«secret 61ffe490»</secret>
-      <secret>«secret 97ce3dd0»</secret>
+    </site-a-storage>
+    <site-a-edge>
+      <secret>«secret d24a936c»</secret>
+      <secret>«secret 14be4f04»</secret>
+    </site-a-edge>
+    <site-a-backup>
+      <secret>«secret 24ae988f»</secret>
+    </site-a-backup>
+    <site-b-node>
+      <secret>«secret 6ed2f1aa»</secret>
+    </site-b-node>
+    <site-b-node-ai>
+      <secret>«secret 5be2f25f»</secret>
+      <secret>«secret 3f3a9ea1»</secret>
       <max_connections>328</max_connections>
-    </hetzner-pve-ai>
-    <hetzner-pve-stagging>
-      <secret>«secret 005f0f8e»</secret>
-    </hetzner-pve-stagging>
-    <hetzner-pve-prod>
-      <secret>«secret 5e6af347»</secret>
-    </hetzner-pve-prod>
-    <hetzner-ai-server>
-      <secret>«secret 91177d88»</secret>
-      <secret>«secret 36740a08»</secret>
-    </hetzner-ai-server>
-    <hetzner-nas>
-      <secret>«secret 5eff2d18»</secret>
+    </site-b-node-ai>
+    <site-b-node-staging>
+      <secret>«secret a674a5e6»</secret>
+    </site-b-node-staging>
+    <site-b-node-prod>
+      <secret>«secret 0ea06a34»</secret>
+    </site-b-node-prod>
+    <site-b-ai-server>
+      <secret>«secret 54644a70»</secret>
+      <secret>«secret a0b6a0b0»</secret>
+    </site-b-ai-server>
+    <site-b-storage>
+      <secret>«secret 7e80c3eb»</secret>
       <max_connections>360</max_connections>
-    </hetzner-nas>
-    <hetzner-edge>
-      <secret>«secret 42fc647f»</secret>
-    </hetzner-edge>
-    <hetzner-backup>
-      <secret>«secret 99143070»</secret>
-      <secret>«secret c57cd2b0»</secret>
-    </hetzner-backup>
-    <ikoula-pve>
-      <secret>«secret 8d766a9c»</secret>
-    </ikoula-pve>
-    <ikoula-pve-ai>
-      <secret>«secret 3a9d4e9d»</secret>
+    </site-b-storage>
+    <site-b-edge>
+      <secret>«secret f713f417»</secret>
+    </site-b-edge>
+    <site-b-backup>
+      <secret>«secret fdbd5958»</secret>
+      <secret>«secret ef22d0f8»</secret>
+    </site-b-backup>
+    <site-c-node>
+      <secret>«secret af17a88b»</secret>
+    </site-c-node>
+    <site-c-node-ai>
+      <secret>«secret ccb16760»</secret>
       <max_connections>392</max_connections>
-    </ikoula-pve-ai>
-    <ikoula-pve-stagging>
-      <secret>«secret 49cfc4ab»</secret>
-      <secret>«secret 18e0a505»</secret>
-    </ikoula-pve-stagging>
-    <ikoula-pve-prod>
-      <secret>«secret bb6c8d0a»</secret>
-    </ikoula-pve-prod>
-    <ikoula-ai-server>
-      <secret>«secret 06a3622f»</secret>
-    </ikoula-ai-server>
-    <ikoula-nas>
-      <secret>«secret 5c306bcf»</secret>
-      <secret>«secret 066204b1»</secret>
+    </site-c-node-ai>
+    <site-c-node-staging>
+      <secret>«secret 5fffb74f»</secret>
+      <secret>«secret abb90731»</secret>
+    </site-c-node-staging>
+    <site-c-node-prod>
+      <secret>«secret a4c2ee97»</secret>
+    </site-c-node-prod>
+    <site-c-ai-server>
+      <secret>«secret 43506883»</secret>
+    </site-c-ai-server>
+    <site-c-storage>
+      <secret>«secret 609e14c8»</secret>
+      <secret>«secret d36198c8»</secret>
       <max_connections>424</max_connections>
-    </ikoula-nas>
-    <ikoula-edge>
-      <secret>«secret db4a597a»</secret>
-    </ikoula-edge>
-    <ikoula-backup>
-      <secret>«secret d07e3c65»</secret>
-    </ikoula-backup>
-    <scaleway-pve>
-      <secret>«secret fd157892»</secret>
-      <secret>«secret 7915d206»</secret>
-    </scaleway-pve>
-    <scaleway-pve-ai>
-      <secret>«secret a99f0037»</secret>
+    </site-c-storage>
+    <site-c-edge>
+      <secret>«secret 0b52ae26»</secret>
+    </site-c-edge>
+    <site-c-backup>
+      <secret>«secret e53f4a19»</secret>
+    </site-c-backup>
+    <site-d-node>
+      <secret>«secret 80d86220»</secret>
+      <secret>«secret 590bd440»</secret>
+    </site-d-node>
+    <site-d-node-ai>
+      <secret>«secret 0bb1af91»</secret>
       <max_connections>456</max_connections>
-    </scaleway-pve-ai>
-    <scaleway-pve-stagging>
-      <secret>«secret 26a22099»</secret>
-    </scaleway-pve-stagging>
-    <scaleway-pve-prod>
-      <secret>«secret c7a04b8c»</secret>
-      <secret>«secret eb2a4424»</secret>
-    </scaleway-pve-prod>
-    <scaleway-ai-server>
-      <secret>«secret 3e829d89»</secret>
-    </scaleway-ai-server>
-    <scaleway-nas>
-      <secret>«secret 078c19a1»</secret>
+    </site-d-node-ai>
+    <site-d-node-staging>
+      <secret>«secret 75f91974»</secret>
+    </site-d-node-staging>
+    <site-d-node-prod>
+      <secret>«secret 759c691e»</secret>
+      <secret>«secret 0ab95efa»</secret>
+    </site-d-node-prod>
+    <site-d-ai-server>
+      <secret>«secret 4df4bc2a»</secret>
+    </site-d-ai-server>
+    <site-d-storage>
+      <secret>«secret 88c46a1d»</secret>
       <max_connections>488</max_connections>
-    </scaleway-nas>
-    <scaleway-edge>
-      <secret>«secret b1c7f3a4»</secret>
-      <secret>«secret 24344afc»</secret>
-    </scaleway-edge>
-    <scaleway-backup>
-      <secret>«secret 2e6fc0d7»</secret>
-    </scaleway-backup>
-    <ovh-pve>
-      <secret>«secret bb5aa80a»</secret>
-    </ovh-pve>
-    <ovh-pve-ai>
-      <secret>«secret 3e3be93f»</secret>
-      <secret>«secret 966b9281»</secret>
+    </site-d-storage>
+    <site-d-edge>
+      <secret>«secret a8c17909»</secret>
+      <secret>«secret eca9c58f»</secret>
+    </site-d-edge>
+    <site-d-backup>
+      <secret>«secret c548bf7a»</secret>
+    </site-d-backup>
+    <site-e-node>
+      <secret>«secret 01929081»</secret>
+    </site-e-node>
+    <site-e-node-ai>
+      <secret>«secret 1053f7e2»</secret>
+      <secret>«secret 82f83576»</secret>
       <max_connections>520</max_connections>
-    </ovh-pve-ai>
-    <ovh-pve-stagging>
-      <secret>«secret 79682b11»</secret>
-    </ovh-pve-stagging>
-    <ovh-pve-prod>
-      <secret>«secret 3921d814»</secret>
-    </ovh-pve-prod>
-    <ovh-ai-server>
-      <secret>«secret ebf0ec41»</secret>
-      <secret>«secret 3bea9707»</secret>
-    </ovh-ai-server>
-    <ovh-nas>
-      <secret>«secret 10262e09»</secret>
+    </site-e-node-ai>
+    <site-e-node-staging>
+      <secret>«secret a8e43535»</secret>
+    </site-e-node-staging>
+    <site-e-node-prod>
+      <secret>«secret cdc53a61»</secret>
+    </site-e-node-prod>
+    <site-e-ai-server>
+      <secret>«secret b3bf99ad»</secret>
+      <secret>«secret 3f07505b»</secret>
+    </site-e-ai-server>
+    <site-e-storage>
+      <secret>«secret 46962c42»</secret>
       <max_connections>552</max_connections>
-    </ovh-nas>
-    <ovh-edge>
-      <secret>«secret 958a620c»</secret>
-    </ovh-edge>
-    <ovh-backup>
-      <secret>«secret 3ef52c2f»</secret>
-      <secret>«secret edc4d311»</secret>
-    </ovh-backup>
-    <gravelines-pve>
-      <secret>«secret ccfdc3ff»</secret>
-    </gravelines-pve>
-    <gravelines-pve-ai>
-      <secret>«secret 96e06ef4»</secret>
+    </site-e-storage>
+    <site-e-edge>
+      <secret>«secret f57e2450»</secret>
+    </site-e-edge>
+    <site-e-backup>
+      <secret>«secret ab57e84b»</secret>
+      <secret>«secret 474d15a5»</secret>
+    </site-e-backup>
+    <site-f-node>
+      <secret>«secret 5651b99e»</secret>
+    </site-f-node>
+    <site-f-node-ai>
+      <secret>«secret 524926c3»</secret>
       <max_connections>584</max_connections>
-    </gravelines-pve-ai>
-    <gravelines-pve-stagging>
-      <secret>«secret d4208e9a»</secret>
-      <secret>«secret ce9430ce»</secret>
-    </gravelines-pve-stagging>
-    <gravelines-pve-prod>
-      <secret>«secret bf2bfdbb»</secret>
-    </gravelines-pve-prod>
-    <gravelines-ai-server>
-      <secret>«secret e2b436bc»</secret>
-    </gravelines-ai-server>
-    <gravelines-nas>
-      <secret>«secret 67a90a64»</secret>
-      <secret>«secret 973bc03c»</secret>
+    </site-f-node-ai>
+    <site-f-node-staging>
+      <secret>«secret fc598a22»</secret>
+      <secret>«secret b6499936»</secret>
+    </site-f-node-staging>
+    <site-f-node-prod>
+      <secret>«secret 7f607c78»</secret>
+    </site-f-node-prod>
+    <site-f-ai-server>
+      <secret>«secret 386829fc»</secret>
+    </site-f-ai-server>
+    <site-f-storage>
+      <secret>«secret ae194b87»</secret>
+      <secret>«secret 8e2cd509»</secret>
       <max_connections>616</max_connections>
-    </gravelines-nas>
-    <gravelines-edge>
-      <secret>«secret 63dfc03b»</secret>
-    </gravelines-edge>
-    <gravelines-backup>
-      <secret>«secret 9b8788a4»</secret>
-    </gravelines-backup>
-    <roubaix-pve>
-      <secret>«secret 71c21f1b»</secret>
-      <secret>«secret 6db4fe55»</secret>
-    </roubaix-pve>
-    <roubaix-pve-ai>
-      <secret>«secret 6c260810»</secret>
+    </site-f-storage>
+    <site-f-edge>
+      <secret>«secret e875eefb»</secret>
+    </site-f-edge>
+    <site-f-backup>
+      <secret>«secret 04f6ec64»</secret>
+    </site-f-backup>
+    <site-g-node>
+      <secret>«secret ef2f475f»</secret>
+      <secret>«secret 10f25da1»</secret>
+    </site-g-node>
+    <site-g-node-ai>
+      <secret>«secret fa4f74d4»</secret>
       <max_connections>648</max_connections>
-    </roubaix-pve-ai>
-    <roubaix-pve-stagging>
-      <secret>«secret 7538170e»</secret>
-    </roubaix-pve-stagging>
-    <roubaix-pve-prod>
-      <secret>«secret fbfa82c7»</secret>
-      <secret>«secret 05cef8c9»</secret>
-    </roubaix-pve-prod>
-    <roubaix-ai-server>
-      <secret>«secret 1a166408»</secret>
-    </roubaix-ai-server>
-    <roubaix-nas>
-      <secret>«secret 6b97e798»</secret>
+    </site-g-node-ai>
+    <site-g-node-staging>
+      <secret>«secret c46d858b»</secret>
+    </site-g-node-staging>
+    <site-g-node-prod>
+      <secret>«secret 962dda9b»</secret>
+      <secret>«secret 5d4550d5»</secret>
+    </site-g-node-prod>
+    <site-g-ai-server>
+      <secret>«secret 1e53ca0f»</secret>
+    </site-g-ai-server>
+    <site-g-storage>
+      <secret>«secret 1f451954»</secret>
       <max_connections>680</max_connections>
-    </roubaix-nas>
-    <roubaix-edge>
-      <secret>«secret 9769fbff»</secret>
-      <secret>«secret e56f35c1»</secret>
-    </roubaix-edge>
-    <roubaix-backup>
-      <secret>«secret a33a53f0»</secret>
-    </roubaix-backup>
-    <strasbourg-pve>
-      <secret>«secret 7544bd7b»</secret>
-    </strasbourg-pve>
-    <strasbourg-pve-ai>
-      <secret>«secret 56df5170»</secret>
-      <secret>«secret 345df5b0»</secret>
+    </site-g-storage>
+    <site-g-edge>
+      <secret>«secret edf6dc5a»</secret>
+      <secret>«secret 48a58b0e»</secret>
+    </site-g-edge>
+    <site-g-backup>
+      <secret>«secret 5d456c45»</secret>
+    </site-g-backup>
+    <site-h-node>
+      <secret>«secret 7b20c2f4»</secret>
+    </site-h-node>
+    <site-h-node-ai>
+      <secret>«secret 0bb8c9a5»</secret>
+      <secret>«secret e6c8e673»</secret>
       <max_connections>712</max_connections>
-    </strasbourg-pve-ai>
-    <strasbourg-pve-stagging>
-      <secret>«secret aac6076e»</secret>
-    </strasbourg-pve-stagging>
-    <strasbourg-pve-prod>
-      <secret>«secret 224ec727»</secret>
-    </strasbourg-pve-prod>
-    <strasbourg-ai-server>
-      <secret>«secret 00fc93e8»</secret>
-      <secret>«secret af525a68»</secret>
-    </strasbourg-ai-server>
-    <strasbourg-nas>
-      <secret>«secret 6ca01cf8»</secret>
+    </site-h-node-ai>
+    <site-h-node-staging>
+      <secret>«secret 674b77e0»</secret>
+    </site-h-node-staging>
+    <site-h-node-prod>
+      <secret>«secret 4a879272»</secret>
+    </site-h-node-prod>
+    <site-h-ai-server>
+      <secret>«secret 2b5d2e76»</secret>
+      <secret>«secret 069d0672»</secret>
+    </site-h-ai-server>
+    <site-h-storage>
+      <secret>«secret c334d529»</secret>
       <max_connections>744</max_connections>
-    </strasbourg-nas>
-    <strasbourg-edge>
-      <secret>«secret be081edf»</secret>
-    </strasbourg-edge>
-    <strasbourg-backup>
-      <secret>«secret 014d42d0»</secret>
-      <secret>«secret 3c9ce790»</secret>
-    </strasbourg-backup>
-    <frankfurt-pve>
-      <secret>«secret 3b52dc2a»</secret>
-    </frankfurt-pve>
-    <frankfurt-pve-ai>
-      <secret>«secret 655425df»</secret>
+    </site-h-storage>
+    <site-h-edge>
+      <secret>«secret 13aab29d»</secret>
+    </site-h-edge>
+    <site-h-backup>
+      <secret>«secret 30198d66»</secret>
+      <secret>«secret b5110fc2»</secret>
+    </site-h-backup>
+    <site-i-node>
+      <secret>«secret 0ae0d665»</secret>
+    </site-i-node>
+    <site-i-node-ai>
+      <secret>«secret d7167096»</secret>
       <max_connections>776</max_connections>
-    </frankfurt-pve-ai>
-    <frankfurt-pve-stagging>
-      <secret>«secret c12507b1»</secret>
-      <secret>«secret 59b67ed7»</secret>
-    </frankfurt-pve-stagging>
-    <frankfurt-pve-prod>
-      <secret>«secret 479989b4»</secret>
-    </frankfurt-pve-prod>
-    <frankfurt-ai-server>
-      <secret>«secret 93e475e1»</secret>
-    </frankfurt-ai-server>
-    <frankfurt-nas>
-      <secret>«secret 92973829»</secret>
-      <secret>«secret 77e3922f»</secret>
+    </site-i-node-ai>
+    <site-i-node-staging>
+      <secret>«secret 60a20271»</secret>
+      <secret>«secret 87ff2617»</secret>
+    </site-i-node-staging>
+    <site-i-node-prod>
+      <secret>«secret 446c06a5»</secret>
+    </site-i-node-prod>
+    <site-i-ai-server>
+      <secret>«secret 939794d9»</secret>
+    </site-i-ai-server>
+    <site-i-storage>
+      <secret>«secret aa66b53e»</secret>
+      <secret>«secret 95a0b49a»</secret>
       <max_connections>808</max_connections>
-    </frankfurt-nas>
-    <frankfurt-edge>
-      <secret>«secret e6c9a2ac»</secret>
-    </frankfurt-edge>
-    <frankfurt-backup>
-      <secret>«secret 2081a2cf»</secret>
-    </frankfurt-backup>
-    <helsinki-pve>
-      <secret>«secret e2f643b6»</secret>
-      <secret>«secret a9a1c632»</secret>
-    </helsinki-pve>
-    <helsinki-pve-ai>
-      <secret>«secret 3a98dceb»</secret>
+    </site-i-storage>
+    <site-i-edge>
+      <secret>«secret 251eaf54»</secret>
+    </site-i-edge>
+    <site-i-backup>
+      <secret>«secret f72b5d47»</secret>
+    </site-i-backup>
+    <site-j-node>
+      <secret>«secret 5da368d2»</secret>
+      <secret>«secret 7b0dadc6»</secret>
+    </site-j-node>
+    <site-j-node-ai>
+      <secret>«secret 0a7324f7»</secret>
       <max_connections>840</max_connections>
-    </helsinki-pve-ai>
-    <helsinki-pve-stagging>
-      <secret>«secret 289d9ee5»</secret>
-    </helsinki-pve-stagging>
-    <helsinki-pve-prod>
-      <secret>«secret 09af6d60»</secret>
-      <secret>«secret 0500fa00»</secret>
-    </helsinki-pve-prod>
-    <helsinki-ai-server>
-      <secret>«secret f375867d»</secret>
-    </helsinki-ai-server>
-    <helsinki-nas>
-      <secret>«secret 3e1ad54d»</secret>
+    </site-j-node-ai>
+    <site-j-node-staging>
+      <secret>«secret ca95e87e»</secret>
+    </site-j-node-staging>
+    <site-j-node-prod>
+      <secret>«secret c71c2b4c»</secret>
+      <secret>«secret 33d01264»</secret>
+    </site-j-node-prod>
+    <site-j-ai-server>
+      <secret>«secret 88f70228»</secret>
+    </site-j-ai-server>
+    <site-j-storage>
+      <secret>«secret 1a4fc033»</secret>
       <max_connections>872</max_connections>
-    </helsinki-nas>
-    <helsinki-edge>
-      <secret>«secret 8d1eadc0»</secret>
-      <secret>«secret 6b6729e0»</secret>
-    </helsinki-edge>
-    <helsinki-backup>
-      <secret>«secret f653d4bb»</secret>
-    </helsinki-backup>
-    <amsterdam-pve>
-      <secret>«secret ef286f8d»</secret>
-    </amsterdam-pve>
-    <amsterdam-pve-ai>
-      <secret>«secret acbac90e»</secret>
-      <secret>«secret b15bc64a»</secret>
+    </site-j-storage>
+    <site-j-edge>
+      <secret>«secret 9f6fa29f»</secret>
+      <secret>«secret 5608ed61»</secret>
+    </site-j-edge>
+    <site-j-backup>
+      <secret>«secret bf55db90»</secret>
+    </site-j-backup>
+    <site-k-node>
+      <secret>«secret e7b9a693»</secret>
+    </site-k-node>
+    <site-k-node-ai>
+      <secret>«secret 139f52d8»</secret>
+      <secret>«secret 08f65d78»</secret>
       <max_connections>904</max_connections>
-    </amsterdam-pve-ai>
-    <amsterdam-pve-stagging>
-      <secret>«secret 02fa1310»</secret>
-    </amsterdam-pve-stagging>
-    <amsterdam-pve-prod>
-      <secret>«secret a7a10d5d»</secret>
-    </amsterdam-pve-prod>
-    <amsterdam-ai-server>
-      <secret>«secret b5f4b4b6»</secret>
-      <secret>«secret a9c8d932»</secret>
-    </amsterdam-ai-server>
-    <amsterdam-nas>
-      <secret>«secret 3298100e»</secret>
+    </site-k-node-ai>
+    <site-k-node-staging>
+      <secret>«secret 388c48a7»</secret>
+    </site-k-node-staging>
+    <site-k-node-prod>
+      <secret>«secret ec21a9cf»</secret>
+    </site-k-node-prod>
+    <site-k-ai-server>
+      <secret>«secret 57cbc75b»</secret>
+      <secret>«secret b801cc15»</secret>
+    </site-k-ai-server>
+    <site-k-storage>
+      <secret>«secret ec158910»</secret>
       <max_connections>936</max_connections>
-    </amsterdam-nas>
-    <amsterdam-edge>
-      <secret>«secret 06f7fc5d»</secret>
-    </amsterdam-edge>
-    <amsterdam-backup>
-      <secret>«secret d4394126»</secret>
-      <secret>«secret 5106d402»</secret>
-    </amsterdam-backup>
-    <london-pve>
-      <secret>«secret 57909735»</secret>
-    </london-pve>
-    <london-pve-ai>
-      <secret>«secret 0d45c246»</secret>
+    </site-k-storage>
+    <site-k-edge>
+      <secret>«secret 4bd4ed2e»</secret>
+    </site-k-edge>
+    <site-k-backup>
+      <secret>«secret 6408cb51»</secret>
+      <secret>«secret 1a4c3c77»</secret>
+    </site-k-backup>
+    <site-l-node>
+      <secret>«secret 5a2ac608»</secret>
+    </site-l-node>
+    <site-l-node-ai>
+      <secret>«secret 819e1c69»</secret>
       <max_connections>968</max_connections>
-    </london-pve-ai>
-    <london-pve-stagging>
-      <secret>«secret 945a3e18»</secret>
-      <secret>«secret f00d7b38»</secret>
-    </london-pve-stagging>
-    <london-pve-prod>
-      <secret>«secret ea2cbc95»</secret>
-    </london-pve-prod>
-    <london-ai-server>
-      <secret>«secret 6530fc7e»</secret>
-    </london-ai-server>
-    <london-nas>
-      <secret>«secret 687db766»</secret>
-      <secret>«secret d7030dc2»</secret>
+    </site-l-node-ai>
+    <site-l-node-staging>
+      <secret>«secret 100f7b4c»</secret>
+      <secret>«secret 70560264»</secret>
+    </site-l-node-staging>
+    <site-l-node-prod>
+      <secret>«secret 99f28836»</secret>
+    </site-l-node-prod>
+    <site-l-ai-server>
+      <secret>«secret f6dad462»</secret>
+    </site-l-ai-server>
+    <site-l-storage>
+      <secret>«secret b71218a5»</secret>
+      <secret>«secret b9b91373»</secret>
       <max_connections>1000</max_connections>
-    </london-nas>
-    <london-edge>
-      <secret>«secret 68636d75»</secret>
-    </london-edge>
-    <london-backup>
-      <secret>«secret 1d73e68e»</secret>
-    </london-backup>
+    </site-l-storage>
+    <site-l-edge>
+      <secret>«secret c05944d1»</secret>
+    </site-l-edge>
+    <site-l-backup>
+      <secret>«secret 4be31c92»</secret>
+    </site-l-backup>
   </clients>
   <visitors>
     <victor-pc>
@@ -398,9 +398,9 @@
       <secret>«secret 05b5759c»</secret>
       <admin>read</admin>
       <reach>
-        <etiolles-pve-ai>hetzner-pve-ssh</etiolles-pve-ai>
-        <etiolles-pve-ai>hetzner-pve-web</etiolles-pve-ai>
-        <etiolles-backup>self</etiolles-backup>
+        <site-a-node-ai>site-b-node-ssh</site-a-node-ai>
+        <site-a-node-ai>site-b-node-web</site-a-node-ai>
+        <site-a-backup>self</site-a-backup>
       </reach>
     </victor-laptop>
     <wendy-pc>
@@ -416,9 +416,9 @@
     <ops-oncall>
       <secret>«secret e1e1bb70»</secret>
       <reach>
-        <etiolles-ai-server>ovh-pve-ssh</etiolles-ai-server>
-        <etiolles-ai-server>ovh-pve-web</etiolles-ai-server>
-        <scaleway-ai-server>self</scaleway-ai-server>
+        <site-a-ai-server>site-e-node-ssh</site-a-ai-server>
+        <site-a-ai-server>site-e-node-web</site-a-ai-server>
+        <site-d-ai-server>self</site-d-ai-server>
       </reach>
     </ops-oncall>
     <ci-runner>
@@ -434,9 +434,9 @@
     <backup-agent>
       <secret>«secret 5aa94430»</secret>
       <reach>
-        <etiolles-backup>strasbourg-pve-ssh</etiolles-backup>
-        <etiolles-backup>strasbourg-pve-web</etiolles-backup>
-        <roubaix-pve-ai>self</roubaix-pve-ai>
+        <site-a-backup>site-h-node-ssh</site-a-backup>
+        <site-a-backup>site-h-node-web</site-a-backup>
+        <site-g-node-ai>self</site-g-node-ai>
       </reach>
     </backup-agent>
     <alice-laptop>
@@ -452,9 +452,9 @@
       <secret>«secret 6b7d2fd2»</secret>
       <admin>write</admin>
       <reach>
-        <hetzner-pve-stagging>amsterdam-pve-ssh</hetzner-pve-stagging>
-        <hetzner-pve-stagging>amsterdam-pve-web</hetzner-pve-stagging>
-        <frankfurt-edge>self</frankfurt-edge>
+        <site-b-node-staging>site-k-node-ssh</site-b-node-staging>
+        <site-b-node-staging>site-k-node-web</site-b-node-staging>
+        <site-i-edge>self</site-i-edge>
       </reach>
       <max_connections>42</max_connections>
     </carol-tablet>
@@ -469,9 +469,9 @@
     <frank-pc>
       <secret>«secret b9b4c514»</secret>
       <reach>
-        <hetzner-nas>hetzner-pve-ssh</hetzner-nas>
-        <hetzner-nas>hetzner-pve-web</hetzner-nas>
-        <london-pve-prod>self</london-pve-prod>
+        <site-b-storage>site-b-node-ssh</site-b-storage>
+        <site-b-storage>site-b-node-web</site-b-storage>
+        <site-l-node-prod>self</site-l-node-prod>
       </reach>
     </frank-pc>
     <grace-phone>
@@ -489,7 +489,7 @@
       <secret>«secret 7cd17faf»</secret>
       <admin>read</admin>
       <reach>
-        <ikoula-pve>self</ikoula-pve>
+        <site-c-node>self</site-c-node>
       </reach>
     </ivan-desktop>
     <judy-laptop>
@@ -503,9 +503,9 @@
     <niaj-laptop>
       <secret>«secret 422c427b»</secret>
       <reach>
-        <ikoula-pve-prod>strasbourg-pve-ssh</ikoula-pve-prod>
-        <ikoula-pve-prod>strasbourg-pve-web</ikoula-pve-prod>
-        <ovh-nas>self</ovh-nas>
+        <site-c-node-prod>site-h-node-ssh</site-c-node-prod>
+        <site-c-node-prod>site-h-node-web</site-c-node-prod>
+        <site-e-storage>self</site-e-storage>
       </reach>
     </niaj-laptop>
     <olivia-pc>
@@ -522,9 +522,9 @@
     <rupert-desktop>
       <secret>«secret bd1f8327»</secret>
       <reach>
-        <ikoula-edge>amsterdam-pve-ssh</ikoula-edge>
-        <ikoula-edge>amsterdam-pve-web</ikoula-edge>
-        <strasbourg-pve-stagging>self</strasbourg-pve-stagging>
+        <site-c-edge>site-k-node-ssh</site-c-edge>
+        <site-c-edge>site-k-node-web</site-c-edge>
+        <site-h-node-staging>self</site-h-node-staging>
       </reach>
       <max_connections>54</max_connections>
     </rupert-desktop>
@@ -537,16 +537,16 @@
     </trent-admin>
   </visitors>
   <services>
-    <etiolles-pve-ssh>
-      <client>etiolles-pve</client>
+    <site-a-node-ssh>
+      <client>site-a-node</client>
       <target>22</target>
       <visitors>victor-pc</visitors>
       <visitors>victor-laptop</visitors>
-    </etiolles-pve-ssh>
-    <etiolles-pve-web>
+    </site-a-node-ssh>
+    <site-a-node-web>
       <target>8006</target>
-      <clients>etiolles-pve</clients>
-      <clients>etiolles-pve-ai</clients>
+      <clients>site-a-node</clients>
+      <clients>site-a-node-ai</clients>
       <mode>failover</mode>
       <visitors>victor-pc</visitors>
       <visitors>wendy-pc</visitors>
@@ -556,37 +556,37 @@
         <failures>2</failures>
         <path>/api2/json/version</path>
       </health_check>
-    </etiolles-pve-web>
-    <etiolles-vm-ssh>
+    </site-a-node-web>
+    <site-a-vm-ssh>
       <bind>65001</bind>
       <target>192.168.50.142:22</target>
-      <clients>etiolles-pve</clients>
-      <clients>etiolles-pve-ai</clients>
+      <clients>site-a-node</clients>
+      <clients>site-a-node-ai</clients>
       <allow_from>10.0.0.0/16</allow_from>
       <allow_from>192.168.0.0/16</allow_from>
       <deny_from>10.66.0.0/16</deny_from>
       <deny_from>172.16.0.0/12</deny_from>
       <max_connections>64</max_connections>
-    </etiolles-vm-ssh>
-    <etiolles-wireguard>
+    </site-a-vm-ssh>
+    <site-a-wireguard>
       <target>192.168.50.164:51820</target>
       <bind>65002</bind>
       <protocol>udp</protocol>
-      <clients>etiolles-pve</clients>
-      <clients>etiolles-pve-ai</clients>
+      <clients>site-a-node</clients>
+      <clients>site-a-node-ai</clients>
       <visitors>victor-pc</visitors>
       <visitors>victor-laptop</visitors>
       <bandwidth>10mbit</bandwidth>
-    </etiolles-wireguard>
-    <etiolles-wgdashboard>
+    </site-a-wireguard>
+    <site-a-wgdashboard>
       <target>192.168.50.164:10086</target>
       <clients>
-        <name>etiolles-pve</name>
+        <name>site-a-node</name>
         <target>10086</target>
         <weight>10</weight>
       </clients>
       <clients>
-        <name>etiolles-pve-ai</name>
+        <name>site-a-node-ai</name>
         <target>192.168.50.165:10086</target>
         <weight>1</weight>
       </clients>
@@ -594,24 +594,24 @@
       <visitors>victor-pc</visitors>
       <visitors>wendy-pc</visitors>
       <proxy_protocol>v1</proxy_protocol>
-    </etiolles-wgdashboard>
-    <etiolles-backup-sync>
-      <client>etiolles-backup</client>
+    </site-a-wgdashboard>
+    <site-a-backup-sync>
+      <client>site-a-backup</client>
       <target>192.168.50.20:873</target>
       <health_check>true</health_check>
       <visitors>backup-agent</visitors>
       <visitors>alice-laptop</visitors>
-    </etiolles-backup-sync>
-    <hetzner-pve-ssh>
-      <client>hetzner-pve</client>
+    </site-a-backup-sync>
+    <site-b-node-ssh>
+      <client>site-b-node</client>
       <target>22</target>
       <visitors>victor-laptop</visitors>
       <visitors>wendy-pc</visitors>
-    </hetzner-pve-ssh>
-    <hetzner-pve-web>
+    </site-b-node-ssh>
+    <site-b-node-web>
       <target>8006</target>
-      <clients>hetzner-pve</clients>
-      <clients>hetzner-pve-ai</clients>
+      <clients>site-b-node</clients>
+      <clients>site-b-node-ai</clients>
       <mode>balance</mode>
       <visitors>victor-pc</visitors>
       <visitors>wendy-phone</visitors>
@@ -621,37 +621,37 @@
         <failures>2</failures>
         <path>/api2/json/version</path>
       </health_check>
-    </hetzner-pve-web>
-    <hetzner-vm-ssh>
+    </site-b-node-web>
+    <site-b-vm-ssh>
       <bind>65003</bind>
       <target>192.168.51.142:22</target>
-      <clients>hetzner-pve</clients>
-      <clients>hetzner-pve-ai</clients>
+      <clients>site-b-node</clients>
+      <clients>site-b-node-ai</clients>
       <allow_from>10.1.0.0/16</allow_from>
       <allow_from>192.168.0.0/16</allow_from>
       <deny_from>10.66.0.0/16</deny_from>
       <deny_from>172.16.0.0/12</deny_from>
       <max_connections>64</max_connections>
-    </hetzner-vm-ssh>
-    <hetzner-wireguard>
+    </site-b-vm-ssh>
+    <site-b-wireguard>
       <target>192.168.51.164:51820</target>
       <bind>65004</bind>
       <protocol>udp</protocol>
-      <clients>hetzner-pve</clients>
-      <clients>hetzner-pve-ai</clients>
+      <clients>site-b-node</clients>
+      <clients>site-b-node-ai</clients>
       <visitors>victor-pc</visitors>
       <visitors>victor-laptop</visitors>
       <bandwidth>20mbit</bandwidth>
-    </hetzner-wireguard>
-    <hetzner-wgdashboard>
+    </site-b-wireguard>
+    <site-b-wgdashboard>
       <target>192.168.51.164:10086</target>
       <clients>
-        <name>hetzner-pve</name>
+        <name>site-b-node</name>
         <target>10086</target>
         <weight>11</weight>
       </clients>
       <clients>
-        <name>hetzner-pve-ai</name>
+        <name>site-b-node-ai</name>
         <target>192.168.51.165:10086</target>
         <weight>1</weight>
       </clients>
@@ -659,24 +659,24 @@
       <visitors>victor-pc</visitors>
       <visitors>wendy-pc</visitors>
       <proxy_protocol>v2</proxy_protocol>
-    </hetzner-wgdashboard>
-    <hetzner-backup-sync>
-      <client>hetzner-backup</client>
+    </site-b-wgdashboard>
+    <site-b-backup-sync>
+      <client>site-b-backup</client>
       <target>192.168.51.20:873</target>
       <health_check>false</health_check>
       <visitors>backup-agent</visitors>
       <visitors>alice-laptop</visitors>
-    </hetzner-backup-sync>
-    <ikoula-pve-ssh>
-      <client>ikoula-pve</client>
+    </site-b-backup-sync>
+    <site-c-node-ssh>
+      <client>site-c-node</client>
       <target>22</target>
       <visitors>wendy-pc</visitors>
       <visitors>wendy-phone</visitors>
-    </ikoula-pve-ssh>
-    <ikoula-pve-web>
+    </site-c-node-ssh>
+    <site-c-node-web>
       <target>8006</target>
-      <clients>ikoula-pve</clients>
-      <clients>ikoula-pve-ai</clients>
+      <clients>site-c-node</clients>
+      <clients>site-c-node-ai</clients>
       <mode>least_connections</mode>
       <visitors>victor-pc</visitors>
       <visitors>ops-oncall</visitors>
@@ -686,37 +686,37 @@
         <failures>2</failures>
         <path>/api2/json/version</path>
       </health_check>
-    </ikoula-pve-web>
-    <ikoula-vm-ssh>
+    </site-c-node-web>
+    <site-c-vm-ssh>
       <bind>65005</bind>
       <target>192.168.52.142:22</target>
-      <clients>ikoula-pve</clients>
-      <clients>ikoula-pve-ai</clients>
+      <clients>site-c-node</clients>
+      <clients>site-c-node-ai</clients>
       <allow_from>10.2.0.0/16</allow_from>
       <allow_from>192.168.0.0/16</allow_from>
       <deny_from>10.66.0.0/16</deny_from>
       <deny_from>172.16.0.0/12</deny_from>
       <max_connections>64</max_connections>
-    </ikoula-vm-ssh>
-    <ikoula-wireguard>
+    </site-c-vm-ssh>
+    <site-c-wireguard>
       <target>192.168.52.164:51820</target>
       <bind>65006</bind>
       <protocol>udp</protocol>
-      <clients>ikoula-pve</clients>
-      <clients>ikoula-pve-ai</clients>
+      <clients>site-c-node</clients>
+      <clients>site-c-node-ai</clients>
       <visitors>victor-pc</visitors>
       <visitors>victor-laptop</visitors>
       <bandwidth>30mbit</bandwidth>
-    </ikoula-wireguard>
-    <ikoula-wgdashboard>
+    </site-c-wireguard>
+    <site-c-wgdashboard>
       <target>192.168.52.164:10086</target>
       <clients>
-        <name>ikoula-pve</name>
+        <name>site-c-node</name>
         <target>10086</target>
         <weight>12</weight>
       </clients>
       <clients>
-        <name>ikoula-pve-ai</name>
+        <name>site-c-node-ai</name>
         <target>192.168.52.165:10086</target>
         <weight>1</weight>
       </clients>
@@ -724,24 +724,24 @@
       <visitors>victor-pc</visitors>
       <visitors>wendy-pc</visitors>
       <proxy_protocol>v1</proxy_protocol>
-    </ikoula-wgdashboard>
-    <ikoula-backup-sync>
-      <client>ikoula-backup</client>
+    </site-c-wgdashboard>
+    <site-c-backup-sync>
+      <client>site-c-backup</client>
       <target>192.168.52.20:873</target>
       <health_check>true</health_check>
       <visitors>backup-agent</visitors>
       <visitors>alice-laptop</visitors>
-    </ikoula-backup-sync>
-    <scaleway-pve-ssh>
-      <client>scaleway-pve</client>
+    </site-c-backup-sync>
+    <site-d-node-ssh>
+      <client>site-d-node</client>
       <target>22</target>
       <visitors>wendy-phone</visitors>
       <visitors>ops-oncall</visitors>
-    </scaleway-pve-ssh>
-    <scaleway-pve-web>
+    </site-d-node-ssh>
+    <site-d-node-web>
       <target>8006</target>
-      <clients>scaleway-pve</clients>
-      <clients>scaleway-pve-ai</clients>
+      <clients>site-d-node</clients>
+      <clients>site-d-node-ai</clients>
       <mode>ip_hash</mode>
       <visitors>victor-pc</visitors>
       <visitors>ci-runner</visitors>
@@ -751,37 +751,37 @@
         <failures>2</failures>
         <path>/api2/json/version</path>
       </health_check>
-    </scaleway-pve-web>
-    <scaleway-vm-ssh>
+    </site-d-node-web>
+    <site-d-vm-ssh>
       <bind>65007</bind>
       <target>192.168.53.142:22</target>
-      <clients>scaleway-pve</clients>
-      <clients>scaleway-pve-ai</clients>
+      <clients>site-d-node</clients>
+      <clients>site-d-node-ai</clients>
       <allow_from>10.3.0.0/16</allow_from>
       <allow_from>192.168.0.0/16</allow_from>
       <deny_from>10.66.0.0/16</deny_from>
       <deny_from>172.16.0.0/12</deny_from>
       <max_connections>64</max_connections>
-    </scaleway-vm-ssh>
-    <scaleway-wireguard>
+    </site-d-vm-ssh>
+    <site-d-wireguard>
       <target>192.168.53.164:51820</target>
       <bind>65008</bind>
       <protocol>udp</protocol>
-      <clients>scaleway-pve</clients>
-      <clients>scaleway-pve-ai</clients>
+      <clients>site-d-node</clients>
+      <clients>site-d-node-ai</clients>
       <visitors>victor-pc</visitors>
       <visitors>victor-laptop</visitors>
       <bandwidth>40mbit</bandwidth>
-    </scaleway-wireguard>
-    <scaleway-wgdashboard>
+    </site-d-wireguard>
+    <site-d-wgdashboard>
       <target>192.168.53.164:10086</target>
       <clients>
-        <name>scaleway-pve</name>
+        <name>site-d-node</name>
         <target>10086</target>
         <weight>13</weight>
       </clients>
       <clients>
-        <name>scaleway-pve-ai</name>
+        <name>site-d-node-ai</name>
         <target>192.168.53.165:10086</target>
         <weight>1</weight>
       </clients>
@@ -789,24 +789,24 @@
       <visitors>victor-pc</visitors>
       <visitors>wendy-pc</visitors>
       <proxy_protocol>v2</proxy_protocol>
-    </scaleway-wgdashboard>
-    <scaleway-backup-sync>
-      <client>scaleway-backup</client>
+    </site-d-wgdashboard>
+    <site-d-backup-sync>
+      <client>site-d-backup</client>
       <target>192.168.53.20:873</target>
       <health_check>false</health_check>
       <visitors>backup-agent</visitors>
       <visitors>alice-laptop</visitors>
-    </scaleway-backup-sync>
-    <ovh-pve-ssh>
-      <client>ovh-pve</client>
+    </site-d-backup-sync>
+    <site-e-node-ssh>
+      <client>site-e-node</client>
       <target>22</target>
       <visitors>ops-oncall</visitors>
       <visitors>victor-pc</visitors>
-    </ovh-pve-ssh>
-    <ovh-pve-web>
+    </site-e-node-ssh>
+    <site-e-node-web>
       <target>8006</target>
-      <clients>ovh-pve</clients>
-      <clients>ovh-pve-ai</clients>
+      <clients>site-e-node</clients>
+      <clients>site-e-node-ai</clients>
       <mode>failover</mode>
       <visitors>victor-pc</visitors>
       <visitors>grafana-bot</visitors>
@@ -816,37 +816,37 @@
         <failures>2</failures>
         <path>/api2/json/version</path>
       </health_check>
-    </ovh-pve-web>
-    <ovh-vm-ssh>
+    </site-e-node-web>
+    <site-e-vm-ssh>
       <bind>65009</bind>
       <target>192.168.54.142:22</target>
-      <clients>ovh-pve</clients>
-      <clients>ovh-pve-ai</clients>
+      <clients>site-e-node</clients>
+      <clients>site-e-node-ai</clients>
       <allow_from>10.4.0.0/16</allow_from>
       <allow_from>192.168.0.0/16</allow_from>
       <deny_from>10.66.0.0/16</deny_from>
       <deny_from>172.16.0.0/12</deny_from>
       <max_connections>64</max_connections>
-    </ovh-vm-ssh>
-    <ovh-wireguard>
+    </site-e-vm-ssh>
+    <site-e-wireguard>
       <target>192.168.54.164:51820</target>
       <bind>65010</bind>
       <protocol>udp</protocol>
-      <clients>ovh-pve</clients>
-      <clients>ovh-pve-ai</clients>
+      <clients>site-e-node</clients>
+      <clients>site-e-node-ai</clients>
       <visitors>victor-pc</visitors>
       <visitors>victor-laptop</visitors>
       <bandwidth>50mbit</bandwidth>
-    </ovh-wireguard>
-    <ovh-wgdashboard>
+    </site-e-wireguard>
+    <site-e-wgdashboard>
       <target>192.168.54.164:10086</target>
       <clients>
-        <name>ovh-pve</name>
+        <name>site-e-node</name>
         <target>10086</target>
         <weight>14</weight>
       </clients>
       <clients>
-        <name>ovh-pve-ai</name>
+        <name>site-e-node-ai</name>
         <target>192.168.54.165:10086</target>
         <weight>1</weight>
       </clients>
@@ -854,24 +854,24 @@
       <visitors>victor-pc</visitors>
       <visitors>wendy-pc</visitors>
       <proxy_protocol>v1</proxy_protocol>
-    </ovh-wgdashboard>
-    <ovh-backup-sync>
-      <client>ovh-backup</client>
+    </site-e-wgdashboard>
+    <site-e-backup-sync>
+      <client>site-e-backup</client>
       <target>192.168.54.20:873</target>
       <health_check>true</health_check>
       <visitors>backup-agent</visitors>
       <visitors>alice-laptop</visitors>
-    </ovh-backup-sync>
-    <gravelines-pve-ssh>
-      <client>gravelines-pve</client>
+    </site-e-backup-sync>
+    <site-f-node-ssh>
+      <client>site-f-node</client>
       <target>22</target>
       <visitors>victor-pc</visitors>
       <visitors>victor-laptop</visitors>
-    </gravelines-pve-ssh>
-    <gravelines-pve-web>
+    </site-f-node-ssh>
+    <site-f-node-web>
       <target>8006</target>
-      <clients>gravelines-pve</clients>
-      <clients>gravelines-pve-ai</clients>
+      <clients>site-f-node</clients>
+      <clients>site-f-node-ai</clients>
       <mode>balance</mode>
       <visitors>victor-pc</visitors>
       <visitors>backup-agent</visitors>
@@ -881,37 +881,37 @@
         <failures>2</failures>
         <path>/api2/json/version</path>
       </health_check>
-    </gravelines-pve-web>
-    <gravelines-vm-ssh>
+    </site-f-node-web>
+    <site-f-vm-ssh>
       <bind>65011</bind>
       <target>192.168.55.142:22</target>
-      <clients>gravelines-pve</clients>
-      <clients>gravelines-pve-ai</clients>
+      <clients>site-f-node</clients>
+      <clients>site-f-node-ai</clients>
       <allow_from>10.5.0.0/16</allow_from>
       <allow_from>192.168.0.0/16</allow_from>
       <deny_from>10.66.0.0/16</deny_from>
       <deny_from>172.16.0.0/12</deny_from>
       <max_connections>64</max_connections>
-    </gravelines-vm-ssh>
-    <gravelines-wireguard>
+    </site-f-vm-ssh>
+    <site-f-wireguard>
       <target>192.168.55.164:51820</target>
       <bind>65012</bind>
       <protocol>udp</protocol>
-      <clients>gravelines-pve</clients>
-      <clients>gravelines-pve-ai</clients>
+      <clients>site-f-node</clients>
+      <clients>site-f-node-ai</clients>
       <visitors>victor-pc</visitors>
       <visitors>victor-laptop</visitors>
       <bandwidth>60mbit</bandwidth>
-    </gravelines-wireguard>
-    <gravelines-wgdashboard>
+    </site-f-wireguard>
+    <site-f-wgdashboard>
       <target>192.168.55.164:10086</target>
       <clients>
-        <name>gravelines-pve</name>
+        <name>site-f-node</name>
         <target>10086</target>
         <weight>15</weight>
       </clients>
       <clients>
-        <name>gravelines-pve-ai</name>
+        <name>site-f-node-ai</name>
         <target>192.168.55.165:10086</target>
         <weight>1</weight>
       </clients>
@@ -919,24 +919,24 @@
       <visitors>victor-pc</visitors>
       <visitors>wendy-pc</visitors>
       <proxy_protocol>v2</proxy_protocol>
-    </gravelines-wgdashboard>
-    <gravelines-backup-sync>
-      <client>gravelines-backup</client>
+    </site-f-wgdashboard>
+    <site-f-backup-sync>
+      <client>site-f-backup</client>
       <target>192.168.55.20:873</target>
       <health_check>false</health_check>
       <visitors>backup-agent</visitors>
       <visitors>alice-laptop</visitors>
-    </gravelines-backup-sync>
-    <roubaix-pve-ssh>
-      <client>roubaix-pve</client>
+    </site-f-backup-sync>
+    <site-g-node-ssh>
+      <client>site-g-node</client>
       <target>22</target>
       <visitors>victor-laptop</visitors>
       <visitors>wendy-pc</visitors>
-    </roubaix-pve-ssh>
-    <roubaix-pve-web>
+    </site-g-node-ssh>
+    <site-g-node-web>
       <target>8006</target>
-      <clients>roubaix-pve</clients>
-      <clients>roubaix-pve-ai</clients>
+      <clients>site-g-node</clients>
+      <clients>site-g-node-ai</clients>
       <mode>least_connections</mode>
       <visitors>victor-pc</visitors>
       <visitors>alice-laptop</visitors>
@@ -946,37 +946,37 @@
         <failures>2</failures>
         <path>/api2/json/version</path>
       </health_check>
-    </roubaix-pve-web>
-    <roubaix-vm-ssh>
+    </site-g-node-web>
+    <site-g-vm-ssh>
       <bind>65013</bind>
       <target>192.168.56.142:22</target>
-      <clients>roubaix-pve</clients>
-      <clients>roubaix-pve-ai</clients>
+      <clients>site-g-node</clients>
+      <clients>site-g-node-ai</clients>
       <allow_from>10.6.0.0/16</allow_from>
       <allow_from>192.168.0.0/16</allow_from>
       <deny_from>10.66.0.0/16</deny_from>
       <deny_from>172.16.0.0/12</deny_from>
       <max_connections>64</max_connections>
-    </roubaix-vm-ssh>
-    <roubaix-wireguard>
+    </site-g-vm-ssh>
+    <site-g-wireguard>
       <target>192.168.56.164:51820</target>
       <bind>65014</bind>
       <protocol>udp</protocol>
-      <clients>roubaix-pve</clients>
-      <clients>roubaix-pve-ai</clients>
+      <clients>site-g-node</clients>
+      <clients>site-g-node-ai</clients>
       <visitors>victor-pc</visitors>
       <visitors>victor-laptop</visitors>
       <bandwidth>70mbit</bandwidth>
-    </roubaix-wireguard>
-    <roubaix-wgdashboard>
+    </site-g-wireguard>
+    <site-g-wgdashboard>
       <target>192.168.56.164:10086</target>
       <clients>
-        <name>roubaix-pve</name>
+        <name>site-g-node</name>
         <target>10086</target>
         <weight>16</weight>
       </clients>
       <clients>
-        <name>roubaix-pve-ai</name>
+        <name>site-g-node-ai</name>
         <target>192.168.56.165:10086</target>
         <weight>1</weight>
       </clients>
@@ -984,24 +984,24 @@
       <visitors>victor-pc</visitors>
       <visitors>wendy-pc</visitors>
       <proxy_protocol>v1</proxy_protocol>
-    </roubaix-wgdashboard>
-    <roubaix-backup-sync>
-      <client>roubaix-backup</client>
+    </site-g-wgdashboard>
+    <site-g-backup-sync>
+      <client>site-g-backup</client>
       <target>192.168.56.20:873</target>
       <health_check>true</health_check>
       <visitors>backup-agent</visitors>
       <visitors>alice-laptop</visitors>
-    </roubaix-backup-sync>
-    <strasbourg-pve-ssh>
-      <client>strasbourg-pve</client>
+    </site-g-backup-sync>
+    <site-h-node-ssh>
+      <client>site-h-node</client>
       <target>22</target>
       <visitors>wendy-pc</visitors>
       <visitors>wendy-phone</visitors>
-    </strasbourg-pve-ssh>
-    <strasbourg-pve-web>
+    </site-h-node-ssh>
+    <site-h-node-web>
       <target>8006</target>
-      <clients>strasbourg-pve</clients>
-      <clients>strasbourg-pve-ai</clients>
+      <clients>site-h-node</clients>
+      <clients>site-h-node-ai</clients>
       <mode>ip_hash</mode>
       <visitors>victor-pc</visitors>
       <visitors>bob-desktop</visitors>
@@ -1011,37 +1011,37 @@
         <failures>2</failures>
         <path>/api2/json/version</path>
       </health_check>
-    </strasbourg-pve-web>
-    <strasbourg-vm-ssh>
+    </site-h-node-web>
+    <site-h-vm-ssh>
       <bind>65015</bind>
       <target>192.168.57.142:22</target>
-      <clients>strasbourg-pve</clients>
-      <clients>strasbourg-pve-ai</clients>
+      <clients>site-h-node</clients>
+      <clients>site-h-node-ai</clients>
       <allow_from>10.7.0.0/16</allow_from>
       <allow_from>192.168.0.0/16</allow_from>
       <deny_from>10.66.0.0/16</deny_from>
       <deny_from>172.16.0.0/12</deny_from>
       <max_connections>64</max_connections>
-    </strasbourg-vm-ssh>
-    <strasbourg-wireguard>
+    </site-h-vm-ssh>
+    <site-h-wireguard>
       <target>192.168.57.164:51820</target>
       <bind>65016</bind>
       <protocol>udp</protocol>
-      <clients>strasbourg-pve</clients>
-      <clients>strasbourg-pve-ai</clients>
+      <clients>site-h-node</clients>
+      <clients>site-h-node-ai</clients>
       <visitors>victor-pc</visitors>
       <visitors>victor-laptop</visitors>
       <bandwidth>80mbit</bandwidth>
-    </strasbourg-wireguard>
-    <strasbourg-wgdashboard>
+    </site-h-wireguard>
+    <site-h-wgdashboard>
       <target>192.168.57.164:10086</target>
       <clients>
-        <name>strasbourg-pve</name>
+        <name>site-h-node</name>
         <target>10086</target>
         <weight>17</weight>
       </clients>
       <clients>
-        <name>strasbourg-pve-ai</name>
+        <name>site-h-node-ai</name>
         <target>192.168.57.165:10086</target>
         <weight>1</weight>
       </clients>
@@ -1049,24 +1049,24 @@
       <visitors>victor-pc</visitors>
       <visitors>wendy-pc</visitors>
       <proxy_protocol>v2</proxy_protocol>
-    </strasbourg-wgdashboard>
-    <strasbourg-backup-sync>
-      <client>strasbourg-backup</client>
+    </site-h-wgdashboard>
+    <site-h-backup-sync>
+      <client>site-h-backup</client>
       <target>192.168.57.20:873</target>
       <health_check>false</health_check>
       <visitors>backup-agent</visitors>
       <visitors>alice-laptop</visitors>
-    </strasbourg-backup-sync>
-    <frankfurt-pve-ssh>
-      <client>frankfurt-pve</client>
+    </site-h-backup-sync>
+    <site-i-node-ssh>
+      <client>site-i-node</client>
       <target>22</target>
       <visitors>wendy-phone</visitors>
       <visitors>ops-oncall</visitors>
-    </frankfurt-pve-ssh>
-    <frankfurt-pve-web>
+    </site-i-node-ssh>
+    <site-i-node-web>
       <target>8006</target>
-      <clients>frankfurt-pve</clients>
-      <clients>frankfurt-pve-ai</clients>
+      <clients>site-i-node</clients>
+      <clients>site-i-node-ai</clients>
       <mode>failover</mode>
       <visitors>victor-pc</visitors>
       <visitors>carol-tablet</visitors>
@@ -1076,37 +1076,37 @@
         <failures>2</failures>
         <path>/api2/json/version</path>
       </health_check>
-    </frankfurt-pve-web>
-    <frankfurt-vm-ssh>
+    </site-i-node-web>
+    <site-i-vm-ssh>
       <bind>65017</bind>
       <target>192.168.58.142:22</target>
-      <clients>frankfurt-pve</clients>
-      <clients>frankfurt-pve-ai</clients>
+      <clients>site-i-node</clients>
+      <clients>site-i-node-ai</clients>
       <allow_from>10.8.0.0/16</allow_from>
       <allow_from>192.168.0.0/16</allow_from>
       <deny_from>10.66.0.0/16</deny_from>
       <deny_from>172.16.0.0/12</deny_from>
       <max_connections>64</max_connections>
-    </frankfurt-vm-ssh>
-    <frankfurt-wireguard>
+    </site-i-vm-ssh>
+    <site-i-wireguard>
       <target>192.168.58.164:51820</target>
       <bind>65018</bind>
       <protocol>udp</protocol>
-      <clients>frankfurt-pve</clients>
-      <clients>frankfurt-pve-ai</clients>
+      <clients>site-i-node</clients>
+      <clients>site-i-node-ai</clients>
       <visitors>victor-pc</visitors>
       <visitors>victor-laptop</visitors>
       <bandwidth>90mbit</bandwidth>
-    </frankfurt-wireguard>
-    <frankfurt-wgdashboard>
+    </site-i-wireguard>
+    <site-i-wgdashboard>
       <target>192.168.58.164:10086</target>
       <clients>
-        <name>frankfurt-pve</name>
+        <name>site-i-node</name>
         <target>10086</target>
         <weight>18</weight>
       </clients>
       <clients>
-        <name>frankfurt-pve-ai</name>
+        <name>site-i-node-ai</name>
         <target>192.168.58.165:10086</target>
         <weight>1</weight>
       </clients>
@@ -1114,24 +1114,24 @@
       <visitors>victor-pc</visitors>
       <visitors>wendy-pc</visitors>
       <proxy_protocol>v1</proxy_protocol>
-    </frankfurt-wgdashboard>
-    <frankfurt-backup-sync>
-      <client>frankfurt-backup</client>
+    </site-i-wgdashboard>
+    <site-i-backup-sync>
+      <client>site-i-backup</client>
       <target>192.168.58.20:873</target>
       <health_check>true</health_check>
       <visitors>backup-agent</visitors>
       <visitors>alice-laptop</visitors>
-    </frankfurt-backup-sync>
-    <helsinki-pve-ssh>
-      <client>helsinki-pve</client>
+    </site-i-backup-sync>
+    <site-j-node-ssh>
+      <client>site-j-node</client>
       <target>22</target>
       <visitors>ops-oncall</visitors>
       <visitors>victor-pc</visitors>
-    </helsinki-pve-ssh>
-    <helsinki-pve-web>
+    </site-j-node-ssh>
+    <site-j-node-web>
       <target>8006</target>
-      <clients>helsinki-pve</clients>
-      <clients>helsinki-pve-ai</clients>
+      <clients>site-j-node</clients>
+      <clients>site-j-node-ai</clients>
       <mode>balance</mode>
       <visitors>victor-pc</visitors>
       <visitors>dave-workstation</visitors>
@@ -1141,37 +1141,37 @@
         <failures>2</failures>
         <path>/api2/json/version</path>
       </health_check>
-    </helsinki-pve-web>
-    <helsinki-vm-ssh>
+    </site-j-node-web>
+    <site-j-vm-ssh>
       <bind>65019</bind>
       <target>192.168.59.142:22</target>
-      <clients>helsinki-pve</clients>
-      <clients>helsinki-pve-ai</clients>
+      <clients>site-j-node</clients>
+      <clients>site-j-node-ai</clients>
       <allow_from>10.9.0.0/16</allow_from>
       <allow_from>192.168.0.0/16</allow_from>
       <deny_from>10.66.0.0/16</deny_from>
       <deny_from>172.16.0.0/12</deny_from>
       <max_connections>64</max_connections>
-    </helsinki-vm-ssh>
-    <helsinki-wireguard>
+    </site-j-vm-ssh>
+    <site-j-wireguard>
       <target>192.168.59.164:51820</target>
       <bind>65020</bind>
       <protocol>udp</protocol>
-      <clients>helsinki-pve</clients>
-      <clients>helsinki-pve-ai</clients>
+      <clients>site-j-node</clients>
+      <clients>site-j-node-ai</clients>
       <visitors>victor-pc</visitors>
       <visitors>victor-laptop</visitors>
       <bandwidth>100mbit</bandwidth>
-    </helsinki-wireguard>
-    <helsinki-wgdashboard>
+    </site-j-wireguard>
+    <site-j-wgdashboard>
       <target>192.168.59.164:10086</target>
       <clients>
-        <name>helsinki-pve</name>
+        <name>site-j-node</name>
         <target>10086</target>
         <weight>19</weight>
       </clients>
       <clients>
-        <name>helsinki-pve-ai</name>
+        <name>site-j-node-ai</name>
         <target>192.168.59.165:10086</target>
         <weight>1</weight>
       </clients>
@@ -1179,24 +1179,24 @@
       <visitors>victor-pc</visitors>
       <visitors>wendy-pc</visitors>
       <proxy_protocol>v2</proxy_protocol>
-    </helsinki-wgdashboard>
-    <helsinki-backup-sync>
-      <client>helsinki-backup</client>
+    </site-j-wgdashboard>
+    <site-j-backup-sync>
+      <client>site-j-backup</client>
       <target>192.168.59.20:873</target>
       <health_check>false</health_check>
       <visitors>backup-agent</visitors>
       <visitors>alice-laptop</visitors>
-    </helsinki-backup-sync>
-    <amsterdam-pve-ssh>
-      <client>amsterdam-pve</client>
+    </site-j-backup-sync>
+    <site-k-node-ssh>
+      <client>site-k-node</client>
       <target>22</target>
       <visitors>victor-pc</visitors>
       <visitors>victor-laptop</visitors>
-    </amsterdam-pve-ssh>
-    <amsterdam-pve-web>
+    </site-k-node-ssh>
+    <site-k-node-web>
       <target>8006</target>
-      <clients>amsterdam-pve</clients>
-      <clients>amsterdam-pve-ai</clients>
+      <clients>site-k-node</clients>
+      <clients>site-k-node-ai</clients>
       <mode>least_connections</mode>
       <visitors>victor-pc</visitors>
       <visitors>erin-laptop</visitors>
@@ -1206,37 +1206,37 @@
         <failures>2</failures>
         <path>/api2/json/version</path>
       </health_check>
-    </amsterdam-pve-web>
-    <amsterdam-vm-ssh>
+    </site-k-node-web>
+    <site-k-vm-ssh>
       <bind>65021</bind>
       <target>192.168.60.142:22</target>
-      <clients>amsterdam-pve</clients>
-      <clients>amsterdam-pve-ai</clients>
+      <clients>site-k-node</clients>
+      <clients>site-k-node-ai</clients>
       <allow_from>10.10.0.0/16</allow_from>
       <allow_from>192.168.0.0/16</allow_from>
       <deny_from>10.66.0.0/16</deny_from>
       <deny_from>172.16.0.0/12</deny_from>
       <max_connections>64</max_connections>
-    </amsterdam-vm-ssh>
-    <amsterdam-wireguard>
+    </site-k-vm-ssh>
+    <site-k-wireguard>
       <target>192.168.60.164:51820</target>
       <bind>65022</bind>
       <protocol>udp</protocol>
-      <clients>amsterdam-pve</clients>
-      <clients>amsterdam-pve-ai</clients>
+      <clients>site-k-node</clients>
+      <clients>site-k-node-ai</clients>
       <visitors>victor-pc</visitors>
       <visitors>victor-laptop</visitors>
       <bandwidth>110mbit</bandwidth>
-    </amsterdam-wireguard>
-    <amsterdam-wgdashboard>
+    </site-k-wireguard>
+    <site-k-wgdashboard>
       <target>192.168.60.164:10086</target>
       <clients>
-        <name>amsterdam-pve</name>
+        <name>site-k-node</name>
         <target>10086</target>
         <weight>20</weight>
       </clients>
       <clients>
-        <name>amsterdam-pve-ai</name>
+        <name>site-k-node-ai</name>
         <target>192.168.60.165:10086</target>
         <weight>1</weight>
       </clients>
@@ -1244,24 +1244,24 @@
       <visitors>victor-pc</visitors>
       <visitors>wendy-pc</visitors>
       <proxy_protocol>v1</proxy_protocol>
-    </amsterdam-wgdashboard>
-    <amsterdam-backup-sync>
-      <client>amsterdam-backup</client>
+    </site-k-wgdashboard>
+    <site-k-backup-sync>
+      <client>site-k-backup</client>
       <target>192.168.60.20:873</target>
       <health_check>true</health_check>
       <visitors>backup-agent</visitors>
       <visitors>alice-laptop</visitors>
-    </amsterdam-backup-sync>
-    <london-pve-ssh>
-      <client>london-pve</client>
+    </site-k-backup-sync>
+    <site-l-node-ssh>
+      <client>site-l-node</client>
       <target>22</target>
       <visitors>victor-laptop</visitors>
       <visitors>wendy-pc</visitors>
-    </london-pve-ssh>
-    <london-pve-web>
+    </site-l-node-ssh>
+    <site-l-node-web>
       <target>8006</target>
-      <clients>london-pve</clients>
-      <clients>london-pve-ai</clients>
+      <clients>site-l-node</clients>
+      <clients>site-l-node-ai</clients>
       <mode>ip_hash</mode>
       <visitors>victor-pc</visitors>
       <visitors>frank-pc</visitors>
@@ -1271,37 +1271,37 @@
         <failures>2</failures>
         <path>/api2/json/version</path>
       </health_check>
-    </london-pve-web>
-    <london-vm-ssh>
+    </site-l-node-web>
+    <site-l-vm-ssh>
       <bind>65023</bind>
       <target>192.168.61.142:22</target>
-      <clients>london-pve</clients>
-      <clients>london-pve-ai</clients>
+      <clients>site-l-node</clients>
+      <clients>site-l-node-ai</clients>
       <allow_from>10.11.0.0/16</allow_from>
       <allow_from>192.168.0.0/16</allow_from>
       <deny_from>10.66.0.0/16</deny_from>
       <deny_from>172.16.0.0/12</deny_from>
       <max_connections>64</max_connections>
-    </london-vm-ssh>
-    <london-wireguard>
+    </site-l-vm-ssh>
+    <site-l-wireguard>
       <target>192.168.61.164:51820</target>
       <bind>65024</bind>
       <protocol>udp</protocol>
-      <clients>london-pve</clients>
-      <clients>london-pve-ai</clients>
+      <clients>site-l-node</clients>
+      <clients>site-l-node-ai</clients>
       <visitors>victor-pc</visitors>
       <visitors>victor-laptop</visitors>
       <bandwidth>120mbit</bandwidth>
-    </london-wireguard>
-    <london-wgdashboard>
+    </site-l-wireguard>
+    <site-l-wgdashboard>
       <target>192.168.61.164:10086</target>
       <clients>
-        <name>london-pve</name>
+        <name>site-l-node</name>
         <target>10086</target>
         <weight>21</weight>
       </clients>
       <clients>
-        <name>london-pve-ai</name>
+        <name>site-l-node-ai</name>
         <target>192.168.61.165:10086</target>
         <weight>1</weight>
       </clients>
@@ -1309,16 +1309,16 @@
       <visitors>victor-pc</visitors>
       <visitors>wendy-pc</visitors>
       <proxy_protocol>v2</proxy_protocol>
-    </london-wgdashboard>
-    <london-backup-sync>
-      <client>london-backup</client>
+    </site-l-wgdashboard>
+    <site-l-backup-sync>
+      <client>site-l-backup</client>
       <target>192.168.61.20:873</target>
       <health_check>false</health_check>
       <visitors>backup-agent</visitors>
       <visitors>alice-laptop</visitors>
-    </london-backup-sync>
+    </site-l-backup-sync>
     <whoami>
-      <client>etiolles-pve-prod</client>
+      <client>site-a-node-prod</client>
       <target>192.168.0.11:8000</target>
       <web>
         <hosts>whoami.example.org</hosts>
@@ -1341,7 +1341,7 @@
       </web>
     </whoami>
     <speedtest>
-      <client>hetzner-pve-prod</client>
+      <client>site-b-node-prod</client>
       <target>192.168.0.12:8080</target>
       <web>
         <hosts>speedtest.example.com</hosts>
@@ -1364,7 +1364,7 @@
       </web>
     </speedtest>
     <grafana>
-      <client>ikoula-pve-prod</client>
+      <client>site-c-node-prod</client>
       <target>192.168.0.13:3000</target>
       <web>
         <hosts>grafana.example.net</hosts>
@@ -1408,12 +1408,12 @@
           <insecure_skip_verify>true</insecure_skip_verify>
         </target_tls>
       </web>
-      <clients>scaleway-pve-prod</clients>
-      <clients>scaleway-edge</clients>
+      <clients>site-d-node-prod</clients>
+      <clients>site-d-edge</clients>
       <mode>failover</mode>
     </prometheus>
     <loki>
-      <client>ovh-pve-prod</client>
+      <client>site-e-node-prod</client>
       <target>192.168.0.15:3100</target>
       <web>
         <hosts>loki.example.com</hosts>
@@ -1434,7 +1434,7 @@
       </web>
     </loki>
     <gitea>
-      <client>gravelines-pve-prod</client>
+      <client>site-f-node-prod</client>
       <target>192.168.0.16:3000</target>
       <web>
         <hosts>gitea.example.net</hosts>
@@ -1460,7 +1460,7 @@
       </web>
     </gitea>
     <drone>
-      <client>roubaix-pve-prod</client>
+      <client>site-g-node-prod</client>
       <target>192.168.0.17:8000</target>
       <web>
         <hosts>drone.example.org</hosts>
@@ -1505,12 +1505,12 @@
           <crl>certs/nextcloud.crl</crl>
         </client_auth>
       </web>
-      <clients>strasbourg-pve-prod</clients>
-      <clients>strasbourg-edge</clients>
+      <clients>site-h-node-prod</clients>
+      <clients>site-h-edge</clients>
       <mode>failover</mode>
     </nextcloud>
     <vaultwarden>
-      <client>frankfurt-pve-prod</client>
+      <client>site-i-node-prod</client>
       <target>192.168.0.19:8081</target>
       <web>
         <hosts>vaultwarden.example.net</hosts>
@@ -1529,7 +1529,7 @@
       </web>
     </vaultwarden>
     <jellyfin>
-      <client>helsinki-pve-prod</client>
+      <client>site-j-node-prod</client>
       <target>192.168.0.20:8096</target>
       <web>
         <hosts>jellyfin.example.org</hosts>
@@ -1559,7 +1559,7 @@
       </web>
     </jellyfin>
     <immich>
-      <client>amsterdam-pve-prod</client>
+      <client>site-k-node-prod</client>
       <target>192.168.0.21:2283</target>
       <web>
         <hosts>immich.example.com</hosts>
@@ -1596,12 +1596,12 @@
           <Referrer-Policy>strict-origin-when-cross-origin</Referrer-Policy>
         </response_headers>
       </web>
-      <clients>london-pve-prod</clients>
-      <clients>london-edge</clients>
+      <clients>site-l-node-prod</clients>
+      <clients>site-l-edge</clients>
       <mode>failover</mode>
     </paperless>
     <homeassistant>
-      <client>etiolles-pve-prod</client>
+      <client>site-a-node-prod</client>
       <target>192.168.0.23:8123</target>
       <web>
         <hosts>homeassistant.example.org</hosts>
@@ -1629,7 +1629,7 @@
       </web>
     </homeassistant>
     <uptime>
-      <client>hetzner-pve-prod</client>
+      <client>site-b-node-prod</client>
       <target>192.168.0.24:3001</target>
       <web>
         <hosts>uptime.example.com</hosts>
@@ -1652,7 +1652,7 @@
       </web>
     </uptime>
     <minio>
-      <client>ikoula-pve-prod</client>
+      <client>site-c-node-prod</client>
       <target>192.168.0.25:9001</target>
       <web>
         <hosts>minio.example.net</hosts>
@@ -1694,12 +1694,12 @@
           <insecure_skip_verify>true</insecure_skip_verify>
         </target_tls>
       </web>
-      <clients>scaleway-pve-prod</clients>
-      <clients>scaleway-edge</clients>
+      <clients>site-d-node-prod</clients>
+      <clients>site-d-edge</clients>
       <mode>failover</mode>
     </keycloak>
     <outline>
-      <client>ovh-pve-prod</client>
+      <client>site-e-node-prod</client>
       <target>192.168.0.27:3000</target>
       <web>
         <hosts>outline.example.com</hosts>
@@ -1724,7 +1724,7 @@
       </web>
     </outline>
     <plausible>
-      <client>gravelines-pve-prod</client>
+      <client>site-f-node-prod</client>
       <target>192.168.0.28:8000</target>
       <web>
         <hosts>plausible.example.net</hosts>
@@ -1749,7 +1749,7 @@
       </web>
     </plausible>
     <umami>
-      <client>roubaix-pve-prod</client>
+      <client>site-g-node-prod</client>
       <target>192.168.0.29:3000</target>
       <web>
         <hosts>umami.example.org</hosts>
@@ -1791,12 +1791,12 @@
         <max_body_size>64MB</max_body_size>
         <response_header_timeout_secs>120</response_header_timeout_secs>
       </web>
-      <clients>strasbourg-pve-prod</clients>
-      <clients>strasbourg-edge</clients>
+      <clients>site-h-node-prod</clients>
+      <clients>site-h-edge</clients>
       <mode>failover</mode>
     </n8n>
     <portainer>
-      <client>frankfurt-pve-prod</client>
+      <client>site-i-node-prod</client>
       <target>192.168.0.31:9443</target>
       <web>
         <hosts>portainer.example.net</hosts>
@@ -1815,7 +1815,7 @@
       </web>
     </portainer>
     <traefik>
-      <client>helsinki-pve-prod</client>
+      <client>site-j-node-prod</client>
       <target>192.168.0.32:8082</target>
       <web>
         <hosts>traefik.example.org</hosts>
@@ -1845,7 +1845,7 @@
       </web>
     </traefik>
     <pihole>
-      <client>amsterdam-pve-prod</client>
+      <client>site-k-node-prod</client>
       <target>192.168.0.33:80</target>
       <web>
         <hosts>pihole.example.com</hosts>
@@ -1884,12 +1884,12 @@
           <Referrer-Policy>strict-origin-when-cross-origin</Referrer-Policy>
         </response_headers>
       </web>
-      <clients>london-pve-prod</clients>
-      <clients>london-edge</clients>
+      <clients>site-l-node-prod</clients>
+      <clients>site-l-edge</clients>
       <mode>failover</mode>
     </adguard>
     <wikijs>
-      <client>etiolles-pve-prod</client>
+      <client>site-a-node-prod</client>
       <target>192.168.0.35:3000</target>
       <web>
         <hosts>wikijs.example.org</hosts>
@@ -1912,7 +1912,7 @@
       </web>
     </wikijs>
     <bookstack>
-      <client>hetzner-pve-prod</client>
+      <client>site-b-node-prod</client>
       <target>192.168.0.36:80</target>
       <web>
         <hosts>bookstack.example.com</hosts>
@@ -1939,7 +1939,7 @@
       </web>
     </bookstack>
     <mealie>
-      <client>ikoula-pve-prod</client>
+      <client>site-c-node-prod</client>
       <target>192.168.0.37:9000</target>
       <web>
         <hosts>mealie.example.net</hosts>
@@ -1986,12 +1986,12 @@
           <insecure_skip_verify>true</insecure_skip_verify>
         </target_tls>
       </web>
-      <clients>scaleway-pve-prod</clients>
-      <clients>scaleway-edge</clients>
+      <clients>site-d-node-prod</clients>
+      <clients>site-d-edge</clients>
       <mode>failover</mode>
     </firefly>
     <photoprism>
-      <client>ovh-pve-prod</client>
+      <client>site-e-node-prod</client>
       <target>192.168.0.39:2342</target>
       <web>
         <hosts>photoprism.example.com</hosts>
@@ -2012,7 +2012,7 @@
       </web>
     </photoprism>
     <syncthing>
-      <client>gravelines-pve-prod</client>
+      <client>site-f-node-prod</client>
       <target>192.168.0.40:8384</target>
       <web>
         <hosts>syncthing.example.net</hosts>
@@ -2035,12 +2035,12 @@
       </web>
     </syncthing>
     <status-page>
-      <client>hetzner-pve-prod</client>
+      <client>site-b-node-prod</client>
       <target>192.168.0.90:80</target>
       <web>status.example.org</web>
     </status-page>
     <docs-site>
-      <client>hetzner-pve-prod</client>
+      <client>site-b-node-prod</client>
       <target>192.168.0.91:80</target>
       <web>docs.example.org</web>
       <web>docs.example.com</web>

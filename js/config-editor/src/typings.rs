@@ -301,7 +301,7 @@ export interface CustomLanguage {
   /** `{ line, startColumn, endColumn }` (one-based) of the key at a JSON pointer; `null` or `undefined` leaves it to the default (a flat language finds keys on their lines). */
   keySpan?(text: string, pointer: string): { line: number; startColumn: number; endColumn: number } | null | undefined | void;
   valueSpan?(text: string, pointer: string): { line: number; startColumn: number; endColumn: number } | null | undefined | void;
-  /** Ranges of one line as JavaScript string indices (as `indexOf` gives): kind is "key" | "string" | "value" | "literal" | "comment" | "punctuation". */
+  /** Ranges of one line as JavaScript string indices (as `indexOf` gives): kind is "key" | "string" | "value" | "literal" | "comment" | "punctuation" | "reference" (an anchor, an alias) | "interpolation" (an expression in a string). */
   highlight?(line: string): { start: number; end: number; kind: string }[] | null | undefined | void;
   /** Comment markers, as in VS Code's language configuration: `Ctrl+/` writes the first line comment, and unwraps lines each wrapped in `blockComment`. */
   comments?: { lineComment?: string | string[]; blockComment?: [string, string] };

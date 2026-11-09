@@ -163,6 +163,10 @@ pub enum ThemeColor {
     Literal,
     /// Other values.
     Value,
+    /// Anchors and aliases (`&base`, `*base`).
+    Reference,
+    /// Expressions in strings (`${var.name}`).
+    Interpolation,
     /// Popup background (suggestions, hover, peek).
     Raised,
     /// Popup border.
@@ -306,6 +310,8 @@ impl ThemeColor {
         Self::String,
         Self::Literal,
         Self::Value,
+        Self::Reference,
+        Self::Interpolation,
         Self::Raised,
         Self::RaisedBorder,
         Self::RaisedText,
@@ -402,6 +408,8 @@ impl ThemeColor {
             Self::String => "--config-editor-string",
             Self::Literal => "--config-editor-literal",
             Self::Value => "--config-editor-value",
+            Self::Reference => "--config-editor-reference",
+            Self::Interpolation => "--config-editor-interpolation",
             Self::Raised => "--config-editor-raised",
             Self::RaisedBorder => "--config-editor-raised-border",
             Self::RaisedText => "--config-editor-raised-text",

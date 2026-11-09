@@ -32,6 +32,9 @@ pub(super) struct HoverState {
     /// Where the pointer was last over the text, in the window's pixels
     /// (see `hover_path`).
     pub(super) pointer: StoredValue<Option<(f64, f64)>>,
+    /// The pointer is over the text (since its last move there, until it
+    /// left it).
+    pub(super) on_text: StoredValue<bool>,
     /// The pointer's last move over the text was on the way to the popup
     /// it can enter: on what the popup is for, in its gap, or heading for
     /// it from there (see `hover_path`).
@@ -59,6 +62,7 @@ impl HoverState {
             token: StoredValue::new(0),
             at_caret: StoredValue::new(false),
             pointer: StoredValue::new(None),
+            on_text: StoredValue::new(false),
             on_way: StoredValue::new(false),
             anchor_x: StoredValue::new(None),
             way_start: StoredValue::new(None),
@@ -177,6 +181,16 @@ impl EditorState {
                         .find_map(|at| docs(at).or_else(|| docs(at + 1)))
                 })
             })
+        })
+    }
+
+    /// Whether the card shows the docs `info` found on zero-based `line`
+    /// (from any place on the line that has them: the pointer moving
+    /// between an element's tags keeps it).
+    pub(super) fn card_shows(&self, line: usize, info: &KeyHover) -> bool {
+        self.hover().card.with_untracked(|card| {
+            card.as_ref()
+                .is_some_and(|card| card.line == line && card.info.same_docs(info))
         })
     }
 

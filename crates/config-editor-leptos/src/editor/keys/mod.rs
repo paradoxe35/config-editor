@@ -6,6 +6,7 @@ mod chord;
 pub(super) mod complete;
 pub(super) mod enter;
 pub(super) mod enter_newline;
+mod lines;
 mod navigation;
 mod page_keys;
 mod page_ruler;
@@ -119,6 +120,7 @@ fn commands(state: EditorState, event: &KeyboardEvent) -> bool {
     navigation::undo_redo(state, event)
         || typing::toggle_comments(state, event)
         || typing::join_with_next_line(state, event)
+        || lines::line_commands(state, event)
 }
 
 /// Keys in a read-only editor. Navigation works as usual: Escape collapses

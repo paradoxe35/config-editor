@@ -1229,6 +1229,8 @@ export type ThemeColorToken =
   | "string"
   | "literal"
   | "value"
+  | "reference"
+  | "interpolation"
   | "raised"
   | "raised-border"
   | "raised-text"

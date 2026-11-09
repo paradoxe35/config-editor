@@ -40,317 +40,317 @@ self {
   allow = ["127.0.0.1/32", "10.0.0.0/8"]
 }
 clients {
-  etiolles-pve {
-    secret = ["«secret 5818670a»", "«secret 19825b9e»"]
+  site-a-node {
+    secret = ["«secret f406d0bd»", "«secret ceab0b0b»"]
   }
-  etiolles-pve-ai {
-    secret = "«secret 705fde3f»"
+  site-a-node-ai {
+    secret = "«secret d08633de»"
     max_connections = 264
   }
-  etiolles-pve-stagging {
-    secret = "«secret 48c47811»"
+  site-a-node-staging {
+    secret = "«secret ecc24019»"
   }
-  etiolles-pve-prod {
-    secret = ["«secret d6a35514»", "«secret 3785dc8c»"]
+  site-a-node-prod {
+    secret = ["«secret 5b764a6d»", "«secret 5372e49b»"]
   }
-  etiolles-ai-server {
-    secret = "«secret dec8b341»"
+  site-a-ai-server {
+    secret = "«secret 344a0821»"
   }
-  etiolles-nas {
-    secret = "«secret ace3ed09»"
+  site-a-storage {
+    secret = "«secret 4f62a716»"
     max_connections = 296
   }
-  etiolles-edge {
-    secret = ["«secret 543e0f0c»", "«secret 510eaea4»"]
+  site-a-edge {
+    secret = ["«secret d24a936c»", "«secret 14be4f04»"]
   }
-  etiolles-backup {
-    secret = "«secret 7119212f»"
+  site-a-backup {
+    secret = "«secret 24ae988f»"
   }
-  hetzner-pve {
-    secret = "«secret 6529649b»"
+  site-b-node {
+    secret = "«secret 6ed2f1aa»"
   }
-  hetzner-pve-ai {
-    secret = ["«secret 61ffe490»", "«secret 97ce3dd0»"]
+  site-b-node-ai {
+    secret = ["«secret 5be2f25f»", "«secret 3f3a9ea1»"]
     max_connections = 328
   }
-  hetzner-pve-stagging {
-    secret = "«secret 005f0f8e»"
+  site-b-node-staging {
+    secret = "«secret a674a5e6»"
   }
-  hetzner-pve-prod {
-    secret = "«secret 5e6af347»"
+  site-b-node-prod {
+    secret = "«secret 0ea06a34»"
   }
-  hetzner-ai-server {
-    secret = ["«secret 91177d88»", "«secret 36740a08»"]
+  site-b-ai-server {
+    secret = ["«secret 54644a70»", "«secret a0b6a0b0»"]
   }
-  hetzner-nas {
-    secret = "«secret 5eff2d18»"
+  site-b-storage {
+    secret = "«secret 7e80c3eb»"
     max_connections = 360
   }
-  hetzner-edge {
-    secret = "«secret 42fc647f»"
+  site-b-edge {
+    secret = "«secret f713f417»"
   }
-  hetzner-backup {
-    secret = ["«secret 99143070»", "«secret c57cd2b0»"]
+  site-b-backup {
+    secret = ["«secret fdbd5958»", "«secret ef22d0f8»"]
   }
-  ikoula-pve {
-    secret = "«secret 8d766a9c»"
+  site-c-node {
+    secret = "«secret af17a88b»"
   }
-  ikoula-pve-ai {
-    secret = "«secret 3a9d4e9d»"
+  site-c-node-ai {
+    secret = "«secret ccb16760»"
     max_connections = 392
   }
-  ikoula-pve-stagging {
-    secret = ["«secret 49cfc4ab»", "«secret 18e0a505»"]
+  site-c-node-staging {
+    secret = ["«secret 5fffb74f»", "«secret abb90731»"]
   }
-  ikoula-pve-prod {
-    secret = "«secret bb6c8d0a»"
+  site-c-node-prod {
+    secret = "«secret a4c2ee97»"
   }
-  ikoula-ai-server {
-    secret = "«secret 06a3622f»"
+  site-c-ai-server {
+    secret = "«secret 43506883»"
   }
-  ikoula-nas {
-    secret = ["«secret 5c306bcf»", "«secret 066204b1»"]
+  site-c-storage {
+    secret = ["«secret 609e14c8»", "«secret d36198c8»"]
     max_connections = 424
   }
-  ikoula-edge {
-    secret = "«secret db4a597a»"
+  site-c-edge {
+    secret = "«secret 0b52ae26»"
   }
-  ikoula-backup {
-    secret = "«secret d07e3c65»"
+  site-c-backup {
+    secret = "«secret e53f4a19»"
   }
-  scaleway-pve {
-    secret = ["«secret fd157892»", "«secret 7915d206»"]
+  site-d-node {
+    secret = ["«secret 80d86220»", "«secret 590bd440»"]
   }
-  scaleway-pve-ai {
-    secret = "«secret a99f0037»"
+  site-d-node-ai {
+    secret = "«secret 0bb1af91»"
     max_connections = 456
   }
-  scaleway-pve-stagging {
-    secret = "«secret 26a22099»"
+  site-d-node-staging {
+    secret = "«secret 75f91974»"
   }
-  scaleway-pve-prod {
-    secret = ["«secret c7a04b8c»", "«secret eb2a4424»"]
+  site-d-node-prod {
+    secret = ["«secret 759c691e»", "«secret 0ab95efa»"]
   }
-  scaleway-ai-server {
-    secret = "«secret 3e829d89»"
+  site-d-ai-server {
+    secret = "«secret 4df4bc2a»"
   }
-  scaleway-nas {
-    secret = "«secret 078c19a1»"
+  site-d-storage {
+    secret = "«secret 88c46a1d»"
     max_connections = 488
   }
-  scaleway-edge {
-    secret = ["«secret b1c7f3a4»", "«secret 24344afc»"]
+  site-d-edge {
+    secret = ["«secret a8c17909»", "«secret eca9c58f»"]
   }
-  scaleway-backup {
-    secret = "«secret 2e6fc0d7»"
+  site-d-backup {
+    secret = "«secret c548bf7a»"
   }
-  ovh-pve {
-    secret = "«secret bb5aa80a»"
+  site-e-node {
+    secret = "«secret 01929081»"
   }
-  ovh-pve-ai {
-    secret = ["«secret 3e3be93f»", "«secret 966b9281»"]
+  site-e-node-ai {
+    secret = ["«secret 1053f7e2»", "«secret 82f83576»"]
     max_connections = 520
   }
-  ovh-pve-stagging {
-    secret = "«secret 79682b11»"
+  site-e-node-staging {
+    secret = "«secret a8e43535»"
   }
-  ovh-pve-prod {
-    secret = "«secret 3921d814»"
+  site-e-node-prod {
+    secret = "«secret cdc53a61»"
   }
-  ovh-ai-server {
-    secret = ["«secret ebf0ec41»", "«secret 3bea9707»"]
+  site-e-ai-server {
+    secret = ["«secret b3bf99ad»", "«secret 3f07505b»"]
   }
-  ovh-nas {
-    secret = "«secret 10262e09»"
+  site-e-storage {
+    secret = "«secret 46962c42»"
     max_connections = 552
   }
-  ovh-edge {
-    secret = "«secret 958a620c»"
+  site-e-edge {
+    secret = "«secret f57e2450»"
   }
-  ovh-backup {
-    secret = ["«secret 3ef52c2f»", "«secret edc4d311»"]
+  site-e-backup {
+    secret = ["«secret ab57e84b»", "«secret 474d15a5»"]
   }
-  gravelines-pve {
-    secret = "«secret ccfdc3ff»"
+  site-f-node {
+    secret = "«secret 5651b99e»"
   }
-  gravelines-pve-ai {
-    secret = "«secret 96e06ef4»"
+  site-f-node-ai {
+    secret = "«secret 524926c3»"
     max_connections = 584
   }
-  gravelines-pve-stagging {
-    secret = ["«secret d4208e9a»", "«secret ce9430ce»"]
+  site-f-node-staging {
+    secret = ["«secret fc598a22»", "«secret b6499936»"]
   }
-  gravelines-pve-prod {
-    secret = "«secret bf2bfdbb»"
+  site-f-node-prod {
+    secret = "«secret 7f607c78»"
   }
-  gravelines-ai-server {
-    secret = "«secret e2b436bc»"
+  site-f-ai-server {
+    secret = "«secret 386829fc»"
   }
-  gravelines-nas {
-    secret = ["«secret 67a90a64»", "«secret 973bc03c»"]
+  site-f-storage {
+    secret = ["«secret ae194b87»", "«secret 8e2cd509»"]
     max_connections = 616
   }
-  gravelines-edge {
-    secret = "«secret 63dfc03b»"
+  site-f-edge {
+    secret = "«secret e875eefb»"
   }
-  gravelines-backup {
-    secret = "«secret 9b8788a4»"
+  site-f-backup {
+    secret = "«secret 04f6ec64»"
   }
-  roubaix-pve {
-    secret = ["«secret 71c21f1b»", "«secret 6db4fe55»"]
+  site-g-node {
+    secret = ["«secret ef2f475f»", "«secret 10f25da1»"]
   }
-  roubaix-pve-ai {
-    secret = "«secret 6c260810»"
+  site-g-node-ai {
+    secret = "«secret fa4f74d4»"
     max_connections = 648
   }
-  roubaix-pve-stagging {
-    secret = "«secret 7538170e»"
+  site-g-node-staging {
+    secret = "«secret c46d858b»"
   }
-  roubaix-pve-prod {
-    secret = ["«secret fbfa82c7»", "«secret 05cef8c9»"]
+  site-g-node-prod {
+    secret = ["«secret 962dda9b»", "«secret 5d4550d5»"]
   }
-  roubaix-ai-server {
-    secret = "«secret 1a166408»"
+  site-g-ai-server {
+    secret = "«secret 1e53ca0f»"
   }
-  roubaix-nas {
-    secret = "«secret 6b97e798»"
+  site-g-storage {
+    secret = "«secret 1f451954»"
     max_connections = 680
   }
-  roubaix-edge {
-    secret = ["«secret 9769fbff»", "«secret e56f35c1»"]
+  site-g-edge {
+    secret = ["«secret edf6dc5a»", "«secret 48a58b0e»"]
   }
-  roubaix-backup {
-    secret = "«secret a33a53f0»"
+  site-g-backup {
+    secret = "«secret 5d456c45»"
   }
-  strasbourg-pve {
-    secret = "«secret 7544bd7b»"
+  site-h-node {
+    secret = "«secret 7b20c2f4»"
   }
-  strasbourg-pve-ai {
-    secret = ["«secret 56df5170»", "«secret 345df5b0»"]
+  site-h-node-ai {
+    secret = ["«secret 0bb8c9a5»", "«secret e6c8e673»"]
     max_connections = 712
   }
-  strasbourg-pve-stagging {
-    secret = "«secret aac6076e»"
+  site-h-node-staging {
+    secret = "«secret 674b77e0»"
   }
-  strasbourg-pve-prod {
-    secret = "«secret 224ec727»"
+  site-h-node-prod {
+    secret = "«secret 4a879272»"
   }
-  strasbourg-ai-server {
-    secret = ["«secret 00fc93e8»", "«secret af525a68»"]
+  site-h-ai-server {
+    secret = ["«secret 2b5d2e76»", "«secret 069d0672»"]
   }
-  strasbourg-nas {
-    secret = "«secret 6ca01cf8»"
+  site-h-storage {
+    secret = "«secret c334d529»"
     max_connections = 744
   }
-  strasbourg-edge {
-    secret = "«secret be081edf»"
+  site-h-edge {
+    secret = "«secret 13aab29d»"
   }
-  strasbourg-backup {
-    secret = ["«secret 014d42d0»", "«secret 3c9ce790»"]
+  site-h-backup {
+    secret = ["«secret 30198d66»", "«secret b5110fc2»"]
   }
-  frankfurt-pve {
-    secret = "«secret 3b52dc2a»"
+  site-i-node {
+    secret = "«secret 0ae0d665»"
   }
-  frankfurt-pve-ai {
-    secret = "«secret 655425df»"
+  site-i-node-ai {
+    secret = "«secret d7167096»"
     max_connections = 776
   }
-  frankfurt-pve-stagging {
-    secret = ["«secret c12507b1»", "«secret 59b67ed7»"]
+  site-i-node-staging {
+    secret = ["«secret 60a20271»", "«secret 87ff2617»"]
   }
-  frankfurt-pve-prod {
-    secret = "«secret 479989b4»"
+  site-i-node-prod {
+    secret = "«secret 446c06a5»"
   }
-  frankfurt-ai-server {
-    secret = "«secret 93e475e1»"
+  site-i-ai-server {
+    secret = "«secret 939794d9»"
   }
-  frankfurt-nas {
-    secret = ["«secret 92973829»", "«secret 77e3922f»"]
+  site-i-storage {
+    secret = ["«secret aa66b53e»", "«secret 95a0b49a»"]
     max_connections = 808
   }
-  frankfurt-edge {
-    secret = "«secret e6c9a2ac»"
+  site-i-edge {
+    secret = "«secret 251eaf54»"
   }
-  frankfurt-backup {
-    secret = "«secret 2081a2cf»"
+  site-i-backup {
+    secret = "«secret f72b5d47»"
   }
-  helsinki-pve {
-    secret = ["«secret e2f643b6»", "«secret a9a1c632»"]
+  site-j-node {
+    secret = ["«secret 5da368d2»", "«secret 7b0dadc6»"]
   }
-  helsinki-pve-ai {
-    secret = "«secret 3a98dceb»"
+  site-j-node-ai {
+    secret = "«secret 0a7324f7»"
     max_connections = 840
   }
-  helsinki-pve-stagging {
-    secret = "«secret 289d9ee5»"
+  site-j-node-staging {
+    secret = "«secret ca95e87e»"
   }
-  helsinki-pve-prod {
-    secret = ["«secret 09af6d60»", "«secret 0500fa00»"]
+  site-j-node-prod {
+    secret = ["«secret c71c2b4c»", "«secret 33d01264»"]
   }
-  helsinki-ai-server {
-    secret = "«secret f375867d»"
+  site-j-ai-server {
+    secret = "«secret 88f70228»"
   }
-  helsinki-nas {
-    secret = "«secret 3e1ad54d»"
+  site-j-storage {
+    secret = "«secret 1a4fc033»"
     max_connections = 872
   }
-  helsinki-edge {
-    secret = ["«secret 8d1eadc0»", "«secret 6b6729e0»"]
+  site-j-edge {
+    secret = ["«secret 9f6fa29f»", "«secret 5608ed61»"]
   }
-  helsinki-backup {
-    secret = "«secret f653d4bb»"
+  site-j-backup {
+    secret = "«secret bf55db90»"
   }
-  amsterdam-pve {
-    secret = "«secret ef286f8d»"
+  site-k-node {
+    secret = "«secret e7b9a693»"
   }
-  amsterdam-pve-ai {
-    secret = ["«secret acbac90e»", "«secret b15bc64a»"]
+  site-k-node-ai {
+    secret = ["«secret 139f52d8»", "«secret 08f65d78»"]
     max_connections = 904
   }
-  amsterdam-pve-stagging {
-    secret = "«secret 02fa1310»"
+  site-k-node-staging {
+    secret = "«secret 388c48a7»"
   }
-  amsterdam-pve-prod {
-    secret = "«secret a7a10d5d»"
+  site-k-node-prod {
+    secret = "«secret ec21a9cf»"
   }
-  amsterdam-ai-server {
-    secret = ["«secret b5f4b4b6»", "«secret a9c8d932»"]
+  site-k-ai-server {
+    secret = ["«secret 57cbc75b»", "«secret b801cc15»"]
   }
-  amsterdam-nas {
-    secret = "«secret 3298100e»"
+  site-k-storage {
+    secret = "«secret ec158910»"
     max_connections = 936
   }
-  amsterdam-edge {
-    secret = "«secret 06f7fc5d»"
+  site-k-edge {
+    secret = "«secret 4bd4ed2e»"
   }
-  amsterdam-backup {
-    secret = ["«secret d4394126»", "«secret 5106d402»"]
+  site-k-backup {
+    secret = ["«secret 6408cb51»", "«secret 1a4c3c77»"]
   }
-  london-pve {
-    secret = "«secret 57909735»"
+  site-l-node {
+    secret = "«secret 5a2ac608»"
   }
-  london-pve-ai {
-    secret = "«secret 0d45c246»"
+  site-l-node-ai {
+    secret = "«secret 819e1c69»"
     max_connections = 968
   }
-  london-pve-stagging {
-    secret = ["«secret 945a3e18»", "«secret f00d7b38»"]
+  site-l-node-staging {
+    secret = ["«secret 100f7b4c»", "«secret 70560264»"]
   }
-  london-pve-prod {
-    secret = "«secret ea2cbc95»"
+  site-l-node-prod {
+    secret = "«secret 99f28836»"
   }
-  london-ai-server {
-    secret = "«secret 6530fc7e»"
+  site-l-ai-server {
+    secret = "«secret f6dad462»"
   }
-  london-nas {
-    secret = ["«secret 687db766»", "«secret d7030dc2»"]
+  site-l-storage {
+    secret = ["«secret b71218a5»", "«secret b9b91373»"]
     max_connections = 1000
   }
-  london-edge {
-    secret = "«secret 68636d75»"
+  site-l-edge {
+    secret = "«secret c05944d1»"
   }
-  london-backup {
-    secret = "«secret 1d73e68e»"
+  site-l-backup {
+    secret = "«secret 4be31c92»"
   }
 }
 visitors {
@@ -363,8 +363,8 @@ visitors {
     secret = "«secret 05b5759c»"
     admin = "read"
     reach {
-      etiolles-pve-ai = ["hetzner-pve-ssh", "hetzner-pve-web"]
-      etiolles-backup = "self"
+      site-a-node-ai = ["site-b-node-ssh", "site-b-node-web"]
+      site-a-backup = "self"
     }
   }
   wendy-pc {
@@ -379,8 +379,8 @@ visitors {
   ops-oncall {
     secret = "«secret e1e1bb70»"
     reach {
-      etiolles-ai-server = ["ovh-pve-ssh", "ovh-pve-web"]
-      scaleway-ai-server = "self"
+      site-a-ai-server = ["site-e-node-ssh", "site-e-node-web"]
+      site-d-ai-server = "self"
     }
   }
   ci-runner {
@@ -396,8 +396,8 @@ visitors {
   backup-agent {
     secret = "«secret 5aa94430»"
     reach {
-      etiolles-backup = ["strasbourg-pve-ssh", "strasbourg-pve-web"]
-      roubaix-pve-ai = "self"
+      site-a-backup = ["site-h-node-ssh", "site-h-node-web"]
+      site-g-node-ai = "self"
     }
   }
   alice-laptop {
@@ -412,8 +412,8 @@ visitors {
     secret = "«secret 6b7d2fd2»"
     admin = "write"
     reach {
-      hetzner-pve-stagging = ["amsterdam-pve-ssh", "amsterdam-pve-web"]
-      frankfurt-edge = "self"
+      site-b-node-staging = ["site-k-node-ssh", "site-k-node-web"]
+      site-i-edge = "self"
     }
     max_connections = 42
   }
@@ -428,8 +428,8 @@ visitors {
   frank-pc {
     secret = "«secret b9b4c514»"
     reach {
-      hetzner-nas = ["hetzner-pve-ssh", "hetzner-pve-web"]
-      london-pve-prod = "self"
+      site-b-storage = ["site-b-node-ssh", "site-b-node-web"]
+      site-l-node-prod = "self"
     }
   }
   grace-phone {
@@ -446,7 +446,7 @@ visitors {
     secret = "«secret 7cd17faf»"
     admin = "read"
     reach {
-      ikoula-pve = "self"
+      site-c-node = "self"
     }
   }
   judy-laptop {
@@ -460,8 +460,8 @@ visitors {
   niaj-laptop {
     secret = "«secret 422c427b»"
     reach {
-      ikoula-pve-prod = ["strasbourg-pve-ssh", "strasbourg-pve-web"]
-      ovh-nas = "self"
+      site-c-node-prod = ["site-h-node-ssh", "site-h-node-web"]
+      site-e-storage = "self"
     }
   }
   olivia-pc {
@@ -477,8 +477,8 @@ visitors {
   rupert-desktop {
     secret = "«secret bd1f8327»"
     reach {
-      ikoula-edge = ["amsterdam-pve-ssh", "amsterdam-pve-web"]
-      strasbourg-pve-stagging = "self"
+      site-c-edge = ["site-k-node-ssh", "site-k-node-web"]
+      site-h-node-staging = "self"
     }
     max_connections = 54
   }
@@ -491,14 +491,14 @@ visitors {
   }
 }
 services {
-  etiolles-pve-ssh {
-    client = "etiolles-pve"
+  site-a-node-ssh {
+    client = "site-a-node"
     target = 22
     visitors = ["victor-pc", "victor-laptop"]
   }
-  etiolles-pve-web {
+  site-a-node-web {
     target = 8006
-    clients = ["etiolles-pve", "etiolles-pve-ai"]
+    clients = ["site-a-node", "site-a-node-ai"]
     mode = "failover"
     visitors = ["victor-pc", "wendy-pc"]
     health_check {
@@ -508,32 +508,32 @@ services {
       path = "/api2/json/version"
     }
   }
-  etiolles-vm-ssh {
+  site-a-vm-ssh {
     bind = 65001
     target = "192.168.50.142:22"
-    clients = ["etiolles-pve", "etiolles-pve-ai"]
+    clients = ["site-a-node", "site-a-node-ai"]
     allow_from = ["10.0.0.0/16", "192.168.0.0/16"]
     deny_from = ["10.66.0.0/16", "172.16.0.0/12"]
     max_connections = 64
   }
-  etiolles-wireguard {
+  site-a-wireguard {
     target = "192.168.50.164:51820"
     bind = 65002
     protocol = "udp"
-    clients = ["etiolles-pve", "etiolles-pve-ai"]
+    clients = ["site-a-node", "site-a-node-ai"]
     visitors = ["victor-pc", "victor-laptop"]
     bandwidth = "10mbit"
   }
-  etiolles-wgdashboard {
+  site-a-wgdashboard {
     target = "192.168.50.164:10086"
     clients = [
       {
-        name = "etiolles-pve"
+        name = "site-a-node"
         target = 10086
         weight = 10
       },
       {
-        name = "etiolles-pve-ai"
+        name = "site-a-node-ai"
         target = "192.168.50.165:10086"
         weight = 1
       },
@@ -542,20 +542,20 @@ services {
     visitors = ["victor-pc", "wendy-pc"]
     proxy_protocol = "v1"
   }
-  etiolles-backup-sync {
-    client = "etiolles-backup"
+  site-a-backup-sync {
+    client = "site-a-backup"
     target = "192.168.50.20:873"
     health_check = true
     visitors = ["backup-agent", "alice-laptop"]
   }
-  hetzner-pve-ssh {
-    client = "hetzner-pve"
+  site-b-node-ssh {
+    client = "site-b-node"
     target = 22
     visitors = ["victor-laptop", "wendy-pc"]
   }
-  hetzner-pve-web {
+  site-b-node-web {
     target = 8006
-    clients = ["hetzner-pve", "hetzner-pve-ai"]
+    clients = ["site-b-node", "site-b-node-ai"]
     mode = "balance"
     visitors = ["victor-pc", "wendy-phone"]
     health_check {
@@ -565,32 +565,32 @@ services {
       path = "/api2/json/version"
     }
   }
-  hetzner-vm-ssh {
+  site-b-vm-ssh {
     bind = 65003
     target = "192.168.51.142:22"
-    clients = ["hetzner-pve", "hetzner-pve-ai"]
+    clients = ["site-b-node", "site-b-node-ai"]
     allow_from = ["10.1.0.0/16", "192.168.0.0/16"]
     deny_from = ["10.66.0.0/16", "172.16.0.0/12"]
     max_connections = 64
   }
-  hetzner-wireguard {
+  site-b-wireguard {
     target = "192.168.51.164:51820"
     bind = 65004
     protocol = "udp"
-    clients = ["hetzner-pve", "hetzner-pve-ai"]
+    clients = ["site-b-node", "site-b-node-ai"]
     visitors = ["victor-pc", "victor-laptop"]
     bandwidth = "20mbit"
   }
-  hetzner-wgdashboard {
+  site-b-wgdashboard {
     target = "192.168.51.164:10086"
     clients = [
       {
-        name = "hetzner-pve"
+        name = "site-b-node"
         target = 10086
         weight = 11
       },
       {
-        name = "hetzner-pve-ai"
+        name = "site-b-node-ai"
         target = "192.168.51.165:10086"
         weight = 1
       },
@@ -599,20 +599,20 @@ services {
     visitors = ["victor-pc", "wendy-pc"]
     proxy_protocol = "v2"
   }
-  hetzner-backup-sync {
-    client = "hetzner-backup"
+  site-b-backup-sync {
+    client = "site-b-backup"
     target = "192.168.51.20:873"
     health_check = false
     visitors = ["backup-agent", "alice-laptop"]
   }
-  ikoula-pve-ssh {
-    client = "ikoula-pve"
+  site-c-node-ssh {
+    client = "site-c-node"
     target = 22
     visitors = ["wendy-pc", "wendy-phone"]
   }
-  ikoula-pve-web {
+  site-c-node-web {
     target = 8006
-    clients = ["ikoula-pve", "ikoula-pve-ai"]
+    clients = ["site-c-node", "site-c-node-ai"]
     mode = "least_connections"
     visitors = ["victor-pc", "ops-oncall"]
     health_check {
@@ -622,32 +622,32 @@ services {
       path = "/api2/json/version"
     }
   }
-  ikoula-vm-ssh {
+  site-c-vm-ssh {
     bind = 65005
     target = "192.168.52.142:22"
-    clients = ["ikoula-pve", "ikoula-pve-ai"]
+    clients = ["site-c-node", "site-c-node-ai"]
     allow_from = ["10.2.0.0/16", "192.168.0.0/16"]
     deny_from = ["10.66.0.0/16", "172.16.0.0/12"]
     max_connections = 64
   }
-  ikoula-wireguard {
+  site-c-wireguard {
     target = "192.168.52.164:51820"
     bind = 65006
     protocol = "udp"
-    clients = ["ikoula-pve", "ikoula-pve-ai"]
+    clients = ["site-c-node", "site-c-node-ai"]
     visitors = ["victor-pc", "victor-laptop"]
     bandwidth = "30mbit"
   }
-  ikoula-wgdashboard {
+  site-c-wgdashboard {
     target = "192.168.52.164:10086"
     clients = [
       {
-        name = "ikoula-pve"
+        name = "site-c-node"
         target = 10086
         weight = 12
       },
       {
-        name = "ikoula-pve-ai"
+        name = "site-c-node-ai"
         target = "192.168.52.165:10086"
         weight = 1
       },
@@ -656,20 +656,20 @@ services {
     visitors = ["victor-pc", "wendy-pc"]
     proxy_protocol = "v1"
   }
-  ikoula-backup-sync {
-    client = "ikoula-backup"
+  site-c-backup-sync {
+    client = "site-c-backup"
     target = "192.168.52.20:873"
     health_check = true
     visitors = ["backup-agent", "alice-laptop"]
   }
-  scaleway-pve-ssh {
-    client = "scaleway-pve"
+  site-d-node-ssh {
+    client = "site-d-node"
     target = 22
     visitors = ["wendy-phone", "ops-oncall"]
   }
-  scaleway-pve-web {
+  site-d-node-web {
     target = 8006
-    clients = ["scaleway-pve", "scaleway-pve-ai"]
+    clients = ["site-d-node", "site-d-node-ai"]
     mode = "ip_hash"
     visitors = ["victor-pc", "ci-runner"]
     health_check {
@@ -679,32 +679,32 @@ services {
       path = "/api2/json/version"
     }
   }
-  scaleway-vm-ssh {
+  site-d-vm-ssh {
     bind = 65007
     target = "192.168.53.142:22"
-    clients = ["scaleway-pve", "scaleway-pve-ai"]
+    clients = ["site-d-node", "site-d-node-ai"]
     allow_from = ["10.3.0.0/16", "192.168.0.0/16"]
     deny_from = ["10.66.0.0/16", "172.16.0.0/12"]
     max_connections = 64
   }
-  scaleway-wireguard {
+  site-d-wireguard {
     target = "192.168.53.164:51820"
     bind = 65008
     protocol = "udp"
-    clients = ["scaleway-pve", "scaleway-pve-ai"]
+    clients = ["site-d-node", "site-d-node-ai"]
     visitors = ["victor-pc", "victor-laptop"]
     bandwidth = "40mbit"
   }
-  scaleway-wgdashboard {
+  site-d-wgdashboard {
     target = "192.168.53.164:10086"
     clients = [
       {
-        name = "scaleway-pve"
+        name = "site-d-node"
         target = 10086
         weight = 13
       },
       {
-        name = "scaleway-pve-ai"
+        name = "site-d-node-ai"
         target = "192.168.53.165:10086"
         weight = 1
       },
@@ -713,20 +713,20 @@ services {
     visitors = ["victor-pc", "wendy-pc"]
     proxy_protocol = "v2"
   }
-  scaleway-backup-sync {
-    client = "scaleway-backup"
+  site-d-backup-sync {
+    client = "site-d-backup"
     target = "192.168.53.20:873"
     health_check = false
     visitors = ["backup-agent", "alice-laptop"]
   }
-  ovh-pve-ssh {
-    client = "ovh-pve"
+  site-e-node-ssh {
+    client = "site-e-node"
     target = 22
     visitors = ["ops-oncall", "victor-pc"]
   }
-  ovh-pve-web {
+  site-e-node-web {
     target = 8006
-    clients = ["ovh-pve", "ovh-pve-ai"]
+    clients = ["site-e-node", "site-e-node-ai"]
     mode = "failover"
     visitors = ["victor-pc", "grafana-bot"]
     health_check {
@@ -736,32 +736,32 @@ services {
       path = "/api2/json/version"
     }
   }
-  ovh-vm-ssh {
+  site-e-vm-ssh {
     bind = 65009
     target = "192.168.54.142:22"
-    clients = ["ovh-pve", "ovh-pve-ai"]
+    clients = ["site-e-node", "site-e-node-ai"]
     allow_from = ["10.4.0.0/16", "192.168.0.0/16"]
     deny_from = ["10.66.0.0/16", "172.16.0.0/12"]
     max_connections = 64
   }
-  ovh-wireguard {
+  site-e-wireguard {
     target = "192.168.54.164:51820"
     bind = 65010
     protocol = "udp"
-    clients = ["ovh-pve", "ovh-pve-ai"]
+    clients = ["site-e-node", "site-e-node-ai"]
     visitors = ["victor-pc", "victor-laptop"]
     bandwidth = "50mbit"
   }
-  ovh-wgdashboard {
+  site-e-wgdashboard {
     target = "192.168.54.164:10086"
     clients = [
       {
-        name = "ovh-pve"
+        name = "site-e-node"
         target = 10086
         weight = 14
       },
       {
-        name = "ovh-pve-ai"
+        name = "site-e-node-ai"
         target = "192.168.54.165:10086"
         weight = 1
       },
@@ -770,20 +770,20 @@ services {
     visitors = ["victor-pc", "wendy-pc"]
     proxy_protocol = "v1"
   }
-  ovh-backup-sync {
-    client = "ovh-backup"
+  site-e-backup-sync {
+    client = "site-e-backup"
     target = "192.168.54.20:873"
     health_check = true
     visitors = ["backup-agent", "alice-laptop"]
   }
-  gravelines-pve-ssh {
-    client = "gravelines-pve"
+  site-f-node-ssh {
+    client = "site-f-node"
     target = 22
     visitors = ["victor-pc", "victor-laptop"]
   }
-  gravelines-pve-web {
+  site-f-node-web {
     target = 8006
-    clients = ["gravelines-pve", "gravelines-pve-ai"]
+    clients = ["site-f-node", "site-f-node-ai"]
     mode = "balance"
     visitors = ["victor-pc", "backup-agent"]
     health_check {
@@ -793,32 +793,32 @@ services {
       path = "/api2/json/version"
     }
   }
-  gravelines-vm-ssh {
+  site-f-vm-ssh {
     bind = 65011
     target = "192.168.55.142:22"
-    clients = ["gravelines-pve", "gravelines-pve-ai"]
+    clients = ["site-f-node", "site-f-node-ai"]
     allow_from = ["10.5.0.0/16", "192.168.0.0/16"]
     deny_from = ["10.66.0.0/16", "172.16.0.0/12"]
     max_connections = 64
   }
-  gravelines-wireguard {
+  site-f-wireguard {
     target = "192.168.55.164:51820"
     bind = 65012
     protocol = "udp"
-    clients = ["gravelines-pve", "gravelines-pve-ai"]
+    clients = ["site-f-node", "site-f-node-ai"]
     visitors = ["victor-pc", "victor-laptop"]
     bandwidth = "60mbit"
   }
-  gravelines-wgdashboard {
+  site-f-wgdashboard {
     target = "192.168.55.164:10086"
     clients = [
       {
-        name = "gravelines-pve"
+        name = "site-f-node"
         target = 10086
         weight = 15
       },
       {
-        name = "gravelines-pve-ai"
+        name = "site-f-node-ai"
         target = "192.168.55.165:10086"
         weight = 1
       },
@@ -827,20 +827,20 @@ services {
     visitors = ["victor-pc", "wendy-pc"]
     proxy_protocol = "v2"
   }
-  gravelines-backup-sync {
-    client = "gravelines-backup"
+  site-f-backup-sync {
+    client = "site-f-backup"
     target = "192.168.55.20:873"
     health_check = false
     visitors = ["backup-agent", "alice-laptop"]
   }
-  roubaix-pve-ssh {
-    client = "roubaix-pve"
+  site-g-node-ssh {
+    client = "site-g-node"
     target = 22
     visitors = ["victor-laptop", "wendy-pc"]
   }
-  roubaix-pve-web {
+  site-g-node-web {
     target = 8006
-    clients = ["roubaix-pve", "roubaix-pve-ai"]
+    clients = ["site-g-node", "site-g-node-ai"]
     mode = "least_connections"
     visitors = ["victor-pc", "alice-laptop"]
     health_check {
@@ -850,32 +850,32 @@ services {
       path = "/api2/json/version"
     }
   }
-  roubaix-vm-ssh {
+  site-g-vm-ssh {
     bind = 65013
     target = "192.168.56.142:22"
-    clients = ["roubaix-pve", "roubaix-pve-ai"]
+    clients = ["site-g-node", "site-g-node-ai"]
     allow_from = ["10.6.0.0/16", "192.168.0.0/16"]
     deny_from = ["10.66.0.0/16", "172.16.0.0/12"]
     max_connections = 64
   }
-  roubaix-wireguard {
+  site-g-wireguard {
     target = "192.168.56.164:51820"
     bind = 65014
     protocol = "udp"
-    clients = ["roubaix-pve", "roubaix-pve-ai"]
+    clients = ["site-g-node", "site-g-node-ai"]
     visitors = ["victor-pc", "victor-laptop"]
     bandwidth = "70mbit"
   }
-  roubaix-wgdashboard {
+  site-g-wgdashboard {
     target = "192.168.56.164:10086"
     clients = [
       {
-        name = "roubaix-pve"
+        name = "site-g-node"
         target = 10086
         weight = 16
       },
       {
-        name = "roubaix-pve-ai"
+        name = "site-g-node-ai"
         target = "192.168.56.165:10086"
         weight = 1
       },
@@ -884,20 +884,20 @@ services {
     visitors = ["victor-pc", "wendy-pc"]
     proxy_protocol = "v1"
   }
-  roubaix-backup-sync {
-    client = "roubaix-backup"
+  site-g-backup-sync {
+    client = "site-g-backup"
     target = "192.168.56.20:873"
     health_check = true
     visitors = ["backup-agent", "alice-laptop"]
   }
-  strasbourg-pve-ssh {
-    client = "strasbourg-pve"
+  site-h-node-ssh {
+    client = "site-h-node"
     target = 22
     visitors = ["wendy-pc", "wendy-phone"]
   }
-  strasbourg-pve-web {
+  site-h-node-web {
     target = 8006
-    clients = ["strasbourg-pve", "strasbourg-pve-ai"]
+    clients = ["site-h-node", "site-h-node-ai"]
     mode = "ip_hash"
     visitors = ["victor-pc", "bob-desktop"]
     health_check {
@@ -907,32 +907,32 @@ services {
       path = "/api2/json/version"
     }
   }
-  strasbourg-vm-ssh {
+  site-h-vm-ssh {
     bind = 65015
     target = "192.168.57.142:22"
-    clients = ["strasbourg-pve", "strasbourg-pve-ai"]
+    clients = ["site-h-node", "site-h-node-ai"]
     allow_from = ["10.7.0.0/16", "192.168.0.0/16"]
     deny_from = ["10.66.0.0/16", "172.16.0.0/12"]
     max_connections = 64
   }
-  strasbourg-wireguard {
+  site-h-wireguard {
     target = "192.168.57.164:51820"
     bind = 65016
     protocol = "udp"
-    clients = ["strasbourg-pve", "strasbourg-pve-ai"]
+    clients = ["site-h-node", "site-h-node-ai"]
     visitors = ["victor-pc", "victor-laptop"]
     bandwidth = "80mbit"
   }
-  strasbourg-wgdashboard {
+  site-h-wgdashboard {
     target = "192.168.57.164:10086"
     clients = [
       {
-        name = "strasbourg-pve"
+        name = "site-h-node"
         target = 10086
         weight = 17
       },
       {
-        name = "strasbourg-pve-ai"
+        name = "site-h-node-ai"
         target = "192.168.57.165:10086"
         weight = 1
       },
@@ -941,20 +941,20 @@ services {
     visitors = ["victor-pc", "wendy-pc"]
     proxy_protocol = "v2"
   }
-  strasbourg-backup-sync {
-    client = "strasbourg-backup"
+  site-h-backup-sync {
+    client = "site-h-backup"
     target = "192.168.57.20:873"
     health_check = false
     visitors = ["backup-agent", "alice-laptop"]
   }
-  frankfurt-pve-ssh {
-    client = "frankfurt-pve"
+  site-i-node-ssh {
+    client = "site-i-node"
     target = 22
     visitors = ["wendy-phone", "ops-oncall"]
   }
-  frankfurt-pve-web {
+  site-i-node-web {
     target = 8006
-    clients = ["frankfurt-pve", "frankfurt-pve-ai"]
+    clients = ["site-i-node", "site-i-node-ai"]
     mode = "failover"
     visitors = ["victor-pc", "carol-tablet"]
     health_check {
@@ -964,32 +964,32 @@ services {
       path = "/api2/json/version"
     }
   }
-  frankfurt-vm-ssh {
+  site-i-vm-ssh {
     bind = 65017
     target = "192.168.58.142:22"
-    clients = ["frankfurt-pve", "frankfurt-pve-ai"]
+    clients = ["site-i-node", "site-i-node-ai"]
     allow_from = ["10.8.0.0/16", "192.168.0.0/16"]
     deny_from = ["10.66.0.0/16", "172.16.0.0/12"]
     max_connections = 64
   }
-  frankfurt-wireguard {
+  site-i-wireguard {
     target = "192.168.58.164:51820"
     bind = 65018
     protocol = "udp"
-    clients = ["frankfurt-pve", "frankfurt-pve-ai"]
+    clients = ["site-i-node", "site-i-node-ai"]
     visitors = ["victor-pc", "victor-laptop"]
     bandwidth = "90mbit"
   }
-  frankfurt-wgdashboard {
+  site-i-wgdashboard {
     target = "192.168.58.164:10086"
     clients = [
       {
-        name = "frankfurt-pve"
+        name = "site-i-node"
         target = 10086
         weight = 18
       },
       {
-        name = "frankfurt-pve-ai"
+        name = "site-i-node-ai"
         target = "192.168.58.165:10086"
         weight = 1
       },
@@ -998,20 +998,20 @@ services {
     visitors = ["victor-pc", "wendy-pc"]
     proxy_protocol = "v1"
   }
-  frankfurt-backup-sync {
-    client = "frankfurt-backup"
+  site-i-backup-sync {
+    client = "site-i-backup"
     target = "192.168.58.20:873"
     health_check = true
     visitors = ["backup-agent", "alice-laptop"]
   }
-  helsinki-pve-ssh {
-    client = "helsinki-pve"
+  site-j-node-ssh {
+    client = "site-j-node"
     target = 22
     visitors = ["ops-oncall", "victor-pc"]
   }
-  helsinki-pve-web {
+  site-j-node-web {
     target = 8006
-    clients = ["helsinki-pve", "helsinki-pve-ai"]
+    clients = ["site-j-node", "site-j-node-ai"]
     mode = "balance"
     visitors = ["victor-pc", "dave-workstation"]
     health_check {
@@ -1021,32 +1021,32 @@ services {
       path = "/api2/json/version"
     }
   }
-  helsinki-vm-ssh {
+  site-j-vm-ssh {
     bind = 65019
     target = "192.168.59.142:22"
-    clients = ["helsinki-pve", "helsinki-pve-ai"]
+    clients = ["site-j-node", "site-j-node-ai"]
     allow_from = ["10.9.0.0/16", "192.168.0.0/16"]
     deny_from = ["10.66.0.0/16", "172.16.0.0/12"]
     max_connections = 64
   }
-  helsinki-wireguard {
+  site-j-wireguard {
     target = "192.168.59.164:51820"
     bind = 65020
     protocol = "udp"
-    clients = ["helsinki-pve", "helsinki-pve-ai"]
+    clients = ["site-j-node", "site-j-node-ai"]
     visitors = ["victor-pc", "victor-laptop"]
     bandwidth = "100mbit"
   }
-  helsinki-wgdashboard {
+  site-j-wgdashboard {
     target = "192.168.59.164:10086"
     clients = [
       {
-        name = "helsinki-pve"
+        name = "site-j-node"
         target = 10086
         weight = 19
       },
       {
-        name = "helsinki-pve-ai"
+        name = "site-j-node-ai"
         target = "192.168.59.165:10086"
         weight = 1
       },
@@ -1055,20 +1055,20 @@ services {
     visitors = ["victor-pc", "wendy-pc"]
     proxy_protocol = "v2"
   }
-  helsinki-backup-sync {
-    client = "helsinki-backup"
+  site-j-backup-sync {
+    client = "site-j-backup"
     target = "192.168.59.20:873"
     health_check = false
     visitors = ["backup-agent", "alice-laptop"]
   }
-  amsterdam-pve-ssh {
-    client = "amsterdam-pve"
+  site-k-node-ssh {
+    client = "site-k-node"
     target = 22
     visitors = ["victor-pc", "victor-laptop"]
   }
-  amsterdam-pve-web {
+  site-k-node-web {
     target = 8006
-    clients = ["amsterdam-pve", "amsterdam-pve-ai"]
+    clients = ["site-k-node", "site-k-node-ai"]
     mode = "least_connections"
     visitors = ["victor-pc", "erin-laptop"]
     health_check {
@@ -1078,32 +1078,32 @@ services {
       path = "/api2/json/version"
     }
   }
-  amsterdam-vm-ssh {
+  site-k-vm-ssh {
     bind = 65021
     target = "192.168.60.142:22"
-    clients = ["amsterdam-pve", "amsterdam-pve-ai"]
+    clients = ["site-k-node", "site-k-node-ai"]
     allow_from = ["10.10.0.0/16", "192.168.0.0/16"]
     deny_from = ["10.66.0.0/16", "172.16.0.0/12"]
     max_connections = 64
   }
-  amsterdam-wireguard {
+  site-k-wireguard {
     target = "192.168.60.164:51820"
     bind = 65022
     protocol = "udp"
-    clients = ["amsterdam-pve", "amsterdam-pve-ai"]
+    clients = ["site-k-node", "site-k-node-ai"]
     visitors = ["victor-pc", "victor-laptop"]
     bandwidth = "110mbit"
   }
-  amsterdam-wgdashboard {
+  site-k-wgdashboard {
     target = "192.168.60.164:10086"
     clients = [
       {
-        name = "amsterdam-pve"
+        name = "site-k-node"
         target = 10086
         weight = 20
       },
       {
-        name = "amsterdam-pve-ai"
+        name = "site-k-node-ai"
         target = "192.168.60.165:10086"
         weight = 1
       },
@@ -1112,20 +1112,20 @@ services {
     visitors = ["victor-pc", "wendy-pc"]
     proxy_protocol = "v1"
   }
-  amsterdam-backup-sync {
-    client = "amsterdam-backup"
+  site-k-backup-sync {
+    client = "site-k-backup"
     target = "192.168.60.20:873"
     health_check = true
     visitors = ["backup-agent", "alice-laptop"]
   }
-  london-pve-ssh {
-    client = "london-pve"
+  site-l-node-ssh {
+    client = "site-l-node"
     target = 22
     visitors = ["victor-laptop", "wendy-pc"]
   }
-  london-pve-web {
+  site-l-node-web {
     target = 8006
-    clients = ["london-pve", "london-pve-ai"]
+    clients = ["site-l-node", "site-l-node-ai"]
     mode = "ip_hash"
     visitors = ["victor-pc", "frank-pc"]
     health_check {
@@ -1135,32 +1135,32 @@ services {
       path = "/api2/json/version"
     }
   }
-  london-vm-ssh {
+  site-l-vm-ssh {
     bind = 65023
     target = "192.168.61.142:22"
-    clients = ["london-pve", "london-pve-ai"]
+    clients = ["site-l-node", "site-l-node-ai"]
     allow_from = ["10.11.0.0/16", "192.168.0.0/16"]
     deny_from = ["10.66.0.0/16", "172.16.0.0/12"]
     max_connections = 64
   }
-  london-wireguard {
+  site-l-wireguard {
     target = "192.168.61.164:51820"
     bind = 65024
     protocol = "udp"
-    clients = ["london-pve", "london-pve-ai"]
+    clients = ["site-l-node", "site-l-node-ai"]
     visitors = ["victor-pc", "victor-laptop"]
     bandwidth = "120mbit"
   }
-  london-wgdashboard {
+  site-l-wgdashboard {
     target = "192.168.61.164:10086"
     clients = [
       {
-        name = "london-pve"
+        name = "site-l-node"
         target = 10086
         weight = 21
       },
       {
-        name = "london-pve-ai"
+        name = "site-l-node-ai"
         target = "192.168.61.165:10086"
         weight = 1
       },
@@ -1169,14 +1169,14 @@ services {
     visitors = ["victor-pc", "wendy-pc"]
     proxy_protocol = "v2"
   }
-  london-backup-sync {
-    client = "london-backup"
+  site-l-backup-sync {
+    client = "site-l-backup"
     target = "192.168.61.20:873"
     health_check = false
     visitors = ["backup-agent", "alice-laptop"]
   }
   whoami {
-    client = "etiolles-pve-prod"
+    client = "site-a-node-prod"
     target = "192.168.0.11:8000"
     web {
       hosts = ["whoami.example.org", "www.whoami.example.org"]
@@ -1196,7 +1196,7 @@ services {
     }
   }
   speedtest {
-    client = "hetzner-pve-prod"
+    client = "site-b-node-prod"
     target = "192.168.0.12:8080"
     web {
       hosts = ["speedtest.example.com", "www.speedtest.example.com"]
@@ -1218,7 +1218,7 @@ services {
     }
   }
   grafana {
-    client = "ikoula-pve-prod"
+    client = "site-c-node-prod"
     target = "192.168.0.13:3000"
     web {
       hosts = ["grafana.example.net", "www.grafana.example.net"]
@@ -1258,11 +1258,11 @@ services {
         insecure_skip_verify = true
       }
     }
-    clients = ["scaleway-pve-prod", "scaleway-edge"]
+    clients = ["site-d-node-prod", "site-d-edge"]
     mode = "failover"
   }
   loki {
-    client = "ovh-pve-prod"
+    client = "site-e-node-prod"
     target = "192.168.0.15:3100"
     web {
       hosts = ["loki.example.com", "www.loki.example.com"]
@@ -1282,7 +1282,7 @@ services {
     }
   }
   gitea {
-    client = "gravelines-pve-prod"
+    client = "site-f-node-prod"
     target = "192.168.0.16:3000"
     web {
       hosts = ["gitea.example.net", "www.gitea.example.net"]
@@ -1307,7 +1307,7 @@ services {
     }
   }
   drone {
-    client = "roubaix-pve-prod"
+    client = "site-g-node-prod"
     target = "192.168.0.17:8000"
     web {
       hosts = ["drone.example.org", "www.drone.example.org"]
@@ -1348,11 +1348,11 @@ services {
         crl = "certs/nextcloud.crl"
       }
     }
-    clients = ["strasbourg-pve-prod", "strasbourg-edge"]
+    clients = ["site-h-node-prod", "site-h-edge"]
     mode = "failover"
   }
   vaultwarden {
-    client = "frankfurt-pve-prod"
+    client = "site-i-node-prod"
     target = "192.168.0.19:8081"
     web {
       hosts = ["vaultwarden.example.net", "www.vaultwarden.example.net"]
@@ -1370,7 +1370,7 @@ services {
     }
   }
   jellyfin {
-    client = "helsinki-pve-prod"
+    client = "site-j-node-prod"
     target = "192.168.0.20:8096"
     web {
       hosts = ["jellyfin.example.org", "www.jellyfin.example.org"]
@@ -1397,7 +1397,7 @@ services {
     }
   }
   immich {
-    client = "amsterdam-pve-prod"
+    client = "site-k-node-prod"
     target = "192.168.0.21:2283"
     web {
       hosts = ["immich.example.com", "www.immich.example.com"]
@@ -1432,11 +1432,11 @@ services {
         Referrer-Policy = "strict-origin-when-cross-origin"
       }
     }
-    clients = ["london-pve-prod", "london-edge"]
+    clients = ["site-l-node-prod", "site-l-edge"]
     mode = "failover"
   }
   homeassistant {
-    client = "etiolles-pve-prod"
+    client = "site-a-node-prod"
     target = "192.168.0.23:8123"
     web {
       hosts = ["homeassistant.example.org", "www.homeassistant.example.org"]
@@ -1461,7 +1461,7 @@ services {
     }
   }
   uptime {
-    client = "hetzner-pve-prod"
+    client = "site-b-node-prod"
     target = "192.168.0.24:3001"
     web {
       hosts = ["uptime.example.com", "www.uptime.example.com"]
@@ -1483,7 +1483,7 @@ services {
     }
   }
   minio {
-    client = "ikoula-pve-prod"
+    client = "site-c-node-prod"
     target = "192.168.0.25:9001"
     web {
       hosts = ["minio.example.net", "www.minio.example.net"]
@@ -1521,11 +1521,11 @@ services {
         insecure_skip_verify = true
       }
     }
-    clients = ["scaleway-pve-prod", "scaleway-edge"]
+    clients = ["site-d-node-prod", "site-d-edge"]
     mode = "failover"
   }
   outline {
-    client = "ovh-pve-prod"
+    client = "site-e-node-prod"
     target = "192.168.0.27:3000"
     web {
       hosts = ["outline.example.com", "www.outline.example.com"]
@@ -1549,7 +1549,7 @@ services {
     }
   }
   plausible {
-    client = "gravelines-pve-prod"
+    client = "site-f-node-prod"
     target = "192.168.0.28:8000"
     web {
       hosts = ["plausible.example.net", "www.plausible.example.net"]
@@ -1573,7 +1573,7 @@ services {
     }
   }
   umami {
-    client = "roubaix-pve-prod"
+    client = "site-g-node-prod"
     target = "192.168.0.29:3000"
     web {
       hosts = ["umami.example.org", "www.umami.example.org"]
@@ -1611,11 +1611,11 @@ services {
       max_body_size = "64MB"
       response_header_timeout_secs = 120
     }
-    clients = ["strasbourg-pve-prod", "strasbourg-edge"]
+    clients = ["site-h-node-prod", "site-h-edge"]
     mode = "failover"
   }
   portainer {
-    client = "frankfurt-pve-prod"
+    client = "site-i-node-prod"
     target = "192.168.0.31:9443"
     web {
       hosts = ["portainer.example.net", "www.portainer.example.net"]
@@ -1633,7 +1633,7 @@ services {
     }
   }
   traefik {
-    client = "helsinki-pve-prod"
+    client = "site-j-node-prod"
     target = "192.168.0.32:8082"
     web {
       hosts = ["traefik.example.org", "www.traefik.example.org"]
@@ -1660,7 +1660,7 @@ services {
     }
   }
   pihole {
-    client = "amsterdam-pve-prod"
+    client = "site-k-node-prod"
     target = "192.168.0.33:80"
     web {
       hosts = ["pihole.example.com", "www.pihole.example.com"]
@@ -1697,11 +1697,11 @@ services {
         Referrer-Policy = "strict-origin-when-cross-origin"
       }
     }
-    clients = ["london-pve-prod", "london-edge"]
+    clients = ["site-l-node-prod", "site-l-edge"]
     mode = "failover"
   }
   wikijs {
-    client = "etiolles-pve-prod"
+    client = "site-a-node-prod"
     target = "192.168.0.35:3000"
     web {
       hosts = ["wikijs.example.org", "www.wikijs.example.org"]
@@ -1721,7 +1721,7 @@ services {
     }
   }
   bookstack {
-    client = "hetzner-pve-prod"
+    client = "site-b-node-prod"
     target = "192.168.0.36:80"
     web {
       hosts = ["bookstack.example.com", "www.bookstack.example.com"]
@@ -1747,7 +1747,7 @@ services {
     }
   }
   mealie {
-    client = "ikoula-pve-prod"
+    client = "site-c-node-prod"
     target = "192.168.0.37:9000"
     web {
       hosts = ["mealie.example.net", "www.mealie.example.net"]
@@ -1790,11 +1790,11 @@ services {
         insecure_skip_verify = true
       }
     }
-    clients = ["scaleway-pve-prod", "scaleway-edge"]
+    clients = ["site-d-node-prod", "site-d-edge"]
     mode = "failover"
   }
   photoprism {
-    client = "ovh-pve-prod"
+    client = "site-e-node-prod"
     target = "192.168.0.39:2342"
     web {
       hosts = ["photoprism.example.com", "www.photoprism.example.com"]
@@ -1814,7 +1814,7 @@ services {
     }
   }
   syncthing {
-    client = "gravelines-pve-prod"
+    client = "site-f-node-prod"
     target = "192.168.0.40:8384"
     web {
       hosts = ["syncthing.example.net", "www.syncthing.example.net"]
@@ -1836,12 +1836,12 @@ services {
     }
   }
   status-page {
-    client = "hetzner-pve-prod"
+    client = "site-b-node-prod"
     target = "192.168.0.90:80"
     web = "status.example.org"
   }
   docs-site {
-    client = "hetzner-pve-prod"
+    client = "site-b-node-prod"
     target = "192.168.0.91:80"
     web = ["docs.example.org", "docs.example.com"]
   }

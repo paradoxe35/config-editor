@@ -8,9 +8,17 @@
 //! anchor) or in the gap between the popup and its line; a pointer that
 //! stops on the way still lets the popup go after its usual moment.
 //!
-//! Only a pointer on that way enters the popup: one that comes onto it
-//! another way (a card below its line covers the next lines) goes through
-//! to the text under it (see `popup_pointer`).
+//! The rule for which pointer the popup takes is one: the popup lets
+//! the pointer through only when it comes onto it from the lines it
+//! covers, beside it, having lost its way there. Anywhere off those lines
+//! (the popup's own line, its gap, the lines past its top or bottom, the
+//! gutter and the page) a way starts again, whatever detour came before,
+//! so a pointer that crosses the popup's top or bottom edge always enters
+//! it, and one that crosses its side does when each move since it left
+//! those other lines headed for it. Over the lines it covers, outside its
+//! box, the text answers as ever; a pointer that came onto them from
+//! beside the popup and moves on under it gets the text under it, docs,
+//! clicks and wheel (see `popup_pointer`).
 
 use leptos::prelude::*;
 use wasm_bindgen::JsCast;
@@ -75,6 +83,47 @@ fn heads_for(from: Point, to: Point, target: Rect) -> bool {
 /// is on the line under it).
 fn inside((x, y): Point, target: Rect) -> bool {
     x >= target.left && x < target.right && y >= target.top && y < target.bottom
+}
+
+/// Whether `point` is on the lines `target` covers (its rows, beside it
+/// or under it): the only place where the way to it can be lost.
+fn on_covered_lines((_, y): Point, target: Rect) -> bool {
+    y >= target.top && y < target.bottom
+}
+
+/// The way to a popup after a move (off its anchor and its gap).
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Way {
+    /// The move heads for the popup: the text it crosses waits.
+    heading: bool,
+    /// The pointer is on its way there: the popup takes it from here.
+    on: bool,
+    /// Where the way started.
+    start: Option<Point>,
+}
+
+/// The way to `target` after the pointer moved from `from` (none: it was
+/// not seen) to `to`, on its way there before (`on_way`, since `start`).
+/// Off the lines the popup covers, a way starts at `to`, whatever detour
+/// came before; one already heading for it goes on from where it started.
+fn way_after(
+    on_way: bool,
+    from: Option<Point>,
+    start: Option<Point>,
+    to: Point,
+    target: Rect,
+) -> Way {
+    let heading = match from {
+        Some(from) if from == to => on_way,
+        Some(from) => on_way && heading_for(from, start.unwrap_or(from), to, target),
+        None => false,
+    };
+    let starts = !on_covered_lines(to, target);
+    Way {
+        heading,
+        on: heading || starts,
+        start: if starts && !heading { Some(to) } else { start },
+    }
 }
 
 /// Where the pointer over the text is, for the popup it can enter.
@@ -189,15 +238,24 @@ impl EditorState {
             return false;
         }
         let start = self.hover().way_start.get_value();
-        let heading = on_way
-            && match from {
-                Some(from) if from == (x, y) => true,
-                Some(from) => popup
-                    .is_some_and(|popup| heading_for(from, start.unwrap_or(from), (x, y), popup)),
-                None => false,
-            };
-        self.hover().on_way.set_value(heading);
-        if !heading {
+        let way = popup.map_or_else(
+            // Not laid out yet: a pointer at rest stays on its way.
+            || {
+                let resting = on_way && from == Some((x, y));
+                Way {
+                    heading: resting,
+                    on: resting,
+                    start,
+                }
+            },
+            |popup| way_after(on_way, from, start, (x, y), popup),
+        );
+        self.hover().on_way.set_value(way.on);
+        self.hover().way_start.set_value(way.start);
+        if popup.is_some_and(|popup| !on_covered_lines((x, y), popup)) {
+            self.popup_takes_pointer();
+        }
+        if !way.heading {
             return false;
         }
         self.wait_on_the_way();
@@ -205,12 +263,12 @@ impl EditorState {
     }
 
     /// Whether the pointer came onto the popup on its way there: its last
-    /// move over the text was on the popup's anchor, in its gap, or heading
-    /// for it from there (each move inside the triangle to the popup),
-    /// whatever side it crossed (a card above a long value is reached
-    /// slanting across its side from the value's end). From the lines
-    /// beside or past it the way was lost first. Only then does the popup
-    /// take it.
+    /// place (over the text, or where it left it) was off the lines the
+    /// popup covers, or on them heading for it from there (each move
+    /// inside the triangle to the popup), whatever side it crossed (a card
+    /// above a long value is reached slanting across its side from the
+    /// value's end). On the lines beside it, the way was lost there. Only
+    /// then does the popup let the pointer through.
     pub(super) fn entered_on_the_way(&self) -> bool {
         self.hover().pointer.get_value().is_some() && self.hover().on_way.get_value()
     }
@@ -226,19 +284,36 @@ impl EditorState {
         super::input::pointer_at(*self, &element, x, y, true);
     }
 
-    /// The pointer left the text for `to`: the next move over it starts a
-    /// new way. Onto the popup, the way so far holds (the popup decides
+    /// The pointer left the text for `to`, at `(x, y)` in the window: the
+    /// next move over it goes on from there (the gutter, the page). Off
+    /// the lines the popup covers, a way to it starts there, as over the
+    /// text. Onto the popup, the way so far holds (the popup decides
     /// whether it takes the pointer).
-    pub(super) fn forget_pointer(&self, to: Option<&web_sys::EventTarget>) {
-        let onto_popup = self.reachable_popup_element().is_some_and(|popup| {
+    pub(super) fn leave_pointer(&self, to: Option<&web_sys::EventTarget>, x: f64, y: f64) {
+        let element = self.reachable_popup_element();
+        let onto_popup = element.as_ref().is_some_and(|popup| {
             to.and_then(|to| to.dyn_ref::<web_sys::Node>())
                 .is_some_and(|to| popup.contains(Some(to)))
         });
-        if !onto_popup {
-            self.hover().pointer.set_value(None);
+        if onto_popup {
+            return;
+        }
+        let from = self.hover().pointer.get_value();
+        self.hover().pointer.set_value(Some((x, y)));
+        self.hover().anchor_x.set_value(None);
+        let Some(popup) = element.as_ref().and_then(popup_box) else {
             self.hover().on_way.set_value(false);
-            self.hover().anchor_x.set_value(None);
-            self.hover().way_start.set_value(None);
+            return;
+        };
+        let (on_way, start) = (
+            self.hover().on_way.get_value(),
+            self.hover().way_start.get_value(),
+        );
+        let way = way_after(on_way, from, start, (x, y), popup);
+        self.hover().on_way.set_value(way.on);
+        self.hover().way_start.set_value(way.start);
+        if !on_covered_lines((x, y), popup) {
+            self.popup_takes_pointer();
         }
     }
 
@@ -266,14 +341,10 @@ impl EditorState {
     /// Whether cell `cell` of zero-based `line` is what the popup is for:
     /// the card's key, or the problems the tip shows.
     fn on_popup_anchor(&self, line: usize, cell: usize) -> bool {
-        let card = self.hover().card.with_untracked(|card| {
-            card.as_ref()
-                .map(|card| (card.line, card.info.start_column, card.info.key.clone()))
-        });
-        if let Some(card) = card {
+        if self.hover().card.with_untracked(Option::is_some) {
             return self
                 .docs_under_pointer(line, cell)
-                .is_some_and(|info| (line, info.start_column, info.key) == card);
+                .is_some_and(|info| self.card_shows(line, &info));
         }
         self.doc().text.with_untracked(|text| {
             let Some((hovered_line, hovered_column)) = self.problems().hovered.get_untracked()
@@ -337,7 +408,7 @@ impl EditorState {
 
 #[cfg(test)]
 mod tests {
-    use super::{Point, Rect, Spot, heading_for, heads_for, in_gap, inside, spot};
+    use super::{Point, Rect, Spot, heads_for, in_gap, inside, spot, way_after};
 
     /// A card below a key's line, as the hover card opens.
     const CARD: Rect = Rect {
@@ -378,39 +449,46 @@ mod tests {
         assert!(!heads_for(key, key, CARD));
     }
 
-    /// Whether a pointer going from `start` (on the popup's anchor) to
-    /// `end` in `steps` moves, each reported at whole pixels as mouse
-    /// events are, still heads for `card` when it gets onto it (the
-    /// popup takes it), following the rules of `on_the_way_to_popup`.
-    /// `None`: it never got onto it.
-    fn reaches(start: Point, end: Point, steps: usize, card: Rect, anchor: Rect) -> Option<bool> {
-        let mut from = start;
+    /// Whether a pointer going through `points` from the popup's anchor,
+    /// in moves of at most `step` pixels reported at whole pixels as mouse
+    /// events are, is on its way when it gets onto `card` (the card takes
+    /// it), following the rules of `on_the_way_to_popup` (and of
+    /// `leave_pointer`: off the text, in the gutter, the same). `None`: it
+    /// never got onto it.
+    fn walk(points: &[Point], step: f64, card: Rect, anchor: Rect) -> Option<bool> {
+        let anchor_x = Some(points[0].0);
+        let mut from = points[0];
         let mut on_way = true;
-        let anchor_x = Some(start.0);
-        let mut way_start = start;
-        for step in 1..=steps {
-            let at = step as f64 / steps as f64;
-            let to = (
-                (start.0 + (end.0 - start.0) * at).floor(),
-                (start.1 + (end.1 - start.1) * at).floor(),
-            );
-            if inside(to, card) {
-                return Some(on_way);
+        let mut start = Some(from);
+        for pair in points.windows(2) {
+            let (a, b) = (pair[0], pair[1]);
+            let steps = ((b.0 - a.0).hypot(b.1 - a.1) / step).round().max(1.0);
+            for i in 1..=steps as usize {
+                let at = i as f64 / steps;
+                let to = (
+                    (a.0 + (b.0 - a.0) * at).floor(),
+                    (a.1 + (b.1 - a.1) * at).floor(),
+                );
+                if inside(to, card) {
+                    return Some(on_way);
+                }
+                if inside(to, anchor) || spot(to, card, false, anchor_x) == Spot::Gap {
+                    on_way = true;
+                    start = Some(to);
+                } else {
+                    let way = way_after(on_way, Some(from), start, to, card);
+                    (on_way, start) = (way.on, way.start);
+                }
+                from = to;
             }
-            on_way = match spot(to, card, false, anchor_x) {
-                _ if inside(to, anchor) => {
-                    way_start = to;
-                    true
-                }
-                Spot::Gap => {
-                    way_start = to;
-                    true
-                }
-                _ => on_way && (from == to || heading_for(from, way_start, to, card)),
-            };
-            from = to;
         }
         None
+    }
+
+    /// `walk` straight from `start` to `end` in `steps` moves.
+    fn reaches(start: Point, end: Point, steps: usize, card: Rect, anchor: Rect) -> Option<bool> {
+        let length = (end.0 - start.0).hypot(end.1 - start.1);
+        walk(&[start, end], length / steps as f64, card, anchor)
     }
 
     /// QA 27 (M27-U1): a card above its line closed on the way up to it
@@ -461,6 +539,61 @@ mod tests {
         }
     }
 
+    /// QA 28 (F1): a card above its line let the pointer through (and
+    /// closed under it) when it got there after straying into the
+    /// indentation or the gutter. A detour off the lines the card covers
+    /// (left, right, onto the line past the key, past the card's far
+    /// edge), at 4 to 16 px a move, keeps the way, above or below the
+    /// line.
+    #[test]
+    fn a_detour_off_the_covered_lines_keeps_the_way() {
+        let anchor = Rect {
+            left: 60.0,
+            top: 140.0,
+            right: 100.0,
+            bottom: 160.0,
+        };
+        let above = Rect {
+            left: 60.0,
+            top: 58.6,
+            right: 400.0,
+            bottom: 136.0,
+        };
+        let below = Rect {
+            top: 164.0,
+            bottom: 241.4,
+            ..above
+        };
+        let key = (66.0, 150.0);
+        for card in [above, below] {
+            let (away, into, far) = if card == above {
+                (174.0, 110.0, 40.0)
+            } else {
+                (126.0, 190.0, 260.0)
+            };
+            let detours = [
+                (48.0, 146.0),
+                (20.0, 150.0),
+                (2.0, 150.0),
+                (130.0, 146.0),
+                (190.0, 150.0),
+                (66.0, away),
+                (20.0, away),
+                (420.0, far),
+            ];
+            for detour in detours {
+                for step in [4.0, 8.0, 16.0] {
+                    let way = [key, detour, (100.0, into)];
+                    assert_eq!(
+                        walk(&way, step, card, anchor),
+                        Some(true),
+                        "{card:?} via {detour:?} at {step}"
+                    );
+                }
+            }
+        }
+    }
+
     /// QA 26 (M26-U1): a card below its line took the pointer that came
     /// onto the lines it covers from beside it, so those lines could not
     /// be hovered, clicked or scrolled. A way from beside the card, or from
@@ -478,10 +611,22 @@ mod tests {
         // Out along the line, then beside it and in from the side.
         assert_eq!(reaches((60.0, 45.0), (420.0, 45.0), 20, card, anchor), None);
         let beside = (420.0, 100.0);
-        let mut on_way = heads_for((60.0, 45.0), beside, card);
-        assert!(!on_way);
-        on_way = on_way && heads_for(beside, (379.0, 100.0), card);
-        assert!(!on_way || inside((379.0, 100.0), card));
+        assert!(!heads_for((60.0, 45.0), beside, card));
+        for step in [4.0, 8.0, 16.0] {
+            // Along the line past the card's side, down beside it, and
+            // in under it.
+            let way = [(60.0, 45.0), (420.0, 45.0), beside, (100.0, 100.0)];
+            assert_eq!(walk(&way, step, card, anchor), Some(false), "{step}");
+            // From below the card up beside it, then in.
+            let way = [
+                (60.0, 45.0),
+                (420.0, 45.0),
+                (420.0, 260.0),
+                beside,
+                (100.0, 100.0),
+            ];
+            assert_eq!(walk(&way, step, card, anchor), Some(false), "{step}");
+        }
         // Along its line past its side.
         assert!(!heads_for((60.0, 45.0), (600.0, 45.0), card));
         assert!(!heads_for((600.0, 45.0), (600.0, 100.0), card));

@@ -1389,7 +1389,7 @@
       "type": "object",
       "properties": {
         "insecure_skip_verify": {
-          "description": "true: the app's certificate is not checked, for apps with a self-made certificate like Proxmox, UniFi or DSM",
+          "description": "true: the app's certificate is not checked, for apps with a self-made certificate",
           "type": "boolean"
         }
       },

@@ -51,6 +51,20 @@ pub(super) fn highlight(line: &str) -> Vec<Token> {
 /// a key and its value, or (when `value` says one can stand alone there,
 /// after an indicator) a value.
 fn highlight_rest(tokens: &mut Tokens, offset: usize, text: &str, value: bool) {
+    // The node's anchor or tag first (`&base key: v`, `&m {k: v}`), then
+    // the node, which may stand alone.
+    let lead = text.len() - text.trim_start().len();
+    if let Some(length) = property_len(&text[lead..]) {
+        let kind = if text[lead..].starts_with('&') {
+            TokenKind::Reference
+        } else {
+            TokenKind::Literal
+        };
+        tokens.push(offset + lead, offset + lead + length, kind);
+        let after = lead + length;
+        highlight_rest(tokens, offset + after, &text[after..], true);
+        return;
+    }
     match mapping_colon(text).filter(|colon| is_key(&text[..*colon])) {
         Some(colon) => {
             let key = &text[..colon];
@@ -128,9 +142,9 @@ fn document_mark(content: &str) -> Option<usize> {
 }
 
 /// Tokens for `value`, which starts at byte `offset` of the line: its
-/// anchor and tag first (an anchor named like a key, a tag like a
-/// literal), then the node: an alias (named like a key), a block scalar's
-/// indicator, a flow collection or a scalar, and any comment.
+/// anchor and tag first (an anchor a reference, a tag like a literal),
+/// then the node: an alias (a reference), a block scalar's indicator, a
+/// flow collection or a scalar, and any comment.
 pub(super) fn highlight_value(tokens: &mut Tokens, offset: usize, value: &str) {
     let mut start = offset + value.len() - value.trim_start().len();
     let mut rest = value.trim_start();
@@ -138,7 +152,7 @@ pub(super) fn highlight_value(tokens: &mut Tokens, offset: usize, value: &str) {
     let mut string_tag = false;
     while let Some(length) = property_len(rest) {
         let kind = if rest.starts_with('&') {
-            TokenKind::Key
+            TokenKind::Reference
         } else {
             string_tag = &rest[..length] == "!!str";
             TokenKind::Literal
@@ -160,7 +174,7 @@ pub(super) fn highlight_value(tokens: &mut Tokens, offset: usize, value: &str) {
     let scalar_end = start + scalar.len();
     let kind = if scalar.starts_with('*') || is_block_indicator(scalar.trim_end()) {
         if scalar.starts_with('*') {
-            TokenKind::Key
+            TokenKind::Reference
         } else {
             TokenKind::Punctuation
         }

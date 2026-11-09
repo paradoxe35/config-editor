@@ -28,10 +28,10 @@ from pathlib import Path
 OUT = Path(__file__).resolve().parent.parent / "crates/config-editor-leptos/tests/fixtures/samples"
 
 SITES = [
-    "etiolles", "hetzner", "ikoula", "scaleway", "ovh", "gravelines",
-    "roubaix", "strasbourg", "frankfurt", "helsinki", "amsterdam", "london",
+    "site-a", "site-b", "site-c", "site-d", "site-e", "site-f",
+    "site-g", "site-h", "site-i", "site-j", "site-k", "site-l",
 ]
-ROLES = ["pve", "pve-ai", "pve-stagging", "pve-prod", "ai-server", "nas", "edge", "backup"]
+ROLES = ["node", "node-ai", "node-staging", "node-prod", "ai-server", "storage", "edge", "backup"]
 PEOPLE = [
     "victor-pc", "victor-laptop", "wendy-pc", "wendy-phone", "ops-oncall",
     "ci-runner", "grafana-bot", "backup-agent", "alice-laptop", "bob-desktop",
@@ -66,7 +66,7 @@ def secret(*parts):
 
 
 def config(scale=1):
-    """The config; `scale` repeats the sites (`etiolles`, `etiolles-2`, …),
+    """The config; `scale` repeats the sites (`site-a`, `site-a-2`, …),
     which multiplies the clients and services, for large-file tests."""
     sites = [site if copy == 0 else f"{site}-{copy + 1}" for copy in range(scale) for site in SITES]
     clients = {}
@@ -95,8 +95,8 @@ def config(scale=1):
         elif index % 3 == 1:
             entry["reach"] = {
                 client_names[index % len(client_names)]: [
-                    f"{sites[index % len(sites)]}-pve-ssh",
-                    f"{sites[index % len(sites)]}-pve-web",
+                    f"{sites[index % len(sites)]}-node-ssh",
+                    f"{sites[index % len(sites)]}-node-web",
                 ],
                 client_names[(index * 7) % len(client_names)]: "self",
             }
@@ -110,16 +110,16 @@ def config(scale=1):
     services = {}
     port = 65000
     for site_index, site in enumerate(sites):
-        pve = f"{site}-pve"
-        ai = f"{site}-pve-ai"
-        services[f"{site}-pve-ssh"] = {
-            "client": pve,
+        node = f"{site}-node"
+        ai = f"{site}-node-ai"
+        services[f"{site}-node-ssh"] = {
+            "client": node,
             "target": 22,
             "visitors": [visitor_names[site_index % 5], visitor_names[(site_index + 1) % 5]],
         }
-        services[f"{site}-pve-web"] = {
+        services[f"{site}-node-web"] = {
             "target": 8006,
-            "clients": [pve, ai],
+            "clients": [node, ai],
             "mode": MODES[site_index % len(MODES)],
             "visitors": [visitor_names[0], visitor_names[(site_index + 2) % len(visitor_names)]],
             "health_check": {
@@ -133,7 +133,7 @@ def config(scale=1):
         services[f"{site}-vm-ssh"] = {
             "bind": port,
             "target": f"192.168.{50 + site_index}.142:22",
-            "clients": [pve, ai],
+            "clients": [node, ai],
             "allow_from": [f"10.{site_index}.0.0/16", "192.168.0.0/16"],
             "deny_from": ["10.66.0.0/16", "172.16.0.0/12"],
             "max_connections": 64,
@@ -143,14 +143,14 @@ def config(scale=1):
             "target": f"192.168.{50 + site_index}.164:51820",
             "bind": port,
             "protocol": "udp",
-            "clients": [pve, ai],
+            "clients": [node, ai],
             "visitors": [visitor_names[0], visitor_names[1]],
             "bandwidth": f"{10 * (site_index + 1)}mbit",
         }
         services[f"{site}-wgdashboard"] = {
             "target": f"192.168.{50 + site_index}.164:10086",
             "clients": [
-                {"name": pve, "target": 10086, "weight": 10 + site_index},
+                {"name": node, "target": 10086, "weight": 10 + site_index},
                 {"name": ai, "target": f"192.168.{50 + site_index}.165:10086", "weight": 1},
             ],
             "mode": "balance",
@@ -205,24 +205,24 @@ def config(scale=1):
         if app_index % 9 == 7:
             website["client_auth"] = {"ca": f"certs/{app}-clients-ca.pem", "crl": f"certs/{app}.crl"}
         entry = {
-            "client": f"{site}-pve-prod",
+            "client": f"{site}-node-prod",
             "target": f"192.168.0.{11 + app_index}:{app_port}",
             "web": website,
         }
         if app_index % 4 == 3:
             del entry["client"]
-            entry["clients"] = [f"{site}-pve-prod", f"{site}-edge"]
+            entry["clients"] = [f"{site}-node-prod", f"{site}-edge"]
             entry["mode"] = "failover"
         services[app] = entry
 
     # Short web forms: a single host name and a host list.
     services["status-page"] = {
-        "client": "hetzner-pve-prod",
+        "client": "site-b-node-prod",
         "target": "192.168.0.90:80",
         "web": "status.example.org",
     }
     services["docs-site"] = {
-        "client": "hetzner-pve-prod",
+        "client": "site-b-node-prod",
         "target": "192.168.0.91:80",
         "web": ["docs.example.org", "docs.example.com"],
     }

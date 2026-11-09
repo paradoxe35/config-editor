@@ -13,7 +13,7 @@ import { editor, pointAt, setupEditor } from './helpers.mjs';
 // value, `l` literal, `c` comment, `p` punctuation, `_` uncolored text.
 const rowTokens = (page) =>
   page.evaluate(() => {
-    const letters = { key: 'k', string: 's', value: 'v', literal: 'l', comment: 'c', punctuation: 'p' };
+    const letters = { key: 'k', string: 's', value: 'v', literal: 'l', comment: 'c', punctuation: 'p', reference: 'r', interpolation: 'i' };
     return [...document.querySelectorAll('.config-editor__highlight .config-editor__code-line')].map((row) => {
       const walker = document.createTreeWalker(row, NodeFilter.SHOW_TEXT);
       const runs = [];
@@ -47,7 +47,8 @@ const CASES = {
   },
   hcl: {
     text: 'a = "${"/*"}"\nd = "a${"#"}b" # c\nh = <<EOT\nx ${"/*"} y\nEOT\nlisten = 7835\n',
-    rows: ['k(a) p(=) s("${"/*"}")', 'k(d) p(=) s("a${"#"}b") c(# c)', 'k(h) p(=) s(<<EOT)', 's(x ${"/*"} y)', 's(EOT)', 'k(listen) p(=) l(7835)'],
+    // QA 28: the template sequences in strings and heredocs are interpolations.
+    rows: ['k(a) p(=) s(") i(${"/*"}) s(")', 'k(d) p(=) s("a) i(${"#"}) s(b") c(# c)', 'k(h) p(=) s(<<EOT)', 's(x) i(${"/*"}) s(y)', 's(EOT)', 'k(listen) p(=) l(7835)'],
   },
 };
 

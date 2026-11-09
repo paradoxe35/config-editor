@@ -47,9 +47,17 @@ pub(crate) fn HoverCardView(state: EditorState) -> impl IntoView {
         if natural.get_untracked() != 0.0 {
             natural.set(0.0);
         }
-        later::next_frame(scrolls, move |scrolls| {
-            measure_height(card_ref, natural);
-            later::next_frame(scrolls, move |scrolls| measure(card_ref, scrolls));
+        // Once drawn, in the same task (QA 28: from a tip to the card, the
+        // frame between showed no popup); else before it is painted.
+        later::soon(scrolls, move |scrolls| {
+            if measure_height(card_ref, natural) {
+                later::next_frame(scrolls, move |scrolls| measure(card_ref, scrolls));
+            } else {
+                later::next_frame(scrolls, move |scrolls| {
+                    measure_height(card_ref, natural);
+                    later::next_frame(scrolls, move |scrolls| measure(card_ref, scrolls));
+                });
+            }
         });
     });
     let style = Relay::new(move || {
@@ -155,18 +163,20 @@ pub(crate) fn HoverCardView(state: EditorState) -> impl IntoView {
     }
 }
 
-/// The card's full height, borders included, into `natural`.
-fn measure_height(card_ref: NodeRef<Div>, natural: RwSignal<f64>) {
+/// The card's full height, borders included, into `natural`; whether it
+/// was on the page to be measured.
+fn measure_height(card_ref: NodeRef<Div>, natural: RwSignal<f64>) -> bool {
     let Some(card) = card_ref.get_untracked() else {
-        return;
+        return false;
     };
     if card.offset_height() == 0 {
-        return;
+        return false;
     }
     let height = f64::from(card.scroll_height() + card.offset_height() - card.client_height());
     if natural.get_untracked() != height {
         natural.set(height);
     }
+    true
 }
 
 /// Whether the card is taller than its room (its `max-height`), into

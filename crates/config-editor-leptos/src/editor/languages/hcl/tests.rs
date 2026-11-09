@@ -544,8 +544,10 @@ fn a_leading_word_without_equals_or_brace_is_a_value() {
     );
 }
 
+/// QA 28 (F3): a template sequence is an interpolation, in a string or
+/// out of one.
 #[test]
-fn strings_heredocs_and_templates_color_as_strings() {
+fn strings_and_heredocs_color_as_strings_and_templates_as_interpolations() {
     use TokenKind::*;
     assert_eq!(
         highlighted(r#"a = "x\"y""#),
@@ -574,7 +576,7 @@ fn strings_heredocs_and_templates_color_as_strings() {
             run(None, " "),
             run(Some(Punctuation), "="),
             run(None, " "),
-            run(Some(String), "${var.x}"),
+            run(Some(Interpolation), "${var.x}"),
         ]
     );
 }

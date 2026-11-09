@@ -182,7 +182,7 @@ pub(super) fn flow_tokens(text: &str, offset: usize, tokens: &mut Tokens) {
                 let kind = if character == '!' {
                     TokenKind::Literal
                 } else {
-                    TokenKind::Key
+                    TokenKind::Reference
                 };
                 tokens.push(offset + start, offset + start + length, kind);
                 string_tag = &rest[..length] == "!!str";

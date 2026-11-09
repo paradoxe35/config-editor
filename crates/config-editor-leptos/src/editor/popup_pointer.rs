@@ -193,6 +193,39 @@ fn scrolling_ancestor(element: &Element, dx: f64, dy: f64) -> Option<Element> {
     None
 }
 
+/// Whether Escape is free to close the popup under the pointer: the focus
+/// is nowhere, or on a control of the view the editor is in (a documents
+/// view's tab or "+" button, outside the editor itself), which has no
+/// Escape of its own. A field typed into keeps it.
+pub(super) fn escape_is_free(state: EditorState) -> bool {
+    nothing_focused() || on_own_control(state)
+}
+
+/// Whether the focus is on a control of the view around the editor (the
+/// closest element of the view's class holding it), not in the editor.
+fn on_own_control(state: EditorState) -> bool {
+    let Some(active) = web_sys::window()
+        .and_then(|window| window.document())
+        .and_then(|document| document.active_element())
+    else {
+        return false;
+    };
+    let Some(root) = state.view().root_ref.get_untracked() else {
+        return false;
+    };
+    let root: &Element = root.unchecked_ref();
+    let view = root
+        .parent_element()
+        .and_then(|parent| parent.closest(".config-editor-documents").ok().flatten());
+    let typed_into = matches!(active.tag_name().as_str(), "INPUT" | "TEXTAREA" | "SELECT")
+        || active
+            .dyn_ref::<HtmlElement>()
+            .is_some_and(HtmlElement::is_content_editable);
+    view.is_some_and(|view| view.contains(Some(&active)))
+        && !root.contains(Some(&active))
+        && !typed_into
+}
+
 /// Whether the focus is nowhere (the page's body): Escape then closes the
 /// popup under the pointer.
 pub(super) fn nothing_focused() -> bool {

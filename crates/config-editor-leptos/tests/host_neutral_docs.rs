@@ -18,6 +18,29 @@ const PRODUCT: &str = "burrow";
 /// use RFC 2606 names (`example.com`) and placeholder people instead.
 const PERSONAL: [&str; 4] = ["pngwasi.me", "gracecarry.shop", "paradoxe-", "gaby-"];
 
+/// Real infrastructure the large sample's machines were once named after
+/// (hosting companies, their data centres, a private site, a hypervisor
+/// product, and a typo of "staging"); the samples use placeholders
+/// (`site-a-node`, `edge`) instead (QA 28).
+const INFRASTRUCTURE: [&str; 16] = [
+    "etiolles",
+    "hetzner",
+    "ikoula",
+    "scaleway",
+    "ovh",
+    "gravelines",
+    "roubaix",
+    "strasbourg",
+    "frankfurt",
+    "helsinki",
+    "amsterdam",
+    "london",
+    "proxmox",
+    "-pve",
+    "pve-",
+    "stagging",
+];
+
 /// Phrases that tell the reader the host keeps its files on a server or a
 /// disk.
 const ASSUMED: [&str; 17] = [
@@ -219,6 +242,26 @@ fn no_user_facing_place_names_a_person() {
     assert!(
         hits.is_empty(),
         "a person's domain or machine (use example.com, example.net, example.org):\n{}",
+        hits.join("\n")
+    );
+}
+
+#[test]
+fn no_user_facing_place_names_real_infrastructure() {
+    let mut places = prose();
+    for path in shown_data() {
+        let text = fs::read_to_string(&path).expect("readable");
+        places.push((path, text));
+    }
+    let samples = places
+        .iter()
+        .filter(|(path, _)| path.to_string_lossy().contains("tunnel.large."))
+        .count();
+    assert_eq!(samples, 5, "the large samples are not all read");
+    let hits = found(&places, &INFRASTRUCTURE);
+    assert!(
+        hits.is_empty(),
+        "real infrastructure (use placeholders: site-a, node, edge):\n{}",
         hits.join("\n")
     );
 }

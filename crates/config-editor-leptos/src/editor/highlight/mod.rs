@@ -23,6 +23,12 @@ pub enum TokenKind {
     Comment,
     /// Structural punctuation: brackets, separators, markup delimiters.
     Punctuation,
+    /// A name that points at another place in the document: a YAML anchor
+    /// (`&base`) or alias (`*base`).
+    Reference,
+    /// An expression written into a string, delimiters included: HCL's
+    /// `${var.name}` and `%{ if x }`.
+    Interpolation,
 }
 
 impl TokenKind {
@@ -34,6 +40,8 @@ impl TokenKind {
             TokenKind::Literal => "config-editor__literal",
             TokenKind::Comment => "config-editor__comment",
             TokenKind::Punctuation => "config-editor__punctuation",
+            TokenKind::Reference => "config-editor__reference",
+            TokenKind::Interpolation => "config-editor__interpolation",
         }
     }
 }

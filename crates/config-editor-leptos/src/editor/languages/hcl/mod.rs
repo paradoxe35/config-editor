@@ -21,6 +21,7 @@ mod convert;
 mod floats;
 mod heredoc;
 mod expressions;
+mod interpolation;
 mod list_items;
 mod read;
 mod big_objects;
@@ -425,16 +426,25 @@ impl ConfigLanguage for HclBehavior {
         line_comment_start(line)
     }
 
-    /// Heredocs: their last line is the string's too.
+    /// Heredocs, their last line included: their lines are a string's,
+    /// with the template sequences in them (see `highlight_continued`).
     fn multiline_constructs(&self, source: &str) -> Vec<MultilineConstruct> {
         tokenize(source)
             .iter()
             .filter(|token| token.kind == Kind::Heredoc)
             .map(|token| {
                 let end = token.end - usize::from(source[..token.end].ends_with('\n'));
-                MultilineConstruct::colored(token.start..end, TokenKind::String)
+                MultilineConstruct::structure(token.start..end)
             })
             .collect()
+    }
+
+    /// A heredoc's line (its only multi-line construct): a string, its
+    /// template sequences interpolations.
+    fn highlight_continued(&self, text: &str) -> Vec<HighlightToken> {
+        let mut out = Tokens::new();
+        interpolation::push_heredoc_line(&mut out, text);
+        out.finish()
     }
 }
 

@@ -25,7 +25,9 @@ pub(super) fn close_popups_on_outside_press(state: EditorState) {
 }
 
 /// Closes the hover card or the problem tip on Escape with the pointer on
-/// it or on the text it shows for, while nothing has the focus (the
+/// it or on the text it shows for, while nothing has the focus or the
+/// focus is on a control of the view around the editor that has no
+/// Escape of its own (a documents view's tabs and "+", QA 28) (the
 /// editor's own keys close them when it has it; another field on the page
 /// keeps its Escape).
 pub(super) fn close_popups_on_escape_over_them(state: EditorState) {
@@ -37,8 +39,8 @@ pub(super) fn close_popups_on_escape_over_them(state: EditorState) {
         // or on the way to it).
         let over = state.hover().card_entered.get_value()
             || state.problems().tip_entered.get_value()
-            || state.hover().pointer.get_value().is_some();
-        if escape && over && super::popup_pointer::nothing_focused() {
+            || state.hover().on_text.get_value();
+        if escape && over && super::popup_pointer::escape_is_free(state) {
             state.hide_hover();
             state.hide_problem_tip();
         }

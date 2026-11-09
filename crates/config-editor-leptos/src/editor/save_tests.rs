@@ -178,14 +178,14 @@ fn deleting_a_one_line_xml_element_removes_only_its_line() {
 fn deleting_a_client_of_the_large_hcl_sample_removes_only_its_block() {
     let hcl = include_str!("../../tests/fixtures/samples/tunnel.large.hcl");
     let block =
-        "  etiolles-pve-ai {\n    secret = \"«secret 705fde3f»\"\n    max_connections = 264\n  }\n";
+        "  site-a-node-ai {\n    secret = \"«secret d08633de»\"\n    max_connections = 264\n  }\n";
     assert!(hcl.contains(block));
     let saved = save(Language::HCL, Language::YAML, hcl, |shown| {
         let start = shown
-            .find("\n  etiolles-pve-ai:\n")
+            .find("\n  site-a-node-ai:\n")
             .expect("the client in YAML")
             + 1;
-        let end = start + shown[start..].find("\n  etiolles-pve-stagging:").unwrap() + 1;
+        let end = start + shown[start..].find("\n  site-a-node-staging:").unwrap() + 1;
         format!("{}{}", &shown[..start], &shown[end..])
     });
     assert_eq!(saved, hcl.replacen(block, "", 1));

@@ -277,6 +277,8 @@ impl ConfigLanguage for JsLanguage {
                 Some("literal") => TokenKind::Literal,
                 Some("comment") => TokenKind::Comment,
                 Some("punctuation") => TokenKind::Punctuation,
+                Some("reference") => TokenKind::Reference,
+                Some("interpolation") => TokenKind::Interpolation,
                 _ => TokenKind::Value,
             };
             // JavaScript string indices (UTF-16 units, as `indexOf` gives).

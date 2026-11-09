@@ -189,6 +189,10 @@ pub(super) fn highlight(line: &str) -> Vec<HighlightToken> {
             token_kind(content, token, key_end, expression)
         };
         after_punctuation |= matches!(token.kind, Kind::Punct(_));
+        if kind == TokenKind::String && matches!(token.kind, Kind::Str { .. } | Kind::Template) {
+            super::interpolation::push_string(&mut out, content, indent, token.start, token.end);
+            continue;
+        }
         out.push(indent + token.start, indent + token.end, kind);
     }
     out.finish()

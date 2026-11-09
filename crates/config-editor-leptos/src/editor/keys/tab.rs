@@ -127,7 +127,7 @@ fn spans_lines(text: &str, start: usize, end: usize) -> bool {
 
 /// Indents (or with Shift outdents) the selected lines, keeping them
 /// selected.
-fn indent_block(
+pub(super) fn indent_block(
     state: EditorState,
     text: String,
     (start, end): (usize, usize),
@@ -145,13 +145,15 @@ fn indent_block(
     } else {
         (selection_start, selection_end)
     };
-    if updated != text {
-        state.commit(Edit::new(text, (start, end), updated, caret).selecting_from(anchor));
+    let made = if updated != text {
+        state.commit(Edit::new(text, (start, end), updated, caret).selecting_from(anchor))
     } else {
         state.note_caret(caret);
-    }
-    // Keep the block selected, in the same direction.
-    if let Some(element) = state.textarea() {
+        true
+    };
+    // Keep the block selected, in the same direction (a refused edit
+    // left the selection it started from).
+    if made && let Some(element) = state.textarea() {
         select(&element, selection_start, selection_end, backward);
     }
     state.close_suggestions();

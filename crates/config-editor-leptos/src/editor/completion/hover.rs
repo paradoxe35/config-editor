@@ -32,6 +32,43 @@ pub(crate) struct KeyHover {
     pub(crate) item: Option<ValueDoc>,
 }
 
+impl KeyHover {
+    /// Whether `other` shows what this shows, wherever on the line it was
+    /// found (an XML element's end tag, a key's value): one card is for
+    /// both.
+    pub(crate) fn same_docs(&self, other: &KeyHover) -> bool {
+        let Self {
+            key,
+            start_column: _,
+            type_label,
+            title,
+            description,
+            default,
+            examples,
+            required,
+            deprecated,
+            deprecation,
+            docs_url,
+            choice,
+            value,
+            item,
+        } = self;
+        *key == other.key
+            && *type_label == other.type_label
+            && *title == other.title
+            && *description == other.description
+            && *default == other.default
+            && *examples == other.examples
+            && *required == other.required
+            && *deprecated == other.deprecated
+            && *deprecation == other.deprecation
+            && *docs_url == other.docs_url
+            && *choice == other.choice
+            && *value == other.value
+            && *item == other.item
+    }
+}
+
 /// A documented value under the pointer: an `enum` entry with its
 /// `x-enum-descriptions` line, or a `const` branch with its title.
 #[derive(Clone, Debug, PartialEq, Eq)]

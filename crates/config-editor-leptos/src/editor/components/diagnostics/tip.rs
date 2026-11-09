@@ -76,9 +76,16 @@ pub(crate) fn ProblemTip(state: EditorState) -> impl IntoView {
             take_pointer_again(&tip);
         }
         if visible.get() {
-            // Once its entries and its showing are on the page (before it
-            // is painted).
-            later::next_frame(state, move |_| measure(tip_ref, natural, true));
+            // Once its entries and its showing are on the page, in the
+            // same task (QA 28: from one target to the next, the frame
+            // between showed no popup); else before it is painted.
+            later::soon(state, move |state| {
+                if !measure(tip_ref, natural, true) {
+                    later::next_frame(state, move |_| {
+                        measure(tip_ref, natural, true);
+                    });
+                }
+            });
         }
         now
     });
@@ -131,13 +138,13 @@ pub(crate) fn ProblemTip(state: EditorState) -> impl IntoView {
 
 /// Measures the tip's full height into `natural`; then (once placed by it,
 /// the frame after when it changed, `again`) scrolls the problem F8 went to
-/// into view.
-fn measure(tip_ref: NodeRef<Div>, natural: RwSignal<f64>, again: bool) {
+/// into view. Whether it was on the page to be measured.
+fn measure(tip_ref: NodeRef<Div>, natural: RwSignal<f64>, again: bool) -> bool {
     let Some(tip) = tip_ref.get_untracked() else {
-        return;
+        return false;
     };
     if tip.offset_height() == 0 {
-        return;
+        return false;
     }
     // Shown (again) or with new entries: from its first problem, not where
     // it was last scrolled to.
@@ -148,8 +155,10 @@ fn measure(tip_ref: NodeRef<Div>, natural: RwSignal<f64>, again: bool) {
     let measured = f64::from(tip.scroll_height() + tip.offset_height() - tip.client_height());
     if natural.try_get_untracked() != Some(measured) && again {
         natural.set(measured);
-        later::next_frame(natural, move |natural| measure(tip_ref, natural, false));
-        return;
+        later::next_frame(natural, move |natural| {
+            measure(tip_ref, natural, false);
+        });
+        return true;
     }
     if let Ok(Some(current)) = tip.query_selector(".config-editor__problem-tip-entry--current")
         && let Ok(current) = current.dyn_into::<web_sys::HtmlElement>()
@@ -160,6 +169,7 @@ fn measure(tip_ref: NodeRef<Div>, natural: RwSignal<f64>, again: bool) {
             tip.set_scroll_top(top - 4);
         }
     }
+    true
 }
 
 /// A key with the focus in the tip: `Enter` on it or `Alt+Enter` opens

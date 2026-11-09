@@ -310,7 +310,9 @@ fn apply_input(state: EditorState, edit: Edit, before: &str, input_type: &str, r
 /// The pointer left the text: the docs card and the problem tip close
 /// (each after its moment to reach it).
 pub(super) fn mouse_leave(state: EditorState, event: &web_sys::MouseEvent) {
-    state.forget_pointer(event.related_target().as_ref());
+    let (x, y) = (f64::from(event.client_x()), f64::from(event.client_y()));
+    state.hover().on_text.set_value(false);
+    state.leave_pointer(event.related_target().as_ref(), x, y);
     state.leave_hover();
     if state.problems().hovered.with_untracked(Option::is_some) {
         state.leave_problem();
@@ -325,6 +327,7 @@ pub(super) fn mouse_move(state: EditorState, event: &web_sys::MouseEvent) {
         return;
     };
     let (x, y) = (f64::from(event.client_x()), f64::from(event.client_y()));
+    state.hover().on_text.set_value(true);
     // Not while a button is held (a drag selecting text).
     pointer_at(state, &element, x, y, event.buttons() == 0);
 }
@@ -362,14 +365,7 @@ pub(super) fn pointer_at(state: EditorState, element: &SourceArea, x: f64, y: f6
     if state.hover().pending.get_value().as_ref() == Some(&identity) {
         return;
     }
-    let shown = state.hover().card.with_untracked(|card| {
-        card.as_ref().is_some_and(|card| {
-            card.line == line
-                && card.info.start_column == info.start_column
-                && card.info.key == info.key
-        })
-    });
-    if shown {
+    if state.card_shows(line, &info) {
         // Back on its key within the moment it was given to be reached:
         // it stays.
         state.keep_hover();
