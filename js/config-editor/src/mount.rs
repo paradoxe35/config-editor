@@ -130,6 +130,8 @@ pub(crate) fn view(state: State, latest: Latest, setup: Setup) -> AnyView {
         if let Some(callback) = state.on_change.try_get_value().flatten() {
             let _ = state.echoes.try_update_value(|echoes| echoes.sent(&text));
             call_host(&callback, &JsValue::from_str(&text));
+        } else {
+            let _ = state.echoes.try_update_value(Echoes::unsent);
         }
     };
     let switched = move |language: Language| {

@@ -274,6 +274,12 @@ fn view(state: State, setup: Setup) -> AnyView {
                 kept.texts.remember(&id, "value", value.clone(), text);
             });
             call_host_with(&callback, &[JsValue::from_str(&id), value]);
+        } else if state.echoing {
+            let _ = state.echoes.try_update_value(|echoes| {
+                if let Some(echo) = echoes.get_mut(&id) {
+                    echo.unsent();
+                }
+            });
         }
     };
     let saved = move |(id, request): (String, SaveRequest)| {

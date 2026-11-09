@@ -48,25 +48,28 @@ impl State {
         }
         let _ = self.echoes.try_update_value(|echoes| {
             echoes.retain(|id, _| listed.documents.iter().any(|document| document.id == *id));
-            for document in &mut listed.documents {
-                let echo = echoes
-                    .entry(document.id.clone())
-                    .or_insert_with(|| Echoes::new(true));
-                let Some(texts) = self.texts_of(&document.id) else {
-                    // Listed for the first time.
-                    echo.given(&document.value);
-                    continue;
-                };
-                let echo = echo.listed(&document.value, &texts.value, flushed);
-                if echo == Echo::Apply {
-                    continue;
+            // Each document's text read where it is kept, not copied.
+            self.texts.try_with_value(|texts| {
+                for document in &mut listed.documents {
+                    let echo = echoes
+                        .entry(document.id.clone())
+                        .or_insert_with(|| Echoes::new(true));
+                    let Some(current) = texts.get(&document.id).map(|texts| &texts.value) else {
+                        // Listed for the first time.
+                        echo.given(&document.value);
+                        continue;
+                    };
+                    let echo = echo.listed(&document.value, current, flushed);
+                    if echo == Echo::Apply {
+                        continue;
+                    }
+                    settles |= echo != Echo::Skip;
+                    keep(document, current);
+                    if echo == Echo::Resend {
+                        resend.push((document.id.clone(), current.clone()));
+                    }
                 }
-                settles |= echo != Echo::Skip;
-                keep(document, &texts.value);
-                if echo == Echo::Resend {
-                    resend.push((document.id.clone(), texts.value));
-                }
-            }
+            })
         });
         (resend, settles)
     }

@@ -3,6 +3,7 @@
 
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::sync::PoisonError;
 
 use config_editor_leptos::js_support::Timer;
 use config_editor_leptos::{EditorHandle, Language, Schema};
@@ -308,20 +309,11 @@ impl ConfigEditor {
         if self.id.get().is_none() {
             return Ok(());
         }
-        // With `echoes`, an echo of an edit the user typed past keeps the
-        // document (see `echoes`), decided on a copy kept once every key is
-        // checked.
-        let mut echoes = self.state.echoes.try_get_value().unwrap_or_default();
-        let echo = value
-            .as_ref()
-            .map(|value| echoes.received(value, &self.latest_text(), flushed));
         // Ranges are in the text they were given for: `rangesFor`, else the
-        // update's `value` (an echo skipped included).
+        // update's `value` (an echo skipped included), else the document.
         let ranges_for = given(&options, "rangesFor")
             .map(|text| text_arg(&text, "rangesFor"))
-            .transpose()?
-            .or_else(|| value.clone());
-        let value = value.filter(|_| echo == Some(Echo::Apply));
+            .transpose()?;
         let baseline = given(&options, "baseline")
             .map(|baseline| text_arg(&baseline, "baseline"))
             .transpose()?;
@@ -348,34 +340,31 @@ impl ConfigEditor {
             .transpose()?;
         let current = self.state.settings.try_get_untracked().unwrap_or_default();
         let settings = settings_change(&current, &options)?;
-        // Ranges are checked in the text they were given for, and moved
-        // from it to the document as it will be.
-        let document = value.clone().unwrap_or_else(|| self.latest_text());
-        let host_text = ranges_for.as_deref().unwrap_or(&document);
-        let remap = (host_text != document).then(|| Remap::new(host_text, &document));
-        let host_diagnostics = given(&options, "hostDiagnostics")
-            .map(|list| {
-                if list.is_null() {
-                    Ok(Vec::new())
-                } else {
-                    host_diagnostics_from(&list, host_text)
-                }
-            })
-            .transpose()?
-            .map(|list| match &remap {
-                Some(remap) => remap.diagnostics(list),
-                None => list,
-            });
+        // Ranges are checked in the text they were given for (moved to the
+        // document once it is known, below).
+        let (mut host_diagnostics, mut read_only_ranges) = {
+            let latest = self.latest.lock().unwrap_or_else(PoisonError::into_inner);
+            let host_text = ranges_for
+                .as_deref()
+                .or(value.as_deref())
+                .unwrap_or(&latest);
+            let host_diagnostics = given(&options, "hostDiagnostics")
+                .map(|list| {
+                    if list.is_null() {
+                        Ok(Vec::new())
+                    } else {
+                        host_diagnostics_from(&list, host_text)
+                    }
+                })
+                .transpose()?;
+            let read_only_ranges = given(&options, "readOnlyRanges")
+                .map(|list| ranges_from(&list, host_text, "readOnlyRanges"))
+                .transpose()?;
+            (host_diagnostics, read_only_ranges)
+        };
         let read_only_paths = given(&options, "readOnlyPaths")
             .map(|list| paths_from(&list, "readOnlyPaths"))
             .transpose()?;
-        let read_only_ranges = given(&options, "readOnlyRanges")
-            .map(|list| ranges_from(&list, host_text, "readOnlyRanges"))
-            .transpose()?
-            .map(|list| match &remap {
-                Some(remap) => remap.ranges(list),
-                None => list,
-            });
         let state = self.state;
         let mut callbacks = Vec::new();
         for (name, slot) in [
@@ -393,9 +382,33 @@ impl ConfigEditor {
         let on_path_change = callback_change(&options, "onPathChange")?;
         let on_save = callback_change(&options, "onSave")?;
 
-        // Everything checked: apply.
-        let _ = state.echoes.try_set_value(echoes);
-        if let Some(value) = value {
+        // Everything checked: apply. With `echoes`, an echo of an edit the
+        // user typed past keeps the document (see `echoes`).
+        let echo = value.as_deref().map(|value| {
+            let latest = self.latest.lock().unwrap_or_else(PoisonError::into_inner);
+            state
+                .echoes
+                .try_update_value(|echoes| echoes.received(value, &latest, flushed))
+                .unwrap_or(Echo::Apply)
+        });
+        let shown = value.as_ref().filter(|_| echo == Some(Echo::Apply));
+        // Ranges given for another text than the document are moved to it.
+        if host_diagnostics.is_some() || read_only_ranges.is_some() {
+            let latest = self.latest.lock().unwrap_or_else(PoisonError::into_inner);
+            let document = shown.map_or(latest.as_str(), String::as_str);
+            let host_text = ranges_for
+                .as_deref()
+                .or(value.as_deref())
+                .unwrap_or(document);
+            if host_text != document {
+                let remap = Remap::new(host_text, document);
+                host_diagnostics = host_diagnostics.map(|list| remap.diagnostics(list));
+                read_only_ranges = read_only_ranges.map(|list| remap.ranges(list));
+            }
+        }
+        if echo == Some(Echo::Apply)
+            && let Some(value) = value
+        {
             self.show(value);
         }
         if let Some(baseline) = baseline {
@@ -460,18 +473,19 @@ impl ConfigEditor {
         // or was lost in a render of the host's that took a later text too).
         if matches!(echo, Some(Echo::Resend | Echo::Settle)) {
             if echo == Some(Echo::Resend) {
-                tell_host(state, &self.latest_text());
+                tell_host(state, &self.latest);
             }
             let latest = self.latest.clone();
             settle::arm(state.settle, move || {
                 config_editor_leptos::js_support::flush_pending_input();
-                let current = latest.lock().map(|text| text.clone()).unwrap_or_default();
-                if state
-                    .echoes
-                    .try_update_value(|echoes| echoes.settle(&current))
-                    == Some(true)
-                {
-                    tell_host(state, &current);
+                let again = {
+                    let current = latest.lock().unwrap_or_else(PoisonError::into_inner);
+                    state
+                        .echoes
+                        .try_update_value(|echoes| echoes.settle(&current))
+                };
+                if again == Some(true) {
+                    tell_host(state, &latest);
                 }
             });
         }
@@ -674,9 +688,11 @@ impl ConfigEditor {
     }
 }
 
-/// Sends `text` to the host's `onChange`, if it has one.
-fn tell_host(state: State, text: &str) {
+/// Sends the document `latest` to the host's `onChange`, if it has one.
+fn tell_host(state: State, latest: &Latest) {
     if let Some(callback) = state.on_change.try_get_value().flatten() {
-        call_host(&callback, &JsValue::from_str(text));
+        // Read before the call: the host may update the editor from it.
+        let text = JsValue::from_str(&latest.lock().unwrap_or_else(PoisonError::into_inner));
+        call_host(&callback, &text);
     }
 }

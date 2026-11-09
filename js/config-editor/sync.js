@@ -36,32 +36,99 @@
 
 /** How long after an echo left the host on an older value to check it came back to the document. */
 export const SETTLE_MS = 250;
-
-/** A short stand-in for a document: its length and a 32-bit FNV-1a hash. */
+/** A short stand-in for a document: its length and two 32-bit FNV-1a hashes (one pass). */
 function fingerprint(text) {
   let hash = 0x811c9dc5;
+  let other = 0x01000193;
   for (let index = 0; index < text.length; index += 1) {
-    hash ^= text.charCodeAt(index);
-    hash = Math.imul(hash, 0x01000193);
+    const unit = text.charCodeAt(index);
+    hash = Math.imul(hash ^ unit, 0x01000193);
+    other = Math.imul(other ^ unit, 0x5bd1e995);
   }
-  return `${text.length}:${hash >>> 0}`;
+  return `${text.length}:${hash >>> 0}:${other >>> 0}`;
 }
 
+// Every value sent is kept until its echo comes, however many wait (a busy
+// page, a slow parent): forgetting one would take its echo for the host's
+// own value and roll the document back. A value passed back costs one read
+// of it (for its fingerprint) and a lookup by it, never a pass over the
+// values waiting nor another over the document.
 export class ValueSync {
-  /**
-   * @param {{ maxPending?: number }} [options] how many values sent are
-   * remembered at most (a parent handing back only some leaves the others).
-   */
-  constructor(options = {}) {
-    this.maxPending = options.maxPending ?? 256;
-    // The values sent that the host has not passed back yet, oldest first:
-    // `{ print, toCome, doubted, serial }`, `toCome` while no value sent
-    // after it came back, `doubted` once the value the host held was passed
-    // again while it was on its way, `serial` counting the values sent.
-    this.pending = [];
-    // The value the host passed last.
-    this.lastGiven = null;
-    this.serial = 0;
+  // The values sent that the host has not passed back yet, by when they
+  // were sent (a Map keeps that order): serial → print.
+  #order = new Map();
+  // The same by value: print → its copies, oldest first, each
+  // `{ serial, countedOut, doubted }`: `countedOut` once its echo is not
+  // counted on to come, `doubted` once the value the host held was passed
+  // again while it was on its way.
+  #copies = new Map();
+  // When the newest of the values that came back was sent: a value sent
+  // before it may still come (out of order) or never (a parent applying
+  // only the latest), so it is not counted on to come.
+  #cameBack = -1;
+  // The value the host passed last, and the document, while known (the
+  // value sent, given or applied last): prints.
+  #lastGiven = null;
+  #document = null;
+  #documentLength = -1;
+  #serial = 0;
+  // The last value read, and its print (a value passed again is read once).
+  #read = null;
+  #readPrint = null;
+
+  /** How many values sent wait for their echo. */
+  get waiting() {
+    return this.#order.size;
+  }
+
+  #print(text) {
+    if (text !== this.#read) {
+      this.#read = text;
+      this.#readPrint = fingerprint(text);
+    }
+    return this.#readPrint;
+  }
+
+  #documentPrint(current) {
+    if (this.#document === null || this.#documentLength !== current.length) this.#shown(this.#print(current), current);
+    return this.#document;
+  }
+
+  #shown(print, text) {
+    this.#document = print;
+    this.#documentLength = text.length;
+  }
+
+  #send(print, length, countedOut) {
+    const serial = this.#serial;
+    this.#serial += 1;
+    this.#order.set(serial, print);
+    let copies = this.#copies.get(print);
+    if (!copies) this.#copies.set(print, (copies = []));
+    copies.push({ serial, countedOut, doubted: false });
+    this.#document = print;
+    this.#documentLength = length;
+  }
+
+  /** Whether a copy of `print` is counted on to come. */
+  #toCome(print) {
+    const copies = this.#copies.get(print) ?? [];
+    for (let at = copies.length - 1; at >= 0 && copies[at].serial > this.#cameBack; at -= 1) {
+      if (!copies[at].countedOut) return true;
+    }
+    return false;
+  }
+
+  /** The host's own value replaced the document: the values sent before `serial` belong to the one it replaced. */
+  #forgetBefore(serial) {
+    for (const [sent, print] of this.#order) {
+      if (sent >= serial) break;
+      this.#order.delete(sent);
+      // Forgotten oldest first: the value's oldest copy.
+      const copies = this.#copies.get(print);
+      copies.shift();
+      if (copies.length === 0) this.#copies.delete(print);
+    }
   }
 
   /**
@@ -72,14 +139,12 @@ export class ValueSync {
    * counted on).
    */
   sent(value, toCome = true) {
-    this.pending.push({ print: fingerprint(value), toCome, doubted: false, serial: this.serial });
-    this.serial += 1;
-    if (this.pending.length > this.maxPending) this.pending.shift();
+    this.#send(this.#print(value), value.length, !toCome);
   }
 
   /** What `received` takes as `flushed`: the values sent from now on are sent while it is handled. */
   mark() {
-    return this.serial;
+    return this.#serial;
   }
 
   /**
@@ -87,8 +152,8 @@ export class ValueSync {
    * copy of it is on its way (this may be its echo). Call `received` then.
    */
   mayEcho(value) {
-    const print = fingerprint(value);
-    return this.lastGiven === print && this.pending.some((sent) => sent.print === print && !sent.doubted);
+    const print = this.#print(value);
+    return this.#lastGiven === print && (this.#copies.get(print) ?? []).some((sent) => !sent.doubted);
   }
 
   /**
@@ -104,43 +169,49 @@ export class ValueSync {
    * @param {number} [flushed]
    * @returns {{ apply: string | null, report: string | null, settle: boolean }}
    */
-  received(value, current, flushed = this.serial) {
+  received(value, current, flushed = this.#serial) {
     const none = { apply: null, report: null, settle: false };
-    const print = fingerprint(value);
+    const print = this.#print(value);
+    const copies = this.#copies.get(print);
     let news;
-    if (this.lastGiven === print) {
+    if (this.#lastGiven === print) {
       // Passed again: a render, or the echo of a copy sent since.
-      const copy = this.pending.findLast((sent) => sent.print === print && !sent.doubted);
+      const copy = copies?.findLast((sent) => !sent.doubted);
       if (copy) {
-        copy.toCome = false;
+        copy.countedOut = true;
         copy.doubted = value !== current;
       }
       news = copy?.doubted ?? false;
     } else {
-      this.lastGiven = print;
-      // The newest copy (a typo fixed sends the same text twice): a parent
-      // applying only the latest value hands back that one.
-      const at = this.pending.findLastIndex((sent) => sent.print === print);
-      if (at < 0) {
+      this.#lastGiven = print;
+      if (!copies) {
         if (value === current) return none;
         // The host's own value replaces the document: the values sent
         // before belong to the one it replaced (another file, a discarded
         // draft), no echoes any more. Those sent while it was handled (an
         // edit still held, sent first) were unknown to the host: still
         // echoes.
-        this.pending = this.pending.filter((sent) => sent.serial >= flushed);
+        this.#forgetBefore(flushed);
+        this.#shown(print, value);
         return { ...none, apply: value };
       }
-      this.pending.splice(at, 1);
-      for (const sent of this.pending.slice(0, at)) sent.toCome = false;
+      // The newest copy (a typo fixed sends the same text twice): a parent
+      // applying only the latest value hands back that one.
+      const sent = copies.pop();
+      if (copies.length === 0) this.#copies.delete(print);
+      this.#order.delete(sent.serial);
+      this.#cameBack = Math.max(this.#cameBack, sent.serial);
       news = true;
     }
-    if (value === current) return none;
+    if (value === current) {
+      this.#shown(print, value);
+      return none;
+    }
     // An echo of a value the user typed past: the host holds it now, unless
     // an echo of the document is still to come.
-    const shown = fingerprint(current);
-    if (this.pending.some((sent) => sent.toCome && sent.print === shown)) return { ...none, settle: news };
-    this.sent(current);
+    const shown = this.#documentPrint(current);
+    if (this.#toCome(shown)) return { ...none, settle: news };
+    this.#send(shown, current.length, false);
     return { apply: null, report: current, settle: true };
   }
 
@@ -150,13 +221,16 @@ export class ValueSync {
    * (already recorded as sent).
    */
   settle(current) {
-    if (this.lastGiven === null || this.lastGiven === fingerprint(current)) return false;
-    this.sent(current);
+    if (this.#lastGiven === null) return false;
+    const shown = this.#documentPrint(current);
+    if (this.#lastGiven === shown) return false;
+    this.#send(shown, current.length, false);
     return true;
   }
 
   /** The host holds `value` (a reset it asked for): no echo to wait for. */
   given(value) {
-    this.lastGiven = fingerprint(value);
+    this.#lastGiven = this.#print(value);
+    this.#shown(this.#lastGiven, value);
   }
 }

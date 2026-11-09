@@ -47,11 +47,7 @@
 //! the same rule.
 
 use std::cell::Cell;
-use std::collections::VecDeque;
-
-/// How many sent texts are remembered at most: a host that hands back only
-/// some of them (a batching framework) leaves the others here.
-const MAX_PENDING: usize = 256;
+use std::collections::{BTreeMap, HashMap, VecDeque};
 
 /// How long after an echo that left the host on an older text the editor
 /// checks the host came back to the document (see [`Echoes::settle`]).
@@ -77,11 +73,12 @@ fn tick() -> u64 {
 }
 
 /// A short stand-in for a text: its length and a 64-bit FNV-1a hash.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 struct Print(usize, u64);
 
 impl Print {
     fn of(text: &str) -> Self {
+        work::note(work::Work::TextRead);
         let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
         for byte in text.bytes() {
             hash ^= u64::from(byte);
@@ -91,18 +88,17 @@ impl Print {
     }
 }
 
-/// A text sent and not handed back yet.
+/// A copy of a text sent and not handed back yet.
 #[derive(Clone, Copy, Debug)]
 struct Sent {
-    print: Print,
-    /// No text sent after it has come back yet: the host is expected to
-    /// hand it back after what it holds now.
-    to_come: bool,
-    /// The text the host held already was given again while this copy was
-    /// on its way: that may have been its echo (see `received`).
-    doubted: bool,
     /// When it was sent (see [`clock`]).
     serial: u64,
+    /// Not counted on to come, whatever came back since: the text the
+    /// host held was given again, which may have been its echo.
+    counted_out: bool,
+    /// The text the host held already was given again while this copy was
+    /// on its way: that may have been its echo (see `take`).
+    doubted: bool,
 }
 
 /// What to do with a text the host handed back.
@@ -125,15 +121,32 @@ pub(crate) enum Echo {
 }
 
 /// The texts one document sent that the host has not handed back yet.
-#[derive(Clone, Default, Debug)]
+///
+/// Every one is kept, however many wait (a busy page, a slow host):
+/// forgetting one would take its echo for the host's own text and roll the
+/// document back. A copy is forgotten when its echo comes, or when the
+/// host's own text replaces the document (the copies sent before belong to
+/// the text it replaced). An echo costs one read of the text handed back
+/// (for its print) and a lookup by it: never a pass over the copies
+/// waiting, nor another over the document.
+#[derive(Default, Debug)]
 pub(crate) struct Echoes {
     /// Whether the host hands every text back (`echoes: true`); without it
     /// nothing is recorded and every text applies.
     on: bool,
-    /// The texts sent and not handed back yet, oldest first.
-    pending: VecDeque<Sent>,
+    /// The copies sent and not handed back yet, by when they were sent.
+    order: BTreeMap<u64, Print>,
+    /// The same, by text: each text's copies, oldest first.
+    copies: HashMap<Print, VecDeque<Sent>>,
+    /// When the newest of the texts that came back was sent: a copy sent
+    /// before it may still come (out of order) or never (a host handing
+    /// back only the latest of several), so it is not counted on to come.
+    came_back: Option<u64>,
     /// The text the host gave last.
     last_given: Option<Print>,
+    /// The document's print, while known (the text sent, given or shown
+    /// last).
+    document: Option<Print>,
 }
 
 impl Echoes {
@@ -146,27 +159,97 @@ impl Echoes {
     }
 
     /// The host gave `text` as the document is built (the constructor's
-    /// `value`, a document first listed).
+    /// `value`, a document first listed), or of its own as the document
+    /// (`replaceValue`).
     pub(crate) fn given(&mut self, text: &str) {
         if self.on {
-            self.last_given = Some(Print::of(text));
+            let print = Print::of(text);
+            self.last_given = Some(print);
+            self.document = Some(print);
         }
     }
 
-    /// The editor sent `text` to the host (its `onChange`).
+    /// The editor sent `text`, the document, to the host (its `onChange`).
     pub(crate) fn sent(&mut self, text: &str) {
-        if !self.on {
-            return;
+        if self.on {
+            self.send(Print::of(text));
         }
-        self.pending.push_back(Sent {
-            print: Print::of(text),
-            to_come: true,
+    }
+
+    /// The document changed and the host was not told (no `onChange`).
+    pub(crate) fn unsent(&mut self) {
+        self.document = None;
+    }
+
+    fn send(&mut self, print: Print) {
+        let serial = tick();
+        self.order.insert(serial, print);
+        self.copies.entry(print).or_default().push_back(Sent {
+            serial,
+            counted_out: false,
             doubted: false,
-            serial: tick(),
         });
-        if self.pending.len() > MAX_PENDING {
-            self.pending.pop_front();
+        self.document = Some(print);
+    }
+
+    /// The document `current`'s print: the one known (the text sent,
+    /// given or shown last) when it is that long, else read.
+    fn document_print(&mut self, current: &str) -> Print {
+        match self.document {
+            Some(print) if print.0 == current.len() => print,
+            _ => {
+                let print = Print::of(current);
+                self.document = Some(print);
+                print
+            }
         }
+    }
+
+    /// Whether a copy of `print` is counted on to come: no text sent after
+    /// it has come back, and it is not counted out.
+    fn to_come(&self, print: Print) -> bool {
+        let came_back = self.came_back;
+        self.copies.get(&print).is_some_and(|copies| {
+            copies
+                .iter()
+                .rev()
+                .inspect(|_| work::note(work::Work::CopyVisited))
+                .take_while(|sent| came_back.is_none_or(|back| sent.serial > back))
+                .any(|sent| !sent.counted_out)
+        })
+    }
+
+    /// Forgets the copies sent before `serial` (the host's own text
+    /// replaced the text they belong to): each one once.
+    fn forget_before(&mut self, serial: u64) {
+        while let Some(entry) = self.order.first_entry() {
+            if *entry.key() >= serial {
+                break;
+            }
+            let print = entry.remove();
+            // Forgotten oldest first: the text's oldest copy.
+            if let Some(copies) = self.copies.get_mut(&print) {
+                copies.pop_front();
+                if copies.is_empty() {
+                    self.copies.remove(&print);
+                }
+            }
+        }
+    }
+
+    /// The host handed back `print`'s newest copy.
+    fn came(&mut self, print: Print) {
+        let Some(copies) = self.copies.get_mut(&print) else {
+            return;
+        };
+        let Some(sent) = copies.pop_back() else {
+            return;
+        };
+        if copies.is_empty() {
+            self.copies.remove(&print);
+        }
+        self.order.remove(&sent.serial);
+        self.came_back = self.came_back.max(Some(sent.serial));
     }
 
     /// The host gave `value` in an update (`update({ value })`), the
@@ -198,52 +281,48 @@ impl Echoes {
             // render of the host's). That copy stays an echo, but is not
             // counted on to come; while the host is on an older text, it is
             // taken for news once.
-            let copy = self
-                .pending
-                .iter_mut()
-                .rev()
-                .find(|sent| sent.print == print && !sent.doubted);
+            let copy = self.copies.get_mut(&print).and_then(|copies| {
+                copies
+                    .iter_mut()
+                    .rev()
+                    .inspect(|_| work::note(work::Work::CopyVisited))
+                    .find(|sent| !sent.doubted)
+            });
             match copy {
                 Some(copy) => {
-                    copy.to_come = false;
+                    copy.counted_out = true;
                     copy.doubted = value != current;
                     copy.doubted
                 }
                 None => false,
             }
-        } else {
+        } else if self.copies.contains_key(&print) {
             // The newest copy (a typo fixed sends the same text twice): a
             // host handing back only the latest text hands back that one.
-            let Some(at) = self.pending.iter().rposition(|sent| sent.print == print) else {
-                // The host's own text. When it replaces the document, the
-                // texts sent before belong to the text it replaced (another
-                // file, a discarded draft): no echoes any more, so going
-                // back to one of them applies. Those sent while it was
-                // handled (an edit still held, sent first) were unknown to
-                // the host: still echoes.
-                if value != current {
-                    self.pending.retain(|sent| sent.serial >= flushed);
-                }
-                return Echo::Apply;
-            };
-            self.pending.remove(at);
-            for sent in self.pending.range_mut(..at) {
-                sent.to_come = false;
-            }
+            self.came(print);
             true
+        } else {
+            // The host's own text. When it replaces the document, the
+            // texts sent before belong to the text it replaced (another
+            // file, a discarded draft): no echoes any more, so going back
+            // to one of them applies. Those sent while it was handled (an
+            // edit still held, sent first) were unknown to the host: still
+            // echoes.
+            if value != current {
+                self.forget_before(flushed);
+                self.document = Some(print);
+            }
+            return Echo::Apply;
         };
         if value == current {
+            self.document = Some(print);
             return Echo::Apply;
         }
-        let document = Print::of(current);
-        if self
-            .pending
-            .iter()
-            .any(|sent| sent.to_come && sent.print == document)
-        {
+        let document = self.document_print(current);
+        if self.to_come(document) {
             return if news { Echo::Settle } else { Echo::Skip };
         }
-        self.sent(current);
+        self.send(document);
         Echo::Resend
     }
 
@@ -254,24 +333,78 @@ impl Echoes {
     /// twice), or gone (a host taking several texts in one render keeps
     /// only the last).
     pub(crate) fn settle(&mut self, current: &str) -> bool {
-        if !self.on
-            || self
-                .last_given
-                .is_none_or(|given| given == Print::of(current))
-        {
+        let Some(given) = self.last_given.filter(|_| self.on) else {
+            return false;
+        };
+        let document = self.document_print(current);
+        if given == document {
             return false;
         }
-        self.sent(current);
+        self.send(document);
         true
+    }
+}
+
+/// The work an echo costs, counted in the tests (nothing in a build
+/// without them).
+mod work {
+    #[derive(Clone, Copy)]
+    pub(super) enum Work {
+        /// A whole text read for its print.
+        TextRead,
+        /// A copy waiting for its echo looked at.
+        CopyVisited,
+    }
+
+    #[cfg(test)]
+    thread_local! {
+        static COUNTS: std::cell::Cell<[usize; 2]> = const { std::cell::Cell::new([0; 2]) };
+    }
+
+    #[inline(always)]
+    pub(super) fn note(work: Work) {
+        #[cfg(test)]
+        COUNTS.with(|counts| {
+            let mut now = counts.get();
+            now[work as usize] += 1;
+            counts.set(now);
+        });
+        #[cfg(not(test))]
+        let _ = work;
+    }
+
+    /// Runs `run` and returns its result and how many times it did `work`.
+    #[cfg(test)]
+    pub(super) fn counted<T>(work: Work, run: impl FnOnce() -> T) -> (T, usize) {
+        let before = COUNTS.with(std::cell::Cell::get)[work as usize];
+        let result = run();
+        (
+            result,
+            COUNTS.with(std::cell::Cell::get)[work as usize] - before,
+        )
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{Echo, Echoes, MAX_PENDING, SETTLE_MS};
+    use super::work::{Work, counted};
+    use super::{Echo, Echoes, SETTLE_MS};
 
     /// No text sent while the update is handled.
     const NONE: u64 = u64::MAX;
+
+    /// How many copies wait for their echo (each kept once, by when it
+    /// was sent and by its text).
+    fn waiting(echoes: &Echoes) -> usize {
+        let by_text: usize = echoes
+            .copies
+            .values()
+            .map(std::collections::VecDeque::len)
+            .sum();
+        assert_eq!(echoes.order.len(), by_text);
+        assert!(echoes.copies.values().all(|copies| !copies.is_empty()));
+        by_text
+    }
 
     /// Without the option every text applies and nothing is kept.
     #[test]
@@ -280,7 +413,7 @@ mod tests {
         echoes.sent("a");
         echoes.sent("ab");
         assert_eq!(echoes.received("a", "ab", NONE), Echo::Apply);
-        assert!(echoes.pending.is_empty());
+        assert_eq!(waiting(&echoes), 0);
     }
 
     /// Typing `abc` with every echo one key late: each one but the newest is
@@ -295,7 +428,7 @@ mod tests {
         echoes.sent("abc");
         assert_eq!(echoes.received("ab", "abc", NONE), Echo::Settle);
         assert_eq!(echoes.received("abc", "abc", NONE), Echo::Apply);
-        assert!(echoes.pending.is_empty());
+        assert_eq!(waiting(&echoes), 0);
     }
 
     /// Echoes in any order are skipped; the host, left on an old one with
@@ -311,7 +444,7 @@ mod tests {
         // The resent document is on its way: the host comes back to it.
         assert_eq!(echoes.received("ab", "abc", NONE), Echo::Settle);
         assert_eq!(echoes.received("abc", "abc", NONE), Echo::Apply);
-        assert!(echoes.pending.is_empty());
+        assert_eq!(waiting(&echoes), 0);
     }
 
     /// Every order of five echoes keeps the document, and the last text the
@@ -353,7 +486,7 @@ mod tests {
                 assert_eq!(echoes.received(current, current, NONE), Echo::Apply);
             }
             assert_eq!(host, current, "{order:?}");
-            assert!(echoes.pending.is_empty(), "{order:?}");
+            assert_eq!(waiting(&echoes), 0, "{order:?}");
         }
     }
 
@@ -512,7 +645,7 @@ mod tests {
         echoes.sent("ab");
         echoes.sent("abc");
         assert_eq!(echoes.received("a", "abc", NONE), Echo::Apply);
-        assert!(echoes.pending.is_empty());
+        assert_eq!(waiting(&echoes), 0);
         echoes.sent("aQ");
         assert_eq!(echoes.received("a", "aQ", NONE), Echo::Apply);
         // A text that came back, given again: applies too.
@@ -571,7 +704,7 @@ mod tests {
             echoes.sent("b: 27");
             assert_eq!(give(&mut echoes, "a: 19", "b: 27"), Echo::Apply);
             assert_eq!(give(&mut echoes, "b: 27", "a: 19"), Echo::Apply);
-            assert!(echoes.pending.is_empty(), "listed {listed}");
+            assert_eq!(waiting(&echoes), 0, "listed {listed}");
             // Three files: typed in B, on to C and A, back to B.
             echoes.sent("b: 278");
             assert_eq!(give(&mut echoes, "c: 3", "b: 278"), Echo::Apply);
@@ -580,17 +713,141 @@ mod tests {
         }
     }
 
-    /// A host handing back only some texts leaves the others here, never
-    /// more than the bound.
-    #[test]
-    fn the_texts_kept_are_bounded() {
+    /// The texts `0`, `1`, … `count - 1` sent, the document the last.
+    fn sent_texts(count: usize) -> (Echoes, String) {
         let mut echoes = Echoes::new(true);
-        for index in 0..5000 {
+        echoes.given("start");
+        for index in 0..count {
             echoes.sent(&index.to_string());
         }
-        assert_eq!(echoes.pending.len(), MAX_PENDING);
-        assert_eq!(echoes.received("4998", "4999", NONE), Echo::Settle);
-        assert_eq!(echoes.received("0", "4999", NONE), Echo::Apply);
+        (echoes, (count - 1).to_string())
+    }
+
+    /// Hands every text sent back in `order` (indices), and each text sent
+    /// again after them: whether one was taken for the host's own (a
+    /// rollback), and how many copies wait at the end.
+    fn hand_back(echoes: &mut Echoes, document: &str, order: &[usize]) -> (bool, usize) {
+        let mut queue: std::collections::VecDeque<String> =
+            order.iter().map(ToString::to_string).collect();
+        let mut rolled_back = false;
+        while let Some(text) = queue.pop_front() {
+            match echoes.received(&text, document, NONE) {
+                Echo::Apply => rolled_back |= text != document,
+                Echo::Resend => queue.push_back(document.to_string()),
+                Echo::Skip | Echo::Settle => {}
+            }
+        }
+        (rolled_back, waiting(echoes))
+    }
+
+    /// However many texts wait for their echo (a busy page: thousands of
+    /// keys typed before the first echo; QA 29: past 256 the oldest was
+    /// forgotten and its echo rolled typing back), each echo is told apart,
+    /// in order, backwards or shuffled, and once all are back none waits.
+    #[test]
+    fn every_text_waiting_is_an_echo_however_many_wait() {
+        let mut next = rng(0x5851_f42d_4c95_7f2d);
+        for count in [10, 257, 300, 5000] {
+            let mut shuffled: Vec<usize> = (0..count).collect();
+            for at in (1..count).rev() {
+                shuffled.swap(at, usize::try_from(next(at as u64 + 1)).unwrap_or(0));
+            }
+            for order in [
+                (0..count).collect::<Vec<_>>(),
+                (0..count).rev().collect(),
+                shuffled,
+            ] {
+                let (mut echoes, document) = sent_texts(count);
+                let (rolled_back, left) = hand_back(&mut echoes, &document, &order);
+                assert!(!rolled_back, "{count} waiting, {:?}…", &order[..3]);
+                assert_eq!(left, 0, "{count} waiting");
+            }
+        }
+    }
+
+    /// What is kept is what waits: a copy is forgotten when its echo comes,
+    /// or when the host's own text replaces the document (the copies sent
+    /// before it); a host handing back only the latest of each burst
+    /// leaves the others, still echoes should they come.
+    #[test]
+    fn the_copies_kept_are_those_waiting() {
+        let (mut echoes, document) = sent_texts(1000);
+        assert_eq!(echoes.received(&document, &document, NONE), Echo::Apply);
+        assert_eq!(waiting(&echoes), 999);
+        assert_eq!(echoes.received("500", &document, NONE), Echo::Resend);
+        assert_eq!(waiting(&echoes), 999);
+        // The host's own text: none of them waits any more.
+        assert_eq!(echoes.received("other file", &document, NONE), Echo::Apply);
+        assert_eq!(waiting(&echoes), 0);
+        assert_eq!(echoes.received("10", "other file", NONE), Echo::Apply);
+        // Typed on the other file, its echo not back: still an echo.
+        echoes.sent("other file!");
+        let flushed = super::clock();
+        echoes.sent("other file!!");
+        assert_eq!(
+            echoes.received("reset", "other file!!", flushed),
+            Echo::Apply
+        );
+        assert_eq!(waiting(&echoes), 1);
+        assert_eq!(echoes.received("other file!!", "reset", NONE), Echo::Resend);
+    }
+
+    /// The document's print is kept from the text sent last, until the
+    /// document changes without the host being told (no `onChange` then):
+    /// it is read again, so the host is told a document it never had.
+    #[test]
+    fn a_document_the_host_was_not_told_is_read_again() {
+        let mut echoes = Echoes::new(true);
+        echoes.given("a");
+        echoes.sent("ab");
+        echoes.unsent();
+        // Typed over `b` (the same length), with no `onChange`.
+        let ((), reads) = counted(Work::TextRead, || {
+            assert_eq!(echoes.listed("a", "ax", NONE), Echo::Resend);
+        });
+        assert_eq!(reads, 2);
+        assert_eq!(echoes.received("ab", "ax", NONE), Echo::Settle);
+        assert_eq!(echoes.received("ax", "ax", NONE), Echo::Apply);
+        assert_eq!(waiting(&echoes), 0);
+    }
+
+    /// An echo costs one read of the text handed back and a look at a copy
+    /// or two of it, however many copies wait: never a pass over them, nor
+    /// another read of the document (QA 29: typing slowed with echoes
+    /// late on a long file).
+    #[test]
+    fn an_echo_costs_the_same_however_many_wait() {
+        let mut costs = Vec::new();
+        for count in [16, 250, 4096] {
+            let (mut echoes, document) = sent_texts(count);
+            // The echoes come back in pairs swapped (out of order), then
+            // the host lists one it held again (a render).
+            let order: Vec<usize> = (0..count).map(|index| index ^ 1).collect();
+            let echoes_given = count / 2 + 1;
+            let (visits, reads) = counted(Work::TextRead, || {
+                counted(Work::CopyVisited, || {
+                    for index in &order[..count / 2] {
+                        let text = index.to_string();
+                        assert_ne!(echoes.received(&text, &document, NONE), Echo::Apply);
+                    }
+                    let last = order[count / 2 - 1].to_string();
+                    assert_ne!(echoes.listed(&last, &document, NONE), Echo::Apply);
+                })
+                .1
+            });
+            costs.push((
+                count,
+                visits as f64 / echoes_given as f64,
+                reads as f64 / echoes_given as f64,
+            ));
+        }
+        // Per echo: copies looked at, whole texts read.
+        assert!(
+            costs
+                .iter()
+                .all(|(_, visits, reads)| *visits <= 2.0 && *reads <= 1.0),
+            "(waiting, copies looked at, texts read) per echo: {costs:?}"
+        );
     }
 
     /// A host storing each text the editor sends after a delay and

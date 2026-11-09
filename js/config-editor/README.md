@@ -527,8 +527,10 @@ revert), or to reset while the echoes of what was typed are still to come,
 call `replaceValue(text)`: it always applies, and the echoes on their way
 are still told apart. The promise is
 yours to keep: a host that hands back only some texts (the latest of
-several) leaves the others counted as echoes (the newest 256 are
-remembered), so set those with `replaceValue` too.
+several) leaves the others counted as echoes (every text sent is
+remembered until its echo comes or a text of your own replaces the
+document, however many wait: a few bytes each), so set those with
+`replaceValue` too.
 
 ### Instance members
 
