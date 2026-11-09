@@ -39,6 +39,7 @@ use super::super::language::{LanguageConfig, bracket_newline, CompletionContext,
 };
 use super::super::highlight::{MultilineConstruct, Token, TokenKind, Tokens};
 use serde_json::Value;
+#[cfg(feature = "folding")]
 use super::super::parse_cache::string_bodies;
 use std::collections::{HashMap, HashSet};
 

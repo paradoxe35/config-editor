@@ -33,6 +33,7 @@ use hover::*;
 use editing::*;
 use convert::*;
 
+#[cfg(feature = "folding")]
 use super::super::parse_cache::string_bodies;
 use super::super::commands::indent_unit;
 use super::super::highlight::{MultilineConstruct, Token as HighlightToken, TokenKind, Tokens};
