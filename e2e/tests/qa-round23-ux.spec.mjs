@@ -332,8 +332,11 @@ test.describe('L23-U8: the deprecated badge reads in every theme', () => {
     const failures = [];
     for (const theme of themes) {
       await page.evaluate((theme) => window.editor.update({ theme }), theme);
+      // Away until the last theme's card has gone, then onto the key again.
       await page.mouse.move(790, 590);
+      await expect(card(page)).toHaveCount(0);
       const key = await charBox(page, 1, 2);
+      await page.mouse.move(key.x - 2, key.y);
       await page.mouse.move(key.x, key.y);
       const badge = card(page).locator('.config-editor__hover-deprecated');
       await expect(badge).toBeVisible();
