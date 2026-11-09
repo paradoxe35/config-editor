@@ -78,13 +78,34 @@ async function growths(browserPage, { warmUp = 5, cycles, cycle }) {
   const wasm = await wasmBytes(browserPage);
   if (before.heap) await outlastTimers(browserPage);
   const after = { wasm, heap: await heap(browserPage) };
-  return { wasm: after.wasm - before.wasm, heap: before.heap && after.heap.bytes - before.heap.bytes };
+  if (!before.heap) return { wasm: after.wasm - before.wasm, heap: null };
+  // The sizes whose live allocations changed: [size, change].
+  const sizes = after.heap.sizes
+    .map((count, size) => [size, count - before.heap.sizes[size]])
+    .filter(([, change]) => change !== 0);
+  return { wasm: after.wasm - before.wasm, heap: { bytes: after.heap.bytes - before.heap.bytes, sizes } };
+}
+
+/** The heap kept nothing over the cycles `growths` measured, in a package
+ * built with `alloc-stats` (`npm run build:alloc-stats` in
+ * js/config-editor). With `MEMORY_HEAP=1` (CI's heap job) such a package is
+ * required: a leak too small to grow the WebAssembly memory still fails. */
+function expectNothingKept(heapGrowth) {
+  if (process.env.MEMORY_HEAP) {
+    expect(heapGrowth, 'MEMORY_HEAP=1 needs a package built with alloc-stats').not.toBeNull();
+  }
+  if (heapGrowth === null) return;
+  const kept = `live allocations kept, [size, count]: ${JSON.stringify(heapGrowth.sizes)}`;
+  expect(heapGrowth.bytes, kept).toBeLessThanOrEqual(0);
 }
 
 /** Live heap bytes and live allocations per size, in a package built
  * with `alloc-stats` (else null). */
 const heap = (browserPage) =>
   browserPage.evaluate(async () => {
+    // A framework page's bundle has its own copy of the module, whose
+    // statistics it does not export.
+    if (window.coreApi) return null;
     const module = await import('../config-editor/pkg/config_editor.js');
     return module.__allocStats ? { bytes: module.__allocStats()[0], sizes: Array.from(module.__allocSizes()) } : null;
   });
@@ -108,7 +129,7 @@ test.describe('memory', () => {
     // Nothing stays per mount: an editor's state lives in its owner's
     // arena (a leaked state, 960 B a mount, grew it by 192 KB here).
     expect(grown.wasm).toBeLessThanOrEqual(64 * KB);
-    if (grown.heap !== null) expect(grown.heap).toBeLessThanOrEqual(0);
+    expectNothingKept(grown.heap);
     expect(errors).toEqual([]);
   });
 
@@ -120,7 +141,7 @@ test.describe('memory', () => {
     });
     await browserPage.locator('.config-editor__input').click();
     await browserPage.mouse.move(300, 300);
-    const grown = await growth(browserPage, {
+    const grown = await growths(browserPage, {
       warmUp: 3,
       cycles: 8,
       cycle: async () => {
@@ -139,7 +160,8 @@ test.describe('memory', () => {
       },
     });
     // Leaking, each cycle grew it by about 1.2 MB.
-    expect(grown).toBeLessThanOrEqual(256 * KB);
+    expect(grown.wasm).toBeLessThanOrEqual(256 * KB);
+    expectNothingKept(grown.heap);
     expect(errors).toEqual([]);
   });
 
@@ -158,7 +180,7 @@ test.describe('memory', () => {
       }));
     });
     await browserPage.locator('.config-editor__input').click();
-    const grown = await growth(browserPage, {
+    const grown = await growths(browserPage, {
       cycles: 20,
       cycle: async () => {
         // Every underline is drawn again, and again without the host's.
@@ -174,7 +196,8 @@ test.describe('memory', () => {
         await expect(browserPage.locator('.config-editor__completion')).toHaveCount(0);
       },
     });
-    expect(grown).toBeLessThanOrEqual(256 * KB);
+    expect(grown.wasm).toBeLessThanOrEqual(256 * KB);
+    expectNothingKept(grown.heap);
     expect(errors).toEqual([]);
   });
 
@@ -190,7 +213,7 @@ test.describe('memory', () => {
       });
     });
     const parts = ['showToolbar', 'showFooter', 'showDiagnostics', 'showDiff', 'search', 'goToLine', 'folding', 'highlighting'];
-    const grown = await growth(browserPage, {
+    const grown = await growths(browserPage, {
       cycles: 150,
       cycle: async () => {
         for (const on of [false, true]) {
@@ -206,7 +229,8 @@ test.describe('memory', () => {
       },
     });
     // Rebuilt at each switch, the parts grew it by about 3.5 KB a cycle.
-    expect(grown).toBeLessThanOrEqual(192 * KB);
+    expect(grown.wasm).toBeLessThanOrEqual(192 * KB);
+    expectNothingKept(grown.heap);
     expect(errors).toEqual([]);
   });
 
@@ -242,7 +266,7 @@ test.describe('memory', () => {
     // long documents reaches two pages at times. The heap (with
     // `alloc-stats`) keeps exactly nothing.
     expect(grown.wasm).toBeLessThanOrEqual(128 * KB);
-    if (grown.heap !== null) expect(grown.heap).toBeLessThanOrEqual(0);
+    expectNothingKept(grown.heap);
     expect(errors).toEqual([]);
   });
 
@@ -278,7 +302,7 @@ test.describe('memory', () => {
     // Each registration leaked its language and texts, about 400 B (5000
     // grew memory by 2 MB).
     expect(grown.wasm).toBeLessThanOrEqual(64 * KB);
-    if (grown.heap !== null) expect(grown.heap).toBeLessThanOrEqual(0);
+    expectNothingKept(grown.heap);
     expect(errors).toEqual([]);
   });
 
@@ -568,14 +592,15 @@ test.describe('memory soak', () => {
         if (only.includes('1') || only.includes(name)) await report(browserPage, name, cycle);
       }
     }
-    const grown = await growth(browserPage, {
+    const grown = await growths(browserPage, {
       warmUp: 3,
       cycles: 20,
       cycle: async () => {
         for (const cycle of Object.values(surfaces)) await cycle(browserPage);
       },
     });
-    expect(grown).toBeLessThanOrEqual(256 * KB);
+    expect(grown.wasm).toBeLessThanOrEqual(256 * KB);
+    expectNothingKept(grown.heap);
     expect(await browserPage.evaluate(() => window.editor.value === window.soakDocument)).toBe(true);
     expect(errors).toEqual([]);
   });
@@ -608,8 +633,12 @@ test.describe('memory soak', () => {
       await tab('a').click();
     };
     if (process.env.MEMORY_SOAK_REPORT) await report(browserPage, 'documents', cycle);
-    const grown = await growth(browserPage, { warmUp: 3, cycles: 20, cycle });
-    expect(grown).toBeLessThanOrEqual(256 * KB);
+    // Each editor's DOM ids carry its number, one more per reopened
+    // document: the warm-up takes it to two digits, so the ids of the
+    // editor shown last don't grow by one over the measured cycles.
+    const grown = await growths(browserPage, { warmUp: 10, cycles: 20, cycle });
+    expect(grown.wasm).toBeLessThanOrEqual(256 * KB);
+    expectNothingKept(grown.heap);
     expect(errors).toEqual([]);
   });
 });

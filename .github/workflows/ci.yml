@@ -191,6 +191,44 @@ jobs:
           echo "$(wc -l < timed-tests.txt) timed tests on this machine"
           npx playwright test --reporter=line --project=timed --no-deps --test-list timed-tests.txt
 
+  # The memory tests again, against the npm package built with heap
+  # statistics: they then also fail on a leak too small to grow the
+  # WebAssembly memory. From the shared build (the demo, the framework
+  # pages), with the core package rebuilt with the statistics.
+  heap:
+    name: memory tests with heap statistics
+    needs: browser-build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: browser
+          save-if: false
+      - name: wasm-bindgen version from Cargo.lock
+        id: versions
+        run: echo "wasm_bindgen=$(grep -A1 '^name = "wasm-bindgen"$' Cargo.lock | sed -n 's/version = "\(.*\)"/\1/p')" >> "$GITHUB_OUTPUT"
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-bindgen@${{ steps.versions.outputs.wasm_bindgen }}
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - uses: actions/download-artifact@v4
+        with:
+          name: browser-build
+      - name: Install the packages the tests import
+        working-directory: js
+        run: npm ci
+      - name: Install Playwright's Chromium
+        working-directory: e2e
+        run: npm ci && npx playwright install --with-deps chromium
+      - name: scripts/ci.sh heap
+        run: scripts/ci.sh heap
+
   # One HTML report from every machine's part, only when a test failed (an
   # artifact of the run, to look into the failure).
   e2e-report:
@@ -224,7 +262,7 @@ jobs:
   # only the merged report of a failed run stays.
   artifacts-cleanup:
     name: remove the run's working artifacts
-    needs: [e2e, e2e-timed, e2e-report]
+    needs: [e2e, e2e-timed, heap, e2e-report]
     if: ${{ always() }}
     runs-on: ubuntu-latest
     steps:

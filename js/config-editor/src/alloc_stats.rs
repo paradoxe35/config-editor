@@ -6,14 +6,14 @@
 //! - `__allocSizes()`: live allocations per size in bytes (index 4096 holds
 //!   every larger one). Two snapshots around repeated work show which sizes
 //!   it leaves behind.
-//! - `__allocTrack([sizes])` (up to eight), then `__allocSites()`: the
-//!   JavaScript stack (wasm function names included in a build without
-//!   `strip`) of each live allocation of those sizes, grouped and counted.
+//! - `__allocTrack([sizes])` (up to eight; 4096 for every larger one),
+//!   then `__allocSites()`: the JavaScript stack (with the wasm function
+//!   names) and the first bytes of each live allocation of those sizes,
+//!   grouped and counted.
 //!
-//! Build it: `cargo build --release --target wasm32-unknown-unknown -p
-//! config-editor-js --features alloc-stats` (with
-//! `CARGO_PROFILE_RELEASE_STRIP=false` for function names), then
-//! `wasm-bindgen --keep-debug --target web` as `build.mjs` does.
+//! Build it: `npm run build:alloc-stats` here (`build.mjs --alloc-stats`:
+//! the feature, function names kept). The memory tests then also check
+//! the heap (see `e2e/tests/memory.spec.mjs`).
 
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::{Cell, RefCell};
@@ -42,8 +42,13 @@ fn bucket(size: usize) -> &'static AtomicUsize {
     &SIZES[size.min(BUCKETS - 1)]
 }
 
+/// Whether allocations of `size` are tracked: the last bucket's size
+/// stands for every larger one, as in `__allocSizes()`.
 fn tracked(size: usize) -> bool {
-    size != 0 && TRACKED.iter().any(|tracked| tracked.load(Relaxed) == size)
+    size != 0
+        && TRACKED
+            .iter()
+            .any(|tracked| tracked.load(Relaxed) == size.min(BUCKETS - 1))
 }
 
 /// Runs `record` unless a recording is already under way.
@@ -144,16 +149,22 @@ pub fn alloc_track(sizes: Vec<u32>) {
     }
 }
 
-/// The live tracked allocations, grouped by size and stack, most first:
-/// `x<count> <size> <stack>`, groups separated by `----`.
+/// The live tracked allocations, grouped by size, first bytes (as text)
+/// and stack, most first:
+/// `x<count> <size> "<first bytes>" <stack>`, groups separated by `----`.
 #[wasm_bindgen(js_name = __allocSites)]
 pub fn alloc_sites() -> String {
     let mut report = String::new();
     recording(|| {
         let mut groups: HashMap<String, usize> = HashMap::new();
         SITES.with(|sites| {
-            for (size, stack) in sites.borrow().iter().flat_map(HashMap::values) {
-                *groups.entry(format!("{size} {stack}")).or_default() += 1;
+            for (address, (size, stack)) in sites.borrow().iter().flat_map(HashMap::iter) {
+                // SAFETY: a live allocation of `size` bytes at `address`.
+                let bytes = unsafe { std::slice::from_raw_parts(*address as *const u8, *size) };
+                let text = String::from_utf8_lossy(&bytes[..bytes.len().min(64)]);
+                *groups
+                    .entry(format!("{size} {text:?} {stack}"))
+                    .or_default() += 1;
             }
         });
         let mut groups: Vec<(String, usize)> = groups.into_iter().collect();

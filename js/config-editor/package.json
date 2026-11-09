@@ -43,7 +43,8 @@
   ],
   "sideEffects": false,
   "scripts": {
-    "build": "node build.mjs"
+    "build": "node build.mjs",
+    "build:alloc-stats": "node build.mjs --alloc-stats"
   },
   "keywords": [
     "config",

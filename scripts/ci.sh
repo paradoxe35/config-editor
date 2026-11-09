@@ -128,6 +128,19 @@ step_browser() {
   (cd e2e && npm ci && npx playwright test)
 }
 
+# The memory tests against the npm package built with heap statistics
+# (`alloc-stats`): a leak too small to grow the WebAssembly memory (a string
+# a closed document leaves) fails them too. Needs the npm packages, the demo
+# and Playwright's Chromium, as `browser` does; leaves js/config-editor/pkg
+# built with the statistics (`npm run build` in js/ puts the published build
+# back).
+step_heap() {
+  (cd js/config-editor && npm run build:alloc-stats)
+  # The example pages bundle the module's JavaScript, which must match it.
+  (cd js && npm run examples)
+  (cd e2e && MEMORY_HEAP=1 npx playwright test --project=editor --no-deps tests/memory.spec.mjs)
+}
+
 # The npm package's wasm loads in browsers without WebAssembly SIMD: one SIMD
 # instruction anywhere in a module makes such a browser reject all of it (a
 # dependency's SIMD path compiled in, or wasm-opt allowed to use SIMD). Run

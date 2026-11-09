@@ -68,6 +68,7 @@ pub(crate) fn HoverCardView(state: EditorState) -> impl IntoView {
             .map(|anchor| hover_card_geometry(anchor, natural.get()))
     });
     let measured = Relay::new(move || natural.get() > 0.0);
+    let scrolling = Relay::new(move || scrolls.get());
     move || {
         state
             .hover()
@@ -84,6 +85,7 @@ pub(crate) fn HoverCardView(state: EditorState) -> impl IntoView {
                 // others let them through to the text (see the stylesheet).
                 let links = info.docs_url.is_some()
                     || problems.iter().any(|entry| entry.docs_url.is_some());
+                let scrolls = scrolling.read();
                 let interactive = move || links || scrolls.get();
                 let focused = focused.read();
                 let style = style.read();

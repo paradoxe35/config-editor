@@ -244,4 +244,33 @@ test.describe('ConfigDocuments.update', () => {
     expect(result.addClose).toContain('onClose cannot be added');
     expect(result.notObject).toContain('update takes an object of options');
   });
+
+  // What a closed document's editor reported goes with it: a document
+  // listed again with its id is a new one, whose editor never mounted (it
+  // was kept, a closed document's id and state staying until another
+  // document reported).
+  for (const callback of ['onEditAsChange', 'onSyncChange', 'onProblems']) {
+    test(`${callback} given later does not hear a closed document listed again`, async ({ page: browserPage }) => {
+      await openDocuments(browserPage);
+      const heard = await browserPage.evaluate(async (callback) => {
+        const { ConfigDocuments } = await import('../config-editor/index.js');
+        const pause = () => new Promise((resolve) => setTimeout(resolve, 300));
+        const main = { id: 'main', fileName: 'main.yaml', value: 'a: 1\n' };
+        const view = new ConfigDocuments(document.body.appendChild(document.createElement('div')), {
+          documents: [main, { id: 'b', fileName: 'b.yaml', value: 'b: [\n' }],
+        });
+        await pause();
+        view.select('b');
+        await pause();
+        view.update({ documents: [main] });
+        await pause();
+        view.update({ documents: [main, { id: 'b', fileName: 'b.json', value: '{}\n' }] });
+        await pause();
+        const heard = [];
+        view.update({ [callback]: (id) => heard.push(id) });
+        return heard;
+      }, callback);
+      expect(heard).toEqual(['main']);
+    });
+  }
 });

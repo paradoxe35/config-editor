@@ -184,18 +184,23 @@ impl State {
 
     fn show(&self, listed: Listed) {
         remember_texts(self.texts, &listed.documents);
+        // A document closed takes what its editor reported with it: a
+        // document listed again with its id is a new one.
+        let _ = self.told.try_update_value(|told| {
+            told.retain(|id, _| listed.documents.iter().any(|document| document.id == *id));
+        });
         let _ = self.overrides.try_set_value(listed.overrides);
         let _ = self.documents.try_set(listed.documents);
     }
 }
 
-/// Records what a state callback reports of the document `id`; the
-/// documents no longer listed are forgotten.
+/// Records what a state callback reports of the document `id`, while it is
+/// listed (`show` forgets it once it is not).
 fn note(state: State, id: &str, change: impl FnOnce(&mut Told)) {
+    if state.texts_of(id).is_none() {
+        return;
+    }
     let _ = state.told.try_update_value(|told| {
-        if !told.contains_key(id) {
-            told.retain(|known, _| state.texts_of(known).is_some());
-        }
         change(told.entry(id.to_string()).or_default());
     });
 }

@@ -11,11 +11,13 @@ use crate::strings::{counted, fill};
 #[component]
 pub(in crate::editor) fn ChangeStatus(state: EditorState) -> impl IntoView {
     let changes = state.changes().summary;
-    let strings = state.strings_signal();
     let next_change = move |_| state.go_to_change(true, false);
     move || {
         let summary = changes.get();
         (!summary.is_empty()).then(|| {
+            // Taken by the button, which goes with the next count (see
+            // `reactive`).
+            let strings = state.strings_signal();
             view! {
                 <button
                     type="button"

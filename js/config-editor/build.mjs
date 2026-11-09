@@ -25,14 +25,26 @@ function wasmBindgen() {
   throw new Error(`wasm-bindgen ${version} not found: cargo install wasm-bindgen-cli --version ${version}`);
 }
 
+// `--alloc-stats`: with the heap statistics the memory tests check (see
+// src/alloc_stats.rs), and the function names its allocation sites show
+// (no `strip`, no wasm-opt); never the published package.
+const allocStats = process.argv.includes('--alloc-stats');
 execFileSync(
   'cargo',
-  ['build', '--release', '--target', 'wasm32-unknown-unknown', '-p', 'config-editor-js'],
-  { cwd: root, stdio: 'inherit' },
+  [
+    'build', '--release', '--target', 'wasm32-unknown-unknown', '-p', 'config-editor-js',
+    ...(allocStats ? ['--features', 'alloc-stats'] : []),
+  ],
+  {
+    cwd: root,
+    stdio: 'inherit',
+    env: allocStats ? { ...process.env, CARGO_PROFILE_RELEASE_STRIP: 'false' } : process.env,
+  },
 );
 execFileSync(
   wasmBindgen(),
   [
+    ...(allocStats ? ['--keep-debug'] : []),
     '--target', 'web',
     '--out-dir', join(here, 'pkg'),
     '--out-name', 'config_editor',
@@ -82,12 +94,14 @@ execFileSync(
 // them 5 to 7% larger (the raw file 8 to 11% smaller), with or without
 // --strip-debug --strip-producers (which change nothing: the release build
 // already strips) or --converge.
-let hasWasmOpt = true;
-try {
-  execFileSync('wasm-opt', ['--version'], { stdio: 'ignore' });
-} catch {
-  hasWasmOpt = false;
-  console.log('wasm-opt not found: skipping the optional size pass');
+let hasWasmOpt = !allocStats;
+if (hasWasmOpt) {
+  try {
+    execFileSync('wasm-opt', ['--version'], { stdio: 'ignore' });
+  } catch {
+    hasWasmOpt = false;
+    console.log('wasm-opt not found: skipping the optional size pass');
+  }
 }
 if (hasWasmOpt) {
   const wasm = join(here, 'pkg', 'config_editor_bg.wasm');

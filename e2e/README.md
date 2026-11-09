@@ -55,10 +55,14 @@ Screenshots from the run are written to `test-results/screens/`.
 
 ## Hunting leaks
 
-Build the npm package with the `alloc-stats` feature (see
-`js/config-editor/src/alloc_stats.rs`) to read the heap from the page:
-`__allocStats()` gives the live bytes and allocations, `__allocSizes()` the live
-allocations per size (diff two snapshots around repeated work), and
-`__allocTrack([sizes])` then `__allocSites()` the stacks that allocated what is
-still live. Most leaks so far were views that come and go subscribing to state
-that stays; see `crates/config-editor-leptos/src/reactive`.
+Build the npm package with heap statistics, `npm run build:alloc-stats` in
+`js/config-editor` (the `alloc-stats` feature, see
+`js/config-editor/src/alloc_stats.rs`; `npm run build` in `js/` puts the
+published build back), to read the heap from the page: `__allocStats()` gives
+the live bytes and allocations, `__allocSizes()` the live allocations per size
+(diff two snapshots around repeated work), and `__allocTrack([sizes])` then
+`__allocSites()` the stacks (with function names) and contents of what is still
+live. With such a build the memory tests also check that the heap keeps nothing
+(they print the sizes kept); `MEMORY_HEAP=1` requires one, as CI's heap job
+(`scripts/ci.sh heap`) does. Most leaks so far were views that come and go
+subscribing to state that stays; see `crates/config-editor-leptos/src/reactive`.
