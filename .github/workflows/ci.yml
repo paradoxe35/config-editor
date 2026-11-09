@@ -175,11 +175,12 @@ jobs:
           npx playwright install --with-deps chromium
           npx playwright test --reporter=line --project=timed --no-deps
 
-  # One HTML report from every machine's part (an artifact of the run).
+  # One HTML report from every machine's part, only when a test failed (an
+  # artifact of the run, to look into the failure).
   e2e-report:
     name: end-to-end report
     needs: e2e
-    if: ${{ !cancelled() }}
+    if: ${{ !cancelled() && needs.e2e.result == 'failure' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -201,3 +202,25 @@ jobs:
           name: e2e-report
           retention-days: 7
           path: e2e/playwright-report/
+
+  # The run keeps nothing it only needed while running: the shared build and
+  # each machine's report go once every test job is done (or was cancelled);
+  # only the merged report of a failed run stays.
+  artifacts-cleanup:
+    name: remove the run's working artifacts
+    needs: [e2e, e2e-timed, e2e-report]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - name: Delete the shared build and the machines' reports
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api --paginate "repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts" \
+            --jq '.artifacts[] | select(.name == "browser-build" or (.name | startswith("blob-report-"))) | "\(.id) \(.name)"' |
+            while read -r id name; do
+              echo "deleting $name"
+              gh api -X DELETE "repos/${{ github.repository }}/actions/artifacts/$id"
+            done
