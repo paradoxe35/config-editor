@@ -62,7 +62,7 @@ function samples() {
   return Object.fromEntries(
     LANGUAGES.map((language) => [
       language,
-      readFileSync(join(generated, `burrow.large.${language}`), 'utf8'),
+      readFileSync(join(generated, `tunnel.large.${language}`), 'utf8'),
     ]),
   );
 }

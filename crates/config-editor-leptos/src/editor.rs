@@ -255,7 +255,8 @@ pub fn ConfigEditor(
     /// a field; see [`EditorHandle`].
     #[prop(optional)]
     handle: Option<EditorHandle>,
-    /// Problems the host found (a server's validation), by path or range,
+    /// Problems the host found (its own checks: a service, a build step), by
+    /// path or range,
     /// shown next to the editor's own and marked as the host's. A new list
     /// replaces the previous one; only the markers update. See
     /// [`HostDiagnostic`].

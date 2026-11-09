@@ -21,7 +21,7 @@ test.describe('a YAML file with a comment, edited as TOML', () => {
       "The YAML file's comments and formatting are not shown while editing as TOML; saving keeps them.",
     );
     // The comment is not in the TOML on screen.
-    expect(await editor(page).value()).not.toContain('Burrow server configuration');
+    expect(await editor(page).value()).not.toContain('Tunnel server configuration');
     const dismiss = notice(page).getByRole('button', { name: 'Dismiss' });
     await dismiss.click();
     await expect(notice(page)).toBeHidden();
@@ -45,7 +45,7 @@ test.describe('a YAML file with a comment, edited as TOML', () => {
     );
     await expect.poll(() => saved(page)).toContain('listen: 7836');
     const host = await saved(page);
-    expect(host).toContain('# Burrow server configuration');
+    expect(host).toContain('# Tunnel server configuration');
     expect(host).not.toContain('typed in TOML');
   });
 

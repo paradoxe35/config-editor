@@ -1101,7 +1101,7 @@ mod message_tests {
     use super::Schema;
 
     fn messages(yaml: &str) -> Vec<String> {
-        Schema::compile(include_str!("../../tests/fixtures/burrow.schema.json"))
+        Schema::compile(include_str!("../../tests/fixtures/tunnel.schema.json"))
             .unwrap()
             .validate(Language::YAML, yaml)
             .into_iter()
@@ -1279,7 +1279,7 @@ mod scale_tests {
     #[test]
     fn many_unknown_keys_stay_fast_and_messages_stay_short() {
         let schema =
-            Schema::compile(include_str!("../../tests/fixtures/burrow.schema.json")).unwrap();
+            Schema::compile(include_str!("../../tests/fixtures/tunnel.schema.json")).unwrap();
         let document: String = (0..2000)
             .map(|index| format!("unknown_{index}: 1\n"))
             .collect();

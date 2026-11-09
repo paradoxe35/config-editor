@@ -40,7 +40,7 @@ export const GALLERY = [
           ['changes.png', 'Moving to a change with Alt+F3'],
         ],
       },
-      { title: 'The file changed outside the editor', caption: 'A new baseline while there are unsaved edits asks before replacing them.', images: [['server-change.png', 'The baseline notice with Reload and Keep mine']] },
+      { title: 'The file changed outside the editor', caption: 'A new baseline while there are unsaved edits asks before replacing them.', images: [['external-change.png', 'The baseline notice with Reload and Keep mine']] },
     ],
   },
   {
@@ -56,7 +56,7 @@ export const GALLERY = [
     items: [
       { title: 'Read-only fields', caption: 'Fields locked by the schema (`readOnly`) or the host: a lock in the gutter, the value muted, and a refused edit explains why.', images: [['read-only.png', 'Typing into a read-only field']] },
       { title: 'Secrets', caption: 'Placeholders the host gives (`«secret 3f2a»`) are single tokens: the caret steps over them and they are kept unless replaced.', images: [['secrets.png', 'Secret placeholders with their hint']] },
-      { title: 'Host diagnostics', caption: "Problems from the host (a server's validation), by path or range, with their source, code and docs link; info and hint severities too.", images: [['host-diagnostics.png', 'A host problem with its source and code']] },
+      { title: 'Host diagnostics', caption: "Problems from the host (its own checks: a service, a build step), by path or range, with their source, code and docs link; info and hint severities too.", images: [['host-diagnostics.png', 'A host problem with its source and code']] },
       { title: 'Several documents', caption: '`ConfigDocuments`: a main file and drop-ins as tabs, each with its own language, baseline and read-only state; the dot marks unsaved edits.', images: [['documents.png', 'Three documents as tabs']] },
     ],
   },

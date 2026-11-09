@@ -57,7 +57,7 @@ const editAs = ref<LanguageName | null>(null);
 // Several documents.
 const tabs = ref<ConfigDocumentsHandle | null>(null);
 const files = reactive<DocumentSpec[]>([
-  { id: "main", fileName: "burrow.yaml", value: "listen: 7835\n" },
+  { id: "main", fileName: "config.yaml", value: "listen: 7835\n" },
   { id: "limits", fileName: "conf.d/limits.toml", value: "[limits]\n" },
 ]);
 function update(id: string, value: string) {
@@ -109,7 +109,7 @@ void savedIds;
     :strings="{ find: 'Suchen' }"
     class="editor"
     editor-class="editor-root"
-    file-name="burrow.yaml"
+    file-name="config.yaml"
   />
 
   <ConfigDocuments

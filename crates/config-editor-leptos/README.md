@@ -131,7 +131,7 @@ strict Content-Security-Policy, serve it as a file instead (see
 | `on_problems`          | `Fn(Vec<Diagnostic>)`                      | —                     | Called with the editor's own problems (syntax, schema, secret placeholders, values Edit-as cannot convert; `origin` `Editor`), never `host_diagnostics`: once on mount, then each time they change after a pause in typing, not while they stay the same. With `show_diagnostics` off it finds none. Gate a Save button on it instead of parsing again.                                                                                                                    |
 | `handle`               | `EditorHandle`                             | —                     | Find fields, follow the caret and jump to a field from the host; see [Paths and positions](#paths-and-positions).                                                                                                                                                                                                                                                                                                                                                          |
 | `on_path_change`       | `Fn(FieldPath)`                            | —                     | Called with the path of what the caret is on each time it changes (and once on mount), for a breadcrumb.                                                                                                                                                                                                                                                                                                                                                                   |
-| `host_diagnostics`     | `Signal<Vec<HostDiagnostic>>`              | —                     | Problems the host found (a server's validation), by path or range, shown with the editor's own; see [Host diagnostics](#host-diagnostics).                                                                                                                                                                                                                                                                                                                                 |
+| `host_diagnostics`     | `Signal<Vec<HostDiagnostic>>`              | —                     | Problems the host found (its own checks: a service, a build step), by path or range, shown with the editor's own; see [Host diagnostics](#host-diagnostics).                                                                                                                                                                                                                                                                                                               |
 | `read_only_paths`      | `Signal<Vec<FieldPath>>`                   | —                     | Fields the user cannot change, each a whole subtree, on top of the schema's `readOnly` ones; see [Read-only fields](#read-only-fields).                                                                                                                                                                                                                                                                                                                                    |
 | `read_only_ranges`     | `Signal<Vec<TextRange>>`                   | —                     | Stretches of the host's text the user cannot change; they follow the text through edits.                                                                                                                                                                                                                                                                                                                                                                                   |
 | `secrets`              | `SecretOptions`                            | defaults              | How secret placeholders are matched, described and completed; see [Secrets](#secrets).                                                                                                                                                                                                                                                                                                                                                                                     |
@@ -601,7 +601,7 @@ view! {
         on_baseline_conflict=move |event: BaselineConflict| log(event)
     />
 }
-// Another client saved: `saved.set(from_server)` moves the baseline on.
+// Saved outside the editor: `saved.set(stored)` moves the baseline on.
 ```
 
 When `baseline` changes while the user has unsaved edits, a notice opens over
@@ -642,7 +642,7 @@ on is not a change from elsewhere. Colors: the notice uses `raised`,
   language, pending edits applied, with your text's line endings (CRLF when
   it had them): what `on_change` and `on_save` get. `EditorHandle::text()`
   is what is on screen (LF), which while editing as another language is
-  that language. Send `value()` (or what `on_change` gave you) to a server.
+  that language. Send `value()` (or what `on_change` gave you) to where you keep the file.
   `EditorHandle::unified_diff(context)` is the `diff -u` of the baseline
   against `value()`, in your language, its lines ending with LF as the JS
   `unifiedDiff()` writes them (`diff` feature).
@@ -698,7 +698,7 @@ use config_editor_leptos::{CloseRequest, ConfigDocuments, Document, DocumentsHan
 const SCHEMA: &str = include_str!("schema.json");
 let documents = RwSignal::new(vec![
     // The main config stays open: no close button.
-    Document::new("main", "burrow.yaml", load("burrow.yaml")).schema(SCHEMA).closable(false),
+    Document::new("main", "config.yaml", load("config.yaml")).schema(SCHEMA).closable(false),
     Document::new("limits", "conf.d/limits.toml", load("conf.d/limits.toml")).schema(SCHEMA),
     Document::new("clients", "conf.d/clients.json", load("conf.d/clients.json"))
         .schema(SCHEMA)
@@ -752,7 +752,7 @@ view! {
   focus moves to something outside the view (a dialog of the host's: select
   the document with `DocumentsHandle::select` then), before another tab is
   picked and before the user clicks or types anywhere else in the view (in
-  a document's editor). One added later (a server's) is listed, not selected. When the tabs
+  a document's editor). One added later (by the host on its own) is listed, not selected. When the tabs
   overflow, the "+" stays at the end of the strip, visible while they
   scroll. No key adds a document (`Ctrl+T` and `Ctrl+N` belong to the
   browser). Leave `on_add` unset for a view that only shows files.
@@ -800,7 +800,7 @@ use config_editor_leptos::{Document, DocumentsHandle, Language};
 
 let tabs = DocumentsHandle::new();
 // Restored after the page came back: the TOML the user had, not yet valid.
-let main = Document::new("main", "burrow.yaml", saved_yaml)
+let main = Document::new("main", "config.yaml", saved_yaml)
     .edit_as_text(Language::TOML, kept_toml);
 let clients = Document::new("clients", "conf.d/clients.json", clients_json)
     .read_only_reason("Managed by the cluster operator");
@@ -916,20 +916,20 @@ own gets them from its `key_span`, `value_span`, `hover_key` and
 
 ## Host diagnostics
 
-When a server validates the document, pass its problems as
-`host_diagnostics`. Each points at a field by path (preferred: it follows the
-field through edits and `edit_as`) or at a range of the host's text, or at
-the whole document:
+When the host checks the document itself (a service, a build step), pass
+its problems as `host_diagnostics`. Each points at a field by path
+(preferred: it follows the field through edits and `edit_as`) or at a range
+of the host's text, or at the whole document:
 
 ```rust
 use config_editor_leptos::{ConfigEditor, EditorSettings, HostDiagnostic, Severity};
 
 let problems = RwSignal::new(Vec::new());
-// After the server answered:
+// After the host's check answered:
 problems.set(vec![
     HostDiagnostic::at_path("/web/listen", Severity::Error, "port 80 is taken")
         .with_code("E_PORT")
-        .with_source("burrow")
+        .with_source("validator")
         .with_docs_url("https://example.com/docs/ports"),
     HostDiagnostic::document(Severity::Warning, "restart needed to apply"),
 ]);
@@ -986,7 +986,7 @@ whole-document `read_only` stays as it is.
 use config_editor_leptos::{ConfigEditor, FieldPath, TextPosition, TextRange};
 
 // {"properties": {"id": {"type": "string", "readOnly": true,
-//                        "x-readonly-reason": "Assigned by the server"}}}
+//                        "x-readonly-reason": "Assigned when created"}}}
 let locked = RwSignal::new(vec![FieldPath::from("/limits")]);
 let first_line = RwSignal::new(vec![TextRange::new(
     TextPosition::new(1, 1),
@@ -1053,7 +1053,7 @@ view! {
   which field.
   `Ctrl+S` (`on_save`) is refused the same way.
 - The host's own text is never held back: a new `value`, and a baseline
-  taken with "Reload" from the changed-on-server notice, may change
+  taken with "Reload" from the changed-outside-the-editor notice, may change
   read-only values (and bring their own secret placeholders). A refused
   edit changes nothing, so it leaves the dirty flag as it was.
 - With folding, an edit that removes or changes a fold holding a locked
@@ -1239,7 +1239,7 @@ its footer and what follows the view, `Shift+Tab` back towards the tabs.
 
 The textarea is described (`aria-describedby`) by what is at the caret: the
 message of each problem there, the editor's or the host's ("Warning from
-burrow: port in use"), why a read-only value is read-only, a secret
+validator: port in use"), why a read-only value is read-only, a secret
 placeholder's hint. It follows the caret a moment after it stops. `F8` and
 `Shift+F8` announce the problem they move to through a polite live region
 ("Error 2 of 5: …"). The suggestion list is a `listbox`, hover help a
@@ -1655,23 +1655,23 @@ images. An end-to-end test runs every feature under this policy.
 
 All are on by default; turn off what you don't use to shrink the build.
 
-| Feature             | Enables                                                                                                                                                                                                                                           |
-| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `schema-validation` | Live JSON Schema diagnostics (`jsonschema`, the heaviest dependency). Completions, hover docs and schema-shaped reading work without it, from the schema alone; leave it out when documents are validated on a server. Syntax is always checked.  |
-| `yaml`              | `Language::YAML` (`noyalib`)                                                                                                                                                                                                                      |
-| `json`              | `Language::JSON`                                                                                                                                                                                                                                  |
-| `toml`              | `Language::TOML` (`toml`)                                                                                                                                                                                                                         |
-| `hcl`               | `Language::HCL` (`hcl-rs`)                                                                                                                                                                                                                        |
-| `xml`               | `Language::XML` (`quick-xml`)                                                                                                                                                                                                                     |
-| `search`            | [Find and replace](#find-and-replace) (`Ctrl+F`, `Ctrl+H`) and go to line (`Ctrl+G`).                                                                                                                                                             |
-| `diff`              | [Changes against the baseline](#changes-against-the-baseline): the gutter markers and their preview, revert, `Alt+F5`, the change count (`on_change_summary`) and `unified_diff`. Without it the baseline still drives the dirty flag and saving. |
-| `folding`           | [Folding](#folding): the chevrons, the folding keys and the handle's folding methods.                                                                                                                                                             |
-| `protect`           | [Read-only fields](#read-only-fields) and [secrets](#secrets): the schema's `readOnly`, `writeOnly` and `x-secret`, `read_only_paths`, `read_only_ranges` and `secrets`. The whole-document `read_only` works without it.                         |
+| Feature             | Enables                                                                                                                                                                                                                                                                   |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `schema-validation` | Live JSON Schema diagnostics (`jsonschema`, the heaviest dependency). Completions, hover docs and schema-shaped reading work without it, from the schema alone; leave it out when documents are validated elsewhere (by the host's own checks). Syntax is always checked. |
+| `yaml`              | `Language::YAML` (`noyalib`)                                                                                                                                                                                                                                              |
+| `json`              | `Language::JSON`                                                                                                                                                                                                                                                          |
+| `toml`              | `Language::TOML` (`toml`)                                                                                                                                                                                                                                                 |
+| `hcl`               | `Language::HCL` (`hcl-rs`)                                                                                                                                                                                                                                                |
+| `xml`               | `Language::XML` (`quick-xml`)                                                                                                                                                                                                                                             |
+| `search`            | [Find and replace](#find-and-replace) (`Ctrl+F`, `Ctrl+H`) and go to line (`Ctrl+G`).                                                                                                                                                                                     |
+| `diff`              | [Changes against the baseline](#changes-against-the-baseline): the gutter markers and their preview, revert, `Alt+F5`, the change count (`on_change_summary`) and `unified_diff`. Without it the baseline still drives the dirty flag and saving.                         |
+| `folding`           | [Folding](#folding): the chevrons, the folding keys and the handle's folding methods.                                                                                                                                                                                     |
+| `protect`           | [Read-only fields](#read-only-fields) and [secrets](#secrets): the schema's `readOnly`, `writeOnly` and `x-secret`, `read_only_paths`, `read_only_ranges` and `secrets`. The whole-document `read_only` works without it.                                                 |
 
 ```toml
 # YAML with live schema diagnostics:
 config-editor-leptos = { version = "0.1", default-features = false, features = ["schema-validation", "yaml"] }
-# YAML and TOML with schema completions and hover, validated on a server:
+# YAML and TOML with schema completions and hover, validated elsewhere:
 config-editor-leptos = { version = "0.1", default-features = false, features = ["yaml", "toml"] }
 # The smallest editor: YAML, nothing optional:
 config-editor-leptos = { version = "0.1", default-features = false, features = ["yaml"] }

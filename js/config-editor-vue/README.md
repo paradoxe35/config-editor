@@ -87,7 +87,7 @@ so `Ctrl+S` is the editor's only while there is a `@save` listener.
 | `default-value`          | `string`           | `""`             | The initial document without `v-model`.                                                                                                                                         |
 | `language`               | `string`           | `"yaml"`         | `"yaml"`, `"json"`, `"toml"`, `"hcl"`, `"xml"`, or a registered one. Changing it re-mounts.                                                                                     |
 | `edit-as`                | `string \| null`   | —                | Show and edit the document in another language; it is saved back in `language`, keeping its comments.                                                                           |
-| `host-diagnostics`       | `HostDiagnostic[]` | —                | Problems the host found (a server's validation), by path or range, shown with the editor's own. Updates live, also when changed in place.                                       |
+| `host-diagnostics`       | `HostDiagnostic[]` | —                | Problems the host found (its own checks: a service, a build step), by path or range, shown with the editor's own. Updates live, also when changed in place.                     |
 | `read-only-paths`        | `FieldPath[]`      | —                | Fields the user cannot change (each a whole subtree), on top of the schema's `readOnly` ones. Updates live.                                                                     |
 | `read-only-ranges`       | `TextRangeInput[]` | —                | Stretches of the document (in `language`) the user cannot change. Updates live.                                                                                                 |
 | `secrets`                | `SecretOptions`    | defaults         | Secret placeholders (`«secret 3f2a»`) in `writeOnly` / `x-secret` fields stay atomic. Changing `placeholder`, `hint` or `referencePrefixes` re-mounts.                          |
@@ -468,7 +468,7 @@ import {
 } from "@pngwasi/config-editor-vue";
 
 const files = reactive<DocumentSpec[]>([
-  { id: "main", fileName: "burrow.yaml", value: mainText, schema },
+  { id: "main", fileName: "config.yaml", value: mainText, schema },
   { id: "tls", fileName: "conf.d/tls.toml", value: tlsText, readOnly: true },
 ]);
 const find = (id: string) => files.find((file) => file.id === id)!;

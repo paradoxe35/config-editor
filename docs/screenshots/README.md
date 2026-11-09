@@ -67,7 +67,7 @@ Added, modified and removed lines in the gutter, each with a before/after previe
 
 A new baseline while there are unsaved edits asks before replacing them.
 
-![The baseline notice with Reload and Keep mine](server-change.png)
+![The baseline notice with Reload and Keep mine](external-change.png)
 
 ## Finding your way
 
@@ -105,7 +105,7 @@ Placeholders the host gives (`«secret 3f2a»`) are single tokens: the caret ste
 
 ### Host diagnostics
 
-Problems from the host (a server's validation), by path or range, with their source, code and docs link; info and hint severities too.
+Problems from the host (its own checks: a service, a build step), by path or range, with their source, code and docs link; info and hint severities too.
 
 ![A host problem with its source and code](host-diagnostics.png)
 

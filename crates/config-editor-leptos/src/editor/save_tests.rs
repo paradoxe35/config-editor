@@ -176,7 +176,7 @@ fn deleting_a_one_line_xml_element_removes_only_its_line() {
 
 #[test]
 fn deleting_a_client_of_the_large_hcl_sample_removes_only_its_block() {
-    let hcl = include_str!("../../tests/fixtures/samples/burrow.large.hcl");
+    let hcl = include_str!("../../tests/fixtures/samples/tunnel.large.hcl");
     let block =
         "  etiolles-pve-ai {\n    secret = \"«secret 705fde3f»\"\n    max_connections = 264\n  }\n";
     assert!(hcl.contains(block));
@@ -1091,7 +1091,7 @@ fn yaml_merge_keys_merge_the_anchored_map() {
 fn round_13_saves_change_only_the_edit() {
     use serde_json::{Value, json};
     let schema = std::sync::Arc::new(
-        super::diagnostics::build_schema(include_str!("../../tests/fixtures/burrow.schema.json"))
+        super::diagnostics::build_schema(include_str!("../../tests/fixtures/tunnel.schema.json"))
             .unwrap(),
     );
     let mut failures = Vec::new();

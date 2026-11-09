@@ -63,7 +63,7 @@ for (const name of ['vanilla.html', ...FRAMEWORK_PAGES]) {
       });
       await browserPage.keyboard.type('9999');
       await expect(saved(browserPage)).toContainText('listen: 9999');
-      await expect(saved(browserPage)).toContainText('# Burrow server configuration');
+      await expect(saved(browserPage)).toContainText('# Tunnel server configuration');
     });
 
     test('value, theme and read-only update live', async ({ page: browserPage }) => {

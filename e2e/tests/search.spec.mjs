@@ -232,7 +232,7 @@ test.describe('replace while editing as another language', () => {
     await page.keyboard.press('Control+Alt+Enter');
     expect(await e.value()).toContain('public_address = "edge.example.com"');
     await expect(page.locator('.demo__output-text')).toContainText('public_address: edge.example.com');
-    await expect(page.locator('.demo__output-text')).toContainText('# Burrow server configuration');
+    await expect(page.locator('.demo__output-text')).toContainText('# Tunnel server configuration');
   });
 });
 

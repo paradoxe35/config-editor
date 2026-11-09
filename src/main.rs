@@ -1,4 +1,4 @@
-//! Demo host for `config-editor-leptos`: the same burrow server config in every
+//! Demo host for `config-editor-leptos`: the same tunnel server config in every
 //! language, switchable from the toolbar (all state lives in the URL so a
 //! reload keeps it):
 //!
@@ -8,9 +8,9 @@
 //!   `?sample=page` — the text the page put in `window.configEditorSample`
 //!   before the demo started (the large-file e2e tests load ~6000 lines so);
 //! - `?readonly` — start in view mode (the Read-only box under the editor
-//!   switches it live, beside "Server change" and "Host edit");
+//!   switches it live, beside "External change" and "Host edit");
 //! - `?schema=help` — the schema-help fixture (deprecated keys, docs links,
-//!   documented values) instead of the burrow schema, with its warnings
+//!   documented values) instead of the tunnel schema, with its warnings
 //!   listed under the editor;
 //! - `?schema=protected` — the protected-fields fixture (read-only fields,
 //!   secrets with their placeholders) and its document;
@@ -36,10 +36,10 @@ use output_panel::{HostState, OutputPanel};
 use settings_panel::SettingsPanel;
 use theme_picker::ThemePicker;
 
-const YAML_SAMPLE: &str = "# Burrow server configuration\nlisten: 7835\npublic_address: tunnel.example.com\ninsecure_plaintext: false\n";
+const YAML_SAMPLE: &str = "# Tunnel server configuration\nlisten: 7835\npublic_address: tunnel.example.com\ninsecure_plaintext: false\n";
 const JSON_SAMPLE: &str = "{\n  \"listen\": 7835,\n  \"public_address\": \"tunnel.example.com\",\n  \"insecure_plaintext\": false\n}\n";
-const TOML_SAMPLE: &str = "# Burrow server configuration\nlisten = 7835\npublic_address = \"tunnel.example.com\"\ninsecure_plaintext = false\n";
-const HCL_SAMPLE: &str = "# Burrow server configuration\nlisten = 7835\npublic_address = \"tunnel.example.com\"\ninsecure_plaintext = false\n";
+const TOML_SAMPLE: &str = "# Tunnel server configuration\nlisten = 7835\npublic_address = \"tunnel.example.com\"\ninsecure_plaintext = false\n";
+const HCL_SAMPLE: &str = "# Tunnel server configuration\nlisten = 7835\npublic_address = \"tunnel.example.com\"\ninsecure_plaintext = false\n";
 const XML_SAMPLE: &str = "<listen>7835</listen>\n<public_address>tunnel.example.com</public_address>\n<insecure_plaintext>false</insecure_plaintext>\n<clients>\n  <acme>\n    <secret>c2VjcmV0LWZvci1hY21l</secret>\n  </acme>\n</clients>\n";
 const SCHEMA: &str = include_str!("../schema.json");
 const HELP_SCHEMA: &str =
@@ -74,23 +74,23 @@ fn samples(language: Language) -> (&'static str, &'static str) {
     match language.label() {
         "JSON" => (
             JSON_SAMPLE,
-            include_str!("../crates/config-editor-leptos/tests/fixtures/samples/burrow.large.json"),
+            include_str!("../crates/config-editor-leptos/tests/fixtures/samples/tunnel.large.json"),
         ),
         "TOML" => (
             TOML_SAMPLE,
-            include_str!("../crates/config-editor-leptos/tests/fixtures/samples/burrow.large.toml"),
+            include_str!("../crates/config-editor-leptos/tests/fixtures/samples/tunnel.large.toml"),
         ),
         "HCL" => (
             HCL_SAMPLE,
-            include_str!("../crates/config-editor-leptos/tests/fixtures/samples/burrow.large.hcl"),
+            include_str!("../crates/config-editor-leptos/tests/fixtures/samples/tunnel.large.hcl"),
         ),
         "XML" => (
             XML_SAMPLE,
-            include_str!("../crates/config-editor-leptos/tests/fixtures/samples/burrow.large.xml"),
+            include_str!("../crates/config-editor-leptos/tests/fixtures/samples/tunnel.large.xml"),
         ),
         _ => (
             YAML_SAMPLE,
-            include_str!("../crates/config-editor-leptos/tests/fixtures/samples/burrow.large.yaml"),
+            include_str!("../crates/config-editor-leptos/tests/fixtures/samples/tunnel.large.yaml"),
         ),
     }
 }
@@ -210,7 +210,7 @@ fn main() {
             _ => small,
         };
         let file_name = format!(
-            "burrow{}.{}",
+            "tunnel{}.{}",
             if large_sample { ".large" } else { "" },
             key(language)
         );

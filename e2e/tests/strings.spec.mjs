@@ -204,7 +204,7 @@ test('every built-in text comes from the strings setting', async ({ page }) => {
   await page.keyboard.press('Control+h');
   await page.locator('.config-editor__find-input').first().waitFor();
   await look();
-  await page.keyboard.type('tunnel');
+  await page.keyboard.type('tunnel.example');
   await expect(page.locator('.config-editor__find-count')).toContainText('«matchPosition»');
   await look();
   await page.locator('.config-editor__replace-input').fill('relay');

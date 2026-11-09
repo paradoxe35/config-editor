@@ -312,23 +312,23 @@ fn the_caret_path_stays_cheap_in_large_documents() {
     let samples = [
         (
             Language::YAML,
-            include_str!("../../../tests/fixtures/samples/burrow.large.yaml"),
+            include_str!("../../../tests/fixtures/samples/tunnel.large.yaml"),
         ),
         (
             Language::JSON,
-            include_str!("../../../tests/fixtures/samples/burrow.large.json"),
+            include_str!("../../../tests/fixtures/samples/tunnel.large.json"),
         ),
         (
             Language::TOML,
-            include_str!("../../../tests/fixtures/samples/burrow.large.toml"),
+            include_str!("../../../tests/fixtures/samples/tunnel.large.toml"),
         ),
         (
             Language::HCL,
-            include_str!("../../../tests/fixtures/samples/burrow.large.hcl"),
+            include_str!("../../../tests/fixtures/samples/tunnel.large.hcl"),
         ),
         (
             Language::XML,
-            include_str!("../../../tests/fixtures/samples/burrow.large.xml"),
+            include_str!("../../../tests/fixtures/samples/tunnel.large.xml"),
         ),
     ];
     let mut failures = Vec::new();

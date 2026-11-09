@@ -40,7 +40,7 @@ const resetEarly = new URLSearchParams(location.search).has("reset-early");
 // and `toolsApi` those of `@pngwasi/config-editor` and its `/tools`.
 const initialExtra = JSON.parse(new URLSearchParams(location.search).get("props") ?? "{}") as ConfigEditorProps;
 Object.assign(window, { packageApi: api, coreApi: core, toolsApi: tools });
-const initialText = "# Burrow server configuration\nlisten: 7835\npublic_address: tunnel.example.com\n";
+const initialText = "# Tunnel server configuration\nlisten: 7835\npublic_address: tunnel.example.com\n";
 
 function App({ schema }: { schema: string }) {
   const [value, setValue] = useState(initialText);
@@ -52,7 +52,7 @@ function App({ schema }: { schema: string }) {
   const lateTimer = useRef<ReturnType<typeof setTimeout>>();
   // The value before the latest edit, for the parent-side revert button.
   const previous = useRef(value);
-  const [fileName, setFileName] = useState("burrow.yaml");
+  const [fileName, setFileName] = useState("tunnel.yaml");
   const [editAs, setEditAs] = useState<string | null>(null);
   const [theme, setTheme] = useState("vscode-dark");
   const [readOnly, setReadOnly] = useState(false);

@@ -5,7 +5,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { DOCUMENTS_FRAMEWORK_PAGES, setupEditor } from './helpers.mjs';
 
 // Several documents as tabs (`ConfigDocuments`), on the demo's `?documents`
-// page: `main` (burrow.yaml), `limits` (conf.d/limits.toml) and `clients`
+// page: `main` (tunnel.yaml), `limits` (conf.d/limits.toml) and `clients`
 // (conf.d/clients.json, read-only). The host keeps the list, saves (the
 // baseline becomes the saved text), asks before closing a document with
 // unsaved edits and makes a new drop-in for the "+"; what it saw is on
@@ -50,7 +50,7 @@ test.describe('documents as tabs', () => {
     await expect(page.locator('[role="tablist"]')).toHaveAttribute('aria-label', 'Open files');
     await expect(page.locator('[role="tab"]')).toHaveCount(3);
     await expect(page.locator('[role="tab"] .config-editor-documents__name')).toHaveText([
-      'burrow.yaml',
+      'tunnel.yaml',
       'conf.d/limits.toml',
       'conf.d/clients.json',
     ]);
@@ -252,7 +252,7 @@ test.describe('documents as tabs', () => {
   });
 
   test('a new baseline from the host reaches its document only', async ({ page }) => {
-    await page.locator('.demo__server-change').click();
+    await page.locator('.demo__external-change').click();
     // main is clean: the new baseline is taken silently; the diff marks listen.
     await expect(tab(page, 'main')).toHaveAttribute('data-dirty', 'true');
     await expect(panel(page, 'main').locator('.config-editor__notice')).toBeHidden();
@@ -370,7 +370,7 @@ test.describe('documents as tabs', () => {
     await page.locator('.demo__toggle-closable').click();
     await expect(closeButton(page, 'main')).toHaveCount(0);
     await expect(tab(page, 'main').locator('.config-editor-documents__marker')).toHaveCount(1);
-    await expect(tab(page, 'main')).toHaveAttribute('aria-label', 'burrow.yaml');
+    await expect(tab(page, 'main')).toHaveAttribute('aria-label', 'tunnel.yaml');
     await expect(closeButton(page, 'limits')).toHaveCount(1);
     await tab(page, 'main').click({ button: 'middle' });
     await tab(page, 'main').focus();

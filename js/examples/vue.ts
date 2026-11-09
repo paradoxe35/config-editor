@@ -33,7 +33,7 @@ const late = query.has("late");
 const slow = query.has("slow");
 const resetEarly = query.has("reset-early");
 const initialExtra = JSON.parse(query.get("props") ?? "{}") as Record<string, unknown>;
-const initialText = "# Burrow server configuration\nlisten: 7835\npublic_address: tunnel.example.com\n";
+const initialText = "# Tunnel server configuration\nlisten: 7835\npublic_address: tunnel.example.com\n";
 
 type Hooks = {
   packageApi: typeof api;
@@ -64,7 +64,7 @@ const App = defineComponent({
     // The value before the latest edit, for the parent-side revert button.
     let previous = value.value;
     let lateTimer: ReturnType<typeof setTimeout> | undefined;
-    const fileName = ref("burrow.yaml");
+    const fileName = ref("tunnel.yaml");
     const editAs = ref<string | null>(null);
     const theme = ref("vscode-dark");
     const readOnly = ref(false);

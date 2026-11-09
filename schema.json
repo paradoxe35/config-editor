@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "burrow server config",
+  "title": "tunnel server config",
   "type": "object",
   "properties": {
     "listen": {
@@ -21,9 +21,9 @@
         "null"
       ],
       "examples": [
-        "burrow.example.com",
+        "tunnel.example.com",
         "203.0.113.10:7835",
-        "wss://burrow.example.com"
+        "wss://tunnel.example.com"
       ]
     },
     "websocket": {
@@ -57,7 +57,7 @@
       "default": {}
     },
     "visitors": {
-      "description": "Visitors allowed to reach private services with burrow visit, keyed by visitor name",
+      "description": "Visitors allowed to reach private services with tunnel visit, keyed by visitor name",
       "type": "object",
       "additionalProperties": {
         "$ref": "#/$defs/VisitorEntry"
@@ -143,11 +143,11 @@
           "$ref": "#/$defs/Bind"
         },
         "path": {
-          "description": "URL path clients connect to, for example /burrow",
+          "description": "URL path clients connect to, for example /tunnel",
           "type": "string",
-          "default": "/burrow",
+          "default": "/tunnel",
           "examples": [
-            "/burrow",
+            "/tunnel",
             "/ws"
           ]
         },
@@ -318,7 +318,7 @@
           }
         },
         "trusted_proxies": {
-          "description": "Address ranges of HTTP proxies in front of burrow whose X-Forwarded-For and X-Forwarded-Proto are believed, for example [173.245.48.0/20]",
+          "description": "Address ranges of HTTP proxies in front of tunnel whose X-Forwarded-For and X-Forwarded-Proto are believed, for example [173.245.48.0/20]",
           "type": "array",
           "items": {
             "type": "string"
@@ -596,7 +596,7 @@
           "type": "string"
         },
         "key_name": {
-          "description": "The TSIG key's name, as in the server's key file, for example burrow-key",
+          "description": "The TSIG key's name, as in the server's key file, for example tunnel-key",
           "type": "string"
         },
         "secret": {
@@ -810,7 +810,7 @@
           "minimum": 1
         },
         "admin": {
-          "description": "Let this visitor administer the server with burrow admin: read shows the dashboard and the config, write may also change it",
+          "description": "Let this visitor administer the server with tunnel admin: read shows the dashboard and the config, write may also change it",
           "anyOf": [
             {
               "$ref": "#/$defs/AdminLevel"
@@ -927,7 +927,7 @@
           "minimum": 1
         },
         "visitors": {
-          "description": "Visitors that may reach this service with burrow visit",
+          "description": "Visitors that may reach this service with tunnel visit",
           "type": "array",
           "items": {
             "type": "string"
@@ -1143,7 +1143,7 @@
           }
         },
         "tls": {
-          "description": "auto (a certificate for every name, the default with web.https), passthrough (the app does its own HTTPS; burrow only reads the name), off (plain HTTP) or {cert, key} (this site's own certificate file)",
+          "description": "auto (a certificate for every name, the default with web.https), passthrough (the app does its own HTTPS; tunnel only reads the name), off (plain HTTP) or {cert, key} (this site's own certificate file)",
           "anyOf": [
             {
               "$ref": "#/$defs/SiteTls"
@@ -1212,7 +1212,7 @@
           "type": "boolean"
         },
         "basic_auth": {
-          "description": "Users and their password hashes, user: hash, argon2id from burrow passwd or bcrypt from htpasswd -B",
+          "description": "Users and their password hashes, user: hash, argon2id from tunnel passwd or bcrypt from htpasswd -B",
           "type": "object",
           "additionalProperties": {
             "type": "string"
@@ -1565,7 +1565,7 @@
       "type": "object",
       "properties": {
         "remote": {
-          "description": "Let burrow admin and burrow mcp update this server to the latest published release; it counts only after sudo burrow service install, which records it where the server cannot change it",
+          "description": "Let tunnel admin and tunnel mcp update this server to the latest published release; it counts only after sudo tunnel service install, which records it where the server cannot change it",
           "type": "boolean"
         }
       },

@@ -81,7 +81,7 @@ extends the generated `EditorSettings` type.
 | `onChangeSummary`    | `(summary: ChangeSummary) => void`          | —                | Called with `{ added, removed, modified, hunks }` against `baseline`, on mount and whenever it changes.                                                                                                                                                                                                                                                                                                                                         |
 | `onProblems`         | `(problems: Diagnostic[]) => void`          | —                | Called with the editor's own problems (syntax, schema, secret placeholders, values Edit-as cannot convert; `origin: "editor"`), never `hostDiagnostics`: once on mount, then each time they change after a pause in typing, not while they stay the same. With `showDiagnostics` off it finds none. Gate a Save button on it instead of calling `validate` again.                                                                               |
 | `onPathChange`       | `(path: EditorPath) => void`                | —                | Called with the path of what the caret is on (`{ pointer: "/web/listen", segments: ["web", "listen"] }`) each time it changes, for a breadcrumb. The path is computed only while this is set.                                                                                                                                                                                                                                                   |
-| `hostDiagnostics`    | `HostDiagnostic[]`                          | —                | Problems the host found (a server's validation): `{ path \| range, severity?, message, code?, source?, docsUrl? }`, shown with the editor's own; see the [`@pngwasi/config-editor` README](https://www.npmjs.com/package/@pngwasi/config-editor#host-diagnostics). Updates live; only the markers change.                                                                                                                                       |
+| `hostDiagnostics`    | `HostDiagnostic[]`                          | —                | Problems the host found (its own checks: a service, a build step): `{ path \| range, severity?, message, code?, source?, docsUrl? }`, shown with the editor's own; see the [`@pngwasi/config-editor` README](https://www.npmjs.com/package/@pngwasi/config-editor#host-diagnostics). Updates live; only the markers change.                                                                                                                     |
 | `readOnlyPaths`      | `FieldPath[]`                               | —                | Fields the user cannot change (each a whole subtree), on top of the schema's `readOnly` ones; they hold with `editAs` too. See the [`@pngwasi/config-editor` README](https://www.npmjs.com/package/@pngwasi/config-editor#read-only-fields). Updates live.                                                                                                                                                                                      |
 | `readOnlyRanges`     | `TextRangeInput[]`                          | —                | Stretches of the document (in `language`) the user cannot change: `{ start, end }` or `{ startLine, startColumn, endLine?, endColumn? }`. Updates live.                                                                                                                                                                                                                                                                                         |
 | `secrets`            | `SecretOptions`                             | defaults         | `{ placeholder?, isPlaceholder?, hint?, referencePrefixes? }`: secret placeholders (`«secret 3f2a»`) in `writeOnly` / `x-secret` fields stay atomic and are kept unless replaced, each real only in the field the host gave it in; see the [`@pngwasi/config-editor` README](https://www.npmjs.com/package/@pngwasi/config-editor#secrets). Changing `placeholder`, `hint` or `referencePrefixes` re-mounts; `isPlaceholder` may change freely. |
@@ -395,7 +395,7 @@ const ref = useRef<ConfigEditorHandle>(null);
   value={text}
   onChange={setText}
   hostDiagnostics={[
-    { path: "/web/listen", message: "port 80 is taken", source: "server" },
+    { path: "/web/listen", message: "port 80 is taken", source: "validator" },
   ]}
 />;
 <ConfigEditor
@@ -478,7 +478,7 @@ import {
 } from "@pngwasi/config-editor-react";
 
 const [files, setFiles] = useState<DocumentSpec[]>([
-  { id: "main", fileName: "burrow.yaml", value: mainText, schema },
+  { id: "main", fileName: "config.yaml", value: mainText, schema },
   {
     id: "tls",
     fileName: "conf.d/tls.toml",

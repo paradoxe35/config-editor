@@ -17,7 +17,7 @@ use crate::settings_panel::SettingsPanel;
 use crate::theme_picker::ThemePicker;
 
 const SCHEMA: &str = include_str!("../schema.json");
-const MAIN: &str = "# Burrow server configuration\nlisten: 7835\npublic_address: tunnel.example.com\ninsecure_plaintext: false\nlimits:\n  handshake_timeout_secs: 5\n  max_handshakes: 4096\n  max_pending: 512\nheartbeat:\n  interval_secs: 15\n";
+const MAIN: &str = "# Tunnel server configuration\nlisten: 7835\npublic_address: tunnel.example.com\ninsecure_plaintext: false\nlimits:\n  handshake_timeout_secs: 5\n  max_handshakes: 4096\n  max_pending: 512\nheartbeat:\n  interval_secs: 15\n";
 const LIMITS: &str =
     "# Drop-in: connection limits\n[limits]\nmax_handshakes = 2048\nmax_pending = 512\n";
 const CLIENTS: &str = "{\n  \"clients\": {\n    \"acme\": {\n      \"secret\": \"c2VjcmV0LWZvci1hY21l\"\n    }\n  }\n}\n";
@@ -30,7 +30,7 @@ fn initial_documents(many: bool) -> Vec<Document> {
         return many_documents();
     }
     vec![
-        Document::new("main", "burrow.yaml", MAIN).schema(SCHEMA),
+        Document::new("main", "tunnel.yaml", MAIN).schema(SCHEMA),
         Document::new("limits", "conf.d/limits.toml", LIMITS).schema(SCHEMA),
         Document::new("clients", "conf.d/clients.json", CLIENTS)
             .schema(SCHEMA)
@@ -43,23 +43,23 @@ fn many_documents() -> Vec<Document> {
     let large = [
         (
             "yaml",
-            include_str!("../crates/config-editor-leptos/tests/fixtures/samples/burrow.large.yaml"),
+            include_str!("../crates/config-editor-leptos/tests/fixtures/samples/tunnel.large.yaml"),
         ),
         (
             "json",
-            include_str!("../crates/config-editor-leptos/tests/fixtures/samples/burrow.large.json"),
+            include_str!("../crates/config-editor-leptos/tests/fixtures/samples/tunnel.large.json"),
         ),
         (
             "toml",
-            include_str!("../crates/config-editor-leptos/tests/fixtures/samples/burrow.large.toml"),
+            include_str!("../crates/config-editor-leptos/tests/fixtures/samples/tunnel.large.toml"),
         ),
         (
             "hcl",
-            include_str!("../crates/config-editor-leptos/tests/fixtures/samples/burrow.large.hcl"),
+            include_str!("../crates/config-editor-leptos/tests/fixtures/samples/tunnel.large.hcl"),
         ),
         (
             "xml",
-            include_str!("../crates/config-editor-leptos/tests/fixtures/samples/burrow.large.xml"),
+            include_str!("../crates/config-editor-leptos/tests/fixtures/samples/tunnel.large.xml"),
         ),
     ];
     (0..10)
@@ -67,7 +67,7 @@ fn many_documents() -> Vec<Document> {
             let (extension, text) = large[index % large.len()];
             Document::new(
                 format!("doc{index}"),
-                format!("burrow-{index}.{extension}"),
+                format!("tunnel-{index}.{extension}"),
                 text,
             )
             .schema(SCHEMA)
@@ -198,7 +198,7 @@ pub fn view(many: bool) -> impl IntoView {
     };
     let add = move |_| add_document();
     let add_requested = move |()| add_document();
-    let server_change = move |_| {
+    let external_change = move |_| {
         with_document(documents, "main", |document| {
             let base = document
                 .baseline
@@ -248,7 +248,7 @@ pub fn view(many: bool) -> impl IntoView {
                 <SettingsPanel settings=settings />
                 <button class="demo__button demo__save-all" type="button" on:click=save_all>"Save all"</button>
                 <button class="demo__button demo__add" type="button" on:click=add>"Add drop-in"</button>
-                <button class="demo__button demo__server-change" type="button" on:click=server_change>"Server change (main)"</button>
+                <button class="demo__button demo__external-change" type="button" on:click=external_change>"External change (main)"</button>
                 <button class="demo__button demo__toggle-read-only" type="button" on:click=toggle_read_only>"Toggle read-only (limits)"</button>
                 <button class="demo__button demo__edit-as" type="button" on:click=toggle_edit_as>"Edit main as JSON"</button>
                 <button class="demo__button demo__edit-as-toml" type="button" on:click=main_as_toml>"Edit main as TOML"</button>

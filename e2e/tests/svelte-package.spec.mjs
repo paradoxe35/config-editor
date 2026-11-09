@@ -70,7 +70,7 @@ test.describe('svelte.html: Svelte idioms', () => {
     await expect(saved(browserPage)).toHaveText('listen: 9000\nx: 1');
     // A reset to the value of before the edits still applies.
     await browserPage.locator('#reset').click();
-    await expect(input(browserPage)).toHaveValue(/^# Burrow server configuration\n/);
+    await expect(input(browserPage)).toHaveValue(/^# Tunnel server configuration\n/);
     expect(errors).toEqual([]);
   });
 

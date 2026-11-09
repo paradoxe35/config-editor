@@ -161,7 +161,7 @@ test.describe('touch targets on a phone', () => {
     await expectFingerSized(page, '.config-editor__diff-marker-modified');
     await expectFingerSized(page, '.config-editor__change-status');
     await expectFingerSized(page, '.config-editor__diagnostic-status');
-    await page.locator('.demo__server-change').click();
+    await page.locator('.demo__external-change').click();
     await expect(page.locator('.config-editor__notice')).toBeVisible();
     await expectFingerSized(page, '.config-editor__notice-keep');
     await expectFingerSized(page, '.config-editor__notice-reload');

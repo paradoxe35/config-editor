@@ -51,7 +51,7 @@ const editorProps = {
   onProblems: listener<(problems: Diagnostic[]) => void>(),
   /** `@path-change`: the path of what the caret is on, each time it changes (and once on mount). The path is computed only while a listener is set. */
   onPathChange: listener<(path: EditorPath) => void>(),
-  /** Problems the host found (a server's validation), by path or range, shown next to the editor's own. Updates live. */
+  /** Problems the host found (its own checks: a service, a build step), by path or range, shown next to the editor's own. Updates live. */
   hostDiagnostics: optional(Array as PropType<HostDiagnostic[]>),
   /** Fields the user cannot change, each with everything inside it, on top of the schema's `readOnly` ones. Updates live. */
   readOnlyPaths: optional(Array as PropType<FieldPath[]>),

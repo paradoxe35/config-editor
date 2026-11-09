@@ -1,12 +1,12 @@
 //! Regressions from hands-on QA of the demo: each test is a reported case,
-//! replayed against the real burrow schema.
+//! replayed against the demo's tunnel schema.
 
 use super::super::completion::{accept_marked, completions};
 use super::super::diagnostics::{SchemaBundle, build_schema};
 use super::Language;
 
 fn burrow() -> SchemaBundle {
-    build_schema(include_str!("../../../tests/fixtures/burrow.schema.json")).unwrap()
+    build_schema(include_str!("../../../tests/fixtures/tunnel.schema.json")).unwrap()
 }
 
 fn accept(language: Language, marked: &str, label: &str) -> String {
@@ -252,7 +252,7 @@ fn an_xml_array_key_writes_one_item_that_validates_as_a_one_item_array() {
     assert!(labels(Language::XML, &xml).contains(&"cloudflare".to_string()));
     let done = accept(Language::XML, &xml, "cloudflare").replace('|', "x");
     let schema =
-        crate::Schema::compile(include_str!("../../../tests/fixtures/burrow.schema.json")).unwrap();
+        crate::Schema::compile(include_str!("../../../tests/fixtures/tunnel.schema.json")).unwrap();
     assert_eq!(schema.validate(Language::XML, &done), [], "{done}");
     // A second item makes a two-item array.
     let two = done.replace("</dns>", "</dns>\n    <dns><domains>b.example</domains><cloudflare><token>y</token></cloudflare></dns>");
@@ -266,7 +266,7 @@ fn an_xml_client_secret_list_accepts_one_secret() {
     assert!(xml.contains("    <secret>|</secret>\n"), "{xml}");
     let done = xml.replace('|', "s3cret");
     let schema =
-        crate::Schema::compile(include_str!("../../../tests/fixtures/burrow.schema.json")).unwrap();
+        crate::Schema::compile(include_str!("../../../tests/fixtures/tunnel.schema.json")).unwrap();
     assert_eq!(schema.validate(Language::XML, &done), [], "{done}");
 }
 
@@ -312,7 +312,7 @@ fn an_inserted_default_is_selected_so_typing_replaces_it() {
     ] {
         assert_eq!(
             selected_after_accept(language, marked, "path"),
-            "/burrow",
+            "/tunnel",
             "{language}"
         );
     }
@@ -702,7 +702,7 @@ fn keys_already_set_in_list_items_are_not_offered_again() {
 #[test]
 fn a_single_hcl_block_for_a_list_is_a_one_item_list() {
     let schema =
-        crate::Schema::compile(include_str!("../../../tests/fixtures/burrow.schema.json")).unwrap();
+        crate::Schema::compile(include_str!("../../../tests/fixtures/tunnel.schema.json")).unwrap();
     let one =
         "web {\n  certificates {\n    hosts = [\"a\"]\n    cert = \"c\"\n    key = \"k\"\n  }\n}\n";
     assert_eq!(schema.validate(Language::HCL, one), []);
@@ -720,7 +720,7 @@ fn a_single_hcl_block_for_a_list_is_a_one_item_list() {
 #[test]
 fn errors_inside_inline_containers_point_at_the_value() {
     let schema =
-        crate::Schema::compile(include_str!("../../../tests/fixtures/burrow.schema.json")).unwrap();
+        crate::Schema::compile(include_str!("../../../tests/fixtures/tunnel.schema.json")).unwrap();
     let place = |language: Language, source: &str| -> (usize, String) {
         let problems = schema.validate(language, source);
         assert_eq!(problems.len(), 1, "{language}: {problems:?}");
@@ -870,7 +870,7 @@ fn json_errors_point_at_the_problem_without_repeating_the_position() {
 #[test]
 fn an_empty_xml_element_is_empty_text_where_text_is_expected() {
     let schema =
-        crate::Schema::compile(include_str!("../../../tests/fixtures/burrow.schema.json")).unwrap();
+        crate::Schema::compile(include_str!("../../../tests/fixtures/tunnel.schema.json")).unwrap();
     assert_eq!(
         schema.validate(Language::XML, "<public_address></public_address>"),
         []
@@ -1212,7 +1212,7 @@ fn yaml_indentless_sequences_complete_their_items() {
 #[test]
 fn xml_text_is_typed_by_the_schema_and_kept_as_written() {
     let schema =
-        crate::Schema::compile(include_str!("../../../tests/fixtures/burrow.schema.json")).unwrap();
+        crate::Schema::compile(include_str!("../../../tests/fixtures/tunnel.schema.json")).unwrap();
     for text in ["123", "true", "1.5"] {
         let document = format!("<public_address>{text}</public_address>");
         assert_eq!(schema.validate(Language::XML, &document), [], "{text}");
@@ -1242,7 +1242,7 @@ fn hcl_values_written_in_place_escape_templates() {
 #[test]
 fn an_error_in_a_single_hcl_block_points_inside_it() {
     let schema =
-        crate::Schema::compile(include_str!("../../../tests/fixtures/burrow.schema.json")).unwrap();
+        crate::Schema::compile(include_str!("../../../tests/fixtures/tunnel.schema.json")).unwrap();
     let problems = schema.validate(
         Language::HCL,
         "web {\n  certificates {\n    hosts = 1\n  }\n}\n",

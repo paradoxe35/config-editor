@@ -121,7 +121,7 @@ export function frameworkCases(name) {
         await browserPage.keyboard.press('Control+End');
         await browserPage.keyboard.type('limits: {}');
         await browserPage.locator('#rename').click();
-        await expect(browserPage.locator('.config-editor__toolbar')).toContainText('renamed-burrow.yaml');
+        await expect(browserPage.locator('.config-editor__toolbar')).toContainText('renamed-tunnel.yaml');
         await expect(input(browserPage)).toHaveValue(/limits: \{\}/);
         // The diff gutter still compares against the original text.
         await expect(browserPage.locator('.config-editor__diff-marker-added').first()).toBeVisible();

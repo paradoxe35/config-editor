@@ -1,5 +1,5 @@
 //! The suggestion list's promises, checked in every language and form (block,
-//! inline, XML attributes and elements) against the burrow schema, so a fix
+//! inline, XML attributes and elements) against the tunnel schema, so a fix
 //! for one language cannot leave its siblings behind. Each test lists every
 //! failing case at once.
 //!
@@ -11,7 +11,7 @@ use super::Language;
 use serde_json::Value;
 
 fn burrow() -> SchemaBundle {
-    build_schema(include_str!("../../../tests/fixtures/burrow.schema.json")).unwrap()
+    build_schema(include_str!("../../../tests/fixtures/tunnel.schema.json")).unwrap()
 }
 
 /// The labels offered at the caret (as after Ctrl+Space).

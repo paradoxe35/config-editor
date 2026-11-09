@@ -175,7 +175,7 @@ def config(scale=1):
             "hsts": app_index % 3 != 1,
             "request_headers": {
                 "X-Forwarded-Proto": "https",
-                "X-Burrow-Service": app,
+                "X-Tunnel-Service": app,
             },
             "response_headers": {
                 "X-Frame-Options": "SAMEORIGIN",
@@ -248,7 +248,7 @@ def config(scale=1):
         "forward_auth": {
             "sso": {
                 "service": "keycloak",
-                "path": "/realms/burrow/protocol/openid-connect/auth",
+                "path": "/realms/tunnel/protocol/openid-connect/auth",
                 "copy_headers": ["X-Auth-User", "X-Auth-Email"],
             },
             "basic": {"service": "outline", "path": "/auth/verify", "copy_headers": ["X-User", "X-Groups"]},
@@ -258,8 +258,8 @@ def config(scale=1):
             "legacy.pngwasi.me": {"to": "pngwasi.me", "permanent": True},
             "beta.example.dev": {"to": "example.dev", "permanent": False},
         },
-        "request_headers": {"X-Served-By": "burrow", "X-Region": "eu-west"},
-        "response_headers": {"Server": "burrow", "X-Content-Type-Options": "nosniff"},
+        "request_headers": {"X-Served-By": "tunnel", "X-Region": "eu-west"},
+        "response_headers": {"Server": "tunnel", "X-Content-Type-Options": "nosniff"},
         "certificates": [
             {
                 "hosts": ["internal.gracecarry.shop", "intranet.gracecarry.shop"],
@@ -284,7 +284,7 @@ def config(scale=1):
                     "domains": ["example.dev", "lab.example.dev"],
                     "rfc2136": {
                         "server": "ns1.example.dev:53",
-                        "key_name": "burrow-acme",
+                        "key_name": "tunnel-acme",
                         "secret": "${RFC2136_SECRET}",
                         "algorithm": "hmac-sha256",
                     },
@@ -294,7 +294,7 @@ def config(scale=1):
                     "domains": ["acme.pngwasi.me", "edge.pngwasi.me"],
                     "acme_dns": {
                         "api": "https://auth.acme-dns.io",
-                        "username": "burrow",
+                        "username": "tunnel",
                         "password": "${ACME_DNS_PASSWORD}",
                         "subdomain": "d420c923-bbd7-4056-ab64-c3ca54c9b3cf",
                     },
@@ -310,7 +310,7 @@ def config(scale=1):
         "update": {"remote": True},
         "websocket": {
             "listen": "127.0.0.1:7836",
-            "path": "/burrow",
+            "path": "/tunnel",
             "host": "tunnel.pngwasi.me",
             "keepalive_secs": 20,
             "challenge": "http",
@@ -398,7 +398,7 @@ def yaml_lines(value, indent):
 
 
 def to_yaml(data):
-    header = "# burrow server configuration (large demo); secrets show as fingerprints or ${ENV} names\n"
+    header = "# tunnel server configuration (large demo); secrets show as fingerprints or ${ENV} names\n"
     return header + "\n".join(yaml_lines(data, 0)) + "\n"
 
 
@@ -451,7 +451,7 @@ def toml_body(value, path, out, header):
 
 
 def to_toml(data):
-    out = ["# burrow server configuration (large demo); secrets show as fingerprints or ${ENV} names"]
+    out = ["# tunnel server configuration (large demo); secrets show as fingerprints or ${ENV} names"]
     toml_body(data, [], out, None)
     return "\n".join(out) + "\n"
 
@@ -509,7 +509,7 @@ def hcl_body(value, indent):
 
 
 def to_hcl(data):
-    header = "# burrow server configuration (large demo); secrets show as fingerprints or ${ENV} names\n"
+    header = "# tunnel server configuration (large demo); secrets show as fingerprints or ${ENV} names\n"
     return header + "\n".join(hcl_body(data, 0)) + "\n"
 
 
@@ -542,12 +542,12 @@ def xml_lines(key, value, indent):
 def to_xml(data):
     lines = [
         '<?xml version="1.0" encoding="UTF-8"?>',
-        "<!-- burrow server configuration (large demo); secrets show as fingerprints or ${ENV} names -->",
-        '<burrow config-root="true">',
+        "<!-- tunnel server configuration (large demo); secrets show as fingerprints or ${ENV} names -->",
+        '<tunnel config-root="true">',
     ]
     for key, value in data.items():
         lines.extend(xml_lines(key, value, 1))
-    lines.append("</burrow>")
+    lines.append("</tunnel>")
     return "\n".join(lines) + "\n"
 
 
@@ -559,11 +559,11 @@ def main():
     data = config(arguments.scale)
     check_arrays(data)
     outputs = {
-        "burrow.large.json": json.dumps(data, indent=2, ensure_ascii=False) + "\n",
-        "burrow.large.yaml": to_yaml(data),
-        "burrow.large.toml": to_toml(data),
-        "burrow.large.hcl": to_hcl(data),
-        "burrow.large.xml": to_xml(data),
+        "tunnel.large.json": json.dumps(data, indent=2, ensure_ascii=False) + "\n",
+        "tunnel.large.yaml": to_yaml(data),
+        "tunnel.large.toml": to_toml(data),
+        "tunnel.large.hcl": to_hcl(data),
+        "tunnel.large.xml": to_xml(data),
     }
     for name, text in outputs.items():
         (arguments.out / name).write_text(text, encoding="utf-8")

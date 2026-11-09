@@ -44,9 +44,9 @@ React, Vue and Svelte.
   (with regex), go to line, folding, `F8` through problems, undo/redo.
 - **Schema help:** deprecated keys, documentation links and documented values.
 - **Host control:** read-only fields and regions, secret placeholders that are
-  never shown, problems from your server shown with the editor's own, `Ctrl+S`
-  saving, an unsaved-edits flag, and a notice when the file changes on the
-  server.
+  never shown, problems from the host's own checks shown with the editor's
+  own, `Ctrl+S` saving, an unsaved-edits flag, and a notice when the file
+  changes outside the editor.
 - **Several documents** as tabs, each with its own language and state.
 - **A path API:** jump to a field and follow the caret's path for a breadcrumb.
 - **Eleven themes** and per-token color overrides; a read-only mode.
@@ -123,7 +123,7 @@ const editor = new ConfigEditor(document.getElementById("config")!, {
 editor.update({ readOnly: true, theme: "nord" }); // live; the rest stays
 ```
 
-Text without an editor (a server's check, a build step) is
+Text without an editor (a service's check, a build step) is
 `@pngwasi/config-editor/tools` (`validate`, `convert`, `parse`, …).
 
 ### React

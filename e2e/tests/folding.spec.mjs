@@ -6,7 +6,7 @@ import { editor, pointAt, setupEditor } from './helpers.mjs';
 // "Saved value" is the whole document `on_change` sent.
 //
 // Sample lines used (one-based): 6 `  remote: true`, 7 `websocket:` (folds
-// 8–12), 9 `  path: /burrow`, 11 `  keepalive_secs: 20`, 12
+// 8–12), 9 `  path: /tunnel`, 11 `  keepalive_secs: 20`, 12
 // `  challenge: http`, 13 `heartbeat:`.
 
 const doc = (page) => page.locator('.demo__output-text').textContent();
@@ -96,7 +96,7 @@ test.describe('folding', () => {
     await expect.poll(() => doc(page)).toContain('public_address: tunnel.pngwasi.me\nx: 1\n');
     expect(await isClosed(page, 8)).toBe(true);
     expect(await e.value()).toContain('websocket:\nheartbeat:');
-    expect(await doc(page)).toContain('  path: /burrow');
+    expect(await doc(page)).toContain('  path: /tunnel');
 
     // Typing and the line break may be separate undo steps.
     for (let step = 0; step < 3 && (await doc(page)) !== whole; step += 1) {
@@ -140,14 +140,14 @@ test.describe('folding', () => {
     await page.keyboard.press('Control+C');
     const copied = await page.evaluate(() => navigator.clipboard.readText());
     expect(copied).toBe(
-      '  remote: true\nwebsocket:\n  listen: "127.0.0.1:7836"\n  path: /burrow\n' +
+      '  remote: true\nwebsocket:\n  listen: "127.0.0.1:7836"\n  path: /tunnel\n' +
         '  host: tunnel.pngwasi.me\n  keepalive_secs: 20\n  challenge: http\n',
     );
     await page.keyboard.press('Control+X');
     await expect.poll(() => doc(page)).toContain('update:\nheartbeat:');
-    expect(await doc(page)).not.toContain('/burrow\n');
+    expect(await doc(page)).not.toContain('/tunnel\n');
     await page.keyboard.press('Control+Z');
-    await expect.poll(() => doc(page)).toContain('  path: /burrow');
+    await expect.poll(() => doc(page)).toContain('  path: /tunnel');
     expect(await e.value()).toContain('  remote: true\nwebsocket:');
   });
 

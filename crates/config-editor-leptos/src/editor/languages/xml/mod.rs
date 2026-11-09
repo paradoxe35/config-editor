@@ -8,7 +8,7 @@
 //!   metadata, never data or validated. It must be the only top-level element.
 //! - Without the marker, every top-level element is a property:
 //!   `<listen>1</listen><port>2</port>` is `{"listen": 1, "port": 2}`, and a
-//!   lone `<burrow>…</burrow>` is `{"burrow": …}`. The editor never adds a root.
+//!   lone `<config>…</config>` is `{"config": …}`. The editor never adds a root.
 //! - Child elements and attributes are both object properties; element text
 //!   is a typed scalar (`<listen>7835</listen>` is `7835`); repeated siblings
 //!   fold into an array; `#text` appears only for mixed content.

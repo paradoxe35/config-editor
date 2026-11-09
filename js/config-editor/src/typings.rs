@@ -43,7 +43,7 @@ export interface EditorOptions extends EditorSettings {
   onProblems?: (problems: Diagnostic[]) => void;
   /** Called with the path of what the caret is on each time it changes (and once on mount), for a breadcrumb. */
   onPathChange?: (path: EditorPath) => void;
-  /** Problems the host found (a server's validation), shown next to the editor's own; `update` replaces them. */
+  /** Problems the host found (its own checks: a service, a build step), shown next to the editor's own; `update` replaces them. */
   hostDiagnostics?: HostDiagnostic[];
   /** Called once per thing in `schema` the editor cannot use, such as a `patternProperties` regex its engine cannot compile. Without it, each is a console warning. */
   onSchemaWarning?: (message: string) => void;

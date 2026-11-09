@@ -157,8 +157,8 @@ fn the_plus_only_asks_and_the_document_the_host_adds_is_selected_and_focused() {
     });
 }
 
-/// QA 23: a "+" the host did not answer stayed armed, and a document a
-/// server pushed much later took the selection and the focus.
+/// QA 23: a "+" the host did not answer stayed armed, and a document the
+/// host added on its own much later took the selection and the focus.
 #[test]
 fn a_plus_the_host_does_not_answer_in_time_selects_nothing_added_later() {
     let owner = Owner::new();

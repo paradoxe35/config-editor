@@ -62,7 +62,7 @@ use entries::{Callbacks, Documents, Entry};
 /// use config_editor_leptos::{ConfigDocuments, Document};
 ///
 /// let documents = RwSignal::new(vec![
-///     Document::new("main", "burrow.yaml", main_text).schema(SCHEMA),
+///     Document::new("main", "config.yaml", main_text).schema(SCHEMA),
 ///     Document::new("tls", "conf.d/tls.toml", tls_text).schema(SCHEMA),
 /// ]);
 /// let set_value = move |(id, text): (String, String)| {

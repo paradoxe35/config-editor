@@ -1,7 +1,7 @@
 //! The history carried over a change the host made (a new controlled
 //! `value`): each step's text gets the host's change too, so undo takes
 //! back only the user's own edits and keeps the host's, as VS Code does
-//! after a file changed on disk. A step whose edit overlaps the host's
+//! after a file changed outside the editor. A step whose edit overlaps the host's
 //! change cannot be carried over: it and every older one go.
 
 use super::super::sync::map_through_change;

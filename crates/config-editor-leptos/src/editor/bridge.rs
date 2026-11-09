@@ -813,7 +813,7 @@ mod tests {
     #[test]
     fn one_item_arrays_round_trip_through_xml_with_a_schema() {
         let schema = super::super::diagnostics::build_schema(include_str!(
-            "../../tests/fixtures/burrow.schema.json"
+            "../../tests/fixtures/tunnel.schema.json"
         ))
         .unwrap();
         let host = "web:\n  letsencrypt:\n    email: a@b.c\n    dns:\n      - domains:\n          - a.example\n        cloudflare:\n          token: x\n";
@@ -1047,7 +1047,7 @@ mod structural_saves {
     #[test]
     fn a_value_in_a_lone_block_read_as_a_list_changes_only_that_value() {
         let schema = super::super::diagnostics::build_schema(include_str!(
-            "../../tests/fixtures/burrow.schema.json"
+            "../../tests/fixtures/tunnel.schema.json"
         ))
         .unwrap();
         let bridge = Bridge::new(

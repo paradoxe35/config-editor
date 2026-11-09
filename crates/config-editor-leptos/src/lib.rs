@@ -32,8 +32,8 @@
 //!   (`range_of`), which path a position is on (`path_at`), the caret's path
 //!   (`current_path`, or the `on_path_change` callback) and "jump to field"
 //!   (`reveal`). The same lookups work headless on [`Language`].
-//! - `host_diagnostics` shows problems the host found (a server's
-//!   validation, as [`HostDiagnostic`]s by path or range) next to the
+//! - `host_diagnostics` shows problems the host found (its own
+//!   checks: a service, a build step, as [`HostDiagnostic`]s by path or range) next to the
 //!   editor's own.
 //! - [`ConfigDocuments`] shows several [`Document`]s (a main file and its
 //!   drop-ins) as tabs, each with its own language, baseline and read-only
@@ -73,7 +73,7 @@
 //! - `schema-validation`: live JSON Schema diagnostics, through the
 //!   `jsonschema` crate (the heaviest dependency). Completions, hover docs and
 //!   schema-shaped reading work without it, from the schema alone; leave it
-//!   out when documents are validated elsewhere (on a server). Syntax is
+//!   out when documents are validated elsewhere (by the host's own checks). Syntax is
 //!   always checked.
 //! - `yaml`, `json`, `toml`, `hcl`, `xml`: the built-in languages
 //!   ([`Language::YAML`], …). Without any, use your own through

@@ -64,7 +64,7 @@
   // Several documents.
   let tabs: ReturnType<typeof ConfigDocuments> | undefined = $state();
   let files: DocumentSpec[] = $state([
-    { id: "main", fileName: "burrow.yaml", value: "listen: 7835\n" },
+    { id: "main", fileName: "config.yaml", value: "listen: 7835\n" },
     { id: "limits", fileName: "conf.d/limits.toml", value: "[limits]\n" },
   ]);
   function update(id: string, value: string) {
@@ -118,7 +118,7 @@
   class="editor"
   style="height: 20rem"
   editorClass="editor-root"
-  fileName="burrow.yaml"
+  fileName="config.yaml"
 />
 
 <ConfigDocuments

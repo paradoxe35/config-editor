@@ -1,5 +1,5 @@
-//! Under the editor: the host's controls (Read-only, a server change, a host
-//! edit) and the saved value, what `on_change` sent the host, shown on
+//! Under the editor: the host's controls (Read-only, an external change, a
+//! host edit) and the saved value, what `on_change` sent the host, shown on
 //! demand. A button shows it, not a `<details>` (see `settings_panel`).
 
 use leptos::prelude::*;
@@ -12,16 +12,16 @@ pub struct HostState {
     pub read_only: RwSignal<bool>,
     /// The text `on_change` last sent.
     pub saved: RwSignal<String>,
-    /// The host's baseline (the server's version).
+    /// The host's baseline (the version it last stored).
     pub baseline: RwSignal<String>,
     pub dirty: RwSignal<bool>,
     pub saves: RwSignal<usize>,
     pub conflicts: RwSignal<Vec<String>>,
 }
 
-/// The server's version after another client changed it: the first number
-/// goes up by one (`listen: 7835` becomes `7836`), else a line is added.
-pub fn changed_on_server(text: &str) -> String {
+/// The stored version after something outside the editor changed it: the
+/// first number goes up by one (`listen: 7835` becomes `7836`), else a line is added.
+pub fn changed_elsewhere(text: &str) -> String {
     let Some(start) = text.find(|c: char| c.is_ascii_digit()) else {
         return format!("{text}\n");
     };
@@ -36,14 +36,14 @@ fn set_read_only(host: HostState, event: &leptos::ev::Event) {
     host.read_only.set(event_target_checked(event));
 }
 
-/// Another client saved: the server's version moves on.
-fn server_change(host: HostState) {
-    host.baseline.update(|text| *text = changed_on_server(text));
+/// Something outside the editor saved: the baseline moves on.
+fn external_change(host: HostState) {
+    host.baseline.update(|text| *text = changed_elsewhere(text));
 }
 
 /// The host rewrites the value itself.
 fn host_edit(host: HostState) {
-    host.saved.update(|text| *text = changed_on_server(text));
+    host.saved.update(|text| *text = changed_elsewhere(text));
 }
 
 #[component]
@@ -71,8 +71,8 @@ pub fn OutputPanel(host: HostState, language: String) -> impl IntoView {
                         />
                         "Read-only"
                     </label>
-                    <button class="demo__button demo__server-change" type="button" on:click=move |_| server_change(host)>
-                        "Server change"
+                    <button class="demo__button demo__external-change" type="button" on:click=move |_| external_change(host)>
+                        "External change"
                     </button>
                     <button class="demo__button demo__host-edit" type="button" on:click=move |_| host_edit(host)>
                         "Host edit"

@@ -32,7 +32,7 @@ pub(crate) struct Entry {
     pub(crate) severity: Severity,
     pub(crate) severity_name: String,
     pub(crate) message: String,
-    /// Who reported it and its code ("burrow · E_PORT"), for a host's.
+    /// Who reported it and its code ("validator · E_PORT"), for a host's.
     pub(crate) detail: Option<String>,
     pub(crate) docs_url: Option<String>,
     /// The problem F8 went to last (scrolled into view).
@@ -127,7 +127,7 @@ pub(crate) fn entries_at(
         .collect()
 }
 
-/// "burrow · E_PORT": who reported a host's problem, and its code.
+/// "validator · E_PORT": who reported a host's problem, and its code.
 fn reported_by(problem: &Diagnostic) -> Option<String> {
     if !problem.reported_by_host() {
         return None;

@@ -1,4 +1,4 @@
-//! Problems the host reports (a server's validation): [`HostDiagnostic`],
+//! Problems the host reports (its own checks: a service, a build step): [`HostDiagnostic`],
 //! placed in the text by path or range and shown with the editor's own.
 
 use super::diagnostics::Severity;
@@ -28,14 +28,14 @@ pub enum DiagnosticTarget {
     Document,
 }
 
-/// A problem the host found, such as a server's validation error, shown next
+/// A problem the host found, such as an error from its own validation, shown next
 /// to the editor's own diagnostics and marked as the host's.
 ///
 /// ```
 /// use config_editor_leptos::{HostDiagnostic, Severity};
 /// let problem = HostDiagnostic::at_path("/web/listen", Severity::Error, "port 80 is taken")
 ///     .with_code("E_PORT")
-///     .with_source("burrow")
+///     .with_source("validator")
 ///     .with_docs_url("https://example.com/docs/ports");
 /// assert_eq!(problem.code.as_deref(), Some("E_PORT"));
 /// ```
@@ -50,7 +50,7 @@ pub struct HostDiagnostic {
     pub message: String,
     /// A machine-readable code, shown with the message.
     pub code: Option<String>,
-    /// Who reported it (`"burrow"`, `"server"`), shown with the message;
+    /// Who reported it (`"validator"`, `"build"`), shown with the message;
     /// `"host"` when unset.
     pub source: Option<String>,
     /// A page explaining the problem, linked from its message.

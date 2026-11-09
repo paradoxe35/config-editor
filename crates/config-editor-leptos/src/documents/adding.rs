@@ -3,7 +3,7 @@
 //! [`ANSWER_MS`] after the click, when the focus moves to something outside
 //! the view, when the user picks a document, or clicks or types anywhere
 //! in the view but on the "+"; a document the host adds
-//! after that (one a server pushed) is listed without being selected. An
+//! after that (on its own) is listed without being selected. An
 //! update that adds nothing (an edit coming back) leaves it waiting.
 
 use leptos::prelude::*;

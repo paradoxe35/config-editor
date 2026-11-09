@@ -122,7 +122,7 @@ test.describe('focus', () => {
   test('Escape dismisses an open diff preview', async ({ page }) => {
     const e = editor(page);
     await e.paste(
-      '# Burrow server configuration\nlisten: 7836\npublic_address: tunnel.example.com\ninsecure_plaintext: false\n',
+      '# Tunnel server configuration\nlisten: 7836\npublic_address: tunnel.example.com\ninsecure_plaintext: false\n',
     );
     const marker = page.locator('.config-editor__diff-marker-modified').first();
     await expect(marker).toHaveCount(1);
@@ -136,7 +136,7 @@ test.describe('focus', () => {
   test('a change preview shows before and after and closes from its close button', async ({ page }) => {
     const e = editor(page);
     await e.paste(
-      '# Burrow server configuration\nlisten: 7836\npublic_address: tunnel.example.com\ninsecure_plaintext: false\n',
+      '# Tunnel server configuration\nlisten: 7836\npublic_address: tunnel.example.com\ninsecure_plaintext: false\n',
     );
     await page.locator('.config-editor__diff-marker-modified').first().click();
     const preview = page.locator('.config-editor__diff-peek');
@@ -150,7 +150,7 @@ test.describe('focus', () => {
   test('a removed-lines preview shows the deleted text and closes from its close button', async ({ page }) => {
     const e = editor(page);
     await e.paste(
-      '# Burrow server configuration\nlisten: 7835\ninsecure_plaintext: false\n',
+      '# Tunnel server configuration\nlisten: 7835\ninsecure_plaintext: false\n',
     );
     await page.locator('.config-editor__diff-deleted').first().click();
     const preview = page.locator('.config-editor__diff-peek');
@@ -166,7 +166,7 @@ test.describe('focus', () => {
   test('a change preview survives typing elsewhere but not on its own line', async ({ page }) => {
     const e = editor(page);
     await e.paste(
-      '# Burrow server configuration\nlisten: 7836\npublic_address: tunnel.example.com\ninsecure_plaintext: false\n',
+      '# Tunnel server configuration\nlisten: 7836\npublic_address: tunnel.example.com\ninsecure_plaintext: false\n',
     );
     await page.locator('.config-editor__diff-marker-modified').first().click();
     const preview = page.locator('.config-editor__diff-peek');

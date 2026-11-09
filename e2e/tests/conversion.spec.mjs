@@ -125,7 +125,7 @@ test.describe('switching the editing language live', () => {
   test('switching back without edits restores the original text, comments included', async ({ page }) => {
     const e = editor(page);
     const original = await e.value();
-    expect(original).toContain('# Burrow server configuration');
+    expect(original).toContain('# Tunnel server configuration');
     await pick(page, 'hcl');
     await expect.poll(() => e.value()).toContain('listen = 7835');
     await pick(page, '');
@@ -190,7 +190,7 @@ test.describe('the large config converted', () => {
     await expect.poll(() => saved(page), { timeout: 10000 }).toContain('<interval_secs>20</interval_secs>');
     const xml = await saved(page);
     expect(xml.startsWith('<?xml version="1.0" encoding="UTF-8"?>')).toBe(true);
-    expect(xml).toContain('<burrow config-root="true">');
+    expect(xml).toContain('<tunnel config-root="true">');
   });
 });
 

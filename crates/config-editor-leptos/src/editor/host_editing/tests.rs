@@ -28,7 +28,7 @@ fn a_new_baseline_asks_only_when_it_would_mix_with_unsaved_edits() {
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
-/// The burrow sample in each language, with a comment where it has them.
+/// The tunnel sample in each language, with a comment where it has them.
 #[cfg(all(
     feature = "yaml",
     feature = "json",

@@ -16,7 +16,7 @@
   // The schema is fixed for the page: read once.
   const documentSchema = untrack(() => schema);
   let files: DocumentSpec[] = $state([
-    { id: "main", fileName: "burrow.yaml", value: "listen: 7835\npublic_address: tunnel.example.com\n", schema: documentSchema, closable: false },
+    { id: "main", fileName: "tunnel.yaml", value: "listen: 7835\npublic_address: tunnel.example.com\n", schema: documentSchema, closable: false },
     { id: "limits", fileName: "conf.d/limits.toml", value: "[limits]\nmax_pending = 512\n", schema: documentSchema },
     { id: "clients", fileName: "conf.d/clients.json", value: '{\n  "clients": {}\n}\n', schema: documentSchema, readOnly: true },
   ]);

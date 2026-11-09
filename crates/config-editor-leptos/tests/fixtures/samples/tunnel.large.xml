@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- burrow server configuration (large demo); secrets show as fingerprints or ${ENV} names -->
-<burrow config-root="true">
+<!-- tunnel server configuration (large demo); secrets show as fingerprints or ${ENV} names -->
+<tunnel config-root="true">
   <listen>0.0.0.0:7835</listen>
   <public_address>tunnel.pngwasi.me</public_address>
   <insecure_plaintext>false</insecure_plaintext>
@@ -9,7 +9,7 @@
   </update>
   <websocket>
     <listen>127.0.0.1:7836</listen>
-    <path>/burrow</path>
+    <path>/tunnel</path>
     <host>tunnel.pngwasi.me</host>
     <keepalive_secs>20</keepalive_secs>
     <challenge>http</challenge>
@@ -1328,7 +1328,7 @@
         <hsts>true</hsts>
         <request_headers>
           <X-Forwarded-Proto>https</X-Forwarded-Proto>
-          <X-Burrow-Service>whoami</X-Burrow-Service>
+          <X-Tunnel-Service>whoami</X-Tunnel-Service>
         </request_headers>
         <response_headers>
           <X-Frame-Options>SAMEORIGIN</X-Frame-Options>
@@ -1351,7 +1351,7 @@
         <hsts>false</hsts>
         <request_headers>
           <X-Forwarded-Proto>https</X-Forwarded-Proto>
-          <X-Burrow-Service>speedtest</X-Burrow-Service>
+          <X-Tunnel-Service>speedtest</X-Tunnel-Service>
         </request_headers>
         <response_headers>
           <X-Frame-Options>SAMEORIGIN</X-Frame-Options>
@@ -1374,7 +1374,7 @@
         <hsts>true</hsts>
         <request_headers>
           <X-Forwarded-Proto>https</X-Forwarded-Proto>
-          <X-Burrow-Service>grafana</X-Burrow-Service>
+          <X-Tunnel-Service>grafana</X-Tunnel-Service>
         </request_headers>
         <response_headers>
           <X-Frame-Options>SAMEORIGIN</X-Frame-Options>
@@ -1394,7 +1394,7 @@
         <hsts>true</hsts>
         <request_headers>
           <X-Forwarded-Proto>https</X-Forwarded-Proto>
-          <X-Burrow-Service>prometheus</X-Burrow-Service>
+          <X-Tunnel-Service>prometheus</X-Tunnel-Service>
         </request_headers>
         <response_headers>
           <X-Frame-Options>SAMEORIGIN</X-Frame-Options>
@@ -1423,7 +1423,7 @@
         <hsts>false</hsts>
         <request_headers>
           <X-Forwarded-Proto>https</X-Forwarded-Proto>
-          <X-Burrow-Service>loki</X-Burrow-Service>
+          <X-Tunnel-Service>loki</X-Tunnel-Service>
         </request_headers>
         <response_headers>
           <X-Frame-Options>SAMEORIGIN</X-Frame-Options>
@@ -1444,7 +1444,7 @@
         <hsts>true</hsts>
         <request_headers>
           <X-Forwarded-Proto>https</X-Forwarded-Proto>
-          <X-Burrow-Service>gitea</X-Burrow-Service>
+          <X-Tunnel-Service>gitea</X-Tunnel-Service>
         </request_headers>
         <response_headers>
           <X-Frame-Options>SAMEORIGIN</X-Frame-Options>
@@ -1470,7 +1470,7 @@
         <hsts>true</hsts>
         <request_headers>
           <X-Forwarded-Proto>https</X-Forwarded-Proto>
-          <X-Burrow-Service>drone</X-Burrow-Service>
+          <X-Tunnel-Service>drone</X-Tunnel-Service>
         </request_headers>
         <response_headers>
           <X-Frame-Options>SAMEORIGIN</X-Frame-Options>
@@ -1492,7 +1492,7 @@
         <hsts>false</hsts>
         <request_headers>
           <X-Forwarded-Proto>https</X-Forwarded-Proto>
-          <X-Burrow-Service>nextcloud</X-Burrow-Service>
+          <X-Tunnel-Service>nextcloud</X-Tunnel-Service>
         </request_headers>
         <response_headers>
           <X-Frame-Options>SAMEORIGIN</X-Frame-Options>
@@ -1520,7 +1520,7 @@
         <hsts>true</hsts>
         <request_headers>
           <X-Forwarded-Proto>https</X-Forwarded-Proto>
-          <X-Burrow-Service>vaultwarden</X-Burrow-Service>
+          <X-Tunnel-Service>vaultwarden</X-Tunnel-Service>
         </request_headers>
         <response_headers>
           <X-Frame-Options>SAMEORIGIN</X-Frame-Options>
@@ -1539,7 +1539,7 @@
         <hsts>true</hsts>
         <request_headers>
           <X-Forwarded-Proto>https</X-Forwarded-Proto>
-          <X-Burrow-Service>jellyfin</X-Burrow-Service>
+          <X-Tunnel-Service>jellyfin</X-Tunnel-Service>
         </request_headers>
         <response_headers>
           <X-Frame-Options>SAMEORIGIN</X-Frame-Options>
@@ -1569,7 +1569,7 @@
         <hsts>false</hsts>
         <request_headers>
           <X-Forwarded-Proto>https</X-Forwarded-Proto>
-          <X-Burrow-Service>immich</X-Burrow-Service>
+          <X-Tunnel-Service>immich</X-Tunnel-Service>
         </request_headers>
         <response_headers>
           <X-Frame-Options>SAMEORIGIN</X-Frame-Options>
@@ -1589,7 +1589,7 @@
         <hsts>true</hsts>
         <request_headers>
           <X-Forwarded-Proto>https</X-Forwarded-Proto>
-          <X-Burrow-Service>paperless</X-Burrow-Service>
+          <X-Tunnel-Service>paperless</X-Tunnel-Service>
         </request_headers>
         <response_headers>
           <X-Frame-Options>SAMEORIGIN</X-Frame-Options>
@@ -1611,7 +1611,7 @@
         <hsts>true</hsts>
         <request_headers>
           <X-Forwarded-Proto>https</X-Forwarded-Proto>
-          <X-Burrow-Service>homeassistant</X-Burrow-Service>
+          <X-Tunnel-Service>homeassistant</X-Tunnel-Service>
         </request_headers>
         <response_headers>
           <X-Frame-Options>SAMEORIGIN</X-Frame-Options>
@@ -1639,7 +1639,7 @@
         <hsts>false</hsts>
         <request_headers>
           <X-Forwarded-Proto>https</X-Forwarded-Proto>
-          <X-Burrow-Service>uptime</X-Burrow-Service>
+          <X-Tunnel-Service>uptime</X-Tunnel-Service>
         </request_headers>
         <response_headers>
           <X-Frame-Options>SAMEORIGIN</X-Frame-Options>
@@ -1662,7 +1662,7 @@
         <hsts>true</hsts>
         <request_headers>
           <X-Forwarded-Proto>https</X-Forwarded-Proto>
-          <X-Burrow-Service>minio</X-Burrow-Service>
+          <X-Tunnel-Service>minio</X-Tunnel-Service>
         </request_headers>
         <response_headers>
           <X-Frame-Options>SAMEORIGIN</X-Frame-Options>
@@ -1680,7 +1680,7 @@
         <hsts>true</hsts>
         <request_headers>
           <X-Forwarded-Proto>https</X-Forwarded-Proto>
-          <X-Burrow-Service>keycloak</X-Burrow-Service>
+          <X-Tunnel-Service>keycloak</X-Tunnel-Service>
         </request_headers>
         <response_headers>
           <X-Frame-Options>SAMEORIGIN</X-Frame-Options>
@@ -1709,7 +1709,7 @@
         <hsts>false</hsts>
         <request_headers>
           <X-Forwarded-Proto>https</X-Forwarded-Proto>
-          <X-Burrow-Service>outline</X-Burrow-Service>
+          <X-Tunnel-Service>outline</X-Tunnel-Service>
         </request_headers>
         <response_headers>
           <X-Frame-Options>SAMEORIGIN</X-Frame-Options>
@@ -1734,7 +1734,7 @@
         <hsts>true</hsts>
         <request_headers>
           <X-Forwarded-Proto>https</X-Forwarded-Proto>
-          <X-Burrow-Service>plausible</X-Burrow-Service>
+          <X-Tunnel-Service>plausible</X-Tunnel-Service>
         </request_headers>
         <response_headers>
           <X-Frame-Options>SAMEORIGIN</X-Frame-Options>
@@ -1759,7 +1759,7 @@
         <hsts>true</hsts>
         <request_headers>
           <X-Forwarded-Proto>https</X-Forwarded-Proto>
-          <X-Burrow-Service>umami</X-Burrow-Service>
+          <X-Tunnel-Service>umami</X-Tunnel-Service>
         </request_headers>
         <response_headers>
           <X-Frame-Options>SAMEORIGIN</X-Frame-Options>
@@ -1781,7 +1781,7 @@
         <hsts>false</hsts>
         <request_headers>
           <X-Forwarded-Proto>https</X-Forwarded-Proto>
-          <X-Burrow-Service>n8n</X-Burrow-Service>
+          <X-Tunnel-Service>n8n</X-Tunnel-Service>
         </request_headers>
         <response_headers>
           <X-Frame-Options>SAMEORIGIN</X-Frame-Options>
@@ -1806,7 +1806,7 @@
         <hsts>true</hsts>
         <request_headers>
           <X-Forwarded-Proto>https</X-Forwarded-Proto>
-          <X-Burrow-Service>portainer</X-Burrow-Service>
+          <X-Tunnel-Service>portainer</X-Tunnel-Service>
         </request_headers>
         <response_headers>
           <X-Frame-Options>SAMEORIGIN</X-Frame-Options>
@@ -1825,7 +1825,7 @@
         <hsts>true</hsts>
         <request_headers>
           <X-Forwarded-Proto>https</X-Forwarded-Proto>
-          <X-Burrow-Service>traefik</X-Burrow-Service>
+          <X-Tunnel-Service>traefik</X-Tunnel-Service>
         </request_headers>
         <response_headers>
           <X-Frame-Options>SAMEORIGIN</X-Frame-Options>
@@ -1855,7 +1855,7 @@
         <hsts>false</hsts>
         <request_headers>
           <X-Forwarded-Proto>https</X-Forwarded-Proto>
-          <X-Burrow-Service>pihole</X-Burrow-Service>
+          <X-Tunnel-Service>pihole</X-Tunnel-Service>
         </request_headers>
         <response_headers>
           <X-Frame-Options>SAMEORIGIN</X-Frame-Options>
@@ -1877,7 +1877,7 @@
         <hsts>true</hsts>
         <request_headers>
           <X-Forwarded-Proto>https</X-Forwarded-Proto>
-          <X-Burrow-Service>adguard</X-Burrow-Service>
+          <X-Tunnel-Service>adguard</X-Tunnel-Service>
         </request_headers>
         <response_headers>
           <X-Frame-Options>SAMEORIGIN</X-Frame-Options>
@@ -1899,7 +1899,7 @@
         <hsts>true</hsts>
         <request_headers>
           <X-Forwarded-Proto>https</X-Forwarded-Proto>
-          <X-Burrow-Service>wikijs</X-Burrow-Service>
+          <X-Tunnel-Service>wikijs</X-Tunnel-Service>
         </request_headers>
         <response_headers>
           <X-Frame-Options>SAMEORIGIN</X-Frame-Options>
@@ -1922,7 +1922,7 @@
         <hsts>false</hsts>
         <request_headers>
           <X-Forwarded-Proto>https</X-Forwarded-Proto>
-          <X-Burrow-Service>bookstack</X-Burrow-Service>
+          <X-Tunnel-Service>bookstack</X-Tunnel-Service>
         </request_headers>
         <response_headers>
           <X-Frame-Options>SAMEORIGIN</X-Frame-Options>
@@ -1949,7 +1949,7 @@
         <hsts>true</hsts>
         <request_headers>
           <X-Forwarded-Proto>https</X-Forwarded-Proto>
-          <X-Burrow-Service>mealie</X-Burrow-Service>
+          <X-Tunnel-Service>mealie</X-Tunnel-Service>
         </request_headers>
         <response_headers>
           <X-Frame-Options>SAMEORIGIN</X-Frame-Options>
@@ -1970,7 +1970,7 @@
         <hsts>true</hsts>
         <request_headers>
           <X-Forwarded-Proto>https</X-Forwarded-Proto>
-          <X-Burrow-Service>firefly</X-Burrow-Service>
+          <X-Tunnel-Service>firefly</X-Tunnel-Service>
         </request_headers>
         <response_headers>
           <X-Frame-Options>SAMEORIGIN</X-Frame-Options>
@@ -2001,7 +2001,7 @@
         <hsts>false</hsts>
         <request_headers>
           <X-Forwarded-Proto>https</X-Forwarded-Proto>
-          <X-Burrow-Service>photoprism</X-Burrow-Service>
+          <X-Tunnel-Service>photoprism</X-Tunnel-Service>
         </request_headers>
         <response_headers>
           <X-Frame-Options>SAMEORIGIN</X-Frame-Options>
@@ -2022,7 +2022,7 @@
         <hsts>true</hsts>
         <request_headers>
           <X-Forwarded-Proto>https</X-Forwarded-Proto>
-          <X-Burrow-Service>syncthing</X-Burrow-Service>
+          <X-Tunnel-Service>syncthing</X-Tunnel-Service>
         </request_headers>
         <response_headers>
           <X-Frame-Options>SAMEORIGIN</X-Frame-Options>
@@ -2075,7 +2075,7 @@
     <forward_auth>
       <sso>
         <service>keycloak</service>
-        <path>/realms/burrow/protocol/openid-connect/auth</path>
+        <path>/realms/tunnel/protocol/openid-connect/auth</path>
         <copy_headers>X-Auth-User</copy_headers>
         <copy_headers>X-Auth-Email</copy_headers>
       </sso>
@@ -2098,11 +2098,11 @@
       </beta.example.dev>
     </redirect_names>
     <request_headers>
-      <X-Served-By>burrow</X-Served-By>
+      <X-Served-By>tunnel</X-Served-By>
       <X-Region>eu-west</X-Region>
     </request_headers>
     <response_headers>
-      <Server>burrow</Server>
+      <Server>tunnel</Server>
       <X-Content-Type-Options>nosniff</X-Content-Type-Options>
     </response_headers>
     <certificates>
@@ -2137,7 +2137,7 @@
         <domains>lab.example.dev</domains>
         <rfc2136>
           <server>ns1.example.dev:53</server>
-          <key_name>burrow-acme</key_name>
+          <key_name>tunnel-acme</key_name>
           <secret>${RFC2136_SECRET}</secret>
           <algorithm>hmac-sha256</algorithm>
         </rfc2136>
@@ -2148,11 +2148,11 @@
         <domains>edge.pngwasi.me</domains>
         <acme_dns>
           <api>https://auth.acme-dns.io</api>
-          <username>burrow</username>
+          <username>tunnel</username>
           <password>${ACME_DNS_PASSWORD}</password>
           <subdomain>d420c923-bbd7-4056-ab64-c3ca54c9b3cf</subdomain>
         </acme_dns>
       </dns>
     </letsencrypt>
   </web>
-</burrow>
+</tunnel>

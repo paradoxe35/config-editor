@@ -7,7 +7,7 @@ import { editor, FRAMEWORK_PAGES, scrollToLine, setupEditor } from './helpers.mj
 // Host-controlled editing: the read-only switch, explicit saves (Ctrl+S),
 // the dirty flag, the scroll kept on a host's value update, and the notice
 // when the baseline changes under unsaved edits. The demo's toolbar holds a
-// Read-only box, "Server change" (moves the baseline on) and "Host edit"
+// Read-only box, "External change" (moves the baseline on) and "Host edit"
 // (sets a new value); its status span reports saves, dirty and the
 // conflict events.
 
@@ -29,7 +29,7 @@ async function caretAtEnd(page, line) {
 
 // Clicks a demo button without taking the focus from the editor, as a
 // server push arriving while the user types would.
-const pushFromServer = (page) => page.locator('.demo__server-change').evaluate((button) => button.click());
+const pushExternal = (page) => page.locator('.demo__external-change').evaluate((button) => button.click());
 const editOnHost = (page) => page.locator('.demo__host-edit').evaluate((button) => button.click());
 
 test.describe('a read-only editor switched to editable', () => {
@@ -112,7 +112,7 @@ test.describe('saving while editing as another language', () => {
     // Within the typing pause: the save converts the edit first.
     await page.keyboard.press('Control+s');
     await expect(status(page)).toHaveAttribute('data-saves', '1');
-    await expect(output(page)).toContainText('# Burrow server configuration');
+    await expect(output(page)).toContainText('# Tunnel server configuration');
     await expect(output(page)).toContainText('listen: 78351');
     await expect(status(page)).toHaveAttribute('data-dirty', 'false');
     await expect(notice(page)).toBeHidden();
@@ -145,7 +145,7 @@ test.describe('the baseline changing under unsaved edits', () => {
   setupEditor(test);
 
   test('is taken silently without unsaved edits', async ({ page }) => {
-    await pushFromServer(page);
+    await pushExternal(page);
     await page.waitForTimeout(150);
     await expect(notice(page)).toBeHidden();
     await expect(status(page)).toHaveAttribute('data-conflicts', '');
@@ -157,7 +157,7 @@ test.describe('the baseline changing under unsaved edits', () => {
     const e = editor(page);
     await caretAtEnd(page, 3);
     await page.keyboard.type('.org');
-    await pushFromServer(page);
+    await pushExternal(page);
     await expect(notice(page)).toBeVisible();
     await expect(notice(page)).toHaveAttribute('role', 'alert');
     await expect(notice(page)).toContainText('This file changed outside the editor.');
@@ -188,7 +188,7 @@ test.describe('the baseline changing under unsaved edits', () => {
     const e = editor(page);
     await caretAtEnd(page, 3);
     await page.keyboard.type('.org');
-    await pushFromServer(page);
+    await pushExternal(page);
     await expect(notice(page)).toBeVisible();
     // From the keyboard: F6 to the notice, Shift+Tab to Reload, Enter.
     await page.keyboard.press('F6');
@@ -212,7 +212,7 @@ test.describe('the baseline changing under unsaved edits', () => {
     const e = editor(page);
     await caretAtEnd(page, 3);
     await page.keyboard.type('.org');
-    await pushFromServer(page);
+    await pushExternal(page);
     await page.locator('.config-editor__notice-reload').click();
     await expect(notice(page)).toBeHidden();
     expect(await e.value()).toContain('listen: 7836');
@@ -221,7 +221,7 @@ test.describe('the baseline changing under unsaved edits', () => {
   test('typing the same change as the server closes the notice by itself', async ({ page }) => {
     await caretAtEnd(page, 3);
     await page.keyboard.type('.org');
-    await pushFromServer(page);
+    await pushExternal(page);
     await expect(notice(page)).toBeVisible();
     // Take `.org` back out with Backspace, not Ctrl+Z: one undo step only
     // covers it when the four keys came within the grouping window, which a
@@ -245,7 +245,7 @@ test.describe('the baseline changing under unsaved edits', () => {
     // and none of them presses a button of the notice.
     await page.evaluate(() => {
       window.requestAnimationFrame = (callback) => setTimeout(() => callback(performance.now()), 50);
-      document.querySelector('.demo__server-change').click();
+      document.querySelector('.demo__external-change').click();
     });
     await page.keyboard.type(' x');
     await page.keyboard.press('Enter');
@@ -260,10 +260,10 @@ test.describe('the baseline changing under unsaved edits', () => {
   test('the notice does not take the focus from outside the editor', async ({ page }) => {
     await caretAtEnd(page, 3);
     await page.keyboard.type('.org');
-    await page.locator('.demo__server-change').click();
+    await page.locator('.demo__external-change').click();
     await expect(notice(page)).toBeVisible();
     await page.waitForTimeout(100);
-    expect(await focusedClass(page)).toContain('demo__server-change');
+    expect(await focusedClass(page)).toContain('demo__external-change');
   });
 });
 
@@ -278,12 +278,12 @@ test.describe('Reload while editing as another language', () => {
     });
     await page.keyboard.type('.org');
     await page.waitForTimeout(400);
-    await pushFromServer(page);
+    await pushExternal(page);
     await expect(notice(page)).toBeVisible();
     await page.locator('.config-editor__notice-reload').click();
     await expect(editor(page).input).toHaveValue(/"listen": 7836/);
     await expect(output(page)).toHaveText(
-      '# Burrow server configuration\nlisten: 7836\npublic_address: tunnel.example.com\ninsecure_plaintext: false\n',
+      '# Tunnel server configuration\nlisten: 7836\npublic_address: tunnel.example.com\ninsecure_plaintext: false\n',
     );
     await expect(status(page)).toHaveAttribute('data-dirty', 'false');
   });

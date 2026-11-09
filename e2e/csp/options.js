@@ -19,7 +19,7 @@ export function editorOptions() {
     ...settings,
     language: 'yaml',
     schema: SCHEMA,
-    fileName: 'burrow.yaml',
+    fileName: 'config.yaml',
     showToolbar: true,
     hostDiagnostics: HOST_DIAGNOSTICS,
     secrets: SECRETS,
@@ -31,7 +31,7 @@ export function documentsOptions() {
   return {
     ...settings,
     documents: [
-      { id: 'main', fileName: 'burrow.yaml', value: VALUE, schema: SCHEMA, hostDiagnostics: HOST_DIAGNOSTICS, secrets: SECRETS, closable: false },
+      { id: 'main', fileName: 'config.yaml', value: VALUE, schema: SCHEMA, hostDiagnostics: HOST_DIAGNOSTICS, secrets: SECRETS, closable: false },
       { id: 'limits', fileName: 'limits.toml', value: '[limits]\nmax_pending = 512\n' },
     ],
     // The "+" and the close buttons are drawn; the page keeps its two files.

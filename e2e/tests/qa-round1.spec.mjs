@@ -164,7 +164,7 @@ test.describe('edit as: structural edits keep host comments', () => {
       .poll(() => page.locator('.demo__output-text').textContent())
       .toContain('heartbeat');
     const saved = await page.locator('.demo__output-text').textContent();
-    expect(saved).toContain('# Burrow server configuration');
+    expect(saved).toContain('# Tunnel server configuration');
   });
 });
 

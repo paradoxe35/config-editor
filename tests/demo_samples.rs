@@ -11,23 +11,23 @@ const SCHEMA: &str = include_str!("../schema.json");
 const SAMPLES: [(Language, &str); 5] = [
     (
         Language::JSON,
-        include_str!("../crates/config-editor-leptos/tests/fixtures/samples/burrow.large.json"),
+        include_str!("../crates/config-editor-leptos/tests/fixtures/samples/tunnel.large.json"),
     ),
     (
         Language::YAML,
-        include_str!("../crates/config-editor-leptos/tests/fixtures/samples/burrow.large.yaml"),
+        include_str!("../crates/config-editor-leptos/tests/fixtures/samples/tunnel.large.yaml"),
     ),
     (
         Language::TOML,
-        include_str!("../crates/config-editor-leptos/tests/fixtures/samples/burrow.large.toml"),
+        include_str!("../crates/config-editor-leptos/tests/fixtures/samples/tunnel.large.toml"),
     ),
     (
         Language::HCL,
-        include_str!("../crates/config-editor-leptos/tests/fixtures/samples/burrow.large.hcl"),
+        include_str!("../crates/config-editor-leptos/tests/fixtures/samples/tunnel.large.hcl"),
     ),
     (
         Language::XML,
-        include_str!("../crates/config-editor-leptos/tests/fixtures/samples/burrow.large.xml"),
+        include_str!("../crates/config-editor-leptos/tests/fixtures/samples/tunnel.large.xml"),
     ),
 ];
 

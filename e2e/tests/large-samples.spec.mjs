@@ -38,7 +38,7 @@ for (const language of LANGUAGES) {
       const lines = (await e.value()).split('\n').length;
       expect(lines).toBeGreaterThan(1500);
       await expect.poll(() => e.diagnosticCount(), { timeout: 10000 }).toBe(0);
-      await expect(page.locator('.config-editor__file')).toContainText(`burrow.large.${language}`);
+      await expect(page.locator('.config-editor__file')).toContainText(`tunnel.large.${language}`);
     });
 
     test('typing at the end of the document stays responsive', async ({ page }) => {
@@ -154,7 +154,7 @@ test.describe('switching languages', () => {
       await page.waitForURL((url) => url.search.includes(`language=${language}`));
       await page.locator('.config-editor__input').waitFor();
       expect(page.url()).toContain('sample=large');
-      await expect(page.locator('.config-editor__file')).toContainText(`burrow.large.${language}`);
+      await expect(page.locator('.config-editor__file')).toContainText(`tunnel.large.${language}`);
       await expect.poll(() => editor(page).diagnosticCount(), { timeout: 10000 }).toBe(0);
     }
   });

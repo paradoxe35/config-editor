@@ -183,7 +183,7 @@ test.describe('documents tell the host what is on screen', () => {
       ['main:true', 'main:false', 'limits:true', 'main-reopened:false', 'main-reopened:true'],
     );
     // In the host's language, its comment kept.
-    await expect(page.locator('.demo__documents-values')).toContainText('# Burrow server configuration');
+    await expect(page.locator('.demo__documents-values')).toContainText('# Tunnel server configuration');
     await expect(page.locator('.demo__documents-values')).toContainText('broken: 5');
     // Undo starts at the kept text.
     await page.keyboard.press('Control+z');

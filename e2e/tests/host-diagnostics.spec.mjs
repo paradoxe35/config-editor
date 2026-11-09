@@ -29,7 +29,7 @@ const footer = (browserPage) => browserPage.locator('.config-editor__diagnostic-
 const setHost = (browserPage, list) => browserPage.evaluate((problems) => window.editor.update({ hostDiagnostics: problems }), list);
 
 // The vanilla page's document:
-//   1 # Burrow server configuration
+//   1 # Tunnel server configuration
 //   2 listen: 7835
 //   3 public_address: tunnel.example.com
 //   4 insecure_plaintext: false
@@ -39,7 +39,7 @@ const PROBLEMS = [
     severity: 'warning',
     message: 'port in use',
     code: 'E_PORT',
-    source: 'burrow',
+    source: 'tunnel',
     docsUrl: 'https://example.com/docs/ports',
   },
   { path: ['public_address'], severity: 'info', message: 'resolves to 10.0.0.1' },
@@ -67,7 +67,7 @@ test.describe('vanilla.html', () => {
     await setHost(browserPage, PROBLEMS);
     await expect(markers(browserPage)).toHaveCount(3);
     expect(await shown(browserPage)).toEqual([
-      { text: '7835', classes: ['docs', 'host', 'warning'], message: 'port in use', detail: 'burrow · E_PORT · Open docs ↗ (Alt+Enter)' },
+      { text: '7835', classes: ['docs', 'host', 'warning'], message: 'port in use', detail: 'tunnel · E_PORT · Open docs ↗ (Alt+Enter)' },
       { text: 'tunnel.example.com', classes: ['host', 'info'], message: 'resolves to 10.0.0.1', detail: 'host' },
       { text: 'insecure_plaintext', classes: ['hint', 'host'], message: 'consider TLS', detail: 'host' },
     ]);
@@ -76,7 +76,7 @@ test.describe('vanilla.html', () => {
     await pointerOn(browserPage, markers(browserPage).first());
     const tip = browserPage.locator('.config-editor__problem-tip');
     await expect(tip).toContainText('port in use');
-    await expect(tip).toContainText('burrow · E_PORT · Open docs ↗ (Alt+Enter)');
+    await expect(tip).toContainText('tunnel · E_PORT · Open docs ↗ (Alt+Enter)');
     await input(browserPage).click();
     await browserPage.keyboard.press('Control+Home');
     const caretLine = () => input(browserPage).evaluate((element) => element.value.slice(0, element.selectionStart).split('\n').length);

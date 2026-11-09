@@ -16,7 +16,7 @@ use crate::{
 /// # #[cfg(all(feature = "yaml", feature = "toml"))] {
 /// use config_editor_leptos::{Document, Language};
 ///
-/// let main = Document::new("main", "burrow.yaml", "listen: 7835\n");
+/// let main = Document::new("main", "config.yaml", "listen: 7835\n");
 /// let drop_in = Document::new("tls", "conf.d/tls.toml", "cert = \"a.pem\"\n").read_only(true);
 /// assert_eq!(main.resolved_language(), Language::YAML);
 /// assert_eq!(drop_in.resolved_language(), Language::TOML);

@@ -131,7 +131,7 @@ document and its callbacks (below) and every [setting](#settings) (`theme`,
 | `onSyncChange`       | `(inSync: boolean) => void`                 | —                | Called with whether the text on screen is written back to the document: once on mount, then each time that changes. `false` while an `editAs` edit cannot convert back (`value` is `null`, `onChange` waits), whatever brought it there (typing, paste, undo, a switch, a reload, a new `value`); read after each typing pause. Always `true` in `language`.                                                     |
 | `onChangeSummary`    | `(summary: ChangeSummary) => void`          | —                | Called with `{ added, removed, modified, hunks }`: the lines changed against `baseline` and the number of separate changes, on mount and whenever it changes.                                                                                                                                                                                                                                                    |
 | `onProblems`         | `(problems: Diagnostic[]) => void`          | —                | Called with the editor's own problems (syntax, schema, secret placeholders, values Edit-as cannot convert; `origin: "editor"`), never `hostDiagnostics`: once on mount, then each time they change after a pause in typing, not while they stay the same. With `showDiagnostics` off it finds none. Gate a Save button on it instead of calling `validate` again.                                                |
-| `hostDiagnostics`    | `HostDiagnostic[]`                          | —                | Problems the host found (a server's validation), shown with the editor's own; see [Host diagnostics](#host-diagnostics).                                                                                                                                                                                                                                                                                         |
+| `hostDiagnostics`    | `HostDiagnostic[]`                          | —                | Problems the host found (its own checks: a service, a build step), shown with the editor's own; see [Host diagnostics](#host-diagnostics).                                                                                                                                                                                                                                                                       |
 | `onPathChange`       | `(path: EditorPath) => void`                | —                | Called with the path of what the caret is on each time it changes (and once on mount), for a breadcrumb; see [Paths](#paths). The path is computed only while this is set.                                                                                                                                                                                                                                       |
 | `onSchemaWarning`    | `(message: string) => void`                 | console warning  | Called once per thing in `schema` the editor cannot use, such as a `patternProperties` regex its engine cannot compile (keys it matches get no completions or hover docs). Called a microtask after `new ConfigEditor` returns, never inside it, so the instance is yours by then.                                                                                                                               |
 | `readOnlyPaths`      | `FieldPath[]`                               | —                | Fields the user cannot change (each with everything inside it), on top of the schema's `readOnly` ones; see [Read-only fields](#read-only-fields).                                                                                                                                                                                                                                                               |
@@ -442,7 +442,7 @@ them, and is the one way to change one:
 
 ```ts
 editor.update({ readOnly: true, theme: "nord" });
-editor.update({ value: loaded, baseline: loaded }); // a file loaded from the server
+editor.update({ value: loaded, baseline: loaded }); // a file the host loaded
 editor.update({ hostDiagnostics: problems, onSave: null });
 ```
 
@@ -501,7 +501,8 @@ break the editor.
 
 ### Host diagnostics
 
-When a server validates the document, show its problems with the editor's own:
+When the host checks the document itself (a service, a build step), show its
+problems with the editor's own:
 
 ```ts
 editor.update({
@@ -511,7 +512,7 @@ editor.update({
       severity: "error",
       message: "port 80 is taken",
       code: "E_PORT",
-      source: "burrow",
+      source: "validator",
       docsUrl: "https://example.com/docs/ports",
     },
     {
@@ -579,7 +580,7 @@ reason in `x-readonly-reason`), or when the host names it:
 const editor = new ConfigEditor(element, {
   language: "yaml",
   value,
-  schema, // {"properties": {"id": {"readOnly": true, "x-readonly-reason": "Assigned by the server"}}}
+  schema, // {"properties": {"id": {"readOnly": true, "x-readonly-reason": "Assigned when created"}}}
   readOnlyPaths: ["/limits"],
   readOnlyRanges: [{ startLine: 1, startColumn: 1, endLine: 2, endColumn: 1 }],
 });
@@ -995,7 +996,7 @@ const editor = new ConfigEditor(element, {
   onDirtyChange: (dirty) => (saveButton.disabled = !dirty),
   onBaselineConflict: (event) => console.log("baseline conflict:", event),
 });
-// Another client saved: the server's version moves on.
+// Saved outside the editor: the baseline moves on.
 events.on("config-changed", (text) => editor.update({ baseline: text }));
 ```
 
@@ -1027,7 +1028,7 @@ let files = [
   // The main config stays open: no close button.
   {
     id: "main",
-    fileName: "burrow.yaml",
+    fileName: "config.yaml",
     value: mainText,
     schema,
     closable: false,
@@ -1091,7 +1092,7 @@ view.isDirty("main");
   something outside the view (a dialog of yours: select the document with
   `select(id)` then), before another tab is picked and before the user
   clicks or types anywhere else in the view (in a document's editor). One
-  added later (a server's) is listed, not selected. When the tabs
+  added later (by you on your own) is listed, not selected. When the tabs
   overflow, the "+" stays at the end of the strip. No key adds a document
   (`Ctrl+T` and `Ctrl+N` belong to the browser). `onClose` and `onAdd`
   cannot be added by `update` to a view mounted without them.
@@ -1149,7 +1150,7 @@ const view = new ConfigDocuments(element, {
     // Back on the page: the TOML the user had, not valid yet.
     {
       id: "main",
-      fileName: "burrow.yaml",
+      fileName: "config.yaml",
       value: saved,
       editAs: "toml",
       editAsText: kept,

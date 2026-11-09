@@ -47,7 +47,7 @@ export function Viewer({ text }: { text: string }) {
 import { ConfigDocuments, type ConfigDocumentsHandle, type DocumentSpec } from "@pngwasi/config-editor-react";
 declare function putFile(id: string, text: string): Promise<void>;
 export function Files({ schema }: { schema: string }) {
-  const [files, setFiles] = useState<DocumentSpec[]>([{ id: "main", fileName: "burrow.yaml", value: "", schema }]);
+  const [files, setFiles] = useState<DocumentSpec[]>([{ id: "main", fileName: "config.yaml", value: "", schema }]);
   const update = (id: string, change: Partial<DocumentSpec>) =>
     setFiles((list) => list.map((file) => (file.id === id ? { ...file, ...change } : file)));
   const tabs = useRef<ConfigDocumentsHandle>(null);

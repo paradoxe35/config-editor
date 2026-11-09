@@ -1,4 +1,4 @@
-# burrow server configuration (large demo); secrets show as fingerprints or ${ENV} names
+# tunnel server configuration (large demo); secrets show as fingerprints or ${ENV} names
 listen = "0.0.0.0:7835"
 public_address = "tunnel.pngwasi.me"
 insecure_plaintext = false
@@ -7,7 +7,7 @@ update {
 }
 websocket {
   listen = "127.0.0.1:7836"
-  path = "/burrow"
+  path = "/tunnel"
   host = "tunnel.pngwasi.me"
   keepalive_secs = 20
   challenge = "http"
@@ -1185,7 +1185,7 @@ services {
       hsts = true
       request_headers {
         X-Forwarded-Proto = "https"
-        X-Burrow-Service = "whoami"
+        X-Tunnel-Service = "whoami"
       }
       response_headers {
         X-Frame-Options = "SAMEORIGIN"
@@ -1205,7 +1205,7 @@ services {
       hsts = false
       request_headers {
         X-Forwarded-Proto = "https"
-        X-Burrow-Service = "speedtest"
+        X-Tunnel-Service = "speedtest"
       }
       response_headers {
         X-Frame-Options = "SAMEORIGIN"
@@ -1227,7 +1227,7 @@ services {
       hsts = true
       request_headers {
         X-Forwarded-Proto = "https"
-        X-Burrow-Service = "grafana"
+        X-Tunnel-Service = "grafana"
       }
       response_headers {
         X-Frame-Options = "SAMEORIGIN"
@@ -1246,7 +1246,7 @@ services {
       hsts = true
       request_headers {
         X-Forwarded-Proto = "https"
-        X-Burrow-Service = "prometheus"
+        X-Tunnel-Service = "prometheus"
       }
       response_headers {
         X-Frame-Options = "SAMEORIGIN"
@@ -1271,7 +1271,7 @@ services {
       hsts = false
       request_headers {
         X-Forwarded-Proto = "https"
-        X-Burrow-Service = "loki"
+        X-Tunnel-Service = "loki"
       }
       response_headers {
         X-Frame-Options = "SAMEORIGIN"
@@ -1291,7 +1291,7 @@ services {
       hsts = true
       request_headers {
         X-Forwarded-Proto = "https"
-        X-Burrow-Service = "gitea"
+        X-Tunnel-Service = "gitea"
       }
       response_headers {
         X-Frame-Options = "SAMEORIGIN"
@@ -1316,7 +1316,7 @@ services {
       hsts = true
       request_headers {
         X-Forwarded-Proto = "https"
-        X-Burrow-Service = "drone"
+        X-Tunnel-Service = "drone"
       }
       response_headers {
         X-Frame-Options = "SAMEORIGIN"
@@ -1335,7 +1335,7 @@ services {
       hsts = false
       request_headers {
         X-Forwarded-Proto = "https"
-        X-Burrow-Service = "nextcloud"
+        X-Tunnel-Service = "nextcloud"
       }
       response_headers {
         X-Frame-Options = "SAMEORIGIN"
@@ -1361,7 +1361,7 @@ services {
       hsts = true
       request_headers {
         X-Forwarded-Proto = "https"
-        X-Burrow-Service = "vaultwarden"
+        X-Tunnel-Service = "vaultwarden"
       }
       response_headers {
         X-Frame-Options = "SAMEORIGIN"
@@ -1379,7 +1379,7 @@ services {
       hsts = true
       request_headers {
         X-Forwarded-Proto = "https"
-        X-Burrow-Service = "jellyfin"
+        X-Tunnel-Service = "jellyfin"
       }
       response_headers {
         X-Frame-Options = "SAMEORIGIN"
@@ -1406,7 +1406,7 @@ services {
       hsts = false
       request_headers {
         X-Forwarded-Proto = "https"
-        X-Burrow-Service = "immich"
+        X-Tunnel-Service = "immich"
       }
       response_headers {
         X-Frame-Options = "SAMEORIGIN"
@@ -1425,7 +1425,7 @@ services {
       hsts = true
       request_headers {
         X-Forwarded-Proto = "https"
-        X-Burrow-Service = "paperless"
+        X-Tunnel-Service = "paperless"
       }
       response_headers {
         X-Frame-Options = "SAMEORIGIN"
@@ -1445,7 +1445,7 @@ services {
       hsts = true
       request_headers {
         X-Forwarded-Proto = "https"
-        X-Burrow-Service = "homeassistant"
+        X-Tunnel-Service = "homeassistant"
       }
       response_headers {
         X-Frame-Options = "SAMEORIGIN"
@@ -1470,7 +1470,7 @@ services {
       hsts = false
       request_headers {
         X-Forwarded-Proto = "https"
-        X-Burrow-Service = "uptime"
+        X-Tunnel-Service = "uptime"
       }
       response_headers {
         X-Frame-Options = "SAMEORIGIN"
@@ -1492,7 +1492,7 @@ services {
       hsts = true
       request_headers {
         X-Forwarded-Proto = "https"
-        X-Burrow-Service = "minio"
+        X-Tunnel-Service = "minio"
       }
       response_headers {
         X-Frame-Options = "SAMEORIGIN"
@@ -1509,7 +1509,7 @@ services {
       hsts = true
       request_headers {
         X-Forwarded-Proto = "https"
-        X-Burrow-Service = "keycloak"
+        X-Tunnel-Service = "keycloak"
       }
       response_headers {
         X-Frame-Options = "SAMEORIGIN"
@@ -1534,7 +1534,7 @@ services {
       hsts = false
       request_headers {
         X-Forwarded-Proto = "https"
-        X-Burrow-Service = "outline"
+        X-Tunnel-Service = "outline"
       }
       response_headers {
         X-Frame-Options = "SAMEORIGIN"
@@ -1558,7 +1558,7 @@ services {
       hsts = true
       request_headers {
         X-Forwarded-Proto = "https"
-        X-Burrow-Service = "plausible"
+        X-Tunnel-Service = "plausible"
       }
       response_headers {
         X-Frame-Options = "SAMEORIGIN"
@@ -1582,7 +1582,7 @@ services {
       hsts = true
       request_headers {
         X-Forwarded-Proto = "https"
-        X-Burrow-Service = "umami"
+        X-Tunnel-Service = "umami"
       }
       response_headers {
         X-Frame-Options = "SAMEORIGIN"
@@ -1601,7 +1601,7 @@ services {
       hsts = false
       request_headers {
         X-Forwarded-Proto = "https"
-        X-Burrow-Service = "n8n"
+        X-Tunnel-Service = "n8n"
       }
       response_headers {
         X-Frame-Options = "SAMEORIGIN"
@@ -1624,7 +1624,7 @@ services {
       hsts = true
       request_headers {
         X-Forwarded-Proto = "https"
-        X-Burrow-Service = "portainer"
+        X-Tunnel-Service = "portainer"
       }
       response_headers {
         X-Frame-Options = "SAMEORIGIN"
@@ -1642,7 +1642,7 @@ services {
       hsts = true
       request_headers {
         X-Forwarded-Proto = "https"
-        X-Burrow-Service = "traefik"
+        X-Tunnel-Service = "traefik"
       }
       response_headers {
         X-Frame-Options = "SAMEORIGIN"
@@ -1669,7 +1669,7 @@ services {
       hsts = false
       request_headers {
         X-Forwarded-Proto = "https"
-        X-Burrow-Service = "pihole"
+        X-Tunnel-Service = "pihole"
       }
       response_headers {
         X-Frame-Options = "SAMEORIGIN"
@@ -1690,7 +1690,7 @@ services {
       hsts = true
       request_headers {
         X-Forwarded-Proto = "https"
-        X-Burrow-Service = "adguard"
+        X-Tunnel-Service = "adguard"
       }
       response_headers {
         X-Frame-Options = "SAMEORIGIN"
@@ -1710,7 +1710,7 @@ services {
       hsts = true
       request_headers {
         X-Forwarded-Proto = "https"
-        X-Burrow-Service = "wikijs"
+        X-Tunnel-Service = "wikijs"
       }
       response_headers {
         X-Frame-Options = "SAMEORIGIN"
@@ -1730,7 +1730,7 @@ services {
       hsts = false
       request_headers {
         X-Forwarded-Proto = "https"
-        X-Burrow-Service = "bookstack"
+        X-Tunnel-Service = "bookstack"
       }
       response_headers {
         X-Frame-Options = "SAMEORIGIN"
@@ -1756,7 +1756,7 @@ services {
       hsts = true
       request_headers {
         X-Forwarded-Proto = "https"
-        X-Burrow-Service = "mealie"
+        X-Tunnel-Service = "mealie"
       }
       response_headers {
         X-Frame-Options = "SAMEORIGIN"
@@ -1776,7 +1776,7 @@ services {
       hsts = true
       request_headers {
         X-Forwarded-Proto = "https"
-        X-Burrow-Service = "firefly"
+        X-Tunnel-Service = "firefly"
       }
       response_headers {
         X-Frame-Options = "SAMEORIGIN"
@@ -1803,7 +1803,7 @@ services {
       hsts = false
       request_headers {
         X-Forwarded-Proto = "https"
-        X-Burrow-Service = "photoprism"
+        X-Tunnel-Service = "photoprism"
       }
       response_headers {
         X-Frame-Options = "SAMEORIGIN"
@@ -1823,7 +1823,7 @@ services {
       hsts = true
       request_headers {
         X-Forwarded-Proto = "https"
-        X-Burrow-Service = "syncthing"
+        X-Tunnel-Service = "syncthing"
       }
       response_headers {
         X-Frame-Options = "SAMEORIGIN"
@@ -1873,7 +1873,7 @@ web {
   forward_auth {
     sso {
       service = "keycloak"
-      path = "/realms/burrow/protocol/openid-connect/auth"
+      path = "/realms/tunnel/protocol/openid-connect/auth"
       copy_headers = ["X-Auth-User", "X-Auth-Email"]
     }
     basic {
@@ -1894,11 +1894,11 @@ web {
     }
   }
   request_headers {
-    X-Served-By = "burrow"
+    X-Served-By = "tunnel"
     X-Region = "eu-west"
   }
   response_headers {
-    Server = "burrow"
+    Server = "tunnel"
     X-Content-Type-Options = "nosniff"
   }
   certificates = [
@@ -1930,7 +1930,7 @@ web {
         domains = ["example.dev", "lab.example.dev"]
         rfc2136 = {
           server = "ns1.example.dev:53"
-          key_name = "burrow-acme"
+          key_name = "tunnel-acme"
           secret = "$${RFC2136_SECRET}"
           algorithm = "hmac-sha256"
         }
@@ -1940,7 +1940,7 @@ web {
         domains = ["acme.pngwasi.me", "edge.pngwasi.me"]
         acme_dns = {
           api = "https://auth.acme-dns.io"
-          username = "burrow"
+          username = "tunnel"
           password = "$${ACME_DNS_PASSWORD}"
           subdomain = "d420c923-bbd7-4056-ab64-c3ca54c9b3cf"
         }

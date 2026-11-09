@@ -236,9 +236,9 @@ const scenes = {
     await ready(page);
     await page.evaluate(() =>
       window.editor.update({ hostDiagnostics: [
-        { path: '/listen', severity: 'error', message: 'port 7835 is already used by another tunnel', source: 'burrow', code: 'E_PORT', docsUrl: 'https://example.com/docs/ports' },
-        { path: '/public_address', severity: 'info', message: 'resolves to 203.0.113.7', source: 'burrow' },
-        { path: '/insecure_plaintext', severity: 'hint', message: 'TLS is recommended in production', source: 'burrow' },
+        { path: '/listen', severity: 'error', message: 'port 7835 is already used by another tunnel', source: 'validator', code: 'E_PORT', docsUrl: 'https://example.com/docs/ports' },
+        { path: '/public_address', severity: 'info', message: 'resolves to 203.0.113.7', source: 'validator' },
+        { path: '/insecure_plaintext', severity: 'hint', message: 'TLS is recommended in production', source: 'validator' },
       ] }),
     );
     await pause(page, 500);
@@ -261,15 +261,15 @@ const scenes = {
     await pause(page);
     await demoShot(page, 'changes');
   },
-  async 'server-change'(page) {
+  async 'external-change'(page) {
     await open(page);
     await newLineAtEnd(page);
     await page.keyboard.type('limits:\n');
     await page.keyboard.type('max_pending: 10');
-    await page.locator('button:has-text("Server change")').first().click();
+    await page.locator('button:has-text("External change")').first().click();
     await page.locator('.config-editor__notice').waitFor();
     await pause(page);
-    await demoShot(page, 'server-change');
+    await demoShot(page, 'external-change');
   },
   async documents(page) {
     await page.goto(`${demo}?documents`);

@@ -20,7 +20,7 @@ all-features = true
 default = ["schema-validation", "yaml", "json", "toml", "hcl", "xml", "search", "diff", "folding", "protect"]
 # Live JSON Schema diagnostics (the `jsonschema` dependency, the heaviest
 # part). Completions, hover docs and schema-shaped reading work without it;
-# leave it out when the schema is checked elsewhere (on a server).
+# leave it out when the schema is checked elsewhere (by the host's own checks).
 schema-validation = ["dep:jsonschema", "dep:regex"]
 # Built-in languages; each enables `Language::<NAME>` and its parser. Disable
 # the ones a host does not use to shrink the build.

@@ -73,8 +73,8 @@ export interface ConfigEditorProps extends EditorSettings {
    */
   onPathChange?: (path: EditorPath) => void;
   /**
-   * Problems the host found (a server's validation), by path or range, shown
-   * next to the editor's own and marked as the host's. A new list replaces
+   * Problems the host found (its own checks: a service, a build step), by path
+   * or range, shown next to the editor's own and marked as the host's. A new list replaces
    * the previous one; only the markers update.
    */
   hostDiagnostics?: HostDiagnostic[];

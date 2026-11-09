@@ -1,4 +1,4 @@
-# burrow server configuration (large demo); secrets show as fingerprints or ${ENV} names
+# tunnel server configuration (large demo); secrets show as fingerprints or ${ENV} names
 listen = "0.0.0.0:7835"
 public_address = "tunnel.pngwasi.me"
 insecure_plaintext = false
@@ -8,7 +8,7 @@ remote = true
 
 [websocket]
 listen = "127.0.0.1:7836"
-path = "/burrow"
+path = "/tunnel"
 host = "tunnel.pngwasi.me"
 keepalive_secs = 20
 challenge = "http"
@@ -1161,7 +1161,7 @@ redirect_from = ["old-whoami.gracecarry.shop", "whoami.legacy.gracecarry.shop"]
 
 [services.whoami.web.request_headers]
 X-Forwarded-Proto = "https"
-X-Burrow-Service = "whoami"
+X-Tunnel-Service = "whoami"
 
 [services.whoami.web.response_headers]
 X-Frame-Options = "SAMEORIGIN"
@@ -1179,7 +1179,7 @@ hsts = false
 
 [services.speedtest.web.request_headers]
 X-Forwarded-Proto = "https"
-X-Burrow-Service = "speedtest"
+X-Tunnel-Service = "speedtest"
 
 [services.speedtest.web.response_headers]
 X-Frame-Options = "SAMEORIGIN"
@@ -1203,7 +1203,7 @@ rate_limit = 52
 
 [services.grafana.web.request_headers]
 X-Forwarded-Proto = "https"
-X-Burrow-Service = "grafana"
+X-Tunnel-Service = "grafana"
 
 [services.grafana.web.response_headers]
 X-Frame-Options = "SAMEORIGIN"
@@ -1224,7 +1224,7 @@ redirect_from = ["old-prometheus.gracecarry.shop", "prometheus.legacy.gracecarry
 
 [services.prometheus.web.request_headers]
 X-Forwarded-Proto = "https"
-X-Burrow-Service = "prometheus"
+X-Tunnel-Service = "prometheus"
 
 [services.prometheus.web.response_headers]
 X-Frame-Options = "SAMEORIGIN"
@@ -1247,7 +1247,7 @@ target_http2 = true
 
 [services.loki.web.request_headers]
 X-Forwarded-Proto = "https"
-X-Burrow-Service = "loki"
+X-Tunnel-Service = "loki"
 
 [services.loki.web.response_headers]
 X-Frame-Options = "SAMEORIGIN"
@@ -1268,7 +1268,7 @@ response_header_timeout_secs = 120
 
 [services.gitea.web.request_headers]
 X-Forwarded-Proto = "https"
-X-Burrow-Service = "gitea"
+X-Tunnel-Service = "gitea"
 
 [services.gitea.web.response_headers]
 X-Frame-Options = "SAMEORIGIN"
@@ -1292,7 +1292,7 @@ redirect_from = ["old-drone.gracecarry.shop", "drone.legacy.gracecarry.shop"]
 
 [services.drone.web.request_headers]
 X-Forwarded-Proto = "https"
-X-Burrow-Service = "drone"
+X-Tunnel-Service = "drone"
 
 [services.drone.web.response_headers]
 X-Frame-Options = "SAMEORIGIN"
@@ -1313,7 +1313,7 @@ rate_limit = 57
 
 [services.nextcloud.web.request_headers]
 X-Forwarded-Proto = "https"
-X-Burrow-Service = "nextcloud"
+X-Tunnel-Service = "nextcloud"
 
 [services.nextcloud.web.response_headers]
 X-Frame-Options = "SAMEORIGIN"
@@ -1335,7 +1335,7 @@ hsts = true
 
 [services.vaultwarden.web.request_headers]
 X-Forwarded-Proto = "https"
-X-Burrow-Service = "vaultwarden"
+X-Tunnel-Service = "vaultwarden"
 
 [services.vaultwarden.web.response_headers]
 X-Frame-Options = "SAMEORIGIN"
@@ -1355,7 +1355,7 @@ redirect_from = ["old-jellyfin.gracecarry.shop", "jellyfin.legacy.gracecarry.sho
 
 [services.jellyfin.web.request_headers]
 X-Forwarded-Proto = "https"
-X-Burrow-Service = "jellyfin"
+X-Tunnel-Service = "jellyfin"
 
 [services.jellyfin.web.response_headers]
 X-Frame-Options = "SAMEORIGIN"
@@ -1382,7 +1382,7 @@ target_http2 = true
 
 [services.immich.web.request_headers]
 X-Forwarded-Proto = "https"
-X-Burrow-Service = "immich"
+X-Tunnel-Service = "immich"
 
 [services.immich.web.response_headers]
 X-Frame-Options = "SAMEORIGIN"
@@ -1401,7 +1401,7 @@ hsts = true
 
 [services.paperless.web.request_headers]
 X-Forwarded-Proto = "https"
-X-Burrow-Service = "paperless"
+X-Tunnel-Service = "paperless"
 
 [services.paperless.web.response_headers]
 X-Frame-Options = "SAMEORIGIN"
@@ -1426,7 +1426,7 @@ response_header_timeout_secs = 120
 
 [services.homeassistant.web.request_headers]
 X-Forwarded-Proto = "https"
-X-Burrow-Service = "homeassistant"
+X-Tunnel-Service = "homeassistant"
 
 [services.homeassistant.web.response_headers]
 X-Frame-Options = "SAMEORIGIN"
@@ -1444,7 +1444,7 @@ hsts = false
 
 [services.uptime.web.request_headers]
 X-Forwarded-Proto = "https"
-X-Burrow-Service = "uptime"
+X-Tunnel-Service = "uptime"
 
 [services.uptime.web.response_headers]
 X-Frame-Options = "SAMEORIGIN"
@@ -1466,7 +1466,7 @@ hsts = true
 
 [services.minio.web.request_headers]
 X-Forwarded-Proto = "https"
-X-Burrow-Service = "minio"
+X-Tunnel-Service = "minio"
 
 [services.minio.web.response_headers]
 X-Frame-Options = "SAMEORIGIN"
@@ -1487,7 +1487,7 @@ redirect_from = ["old-keycloak.gracecarry.shop", "keycloak.legacy.gracecarry.sho
 
 [services.keycloak.web.request_headers]
 X-Forwarded-Proto = "https"
-X-Burrow-Service = "keycloak"
+X-Tunnel-Service = "keycloak"
 
 [services.keycloak.web.response_headers]
 X-Frame-Options = "SAMEORIGIN"
@@ -1510,7 +1510,7 @@ target_http2 = true
 
 [services.outline.web.request_headers]
 X-Forwarded-Proto = "https"
-X-Burrow-Service = "outline"
+X-Tunnel-Service = "outline"
 
 [services.outline.web.response_headers]
 X-Frame-Options = "SAMEORIGIN"
@@ -1534,7 +1534,7 @@ rate_limit = 67
 
 [services.plausible.web.request_headers]
 X-Forwarded-Proto = "https"
-X-Burrow-Service = "plausible"
+X-Tunnel-Service = "plausible"
 
 [services.plausible.web.response_headers]
 X-Frame-Options = "SAMEORIGIN"
@@ -1558,7 +1558,7 @@ redirect_from = ["old-umami.gracecarry.shop", "umami.legacy.gracecarry.shop"]
 
 [services.umami.web.request_headers]
 X-Forwarded-Proto = "https"
-X-Burrow-Service = "umami"
+X-Tunnel-Service = "umami"
 
 [services.umami.web.response_headers]
 X-Frame-Options = "SAMEORIGIN"
@@ -1580,7 +1580,7 @@ response_header_timeout_secs = 120
 
 [services.n8n.web.request_headers]
 X-Forwarded-Proto = "https"
-X-Burrow-Service = "n8n"
+X-Tunnel-Service = "n8n"
 
 [services.n8n.web.response_headers]
 X-Frame-Options = "SAMEORIGIN"
@@ -1598,7 +1598,7 @@ hsts = true
 
 [services.portainer.web.request_headers]
 X-Forwarded-Proto = "https"
-X-Burrow-Service = "portainer"
+X-Tunnel-Service = "portainer"
 
 [services.portainer.web.response_headers]
 X-Frame-Options = "SAMEORIGIN"
@@ -1618,7 +1618,7 @@ redirect_from = ["old-traefik.gracecarry.shop", "traefik.legacy.gracecarry.shop"
 
 [services.traefik.web.request_headers]
 X-Forwarded-Proto = "https"
-X-Burrow-Service = "traefik"
+X-Tunnel-Service = "traefik"
 
 [services.traefik.web.response_headers]
 X-Frame-Options = "SAMEORIGIN"
@@ -1647,7 +1647,7 @@ target_http2 = true
 
 [services.pihole.web.request_headers]
 X-Forwarded-Proto = "https"
-X-Burrow-Service = "pihole"
+X-Tunnel-Service = "pihole"
 
 [services.pihole.web.response_headers]
 X-Frame-Options = "SAMEORIGIN"
@@ -1666,7 +1666,7 @@ hsts = true
 
 [services.adguard.web.request_headers]
 X-Forwarded-Proto = "https"
-X-Burrow-Service = "adguard"
+X-Tunnel-Service = "adguard"
 
 [services.adguard.web.response_headers]
 X-Frame-Options = "SAMEORIGIN"
@@ -1686,7 +1686,7 @@ redirect_from = ["old-wikijs.gracecarry.shop", "wikijs.legacy.gracecarry.shop"]
 
 [services.wikijs.web.request_headers]
 X-Forwarded-Proto = "https"
-X-Burrow-Service = "wikijs"
+X-Tunnel-Service = "wikijs"
 
 [services.wikijs.web.response_headers]
 X-Frame-Options = "SAMEORIGIN"
@@ -1704,7 +1704,7 @@ hsts = false
 
 [services.bookstack.web.request_headers]
 X-Forwarded-Proto = "https"
-X-Burrow-Service = "bookstack"
+X-Tunnel-Service = "bookstack"
 
 [services.bookstack.web.response_headers]
 X-Frame-Options = "SAMEORIGIN"
@@ -1733,7 +1733,7 @@ response_header_timeout_secs = 120
 
 [services.mealie.web.request_headers]
 X-Forwarded-Proto = "https"
-X-Burrow-Service = "mealie"
+X-Tunnel-Service = "mealie"
 
 [services.mealie.web.response_headers]
 X-Frame-Options = "SAMEORIGIN"
@@ -1756,7 +1756,7 @@ rate_limit = 77
 
 [services.firefly.web.request_headers]
 X-Forwarded-Proto = "https"
-X-Burrow-Service = "firefly"
+X-Tunnel-Service = "firefly"
 
 [services.firefly.web.response_headers]
 X-Frame-Options = "SAMEORIGIN"
@@ -1779,7 +1779,7 @@ target_http2 = true
 
 [services.photoprism.web.request_headers]
 X-Forwarded-Proto = "https"
-X-Burrow-Service = "photoprism"
+X-Tunnel-Service = "photoprism"
 
 [services.photoprism.web.response_headers]
 X-Frame-Options = "SAMEORIGIN"
@@ -1797,7 +1797,7 @@ hsts = true
 
 [services.syncthing.web.request_headers]
 X-Forwarded-Proto = "https"
-X-Burrow-Service = "syncthing"
+X-Tunnel-Service = "syncthing"
 
 [services.syncthing.web.response_headers]
 X-Frame-Options = "SAMEORIGIN"
@@ -1844,7 +1844,7 @@ format = "json"
 
 [web.forward_auth.sso]
 service = "keycloak"
-path = "/realms/burrow/protocol/openid-connect/auth"
+path = "/realms/tunnel/protocol/openid-connect/auth"
 copy_headers = ["X-Auth-User", "X-Auth-Email"]
 
 [web.forward_auth.basic]
@@ -1864,11 +1864,11 @@ to = "example.dev"
 permanent = false
 
 [web.request_headers]
-X-Served-By = "burrow"
+X-Served-By = "tunnel"
 X-Region = "eu-west"
 
 [web.response_headers]
-Server = "burrow"
+Server = "tunnel"
 X-Content-Type-Options = "nosniff"
 
 [[web.certificates]]
@@ -1900,7 +1900,7 @@ wait_secs = 120
 
 [web.letsencrypt.dns.rfc2136]
 server = "ns1.example.dev:53"
-key_name = "burrow-acme"
+key_name = "tunnel-acme"
 secret = "${RFC2136_SECRET}"
 algorithm = "hmac-sha256"
 
@@ -1909,6 +1909,6 @@ domains = ["acme.pngwasi.me", "edge.pngwasi.me"]
 
 [web.letsencrypt.dns.acme_dns]
 api = "https://auth.acme-dns.io"
-username = "burrow"
+username = "tunnel"
 password = "${ACME_DNS_PASSWORD}"
 subdomain = "d420c923-bbd7-4056-ab64-c3ca54c9b3cf"

@@ -13,13 +13,13 @@ use serde_json::{Map, Value, json};
 /// A real config schema, and one covering every nesting shape (arrays of
 /// arrays, matrices of objects, objects in arrays in objects).
 const SCHEMAS: [&str; 2] = [
-    include_str!("../../../tests/fixtures/burrow.schema.json"),
+    include_str!("../../../tests/fixtures/tunnel.schema.json"),
     include_str!("../../../tests/fixtures/shapes.schema.json"),
 ];
 const MARKER: &str = "zz_marker";
 
 /// Resolves `$ref`, `anyOf`, `oneOf`, and `allOf` to the branches with
-/// properties (enough to walk the burrow schema's containers).
+/// properties (enough to walk the tunnel schema's containers).
 fn object_branches<'a>(schema: &'a Value, root: &'a Value, out: &mut Vec<&'a Value>, depth: usize) {
     if depth > 8 {
         return;

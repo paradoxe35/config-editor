@@ -7,7 +7,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 // opened or switched to) leaves the host page where it is. A plain
 // `element.focus()` scrolls the page to bring the element into view, and the
 // text area is as tall as the document: the page jumped down and hid the
-// host's own controls above the editor (burrow: the settings tabs and its
+// host's own controls above the editor (one host: the settings tabs and its
 // Cancel / Review changes buttons).
 const js = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'js');
 const built = existsSync(join(js, 'config-editor', 'pkg', 'config_editor_bg.wasm'));

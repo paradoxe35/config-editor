@@ -61,7 +61,7 @@ await loadConfigEditor({ module_or_path: "/assets/config_editor_bg.wasm" });
 // Host diagnostics and read-only fields.
 editor.update({
   hostDiagnostics: [
-    { path: "/web/listen", severity: "error", message: "port 80 is taken", code: "E_PORT", source: "burrow", docsUrl: "https://example.com/docs/ports" },
+    { path: "/web/listen", severity: "error", message: "port 80 is taken", code: "E_PORT", source: "validator", docsUrl: "https://example.com/docs/ports" },
     { range: { startLine: 4, startColumn: 1, endColumn: 19 }, severity: "hint", message: "consider TLS" },
     { severity: "warning", message: "restart needed to apply" },
   ],
@@ -108,7 +108,7 @@ void [onScreen, folds, counted, data, hcl, where, wheres, at, typo, yaml, fileLa
 import { ConfigDocuments, type DocumentSpec } from "@pngwasi/config-editor";
 declare function putFile(id: string, text: string): Promise<void>; declare const mainText: string;
 let files: DocumentSpec[] = [
-  { id: "main", fileName: "burrow.yaml", value: mainText, schema: schemaText, readOnly: false },
+  { id: "main", fileName: "config.yaml", value: mainText, schema: schemaText, readOnly: false },
   { id: "tls", fileName: "conf.d/tls.toml", value: "", settings: { folding: false }, readOnlyPaths: ["/cert"], hostDiagnostics: [{ path: "/cert", message: "expired" }] },
 ];
 const update = (id: string, change: Partial<DocumentSpec>) => {

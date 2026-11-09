@@ -39,11 +39,11 @@ WebAssembly.
 
 - Read-only fields and regions that hold even while the text is invalid, and
   secret placeholders that are never shown.
-- Problems from your server shown with the editor's own, placed by path or
-  range (also while editing as another language). `on_problems` /
+- Problems from the host's own checks (a service, a build step) shown with
+  the editor's own, placed by path or range (also while editing as another language). `on_problems` /
   `onProblems` (on `ConfigEditor`, and per document on `ConfigDocuments`)
   hands you the editor's own problems (syntax, schema, secret placeholders,
-  conversion; never your server's) when they change, to gate a Save button
+  conversion; never the host's) when they change, to gate a Save button
   without parsing again.
 - A secret placeholder pasted whole stays whole: over another placeholder,
   into an empty value, over a selection cutting into one, and from an

@@ -16,7 +16,7 @@ pub(in crate::editor) fn severity_name(strings: &EditorStrings, severity: Severi
     }
 }
 
-/// " from burrow" for a host problem that names its source, else nothing.
+/// " from validator" for a host problem that names its source, else nothing.
 fn source_part(strings: &EditorStrings, problem: &Diagnostic) -> String {
     problem
         .source
@@ -50,7 +50,7 @@ fn with_links(strings: &EditorStrings, problem: &Diagnostic, text: String) -> St
     text + stop + &links
 }
 
-/// "Error: …", "Warning from burrow: …": a problem as a screen reader
+/// "Error: …", "Warning from validator: …": a problem as a screen reader
 /// hears it, with its code and docs link.
 pub(super) fn problem_text(strings: &EditorStrings, problem: &Diagnostic) -> String {
     let text = fill(

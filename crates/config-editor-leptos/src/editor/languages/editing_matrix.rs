@@ -14,11 +14,11 @@ const ALL: [Language; 5] = [
 
 fn large(language: Language) -> &'static str {
     match language.label() {
-        "YAML" => include_str!("../../../tests/fixtures/samples/burrow.large.yaml"),
-        "JSON" => include_str!("../../../tests/fixtures/samples/burrow.large.json"),
-        "TOML" => include_str!("../../../tests/fixtures/samples/burrow.large.toml"),
-        "HCL" => include_str!("../../../tests/fixtures/samples/burrow.large.hcl"),
-        _ => include_str!("../../../tests/fixtures/samples/burrow.large.xml"),
+        "YAML" => include_str!("../../../tests/fixtures/samples/tunnel.large.yaml"),
+        "JSON" => include_str!("../../../tests/fixtures/samples/tunnel.large.json"),
+        "TOML" => include_str!("../../../tests/fixtures/samples/tunnel.large.toml"),
+        "HCL" => include_str!("../../../tests/fixtures/samples/tunnel.large.hcl"),
+        _ => include_str!("../../../tests/fixtures/samples/tunnel.large.xml"),
     }
 }
 

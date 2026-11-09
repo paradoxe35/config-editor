@@ -330,7 +330,7 @@ fn view(state: State, setup: Setup) -> AnyView {
 /// import { ConfigDocuments, loadConfigEditor } from "@pngwasi/config-editor";
 /// await loadConfigEditor();
 /// let files = [
-///   { id: "main", fileName: "burrow.yaml", value: mainText, schema },
+///   { id: "main", fileName: "config.yaml", value: mainText, schema },
 ///   { id: "tls", fileName: "conf.d/tls.toml", value: tlsText, schema },
 /// ];
 /// const tabs = new ConfigDocuments(document.getElementById("files"), {

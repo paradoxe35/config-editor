@@ -256,7 +256,7 @@ for (const name of ['vanilla.html', ...FRAMEWORK_PAGES]) {
       await expectUnchanged(page, before, 'This field is read-only');
       await page.locator('#lock-first-line').check();
       await expect(page.locator('.config-editor__lock-marker')).toHaveCount(2);
-      await clickInto(page, 'Burrow', 2);
+      await clickInto(page, 'Tunnel', 2);
       await page.keyboard.type('x');
       await expectUnchanged(page, before, 'This text is read-only');
       // Unlocked, both edit again.
@@ -329,7 +329,7 @@ test.describe('read-only fields and the host', () => {
     await page.keyboard.type('9');
     await expect(status).toHaveAttribute('data-dirty', 'true');
     await page.locator('.demo__output-toggle').click();
-    await page.locator('.demo__server-change').click();
+    await page.locator('.demo__external-change').click();
     await expect(page.locator('.config-editor__notice')).toBeVisible();
     await page.locator('.config-editor__notice').getByRole('button', { name: /reload/i }).click();
     // The host's own text: the lock does not hold it back.

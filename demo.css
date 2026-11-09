@@ -149,7 +149,7 @@ body { margin: 0; }
 }
 
 /* The file's name gives way first (it is longest while editing as another
-   language, "burrow.yaml (editing as JSON)"), so the toolbar keeps one row. */
+   language, "tunnel.yaml (editing as JSON)"), so the toolbar keeps one row. */
 .demo__toolbar .config-editor__file { flex: 1 1 0; flex-wrap: nowrap; min-width: 14ch; }
 /* No wider than the name (its underline under the name alone); the room
    left over goes before the pickers. */

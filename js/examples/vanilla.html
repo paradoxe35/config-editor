@@ -84,7 +84,7 @@
       const saved = document.getElementById("saved");
       window.saves = [];
       window.conflicts = [];
-      const initial = "# Burrow server configuration\nlisten: 7835\npublic_address: tunnel.example.com\ninsecure_plaintext: false\n";
+      const initial = "# Tunnel server configuration\nlisten: 7835\npublic_address: tunnel.example.com\ninsecure_plaintext: false\n";
       saved.textContent = initial;
       // For tests: `?options={...}` adds or overrides constructor options.
       const extra = JSON.parse(new URLSearchParams(location.search).get("options") ?? "{}");
@@ -94,7 +94,7 @@
         language: "yaml",
         value: initial,
         schema,
-        fileName: "burrow.yaml",
+        fileName: "tunnel.yaml",
         showToolbar: true,
         showFooter: true,
         onChange: (text) => (saved.textContent = text),

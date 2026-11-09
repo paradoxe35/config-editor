@@ -9,7 +9,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 // switch, go to line, find (Ctrl+F, its next/previous, Escape), the
 // baseline-conflict notice's buttons, a refused save and a change reverted.
 // The host page is taller than the window, its editor below the fold, the
-// page scrolled to the top (burrow: a plain `element.focus()` scrolled the
+// page scrolled to the top (one host: a plain `element.focus()` scrolled the
 // page to the editor and hid the host's controls above it). Steps that only
 // set things up (typing an edit) scroll to the editor first and back after:
 // typing into a field off screen scrolls the page in any browser.

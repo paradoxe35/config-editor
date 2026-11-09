@@ -27,7 +27,7 @@
   const late = query.has("late");
   const slow = query.has("slow");
   const resetEarly = query.has("reset-early");
-  const initialText = "# Burrow server configuration\nlisten: 7835\npublic_address: tunnel.example.com\n";
+  const initialText = "# Tunnel server configuration\nlisten: 7835\npublic_address: tunnel.example.com\n";
 
   let value = $state(initialText);
   // The version last saved on the server; saves and other clients move it.
@@ -38,7 +38,7 @@
   // The value before the latest edit, for the parent-side revert button.
   let previous = initialText;
   let lateTimer: ReturnType<typeof setTimeout> | undefined;
-  let fileName = $state("burrow.yaml");
+  let fileName = $state("tunnel.yaml");
   let editAs: string | null = $state(null);
   let theme = $state("vscode-dark");
   let readOnly = $state(false);

@@ -34,7 +34,7 @@ async function open(page, options) {
 }
 
 // The vanilla page's document:
-//   1 # Burrow server configuration
+//   1 # Tunnel server configuration
 //   2 listen: 7835
 //   3 public_address: tunnel.example.com
 //   4 insecure_plaintext: false
