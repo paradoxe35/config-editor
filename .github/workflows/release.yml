@@ -118,8 +118,13 @@ jobs:
       - uses: taiki-e/install-action@v2
         with:
           tool: wasm-bindgen@${{ steps.versions.outputs.wasm_bindgen }},wasm-tools
+      - name: Cache the pinned wasm-opt download
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/binaryen
+          key: binaryen-${{ hashFiles('scripts/install-binaryen.sh') }}
       - name: Install wasm-opt (pinned; tested by CI's e2e on the same build)
-        run: scripts/install-binaryen.sh
+        run: scripts/install-binaryen.sh ~/.cache
       - uses: actions/setup-node@v5
         with:
           node-version: 22

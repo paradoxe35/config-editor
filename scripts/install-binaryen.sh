@@ -5,6 +5,9 @@
 #
 #   scripts/install-binaryen.sh [dir]   # default: $RUNNER_TEMP or /tmp
 #
+# The archive lands in <dir>/binaryen; a cached one with the right checksum
+# is not downloaded again.
+#
 # On GitHub Actions it adds wasm-opt to the PATH of the next steps.
 set -euo pipefail
 
@@ -14,8 +17,12 @@ SHA256=e959f2170af4c20c552e9de3a0253704d6a9d2766e8fdb88e4d6ac4bae9388fe
 dir=${1:-${RUNNER_TEMP:-/tmp}}/binaryen
 mkdir -p "$dir"
 archive="$dir/binaryen.tar.gz"
-curl -fsSL --retry 5 --retry-delay 5 --retry-connrefused -o "$archive" \
-  "https://github.com/WebAssembly/binaryen/releases/download/$VERSION/binaryen-$VERSION-x86_64-linux.tar.gz"
+# An archive already there (CI keeps it in a cache, as GitHub's release
+# downloads fail for long spells) is used when its checksum still matches.
+if ! echo "$SHA256  $archive" | sha256sum -c - >/dev/null 2>&1; then
+  curl -fsSL --retry 5 --retry-delay 5 --retry-connrefused -o "$archive" \
+    "https://github.com/WebAssembly/binaryen/releases/download/$VERSION/binaryen-$VERSION-x86_64-linux.tar.gz"
+fi
 echo "$SHA256  $archive" | sha256sum -c -
 tar -xzf "$archive" -C "$dir"
 bin="$dir/binaryen-$VERSION/bin"
