@@ -211,8 +211,18 @@ fn remember_texts(
     documents: &[Document],
 ) {
     let _ = texts.try_update_value(|texts| {
-        texts.retain(|id, _| documents.iter().any(|document| document.id == *id));
+        let listed: std::collections::HashSet<&str> = documents
+            .iter()
+            .map(|document| document.id.as_str())
+            .collect();
+        texts.retain(|id, _| listed.contains(id.as_str()));
+        // A repeated id is ignored, as the view ignores it (it shows and
+        // saves the first document listed with it).
+        let mut seen: std::collections::HashSet<&str> = std::collections::HashSet::new();
         for document in documents {
+            if !seen.insert(document.id.as_str()) {
+                continue;
+            }
             let baseline = document
                 .baseline
                 .clone()
