@@ -123,23 +123,34 @@ impl PathPlan {
     }
 }
 
+thread_local! {
+    static LAST_PLAN: std::cell::RefCell<Option<(u64, usize, std::rc::Rc<PathPlan>)>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Forgets the last text's plan.
+pub(super) fn forget_plan() {
+    let _ = LAST_PLAN.try_with(|last| last.borrow_mut().take());
+}
+
+#[cfg(test)]
+pub(super) fn plan_kept() -> bool {
+    LAST_PLAN.with(|last| last.borrow().is_some())
+}
+
 /// [`plan_text`] of `source` (whose tokens are `tokens`), remembered for
 /// the last text.
 pub(super) fn plan_paths(source: &str, tokens: &[Token]) -> std::rc::Rc<PathPlan> {
     use std::hash::{Hash, Hasher};
-    thread_local! {
-        static LAST: std::cell::RefCell<Option<(u64, usize, std::rc::Rc<PathPlan>)>> = const { std::cell::RefCell::new(None) };
-    }
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     source.hash(&mut hasher);
     let key = (hasher.finish(), source.len());
-    if let Some(plan) = LAST.with(|last| {
+    if let Some(plan) = LAST_PLAN.with(|last| {
         last.borrow().as_ref().filter(|(hash, len, _)| (*hash, *len) == key).map(|(_, _, plan)| plan.clone())
     }) {
         return plan;
     }
     let plan = std::rc::Rc::new(plan_text(source, tokens));
-    LAST.with(|last| *last.borrow_mut() = Some((key.0, key.1, plan.clone())));
+    LAST_PLAN.with(|last| *last.borrow_mut() = Some((key.0, key.1, plan.clone())));
     plan
 }
 

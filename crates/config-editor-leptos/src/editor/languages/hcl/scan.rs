@@ -196,6 +196,16 @@ thread_local! {
     static LAST_SCAN: std::cell::RefCell<Option<RememberedScan>> = const { std::cell::RefCell::new(None) };
 }
 
+/// Forgets the last scan.
+pub(super) fn forget_scan() {
+    let _ = LAST_SCAN.try_with(|last| last.borrow_mut().take());
+}
+
+#[cfg(test)]
+pub(super) fn scan_kept() -> bool {
+    LAST_SCAN.with(|last| last.borrow().is_some())
+}
+
 /// [`scan_text`] of `source` at `cursor`, remembered for the last text and
 /// cursor.
 pub(super) fn analyze(source: &str, cursor: usize) -> std::rc::Rc<Scan> {

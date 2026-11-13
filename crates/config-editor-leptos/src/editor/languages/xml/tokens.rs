@@ -30,13 +30,24 @@ pub(super) struct Token {
 /// A text's hash and length with its tokens.
 type Remembered = (u64, usize, std::rc::Rc<Vec<Token>>);
 
+thread_local! {
+    static LAST: std::cell::RefCell<Option<Remembered>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Forgets the last text's tokens.
+pub(super) fn forget_tokens() {
+    let _ = LAST.try_with(|last| last.borrow_mut().take());
+}
+
+#[cfg(test)]
+pub(super) fn tokens_kept() -> bool {
+    LAST.with(|last| last.borrow().is_some())
+}
+
 /// [`tokenize_text`] of `source`, remembered for the last text: one
 /// keystroke's completion, hover and spans each tokenize the same document.
 pub(super) fn tokenize(source: &str) -> Vec<Token> {
     use std::hash::{Hash, Hasher};
-    thread_local! {
-        static LAST: std::cell::RefCell<Option<Remembered>> = const { std::cell::RefCell::new(None) };
-    }
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     source.hash(&mut hasher);
     let key = (hasher.finish(), source.len());

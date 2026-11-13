@@ -69,6 +69,10 @@ const SCALAR_LINE: super::scalar_lines::LineRules = super::scalar_lines::LineRul
 };
 
 impl ConfigLanguage for HclBehavior {
+    fn forget_kept(&self) {
+        scan::forget_scan();
+    }
+
     fn edits_one_scalar(&self, source: &str, range: std::ops::Range<usize>, inserted: &str) -> bool {
         super::scalar_lines::one_scalar_line(self, source, range, inserted, &SCALAR_LINE).is_some()
     }

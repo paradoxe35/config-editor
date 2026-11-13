@@ -1838,6 +1838,11 @@ pub trait ConfigLanguage: Send + Sync + 'static {
         None
     }
 
+    /// Drops what the language keeps of the last texts it read (scans,
+    /// spans), once no editor is mounted: nothing of a closed editor's text
+    /// stays. Nothing by default.
+    fn forget_kept(&self) {}
+
     /// The text for the `value` range of a [`OneLine`] now holding `value`
     /// (`{ nodelay = true }`), so a save edits the container where it is.
     /// When one line cannot hold it, the text may span lines, indented by

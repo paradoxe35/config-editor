@@ -231,7 +231,18 @@ pub(crate) fn hold() {
 /// An editor unmounted: what is kept goes (the editors still mounted read
 /// it again once).
 pub(crate) fn release() {
-    let _ = HOLDERS.try_with(|holders| holders.set(holders.get().saturating_sub(1)));
+    let last = HOLDERS
+        .try_with(|holders| {
+            holders.set(holders.get().saturating_sub(1));
+            holders.get() == 0
+        })
+        .unwrap_or(false);
+    // The last editor gone: what the languages keep goes too.
+    if last {
+        for language in super::Language::ALL {
+            language.behavior().forget_kept();
+        }
+    }
     let _ = LAST.try_with(|last| last.borrow_mut().clear());
     let _ = BODIES.try_with(|last| last.borrow_mut().take());
     let _ = CONTEXT.try_with(|last| last.borrow_mut().take());

@@ -492,6 +492,16 @@ thread_local! {
     static LAST_SPANS: std::cell::RefCell<Option<(u64, std::rc::Rc<DocumentSpans>)>> = const { std::cell::RefCell::new(None) };
 }
 
+/// Forgets the last document's spans.
+pub(super) fn forget_spans() {
+    let _ = LAST_SPANS.try_with(|last| last.borrow_mut().take());
+}
+
+#[cfg(test)]
+pub(super) fn spans_kept() -> bool {
+    LAST_SPANS.with(|last| last.borrow().is_some())
+}
+
 fn document_spans(source: &str) -> std::rc::Rc<DocumentSpans> {
     // In a batch of problems, read once without hashing the text each time.
     if crate::editor::paths::in_batch(source) {
