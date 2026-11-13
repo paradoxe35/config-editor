@@ -183,6 +183,9 @@ pub(super) fn build_value(source: &str) -> Result<Value, ParseError> {
             }
             Event::GeneralRef(reference) => {
                 let name = reference.into_inner().into_owned();
+                if let Some(message) = bad_character_reference(&name) {
+                    return Err(syntax_error(source, event_start, message));
+                }
                 let content = resolve_reference(&name).unwrap_or_else(|| format!("&{name};"));
                 add_text(
                     source,
@@ -272,6 +275,11 @@ pub(super) fn open_element(
         let value = attribute
             .normalized_value(XmlVersion::Implicit1_0)
             .map_err(|error| syntax_error(source, start, error.to_string()))?;
+        // A reference to a character XML 1.0 cannot hold (`&#1;`), which
+        // the reader resolves (the raw character is refused before).
+        if let Some(character) = value.chars().find(|character| !is_xml_char(*character)) {
+            return Err(syntax_error(source, start, not_xml_char_message(character)));
+        }
         attrs.insert(key, typed_scalar(&value));
     }
     let config_root = top_level && attrs.get(CONFIG_ROOT_ATTRIBUTE) == Some(&Value::Bool(true));
@@ -410,6 +418,24 @@ pub(super) fn resolve_reference(name: &str) -> Option<String> {
     }
     // `numeric_entity` takes the reference with its `#` (`#65`, `#x41`).
     Some(numeric_entity(name)?.to_string())
+}
+
+/// Why the character reference `&{name};` (`#1`, `#xFFFE`) is not well-formed
+/// XML: it names a character XML 1.0 cannot hold, or no character at all.
+/// `None` for one that reads, and for an entity (`amp`, a declared one).
+pub(super) fn bad_character_reference(name: &str) -> Option<String> {
+    let digits = name.strip_prefix('#')?;
+    if numeric_entity(name).is_some() {
+        return None;
+    }
+    let code = match digits.strip_prefix(['x', 'X']) {
+        Some(hex) => u32::from_str_radix(hex, 16).ok(),
+        None => digits.parse::<u32>().ok(),
+    };
+    Some(match code {
+        Some(code) if code <= 0x10_ffff => format!("XML 1.0 cannot hold the character U+{code:04X}, not even escaped"),
+        _ => format!("&{name}; is no character reference"),
+    })
 }
 
 pub(super) fn syntax_error(source: &str, byte: usize, message: impl Into<String>) -> ParseError {

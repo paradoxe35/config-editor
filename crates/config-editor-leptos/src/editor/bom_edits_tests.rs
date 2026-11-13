@@ -58,8 +58,8 @@ fn marks(text: &str) -> Vec<usize> {
 }
 
 /// Every edit of the first line in every language, on LF and CRLF hosts:
-/// the screen has no mark, and `on_change` and `on_save` start with it,
-/// once, followed by the text on screen.
+/// the screen has no mark, and `on_change` and `on_save` (when the text
+/// parses) start with it, once, followed by the text on screen.
 #[test]
 fn no_edit_of_the_first_line_reaches_the_byte_order_mark() {
     let mut failures = Vec::new();
@@ -108,9 +108,13 @@ fn no_edit_of_the_first_line_reaches_the_byte_order_mark() {
                         "{case}: on_change heard {heard:?}, not {expected:?}"
                     ));
                 }
+                // A text that does not parse is not saved.
                 let saved = saves.get_untracked();
-                if saved.last().map(|text| marks(text)) != Some(vec![0]) {
+                let sendable = language.parse(&edited).is_ok();
+                if sendable && saved.last().map(|text| marks(text)) != Some(vec![0]) {
                     failures.push(format!("{case}: on_save got {saved:?}"));
+                } else if !sendable && !saved.is_empty() {
+                    failures.push(format!("{case}: invalid, on_save got {saved:?}"));
                 }
             }
         }

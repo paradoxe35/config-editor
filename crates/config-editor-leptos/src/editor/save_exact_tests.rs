@@ -388,19 +388,45 @@ fn a_key_that_cannot_be_an_xml_name_is_refused_plainly_at_the_key() {
 }
 
 /// A character XML 1.0 cannot hold (a control character, U+FFFE) is
-/// refused by the reader, raw or as a character reference's text, and by
-/// the writer: never written into a file XML readers reject.
+/// refused by the reader, raw or as a character reference (in text or an
+/// attribute), and by the writer: never written into a file XML readers
+/// reject.
 #[test]
 fn xml_refuses_characters_xml_cannot_hold_in_reading_and_writing() {
     let mut failures = Vec::new();
-    for text in ["<r>a\u{1}b</r>", "<r k=\"\u{fffe}\"/>", "<r>\u{0}</r>"] {
+    for text in [
+        "<r>a\u{1}b</r>",
+        "<r k=\"\u{fffe}\"/>",
+        "<r>\u{0}</r>",
+        "<r>&#1;</r>",
+        "<r>a&#x1F;b</r>",
+        "<r>&#xFFFE;</r>",
+        "<r>&#xD800;</r>",
+        "<r>&#0;</r>",
+        "<r>&#x110000;</r>",
+        "<r>&#xZZ;</r>",
+        "<r k=\"&#1;\"/>",
+        "<r k=\"&#xFFFF;\"/>",
+        "<r><![CDATA[\u{1}]]></r>",
+    ] {
         if Language::XML.parse(text).is_ok() {
             failures.push(format!("{text:?} read"));
         }
     }
-    // A reference to such a character is not one (left as text).
-    if Language::XML.parse("<r>&#1;</r>").ok() != Some(json!({"r": "&#1;"})) {
-        failures.push(format!("&#1;: {:?}", Language::XML.parse("<r>&#1;</r>")));
+    // References to characters XML holds read.
+    for (text, read) in [
+        ("<r>&#233;</r>", "é"),
+        ("<r>&#x9;a</r>", "\ta"),
+        ("<r k=\"&#65;\"/>", "A"),
+    ] {
+        let value = Language::XML.parse(text);
+        let found = value
+            .as_ref()
+            .ok()
+            .and_then(|value| value["r"].as_str().or_else(|| value["r"]["k"].as_str()));
+        if found != Some(read) {
+            failures.push(format!("{text:?}: {value:?}"));
+        }
     }
     for value in [
         json!({"r": "a\u{1}b"}),

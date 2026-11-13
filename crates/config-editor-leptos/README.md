@@ -281,7 +281,8 @@ keys, `{ showFooter: true }`), and its TypeScript type is generated from it.
 - Switching the language is an undo step: `Ctrl+Z` goes back to the view and
   text before the switch (`on_edit_as_change` hears it), `Ctrl+Y` returns,
   and the caret stays on the field it was on.
-- Invalid text is never sent to the host.
+- Text typed in the edited language that does not parse is never sent to
+  the host: neither `on_change` nor `on_save` hears it.
 - Values the host cannot carry exactly (for example an empty list in XML)
   are flagged as warnings on the value.
 - With a schema, a single XML element or HCL block where the schema expects a
@@ -560,11 +561,12 @@ any two texts with the free `ChangeSummary::between(baseline, current)`;
 Nothing is saved by itself. `Ctrl+S` / `Cmd+S` in the editor (the browser's
 save dialog prevented) and `EditorHandle::save` call `on_save` with a
 `SaveRequest { text, language }`: the document in the host's `language`.
-While editing as another language, an edit still waiting out the typing pause
-is converted first (it reaches `on_change` before `on_save`); when it cannot
-be written in `language` (invalid, or a `null` for TOML), nothing is sent,
-`save` returns `false`, and the caret goes to the problem with its message
-shown.
+Text that does not parse is never saved, in any language: nothing is sent,
+`save` returns `false`, and the caret goes to the syntax error with its
+message shown (`on_change` still hears every edit). While editing as another
+language, an edit still waiting out the typing pause is converted first (it
+reaches `on_change` before `on_save`); when it cannot be written in
+`language` (invalid, or a `null` for TOML), the save waits the same way.
 
 <details>
 <summary>Line endings (CRLF, LF and CR, mixed in one text)</summary>

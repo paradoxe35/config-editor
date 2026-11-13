@@ -10,6 +10,8 @@ mod conflict;
 mod save;
 
 #[cfg(test)]
+mod save_tests;
+#[cfg(test)]
 mod tests;
 
 use std::collections::VecDeque;

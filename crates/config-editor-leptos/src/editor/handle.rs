@@ -321,8 +321,8 @@ impl EditorHandle {
     /// Saves as `Ctrl+S` does: sends the document, in the host's language,
     /// to the `on_save` prop (see [`SaveRequest`](crate::SaveRequest)).
     /// Returns whether it was sent: `false` without `on_save`, before the
-    /// editor mounts, and while an Edit-as edit cannot convert back (the
-    /// caret then goes to the problem).
+    /// editor mounts, while the text does not parse, and while an Edit-as
+    /// edit cannot convert back (the caret then goes to the problem).
     pub fn save(&self) -> bool {
         self.editor().is_some_and(|state| state.save())
     }

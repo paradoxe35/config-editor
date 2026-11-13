@@ -549,7 +549,7 @@ for your own text), so set those with `replaceValue` too.
 | `reveal(path)`, `revealRange(range)`, `rangeOf(path)`, `pathAt(index)` | Paths and positions; see [Paths](#paths).                                                                                                                                              |
 | `fold(path)`, `unfold(path)`, `foldAll()`, `unfoldAll()`               | Fold the block a field's key opens / open the folds around a field (`false` when there was nothing to do); fold or open everything. See [Folding](#folding).                           |
 | `focus()`                                                              | Focus the editor, keeping its selection.                                                                                                                                               |
-| `save()`                                                               | Save as `Ctrl+S` does (calls `onSave`); `false` when nothing was sent (no `onSave`, or an `editAs` edit that cannot convert back yet).                                                 |
+| `save()`                                                               | Save as `Ctrl+S` does (calls `onSave`); `false` when nothing was sent (no `onSave`, text that does not parse, or an `editAs` edit that cannot convert back yet).                       |
 | `unifiedDiff(context?)`                                                | The `diff -u` of the baseline against the document, with `context` unchanged lines around each change (default 3); `""` when they are the same. Its lines end with LF.                 |
 
 `ConfigEditor` adds:
@@ -1073,14 +1073,15 @@ read the document from `value`, not from the element.
 ## Saving and unsaved edits
 
 Nothing is saved by itself: `Ctrl+S` / `Cmd+S` in the editor (and
-`editor.save()`) calls `onSave` with the document in `language`. While
-editing as another language, an edit still waiting out the typing pause is
-converted first; when it cannot be written in `language` (invalid, or a
-`null` for TOML), nothing is sent, `save()` returns `false`, and the caret
-goes to the problem. The document is dirty while it differs from `baseline`
-(the document at mount when no `baseline` is given). Embedding notes (what
-is fixed at mount, which text to send, flushing before your own Save
-button) are in the crate's
+`editor.save()`) calls `onSave` with the document in `language`. Text that
+does not parse is never saved, in any language: nothing is sent, `save()`
+returns `false`, and the caret goes to the syntax error (`onChange` still
+hears every edit). While editing as another language, an edit still waiting
+out the typing pause is converted first; when it cannot be written in
+`language` (invalid, or a `null` for TOML), the save waits the same way.
+The document is dirty while it differs from `baseline` (the document at
+mount when no `baseline` is given). Embedding notes (what is fixed at mount,
+which text to send, flushing before your own Save button) are in the crate's
 [Embedding](https://crates.io/crates/config-editor-leptos#embedding)
 section: `editor.value` is the document in `language`, `editor.text` the
 text on screen.
