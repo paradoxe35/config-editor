@@ -14,7 +14,7 @@ fn save(
     let shown = bridge.to_edit(host_text).unwrap().text;
     let changed = change(&shown);
     assert_ne!(changed, shown, "the change applies to:\n{shown}");
-    bridge.to_host(&changed, host_text).unwrap().text
+    bridge.to_host(&changed, host_text).unwrap()
 }
 
 #[test]
@@ -315,7 +315,7 @@ fn round_8_saves_change_only_the_edit() {
             failures.push(format!("{name}: the change does not apply to\n{shown}"));
             return;
         }
-        let saved = bridge.to_host(&changed, text).unwrap().text;
+        let saved = bridge.to_host(&changed, text).unwrap();
         if saved != expected {
             failures.push(format!(
                 "{name}:\n--- expected\n{expected}--- saved\n{saved}"
@@ -432,7 +432,7 @@ fn round_9_saves_change_only_the_edit() {
             failures.push(format!("{name}: the change does not apply to\n{shown}"));
             return;
         }
-        let saved = bridge.to_host(&changed, text).unwrap().text;
+        let saved = bridge.to_host(&changed, text).unwrap();
         if saved != expected {
             failures.push(format!(
                 "{name}:\n--- expected\n{expected}--- saved\n{saved}"
@@ -539,10 +539,10 @@ fn round_10_saves_change_only_the_edit() {
             change(&mut value);
             let changed = serde_json::to_string_pretty(&value).unwrap();
             match bridge.to_host(&changed, text) {
-                Ok(saved) if saved.text == expected => {}
+                Ok(saved) if saved == expected => {}
                 Ok(saved) => failures.push(format!(
                     "{name}:\n--- expected\n{expected}--- saved\n{}\n{:?}",
-                    saved.text, saved.text
+                    saved, saved
                 )),
                 Err(error) => failures.push(format!("{name}: {error:?}")),
             }
@@ -766,10 +766,10 @@ fn round_11_saves_change_only_the_edit() {
             change(&mut value);
             let changed = serde_json::to_string_pretty(&value).unwrap();
             match bridge.to_host(&changed, text) {
-                Ok(saved) if saved.text == expected => {}
+                Ok(saved) if saved == expected => {}
                 Ok(saved) => failures.push(format!(
                     "{name}:\n--- expected\n{expected}--- saved\n{}\n{:?}",
-                    saved.text, saved.text
+                    saved, saved
                 )),
                 Err(error) => failures.push(format!("{name}: {error:?}")),
             }
@@ -975,10 +975,10 @@ fn round_12_saves_change_only_the_edit() {
         change(&mut value);
         let changed = edit.behavior().serialize(&value, Some(&shown)).unwrap();
         match bridge.to_host(&changed, text) {
-            Ok(saved) if saved.text == expected => {}
+            Ok(saved) if saved == expected => {}
             Ok(saved) => failures.push(format!(
                 "{name}:\n--- expected\n{expected}--- saved\n{}\n{:?}",
-                saved.text, saved.text
+                saved, saved
             )),
             Err(error) => failures.push(format!("{name}: {error:?}")),
         }
@@ -1109,10 +1109,10 @@ fn round_13_saves_change_only_the_edit() {
         change(&mut value);
         let changed = edit.behavior().serialize(&value, Some(&shown)).unwrap();
         match bridge.to_host(&changed, text) {
-            Ok(saved) if saved.text == expected => {}
+            Ok(saved) if saved == expected => {}
             Ok(saved) => failures.push(format!(
                 "{name}:\n--- expected\n{expected}--- saved\n{}\n{:?}",
-                saved.text, saved.text
+                saved, saved
             )),
             Err(error) => failures.push(format!("{name}: {error:?}")),
         }
@@ -1276,8 +1276,7 @@ fn a_yaml_value_made_empty_again_is_written_empty() {
             "{\"listen\": 1, \"pool\": {\"min_idle\": null, \"max_idle\": 2}}",
             host,
         )
-        .unwrap()
-        .text;
+        .unwrap();
     assert_eq!(saved, "listen: 1\npool:\n  min_idle:\n  max_idle: 2\n");
     let host = "listen: 1\npool:\n  min_idle: ~\n  max_idle: 2\n";
     let saved = bridge
@@ -1285,8 +1284,7 @@ fn a_yaml_value_made_empty_again_is_written_empty() {
             "{\"listen\": 2, \"pool\": {\"min_idle\": null, \"max_idle\": 2}}",
             host,
         )
-        .unwrap()
-        .text;
+        .unwrap();
     assert_eq!(saved, "listen: 2\npool:\n  min_idle: ~\n  max_idle: 2\n");
 }
 
@@ -1306,10 +1304,10 @@ fn round_14_saves_change_only_the_edit() {
         change(&mut value);
         let changed = edit.behavior().serialize(&value, Some(&shown)).unwrap();
         match bridge.to_host(&changed, text) {
-            Ok(saved) if saved.text == expected => {}
+            Ok(saved) if saved == expected => {}
             Ok(saved) => failures.push(format!(
                 "{name}:\n--- expected\n{expected}--- saved\n{}\n{:?}",
-                saved.text, saved.text
+                saved, saved
             )),
             Err(error) => failures.push(format!("{name}: {error:?}")),
         }
@@ -1428,8 +1426,8 @@ fn a_yaml_block_list_emptied_and_refilled_stays_a_block_list() {
         let bridge = Bridge::new(Language::YAML, edit, None).unwrap();
         let shown = |yaml: &str| bridge.to_edit(yaml).unwrap().text;
         for (host, empty, refilled) in cases {
-            let emptied = bridge.to_host(&shown(empty), host).unwrap().text;
-            let saved = bridge.to_host(&shown(refilled), &emptied).unwrap().text;
+            let emptied = bridge.to_host(&shown(empty), host).unwrap();
+            let saved = bridge.to_host(&shown(refilled), &emptied).unwrap();
             if emptied != empty || saved != refilled {
                 failures.push(format!("as {edit}: {host:?} -> {emptied:?} -> {saved:?}"));
             }
@@ -1437,8 +1435,7 @@ fn a_yaml_block_list_emptied_and_refilled_stays_a_block_list() {
         // Items written in flow keep it.
         let saved = bridge
             .to_host(&shown("l: [b]\nn: 1\n"), "l: [a]\nn: 1\n")
-            .unwrap()
-            .text;
+            .unwrap();
         if saved != "l: [b]\nn: 1\n" {
             failures.push(format!("as {edit}: flow {saved:?}"));
         }
@@ -1488,7 +1485,7 @@ fn an_empty_list_filled_from_another_view_changes_only_its_entry() {
         } else {
             shown.replace("[]", "[\"b\"]")
         };
-        let saved = bridge.to_host(&filled, text).unwrap().text;
+        let saved = bridge.to_host(&filled, text).unwrap();
         if saved != expected {
             failures.push(format!("{host}: {saved:?}"));
         }

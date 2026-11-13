@@ -63,6 +63,22 @@ fn edit_value(
     view: Language,
     change: &dyn Fn(&mut Value),
 ) -> Result<(), String> {
+    type_value(state, view, change)?;
+    state.recheck_tokens();
+    convert_now(
+        state,
+        state.doc().text.get_untracked(),
+        state.sync().edit_language.get_untracked(),
+    );
+    Ok(())
+}
+
+/// [`edit_value`] without the typing pause: the edit only.
+fn type_value(
+    state: EditorState,
+    view: Language,
+    change: &dyn Fn(&mut Value),
+) -> Result<(), String> {
     let before = state.doc().text.get_untracked();
     let mut value = view.parse(&before).map_err(|error| error.message)?;
     change(&mut value);
@@ -87,12 +103,6 @@ fn edit_value(
     if !state.commit(Edit::new(before, (start, stop), text, caret)) {
         return Err("refused".to_string());
     }
-    state.recheck_tokens();
-    convert_now(
-        state,
-        state.doc().text.get_untracked(),
-        state.sync().edit_language.get_untracked(),
-    );
     Ok(())
 }
 
@@ -261,6 +271,82 @@ fn a_placeholder_follows_its_field_through_a_renamed_key_above_it() {
                         if !holds.is_some_and(|text| text == tokens.same || text == tokens.other) {
                             failures.push(format!("{case}: host heard {saved:?}"));
                         }
+                    }
+                }
+            }
+        }
+    }
+    report(failures);
+}
+
+/// Saved at once, inside the typing pause after items shifted around a
+/// placeholder or a key above it was renamed (round 19's `D19.editing-1`):
+/// the save follows the placeholder to its field as the pause would, and
+/// sends the host with the secret in its new place, in every host and
+/// view.
+#[test]
+fn a_save_inside_the_typing_pause_follows_a_placeholder_to_its_field() {
+    let mut failures = Vec::new();
+    let changes: [(&str, Change, &str); 4] = [
+        (
+            "the item before it deleted",
+            |value| {
+                items(value).remove(0);
+            },
+            "/env/0/value",
+        ),
+        (
+            "an item inserted before it",
+            |value| items(value).insert(0, json!({"name": "Z", "value": "z"})),
+            "/env/2/value",
+        ),
+        (
+            "it moved up",
+            |value| {
+                let item = items(value).remove(1);
+                items(value).insert(0, item);
+            },
+            "/env/0/value",
+        ),
+        (
+            "the list's key renamed",
+            |value| {
+                let map = value.as_object_mut().unwrap();
+                let env = map.shift_remove("env").unwrap();
+                map.insert("vars".into(), env);
+            },
+            "/vars/1/value",
+        ),
+    ];
+    for tokens in &HOSTS {
+        for host in ALL {
+            for view in ALL {
+                for (step, change, at) in &changes {
+                    let case = format!("{host} host as {view} ({}), {step}", tokens.pattern);
+                    let saves = RwSignal::new(Vec::<String>::new());
+                    let text = host.serialize(&document(tokens.same)).unwrap();
+                    let mut editor = TestEditor::new(host, &text);
+                    editor.edit_as = (view != host).then_some(view);
+                    editor.secrets = Some(tokens.options());
+                    editor.on_save = Some(Callback::new(
+                        move |request: super::super::host_editing::SaveRequest| {
+                            saves.update(|all| all.push(request.text));
+                        },
+                    ));
+                    let (_owner, state) = editor.mount();
+                    if let Err(error) = type_value(state, view, change) {
+                        failures.push(format!("{case}: {error}"));
+                        continue;
+                    }
+                    if !state.save() {
+                        failures.push(format!("{case}: the save was refused"));
+                        continue;
+                    }
+                    let saved = saves.get_untracked().last().cloned().unwrap_or_default();
+                    let read = host.parse(&saved).ok();
+                    if read.as_ref().and_then(|read| read.pointer(at)) != Some(&json!(tokens.same))
+                    {
+                        failures.push(format!("{case}: saved {saved:?}"));
                     }
                 }
             }

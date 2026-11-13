@@ -156,7 +156,7 @@ fn a_save_keeps_the_hosts_comments_and_drops_typed_ones() {
                     failures.push(format!("{host} as {edit}: comment shown in {shown:?}"));
                 }
                 match bridge.to_host(&shown.replacen('1', "2", 1), commented) {
-                    Ok(saved) if saved.text.contains("the port") && saved.text.contains('2') => {}
+                    Ok(saved) if saved.contains("the port") && saved.contains('2') => {}
                     other => failures.push(format!(
                         "{host} as {edit}: the host's comment was not kept: {other:?}"
                     )),
@@ -176,7 +176,7 @@ fn a_save_keeps_the_hosts_comments_and_drops_typed_ones() {
                 failures.push(format!("{host} as {edit}: no comment in {typed:?}"));
             }
             match bridge.to_host(&typed, plain) {
-                Ok(saved) if !saved.text.contains("typed note") => {}
+                Ok(saved) if !saved.contains("typed note") => {}
                 other => failures.push(format!(
                     "{host} as {edit}: the typed comment was saved: {other:?}"
                 )),

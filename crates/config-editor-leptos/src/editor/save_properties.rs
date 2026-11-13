@@ -503,7 +503,7 @@ fn check(
     };
     let case = format!("{} host, edited as {}: {label}", host.label(), edit.label());
     let saved = match bridge.to_host(&edited_text, host_text) {
-        Ok(saved) => saved.text,
+        Ok(saved) => saved,
         // A document the host cannot write is reported to the user instead.
         Err(_) => return None,
     };
@@ -777,9 +777,9 @@ fn every_list_reversed_from_every_view_keeps_its_comments_with_its_items() {
                     continue;
                 };
                 saved_count += 1;
-                let mut problems = comments_left_behind(host, host_text, &saved.text);
+                let mut problems = comments_left_behind(host, host_text, &saved);
                 let seen = bridge
-                    .to_edit(&saved.text)
+                    .to_edit(&saved)
                     .ok()
                     .and_then(|shown| codec::read(edit.behavior(), &shown.text, shape).ok());
                 let expected = codec::read(edit.behavior(), &edited_text, shape).ok();
@@ -790,7 +790,7 @@ fn every_list_reversed_from_every_view_keeps_its_comments_with_its_items() {
                     failures.push(format!(
                         "{case}: {}\n--- host\n{host_text}--- saved\n{}",
                         problems.join("; "),
-                        saved.text
+                        saved
                     ));
                 }
             }

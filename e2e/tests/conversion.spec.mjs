@@ -73,12 +73,14 @@ test.describe('values the host language cannot carry', () => {
     await expect(page.locator('.config-editor__diagnostic-marker')).toHaveCount(0);
   });
 
-  test('an empty list is a warning, because XML cannot write one', async ({ page }) => {
+  test('an empty list waits with an error and is not saved, because XML cannot write one', async ({ page }) => {
     const e = editor(page);
+    const before = await saved(page);
     await e.paste(`${await e.value()}self:\n  allow: []\n`);
-    const warning = page.locator('.config-editor__diagnostic-marker-warning');
-    await expect(warning).toHaveCount(1);
-    await expect(warning).toHaveAttribute('data-message', /XML cannot keep this value exactly/);
+    const error = page.locator('.config-editor__diagnostic-marker');
+    await expect(error).toHaveCount(1);
+    await expect(error).toHaveAttribute('data-message', /^Not saved as XML: \/self\/allow: XML cannot keep this value exactly/);
+    expect(await saved(page)).toBe(before);
   });
 });
 

@@ -205,11 +205,12 @@ test.describe('edit as JSON keeps comments on structural edits', () => {
 });
 
 test.describe('the footer counts warnings apart from errors', () => {
-  setupEditor(test, '?language=xml&edit=yaml');
-
-  test('a value the XML host cannot keep is a warning, not an error', async ({ page }) => {
-    const e = editor(page);
-    await e.paste(`${await e.value()}self:\n  allow: []\n`);
+  test('a value the XML view cannot show is a warning, not an error', async ({ page, baseURL }) => {
+    await page.addInitScript(() => {
+      window.configEditorSample = 'listen: 1\nallow: []\n';
+    });
+    await page.goto(`${baseURL}?language=yaml&edit=xml&sample=page`);
+    await page.locator('.config-editor__input').waitFor();
     await expect(page.locator('.config-editor__diagnostic-marker-warning')).toHaveCount(1);
     await expect(page.locator('.config-editor__diagnostic-status')).toContainText('1 warning');
     await expect(page.locator('.config-editor__diagnostic-status')).not.toContainText('error');

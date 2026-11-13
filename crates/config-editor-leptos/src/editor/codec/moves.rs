@@ -2,8 +2,12 @@
 //! saved in stages: the kept items moved first (each with its comment
 //! lines, as [`super::patch_reorder`] moves them), then the moved items
 //! edited where they now are, then the removed ones dropped, then the new
-//! ones added. Each stage is one kind of change the patches make line by
-//! line, so a comment stays with its item through all of them.
+//! ones added. Kept items only shifted by items removed and others added
+//! (`[a, b]` made `[b, c]`) are saved with the new items added first, then
+//! the kept ones edited, then the removed ones dropped (a list left with
+//! one item on the way would read as that item where items repeat). Each
+//! stage is one kind of change the patches make line by line, so a comment
+//! stays with its item through all of them.
 
 use serde_json::{Map, Value};
 
@@ -27,18 +31,31 @@ pub(in super::super) fn stages(old: &Value, new: &Value) -> Vec<Value> {
     out
 }
 
-/// Which item of `old` each item of `new` is: the first unused equal one,
-/// else the unused one most like it (an item edited as it moved).
+/// Which item of `old` each item of `new` is: the equal one in its place,
+/// else the first unused equal one, else the unused one most like it (an
+/// item edited as it moved).
 fn matching(old: &[Value], new: &[Value]) -> Vec<Option<usize>> {
     let mut used = vec![false; old.len()];
     let mut found: Vec<Option<usize>> = new
         .iter()
-        .map(|item| {
-            let at = (0..old.len()).find(|at| !used[*at] && old[*at] == *item)?;
-            used[at] = true;
-            Some(at)
+        .enumerate()
+        .map(|(slot, item)| {
+            let stays = old.get(slot) == Some(item);
+            if stays {
+                used[slot] = true;
+            }
+            stays.then_some(slot)
         })
         .collect();
+    for (slot, item) in new.iter().enumerate() {
+        if found[slot].is_some() {
+            continue;
+        }
+        if let Some(at) = (0..old.len()).find(|at| !used[*at] && old[*at] == *item) {
+            used[at] = true;
+            found[slot] = Some(at);
+        }
+    }
     // The likest pairs first, the nearest of equally like ones.
     let mut pairs: Vec<(usize, usize, usize)> = Vec::new();
     for (slot, item) in new
@@ -138,8 +155,27 @@ fn staged(old: &Value, new: &Value, found: &mut bool) -> [Value; 3] {
                 .filter_map(|(slot, from)| Some(((*from)?, slot)))
                 .collect();
             let moves = kept.windows(2).any(|pair| pair[0].0 > pair[1].0);
+            // Kept items in other places (others removed or added before
+            // them): written in place, each would take the comments of the
+            // item that was there.
+            let shifted = kept.iter().any(|(from, slot)| from != slot);
             let edited = kept.iter().any(|(from, slot)| left[*from] != right[*slot]);
-            if moves && (edited || kept.len() < left.len().max(right.len())) {
+            let resized = kept.len() < left.len().max(right.len());
+            if !moves && shifted && resized {
+                *found = true;
+                let grown = grown(left, right, &matched);
+                let edited = grown
+                    .iter()
+                    .map(|(item, slot)| slot.map_or(*item, |slot| &right[slot]).clone())
+                    .collect();
+                let grown = grown.into_iter().map(|(item, _)| item.clone()).collect();
+                return [
+                    Value::Array(grown),
+                    Value::Array(edited),
+                    Value::Array(right.clone()),
+                ];
+            }
+            if moves && (edited || resized) {
                 *found = true;
                 let mut places: Vec<usize> = kept.iter().map(|(from, _)| *from).collect();
                 places.sort_unstable();
@@ -170,6 +206,30 @@ fn staged(old: &Value, new: &Value, found: &mut bool) -> [Value; 3] {
     }
 }
 
+/// `old`'s items with `new`'s added ones among them, each kept item (by
+/// `matched`, in order) where it is: every item with the slot of `new` it
+/// is, when it is kept or added.
+fn grown<'a>(
+    old: &'a [Value],
+    new: &'a [Value],
+    matched: &[Option<usize>],
+) -> Vec<(&'a Value, Option<usize>)> {
+    let mut out = Vec::with_capacity(old.len() + new.len());
+    let mut next = 0;
+    for (slot, item) in new.iter().enumerate() {
+        match matched[slot] {
+            Some(from) => {
+                out.extend(old[next..from].iter().map(|removed| (removed, None)));
+                out.push((&old[from], Some(slot)));
+                next = from + 1;
+            }
+            None => out.push((item, Some(slot))),
+        }
+    }
+    out.extend(old[next..].iter().map(|removed| (removed, None)));
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::stages;
@@ -187,8 +247,25 @@ mod tests {
             stages(&old, &json!({"l": ["c", "x", "a"]})),
             vec![json!({"l": ["c", "b", "a"]}), json!({"l": ["c", "a"]})]
         );
+        // Shifted by one removed and one added: added first.
+        assert_eq!(
+            stages(&old, &json!({"l": ["b", "c", "d"]})),
+            vec![json!({"l": ["a", "b", "c", "d"]})]
+        );
+        assert_eq!(
+            stages(&old, &json!({"l": ["x", "a", "cc"]})),
+            vec![
+                json!({"l": ["x", "a", "b", "c"]}),
+                json!({"l": ["x", "a", "b", "cc"]}),
+            ]
+        );
         // Only moved, only resized, or an item edited in place: one stage.
         assert!(stages(&old, &json!({"l": ["c", "b", "a"]})).is_empty());
+        assert!(stages(&old, &json!({"l": ["b", "c"]})).is_empty());
+        assert!(stages(&old, &json!({"l": ["x", "a", "b", "c"]})).is_empty());
+        assert!(stages(&old, &json!({"l": ["a", "b", "x"]})).is_empty());
+        // An item edited to equal the next, which stays: edited in place.
+        assert!(stages(&old, &json!({"l": ["a", "c", "c"]})).is_empty());
         assert!(stages(&old, &json!({"l": ["a", "b", "c", "d"]})).is_empty());
         assert!(stages(&old, &json!({"l": ["a", "x", "c"]})).is_empty());
     }

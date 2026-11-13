@@ -326,9 +326,9 @@ fn items_moved_added_and_removed_from_every_view_keep_their_comments() {
                         }
                     };
                     saved_count += 1;
-                    let mut problems = misplaced_comments(host, host_text, &saved.text, &edits);
+                    let mut problems = misplaced_comments(host, host_text, &saved, &edits);
                     let seen = bridge
-                        .to_edit(&saved.text)
+                        .to_edit(&saved)
                         .ok()
                         .and_then(|shown| codec::read(edit.behavior(), &shown.text, shape).ok());
                     if seen.as_ref() != Some(&edited) {
@@ -338,7 +338,7 @@ fn items_moved_added_and_removed_from_every_view_keep_their_comments() {
                         failures.push(format!(
                             "{case}: {}\n--- host\n{host_text}--- saved\n{}",
                             problems.join("; "),
-                            saved.text
+                            saved
                         ));
                     }
                 }

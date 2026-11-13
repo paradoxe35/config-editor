@@ -106,7 +106,7 @@ fn work(
         .text;
     let (saved, done) = counted(work, || bridge.to_host(&edited, &host_text));
     let saved = saved.unwrap_or_else(|error| panic!("{host} as {view}: {error:?}"));
-    let read = host.behavior().parse(&saved.text).expect("reads");
+    let read = host.behavior().parse(&saved).expect("reads");
     assert_eq!(read, wanted, "{host} as {view}");
     done
 }

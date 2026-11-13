@@ -38,11 +38,11 @@ fn check(
         *value.pointer_mut(pointer).unwrap() = serde_json::from_str::<Value>(list).unwrap();
         let edited = codec::serialize(view.behavior(), &value, Some(&shown)).unwrap();
         match bridge.to_host(&edited, host_text) {
-            Ok(saved) if saved.text == expected => {}
+            Ok(saved) if saved == expected => {}
             Ok(saved) => failures.push(format!(
                 "{name} via {}:\n--- expected\n{expected}--- saved\n{}",
                 view.label(),
-                saved.text
+                saved
             )),
             Err(error) => failures.push(format!("{name} via {}: {error:?}", view.label())),
         }
@@ -344,5 +344,96 @@ fn emptying_the_labels_of_blocks_removes_them() {
             expected,
         );
     }
+    assert!(failures.is_empty(), "{}", failures.join("\n\n"));
+}
+
+/// D18.docs-1: one item removed and another added in the same save, the
+/// kept items shifted by them (none moved past another): each kept item
+/// keeps its comment, the removed one's goes with it, and the new one has
+/// none. In every host's list form.
+#[test]
+fn comments_stay_with_items_shifted_by_a_removal_and_an_addition() {
+    let mut failures = Vec::new();
+    let yaml = "servers:\n  # A\n  - a\n  # B\n  - b\n# end\n";
+    check(
+        &mut failures,
+        "YAML scalars",
+        Language::YAML,
+        yaml,
+        "/servers",
+        r#"["b", "c"]"#,
+        "servers:\n  # B\n  - b\n  - c\n# end\n",
+    );
+    check(
+        &mut failures,
+        "YAML scalars, one added first",
+        Language::YAML,
+        yaml,
+        "/servers",
+        r#"["c", "a"]"#,
+        "servers:\n  - c\n  # A\n  - a\n# end\n",
+    );
+    let yaml =
+        "l:\n  # A\n  - n: a\n    p: 1\n  # B\n  - n: b\n    p: 2\n  # C\n  - n: c\n    p: 3\n";
+    check(
+        &mut failures,
+        "YAML maps, three",
+        Language::YAML,
+        yaml,
+        "/l",
+        r#"[{"n": "b", "p": 2}, {"n": "c", "p": 3}, {"n": "d", "p": 4}]"#,
+        "l:\n  # B\n  - n: b\n    p: 2\n  # C\n  - n: c\n    p: 3\n  - n: d\n    p: 4\n",
+    );
+    let json = "{\n  \"servers\": [\n    \"a\",\n    \"b\"\n  ]\n}\n";
+    check(
+        &mut failures,
+        "JSON (no comments)",
+        Language::JSON,
+        json,
+        "/servers",
+        r#"["b", "c"]"#,
+        "{\n  \"servers\": [\n    \"b\",\n    \"c\"\n  ]\n}\n",
+    );
+    let toml = "n = 1\n\n# A\n[[s]]\nn = \"a\"\n\n# B\n[[s]]\nn = \"b\"\n";
+    check(
+        &mut failures,
+        "TOML tables",
+        Language::TOML,
+        toml,
+        "/s",
+        r#"[{"n": "b"}, {"n": "c"}]"#,
+        "n = 1\n\n# B\n[[s]]\nn = \"b\"\n\n[[s]]\nn = \"c\"\n",
+    );
+    let hcl = "n = 1\n\n# A\nsvc {\n  name = \"a\"\n}\n\n# B\nsvc {\n  name = \"b\"\n}\n";
+    check(
+        &mut failures,
+        "HCL blocks",
+        Language::HCL,
+        hcl,
+        "/svc",
+        r#"[{"name": "b"}, {"name": "c"}]"#,
+        "n = 1\n\n# B\nsvc {\n  name = \"b\"\n}\n\nsvc {\n  name = \"c\"\n}\n",
+    );
+    let xml = "<r>\n  <!-- A -->\n  <s>a</s>\n  <!-- B -->\n  <s>b</s>\n  <f>1</f>\n</r>\n";
+    check(
+        &mut failures,
+        "XML elements",
+        Language::XML,
+        xml,
+        "/r/s",
+        r#"["b", "c"]"#,
+        "<r>\n  <!-- B -->\n  <s>b</s>\n  <s>c</s>\n  <f>1</f>\n</r>\n",
+    );
+    // An item edited in place keeps its comment (no item shifted).
+    let yaml = "servers:\n  # A\n  - a\n  # B\n  - b\n";
+    check(
+        &mut failures,
+        "YAML, the second item replaced",
+        Language::YAML,
+        yaml,
+        "/servers",
+        r#"["a", "c"]"#,
+        "servers:\n  # A\n  - a\n  # B\n  - c\n",
+    );
     assert!(failures.is_empty(), "{}", failures.join("\n\n"));
 }

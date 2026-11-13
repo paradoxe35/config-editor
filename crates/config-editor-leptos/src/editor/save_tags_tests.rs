@@ -63,20 +63,17 @@ fn every_tag_is_kept_through_edits_in_every_language() {
                     let lost: Vec<&str> = TAGS
                         .iter()
                         .copied()
-                        .filter(|tag| !saved.text.contains(tag.split(' ').next().unwrap()))
+                        .filter(|tag| !saved.contains(tag.split(' ').next().unwrap()))
                         .collect();
                     if !lost.is_empty() {
-                        failures.push(format!(
-                            "{edit}, {change}: lost {lost:?} in {:?}",
-                            saved.text
-                        ));
+                        failures.push(format!("{edit}, {change}: lost {lost:?} in {:?}", saved));
                     }
-                    let read = Language::YAML.parse(&saved.text).unwrap();
+                    let read = Language::YAML.parse(&saved).unwrap();
                     let expected = Language::YAML
                         .parse(&HOST.replacen(bare_from, bare_to, 1))
                         .unwrap();
                     if read != expected {
-                        failures.push(format!("{edit}, {change}: saved {:?}", saved.text));
+                        failures.push(format!("{edit}, {change}: saved {:?}", saved));
                     }
                 }
                 Err(error) => failures.push(format!("{edit}, {change}: waits: {error:?}")),
@@ -111,8 +108,8 @@ fn an_edit_that_cannot_keep_a_tag_waits_saying_why() {
             continue;
         }
         match bridge.to_host(&changed, HOST) {
-            Ok(saved) if saved.text.contains("!include") => {}
-            Ok(saved) => failures.push(format!("{edit}: saved without the tag: {:?}", saved.text)),
+            Ok(saved) if saved.contains("!include") => {}
+            Ok(saved) => failures.push(format!("{edit}: saved without the tag: {:?}", saved)),
             Err(error) => {
                 let message = match &error {
                     SaveError::Convert(error) => error.to_string(),

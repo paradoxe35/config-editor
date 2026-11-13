@@ -49,7 +49,6 @@ fn save(
         .map_err(|error| error.to_string())?;
     bridge
         .to_host(&edited, text)
-        .map(|saved| saved.text)
         .map_err(|error| format!("{error:?}"))
 }
 

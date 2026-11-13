@@ -38,7 +38,7 @@ fn work(work: Work, typed: &str, (host, view): (Language, Language), services: u
     let edited = format!("{}7{}", &shown[..at], &shown[at..]);
     let (saved, count) = counted(work, || bridge.to_host(&edited, &host_text));
     assert!(
-        saved.expect("saves").text.contains(&format!("{value}7")),
+        saved.expect("saves").contains(&format!("{value}7")),
         "{host} as {view}"
     );
     count

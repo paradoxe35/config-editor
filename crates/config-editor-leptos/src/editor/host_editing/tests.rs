@@ -73,7 +73,11 @@ fn dirty_follows_load_edit_and_save_in_every_language_pair() {
                 None => host_text.to_string(),
             };
             let dirty = |text: &str, baseline: &str, synced: (&str, &str)| {
-                text != shown_baseline(bridge.as_ref(), baseline, synced)
+                let converted = || match &bridge {
+                    Some(bridge) => bridge.to_edit(baseline).unwrap().text,
+                    None => baseline.to_string(),
+                };
+                text != shown_baseline(bridge.is_some(), baseline, synced, converted)
             };
             let synced = (host_text, shown.as_str());
             if dirty(&shown, host_text, synced) {
@@ -85,7 +89,7 @@ fn dirty_follows_load_edit_and_save_in_every_language_pair() {
             }
             // Saved: the host text the edit converts to becomes the baseline.
             let saved = match &bridge {
-                Some(bridge) => bridge.to_host(&edited, host_text).unwrap().text,
+                Some(bridge) => bridge.to_host(&edited, host_text).unwrap(),
                 None => edited.clone(),
             };
             if dirty(&edited, &saved, (&saved, &edited)) {

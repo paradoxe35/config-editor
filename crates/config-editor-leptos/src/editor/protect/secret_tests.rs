@@ -106,7 +106,7 @@ fn placeholders_survive_every_conversion_and_save() {
                 .find(|(from, _)| shown.contains(from))
                 .map_or_else(|| shown.clone(), |(from, to)| shown.replacen(from, to, 1));
             let saved = match bridge.to_host(&edited, &host_text) {
-                Ok(conversion) => conversion.text,
+                Ok(conversion) => conversion,
                 Err(error) => {
                     failures.push(format!("{host} as {edit}: save failed: {error:?}"));
                     continue;
@@ -126,12 +126,7 @@ fn placeholders_survive_every_conversion_and_save() {
                 }
             }
             // And back, unedited: the host's text exactly.
-            if bridge
-                .to_host(&shown, &host_text)
-                .map(|conversion| conversion.text)
-                .ok()
-                != Some(host_text.clone())
-            {
+            if bridge.to_host(&shown, &host_text).ok() != Some(host_text.clone()) {
                 failures.push(format!(
                     "{host} as {edit}: an unedited round trip changed the host"
                 ));
@@ -226,9 +221,7 @@ fn random_edits_never_cut_a_placeholder() {
                 shown = edited;
                 tokens = matcher().locate(edit.behavior(), &shown, &known);
                 let converted = match &bridge {
-                    Some(bridge) => bridge
-                        .to_host(&shown, &saved_host)
-                        .map(|conversion| conversion.text),
+                    Some(bridge) => bridge.to_host(&shown, &saved_host),
                     None => Ok(shown.clone()),
                 };
                 if let Ok(converted) = converted {

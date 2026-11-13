@@ -13,6 +13,7 @@ use super::edit_as::{EditAsProblem, EditAsText, SaveError};
 use super::language::ConfigLanguage;
 use std::sync::Arc;
 
+mod collapsed;
 mod emptied_quotes;
 mod host_strings;
 #[cfg(all(
@@ -112,7 +113,7 @@ impl Bridge {
         &self,
         edit_text: &str,
         previous_host: &str,
-    ) -> Result<Conversion, SaveError> {
+    ) -> Result<String, SaveError> {
         self.to_host_since(edit_text, previous_host, previous_host)
     }
 
@@ -120,17 +121,27 @@ impl Bridge {
     /// `origin`, whose styles outlast the session's saves (the quotes of a
     /// string emptied and typed again). A leading byte order mark is no
     /// part of the document: the text after it is patched, and it stays.
+    /// The host's text is the save only when it reads back as the view
+    /// holds the document: a value it reads otherwise is
+    /// [`SaveError::CannotKeep`].
     pub(super) fn to_host_since(
         &self,
         edit_text: &str,
         previous_host: &str,
         origin: &str,
-    ) -> Result<Conversion, SaveError> {
+    ) -> Result<String, SaveError> {
         let (previous, _) = byte_order_mark::split(previous_host);
         let (origin, _) = byte_order_mark::split(origin);
-        let mut conversion = self.to_unmarked_host(edit_text, previous, origin)?;
-        conversion.text = byte_order_mark::restore(previous_host, conversion.text);
-        Ok(conversion)
+        let conversion = self.to_unmarked_host(edit_text, previous, origin)?;
+        // A value the host would read back otherwise (XML writes a one-item
+        // list as its item, and no empty list) waits: a save never writes
+        // what the host reads back differently from the view.
+        if let Some(pointer) = conversion.losses.first() {
+            return Err(SaveError::CannotKeep {
+                pointer: pointer.clone(),
+            });
+        }
+        Ok(byte_order_mark::restore(previous_host, conversion.text))
     }
 
     fn to_unmarked_host(
@@ -299,8 +310,21 @@ impl Bridge {
             Some(_) => merge::keys_ordered_like(target, &old),
             None => target,
         };
-        let mut losses = rendered.losses.clone();
+        // A list the host held left with one item or none reads back as
+        // the host spells it (see `collapsed`): no loss.
+        let lost = |losses: &[String]| -> Vec<String> {
+            losses
+                .iter()
+                .filter(|pointer| !collapsed::host_spelling(&old, &value, &target, pointer))
+                .cloned()
+                .collect()
+        };
+        let mut losses = lost(&rendered.losses);
         losses.retain(|pointer| !kept.contains(pointer));
+        let rendered = Conversion {
+            losses: lost(&rendered.losses),
+            ..rendered
+        };
         let shape = self.shape();
         // What the host writes once and reads in several places (a YAML
         // alias) is written out where the edit parts it from the rest; a
@@ -468,27 +492,16 @@ impl Bridge {
         }
     }
 
-    /// A warning on each value the host cannot carry exactly, or an error when
-    /// the document cannot be saved. Syntax errors are left to validation.
+    /// The error when the document cannot be saved. Syntax errors are left
+    /// to validation.
     pub(super) fn problems(
         &self,
         edit_text: &str,
-        result: &Result<Conversion, SaveError>,
+        result: &Result<String, SaveError>,
     ) -> Vec<EditAsProblem> {
         let host = self.host;
         match result {
-            Ok(conversion) => conversion
-                .losses
-                .iter()
-                .map(|pointer| EditAsProblem {
-                    at: located(self.edit.behavior(), edit_text, pointer, Severity::Warning),
-                    text: EditAsText::HostCannotKeep {
-                        pointer: pointer.clone(),
-                        host,
-                    },
-                })
-                .collect(),
-            Err(SaveError::Convert(ConvertError::Parse(_))) => Vec::new(),
+            Ok(_) | Err(SaveError::Convert(ConvertError::Parse(_))) => Vec::new(),
             Err(error) => vec![EditAsProblem {
                 at: locate_error(self.edit.behavior(), edit_text, error),
                 text: EditAsText::NotSaved {
@@ -764,24 +777,24 @@ mod tests {
         assert_eq!(shown.text, "listen = 7835\n");
         let saved = bridge.to_host("listen = 9000\n", host).unwrap();
         assert_eq!(
-            saved.text,
+            saved,
             "<?xml version=\"1.0\"?>\n<burrow config-root=\"true\">\n  <listen>9000</listen>\n</burrow>\n"
         );
     }
 
     #[test]
-    fn a_value_the_host_cannot_carry_is_a_warning_on_that_value() {
+    fn a_value_the_host_cannot_carry_is_an_error_on_that_value_and_not_saved() {
         let bridge = Bridge::new(Language::XML, Language::YAML, None).unwrap();
         let edit = "hosts:\n  - only.example\nport: 80\n";
         let result = bridge.to_host(edit, "");
+        assert!(result.is_err(), "{result:?}");
         let problems = worded(bridge.problems(edit, &result));
         assert_eq!(problems.len(), 1);
-        assert_eq!(problems[0].severity, Severity::Warning);
+        assert_eq!(problems[0].severity, Severity::Error);
         assert_eq!(problems[0].line, Some(1));
-        assert!(
-            problems[0].message.contains("XML cannot keep"),
-            "{}",
-            problems[0].message
+        assert_eq!(
+            problems[0].message,
+            "Not saved as XML: /hosts: XML cannot keep this value exactly; it reads back differently"
         );
     }
 
@@ -856,7 +869,7 @@ mod tests {
             let shown = bridge.to_edit(host).unwrap().text;
             assert!(shown.contains(from), "{from} in {shown}");
             let saved = bridge.to_host(&shown.replace(from, to), host).unwrap();
-            assert_eq!(saved.text, expected, "{from} -> {to}");
+            assert_eq!(saved, expected, "{from} -> {to}");
         }
     }
 
@@ -871,8 +884,7 @@ mod tests {
                 };
                 let edited = format!("{}9000{}", &shown[..at], &shown[at + 4..]);
                 let saved = bridge.to_host(&edited, original).unwrap();
-                assert_eq!(saved.text, expected, "{host} edited as {edit}");
-                assert!(saved.losses.is_empty());
+                assert_eq!(saved, expected, "{host} edited as {edit}");
             }
         }
     }
@@ -886,7 +898,7 @@ mod tests {
                 "listen: 1 # c\n",
             )
             .unwrap();
-        assert_eq!(saved.text, "listen: 1 # c\npublic_address: b\n");
+        assert_eq!(saved, "listen: 1 # c\npublic_address: b\n");
     }
 
     #[cfg(feature = "schema-validation")]
@@ -907,7 +919,7 @@ mod tests {
         assert_eq!(shown.losses, Vec::<String>::new(), "{}", shown.text);
         let edited = shown.text.replace(">x<", ">z<");
         let saved = bridge.to_host(&edited, host).unwrap();
-        assert_eq!(saved.text, host.replace("token: x", "token: z"));
+        assert_eq!(saved, host.replace("token: x", "token: z"));
     }
 
     #[test]
@@ -938,7 +950,7 @@ mod tests {
                     value["insecure_plaintext"] = serde_json::Value::Bool(true);
                     edit.serialize(&value).unwrap()
                 };
-                let saved = bridge.to_host(&added_value, text).unwrap().text;
+                let saved = bridge.to_host(&added_value, text).unwrap();
                 assert!(
                     saved.contains("# Burrow server") && saved.contains("# port"),
                     "{host} as {edit} add:\n{saved}"
@@ -950,7 +962,7 @@ mod tests {
                     value.as_object_mut().unwrap().remove("public_address");
                     edit.serialize(&value).unwrap()
                 };
-                let saved = bridge.to_host(&removed_value, text).unwrap().text;
+                let saved = bridge.to_host(&removed_value, text).unwrap();
                 assert!(
                     saved.contains("# Burrow server") && saved.contains("# port"),
                     "{host} as {edit} remove:\n{saved}"
@@ -966,7 +978,7 @@ mod tests {
         let host = "public_address: null\nname: \"\"\nflag: \"true\"\ncount: \"1\"\ninsecure_plaintext: false\n";
         let shown = bridge.to_edit(host).unwrap().text;
         let edited = shown.replace(">false<", ">true<");
-        let saved = bridge.to_host(&edited, host).unwrap().text;
+        let saved = bridge.to_host(&edited, host).unwrap();
         assert_eq!(
             saved,
             host.replace("insecure_plaintext: false", "insecure_plaintext: true")
@@ -995,7 +1007,7 @@ mod tests {
                 "\"listen\": 7835,",
                 "\"listen\": 7835,\n  \"public_address\": \"x\",",
             );
-            let saved = bridge.to_host(&edited, host).unwrap().text;
+            let saved = bridge.to_host(&edited, host).unwrap();
             assert!(
                 saved.contains("# Burrow") && saved.contains("# main port"),
                 "{host_language}:\n{saved}"
@@ -1010,7 +1022,7 @@ mod tests {
         let host = "# head\npool: {min_idle: 4, max_idle: 8} # tuned\nlisten: 7835\n";
         let shown = bridge.to_edit(host).unwrap().text;
         let edited = shown.replace("\"max_idle\": 8", "\"max_idle\": 9");
-        let saved = bridge.to_host(&edited, host).unwrap().text;
+        let saved = bridge.to_host(&edited, host).unwrap();
         assert_eq!(saved, host.replace("max_idle: 8", "max_idle: 9"));
     }
 
@@ -1020,7 +1032,7 @@ mod tests {
         let host = "# head\nlisten: 7835 # main port\ninsecure_plaintext: false\n";
         let shown = bridge.to_edit(host).unwrap().text;
         let edited = shown.replace("\"listen\"", "\"listen_port\"");
-        let saved = bridge.to_host(&edited, host).unwrap().text;
+        let saved = bridge.to_host(&edited, host).unwrap();
         assert!(saved.contains("# head"), "{saved}");
         assert!(saved.contains("listen_port: 7835 # main port"), "{saved}");
     }
@@ -1053,7 +1065,7 @@ mod structural_saves {
     ) -> String {
         let bridge = Bridge::new(host, edit, None).unwrap();
         let shown = bridge.to_edit(host_text).unwrap().text;
-        bridge.to_host(&change(&shown), host_text).unwrap().text
+        bridge.to_host(&change(&shown), host_text).unwrap()
     }
 
     #[test]
@@ -1141,8 +1153,7 @@ mod structural_saves {
         assert!(shown.contains("cert: c"), "{shown}");
         let saved = bridge
             .to_host(&shown.replace("cert: c", "cert: d"), host)
-            .unwrap()
-            .text;
+            .unwrap();
         assert_eq!(saved, host.replace("cert = \"c\"", "cert = \"d\""));
     }
 

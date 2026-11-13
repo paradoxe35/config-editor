@@ -93,7 +93,7 @@ fn template_escapes_read_as_text_and_write_back_in_the_strings_form() {
                 }
                 // Another value edited: the string is written as it was.
                 let edited = view_with(view, &shown.text, |value| value["n"] = json!(2));
-                let saved = bridge.to_host(&edited, &host_text).unwrap().text;
+                let saved = bridge.to_host(&edited, &host_text).unwrap();
                 if saved != host(form, &escaped(text), 2) {
                     failures.push(format!("{case}, n edited: saved\n{saved}"));
                 }
@@ -106,7 +106,7 @@ fn template_escapes_read_as_text_and_write_back_in_the_strings_form() {
                     new_text.clone()
                 };
                 let edited = view_with(view, &shown.text, |value| value["msg"] = json!(new_read));
-                let saved = bridge.to_host(&edited, &host_text).unwrap().text;
+                let saved = bridge.to_host(&edited, &host_text).unwrap();
                 if saved != host(form, &escaped(&new_text), 1) {
                     failures.push(format!("{case}, msg edited: saved\n{saved}"));
                 }
@@ -140,7 +140,7 @@ fn a_heredoc_template_keeps_its_interpolation_when_edited() {
         let edited = view_with(view, &shown.text, |value| {
             value["msg"] = json!("hello! ${var.x}\n")
         });
-        let saved = bridge.to_host(&edited, host_text).unwrap().text;
+        let saved = bridge.to_host(&edited, host_text).unwrap();
         assert_eq!(
             saved,
             "msg = <<EOT\nhello! ${var.x}\nEOT\nn = 1\n",
@@ -211,7 +211,7 @@ fn edits_keep_templates_references_and_literals_apart_from_every_view() {
                 *value.pointer_mut(pointer).unwrap() = json!(text)
             });
             match bridge.to_host(&edited, host_text) {
-                Ok(saved) if saved.text == host_text.replace(before, after) => {}
+                Ok(saved) if saved == host_text.replace(before, after) => {}
                 other => failures.push(format!("{pointer} via {}: {other:?}", view.label())),
             }
         }

@@ -106,12 +106,9 @@ fn edit_as_saves_keep_non_finite_numbers() {
             let edited = shown.replacen('1', "2", 1);
             match bridge.to_host(&edited, source) {
                 Ok(saved) => {
-                    let read = host.parse(&saved.text).expect("reads");
+                    let read = host.parse(&saved).expect("reads");
                     if !non_finite(&read) || read["n"] != 2 {
-                        failures.push(format!(
-                            "{host} as {edit}: {edited:?} saved {:?}",
-                            saved.text
-                        ));
+                        failures.push(format!("{host} as {edit}: {edited:?} saved {:?}", saved));
                     }
                 }
                 Err(error) => failures.push(format!("{host} as {edit}: {error:?}")),
@@ -244,9 +241,9 @@ fn strings_spelled_like_the_reserved_form_stay_strings() {
                 let shown = bridge.to_edit(source).expect("shows").text;
                 match bridge.to_host(&shown.replacen('1', "2", 1), source) {
                     Ok(saved) => {
-                        let read = from.parse(&saved.text).expect("reads");
+                        let read = from.parse(&saved).expect("reads");
                         if !holds_forged(&read) || read["n"] != 2 {
-                            failures.push(format!("{from} as {to}: saved {:?}", saved.text));
+                            failures.push(format!("{from} as {to}: saved {:?}", saved));
                         }
                     }
                     Err(error) => failures.push(format!("{from} as {to}: {error:?}")),

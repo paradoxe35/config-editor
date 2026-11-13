@@ -84,7 +84,7 @@ fn numbers_and_booleans_typed_in_their_own_spelling_keep_the_host_type_and_spell
                 tried += 1;
                 let case = format!("{host} host via {edit}: {key} typed {typed}");
                 let saved = match bridge.to_host(&edited, host_text) {
-                    Ok(saved) => saved.text,
+                    Ok(saved) => saved,
                     Err(error) => {
                         failures.push(format!("{case}: waits: {error:?}"));
                         continue;
@@ -184,7 +184,7 @@ fn a_number_typed_in_a_view_keeps_its_spelling_in_a_host_whose_values_are_text()
                         continue;
                     };
                     let saved = match bridge.to_host(&edited, host_text) {
-                        Ok(saved) => saved.text,
+                        Ok(saved) => saved,
                         Err(error) => {
                             failures.push(format!("{case}: waits: {error:?}"));
                             continue;

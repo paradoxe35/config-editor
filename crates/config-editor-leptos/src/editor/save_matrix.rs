@@ -21,16 +21,17 @@ pub(super) fn save_value(
     host_text: &str,
     change: &dyn Fn(&mut Value),
 ) -> Result<String, String> {
-    save_conversion(host, edit, host_text, change).map(|saved| saved.text)
+    save_conversion(host, edit, host_text, change).map(|(saved, _)| saved)
 }
 
-/// [`save_value`] with the values the host reads back differently.
+/// [`save_value`], and whether the view itself reads the changed value
+/// back otherwise (XML text `1.5` is a number).
 pub(super) fn save_conversion(
     host: Language,
     edit: Language,
     host_text: &str,
     change: &dyn Fn(&mut Value),
-) -> Result<super::codec::Conversion, String> {
+) -> Result<(String, bool), String> {
     let bridge = Bridge::new(host, edit, None).ok_or("same language")?;
     let shown = bridge
         .to_edit(host_text)
@@ -40,15 +41,10 @@ pub(super) fn save_conversion(
     change(&mut value);
     let edited = super::codec::serialize(edit.behavior(), &value, Some(&shown))
         .map_err(|error| error.to_string())?;
-    let mut saved = bridge
+    let saved = bridge
         .to_host(&edited, host_text)
         .map_err(|error| format!("{error:?}"))?;
-    // A value the view itself reads back otherwise (XML text `1.5` is a
-    // number) is a loss too.
-    if edit.parse(&edited).ok().as_ref() != Some(&value) {
-        saved.losses.push("(the view)".to_string());
-    }
-    Ok(saved)
+    Ok((saved, edit.parse(&edited).ok().as_ref() != Some(&value)))
 }
 
 /// Saves `change` from every other view and compares with `expected`.
@@ -121,8 +117,7 @@ pub(super) fn save_steps(
             .map_err(|error| error.to_string())?;
         saved = bridge
             .to_host_since(&shown, &saved, host_text)
-            .map_err(|error| format!("{error:?}"))?
-            .text;
+            .map_err(|error| format!("{error:?}"))?;
     }
     Ok(saved)
 }

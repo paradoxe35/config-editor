@@ -54,13 +54,13 @@ fn a_quoted_string_emptied_saved_and_typed_again_keeps_its_quotes_from_every_vie
             };
             // The emptied text saved when the typing pause ends.
             let saved = match bridge.to_host_since(&emptied, origin, origin) {
-                Ok(saved) => saved.text,
+                Ok(saved) => saved,
                 // A view that reads an empty value as no string waits.
                 Err(_) => origin.to_string(),
             };
             match bridge.to_host_since(&filled, &saved, origin) {
-                Ok(again) if again.text == expected => {}
-                Ok(again) => failures.push(format!("{case}:\n{saved}--- then\n{}", again.text)),
+                Ok(again) if again == expected => {}
+                Ok(again) => failures.push(format!("{case}:\n{saved}--- then\n{}", again)),
                 Err(error) => failures.push(format!("{case}: {error:?}")),
             }
         }

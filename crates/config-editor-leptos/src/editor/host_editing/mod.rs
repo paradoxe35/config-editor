@@ -10,6 +10,8 @@ mod conflict;
 mod save;
 
 #[cfg(test)]
+mod edit_as_save_tests;
+#[cfg(test)]
 mod save_tests;
 #[cfg(test)]
 mod tests;
@@ -100,26 +102,24 @@ pub(super) fn decide_baseline(
     }
 }
 
-/// The host's `baseline` as shown on screen. `synced` is the last host text
+/// The host's `baseline` as shown on screen, `converted` to the language on
+/// screen when that is another (`bridged`). `synced` is the last host text
 /// and the edited text it saved as: a baseline equal to that host text (set
-/// right after a save) is shown as that edited text, so saving while
-/// editing as another language leaves nothing marked changed, formatting
-/// the conversion would redo differently included.
+/// right after a save, or a formatting-only edit converted back to it) is
+/// shown as that edited text, so saving while editing as another language
+/// leaves nothing marked changed, formatting the conversion would redo
+/// differently included.
 pub(super) fn shown_baseline(
-    bridge: Option<&Bridge>,
+    bridged: bool,
     baseline: &str,
     synced: (&str, &str),
+    converted: impl FnOnce() -> String,
 ) -> String {
-    let Some(bridge) = bridge else {
-        return baseline.to_string();
-    };
     let (host_text, synced_edit) = synced;
-    if baseline == host_text {
+    if bridged && baseline == host_text {
         return synced_edit.to_string();
     }
-    bridge
-        .to_edit(baseline)
-        .map_or_else(|_| baseline.to_string(), |conversion| conversion.text)
+    converted()
 }
 
 /// Texts sent to the host recently, as fingerprints: a baseline equal to one
@@ -211,9 +211,12 @@ impl HostEditing {
             shown_cache,
             host_text,
             synced_edit,
+            synced,
             ..
         } = *sync;
-        let shown_baseline = Memo::new(move |_| {
+        // The baseline converted for the language on screen: once per
+        // baseline and language, not on every conversion of an edit.
+        let converted = Memo::new(move |_| {
             let host = baseline.get();
             let edit = edit_language.get();
             // Usually the baseline is the host text a switch just converted.
@@ -223,13 +226,25 @@ impl HostEditing {
                     .filter(|(language, from, _)| *language == edit && *from == host)
                     .map(|(_, _, shown)| shown.clone())
             });
-            if let Some(shown) = cached {
-                return shown;
-            }
-            let bridge = Bridge::new(host_language, edit, schema.get_value());
+            cached.unwrap_or_else(
+                || match Bridge::new(host_language, edit, schema.get_value()) {
+                    Some(bridge) => bridge
+                        .to_edit(&host)
+                        .map_or_else(|_| host.clone(), |conversion| conversion.text),
+                    None => host,
+                },
+            )
+        });
+        // A baseline the host's text is (nothing unsaved, a formatting-only
+        // edit converted back to it) is shown as the edited text it saved
+        // as, followed through every conversion.
+        let shown_baseline = Memo::new(move |_| {
+            synced.track();
+            let host = baseline.get();
+            let bridged = edit_language.get() != host_language;
             host_text.with_value(|host_text| {
-                synced_edit.with_value(|synced| {
-                    shown_baseline(bridge.as_ref(), &host, (host_text, synced))
+                synced_edit.with_value(|synced_edit| {
+                    shown_baseline(bridged, &host, (host_text, synced_edit), || converted.get())
                 })
             })
         });

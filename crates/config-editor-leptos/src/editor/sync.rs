@@ -46,6 +46,10 @@ pub(super) struct SyncState {
     pub(super) session_host: StoredValue<String>,
     /// The edited text matching `host_text`.
     pub(super) synced_edit: StoredValue<String>,
+    /// Notified when `host_text` or `synced_edit` changes: the baseline as
+    /// shown follows them (a formatting-only edit converted to the host's
+    /// own text is the baseline as shown, so nothing is dirty).
+    pub(super) synced: Trigger,
     /// Edited texts already saved, each with its language and the host text
     /// it saved as: an undo back to one (across a switch too) restores that
     /// host exactly, comments a fresh save could not bring back included.
@@ -151,6 +155,7 @@ impl SyncState {
             session_host: StoredValue::new(host_text.clone()),
             host_text: StoredValue::new(host_text),
             synced_edit: StoredValue::new(synced),
+            synced: Trigger::new(),
             synced_hosts: StoredValue::new(Vec::new()),
             on_edit_as_change: StoredValue::new(None),
             language_told: StoredValue::new(false),
@@ -226,6 +231,7 @@ impl EditorState {
                 None => {
                     self.sync().synced_edit.set_value(edit.text.clone());
                     self.sync().host_text.set_value(edit.text.clone());
+                    self.sync().synced.notify();
                     self.sync().session_host.set_value(edit.text.clone());
                     self.sync().load_problems.set(Vec::new());
                     self.note_in_sync(true);
@@ -320,6 +326,7 @@ pub(super) fn take_host_value(state: EditorState, external: String) {
         ),
     };
     state.sync().synced_edit.set_value(edit.clone());
+    state.sync().synced.notify();
     state.sync().synced_hosts.update_value(Vec::clear);
     state.note_in_sync(true);
     let current = state.doc().text.get_untracked();
@@ -441,6 +448,12 @@ pub(super) fn convert_now(state: EditorState, text: String, language: Language) 
             state.note_in_sync(true);
             return;
         }
+        // The placeholders follow their fields first, as the typing pause
+        // has them follow: a save or flush before the pause converts the
+        // text the pause would (a placeholder's item shifted is still real).
+        if state.doc().text.with_untracked(|current| *current == text) {
+            state.recheck_tokens();
+        }
         remember_synced_as(
             state,
             language,
@@ -452,39 +465,40 @@ pub(super) fn convert_now(state: EditorState, text: String, language: Language) 
         let origin = state.sync().session_host.get_value();
         let result = bridge
             .to_host_since(&text, &previous, &origin)
-            .map(|mut conversion| {
+            .map(|saved| {
                 // Back to a text saved before (an undo), or the host's own (a
                 // reloaded baseline): its host text exactly.
-                if let Some(host) = state.sync().synced_hosts.with_value(|saved| {
+                match state.sync().synced_hosts.with_value(|saved| {
                     saved
                         .iter()
                         .find(|(known, edit, _)| *known == language && *edit == text)
                         .map(|(_, _, host)| host.clone())
                 }) {
-                    conversion.text = host;
-                    hosts_own = true;
+                    Some(host) => {
+                        hosts_own = true;
+                        host
+                    }
+                    None => saved,
                 }
-                conversion
             });
         // However the edit got there, a save never changes a read-only
         // value: it is refused like any other unsafe save. A text the host
         // itself had is its own to restore.
-        let result = result.and_then(|conversion| {
+        let result = result.and_then(|saved| {
             if hosts_own {
-                return Ok(conversion);
+                return Ok(saved);
             }
-            state
-                .check_host_save(&previous, &conversion.text)
-                .map(|()| conversion)
+            state.check_host_save(&previous, &saved).map(|()| saved)
         });
         note_conversion_problems(state, bridge.problems(&text, &result));
         state.note_in_sync(result.is_ok());
-        if let Ok(conversion) = result {
+        if let Ok(saved) = result {
             state.sync().synced_edit.set_value(text);
-            if conversion.text != state.sync().host_text.get_value() {
-                state.sync().host_text.set_value(conversion.text.clone());
+            state.sync().synced.notify();
+            if saved != state.sync().host_text.get_value() {
+                state.sync().host_text.set_value(saved.clone());
                 if let Some(on_change) = state.sync().host_on_change {
-                    on_change.run(conversion.text);
+                    on_change.run(saved);
                 }
             }
         }
@@ -557,12 +571,12 @@ fn save_pending(state: EditorState) {
         .session_host
         .try_get_value()
         .unwrap_or_default();
-    if let Ok(conversion) = bridge.to_host_since(&text, &host, &origin)
-        && conversion.text != host
-        && state.check_host_save(&host, &conversion.text).is_ok()
+    if let Ok(saved) = bridge.to_host_since(&text, &host, &origin)
+        && saved != host
+        && state.check_host_save(&host, &saved).is_ok()
         && let Some(on_change) = state.sync().host_on_change
     {
-        on_change.run(conversion.text);
+        on_change.run(saved);
     }
 }
 
@@ -689,11 +703,7 @@ pub(super) fn switch_to(state: EditorState, next: Language) {
         {
             Some(bridge) => bridge
                 .to_host_since(&text, &host_text, &state.sync().session_host.get_value())
-                .and_then(|conversion| {
-                    state
-                        .check_host_save(&host_text, &conversion.text)
-                        .map(|()| conversion.text)
-                }),
+                .and_then(|saved| state.check_host_save(&host_text, &saved).map(|()| saved)),
             None => state.config().schema.with_value(|schema| {
                 codec::convert(
                     &text,
@@ -715,6 +725,7 @@ pub(super) fn switch_to(state: EditorState, next: Language) {
                 remember_synced_as(state, current, text.clone(), host_text_before.clone());
                 remember_synced_as(state, next, converted.clone(), host_text_before.clone());
                 state.sync().synced_edit.set_value(converted.clone());
+                state.sync().synced.notify();
                 state.sync().shown_cache.set_value(Some((
                     next,
                     host_text_before.clone(),
@@ -725,11 +736,12 @@ pub(super) fn switch_to(state: EditorState, next: Language) {
                 // the typing pause: the converted text is the host's now.
                 state.sync().synced_edit.set_value(converted.clone());
                 state.note_in_sync(true);
-                if converted != host_text_before {
-                    state.sync().host_text.set_value(converted.clone());
-                    if let Some(on_change) = state.sync().host_on_change {
-                        on_change.run(converted.clone());
-                    }
+                state.sync().host_text.set_value(converted.clone());
+                state.sync().synced.notify();
+                if converted != host_text_before
+                    && let Some(on_change) = state.sync().host_on_change
+                {
+                    on_change.run(converted.clone());
                 }
             }
             // The caret stays on the field it was on; undo puts the

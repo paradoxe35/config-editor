@@ -20,6 +20,9 @@ pub(in crate::editor) enum SaveError {
     /// An infinity or NaN at `pointer` the host's language has no number
     /// for (JSON, HCL and XML would write it as text).
     NoNonFinite { pointer: String },
+    /// A value at `pointer` the host's language would read back otherwise
+    /// (XML has no empty or one-item list without a schema saying so).
+    CannotKeep { pointer: String },
     /// The save would change a read-only value.
     #[cfg_attr(
         not(feature = "protect"),
@@ -64,6 +67,7 @@ impl SaveError {
             }
             SaveError::NoNull { pointer }
             | SaveError::NoNonFinite { pointer }
+            | SaveError::CannotKeep { pointer }
             | SaveError::GluedPlaceholder { pointer }
             | SaveError::MovedPlaceholder { pointer, .. } => pointer.clone(),
             SaveError::ReadOnly(change) => change.pointer.clone(),
@@ -81,6 +85,10 @@ impl SaveError {
             SaveError::NoNonFinite { pointer } => fill(
                 &strings.no_non_finite,
                 &[("host", &host.label()), ("pointer", pointer)],
+            ),
+            SaveError::CannotKeep { pointer } => fill(
+                &strings.host_cannot_keep,
+                &[("pointer", pointer), ("host", &host.label())],
             ),
             SaveError::ReadOnly(change) => {
                 super::super::protect::save_refused(strings, &change.pointer)
@@ -108,8 +116,6 @@ fn convert_text(error: &ConvertError, strings: &EditorStrings) -> String {
 /// What an Edit-as problem says.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(in crate::editor) enum EditAsText {
-    /// The host's language reads the value at `pointer` back differently.
-    HostCannotKeep { pointer: String, host: Language },
     /// The edited language cannot show the value at `pointer` exactly.
     EditCannotShow { pointer: String, edit: Language },
     /// The edit is not saved.
@@ -128,10 +134,6 @@ pub(in crate::editor) enum EditAsText {
 impl EditAsText {
     fn text(&self, strings: &EditorStrings) -> String {
         match self {
-            EditAsText::HostCannotKeep { pointer, host } => fill(
-                &strings.host_cannot_keep,
-                &[("pointer", pointer), ("host", &host.label())],
-            ),
             EditAsText::EditCannotShow { pointer, edit } => fill(
                 &strings.edit_cannot_show,
                 &[("pointer", pointer), ("edit", &edit.label())],

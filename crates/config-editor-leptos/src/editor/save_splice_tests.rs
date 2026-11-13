@@ -341,14 +341,14 @@ fn any_string_edited_from_any_view_is_spliced_in_place() {
                         continue;
                     }
                     let case = format!("{host} host, {pointer} = {value:?} via {edit}");
-                    let (losses, saved) = (saved.losses, saved.text);
+                    let (saved, lossy) = saved;
                     saved_count += 1;
-                    // A value the host cannot hold exactly (XML text of a
-                    // lone carriage return reads as nothing) may be written
-                    // whole; any other save is a splice.
+                    // A value the view itself reads back otherwise (XML
+                    // text `1.5` is a number) may be written whole; any
+                    // other save is a splice.
                     let whole = WHOLE_RENDERS.with(std::cell::Cell::get) != renders;
-                    lossy_whole += usize::from(whole && !losses.is_empty());
-                    if whole && losses.is_empty() {
+                    lossy_whole += usize::from(whole && lossy);
+                    if whole && !lossy {
                         failures.push(format!(
                             "{case}: the whole document written\n--- saved\n{saved}"
                         ));
@@ -358,7 +358,7 @@ fn any_string_edited_from_any_view_is_spliced_in_place() {
                     // terminator, may change.
                     let allowed = old_lines + value.lines().count() + 2;
                     let changed = changed_lines(text, &saved);
-                    if (kept < notes || changed > allowed) && !(whole && !losses.is_empty()) {
+                    if (kept < notes || changed > allowed) && !(whole && lossy) {
                         failures.push(format!(
                             "{case}: {kept}/{notes} comments, {changed} lines changed\n--- saved\n{saved}"
                         ));
@@ -378,7 +378,7 @@ fn any_string_edited_from_any_view_is_spliced_in_place() {
                         failures.push(format!("{case}: a raw {raw:?}\n--- saved\n{saved:?}"));
                     }
                     // Read back the same, when the host carries it exactly.
-                    if losses.is_empty() {
+                    if !lossy {
                         let read = host
                             .parse(&saved)
                             .map(|mut read| slot(&mut read, pointer).clone());
@@ -568,8 +568,8 @@ fn any_key_renamed_from_any_view_is_renamed_in_place() {
                     }
                     tried += 1;
                     let case = format!("{host} host, {pointer} renamed {to:?} via {edit}");
-                    let (losses, saved) = (saved.losses, saved.text);
-                    if !losses.is_empty() {
+                    let (saved, lossy) = saved;
+                    if lossy {
                         continue;
                     }
                     saved_count += 1;
@@ -727,7 +727,7 @@ fn a_small_edit_of_a_string_over_lines_keeps_its_lines() {
                     tried += 1;
                     let case = format!("{host} host, {pointer} = {edited:?} via {edit}");
                     let saved = match save_conversion(host, edit, text, &set) {
-                        Ok(saved) => saved.text,
+                        Ok((saved, _)) => saved,
                         Err(error) => {
                             failures.push(format!("{case}: {error}"));
                             continue;

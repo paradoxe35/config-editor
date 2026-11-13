@@ -33,7 +33,7 @@ fn yaml_writes_strings_of_line_breaks_double_quoted() {
             Ok(shown) if shown.losses.is_empty() && !shown.text.contains('|') => {
                 let edited = shown.text.replace("b: 1", "b: 10");
                 match bridge.to_host(&edited, &host) {
-                    Ok(saved) if saved.text == host.replace("\"b\": 1", "\"b\": 10") => {}
+                    Ok(saved) if saved == host.replace("\"b\": 1", "\"b\": 10") => {}
                     other => failures.push(format!("JSON host saved {string:?}: {other:?}")),
                 }
             }

@@ -690,9 +690,7 @@ fn random_edits_never_change_a_read_only_value() {
                 readable = shown.clone();
                 // Saved as the editor saves: converted, then checked.
                 let converted = match &bridge {
-                    Some(bridge) => bridge
-                        .to_host(&shown, &saved_host)
-                        .map(|conversion| conversion.text),
+                    Some(bridge) => bridge.to_host(&shown, &saved_host),
                     None => Ok(shown.clone()),
                 };
                 let Ok(converted) = converted else { continue };
