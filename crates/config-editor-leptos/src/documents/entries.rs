@@ -142,7 +142,9 @@ impl Entry {
         set_if_changed(self.host_diagnostics, &document.host_diagnostics);
         set_if_changed(self.read_only_paths, &document.read_only_paths);
         set_if_changed(self.read_only_ranges, &document.read_only_ranges);
-        if changed && !untrack(|| self.handle.is_mounted()) {
+        // Its dirty state now, as its editor will report it once it has
+        // shown the new text (a `saveAll` in the same task acts on it).
+        if changed {
             let dirty = self
                 .value
                 .with_untracked(|value| self.baseline.with_untracked(|base| differs(value, base)));
