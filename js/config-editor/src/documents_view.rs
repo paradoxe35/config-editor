@@ -289,6 +289,11 @@ fn view(state: State, setup: Setup) -> AnyView {
     };
     let saved = move |(id, request): (String, SaveRequest)| {
         if let Some(callback) = host(state.on_save) {
+            DELIVERED.with(|delivered| {
+                if let Some(ids) = delivered.borrow_mut().as_mut() {
+                    ids.push(id.clone());
+                }
+            });
             call_host_with(
                 &callback,
                 &[
@@ -562,7 +567,8 @@ impl ConfigDocuments {
         if self.state.on_save.try_with_value(Option::is_some) != Some(true) {
             return Ok(false);
         }
-        Ok(untrack(|| self.state.handle.save(&id)))
+        let (sent, delivered) = delivering(|| untrack(|| self.state.handle.save(&id)));
+        Ok(sent && delivered.contains(&id))
     }
 
     /// Saves every document with unsaved edits through `onSave`; returns
@@ -573,7 +579,10 @@ impl ConfigDocuments {
         if self.state.on_save.try_with_value(Option::is_some) != Some(true) {
             return Vec::new();
         }
-        untrack(|| self.state.handle.save_all())
+        let (sent, delivered) = delivering(|| untrack(|| self.state.handle.save_all()));
+        sent.into_iter()
+            .filter(|id| delivered.contains(id))
+            .collect()
     }
 
     /// Edits the document `id` as `language` (its own language to go back),
@@ -943,4 +952,27 @@ fn keep_edits(documents: &mut [Document], edits: &HashMap<String, String>) {
             document.value.clone_from(value);
         }
     }
+}
+
+thread_local! {
+    /// The ids whose text reached the host's `onSave` while a
+    /// [`delivering`] runs.
+    static DELIVERED: std::cell::RefCell<Option<Vec<String>>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Runs `save`, and returns with it the ids `onSave` heard meanwhile: a
+/// save the view counts as sent may not reach the host (the view destroyed,
+/// or `onSave` removed, by a callback of an earlier save).
+fn delivering<T>(save: impl FnOnce() -> T) -> (T, Vec<String>) {
+    let outer = DELIVERED.with(|delivered| delivered.borrow_mut().replace(Vec::new()));
+    let result = save();
+    let ids = DELIVERED.with(|delivered| {
+        let mine = delivered.borrow_mut().take().unwrap_or_default();
+        if let Some(mut outer) = outer {
+            outer.extend(mine.iter().cloned());
+            *delivered.borrow_mut() = Some(outer);
+        }
+        mine
+    });
+    (result, ids)
 }
