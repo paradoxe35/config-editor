@@ -86,7 +86,7 @@ mod text_change;
 mod theme;
 mod touch;
 mod typing;
-mod work_count;
+pub(crate) mod work_count;
 
 pub use change_summary::ChangeSummary;
 #[cfg(feature = "diff")]

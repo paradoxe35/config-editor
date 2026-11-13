@@ -124,6 +124,8 @@ pub(crate) enum Work {
     /// The docs of a place looked up (`completion::key_hover`): its key or
     /// value read off the whole document.
     HoverLookup,
+    /// Another tab's file name read for a tab's label (`documents::tab_names`).
+    TabNameVisit,
 }
 
 impl Work {
@@ -157,13 +159,14 @@ impl Work {
             Self::MergeKeyVisit => 24,
             Self::ItemComparison => 25,
             Self::HoverLookup => 26,
+            Self::TabNameVisit => 27,
         }
     }
 }
 
 #[cfg(test)]
 thread_local! {
-    static COUNTS: std::cell::Cell<[usize; 27]> = const { std::cell::Cell::new([0; 27]) };
+    static COUNTS: std::cell::Cell<[usize; 28]> = const { std::cell::Cell::new([0; 28]) };
 }
 
 /// `work` is starting (counted on this thread in tests).

@@ -44,6 +44,7 @@ fn telling_folder<'a>(name: &'a str, names: &[String]) -> &'a str {
     let own = folders_inward(folder);
     let others: Vec<Vec<&str>> = names
         .iter()
+        .inspect(|_| crate::editor::work_count::note(crate::editor::work_count::Work::TabNameVisit))
         .filter(|other| other.as_str() != name && base_name(other) == base)
         .map(|other| folders_inward(&other[..other.len() - base.len()]))
         .collect();
@@ -77,16 +78,65 @@ pub(super) fn split_end(name: &str) -> (&str, &str) {
     name.split_at(at)
 }
 
+/// Every tab's label, worked out once for all the tabs: a tab's label
+/// depends only on the names it shares its file's own name with (each tab
+/// looking through every other name made a re-list of a thousand tabs take
+/// seconds).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(super) struct TabNames {
+    labels: std::collections::HashMap<String, TabLabel>,
+}
+
+impl TabNames {
+    pub(super) fn new(names: impl IntoIterator<Item = String>) -> Self {
+        let mut by_base: std::collections::HashMap<String, Vec<String>> =
+            std::collections::HashMap::new();
+        for name in names {
+            by_base
+                .entry(base_name(&name).to_string())
+                .or_default()
+                .push(name);
+        }
+        let mut labels = std::collections::HashMap::new();
+        for alike in by_base.values() {
+            // The starts that tell each from the others, once each.
+            let starts: Vec<String> = if alike.len() > 1 {
+                alike.iter().map(|name| shared_start(name, alike)).collect()
+            } else {
+                Vec::new()
+            };
+            for (index, name) in alike.iter().enumerate() {
+                let others: Vec<&String> = starts
+                    .iter()
+                    .enumerate()
+                    .filter(|(other, _)| *other != index && alike[*other] != *name)
+                    .map(|(_, start)| start)
+                    .collect();
+                labels.insert(
+                    name.clone(),
+                    label_among(name, alike.len() > 1, starts.get(index), &others),
+                );
+            }
+        }
+        Self { labels }
+    }
+}
+
 /// What the tab of `name` shows, among the tabs of `names`.
-pub(super) fn tab_label(name: &str, names: &[String]) -> TabLabel {
+pub(super) fn tab_label(name: &str, names: &TabNames) -> TabLabel {
+    names
+        .labels
+        .get(name)
+        .cloned()
+        .unwrap_or_else(|| label_among(name, false, None, &[]))
+}
+
+/// The label of `name`: alone with its file's own name (`shared` false),
+/// or with `start` telling it from the `others`' starts.
+fn label_among(name: &str, shared: bool, start: Option<&String>, others: &[&String]) -> TabLabel {
     let base = base_name(name);
     let folder = &name[..name.len() - base.len()];
-    let shared = names
-        .iter()
-        .filter(|other| base_name(other) == base)
-        .nth(1)
-        .is_some();
-    if !shared || base.is_empty() {
+    let (true, Some(start), false) = (shared, start, base.is_empty()) else {
         let (start, end) = split_end(base);
         return TabLabel {
             folder: (!folder.is_empty() && !base.is_empty()).then(|| folder.to_string()),
@@ -94,14 +144,8 @@ pub(super) fn tab_label(name: &str, names: &[String]) -> TabLabel {
             start: if base.is_empty() { name } else { start }.to_string(),
             end: end.to_string(),
         };
-    }
-    let start = shared_start(name, names);
-    let others: Vec<String> = names
-        .iter()
-        .filter(|other| other.as_str() != name && base_name(other) == base)
-        .map(|other| shared_start(other, names))
-        .collect();
-    let kept = telling_letters(&start, &others);
+    };
+    let kept = telling_letters(start, others);
     let (kept, start) = start.split_at(kept);
     TabLabel {
         folder: None,
@@ -136,7 +180,7 @@ fn shared_start(name: &str, names: &[String]) -> String {
 /// How many bytes of `start` a narrow tab keeps whole so that it never
 /// reads as another of `others` cut: one letter past the longest start
 /// it shares with any (all of it at most).
-fn telling_letters(start: &str, others: &[String]) -> usize {
+fn telling_letters(start: &str, others: &[&String]) -> usize {
     let shared = others
         .iter()
         .map(|other| {
@@ -156,7 +200,7 @@ fn telling_letters(start: &str, others: &[String]) -> usize {
 
 #[cfg(test)]
 mod tests {
-    use super::{TabLabel, split_end, tab_label};
+    use super::{TabLabel, TabNames, split_end, tab_label};
 
     /// QA 24: long names sharing a start were cut alike at phone width;
     /// the end that tells them apart stays whole.
@@ -236,7 +280,7 @@ mod tests {
             let names: Vec<String> = set.iter().map(|name| name.to_string()).collect();
             let cuts: Vec<String> = names
                 .iter()
-                .map(|name| cut(&tab_label(name, &names)))
+                .map(|name| cut(&tab_label(name, &TabNames::new(names.clone()))))
                 .collect();
             for (at, one) in cuts.iter().enumerate() {
                 for other in &cuts[at + 1..] {
@@ -245,7 +289,7 @@ mod tests {
             }
             // Nothing is lost: the parts make the shown name.
             for name in &names {
-                let label = tab_label(name, &names);
+                let label = tab_label(name, &TabNames::new(names.clone()));
                 let shown = format!("{}{}{}", label.kept, label.start, label.end);
                 assert!(name.ends_with(&shown), "{name}: {label:?}");
             }
@@ -278,7 +322,10 @@ mod tests {
         ]
         .map(String::from)
         .to_vec();
-        let labels: Vec<TabLabel> = names.iter().map(|name| tab_label(name, &names)).collect();
+        let labels: Vec<TabLabel> = names
+            .iter()
+            .map(|name| tab_label(name, &TabNames::new(names.clone())))
+            .collect();
         assert_eq!(
             labels,
             [
@@ -297,6 +344,38 @@ mod tests {
                 shared("x", "/service-config-pro", "duction.yaml"),
                 shared("y", "/service-config-pro", "duction.yaml"),
             ]
+        );
+    }
+
+    /// Labelling every tab reads each name a few times, however many tabs
+    /// (round 27's `D27.memory-1`: each tab read every other name, a re-list
+    /// of 1,000 renamed files froze the page for 45 s).
+    #[test]
+    fn labelling_every_tab_reads_each_name_a_few_times() {
+        use crate::editor::work_count::{Work, counted};
+        let visits = |count: usize| {
+            // Every name its own but five that share one.
+            let names: Vec<String> = (0..count)
+                .map(|index| {
+                    if index < 5 {
+                        format!("dir{index}/shared.yaml")
+                    } else {
+                        format!("dir{index}/file{index}.yaml")
+                    }
+                })
+                .collect();
+            counted(Work::TabNameVisit, || {
+                let index = TabNames::new(names.clone());
+                for name in &names {
+                    let _ = tab_label(name, &index);
+                }
+            })
+            .1
+        };
+        let (few, many) = (visits(100), visits(1_000));
+        assert!(
+            many <= 12 * few,
+            "{few} visits for 100 tabs, {many} for 1,000"
         );
     }
 }

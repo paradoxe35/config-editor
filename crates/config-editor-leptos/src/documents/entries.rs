@@ -243,7 +243,7 @@ pub(super) struct Follows {
     pub(super) strings: Relay<Arc<EditorStrings>>,
     /// Every tab's file name: what a tab shows of its own depends on the
     /// others' (see `tab_names`).
-    pub(super) names: Relay<Vec<String>>,
+    pub(super) names: Relay<Arc<super::tab_names::TabNames>>,
 }
 
 /// Where the focus goes when a document is selected.
@@ -332,8 +332,12 @@ impl Documents {
                     Arc::new(settings.with(|settings| settings.strings.clone()))
                 }),
                 names: Relay::new(move || {
-                    entries
-                        .with(|entries| entries.iter().map(|entry| entry.file_name.get()).collect())
+                    Arc::new(super::tab_names::TabNames::new(entries.with(|entries| {
+                        entries
+                            .iter()
+                            .map(|entry| entry.file_name.get())
+                            .collect::<Vec<_>>()
+                    })))
                 }),
             },
             root: NodeRef::new(),
