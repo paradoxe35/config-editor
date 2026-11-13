@@ -53,7 +53,12 @@ test.describe('xml: very deep nesting', () => {
     const e = editor(page);
     await e.paste(`${'<a>'.repeat(20000)}${'</a>'.repeat(20000)}`);
     await expect(page.locator('.config-editor__diagnostic-marker')).toHaveCount(1);
-    expect(await page.locator('.config-editor__diagnostic-marker').getAttribute('data-message')).toContain('deeper than 128');
+    const marker = page.locator('.config-editor__diagnostic-marker');
+    expect(await marker.getAttribute('data-message')).toBe(
+      'Elements nest too deeply here, each inside the one before: the editor reads no deeper',
+    );
+    // Placed where it goes too deep (the 129th tag), not at the line's start.
+    expect(await marker.evaluate((element) => parseFloat(element.style.left))).toBeGreaterThan(100);
     await e.paste('<listen>1</listen>\n');
     await expect(page.locator('.config-editor__diagnostic-marker')).toHaveCount(0);
     expect(errors).toEqual([]);
