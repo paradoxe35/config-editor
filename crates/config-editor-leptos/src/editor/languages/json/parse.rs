@@ -5,16 +5,9 @@ use super::*;
 /// Parses with `serde_json` for syntax, then rejects duplicate keys in the same
 /// object, which `serde_json` would otherwise silently keep the last of.
 pub(super) fn json_parse(source: &str) -> Result<Value, ParseError> {
-    // A leading byte order mark is no part of the document (as YAML, TOML
-    // and XML read it); columns on its line count it.
-    let bom = usize::from(source.starts_with('\u{FEFF}'));
-    let text = source.strip_prefix('\u{FEFF}').unwrap_or(source);
-    let document: Value = serde_json::from_str(text).map_err(|error| {
+    let document: Value = serde_json::from_str(source).map_err(|error| {
         let line_count = source.split('\n').count().max(1);
         let (mut line, mut column) = (error.line().clamp(1, line_count), error.column().max(1));
-        if line == 1 {
-            column += bom;
-        }
         // The marker shows the position, so the message drops serde's
         // " at line N column M".
         let full = error.to_string();

@@ -90,11 +90,11 @@ impl ConfigLanguage for TomlBehavior {
     }
 
     fn key_span(&self, source: &str, pointer: &str) -> Option<Span> {
-        super::super::byte_order_mark::span(source, |text| toml_key_span(text, pointer).map(Span::from))
+        toml_key_span(source, pointer).map(Span::from)
     }
 
     fn value_span(&self, source: &str, pointer: &str) -> Option<Span> {
-        super::super::byte_order_mark::span(source, |text| toml_value_span(text, pointer).map(Span::from))
+        toml_value_span(source, pointer).map(Span::from)
     }
 
     /// A value follows, or the rest of a dotted key (`tcp|.nodelay`).
@@ -171,15 +171,15 @@ impl ConfigLanguage for TomlBehavior {
     }
 
     fn value_spans(&self, source: &str, pointers: &[String]) -> Vec<Option<Span>> {
-        super::super::byte_order_mark::spans(source, |text| toml_value_spans(text, pointers).into_iter().map(|span| span.map(Span::from)).collect())
+        toml_value_spans(source, pointers).into_iter().map(|span| span.map(Span::from)).collect()
     }
 
     fn key_spans(&self, source: &str, pointers: &[String]) -> Vec<Option<Span>> {
-        super::super::byte_order_mark::spans(source, |text| toml_key_spans(text, pointers).into_iter().map(|span| span.map(Span::from)).collect())
+        toml_key_spans(source, pointers).into_iter().map(|span| span.map(Span::from)).collect()
     }
 
     fn first_span(&self, source: &str) -> Option<Span> {
-        super::super::byte_order_mark::span(source, |text| first_line_span(text).map(Span::from))
+        first_line_span(source).map(Span::from)
     }
 
     fn completion_context(&self, source: &str, cursor: usize) -> CompletionContext {

@@ -43,28 +43,30 @@ impl<'a> Remap<'a> {
     /// a text inserted there, before it for an end and after it for a
     /// start (a range does not take in what is typed at its edge).
     fn offset(&self, offset: usize, at_end: bool) -> usize {
-        // Where the unchanged text after the last stretch passed starts, in
-        // each text.
-        let (mut from_start, mut to_start) = (0, 0);
-        for stretch in &self.stretches {
-            let passed = if at_end {
+        // The stretches wholly before the offset (in order, so found by
+        // halves: thousands of ranges over thousands of stretches).
+        let passed = self.stretches.partition_point(|stretch| {
+            if at_end {
                 offset > stretch.from.start && offset >= stretch.from.end
             } else {
                 offset >= stretch.from.end
-            };
-            if !passed {
-                return if offset <= stretch.from.start {
-                    to_start + (offset - from_start)
-                } else if at_end {
+            }
+        });
+        // Where the unchanged text after the last stretch passed starts, in
+        // each text.
+        let (from_start, to_start) = passed.checked_sub(1).map_or((0, 0), |last| {
+            (self.stretches[last].from.end, self.stretches[last].to.end)
+        });
+        match self.stretches.get(passed) {
+            Some(stretch) if offset > stretch.from.start => {
+                if at_end {
                     stretch.to.end
                 } else {
                     stretch.to.start
-                };
+                }
             }
-            from_start = stretch.from.end;
-            to_start = stretch.to.end;
+            _ => to_start + (offset - from_start),
         }
-        to_start + (offset - from_start)
     }
 
     fn position(&self, position: TextPosition, at_end: bool) -> TextPosition {
@@ -139,3 +141,7 @@ pub(crate) fn moved_between(
 #[cfg(test)]
 #[path = "remap/tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "remap/scale_tests.rs"]
+mod scale_tests;

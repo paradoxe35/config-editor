@@ -164,11 +164,11 @@ impl ConfigLanguage for XmlBehavior {
     /// are a list too): never an attribute, its text or an item of
     /// repeated elements.
     fn lone_item(&self, source: &str, pointer: &str) -> bool {
-        xml_lone_element(source.strip_prefix('\u{FEFF}').unwrap_or(source), pointer)
+        xml_lone_element(source, pointer)
     }
 
     fn key_span(&self, source: &str, pointer: &str) -> Option<Span> {
-        super::super::byte_order_mark::span(source, |text| xml_name_span(text, pointer).map(Span::from))
+        xml_name_span(source, pointer).map(Span::from)
     }
 
     /// Element text ending in a line break before its end tag
@@ -204,11 +204,11 @@ impl ConfigLanguage for XmlBehavior {
     }
 
     fn value_span(&self, source: &str, pointer: &str) -> Option<Span> {
-        super::super::byte_order_mark::span(source, |text| xml_value_span(text, pointer).map(Span::from))
+        xml_value_span(source, pointer).map(Span::from)
     }
 
     fn first_span(&self, source: &str) -> Option<Span> {
-        super::super::byte_order_mark::span(source, |text| first_content_span(text).map(Span::from))
+        first_content_span(source).map(Span::from)
     }
 
     fn completion_context(&self, source: &str, cursor: usize) -> CompletionContext {

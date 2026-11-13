@@ -125,23 +125,23 @@ impl ConfigLanguage for HclBehavior {
     /// A block written once (`/b`, `/svc/a`): never an attribute, nor a
     /// block type with labels (an object keyed by them).
     fn lone_item(&self, source: &str, pointer: &str) -> bool {
-        hcl_lone_block(source.strip_prefix('\u{FEFF}').unwrap_or(source), pointer)
+        hcl_lone_block(source, pointer)
     }
 
     fn key_span(&self, source: &str, pointer: &str) -> Option<Span> {
-        super::super::byte_order_mark::span(source, |text| hcl_key_span(text, pointer).map(Span::from))
+        hcl_key_span(source, pointer).map(Span::from)
     }
 
     fn value_span(&self, source: &str, pointer: &str) -> Option<Span> {
-        super::super::byte_order_mark::span(source, |text| hcl_value_span(text, pointer).map(Span::from))
+        hcl_value_span(source, pointer).map(Span::from)
     }
 
     fn value_spans(&self, source: &str, pointers: &[String]) -> Vec<Option<Span>> {
-        super::super::byte_order_mark::spans(source, |text| hcl_value_spans(text, pointers).into_iter().map(|span| span.map(Span::from)).collect())
+        hcl_value_spans(source, pointers).into_iter().map(|span| span.map(Span::from)).collect()
     }
 
     fn key_spans(&self, source: &str, pointers: &[String]) -> Vec<Option<Span>> {
-        super::super::byte_order_mark::spans(source, |text| hcl_key_spans(text, pointers).into_iter().map(|span| span.map(Span::from)).collect())
+        hcl_key_spans(source, pointers).into_iter().map(|span| span.map(Span::from)).collect()
     }
 
     /// A block stays a block and an object attribute an attribute; an
@@ -223,7 +223,7 @@ impl ConfigLanguage for HclBehavior {
     }
 
     fn first_span(&self, source: &str) -> Option<Span> {
-        super::super::byte_order_mark::span(source, |text| first_line_span(text).map(Span::from))
+        first_line_span(source).map(Span::from)
     }
 
     fn completion_context(&self, source: &str, cursor: usize) -> CompletionContext {

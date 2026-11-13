@@ -6,20 +6,15 @@ use super::*;
 /// `${ ... }`-style source text; a heredoc without them reads as its text,
 /// as a quoted string does (`$${x}` is `${x}`).
 pub(super) fn hcl_parse(source: &str) -> Result<Value, ParseError> {
-    // A leading byte order mark is no part of the document (as YAML, TOML
-    // and XML read it); columns on its line count it.
-    let bom = usize::from(source.starts_with('\u{FEFF}'));
-    let text = source.strip_prefix('\u{FEFF}').unwrap_or(source);
     let read = || -> Result<Value, hcl::Error> {
-        super::read::read(text, false).map(super::floats::read_whole_floats)
+        super::read::read(source, false).map(super::floats::read_whole_floats)
     };
     let value = read().map_err(|error| {
         // Only syntax errors carry a location; others fall back to the top.
         let (line, column) = match &error {
             hcl::Error::Parse(parse) => {
                 let location = parse.location();
-                let bom = if location.line() == 1 { bom } else { 0 };
-                (location.line(), location.column() + bom)
+                (location.line(), location.column())
             }
             _ => (1, 1),
         };

@@ -44,6 +44,13 @@ impl Suggestion {
         let (text, anchor, caret) = apply_completion(source, &self.0);
         (text, anchor..caret)
     }
+
+    /// The suggestion for a text with `units` (UTF-16) more before it.
+    pub(crate) fn moved(mut self, units: usize) -> Self {
+        self.0.start += units;
+        self.0.end += units;
+        self
+    }
 }
 
 impl std::fmt::Debug for Suggestion {

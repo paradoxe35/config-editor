@@ -1,3 +1,4 @@
+use super::byte_order_mark;
 use super::language::ConfigLanguage;
 #[cfg(feature = "schema-validation")]
 use super::language::Span;
@@ -365,7 +366,9 @@ impl Schema {
     /// Syntax and schema diagnostics for `source`, as the editor shows them
     /// (the editor's own messages in English, the `strings` defaults).
     pub fn validate(&self, language: super::Language, source: &str) -> Vec<Diagnostic> {
-        headless_validate(source, Some(&self.bundle), language.behavior())
+        byte_order_mark::read(source, |source, _| {
+            headless_validate(source, Some(&self.bundle), language.behavior())
+        })
     }
 
     /// The suggestions the editor lists at `cursor` (a UTF-16 offset in
@@ -389,8 +392,15 @@ impl Schema {
         source: &str,
         cursor: usize,
     ) -> Vec<super::Suggestion> {
-        let source = super::line_breaks::as_lf(source);
-        super::completion::schema_suggestions(&self.bundle, language.behavior(), &source, cursor)
+        byte_order_mark::read(source, |source, to| {
+            let source = super::line_breaks::as_lf(source);
+            super::completion::schema_suggestions(
+                &self.bundle,
+                language.behavior(),
+                &source,
+                to.document(cursor),
+            )
+        })
     }
 
     /// The docs the hover card shows for the key at `position` in `source`
@@ -402,8 +412,15 @@ impl Schema {
         source: &str,
         position: super::TextPosition,
     ) -> Option<super::HoverDocs> {
-        let source = super::line_breaks::as_lf(source);
-        super::completion::schema_hover(&self.bundle, language.behavior(), &source, position)
+        byte_order_mark::read(source, |source, to| {
+            let source = super::line_breaks::as_lf(source);
+            super::completion::schema_hover(
+                &self.bundle,
+                language.behavior(),
+                &source,
+                to.document(position),
+            )
+        })
     }
 
     /// Converts `source` from one language to another, reading it as this
@@ -419,12 +436,14 @@ impl Schema {
         source: &str,
         to: super::Language,
     ) -> Result<super::Conversion, super::ConvertError> {
-        super::codec::convert_away(
-            source,
-            from.behavior(),
-            to.behavior(),
-            Some(&self.bundle.schema),
-        )
+        byte_order_mark::read(source, |source, _| {
+            super::codec::convert_away(
+                source,
+                from.behavior(),
+                to.behavior(),
+                Some(&self.bundle.schema),
+            )
+        })
     }
 }
 
@@ -438,7 +457,9 @@ impl Schema {
 /// # }
 /// ```
 pub fn check_syntax(language: super::Language, source: &str) -> Vec<Diagnostic> {
-    headless_validate(source, None, language.behavior())
+    byte_order_mark::read(source, |source, _| {
+        headless_validate(source, None, language.behavior())
+    })
 }
 
 /// [`validate`] of a text from outside the editor, its line breaks read as

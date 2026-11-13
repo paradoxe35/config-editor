@@ -350,10 +350,6 @@ pub(crate) fn path_at(
     source: &str,
     cursor: usize,
 ) -> Option<FieldPath> {
-    // A leading byte order mark is no part of the document.
-    if let (text, true) = super::byte_order_mark::split(source) {
-        return path_at(behavior, text, cursor.saturating_sub(1));
-    }
     // Inside a batch the walks from the top are counted where they start,
     // each language's once for the text (see `walked_from_top`).
     if !in_batch(source) {
@@ -490,15 +486,6 @@ pub(crate) fn paths_at(
     source: &str,
     cursors: &[usize],
 ) -> Vec<Option<FieldPath>> {
-    // A leading byte order mark is no part of the document: the text after
-    // it is the one read (and batched).
-    if let (text, true) = super::byte_order_mark::split(source) {
-        let after: Vec<usize> = cursors
-            .iter()
-            .map(|cursor| cursor.saturating_sub(1))
-            .collect();
-        return paths_at(behavior, text, &after);
-    }
     let read = || {
         cursors
             .iter()

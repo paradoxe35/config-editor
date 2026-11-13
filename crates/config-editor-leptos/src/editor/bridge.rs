@@ -91,7 +91,10 @@ impl Bridge {
         self.schema.as_deref().map(|bundle| &bundle.schema)
     }
 
+    /// `host_text` shown in the edit language: the document after a
+    /// leading byte order mark (the save puts it back).
     pub(super) fn to_edit(&self, host_text: &str) -> Result<Conversion, ConvertError> {
+        let (host_text, _) = byte_order_mark::split(host_text);
         if host_text.trim().is_empty() {
             return Ok(Conversion {
                 text: String::new(),

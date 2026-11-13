@@ -79,7 +79,8 @@ pub fn convert(
     let from = language_named(&text_arg(&from, "from")?)?;
     let to = language_named(&text_arg(&to, "to")?)?;
     let text = text_arg(&text, "text")?;
-    let text = text.as_str();
+    // The document: a leading byte order mark is none of it.
+    let text = crate::text_lines::document(&text);
     let converted = match schema {
         Some(json) => crate::schema_cache::compiled(&json)
             .map_err(|error| JsError::new(&error.to_string()))?

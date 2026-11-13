@@ -13,8 +13,7 @@ use super::read::MARK;
 
 /// The JSON pointer of each value `source` writes as an expression.
 pub(super) fn expression_pointers(source: &str) -> Vec<String> {
-    let text = source.strip_prefix('\u{FEFF}').unwrap_or(source);
-    let Ok(value) = super::read::read(text, true) else {
+    let Ok(value) = super::read::read(source, true) else {
         return Vec::new();
     };
     let mut found = Vec::new();
