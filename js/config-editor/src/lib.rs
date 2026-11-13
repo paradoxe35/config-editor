@@ -41,6 +41,7 @@ mod languages;
 mod mount;
 mod options;
 mod protect;
+mod reentry;
 mod remap;
 mod settings;
 mod settle;

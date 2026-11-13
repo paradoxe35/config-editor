@@ -409,6 +409,8 @@ pub struct ConfigDocuments {
     /// `destroy` takes `&self` so a callback that a method of this instance
     /// fired (`saveAll()` calling `onSave`) can call it.
     id: std::cell::Cell<Option<u32>>,
+    /// Calls made while one of the view's flushes input (see `reentry`).
+    reentry: crate::reentry::Reentry,
 }
 
 #[wasm_bindgen]
@@ -517,6 +519,7 @@ impl ConfigDocuments {
             state,
             owner,
             id: std::cell::Cell::new(Some(id)),
+            reentry: crate::reentry::Reentry::default(),
         })
     }
 
@@ -640,9 +643,18 @@ impl ConfigDocuments {
     ) -> Result<bool, JsError> {
         let id = text_arg(&id, "id")?;
         let value = text_arg(&value, "value")?;
-        config_editor_leptos::flush_pending_edits();
+        let key = format!("value:{id}");
+        self.reentry.note(&key);
+        let newer = self
+            .reentry
+            .flush(config_editor_leptos::flush_pending_edits);
         if self.id.get().is_none() || self.state.texts_of(&id).is_none() {
             return Ok(false);
+        }
+        // The host gave the document a text (or the list) from `onChange`
+        // meanwhile: newer than this call.
+        if newer.contains(&key) || newer.contains("documents") {
+            return Ok(true);
         }
         let _ = self.state.texts.try_update_value(|texts| {
             if let Some(known) = texts.get_mut(&id) {
@@ -650,7 +662,9 @@ impl ConfigDocuments {
             }
         });
         self.state.given(&id, &value);
+        let edits = self.edits();
         let _ = self.state.documents.try_update(|documents| {
+            keep_edits(documents, &edits);
             if let Some(document) = documents.iter_mut().find(|document| document.id == id) {
                 document.value = value;
             }
@@ -687,12 +701,21 @@ impl ConfigDocuments {
         refuse_remount(&options, DOCUMENTS_REMOUNT_OPTIONS, "ConfigDocuments")?;
         warn_unknown_options(&options, DOCUMENTS_OPTIONS);
         // Input the browser sent in this task first (the texts it sends from
-        // `flushed` on: the host did not know them).
+        // `flushed` on: the host did not know them). What the host set from
+        // `onChange` meanwhile is newer than this call, and stays.
+        self.reentry.note_options(&options);
         let flushed = crate::echoes::clock();
-        config_editor_leptos::js_support::flush_pending_input();
+        let newer = self
+            .reentry
+            .flush(config_editor_leptos::js_support::flush_pending_input);
         if self.id.get().is_none() {
             return Ok(());
         }
+        let options = crate::reentry::without_newer(&options, &newer);
+        let replaced: Vec<&str> = newer
+            .iter()
+            .filter_map(|key| key.strip_prefix("value:"))
+            .collect();
         let active = given(&options, "activeId")
             .map(|id| text_arg(&id, "activeId"))
             .transpose()?;
@@ -736,6 +759,20 @@ impl ConfigDocuments {
             Some(list) => Some(self.owner.with(|| self.state.read(&list, &view))?),
             None => None,
         };
+        // A document `replaceValue` gave a text meanwhile keeps it.
+        let listed = listed.map(|mut listed| {
+            if !replaced.is_empty() {
+                let edits = self.edits();
+                for document in &mut listed.documents {
+                    if replaced.contains(&document.id.as_str())
+                        && let Some(value) = edits.get(&document.id)
+                    {
+                        document.value.clone_from(value);
+                    }
+                }
+            }
+            listed
+        });
         let mut own = Vec::new();
         if listed.is_none() && settings.is_some() {
             for (id, given) in &self.state.overrides.try_get_value().unwrap_or_default() {
@@ -780,7 +817,9 @@ impl ConfigDocuments {
                 });
             }
         } else if !own.is_empty() {
+            let edits = self.edits();
             let _ = self.state.documents.try_update(|documents| {
+                keep_edits(documents, &edits);
                 for document in documents.iter_mut() {
                     if let Some((_, settings)) = own.iter().find(|(id, _)| *id == document.id) {
                         document.settings = Some(settings.clone());
@@ -815,6 +854,27 @@ impl ConfigDocuments {
         let (resend, settles) = resend;
         self.state.tell_again(resend, settles);
         Ok(())
+    }
+
+    /// The text each shown document's editor holds (pending input
+    /// applied), for [`keep_edits`].
+    fn edits(&self) -> HashMap<String, String> {
+        let ids: Vec<String> = self
+            .state
+            .documents
+            .try_with_untracked(|documents| {
+                documents
+                    .iter()
+                    .map(|document| document.id.clone())
+                    .collect()
+            })
+            .unwrap_or_default();
+        ids.into_iter()
+            .filter_map(|id| {
+                let value = self.state.handle.editor(&id)?.value()?;
+                Some((id, value))
+            })
+            .collect()
     }
 
     /// A state callback added by an update hears each listed document's
@@ -869,6 +929,18 @@ impl ConfigDocuments {
             }
         } else {
             unmount();
+        }
+    }
+}
+
+/// Lists each shown document with the text its editor holds (`edits`): a
+/// list the view gives its documents again (a `replaceValue` of another
+/// one, the view's settings) is no discard of their edits, as a list the
+/// host gives is.
+fn keep_edits(documents: &mut [Document], edits: &HashMap<String, String>) {
+    for document in documents {
+        if let Some(value) = edits.get(&document.id) {
+            document.value.clone_from(value);
         }
     }
 }

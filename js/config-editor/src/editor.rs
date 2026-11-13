@@ -55,6 +55,8 @@ pub struct ConfigEditor {
     /// `destroy` takes `&self`, so a callback that a method of this
     /// instance fired (`save()` calling `onSave`) can call it.
     id: std::cell::Cell<Option<u32>>,
+    /// Calls made while one of this editor's flushes input (see `reentry`).
+    reentry: crate::reentry::Reentry,
 }
 
 /// The unmount handle, reactive owner, and element of an editor.
@@ -235,6 +237,7 @@ impl ConfigEditor {
             latest,
             final_value: RefCell::new(None),
             id: std::cell::Cell::new(Some(id)),
+            reentry: crate::reentry::Reentry::default(),
         })
     }
 
@@ -300,15 +303,22 @@ impl ConfigEditor {
         // Input the browser sent in this task, and an Edit-as edit still
         // waiting out the typing pause when the document is replaced, first
         // (the texts it sends from `flushed` on: the host did not know them).
+        // What the host set from `onChange` meanwhile is newer than this
+        // call, and stays.
+        self.reentry.note_options(&options);
         let flushed = echoes::clock();
-        if value.is_some() {
-            config_editor_leptos::flush_pending_edits();
-        } else {
-            config_editor_leptos::js_support::flush_pending_input();
-        }
+        let newer = self.reentry.flush(|| {
+            if value.is_some() {
+                config_editor_leptos::flush_pending_edits();
+            } else {
+                config_editor_leptos::js_support::flush_pending_input();
+            }
+        });
         if self.id.get().is_none() {
             return Ok(());
         }
+        let options = crate::reentry::without_newer(&options, &newer);
+        let value = value.filter(|_| !newer.contains("value"));
         // Ranges are in the text they were given for: `rangesFor`, else the
         // update's `value` (an echo skipped included), else the document.
         let ranges_for = given(&options, "rangesFor")
@@ -507,8 +517,12 @@ impl ConfigEditor {
         #[wasm_bindgen(unchecked_param_type = "string")] value: JsValue,
     ) -> Result<(), JsError> {
         let value = text_arg(&value, "value")?;
-        config_editor_leptos::flush_pending_edits();
-        if self.id.get().is_none() {
+        self.reentry.note("value");
+        let newer = self
+            .reentry
+            .flush(config_editor_leptos::flush_pending_edits);
+        // A text the host gave from `onChange` meanwhile is newer.
+        if self.id.get().is_none() || newer.contains("value") {
             return Ok(());
         }
         // The host's own text: what it holds, no echo to wait for.

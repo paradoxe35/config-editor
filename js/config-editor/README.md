@@ -1208,7 +1208,12 @@ view.isDirty("main");
   to the document; a `value` listed as it was listed last is no news, as
   an unchanged prop); `view.replaceValue(id, text)` goes back to such a
   text (list the document with it from then on; `false` for an id not
-  listed).
+  listed); it changes only that document, the others keep their edits.
+- `update` and `replaceValue` (on both classes) first apply input the
+  browser sent in this task, which calls `onChange`: what you set from
+  there (a list, a value, locks, callbacks) is newer than the call that
+  started, and that call leaves those keys as you set them, applying only
+  its others.
 - `onProblems(id, problems)` gives each document's editor's own problems
   (as `ConfigEditor`'s `onProblems`): once its editor mounts, when the
   document is first shown, then each time they change.
