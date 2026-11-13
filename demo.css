@@ -140,10 +140,11 @@ body { margin: 0; }
 }
 .demo__schema-warnings[hidden] { display: none; }
 
-/* Touch screens: the checkboxes and their labels are finger-sized too. */
+/* The settings rows and the checkboxes are 24px tall (WCAG 2.5.8); the
+   boxes themselves too on touch screens. */
+.demo__check,
+.demo__setting { min-height: 24px; }
 @media (pointer: coarse) {
-  .demo__check,
-  .demo__setting { min-height: 24px; }
   .demo__check input,
   .demo__setting input { width: 24px; height: 24px; margin: 0; }
 }

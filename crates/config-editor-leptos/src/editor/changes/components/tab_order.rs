@@ -51,7 +51,7 @@ pub(super) fn tab_past_edge(state: EditorState, event: &KeyboardEvent) {
     };
     if let Some(to) = to {
         event.prevent_default();
-        let _ = crate::focus::in_place(&to);
+        let _ = crate::focus::in_view(&to);
     }
 }
 
@@ -118,7 +118,7 @@ pub(in crate::editor) fn tab_into_preview(state: EditorState) -> bool {
     });
     button
         .and_then(|button| button.dyn_into::<HtmlElement>().ok())
-        .is_some_and(|button| crate::focus::in_place(&button).is_ok())
+        .is_some_and(|button| crate::focus::in_view(&button).is_ok())
 }
 
 /// What `Tab` can stop at (positive `tabindex` aside, which the editor

@@ -183,7 +183,7 @@ fn Peek(state: EditorState, follows: PeekFollows, peek: DiffPeek) -> impl IntoVi
             && state.changes().focus_preview.get_value()
         {
             state.changes().focus_preview.set_value(false);
-            let _ = crate::focus::in_place(&button);
+            let _ = crate::focus::in_view(&button);
         }
     });
     let style = follows.style.read();

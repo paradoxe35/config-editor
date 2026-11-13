@@ -1802,65 +1802,68 @@
   .config-editor__status-meta { gap: 5px; }
 }
 
-/* Touch screens: every control is at least 24×24px to a finger (WCAG
-   2.5.8), the small marks through a larger invisible hit area. The gutter
-   widens so the change bars' and the chevrons' areas stay apart. */
+/* Every small control is at least 24×24px, by its own box or through a
+   larger invisible hit area (WCAG 2.5.8, for a mouse as for a finger): the
+   change bars, the chevrons, the chip and the find buttons. The gutter is
+   wide enough for the bars' and the chevrons' areas to stay apart. */
+.config-editor__gutter:not(.config-editor__gutter-folding) {
+  padding-right: calc(var(--config-editor-gutter-padding) + 11px);
+  width: calc(
+    var(--config-editor-marker-column) + var(--config-editor-gutter-digits, 3) * 1ch +
+      var(--config-editor-gutter-padding) + 11px
+  );
+}
+.config-editor__gutter.config-editor__gutter-folding {
+  --config-editor-fold-gutter: 24px;
+  padding-right: calc(var(--config-editor-gutter-padding) + var(--config-editor-fold-gutter) + 13px);
+  width: calc(
+    var(--config-editor-marker-column) + var(--config-editor-gutter-digits, 3) * 1ch +
+      var(--config-editor-gutter-padding) + var(--config-editor-fold-gutter) + 13px
+  );
+}
+.config-editor__fold-toggle {
+  right: calc(-24px - var(--config-editor-fold-gutter));
+  top: calc((1lh - max(24px, 1lh)) / 2);
+  height: max(24px, 1lh);
+}
+.config-editor__fold-toggle::before { left: 9px; }
+/* The bar's area: from the number's edge to the chevrons, 24px tall. */
+.config-editor__diff-marker-added::after,
+.config-editor__diff-marker-modified::after {
+  top: -1px;
+  right: -15px;
+  bottom: -1px;
+  left: -6px;
+}
+.config-editor__diff-deleted::after {
+  position: absolute;
+  top: -6px;
+  right: -15px;
+  width: 24px;
+  height: 24px;
+  content: "";
+}
+.config-editor__find-toggle,
+.config-editor__find-button {
+  min-width: 24px;
+  height: 24px;
+}
+.config-editor__fold-chip { min-width: 24px; }
+/* The chip is a line tall; its hit area is 24px. */
+.config-editor__fold-chip::before {
+  position: absolute;
+  inset: calc((1lh - max(24px, 1lh)) / 2) 0;
+  content: "";
+}
+
+/* Touch screens: the footer's and the notices' buttons too. */
 @media (pointer: coarse) {
-  .config-editor__gutter:not(.config-editor__gutter-folding) {
-    padding-right: calc(var(--config-editor-gutter-padding) + 11px);
-    width: calc(
-      var(--config-editor-marker-column) + var(--config-editor-gutter-digits, 3) * 1ch +
-        var(--config-editor-gutter-padding) + 11px
-    );
-  }
-  .config-editor__gutter.config-editor__gutter-folding {
-    --config-editor-fold-gutter: 24px;
-    padding-right: calc(var(--config-editor-gutter-padding) + var(--config-editor-fold-gutter) + 13px);
-    width: calc(
-      var(--config-editor-marker-column) + var(--config-editor-gutter-digits, 3) * 1ch +
-        var(--config-editor-gutter-padding) + var(--config-editor-fold-gutter) + 13px
-    );
-  }
-  .config-editor__fold-toggle {
-    right: calc(-24px - var(--config-editor-fold-gutter));
-    top: calc((1lh - max(24px, 1lh)) / 2);
-    height: max(24px, 1lh);
-  }
-  .config-editor__fold-toggle::before { left: 9px; }
-  /* The bar's area: from the number's edge to the chevrons, 24px tall. */
-  .config-editor__diff-marker-added::after,
-  .config-editor__diff-marker-modified::after {
-    top: -1px;
-    right: -15px;
-    bottom: -1px;
-    left: -6px;
-  }
-  .config-editor__diff-deleted::after {
-    position: absolute;
-    top: -6px;
-    right: -15px;
-    width: 24px;
-    height: 24px;
-    content: "";
-  }
   .config-editor__diagnostic-status,
   .config-editor__change-status,
   .config-editor__tab-focus-status,
   .config-editor__notice-button,
   .config-editor__action-button {
     min-height: 24px;
-  }
-  .config-editor__find-toggle,
-  .config-editor__find-button {
-    min-width: 24px;
-    height: 24px;
-  }
-  .config-editor__fold-chip { min-width: 24px; }
-  /* The chip is a line tall; its hit area is 24px. */
-  .config-editor__fold-chip::before {
-    position: absolute;
-    inset: calc((1lh - max(24px, 1lh)) / 2) 0;
-    content: "";
   }
 }
 

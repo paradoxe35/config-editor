@@ -8,12 +8,21 @@ use web_sys::KeyboardEvent;
 use super::super::super::state::EditorState;
 use super::super::{self as search, SearchOptions};
 use crate::EditorStrings;
+use crate::reactive::size_observer;
 
 #[component]
 pub(crate) fn FindWidget(state: EditorState) -> impl IntoView {
     let search = state.search();
     let editable = move || !state.config().read_only.get();
     let invalid = move || search.results.with(|results| results.error.is_some());
+    // A message that wraps the row ("Replaced 3 occurrences") moves the
+    // button just pressed: it stays in view, at any zoom.
+    Effect::new(move |_| {
+        if let Some(widget) = search.widget_ref.get() {
+            let watched = widget.clone();
+            untrack(|| size_observer(&widget, move || crate::focus::keep_in_view(&watched)));
+        }
+    });
     view! {
         <div
             class="config-editor__find"
@@ -207,7 +216,7 @@ fn toggle_replace(state: EditorState) {
         row.set_hidden(!replacing);
     }
     if let Some(input) = target {
-        let _ = crate::focus::in_place(&input);
+        let _ = crate::focus::in_view(&input);
     }
 }
 
