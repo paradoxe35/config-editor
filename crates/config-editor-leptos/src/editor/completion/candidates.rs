@@ -656,6 +656,18 @@ fn line_up_on_indented_line(
         .next()
         .unwrap_or_default();
     let above_indent = &above[..above.len() - above.trim_start_matches([' ', '\t']).len()];
+    // A line above that ends at its separator (`server:`) opens what
+    // follows: the caret's line is its first entry, however the language's
+    // Enter would indent (one without brackets keeps the line's indent).
+    let above_code = above[..behavior.comment_start(above).unwrap_or(above.len())].trim_end();
+    if behavior
+        .config()
+        .separators
+        .iter()
+        .any(|separator| above_code.ends_with(separator))
+    {
+        return;
+    }
     if !target.trim().is_empty()
         || typed_start - line_start <= target.len()
         || above_indent != target

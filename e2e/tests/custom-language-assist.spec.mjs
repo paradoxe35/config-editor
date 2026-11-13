@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { DOT, ENV, HJSON, ODD, SCHEMA } from './custom-languages.mjs';
+import { DOT, ENV, HJSON, INDENTED, ODD, SCHEMA } from './custom-languages.mjs';
 import { editor, pointAt } from './helpers.mjs';
 
 // Languages registered from JavaScript get schema completion and hover from
@@ -456,4 +456,29 @@ test.describe('react.html: a registered nested language', () => {
     await expect(card).toContainText('Host name the server answers to');
     expect(page.errors).toEqual([]);
   });
+});
+
+// D26.docs-2: a language nested by indentation alone, with no brackets: a
+// key accepted on an indented line stays in the object `contextAt` names.
+test.describe('a JS language nested by indentation, without brackets', () => {
+  test.beforeEach(async ({ page }) => {
+    await open(page, 'vanilla.html');
+  });
+  test.afterEach(async ({ page }) => expect(page.errors).toEqual([]));
+
+  for (const [name, value, typed, wanted] of [
+    ['the first key of an object', 'server:\n  ', 'ho', 'server:\n  host: '],
+    ['a key after a sibling', 'server:\n  host: a\n  ', 'mo', 'server:\n  host: a\n  mode: '],
+    ['an object two levels down', 'server:\n  tls:\n    ', 'en', 'server:\n  tls:\n    enabled: '],
+  ]) {
+    test(`${name} is written at the caret line's indent`, async ({ page }) => {
+      const e = editor(page);
+      await mount(page, INDENTED, value);
+      await caretAfter(page, value);
+      await page.keyboard.type(typed);
+      await expect.poll(e.keys).toContain(wanted.trim().split('\n').at(-1).replace(/:.*$/, '').trim());
+      await page.keyboard.press('Enter');
+      await expect(e.input).toHaveValue(wanted);
+    });
+  }
 });

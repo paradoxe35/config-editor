@@ -459,3 +459,72 @@ export const DOT = `(() => {
     },
   };
 })()`;
+
+// INDENTED: `key: value` lines nested by indentation alone (no brackets),
+// with `contextAt`, `insertKey` and `keyAt`: what the README's nested
+// section says is enough for objects inside objects (D26.docs-2).
+export const INDENTED = `(() => {
+  const lines = (text) => text.split("\\n").map((raw) => {
+    const indent = raw.length - raw.trimStart().length;
+    const trimmed = raw.trim();
+    const colon = trimmed.indexOf(":");
+    return { indent, trimmed, colon, key: colon < 0 ? null : trimmed.slice(0, colon).trim(), rest: colon < 0 ? "" : trimmed.slice(colon + 1).trim() };
+  });
+  function parse(text) {
+    const root = {};
+    const stack = [{ indent: -1, object: root }];
+    for (const line of lines(text)) {
+      if (!line.trimmed || line.key === null) continue;
+      while (line.indent <= stack[stack.length - 1].indent) stack.pop();
+      const parent = stack[stack.length - 1].object;
+      if (line.rest === "") {
+        parent[line.key] = {};
+        stack.push({ indent: line.indent, object: parent[line.key] });
+      } else {
+        parent[line.key] = /^\\d+$/.test(line.rest) ? Number(line.rest) : line.rest;
+      }
+    }
+    return root;
+  }
+  // The keys of the objects open above \`start\` for a line indented \`indent\`.
+  function pathAt(text, start, indent) {
+    const stack = [];
+    for (const line of lines(text.slice(0, start))) {
+      if (!line.trimmed || line.key === null) continue;
+      while (stack.length && line.indent <= stack[stack.length - 1].indent) stack.pop();
+      if (line.rest === "") stack.push({ indent: line.indent, key: line.key });
+    }
+    while (stack.length && indent <= stack[stack.length - 1].indent) stack.pop();
+    return stack.map((entry) => entry.key);
+  }
+  const lineAt = (text, offset) => {
+    const start = text.lastIndexOf("\\n", offset - 1) + 1;
+    const end = text.indexOf("\\n", offset);
+    const line = text.slice(start, end < 0 ? text.length : end);
+    return { start, line, indent: line.length - line.trimStart().length, colon: line.indexOf(":"), before: text.slice(start, offset) };
+  };
+  return {
+    label: "Indented",
+    parse,
+    separators: [":"],
+    writtenSeparator: ": ",
+    contextAt(text, offset) {
+      const at = lineAt(text, offset);
+      const path = pathAt(text, at.start, at.indent);
+      if (at.colon < 0 || offset <= at.start + at.colon) return { path, at: "key", prefix: at.before.trim() };
+      return { path: [...path, at.line.slice(at.indent, at.colon).trim()], at: "value", prefix: at.before.slice(at.colon + 1).trimStart() };
+    },
+    insertKey(key, kind) {
+      if (kind === "object") return { text: key + ":\\n  ", caret: key.length + 4 };
+      return { text: key + ": ", caret: key.length + 2 };
+    },
+    keyAt(text, offset) {
+      const at = lineAt(text, offset);
+      if (at.colon < 0) return null;
+      const key = at.line.slice(at.indent, at.colon).trim();
+      const start = at.start + at.indent;
+      if (offset < start || offset >= start + key.length) return null;
+      return { key, path: [...pathAt(text, at.start, at.indent), key], start };
+    },
+  };
+})()`;
