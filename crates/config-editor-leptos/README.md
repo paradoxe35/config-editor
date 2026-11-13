@@ -1336,6 +1336,13 @@ always moves the focus. In a [`ConfigDocuments`](#several-documents) view,
 the other documents' editors are inert: `Tab` out of the editor goes on to
 its footer and what follows the view, `Shift+Tab` back towards the tabs.
 
+The host page never moves for the editor's own focus (the host's focus call,
+a reveal, a tab switch, find and go to line), with one exception: a control
+the editor moves the focus to (a find or go-to field it opens, a `Tab` it
+carries through the change preview) is scrolled into view when the control
+the focus came from was in the window and the new one is not, as on a page
+zoomed to 400%.
+
 <details>
 <summary>Screen-reader descriptions and announcements, touch screens</summary>
 
