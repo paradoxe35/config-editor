@@ -75,6 +75,12 @@ impl ConfigLanguage for HclBehavior {
         super::scalar_lines::one_scalar_line(self, source, range, inserted, &SCALAR_LINE).is_some()
     }
 
+    /// The specification allows any number: one past what the editor
+    /// holds saves (see `wide_integers`).
+    fn unheld_number(&self, source: &str, error: &ParseError) -> Option<std::ops::Range<usize>> {
+        super::wide_integers::unheld(source, error)
+    }
+
     fn repetition(&self) -> Repetition {
         Repetition::Blocks
     }

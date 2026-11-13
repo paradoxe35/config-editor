@@ -45,6 +45,12 @@ pub(super) fn before_input(state: EditorState, event: &web_sys::InputEvent) {
         let kind = event.input_type();
         if kind == "deleteByDrag" {
             state.drag_starts();
+            // Taking a closed fold's shown closing line away rewrites the
+            // textarea under the drag: refused, its drop with it.
+            if state.delete_reshapes_folds(start, end) {
+                event.prevent_default();
+                return;
+            }
         } else if kind == "insertFromDrop" && state.drop_refused_by_its_delete() {
             event.prevent_default();
             state.drop_done();

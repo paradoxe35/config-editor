@@ -12,6 +12,7 @@
     allow(dead_code, reason = "not every language reads through each helper")
 )]
 
+use super::super::language::ParseError;
 use serde_json::Value;
 
 /// The pointer of the first number of `value` read as a float past the
@@ -78,43 +79,73 @@ fn floats_past_64_bits(value: &Value, pointer: String, found: &mut Vec<String>) 
 /// past it) past the 64-bit integers, or past the largest float. `None`
 /// when no such literal is there.
 pub(super) fn out_of_range(source: &str, line: usize, column: usize) -> Option<String> {
-    let text: Vec<char> = source
-        .split('\n')
-        .nth(line.checked_sub(1)?)?
-        .chars()
-        .collect();
+    literal_out_of_range(source, line, column).map(|(_, message)| message)
+}
+
+/// Where the number literal `error` (a parse of `source`) is about is
+/// written, when the error is only that the number is past what the
+/// editor holds exactly (see [`out_of_range`], [`message`]).
+pub(super) fn unheld(source: &str, error: &ParseError) -> Option<std::ops::Range<usize>> {
+    let (range, message) = literal_out_of_range(source, error.line?, error.column?)?;
+    (message == error.message).then_some(range)
+}
+
+/// [`out_of_range`], and the literal's byte range.
+fn literal_out_of_range(
+    source: &str,
+    line: usize,
+    column: usize,
+) -> Option<(std::ops::Range<usize>, String)> {
+    let line_start = source
+        .split_inclusive('\n')
+        .take(line.checked_sub(1)?)
+        .map(str::len)
+        .sum::<usize>();
+    let text: Vec<(usize, char)> = source.split('\n').nth(line - 1)?.char_indices().collect();
     let part = |character: char| {
         character.is_ascii_alphanumeric() || matches!(character, '+' | '-' | '.' | '_')
     };
     let at = column.checked_sub(1)?.min(text.len());
     // The literal holding the column, or ending just before it.
-    let probe = if text.get(at).copied().is_some_and(part) {
+    let probe = if text.get(at).is_some_and(|(_, character)| part(*character)) {
         at
     } else {
         at.checked_sub(1)?
     };
-    if !text.get(probe).copied().is_some_and(part) {
+    if !text
+        .get(probe)
+        .is_some_and(|(_, character)| part(*character))
+    {
         return None;
     }
     let start = (0..=probe)
         .rev()
-        .take_while(|index| part(text[*index]))
+        .take_while(|index| part(text[*index].1))
         .last()?;
     let end = (probe..text.len())
-        .take_while(|index| part(text[*index]))
+        .take_while(|index| part(text[*index].1))
         .last()?
         + 1;
-    let literal: String = text[start..end].iter().collect();
+    let literal: String = text[start..end]
+        .iter()
+        .map(|(_, character)| character)
+        .collect();
+    let bytes = line_start + text[start].0..line_start + text[end - 1].0 + 1;
     let plain = literal.replace('_', "");
     let digits = plain.strip_prefix(['-', '+']).unwrap_or(&plain);
     if !digits.starts_with(|character: char| character.is_ascii_digit()) {
         return None;
     }
     if digits.bytes().all(|byte| byte.is_ascii_digit()) {
-        return plain.parse::<i64>().is_err().then(|| message(&literal));
+        return plain
+            .parse::<i64>()
+            .is_err()
+            .then(|| (bytes, message(&literal)));
     }
-    plain
-        .parse::<f64>()
-        .is_ok_and(f64::is_infinite)
-        .then(|| format!("the number {literal} is past the largest float"))
+    plain.parse::<f64>().is_ok_and(f64::is_infinite).then(|| {
+        (
+            bytes,
+            format!("the number {literal} is past the largest float"),
+        )
+    })
 }

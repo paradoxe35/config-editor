@@ -6,6 +6,7 @@ use leptos::prelude::*;
 
 use super::super::commands::line_at_cursor;
 use super::super::fold_ranges::FoldRange;
+use super::super::keyboard::utf16_to_byte_index;
 use super::super::metrics::read_editor_metrics;
 use super::super::positioning::reveal_offset;
 use super::super::state::{EditorState, directed_selection};
@@ -42,6 +43,28 @@ impl EditorState {
             }
         }
         self.show_text()
+    }
+
+    /// Whether deleting UTF-16 `start..end` changes a closed fold beyond
+    /// moving it (the closing line a fold leaves shown taken away: the fold
+    /// would run on to another closer, or go), so the textarea's text is
+    /// written again: a drag's drop would land at its start.
+    pub(crate) fn delete_reshapes_folds(&self, start: usize, end: usize) -> bool {
+        if start >= end || self.fold().folded.with_untracked(Vec::is_empty) {
+            return false;
+        }
+        let new = self.doc().text.with_untracked(|doc| {
+            let (from, to) = (
+                utf16_to_byte_index(doc, start),
+                utf16_to_byte_index(doc, end),
+            );
+            format!("{}{}", &doc[..from], &doc[to..])
+        });
+        let Some(moved) = self.folds_through(&new) else {
+            return false;
+        };
+        let ranges = self.behavior().fold_ranges(&new);
+        keep_valid(&moved, &ranges) != moved
     }
 
     /// Whether an edit of UTF-16 `start..end` touches a closed fold (see

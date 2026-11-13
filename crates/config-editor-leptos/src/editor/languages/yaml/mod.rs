@@ -73,6 +73,12 @@ impl ConfigLanguage for YamlBehavior {
         scalar_edit::edits_one_scalar(self, source, range, inserted)
     }
 
+    /// The specification allows any number: one past what the editor
+    /// holds saves (see `wide_integers`).
+    fn unheld_number(&self, source: &str, error: &ParseError) -> Option<std::ops::Range<usize>> {
+        super::wide_integers::unheld(source, error)
+    }
+
     fn info(&self) -> LanguageInfo {
         LanguageInfo {
             label: "YAML",

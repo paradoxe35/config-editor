@@ -34,6 +34,10 @@ impl EditorState {
         false
     }
 
+    pub(super) fn delete_reshapes_folds(&self, _start: usize, _end: usize) -> bool {
+        false
+    }
+
     pub(super) fn unfold_touched(&self, _start: usize, _end: usize) {}
 
     pub(super) fn reveal_offsets(&self, _start: usize, _end: usize) {}

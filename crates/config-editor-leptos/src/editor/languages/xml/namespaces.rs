@@ -1,38 +1,20 @@
 //! Prefixes no namespace declaration binds (`<s x:a="1">` with no
-//! `xmlns:x` on it or an ancestor): the document reads, but no
-//! namespace-aware XML reader takes it. Such a document does not convert,
-//! so a save from another view that removes a declaration its prefixes
-//! still need waits.
+//! `xmlns:x` on it or an ancestor): no namespace-aware XML reader takes
+//! such a document, so the reader refuses it as a syntax error, in the
+//! host's own view (its save waits) and in another view's save that
+//! removes a declaration its prefixes still need.
 
 use super::*;
 
-/// Why `source` does not convert: the first element or attribute name
-/// whose prefix no `xmlns:` declaration in scope binds (`xml` is always
-/// bound), at its pointer. `None` when every prefix is bound.
-pub(super) fn unbound_prefix(source: &str) -> Option<String> {
-    if !source.contains(':') {
-        return None;
-    }
-    let mut reader = Reader::from_str(source);
-    reader.config_mut().trim_text(false);
-    let mut buf = Vec::new();
-    // Each open element: its local name and the prefixes it declares.
-    let mut stack: Vec<(String, Vec<String>)> = Vec::new();
-    loop {
-        let (element, empty) = match reader.read_event_into(&mut buf).ok()? {
-            Event::Eof => return None,
-            Event::Start(element) => (element.into_owned(), false),
-            Event::Empty(element) => (element.into_owned(), true),
-            Event::End(_) => {
-                stack.pop();
-                buf.clear();
-                continue;
-            }
-            _ => {
-                buf.clear();
-                continue;
-            }
-        };
+/// The prefixes each open element declares, innermost last.
+#[derive(Default)]
+pub(super) struct Scopes(Vec<Vec<String>>);
+
+impl Scopes {
+    /// Enters the start tag `element`: the first element or attribute name
+    /// in it whose prefix no declaration in scope binds (`xml` is always
+    /// bound), and whether it is an attribute's.
+    pub(super) fn enter(&mut self, element: &BytesStart<'_>) -> Option<(String, bool)> {
         let declared: Vec<String> = element
             .attributes()
             .flatten()
@@ -41,44 +23,33 @@ pub(super) fn unbound_prefix(source: &str) -> Option<String> {
                 key.strip_prefix("xmlns:").map(str::to_string)
             })
             .collect();
-        let local = element.local_name().as_ref().to_string();
-        stack.push((local, declared));
+        self.0.push(declared);
         let bound = |prefix: &str| {
             prefix == "xml"
                 || prefix == "xmlns"
-                || stack
-                    .iter()
-                    .any(|(_, declared)| declared.iter().any(|name| name == prefix))
-        };
-        let pointer = |last: Option<&str>| -> String {
-            let names = stack.iter().map(|(name, _)| name.as_str()).chain(last);
-            names
-                .map(|name| format!("/{}", name.replace('~', "~0").replace('/', "~1")))
-                .collect()
+                || self.0.iter().flatten().any(|name| name == prefix)
         };
         let name = element.name();
         if let Some(prefix) = name.prefix()
             && !bound(prefix.as_ref())
         {
-            let qualified = name.as_ref().to_string();
-            return Some(unbound(&qualified, &pointer(None)));
+            return Some((name.as_ref().to_string(), false));
         }
-        for attribute in element.attributes().flatten() {
-            if let Some(prefix) = attribute.key.prefix()
-                && !bound(prefix.as_ref())
-            {
-                let qualified = attribute.key.as_ref().to_string();
-                return Some(unbound(&qualified, &pointer(Some(&qualified))));
-            }
-        }
-        if empty {
-            stack.pop();
-        }
-        buf.clear();
+        element.attributes().flatten().find_map(|attribute| {
+            let prefix = attribute.key.prefix()?;
+            (!bound(prefix.as_ref())).then(|| (attribute.key.as_ref().to_string(), true))
+        })
+    }
+
+    /// Leaves the innermost element.
+    pub(super) fn leave(&mut self) {
+        self.0.pop();
     }
 }
 
-fn unbound(qualified: &str, pointer: &str) -> String {
+/// Why a document using `qualified`'s prefix unbound is refused, at
+/// `pointer`: the same words in every view.
+pub(super) fn unbound(qualified: &str, pointer: &str) -> String {
     let prefix = qualified.split(':').next().unwrap_or_default();
     format!(
         "the prefix {prefix} of {qualified} is bound to no namespace (no xmlns:{prefix} declares it), which XML readers refuse: declare it, or name it without the prefix (at {pointer})"
@@ -87,7 +58,7 @@ fn unbound(qualified: &str, pointer: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::unbound_prefix;
+    use super::super::xml_parse;
 
     #[test]
     fn a_prefix_needs_a_declaration_in_scope() {
@@ -99,16 +70,21 @@ mod tests {
             "<r><a>no prefix: here</a></r>",
         ];
         for text in bound {
-            assert_eq!(unbound_prefix(text), None, "{text}");
+            assert!(xml_parse(text).is_ok(), "{text}");
         }
+        let error = xml_parse("<r a=\"1\">\n  <s x:attr=\"3\">t</s></r>").unwrap_err();
         assert_eq!(
-            unbound_prefix("<r a=\"1\"><s x:attr=\"3\">t</s></r>").as_deref(),
-            Some(
-                "the prefix x of x:attr is bound to no namespace (no xmlns:x declares it), which XML readers refuse: declare it, or name it without the prefix (at /r/s/x:attr)"
-            )
+            error.message,
+            "the prefix x of x:attr is bound to no namespace (no xmlns:x declares it), which XML readers refuse: declare it, or name it without the prefix (at /r/s/x:attr)"
         );
+        assert_eq!((error.line, error.column), (Some(2), Some(6)));
+        // Validated without an editor, the same problem.
+        let problems = crate::check_syntax(crate::Language::XML, "<r a=\"1\">\n  <s x:attr=\"3\">t</s></r>");
+        assert_eq!(problems.len(), 1);
+        assert_eq!((problems[0].message.as_str(), problems[0].line), (error.message.as_str(), Some(2)));
         // Out of the declaring element's scope.
-        let after = "<r><s xmlns:x=\"urn:a\"/><x:c>1</x:c></r>";
-        assert!(unbound_prefix(after).is_some_and(|reason| reason.ends_with("(at /r/c)")));
+        let error = xml_parse("<r><s xmlns:x=\"urn:a\"/><x:c>1</x:c></r>").unwrap_err();
+        assert!(error.message.ends_with("(at /r/c)"), "{}", error.message);
+        assert_eq!((error.line, error.column), (Some(1), Some(25)));
     }
 }

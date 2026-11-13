@@ -36,6 +36,7 @@ mod prefixed;
 mod attribute_order;
 mod markup;
 mod declarations;
+mod attribute_layout;
 // The fold ranges (the `folding` feature).
 #[cfg(feature = "folding")]
 mod folding;
@@ -255,9 +256,7 @@ impl ConfigLanguage for XmlBehavior {
     }
 
     fn unconvertible(&self, source: &str) -> Option<String> {
-        namespace_clash(source)
-            .or_else(|| namespaces::unbound_prefix(source))
-            .or_else(|| entities::declared_entity(source))
+        namespace_clash(source).or_else(|| entities::declared_entity(source))
     }
 
     fn merged_keys(&self, source: &str) -> Option<String> {
@@ -398,9 +397,10 @@ impl ConfigLanguage for XmlBehavior {
         }
         // Empty elements the host closes with an end tag (`<x a="1"></x>`)
         // are written that way again, not as `<x a="1"/>`, and each tag is
-        // spelled as the host spells it (`<x a='1' />`).
+        // spelled as the host spells it (`<x a='1' />`), its attributes
+        // laid out as the host's (a line each, aligned, markup kept).
         Ok(match previous {
-            Some(previous) => declarations::kept(
+            Some(previous) => attribute_layout::with_layout_of(
                 &tag_spelling::with_tag_spelling_of(
                     &one_line::with_one_line_elements_of(&with_end_tags_of(&out, previous), previous),
                     previous,

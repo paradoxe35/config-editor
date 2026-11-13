@@ -213,11 +213,11 @@ fn edit_all(language: Language, edit_as: Option<Language>, text: &str) {
     }
     for offset in offsets {
         let before = state.doc().text.get_untracked();
-        enter_at(state, (offset, offset), Pressed::Enter);
+        enter_at(state, (offset, offset), Pressed::Enter, None);
         read_view(state);
         let _ = handle.value();
-        enter_at(state, (offset, offset), Pressed::LineBelow);
-        enter_at(state, (offset, offset), Pressed::LineAbove);
+        enter_at(state, (offset, offset), Pressed::LineBelow, None);
+        enter_at(state, (offset, offset), Pressed::LineAbove, None);
         read_view(state);
         let _ = handle.value();
         state.doc().text.set(before);

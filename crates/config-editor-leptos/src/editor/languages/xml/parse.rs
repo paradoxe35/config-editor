@@ -94,6 +94,7 @@ pub(super) fn build_value(source: &str) -> Result<Value, ParseError> {
     let mut roots: Vec<TopLevel> = Vec::new();
     let mut pending_text = String::new();
     let markup = declarations::Markup::of(source);
+    let mut scopes = namespaces::Scopes::default();
     loop {
         // `buffer_position` before a read is where the next event begins.
         let event_start = reader.buffer_position() as usize;
@@ -127,17 +128,21 @@ pub(super) fn build_value(source: &str) -> Result<Value, ParseError> {
                         super::super::nesting::too_deep("Elements"),
                     ));
                 }
+                unbound_prefix(source, &mut scopes, &element, event_start, &stack)?;
                 let top_level = stack.is_empty();
                 stack.push(open_element(source, &element, event_start, top_level, &markup)?);
             }
             Event::Empty(element) => {
                 flush_text(&mut pending_text, &mut stack);
+                unbound_prefix(source, &mut scopes, &element, event_start, &stack)?;
+                scopes.leave();
                 let top_level = stack.is_empty();
                 let open = open_element(source, &element, event_start, top_level, &markup)?;
                 push_child(&mut stack, &mut roots, open);
             }
             Event::End(element) => {
                 flush_text(&mut pending_text, &mut stack);
+                scopes.leave();
                 let name = element.local_name().into_inner().to_string();
                 let start = markup_start(source, event_start);
                 let Some(open) = stack.pop() else {
@@ -301,6 +306,31 @@ pub(super) fn open_element(
         start,
         config_root,
     })
+}
+
+/// Enters `element`'s namespace scope, refusing it where it uses a prefix
+/// no declaration binds (see `namespaces`), at that name.
+fn unbound_prefix(
+    source: &str,
+    scopes: &mut namespaces::Scopes,
+    element: &BytesStart<'_>,
+    event_start: usize,
+    stack: &[OpenElement],
+) -> Result<(), ParseError> {
+    let Some((qualified, attribute)) = scopes.enter(element) else {
+        return Ok(());
+    };
+    let local = element.local_name().as_ref().to_string();
+    let names = stack.iter().map(|open| open.name.as_str()).chain([local.as_str()]);
+    let pointer: String = names
+        .chain(attribute.then_some(qualified.as_str()))
+        .map(|name| format!("/{}", name.replace('~', "~0").replace('/', "~1")))
+        .collect();
+    let start = markup_start(source, event_start);
+    // At the name, in the start tag.
+    let tag_end = source[start..].find('>').map_or(source.len(), |end| start + end);
+    let at = source[start..tag_end].find(qualified.as_str()).map_or(start, |offset| start + offset);
+    Err(syntax_error(source, at, namespaces::unbound(&qualified, &pointer)))
 }
 
 /// Collects text inside an element; non-blank text outside any element is an

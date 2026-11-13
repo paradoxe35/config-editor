@@ -181,6 +181,14 @@ mod tags;
     feature = "hcl",
     feature = "xml"
 ))]
+mod toml_tables;
+#[cfg(all(
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
 mod typed;
 #[cfg(all(
     feature = "yaml",
@@ -270,6 +278,14 @@ mod xml_prefixes;
     feature = "xml"
 ))]
 mod xml_strings;
+#[cfg(all(
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod xml_tag_layout;
 #[cfg(all(
     feature = "yaml",
     feature = "json",

@@ -20,7 +20,8 @@ use super::SaveRequest;
 /// A valid text in each language, and texts in it its reader refuses: a
 /// typed half-written bracket, and for XML what XML 1.0 cannot hold (a
 /// control character, raw or as a reference, in text, an attribute or
-/// CDATA, and references to U+FFFE, NUL or a surrogate).
+/// CDATA, references to U+FFFE, NUL or a surrogate, and a namespace prefix
+/// no declaration binds).
 fn cases() -> Vec<(Language, &'static str, Vec<&'static str>)> {
     vec![
         (Language::YAML, "a: 1\n", vec!["a: [\n"]),
@@ -43,6 +44,11 @@ fn cases() -> Vec<(Language, &'static str, Vec<&'static str>)> {
                 "<r><s k=\"&#1;\">x</s><f>1</f></r>\n",
                 "<r><s k=\"&#0;\">x</s><f>1</f></r>\n",
                 "<r><s><![CDATA[\u{1}]]></s><f>1</f></r>\n",
+                // A prefix no declaration binds, on an element or an
+                // attribute, or out of its declaration's scope.
+                "<r><p:s>x</p:s><f>1</f></r>\n",
+                "<r><s p:k=\"1\">x</s><f>1</f></r>\n",
+                "<r><s xmlns:p=\"urn:p\"/><p:s>x</p:s><f>1</f></r>\n",
             ],
         ),
     ]
@@ -50,7 +56,7 @@ fn cases() -> Vec<(Language, &'static str, Vec<&'static str>)> {
 
 /// Mounts `text` in `host` (shown as `edit`) and records what `on_save`
 /// gets.
-fn mount(
+pub(super) fn mount(
     host: Language,
     edit: Language,
     text: &str,
@@ -69,7 +75,7 @@ fn mount(
     (owner, state, saves)
 }
 
-fn replace_all(state: super::super::state::EditorState, text: &str) {
+pub(super) fn replace_all(state: super::super::state::EditorState, text: &str) {
     let before = state.doc().text.get_untracked();
     let end = before.len();
     state.commit(Edit::new(before, (0, end), text.to_string(), text.len()));

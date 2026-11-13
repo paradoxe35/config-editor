@@ -15,6 +15,8 @@ mod edit_as_save_tests;
 mod save_tests;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod wide_number_save_tests;
 
 use std::collections::VecDeque;
 use std::hash::{DefaultHasher, Hash, Hasher};

@@ -97,6 +97,32 @@ pub(super) fn read(
     Ok(value)
 }
 
+/// Whether `source` may be saved in `language`, its own: it reads, or
+/// all that stands in the way are numbers the editor cannot hold exactly
+/// that the language allows (see [`ConfigLanguage::unheld_number`]), each
+/// read as `0` to find the next.
+pub(super) fn saves_in_own_language(language: &dyn ConfigLanguage, source: &str) -> bool {
+    let mut error = match read(language, source, None) {
+        Ok(_) => return true,
+        Err(error) => error,
+    };
+    let mut text = source.to_string();
+    loop {
+        let Some(range) = language.unheld_number(&text, &error) else {
+            return false;
+        };
+        if range.is_empty() || text[range.clone()] == *"0" {
+            return false;
+        }
+        text.replace_range(range, "0");
+        // Read aside: the stand-in does not push out the text on screen.
+        match language.parse(&text) {
+            Ok(_) => return true,
+            Err(next) => error = next,
+        }
+    }
+}
+
 /// Whether `text` reads back as `new`, its keys spelled as `new` spells
 /// them (see [`ConfigLanguage::spelled_like`]): a patch's check.
 pub(super) fn reads_as(
