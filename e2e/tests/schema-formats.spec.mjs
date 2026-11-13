@@ -123,6 +123,7 @@ test.describe('schema formats in the tools', () => {
     expect(result.formats).toEqual([
       ['json-schema', 'JSON Schema', ['json', 'schema.json']],
       ['json-schema-yaml', 'JSON Schema (YAML)', ['yaml', 'yml', 'schema.yaml', 'schema.yml']],
+      ['openapi', 'OpenAPI', ['openapi.json', 'openapi.yaml', 'openapi.yml', 'swagger.json', 'swagger.yaml']],
       ['xsd', 'XSD', ['xsd']],
       ['fields', 'Fields schema', ['fields', 'schema.fields']],
     ]);
@@ -148,7 +149,7 @@ test.describe('schema formats in the tools', () => {
     });
     expect(errors[0]).toBe('Invalid Fields schema: no resource gone.fields');
     expect(errors[1]).toMatch(/^Invalid JSON Schema \(YAML\): /);
-    expect(errors[2]).toBe('unknown schema format "jtd" (expected json-schema, json-schema-yaml, xsd); registered: fields');
+    expect(errors[2]).toBe('unknown schema format "jtd" (expected json-schema, json-schema-yaml, openapi, xsd); registered: fields');
     expect(errors[3]).toBe('"json-schema" is a built-in schema format');
     expect(errors[4]).toBe('a schema format needs compile(text, resources, options)');
     expect(errors[5]).toBe("Invalid bad: bad's compile() must return { schema, losses? }");
@@ -244,6 +245,31 @@ test.describe('schemas in several files', () => {
     expect(result.missing).toContain('"common.xsd" is not among the schema\'s resources');
     expect(result.xsd).toEqual(['/port: 70000 is greater than the maximum of 65535']);
     expect(result.json).toEqual(['/port: 11 is greater than the maximum of 10']);
+  });
+});
+
+test.describe('OpenAPI', () => {
+  test.beforeEach(async ({ page }) => open(page));
+
+  test('a named schema of an OpenAPI document validates a config', async ({ page }) => {
+    const result = await attempt(page, (core, tools) => {
+      const api = JSON.stringify({
+        openapi: '3.0.3',
+        components: { schemas: {
+          Server: { type: 'object', properties: { port: { type: 'integer', nullable: true }, tls: { $ref: '#/components/schemas/Tls' } } },
+          Tls: { type: 'object', properties: { cert: { type: 'string' } }, additionalProperties: false },
+        } },
+      });
+      const source = { schemaFormat: 'openapi', schemaOptions: { schema: 'Server' } };
+      return {
+        valid: tools.validate('yaml', 'port: null\ntls: {cert: c.pem}\n', api, source).length,
+        invalid: tools.validate('yaml', 'port: x\ntls: {key: k}\n', api, source).map((p) => p.message).sort(),
+        file: core.schemaFormatForFile('petstore.openapi.yaml'),
+      };
+    });
+    expect(result.valid).toBe(0);
+    expect(result.invalid).toEqual(['/port: "x" is not of type "null", "integer"', '/tls: "key" is not allowed here']);
+    expect(result.file).toBe('openapi');
   });
 });
 

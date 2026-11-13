@@ -32,6 +32,11 @@ versions move together.
 - A JSON Schema's `$ref`s to other files are followed when the host passes
   those files as resources: they are bundled into the schema.
 
+- OpenAPI 3.x and Swagger 2.0 documents as a schema format
+  (`SchemaFormat::OPENAPI`, `schemaFormat: "openapi"`): one named schema is
+  the document's, 3.0 keywords (`nullable`, boolean `exclusive*`) read as
+  2020-12.
+
 ### Reading XML by the schema
 
 - With a schema, XML attribute values and element text are read as the type

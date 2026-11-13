@@ -46,6 +46,7 @@ method and headless function here has a JS option, method or function there
 - [Secrets](#secrets)
 - [Schema help](#schema-help)
 - [Schema formats](#schema-formats)
+  - [OpenAPI](#openapi)
   - [XML Schema (XSD)](#xml-schema-xsd)
 - [Keyboard](#keyboard)
   - [Keyboard and screen-reader access](#keyboard-and-screen-reader-access)
@@ -1343,12 +1344,13 @@ in a [`SchemaFormat`] as a language is wrapped in a `Language`. The format is
 always given, never guessed from the text; `SchemaFormat::from_path` names
 the built-in format of a schema file by its extension.
 
-| Format                                | Name                 | Extensions                   |
-| ------------------------------------- | -------------------- | ---------------------------- |
-| `SchemaFormat::JSON_SCHEMA`           | `"json-schema"`      | `json`, `schema.json`        |
-| `SchemaFormat::JSON_SCHEMA_YAML`      | `"json-schema-yaml"` | `yaml`, `yml`, `schema.yaml` |
-| `SchemaFormat::XSD` (feature `xsd`)   | `"xsd"`              | `xsd`                        |
-| Your own: `SchemaFormat::new(&YOURS)` | its `info().name`    | its `info().extensions`      |
+| Format                                | Name                 | Extensions                                     |
+| ------------------------------------- | -------------------- | ---------------------------------------------- |
+| `SchemaFormat::JSON_SCHEMA`           | `"json-schema"`      | `json`, `schema.json`                          |
+| `SchemaFormat::JSON_SCHEMA_YAML`      | `"json-schema-yaml"` | `yaml`, `yml`, `schema.yaml`                   |
+| `SchemaFormat::OPENAPI`               | `"openapi"`          | `openapi.json`, `openapi.yaml`, `swagger.json` |
+| `SchemaFormat::XSD` (feature `xsd`)   | `"xsd"`              | `xsd`                                          |
+| Your own: `SchemaFormat::new(&YOURS)` | its `info().name`    | its `info().extensions`                        |
 
 ```rust
 use config_editor_leptos::{SchemaFormat, SchemaResources, SchemaSource};
@@ -1420,6 +1422,20 @@ impl SchemaCompiler for Fields {
 static FIELDS: Fields = Fields;
 let format = SchemaFormat::new(&FIELDS);
 ```
+
+### OpenAPI
+
+`SchemaFormat::OPENAPI` takes an OpenAPI 3.x or Swagger 2.0 document (JSON,
+or YAML with the `yaml` feature) and makes one of its named schemas
+(`components.schemas`, Swagger's `definitions`) the document's schema: the
+option `schema` names it (`{"schema": "ServerConfig"}`; needless when there
+is one), the others are `$defs` it refers to. OpenAPI 3.1 schemas are
+JSON Schema 2020-12 as they are; 3.0 and Swagger ones are rewritten where
+they differ (`nullable: true` adds `null` to the type, a boolean
+`exclusiveMinimum`/`exclusiveMaximum` takes its bound, `example` becomes
+`examples`). The XML object is kept, so `"xml": {"attribute": true}` writes
+attributes in an XML view. A `discriminator` is a loss: the options are
+matched by their schemas.
 
 ### XML Schema (XSD)
 

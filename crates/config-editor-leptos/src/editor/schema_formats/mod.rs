@@ -19,6 +19,9 @@ use super::diagnostics::SchemaError;
 
 mod bundle;
 pub(super) mod json;
+pub(super) mod openapi;
+#[cfg(test)]
+mod openapi_tests;
 // Only JSON Schema written in YAML uses it so far.
 #[cfg(feature = "yaml")]
 pub(super) mod written_in;
@@ -367,11 +370,18 @@ impl SchemaFormat {
     #[cfg(feature = "xsd")]
     pub const XSD: SchemaFormat = SchemaFormat(&xsd::Xsd);
 
+    /// OpenAPI 3.x and Swagger 2.0 documents (JSON, and YAML with feature
+    /// `yaml`): the named schema the option `schema` gives (the only one,
+    /// without it) is the document's schema; see the README's "Schema
+    /// formats".
+    pub const OPENAPI: SchemaFormat = SchemaFormat(&super::languages::OPENAPI);
+
     /// The built-in formats this build enables, in a stable order.
     pub const ALL: &'static [SchemaFormat] = &[
         SchemaFormat::JSON_SCHEMA,
         #[cfg(feature = "yaml")]
         SchemaFormat::JSON_SCHEMA_YAML,
+        SchemaFormat::OPENAPI,
         #[cfg(feature = "xsd")]
         SchemaFormat::XSD,
     ];

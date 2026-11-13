@@ -307,6 +307,20 @@ registry! {
 #[cfg_attr(not(feature = "xml"), allow(dead_code))]
 pub(crate) const XML_TEXT_KEY: &str = "#text";
 
+/// OpenAPI documents (`SchemaFormat::OPENAPI`), read as YAML too where the
+/// build has it.
+pub(crate) static OPENAPI: super::schema_formats::openapi::OpenApi =
+    super::schema_formats::openapi::OpenApi {
+        #[cfg(feature = "yaml")]
+        yaml: Some(|text| {
+            Language::YAML
+                .parse(text)
+                .map_err(|error| error.to_string())
+        }),
+        #[cfg(not(feature = "yaml"))]
+        yaml: None,
+    };
+
 /// JSON Schema written as YAML (`SchemaFormat::JSON_SCHEMA_YAML`).
 #[cfg(feature = "yaml")]
 pub(crate) static JSON_SCHEMA_IN_YAML: super::schema_formats::written_in::SchemaWrittenIn =
