@@ -1738,8 +1738,7 @@
   /* The accent: VS Code Dark's light blue fades on a light background. */
   --config-editor-focus-ring: var(--config-editor-accent);
   --config-editor-diff-focus-ring: var(--config-editor-focus-ring);
-  --config-editor-search-match: color-mix(in srgb, var(--config-editor-warning) 32%, transparent);
-  --config-editor-search-match-current: color-mix(in srgb, var(--config-editor-accent) 38%, transparent);
+  /* The match fills are per theme, at the end of themes.css. */
   --config-editor-search-match-current-border: var(--config-editor-accent);
   --config-editor-input-bg: var(--config-editor-bg);
   --config-editor-input-border: var(--config-editor-raised-border);

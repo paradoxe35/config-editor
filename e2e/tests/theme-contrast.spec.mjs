@@ -25,8 +25,23 @@ const LINES = [
   ...TINTS.map((tint) => [` on the ${tint}`, ['bg', tint]]),
   ...TINTS.slice(1).map((tint) => [` on the active ${tint}`, ['bg', tint, 'active-line']]),
 ];
+// Code the text area's selection and find's matches sit under (they are
+// painted below the code, which keeps its own colours over them: hard
+// round 3's `D25.a11y-1`/`-2`, 2.8:1 in some themes), alone, over each
+// other and on the active line.
+const MARKED = [
+  [' selected', ['bg', 'selection']],
+  [' selected on the active line', ['bg', 'active-line', 'selection']],
+  [' in a match', ['bg', 'search-match']],
+  [' in a match on the active line', ['bg', 'active-line', 'search-match']],
+  [' in the current match', ['bg', 'search-match-current']],
+  [' in the current match on the active line', ['bg', 'active-line', 'search-match-current']],
+  [' in a selected match', ['bg', 'selection', 'search-match']],
+  [' in the selected current match', ['bg', 'selection', 'search-match-current']],
+];
 const PAIRS = [
   ...TOKENS.flatMap((name) => LINES.map(([where, layers]) => [`code ${name}${where}`, CODE, name, layers])),
+  ...TOKENS.flatMap((name) => MARKED.map(([where, layers]) => [`code ${name}${where}`, CODE, name, layers])),
   ['line number', CODE, 'line-number', ['bg']],
   // A changed or broken line's number, as its rule colors it (QA 23:
   // Solarized Light's added lines were 2.97:1).
