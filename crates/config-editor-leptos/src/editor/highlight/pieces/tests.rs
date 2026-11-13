@@ -82,7 +82,10 @@ fn a_keystroke_in_a_long_row_builds_the_pieces_it_changed_not_the_row() {
 
 #[test]
 fn a_row_typed_into_past_a_piece_s_size_is_cut_again() {
-    let language = Language::YAML;
+    // Any language the build has: the cut does not depend on it.
+    let Some(&language) = Language::ALL.first() else {
+        return;
+    };
     let mut line = long_line(language, 20_000);
     let mut pieces = next(None, &line, &[], language);
     for _ in 0..3 * MAX_PIECE {
