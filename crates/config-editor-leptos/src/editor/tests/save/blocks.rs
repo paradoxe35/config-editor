@@ -78,6 +78,27 @@ fn block_scalars_keep_their_indicators_and_folding_through_any_view() {
     report(failures);
 }
 
+/// A redundant keep indicator (`+` on a block ending in one line break,
+/// which reads as clipping) stays as the host wrote it (hard round 28's
+/// `D28.editing-1`: `>2+` became `>2`).
+#[test]
+fn a_redundant_keep_indicator_stays() {
+    const KEPT: &str =
+        "a: >2+\n   alead\n  atext\nb: |2+\n   blead\n  btext\nc: |+\n  plain\nn: 1\n";
+    let mut failures = Vec::new();
+    for (key, word) in [("a", "atext"), ("b", "btext"), ("c", "plain")] {
+        from_every_view(
+            &mut failures,
+            &format!("{key}: {word}"),
+            Language::YAML,
+            KEPT,
+            &append(key, word, "X"),
+            &KEPT.replacen(&format!("  {word}\n"), &format!("  {word}X\n"), 1),
+        );
+    }
+    report(failures);
+}
+
 /// A new value whose first line starts with a space takes an indentation
 /// indicator (relative to its key or dash) instead of becoming a quoted
 /// string; folded text stays folded.

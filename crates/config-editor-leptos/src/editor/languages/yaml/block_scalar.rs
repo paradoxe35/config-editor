@@ -45,8 +45,11 @@ pub(super) fn block_scalar(language: &YamlBehavior, prefix: &str, written: &str,
     if core.trim().is_empty() {
         return None;
     }
+    // The host's keep (`+`) stays where it reads the same as clipping (one
+    // final line break): the header as written.
     let chomping = match trailing {
         0 => "-",
+        1 if indicators.contains('+') => "+",
         1 => "",
         _ => "+",
     };
