@@ -28,7 +28,7 @@ export default function globalSetup() {
   writeFileSync(
     join(out, 'index.html'),
     `<!DOCTYPE html>
-<html>
+<html lang="en">
   <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>YAML editor e2e</title>${links}</head>
   <body style="margin:0">
   <script type="module">

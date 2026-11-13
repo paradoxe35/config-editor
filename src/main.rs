@@ -32,6 +32,7 @@ use leptos::prelude::*;
 
 mod documents_demo;
 mod output_panel;
+mod page;
 mod settings_panel;
 mod theme_picker;
 mod unsaved_dialog;
@@ -191,10 +192,17 @@ fn main() {
         .find(|pair| *pair == "documents" || pair.starts_with("documents="))
     {
         let many = mode == "documents=many";
-        leptos::mount::mount_to_body(move || documents_demo::view(many));
+        leptos::mount::mount_to_body(move || {
+            page::page("Config editor: documents", documents_demo::view(many))
+        });
         return;
     }
-    leptos::mount::mount_to_body(|| {
+    leptos::mount::mount_to_body(|| page::page("Config editor", demo()));
+}
+
+/// The single-editor demo.
+fn demo() -> impl IntoView {
+    {
         let flags = query_flags();
         let language = query_value(&flags, "language")
             .and_then(|name| name.parse::<Language>().ok())
@@ -322,7 +330,7 @@ fn main() {
                         <span class="demo__picker-label">"File"</span>
                         <select
                             class="demo__select demo__language-select"
-                            aria-label="Stored config language"
+                            aria-label="File language"
                             on:change=move |event| navigate_with("language", &event_target_value(&event))
                         >
                             {Language::ALL
@@ -340,7 +348,7 @@ fn main() {
                         <span class="demo__picker-label">"Edit as"</span>
                         <select
                             class="demo__select demo__edit-select"
-                            aria-label="Editing language"
+                            aria-label="Edit as language"
                             prop:value=edit_select_value
                             on:change=move |event| {
                                 let value = event_target_value(&event);
@@ -410,5 +418,5 @@ fn main() {
                 <OutputPanel host=host language=language.to_string() />
             </div>
         }
-    })
+    }
 }

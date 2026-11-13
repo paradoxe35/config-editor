@@ -55,7 +55,7 @@ fn switch(settings: RwSignal<EditorSettings>, key: String) -> impl IntoView {
     view! {
         <label class="demo__picker demo__setting">
             <input type="checkbox" data-setting=key.clone() prop:checked=checked on:change=toggle />
-            {key}
+            {words(&key)}
         </label>
     }
 }
@@ -198,4 +198,21 @@ pub fn SettingsPanel(settings: RwSignal<EditorSettings>) -> impl IntoView {
 /// Opens or closes a disclosure.
 pub fn toggle(open: RwSignal<bool>) {
     open.update(|open| *open = !*open);
+}
+
+/// A setting's JSON key in words (`showToolbar` → "Show toolbar"): its
+/// switch's label, readable and spoken as words.
+fn words(key: &str) -> String {
+    let mut out = String::new();
+    for (index, character) in key.chars().enumerate() {
+        if index == 0 {
+            out.extend(character.to_uppercase());
+        } else if character.is_uppercase() {
+            out.push(' ');
+            out.extend(character.to_lowercase());
+        } else {
+            out.push(character);
+        }
+    }
+    out
 }

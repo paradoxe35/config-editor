@@ -199,3 +199,27 @@ body { margin: 0; }
 .demo__ask-buttons { display: flex; flex-wrap: wrap; gap: 6px; }
 .demo__documents-status { color: var(--config-editor-muted); font: 11px/1.2 ui-sans-serif, system-ui, sans-serif; }
 .demo__documents-values { max-height: 30vh; overflow: auto; color: var(--config-editor-text); font: 11px/1.4 var(--config-editor-mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/* The page heading, for screen readers only. */
+.demo__visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* The skip link shows only while it has the focus. */
+.demo__skip {
+  position: absolute;
+  left: 8px;
+  top: -40px;
+  z-index: 100;
+  padding: 6px 10px;
+  background: #10141c;
+  color: #fff;
+}
+.demo__skip:focus {
+  top: 8px;
+}
