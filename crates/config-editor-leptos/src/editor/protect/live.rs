@@ -319,6 +319,26 @@ impl EditorState {
                 state.place_ranges();
             }
         });
+        // New locks from the host: what the old ones refused is asked
+        // again (a key at the refused place, an Edit-as edit the pause
+        // could not convert).
+        Effect::new(move |previous: Option<()>| {
+            state.protect().host_paths.track();
+            state.protect().host_ranges.track();
+            if previous.is_some() {
+                untrack(|| state.locks_changed_by_host());
+            }
+        });
+    }
+
+    /// The host changed its locks: a refusal of the old ones holds no more.
+    fn locks_changed_by_host(&self) {
+        self.forget_refusal();
+        let text = self.doc().text.get_untracked();
+        let edit = self.sync().edit_language.get_untracked();
+        if edit != self.config().host_language && text != self.sync().synced_edit.get_value() {
+            super::super::sync::convert_now(*self, text, edit);
+        }
     }
 
     /// The edit pipeline's check stage: whether `edit` keeps every lock;
