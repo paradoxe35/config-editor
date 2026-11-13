@@ -28,6 +28,7 @@ mod page_ruler;
 mod suggestions;
 mod tab;
 mod typing;
+pub(in crate::editor) use typing::WRAP;
 
 use leptos::prelude::*;
 use web_sys::KeyboardEvent;

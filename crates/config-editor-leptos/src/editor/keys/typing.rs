@@ -230,7 +230,10 @@ fn closer_already_there(
         let mut updated = source.clone();
         updated.replace_range(typed_from..byte, "");
         let caret = updated[..typed_from + closer.len()].encode_utf16().count();
-        state.commit(Edit::new(source, (start, start), updated, caret));
+        state.commit(
+            Edit::new(source, (start, start), updated, caret)
+                .typed("insertText", event.time_stamp()),
+        );
         state.close_suggestions();
         return true;
     }
@@ -255,7 +258,9 @@ fn closer_already_there(
     let caret = updated[..line_start + indent_of(next_line) + closer.len()]
         .encode_utf16()
         .count();
-    state.commit(Edit::new(source, (start, start), updated, caret));
+    state.commit(
+        Edit::new(source, (start, start), updated, caret).typed("insertText", event.time_stamp()),
+    );
     state.close_suggestions();
     true
 }
@@ -315,7 +320,10 @@ fn delete_pair(state: EditorState, event: &KeyboardEvent, start: usize) -> bool 
             updated.replace_range(byte - quote_len..byte + quote_len, "");
             state.forget_closer_at(start);
             state.remember_closer(&updated, start - 1, closer.len - 1, closer.opener);
-            state.commit(Edit::new(before, (start, start), updated, start - 1));
+            state.commit(
+                Edit::new(before, (start, start), updated, start - 1)
+                    .typed("deleteContentBackward", event.time_stamp()),
+            );
             return true;
         }
     }
@@ -324,7 +332,10 @@ fn delete_pair(state: EditorState, event: &KeyboardEvent, start: usize) -> bool 
     };
     event.prevent_default();
     state.forget_closer_at(start);
-    state.commit(Edit::new(before, (start, start), updated, caret));
+    state.commit(
+        Edit::new(before, (start, start), updated, caret)
+            .typed("deleteContentBackward", event.time_stamp()),
+    );
     true
 }
 
@@ -363,10 +374,16 @@ fn auto_close(state: EditorState, event: &KeyboardEvent, start: usize, typed: ch
         // its opener; Enter inside it is a line break of the string.
         state.remember_closer(&updated, caret, closing.encode_utf16().count(), None);
     }
-    state.commit(Edit::new(before, (start, start), updated, caret));
+    state.commit(
+        Edit::new(before, (start, start), updated, caret).typed("insertText", event.time_stamp()),
+    );
     state.close_suggestions();
     true
 }
+
+/// The history kind of a selection wrapped in a typed pair (see
+/// `EditHistory::record_input`).
+pub(in crate::editor) const WRAP: &str = "wrapSelection";
 
 /// An opening bracket or quote writes its pair (or wraps the selection).
 fn open_pair(
@@ -399,7 +416,14 @@ fn open_pair(
     } else {
         (selection_start, selection_end)
     };
-    state.commit(Edit::new(before, (start, end), updated, caret).selecting_from(anchor));
+    // A wrapped selection is replaced by what is typed next, in the same
+    // undo step.
+    let kind = if start == end { "insertText" } else { WRAP };
+    state.commit(
+        Edit::new(before, (start, end), updated, caret)
+            .selecting_from(anchor)
+            .typed(kind, event.time_stamp()),
+    );
     // A wrapped selection keeps its direction.
     if backward
         && selection_start != selection_end

@@ -137,6 +137,19 @@ impl Edit {
         }
     }
 
+    /// A key typed that the editor applies itself where the browser would
+    /// have typed it (a pair opened or a selection wrapped in it, a closer
+    /// typed over, an empty pair deleted): grouped in the undo history
+    /// with the typing around it, as `kind` input at `time`, so one undo
+    /// never stops half-way through what was typed.
+    pub(super) fn typed(mut self, kind: &str, time: f64) -> Self {
+        self.origin = Origin::Input {
+            kind: kind.to_string(),
+            time,
+        };
+        self
+    }
+
     /// Leaves `anchor..caret` selected.
     pub(super) fn selecting_from(mut self, from: usize) -> Self {
         if let After::Select { anchor, .. } = &mut self.after {

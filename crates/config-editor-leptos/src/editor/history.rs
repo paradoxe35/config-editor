@@ -47,6 +47,10 @@ enum Group {
     Composing,
     /// Dragging selected text: the removal and the drop are one move.
     Dragging,
+    /// A selection wrapped in a typed pair (`"` over `one` gives `"one"`,
+    /// still selected): what is typed next replaces it in the same step,
+    /// however long after.
+    Wrapping,
 }
 
 /// Steps kept for undo; the oldest are dropped beyond this.
@@ -86,6 +90,7 @@ impl EditHistory {
             }
             "deleteContentBackward" | "deleteContentForward" => Some(Group::Deleting),
             "deleteByDrag" => Some(Group::Dragging),
+            super::keys::WRAP => Some(Group::Wrapping),
             _ => None,
         };
         let composing = group == Some(Group::Composing)
@@ -97,7 +102,15 @@ impl EditHistory {
             self.open = None;
             return;
         }
+        // Typing over a wrapped selection: the wrap and the typing are one.
+        let replaces_wrapped = group == Some(Group::Typing)
+            && self.open.is_some_and(|(open, _)| open == Group::Wrapping)
+            && self
+                .undo
+                .last()
+                .is_some_and(|step| step.after == before.selection);
         let continues = composing
+            || replaces_wrapped
             || group.is_some()
                 && self.open.is_some_and(|(open, at)| {
                     Some(open) == group && timestamp - at <= UNDO_GROUPING_WINDOW_MS
