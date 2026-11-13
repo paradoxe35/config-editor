@@ -25,6 +25,7 @@ mod wide_negatives;
 mod tags;
 mod limits;
 mod expansion;
+mod scalar_edit;
 // The fold ranges (the `folding` feature).
 #[cfg(feature = "folding")]
 mod folding;
@@ -68,6 +69,10 @@ const MULTI_DOCUMENT: &str = "This text holds more than one YAML document (separ
 
 
 impl ConfigLanguage for YamlBehavior {
+    fn edits_one_scalar(&self, source: &str, range: std::ops::Range<usize>, inserted: &str) -> bool {
+        scalar_edit::edits_one_scalar(self, source, range, inserted)
+    }
+
     fn info(&self) -> LanguageInfo {
         LanguageInfo {
             label: "YAML",

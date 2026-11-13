@@ -1,0 +1,111 @@
+//! A locked field's lines moved by an edit leaving the text broken (a line
+//! command, a cut and paste) stay where the field is: each line of the
+//! field, and each key holding it, that the edit rewrote reads under the
+//! same path afterwards (a key moved above the document's opening brace
+//! holds nothing); and where indentation is structure, no line more
+//! indented than the field comes to follow it (a list's items left under a
+//! locked key, its own key moved or deleted). Reorders among siblings keep
+//! both, and go through.
+
+use std::ops::Range;
+
+use super::super::locate::LineIndex;
+use super::super::locks::Lock;
+use super::edit::Edited;
+use super::joining::{LinePaths, holds_code};
+
+/// The texts before and after the edit, with their lines' paths.
+pub(super) struct Place<'p, 'e, 'o, 'n> {
+    pub(super) edit: &'p Edited<'e>,
+    pub(super) old: &'p LinePaths<'o>,
+    pub(super) new: &'p LinePaths<'n>,
+    pub(super) new_lines: &'p LineIndex<'n>,
+}
+
+impl Place<'_, '_, '_, '_> {
+    /// Whether `lock` stays where it is (see the module docs).
+    pub(super) fn kept(&self, lock: &Lock) -> bool {
+        self.paths_kept(lock) && self.nothing_indented_under(lock)
+    }
+
+    /// Each line of `lock` (its key and stretches) and of the keys holding
+    /// it that the edit rewrote, found once among the lines it wrote, has
+    /// the path it had.
+    fn paths_kept(&self, lock: &Lock) -> bool {
+        let old_lines = &self.edit.lines;
+        let rewritten = |range: &Range<usize>| {
+            range.start < self.edit.region.end && range.end > self.edit.region.start
+        };
+        let mut lines: Vec<usize> = lock
+            .key
+            .iter()
+            .chain(&lock.ranges)
+            .chain(&lock.guards)
+            .filter(|range| rewritten(range))
+            .map(|range| old_lines.line_of(range.start))
+            .collect();
+        lines.sort_unstable();
+        lines.dedup();
+        lines.into_iter().all(|line| {
+            let Some(was) = self.old.path(line) else {
+                return true;
+            };
+            match self.new_line(old_lines.line_text(line)) {
+                Some(now) => self.new.path(now).as_deref() == Some(was.as_str()),
+                None => true,
+            }
+        })
+    }
+
+    /// Where indentation is structure: the line holding code after the
+    /// lock's last line is no more indented than its first line, unless it
+    /// already was before the edit.
+    fn nothing_indented_under(&self, lock: &Lock) -> bool {
+        let edit = self.edit;
+        if !edit.behavior.indent_is_structure() {
+            return true;
+        }
+        let starts = lock.key.iter().chain(&lock.ranges).map(|range| range.start);
+        let ends = lock.key.iter().chain(&lock.ranges).map(|range| range.end);
+        let (Some(low), Some(high)) = (starts.min(), ends.max()) else {
+            return true;
+        };
+        let old_lines = &edit.lines;
+        let (first, last) = (
+            old_lines.line_of(low),
+            old_lines.line_of(high.saturating_sub(1).max(low)),
+        );
+        let indent = |text: &str| text.len() - text.trim_start().len();
+        let depth = indent(old_lines.line_text(first));
+        let deeper_after = |lines: &LineIndex<'_>, line: usize| {
+            (line + 1..lines.line_count())
+                .map(|next| lines.line_text(next))
+                .find(|text| holds_code(edit.behavior, text))
+                .is_some_and(|text| indent(text) > depth)
+        };
+        if deeper_after(old_lines, last) {
+            return true;
+        }
+        let new_last = if high <= edit.region.start {
+            Some(last)
+        } else if low >= edit.region.end {
+            (last + self.new_lines.line_count()).checked_sub(old_lines.line_count())
+        } else {
+            self.new_line(old_lines.line_text(last))
+        };
+        new_last.is_none_or(|line| !deeper_after(self.new_lines, line))
+    }
+
+    /// The one line among those the edit wrote that reads `text`, if one
+    /// does (none, or several: not followed).
+    fn new_line(&self, text: &str) -> Option<usize> {
+        let lines = self.new_lines;
+        let region = &self.edit.new_region;
+        let mut found = (lines.line_of(region.start)..=lines.line_of(region.end))
+            .filter(|now| lines.line_text(*now) == text);
+        match (found.next(), found.next()) {
+            (Some(now), None) => Some(now),
+            _ => None,
+        }
+    }
+}

@@ -40,7 +40,7 @@ impl<'a> LinePaths<'a> {
     }
 
     /// The pointer of what line `line` writes, read at its first character.
-    fn path(&self, line: usize) -> Option<String> {
+    pub(super) fn path(&self, line: usize) -> Option<String> {
         if let Some(known) = self.read.borrow().get(&line) {
             return known.clone();
         }
@@ -128,7 +128,7 @@ pub(super) fn near_lines(
 }
 
 /// Whether `line` holds code: not blank, not only a comment.
-fn holds_code(behavior: &dyn ConfigLanguage, line: &str) -> bool {
+pub(super) fn holds_code(behavior: &dyn ConfigLanguage, line: &str) -> bool {
     let indent = line.len() - line.trim_start().len();
     !line.trim().is_empty() && behavior.comment_start(line) != Some(indent)
 }

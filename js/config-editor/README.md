@@ -667,7 +667,10 @@ editor.update({ readOnlyPaths: ["/limits", "/tls/cert"] }); // at runtime
   Revert and undo that would change a read-only value, delete its key (also
   inside a deleted selection or parent block) or add to a read-only block
   are refused: the text stays, and a tooltip at the caret says why. Replace
-  All skips matches in read-only text and says how many.
+  All skips matches in read-only text and says how many. The line commands
+  are judged the same way: a locked line moves among its siblings
+  (`Alt+↑` / `Alt+↓`, or cut and pasted past several), not out of its
+  parent or into a list.
 - Whitespace, comments and punctuation around a locked field stay free
   (also whitespace inside it, such as a space after `:`); in YAML a locked
   line's indent cannot change (it is structure). A syntax error anywhere

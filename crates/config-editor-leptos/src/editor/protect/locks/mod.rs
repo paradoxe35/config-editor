@@ -64,6 +64,7 @@ use serde_json::Value;
 
 use super::super::language::ConfigLanguage;
 use super::super::paths::{FieldPath, with_spans};
+use super::reach::out_of_reach;
 use super::texts::Reason;
 use place::{Placed, Placer};
 use reading::Reading;
@@ -99,7 +100,9 @@ impl Lock {
 pub(crate) struct Protected {
     pub(crate) locks: Vec<Lock>,
     /// The text parsed (with the schema's array reading), when it parses and
-    /// something needed it.
+    /// something needed it; for locks carried past an edit out of their
+    /// reach (see `reach`), the text before it parsed: the same fields,
+    /// every locked value as here, one scalar elsewhere read as it was.
     pub(crate) document: Option<Arc<Value>>,
     /// The document of the last text that parsed, carried through texts
     /// that do not parse (within one text from the host).
@@ -166,7 +169,8 @@ pub(crate) struct Sources<'a> {
     /// Read-only UTF-16 ranges of this text the host gave.
     pub(crate) ranges: &'a [Range<usize>],
     /// The locks of the text before, whose marks and pinned values carry
-    /// over when this text does not parse.
+    /// over when this text does not parse, and which move past an edit out
+    /// of their reach (see `carried_past`).
     pub(crate) previous: Option<&'a Protected>,
 }
 
@@ -178,6 +182,9 @@ pub(crate) fn protect(
     text: &str,
     sources: Sources<'_>,
 ) -> Protected {
+    if let Some(carried) = carried_past(behavior, text, sources) {
+        return carried;
+    }
     let mut protected = Protected {
         locks: range_locks(text, sources.ranges),
         ..Protected::default()
@@ -219,6 +226,52 @@ pub(crate) fn protect(
     protected.marking = sources.marking_schema.is_some();
     protected.text = text.to_string();
     protected
+}
+
+/// The locks of `text` made from those of the text before
+/// (`sources.previous`, from the same sources) when the edit between them is
+/// out of every lock's reach (see `reach`): moved past it, with the values
+/// pinned and the fields marked there, which it left as they were. `None`
+/// when it may reach one: the text is then read.
+fn carried_past(
+    behavior: &dyn ConfigLanguage,
+    text: &str,
+    sources: Sources<'_>,
+) -> Option<Protected> {
+    let previous = sources.previous?;
+    let same_sources = previous.marking == sources.marking_schema.is_some()
+        && previous.paths.len() == sources.paths.len()
+        && previous
+            .paths
+            .iter()
+            .zip(sources.paths)
+            .all(|(pointer, path)| *pointer == path.to_pointer());
+    if !same_sources || previous.text == text {
+        return None;
+    }
+    let shift = out_of_reach(behavior, previous, &previous.text, text)?;
+    let mut locks = range_locks(text, sources.ranges);
+    locks.extend(
+        previous
+            .locks
+            .iter()
+            .filter(|lock| lock.pointer.is_some())
+            .map(|lock| shift.moved(lock)),
+    );
+    Some(Protected {
+        locks,
+        document: previous.document.clone(),
+        parsed: previous.parsed.clone(),
+        unplaced: Vec::new(),
+        secret: previous.secret.clone(),
+        pins: previous.pins.clone(),
+        marked: previous.marked.clone(),
+        text: text.to_string(),
+        epoch: previous.epoch,
+        origin: Some(Arc::from(text)),
+        paths: previous.paths.clone(),
+        marking: previous.marking,
+    })
 }
 
 /// A lock for each of the host's `ranges` that is not empty, clamped to

@@ -5,7 +5,10 @@
 //! it), so one parse serves them all instead of one each. Likewise the
 //! lines of its multi-line string bodies, which after each keystroke the
 //! view, the folds, the comments and the multi-line constructs all read,
-//! and what the caret is on, which the suggestions read.
+//! and what the caret is on, which the suggestions read; and the path of
+//! the line typed on while something is locked (see `protect::reach`),
+//! which a keystroke's check and its locks both ask, and the next keystroke
+//! on the line too (typing in a scalar leaves the line's path as it was).
 //!
 //! Two parses (an Edit-as view's text and the host's, which each pause
 //! reads in turn) and one entry of each other reading, kept only while an editor is mounted ([`hold`] on mount,
@@ -19,7 +22,7 @@ use std::rc::Rc;
 use serde_json::Value;
 
 use super::language::{CompletionContext, ConfigLanguage, Lexical, ParseError};
-use super::work_count::{Work, note};
+use super::work_count::{Work, note, note_many};
 
 /// How many parses are kept.
 const PARSES_KEPT: usize = 2;
@@ -34,12 +37,21 @@ type Bodies = (&'static str, String, Rc<Vec<Range<usize>>>);
 /// what was read there.
 type Place<T> = RefCell<Option<(&'static str, String, usize, T)>>;
 
+/// A line's path: the language's label, the text, the line's first UTF-16
+/// offset and the path.
+type LinePath = (&'static str, String, usize, Option<String>);
+
+/// How many line paths are kept: the text an edit was made on and the one
+/// it made.
+const LINE_PATHS_KEPT: usize = 2;
+
 thread_local! {
     /// The latest parses, the last read first.
     static LAST: RefCell<Vec<Entry>> = const { RefCell::new(Vec::new()) };
     static BODIES: RefCell<Option<Bodies>> = const { RefCell::new(None) };
     static CONTEXT: Place<CompletionContext> = const { RefCell::new(None) };
     static LEXICAL: Place<Lexical> = const { RefCell::new(None) };
+    static LINE_PATHS: RefCell<Vec<LinePath>> = const { RefCell::new(Vec::new()) };
     /// The editors mounted.
     static HOLDERS: Cell<usize> = const { Cell::new(0) };
 }
@@ -61,6 +73,7 @@ pub(crate) fn parsed(language: &dyn ConfigLanguage, text: &str) -> Rc<Result<Val
     if let Some(result) = cached {
         return result;
     }
+    note_many(Work::ParsedBytes, text.len());
     let result = Rc::new(language.parse(text));
     if HOLDERS.with(Cell::get) == 0 {
         return result;
@@ -127,6 +140,57 @@ pub(crate) fn lexical_state(language: &dyn ConfigLanguage, text: &str, cursor: u
     at_place(&LEXICAL, language, text, cursor, read)
 }
 
+/// The path of the line of `text` starting at UTF-16 `line`, read by `read`
+/// unless it was read or told (see [`tell_line_path`]) for the same text.
+#[cfg_attr(
+    not(feature = "protect"),
+    allow(dead_code, reason = "only the lock check asks")
+)]
+pub(crate) fn line_path(
+    language: &dyn ConfigLanguage,
+    text: &str,
+    line: usize,
+    read: impl FnOnce() -> Option<String>,
+) -> Option<String> {
+    let label = language.info().label;
+    let known = LINE_PATHS.with(|kept| {
+        kept.borrow()
+            .iter()
+            .find(|(known, written, at, _)| *known == label && *at == line && written == text)
+            .map(|(_, _, _, path)| path.clone())
+    });
+    if let Some(path) = known {
+        return path;
+    }
+    let path = read();
+    tell_line_path(language, text, line, path.clone());
+    path
+}
+
+/// That the line of `text` starting at UTF-16 `line` writes `path` (an edit
+/// changing one scalar on it left its path as it was).
+#[cfg_attr(
+    not(feature = "protect"),
+    allow(dead_code, reason = "only the lock check tells")
+)]
+pub(crate) fn tell_line_path(
+    language: &dyn ConfigLanguage,
+    text: &str,
+    line: usize,
+    path: Option<String>,
+) {
+    if HOLDERS.with(Cell::get) == 0 {
+        return;
+    }
+    let label = language.info().label;
+    LINE_PATHS.with(|kept| {
+        let mut kept = kept.borrow_mut();
+        kept.retain(|(known, written, at, _)| !(*known == label && *at == line && written == text));
+        kept.insert(0, (label, text.to_string(), line, path));
+        kept.truncate(LINE_PATHS_KEPT);
+    });
+}
+
 /// `read()`, what `language` reads at `cursor` of `text`, kept in `slot`.
 fn at_place<T: Clone + 'static>(
     slot: &'static std::thread::LocalKey<Place<T>>,
@@ -172,4 +236,5 @@ pub(crate) fn release() {
     let _ = BODIES.try_with(|last| last.borrow_mut().take());
     let _ = CONTEXT.try_with(|last| last.borrow_mut().take());
     let _ = LEXICAL.try_with(|last| last.borrow_mut().take());
+    let _ = LINE_PATHS.try_with(|kept| kept.borrow_mut().clear());
 }

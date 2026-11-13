@@ -101,6 +101,9 @@ pub(crate) enum Work {
         allow(dead_code, reason = "only the TOML, HCL and XML key scans note it")
     )]
     KeyScan,
+    /// A byte of a whole text parsed (one note per byte, see [`note_many`]):
+    /// reading a document is the costliest thing a keystroke can start.
+    ParsedBytes,
 }
 
 impl Work {
@@ -128,13 +131,14 @@ impl Work {
             Self::OffsetBytes => 18,
             Self::LineSeek => 19,
             Self::KeyScan => 20,
+            Self::ParsedBytes => 21,
         }
     }
 }
 
 #[cfg(test)]
 thread_local! {
-    static COUNTS: std::cell::Cell<[usize; 21]> = const { std::cell::Cell::new([0; 21]) };
+    static COUNTS: std::cell::Cell<[usize; 22]> = const { std::cell::Cell::new([0; 22]) };
 }
 
 /// `work` is starting (counted on this thread in tests).
@@ -151,10 +155,6 @@ pub(crate) fn note(work: Work) {
 }
 
 /// `count` units of `work` are starting.
-#[cfg_attr(
-    not(feature = "protect"),
-    allow(dead_code, reason = "only the lock guard notes many at once")
-)]
 #[inline(always)]
 pub(crate) fn note_many(work: Work, count: usize) {
     #[cfg(test)]

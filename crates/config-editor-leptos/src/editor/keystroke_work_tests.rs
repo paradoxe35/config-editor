@@ -229,3 +229,49 @@ fn a_keystroke_keeping_the_lines_reads_the_whole_text_once_the_frame_is_drawn() 
     }
     super::parse_cache::release();
 }
+
+/// A line command keeping the lines (Alt+Up/Down, and Ctrl+] / Ctrl+[,
+/// which only indent) costs what a typed key costs: the readings of the
+/// whole text wait for the frame, then are made once (they were made at
+/// once, in the keydown, for every one of them).
+#[test]
+fn a_line_command_keeping_the_lines_reads_the_whole_text_once_the_frame_is_drawn() {
+    use super::keys::line_edit::LineCommand;
+    use super::keys::lines::{Command, run};
+    super::parse_cache::hold();
+    for (language, text) in samples() {
+        hold(|| {
+            let (_owner, state) = TestEditor::new(language, text).mount();
+            read_view(state);
+            let at = middle_value_end(text);
+            let label = language.label();
+            for (name, command) in [
+                ("Alt+Down", Command::Lines(LineCommand::Move { down: true })),
+                ("Alt+Up", Command::Lines(LineCommand::Move { down: false })),
+                ("Ctrl+]", Command::Indent { outdent: false }),
+                ("Ctrl+[", Command::Indent { outdent: true }),
+            ] {
+                let before = state.doc().text.get_untracked();
+                assert_eq!(
+                    readings(|| {
+                        run(state, command, (at, at), false);
+                        read_view(state);
+                    }),
+                    [0; 4],
+                    "{label} {name}: before the frame"
+                );
+                assert_ne!(state.doc().text.get_untracked(), before, "{label} {name}");
+                assert_eq!(
+                    readings(|| {
+                        run_held();
+                        run_held();
+                        read_view(state);
+                    }),
+                    [1; 4],
+                    "{label} {name}: after the frame"
+                );
+            }
+        });
+    }
+    super::parse_cache::release();
+}

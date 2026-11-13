@@ -207,7 +207,7 @@ impl Edit {
             },
             origin: if redo { Origin::Redo } else { Origin::Undo },
             language: to.language,
-            folds: None,
+            folds: to.folds,
         }
     }
 

@@ -79,6 +79,12 @@ impl EditorState {
         }
 
         trace(Stage::Apply);
+        // The folds a command says it leaves closed, and those closed before
+        // it: undo and redo close them again.
+        let said_folds = (origin == Origin::Command)
+            .then(|| edit.folds.clone())
+            .flatten()
+            .map(|after| (self.with_closed_folds_untracked(<[_]>::to_vec), after));
         // Undone or redone back into the host's language with its own text:
         // nothing new to tell it.
         let hosts_own = switching == Some(self.config().host_language)
@@ -110,7 +116,7 @@ impl EditorState {
         let after = self.place_selection(&edit, rewritten, kept);
 
         trace(Stage::Record);
-        self.record(&edit, changed, after, language_before);
+        self.record(&edit, changed, after, language_before, said_folds);
         if origin.is_checked() {
             self.note_applied(&edit);
         } else {
@@ -226,16 +232,33 @@ impl EditorState {
         }
     }
 
-    /// The undo history, by origin; `after` is the selection the edit left.
-    fn record(&self, edit: &Edit, changed: bool, after: Selection, language: Language) {
+    /// The undo history, by origin; `after` is the selection the edit left,
+    /// `folds` the folds closed before and after a command that said them.
+    fn record(
+        &self,
+        edit: &Edit,
+        changed: bool,
+        after: Selection,
+        language: Language,
+        folds: Option<(Vec<FoldRange>, Vec<FoldRange>)>,
+    ) {
         let before = || Snapshot {
             value: edit.before.clone(),
             selection: edit.replaced(after.0),
             language: None,
+            folds: None,
         };
         let history = self.doc().history;
         match &edit.origin {
-            Origin::Command | Origin::Reload { .. } => {
+            Origin::Command => history.update(|history| {
+                let (closed, left) = folds.unzip();
+                let before = Snapshot {
+                    folds: closed,
+                    ..before()
+                };
+                history.record_command(before, after, left);
+            }),
+            Origin::Reload { .. } => {
                 history.update(|history| history.record_action(before(), after));
             }
             Origin::Input { kind, time } => {

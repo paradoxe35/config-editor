@@ -218,6 +218,7 @@ const CONFIG_LANGUAGE = {
   scalar_edit: { exempt: SAVE_FORMS },
   changed_form: { exempt: SAVE_FORMS },
   one_line_body: { exempt: SAVE_FORMS },
+  edits_one_scalar: { exempt: 'a speed-up for locks away from an edit; without it (a custom language) every edit reads the document through `parse` while anything is locked' },
 };
 
 const CHANGE_SUMMARY = {

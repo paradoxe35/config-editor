@@ -2,7 +2,9 @@
 //! (typing, paste, cut, delete, replace, completions, Revert, comment
 //! toggling, undo), given the text before and after.
 //!
-//! An edit is refused when
+//! An edit changing one scalar on a line no lock is on, in a text that
+//! parses, is kept without reading the document (`reach`). Any other is
+//! refused when
 //! - it changes a locked stretch's text, or a key holding a locked field;
 //! - it glues text onto a locked stretch's ends (`port: 80` → `port: 808`,
 //!   `xport: 80`); whitespace and punctuation next to it are free;
@@ -39,6 +41,7 @@ mod content;
 mod edit;
 mod hiding;
 mod joining;
+mod moved;
 mod pins;
 mod repair;
 mod spacing;
@@ -52,12 +55,14 @@ use serde_json::Value;
 use super::super::language::ConfigLanguage;
 use super::locate::LineIndex;
 use super::locks::{Lock, Protected};
+use super::reach::out_of_reach;
 use super::texts::Reason;
 use crate::EditorStrings;
 use content::glued_to_content;
 use edit::Edited;
 use hiding::hidden;
 use joining::{LinePaths, is_near, joining_lines, near_lines, span};
+use moved::Place;
 use pins::pins_hold;
 use stretch::indent_kept;
 
@@ -109,6 +114,10 @@ pub(crate) fn check(
     if (protected.is_empty() && !protected.watches()) || before == after {
         return Ok(());
     }
+    // One scalar changed off every lock's lines: nothing to read.
+    if out_of_reach(behavior, protected, before, after).is_some() {
+        return Ok(());
+    }
     let edit = Edited::new(behavior, reading_schema, protected, before, after);
     // The edit making the text parse is decided by the repair rule alone,
     // which names the field: a closer added to a locked line completes it.
@@ -138,13 +147,18 @@ pub(crate) fn check(
 
 /// Every lock's stretches, and the keys holding it, survive the edit;
 /// whitespace changed inside a locked field is free when every locked
-/// value still reads as pinned. A repair checks the fields itself.
+/// value still reads as pinned, and so are its lines moved whole past
+/// several others (a reorder made at once). A repair checks the fields
+/// itself.
 fn stretches_kept(edit: &Edited<'_>, repairing: bool) -> Result<(), Blocked> {
     for lock in &edit.protected.locks {
         if repairing && lock.pointer.is_some() {
             continue;
         }
-        let free = || lock.pointer.is_some() && (edit.reformat_only() || edit.spacing_only());
+        let free = || {
+            lock.pointer.is_some()
+                && (edit.reformat_only() || edit.spacing_only() || edit.moved_whole(lock))
+        };
         if !lock.ranges.iter().all(|range| edit.kept(range)) && !free() {
             return Err(refused(&lock.reason));
         }
@@ -194,14 +208,24 @@ fn pins_still_hold(edited: &Value, protected: &Protected) -> Result<(), Blocked>
 /// a locked field once it parses (a key half typed inside a locked block,
 /// a duplicate of a locked key or of a key holding one): the edit may not
 /// add a line whose path is inside a locked field, or which names a key
-/// holding it.
+/// holding it; and a locked field the edit moves (a line command, a cut and
+/// paste) stays where it is (see `moved`).
 fn nothing_joins(edit: &Edited<'_>, pointed: &[&Lock]) -> Result<(), Blocked> {
     let new_lines = LineIndex::new(edit.after);
     // Each line's path is read once for all the locks.
     let old_paths = LinePaths::new(edit.behavior, edit.before, &edit.lines);
     let new_paths = LinePaths::new(edit.behavior, edit.after, &new_lines);
+    let place = Place {
+        edit,
+        old: &old_paths,
+        new: &new_paths,
+        new_lines: &new_lines,
+    };
     for lock in pointed {
         let pointer = lock.pointer.as_deref().unwrap_or_default();
+        if is_near(lock, &edit.region, &edit.lines) && !place.kept(lock) {
+            return Err(refused(&lock.reason));
+        }
         let count = |paths: &LinePaths<'_>, region: &Range<usize>, near| {
             joining_lines(paths, region, near, pointer)
         };

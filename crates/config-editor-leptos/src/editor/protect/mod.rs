@@ -9,7 +9,8 @@
 //!   through an edit leaving the text unparseable; `scan`: the fields of
 //!   a text that does not parse, line by line, when there is none to
 //!   carry from;
-//! - `guard`: one check every edit passes, whatever made it;
+//! - `guard`: one check every edit passes, whatever made it; `reach`: an
+//!   edit no lock can feel, kept and followed without reading the text;
 //! - `save`: the last check before an Edit-as save reaches the host;
 //! - `tokens`, `secrets`: secret placeholders, atomic and followed through
 //!   edits; `problems`: placeholders the host did not give; `glued`: text
@@ -31,6 +32,7 @@ mod locks;
 mod marks;
 mod moved_off;
 mod problems;
+mod reach;
 mod rewritten;
 mod save;
 mod scan;
@@ -225,6 +227,15 @@ mod line_command_tokens_tests;
     feature = "hcl",
     feature = "xml"
 ))]
+mod line_place_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
 mod line_repair_tests;
 #[cfg(all(
     test,
@@ -298,6 +309,15 @@ mod placeholder_scale_tests;
     feature = "xml"
 ))]
 mod point_problem_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod reach_tests;
 #[cfg(all(
     test,
     feature = "yaml",

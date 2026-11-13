@@ -9,7 +9,9 @@ pub(super) mod enter_newline;
 pub(super) mod line_edit;
 #[cfg(test)]
 mod line_edit_tests;
-mod lines;
+pub(super) mod lines;
+#[cfg(all(test, feature = "yaml", feature = "folding"))]
+mod lines_tests;
 mod navigation;
 mod page_keys;
 mod page_ruler;

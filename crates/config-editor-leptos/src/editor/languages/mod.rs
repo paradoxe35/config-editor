@@ -190,6 +190,24 @@ mod aligned;
 // Keys and values written inline (`{ a = 1 }`, `[a, b]`), the building
 // blocks a language with such containers reads its lines with.
 pub(crate) mod inline;
+// An edit changing one scalar on its line, read off the line alone.
+#[cfg(any(
+    feature = "json",
+    feature = "yaml",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod scalar_lines;
+#[cfg(all(
+    test,
+    feature = "json",
+    feature = "yaml",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod scalar_lines_tests;
 // A changed number written in the form of the one it replaces.
 #[cfg(any(feature = "json", feature = "yaml", feature = "toml", feature = "hcl"))]
 mod number_forms;

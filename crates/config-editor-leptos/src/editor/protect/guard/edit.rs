@@ -11,7 +11,7 @@ use super::super::super::codec;
 use super::super::super::diff::{DiffEdit, myers_edits};
 use super::super::super::language::ConfigLanguage;
 use super::super::locate::LineIndex;
-use super::super::locks::Protected;
+use super::super::locks::{Lock, Protected};
 use super::content::{content_areas, in_locked_content};
 use super::pins::{Pinned, pins_hold};
 use super::spacing::between_tokens;
@@ -161,6 +161,29 @@ impl<'a> Edited<'a> {
             })
     }
 
+    /// Whether the text parses before and after, and the lines of `lock`
+    /// are in the text after once, whole: moved there (past several lines,
+    /// which no line diff keeps them through), its value then checked as
+    /// every pinned one is.
+    pub(super) fn moved_whole(&self, lock: &Lock) -> bool {
+        if self.protected.document.is_none() {
+            return false;
+        }
+        let starts = lock.key.iter().chain(&lock.ranges).map(|range| range.start);
+        let ends = lock.key.iter().chain(&lock.ranges).map(|range| range.end);
+        let (Some(low), Some(high)) = (starts.min(), ends.max()) else {
+            return false;
+        };
+        let lines = &self.lines;
+        let start = lines.line_bounds(lines.line_of(low)).start;
+        let end = lines
+            .line_bounds(lines.line_of(high.saturating_sub(1).max(low)))
+            .end;
+        let block = String::from_utf16_lossy(&self.old[start..end]);
+        let padded = format!("\n{}\n", self.after);
+        padded.matches(&format!("\n{block}\n")).count() == 1 && self.parsed().is_some()
+    }
+
     /// Whether only whitespace changed inside a locked field (an indent, a
     /// space after `:`), which leaves every locked value as it was.
     pub(super) fn reformat_only(&self) -> bool {
@@ -181,7 +204,11 @@ impl<'a> Edited<'a> {
     /// free around and inside locked fields as it is while the text parses.
     pub(super) fn spacing_only(&self) -> bool {
         *self.spacing.get_or_init(|| {
-            if self.parsed().is_some() {
+            // Read first, as it costs nothing: more than whitespace changed
+            // (a key typed into a locked value) needs no parse to tell.
+            let whitespace_only = without_whitespace(&self.old[self.region.clone()])
+                == without_whitespace(&self.new[self.new_region.clone()]);
+            if !whitespace_only || self.parsed().is_some() {
                 return false;
             }
             let lines = &self.lines;

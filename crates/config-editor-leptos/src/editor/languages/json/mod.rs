@@ -38,7 +38,28 @@ use std::collections::HashSet;
 pub(super) struct JsonBehavior;
 
 
+/// A JSON scalar edit (see `ConfigLanguage::edits_one_scalar`): a
+/// `"key": value` line read as an object of its own; the edit adds and
+/// removes no quote, escape, bracket or comma.
+const SCALAR_LINE: super::scalar_lines::LineRules = super::scalar_lines::LineRules {
+    alone: |line| {
+        let entry = line.trim();
+        let entry = entry.strip_suffix(',').unwrap_or(entry);
+        entry.starts_with('"').then(|| super::scalar_lines::Alone {
+            cut: line.len() - line.trim_start().len(),
+            text: format!("{{{entry}}}"),
+            item: false,
+        })
+    },
+    forbidden: &['"', '\\', ',', '[', ']', '{', '}'],
+    closers: &[],
+};
+
 impl ConfigLanguage for JsonBehavior {
+    fn edits_one_scalar(&self, source: &str, range: std::ops::Range<usize>, inserted: &str) -> bool {
+        super::scalar_lines::one_scalar_line(self, source, range, inserted, &SCALAR_LINE).is_some()
+    }
+
     fn info(&self) -> LanguageInfo {
         LanguageInfo {
             label: "JSON",
