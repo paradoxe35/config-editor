@@ -166,6 +166,43 @@ test.describe('ConfigEditor.update', () => {
     expect(result.undefinedIsFine).toBeNull();
     expect(result.readOnly).toBe('false');
   });
+
+  // Schema L.8: a framework passes all its props again; the values the
+  // editor was built with change nothing, only another value throws.
+  test('the keys the editor is built from, given again as built, change nothing', async ({ page: browserPage }) => {
+    await open(browserPage);
+    const result = await browserPage.evaluate(async () => {
+      const { ConfigEditor, ConfigDocuments } = await import('../config-editor/index.js');
+      const caught = (target, options) => {
+        try {
+          target.update(options);
+          return null;
+        } catch (error) {
+          return error.message;
+        }
+      };
+      const schema = JSON.stringify({ type: 'object' });
+      const secrets = { hint: 'kept' };
+      const built = { language: 'yaml', schema, fileName: 'a.yaml', className: 'c', secrets, echoes: true };
+      const editor = new ConfigEditor(document.body.appendChild(document.createElement('div')), { value: 'a: 1\n', ...built });
+      const view = new ConfigDocuments(document.body.appendChild(document.createElement('div')), {
+        documents: [],
+        className: 'v',
+        label: 'Files',
+        echoes: true,
+      });
+      return {
+        same: caught(editor, { ...built, language: 'YAML', readOnly: true }),
+        otherSchema: caught(editor, { schema: JSON.stringify({ type: 'array' }) }),
+        sameView: caught(view, { className: 'v', label: 'Files', echoes: true }),
+        otherLabel: caught(view, { label: 'Other' }),
+      };
+    });
+    expect(result.same).toBeNull();
+    expect(result.otherSchema).toContain('schema cannot change on a mounted ConfigEditor');
+    expect(result.sameView).toBeNull();
+    expect(result.otherLabel).toContain('label cannot change on a mounted ConfigDocuments');
+  });
 });
 
 test.describe('ConfigDocuments.update', () => {

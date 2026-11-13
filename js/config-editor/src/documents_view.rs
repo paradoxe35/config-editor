@@ -426,6 +426,8 @@ pub struct ConfigDocuments {
     id: std::cell::Cell<Option<u32>>,
     /// Calls made while one of the view's flushes input (see `reentry`).
     reentry: crate::reentry::Reentry,
+    /// The options it cannot change, as given (see `update`).
+    built_from: crate::update::BuiltFrom,
 }
 
 #[wasm_bindgen]
@@ -535,6 +537,7 @@ impl ConfigDocuments {
             owner,
             id: std::cell::Cell::new(Some(id)),
             reentry: crate::reentry::Reentry::default(),
+            built_from: crate::update::BuiltFrom::of(&options, DOCUMENTS_REMOUNT_OPTIONS),
         })
     }
 
@@ -712,14 +715,20 @@ impl ConfigDocuments {
     /// what the editor holds (see `replaceValue`). `activeId` shows that document, leaving the
     /// focus where it is (an id not listed throws). `className`, `label` and `echoes`, and an `onClose` or
     /// `onAdd` for a view mounted without one (its tabs have no close
-    /// buttons, its strip no "+"), throw: create a new view instead. Every key is checked before any applies.
+    /// buttons, its strip no "+"), throw: create a new view instead (the value the
+    /// view was built with, given again, changes nothing). Every key is checked before any applies.
     pub fn update(&self, options: DocumentsUpdate) -> Result<(), JsError> {
         let options: JsValue = options.into();
         plain_object(
             &options,
             "update takes an object of options: { documents?, activeId?, theme?, onSave?, … }",
         )?;
-        refuse_remount(&options, DOCUMENTS_REMOUNT_OPTIONS, "ConfigDocuments")?;
+        refuse_remount(
+            &options,
+            DOCUMENTS_REMOUNT_OPTIONS,
+            &self.built_from,
+            "ConfigDocuments",
+        )?;
         warn_unknown_options(&options, DOCUMENTS_OPTIONS);
         // Input the browser sent in this task first (the texts it sends from
         // `flushed` on: the host did not know them). What the host set from

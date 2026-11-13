@@ -27,8 +27,41 @@ pub(crate) fn given(options: &JsValue, name: &str) -> Option<JsValue> {
 
 /// An error for the first of `keys` that `options` sets: the component is
 /// built from them, so changing one needs a new instance.
-pub(crate) fn refuse_remount(options: &JsValue, keys: &[&str], class: &str) -> Result<(), JsError> {
-    match keys.iter().find(|key| given(options, key).is_some()) {
+/// What a view was built from: each option it cannot change, as it was
+/// given (`undefined` when it was not).
+pub(crate) struct BuiltFrom(Vec<(&'static str, JsValue)>);
+
+impl BuiltFrom {
+    pub(crate) fn of(options: &JsValue, keys: &[&'static str]) -> Self {
+        Self(
+            keys.iter()
+                .map(|key| (*key, given(options, key).unwrap_or(JsValue::UNDEFINED)))
+                .collect(),
+        )
+    }
+
+    /// Whether `options` gives `key` another value than the view was built
+    /// with: the same value (`Object.is`: a framework passing all its props
+    /// again) changes nothing.
+    fn changes(&self, options: &JsValue, key: &str) -> bool {
+        given(options, key).is_some_and(|value| {
+            !self
+                .0
+                .iter()
+                .any(|(built, was)| *built == key && js_sys::Object::is(&value, was))
+        })
+    }
+}
+
+/// Refuses an `update` that changes one of `keys`, which `class` is built
+/// from (the same value given again changes nothing).
+pub(crate) fn refuse_remount(
+    options: &JsValue,
+    keys: &[&str],
+    built: &BuiltFrom,
+    class: &str,
+) -> Result<(), JsError> {
+    match keys.iter().find(|key| built.changes(options, key)) {
         Some(key) => Err(JsError::new(&format!(
             "{key} cannot change on a mounted {class}: it is built from it. \
              Create a new {class} (destroy() this one) to change {key}"

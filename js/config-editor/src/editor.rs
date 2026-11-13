@@ -57,6 +57,8 @@ pub struct ConfigEditor {
     id: std::cell::Cell<Option<u32>>,
     /// Calls made while one of this editor's flushes input (see `reentry`).
     reentry: crate::reentry::Reentry,
+    /// The options it cannot change, as given (see `update`).
+    built_from: crate::update::BuiltFrom,
 }
 
 /// The unmount handle, reactive owner, and element of an editor.
@@ -238,6 +240,7 @@ impl ConfigEditor {
             final_value: RefCell::new(None),
             id: std::cell::Cell::new(Some(id)),
             reentry: crate::reentry::Reentry::default(),
+            built_from: crate::update::BuiltFrom::of(&options, EDITOR_REMOUNT_OPTIONS),
         })
     }
 
@@ -273,7 +276,8 @@ impl ConfigEditor {
     /// and are moved from that text to the document.
     /// `language`, `schema`, `fileName`, `className`,
     /// `secrets` and `echoes` are what the editor is built from: they throw (create
-    /// a new editor instead), but for `language` naming the editor's own.
+    /// a new editor instead), but for the value it was built with given again
+    /// (`Object.is`; `language` naming the editor's own).
     /// Every key is checked before any applies.
     pub fn update(&self, options: EditorUpdate) -> Result<(), JsError> {
         let options: JsValue = options.into();
@@ -292,7 +296,7 @@ impl ConfigEditor {
             .copied()
             .filter(|key| !(same_language && *key == "language"))
             .collect();
-        refuse_remount(&options, &remount, "ConfigEditor")?;
+        refuse_remount(&options, &remount, &self.built_from, "ConfigEditor")?;
         warn_unknown_options(
             &options,
             &[EDITOR_OPTIONS, EDITOR_UPDATE_ONLY_OPTIONS].concat(),

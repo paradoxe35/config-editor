@@ -480,9 +480,11 @@ editor.update({ hostDiagnostics: problems, onSave: null });
   `value`, applied or an echo.
 - `language`, `schema`, `fileName`, `className`, `secrets` and `echoes` are what the
   editor is built from: they throw (`"language cannot change on a mounted
-ConfigEditor …"`); create a new editor to change them. The `language`
-  the editor already has changes nothing. TypeScript types them `never` in
-  `EditorUpdate`.
+ConfigEditor …"`); create a new editor to change them. The value one was
+  built with, given again (the same `schema` text, the same `secrets`
+  object; for `language`, the editor's own under any spelling), changes
+  nothing, as a framework passing all its props again does. TypeScript types
+  them `never` in `EditorUpdate`.
 - Every key is checked before any applies: a wrong value throws and changes
   nothing.
 
