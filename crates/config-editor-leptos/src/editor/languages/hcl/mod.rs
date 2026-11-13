@@ -58,7 +58,21 @@ use std::collections::{HashMap, HashSet};
 pub(super) struct HclBehavior;
 
 
+/// An HCL scalar edit (see `ConfigLanguage::edits_one_scalar`): a
+/// `key = value` line read as a body of its own; the edit adds and removes
+/// no quote or escape (a heredoc's text), template, bracket or comma, and
+/// no `*/` (a comment over lines).
+const SCALAR_LINE: super::scalar_lines::LineRules = super::scalar_lines::LineRules {
+    alone: super::scalar_lines::dedented,
+    forbidden: &['"', '\\', '$', '%', ',', '(', ')', '[', ']', '{', '}'],
+    closers: &["*/"],
+};
+
 impl ConfigLanguage for HclBehavior {
+    fn edits_one_scalar(&self, source: &str, range: std::ops::Range<usize>, inserted: &str) -> bool {
+        super::scalar_lines::one_scalar_line(self, source, range, inserted, &SCALAR_LINE).is_some()
+    }
+
     fn repetition(&self) -> Repetition {
         Repetition::Blocks
     }

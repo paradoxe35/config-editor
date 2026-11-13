@@ -64,7 +64,22 @@ use std::collections::{HashMap, HashSet};
 pub(super) struct XmlBehavior;
 
 
+/// An XML scalar edit (see `ConfigLanguage::edits_one_scalar`): an
+/// `<name>text</name>` line read as a document of its own; the edit adds
+/// and removes no markup or reference, and no `--`, `]]>` or `?>` (which
+/// would end or break a comment, a CDATA section or an instruction over
+/// lines).
+const SCALAR_LINE: super::scalar_lines::LineRules = super::scalar_lines::LineRules {
+    alone: super::scalar_lines::dedented,
+    forbidden: &['<', '>', '&'],
+    closers: &["--", "]]>", "?>"],
+};
+
 impl ConfigLanguage for XmlBehavior {
+    fn edits_one_scalar(&self, source: &str, range: std::ops::Range<usize>, inserted: &str) -> bool {
+        super::scalar_lines::one_scalar_line(self, source, range, inserted, &SCALAR_LINE).is_some()
+    }
+
     fn repetition(&self) -> Repetition {
         Repetition::Elements
     }

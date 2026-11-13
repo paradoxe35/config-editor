@@ -4,8 +4,11 @@
 //! ended and within [`UNDO_GROUPING_WINDOW_MS`]; a caret move, a paste, or a
 //! command starts a new one. An Edit-as switch is a step too: its snapshots
 //! carry the language their text is in, so undo goes back to the view it
-//! left and redo returns to the new one.
+//! left and redo returns to the new one. A step that said which folds it
+//! leaves closed (a line command moving closed folds) keeps the folds of
+//! both sides, so undo and redo close them again.
 
+use super::fold_ranges::FoldRange;
 use super::languages::Language;
 
 mod rebase;
@@ -20,6 +23,9 @@ pub(super) struct Snapshot {
     /// The language `value` is in, for a step that changed the language on
     /// screen (an Edit-as switch); `None` for every other step.
     pub(super) language: Option<Language>,
+    /// The folds closed in `value`, for a step that said them (a line
+    /// command); `None` for every other step: the folds follow the change.
+    pub(super) folds: Option<Vec<FoldRange>>,
 }
 
 #[derive(Clone, Debug)]
@@ -28,6 +34,8 @@ struct Step {
     after: Selection,
     /// The language the step left, when it changed it.
     after_language: Option<Language>,
+    /// The folds the step left closed, when it said them.
+    after_folds: Option<Vec<FoldRange>>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -105,6 +113,7 @@ impl EditHistory {
                 before,
                 after,
                 after_language: None,
+                after_folds: None,
             });
         }
         self.open = group.map(|group| (group, timestamp));
@@ -119,10 +128,22 @@ impl EditHistory {
     /// An edit the editor made (a command, an accepted suggestion): always
     /// its own step.
     pub(super) fn record_action(&mut self, before: Snapshot, after: Selection) {
+        self.record_command(before, after, None);
+    }
+
+    /// [`Self::record_action`] for a command leaving `after_folds` closed
+    /// when it says so (`before` then holds the folds closed before it).
+    pub(super) fn record_command(
+        &mut self,
+        before: Snapshot,
+        after: Selection,
+        after_folds: Option<Vec<FoldRange>>,
+    ) {
         self.push(Step {
             before,
             after,
             after_language: None,
+            after_folds,
         });
         self.open = None;
     }
@@ -134,6 +155,7 @@ impl EditHistory {
             before,
             after,
             after_language: Some(language),
+            after_folds: None,
         });
         self.open = None;
     }
@@ -190,6 +212,8 @@ impl EditHistory {
             let map = |offset: usize| rebase::mapped(&after_old, &after_new, offset);
             step.after = (map(step.after.0), map(step.after.1));
             let before = std::mem::replace(&mut step.before.value, rebased.clone());
+            // The host's change moved the lines the folds were said on.
+            (step.before.folds, step.after_folds) = (None, None);
             let (start, end) = step.before.selection;
             step.before.selection = (
                 rebase::mapped(&before, &rebased, start),
@@ -209,9 +233,11 @@ impl EditHistory {
                 value: current,
                 selection: step.after,
                 language: step.after_language,
+                folds: step.after_folds,
             },
             after: step.before.selection,
             after_language: step.before.language,
+            after_folds: step.before.folds.clone(),
         });
         self.open = None;
         Some(step.before)
@@ -254,9 +280,11 @@ impl EditHistory {
                 value: current,
                 selection: step.after,
                 language: step.after_language,
+                folds: step.after_folds,
             },
             after: step.before.selection,
             after_language: step.before.language,
+            after_folds: step.before.folds.clone(),
         });
         self.open = None;
         Some(step.before)
@@ -272,6 +300,7 @@ mod tests {
             value: value.into(),
             selection: (caret, caret),
             language: None,
+            folds: None,
         }
     }
 
@@ -307,6 +336,7 @@ mod tests {
             value: value.into(),
             selection: (from, to),
             language: None,
+            folds: None,
         };
         history.record_input(
             composing("name: に", 6, 7),
@@ -364,6 +394,7 @@ mod tests {
             value: "a: 1\nb: 2".into(),
             selection: (0, 9),
             language: None,
+            folds: None,
         };
         history.record_action(before.clone(), (0, 13));
         assert_eq!(history.undo("  a: 1\n  b: 2".into()), Some(before));
@@ -373,6 +404,7 @@ mod tests {
                 value: "  a: 1\n  b: 2".into(),
                 selection: (0, 13),
                 language: None,
+                folds: None,
             })
         );
     }
@@ -386,6 +418,7 @@ mod tests {
             value: "a: 1\n".into(),
             selection: (0, 0),
             language: Some(Language::YAML),
+            folds: None,
         };
         history.record_switch(yaml.clone(), (4, 4), Language::JSON);
         assert_eq!(history.undo("{\"a\": 1}\n".into()), Some(yaml));

@@ -18,7 +18,7 @@ use super::line_edit::{Folded, LineCommand, block_lines, fold_units, line_edit};
 
 /// A line command.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Command {
+pub(in crate::editor) enum Command {
     Lines(LineCommand),
     Indent { outdent: bool },
 }
@@ -59,8 +59,22 @@ pub(super) fn line_commands(state: EditorState, event: &KeyboardEvent) -> bool {
     let Some(element) = state.textarea() else {
         return true;
     };
-    let selection = textarea_selection(&element);
-    let backward = is_backward(&element);
+    run(
+        state,
+        command,
+        textarea_selection(&element),
+        is_backward(&element),
+    );
+    true
+}
+
+/// Runs `command` on `selection` (made backward with `backward`).
+pub(in crate::editor) fn run(
+    state: EditorState,
+    command: Command,
+    selection: (usize, usize),
+    backward: bool,
+) {
     let text = state.doc().text.get_untracked();
     let folds = state.with_closed_folds_untracked(<[_]>::to_vec);
     let units = fold_units(&text, &folds, state.behavior());
@@ -73,23 +87,29 @@ pub(super) fn line_commands(state: EditorState, event: &KeyboardEvent) -> bool {
                 folds: &folds,
                 units: &units,
             };
-            let Some(edit) = line_edit(&text, selection, command, folded) else {
-                return true;
-            };
-            let (anchor, caret) = if backward {
-                (edit.selection.1, edit.selection.0)
-            } else {
-                edit.selection
-            };
-            state.commit(
-                Edit::new(text, selection, edit.text, caret)
-                    .selecting_from(anchor)
-                    .folding(edit.folds),
-            );
+            if let Some(edit) = line_edit(&text, selection, command, folded) {
+                let (anchor, caret) = if backward {
+                    (edit.selection.1, edit.selection.0)
+                } else {
+                    edit.selection
+                };
+                let made = Edit::new(text, selection, edit.text, caret).selecting_from(anchor);
+                state.commit(with_folds(made, &folds, edit.folds));
+            }
         }
     }
     state.close_suggestions();
-    true
+}
+
+/// `edit`, leaving `after` closed when folds were (`before`): with none,
+/// nothing is to be kept, and the readings of the whole text wait for the
+/// frame, as after a typed key.
+fn with_folds(edit: Edit, before: &[FoldRange], after: Vec<FoldRange>) -> Edit {
+    if before.is_empty() {
+        edit
+    } else {
+        edit.folding(after)
+    }
 }
 
 /// Indents (or outdents) the selection's lines, a folded line's hidden
@@ -120,11 +140,9 @@ fn indent(
         (selection_start, selection_end)
     };
     let made = if updated != text {
-        state.commit(
-            Edit::new(text, (start, end), updated, caret)
-                .selecting_from(anchor)
-                .folding(folds),
-        )
+        let made = Edit::new(text, (start, end), updated, caret).selecting_from(anchor);
+        let kept = folds.clone();
+        state.commit(with_folds(made, &folds, kept))
     } else {
         state.note_caret(caret);
         true

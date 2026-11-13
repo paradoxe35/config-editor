@@ -45,6 +45,17 @@ fn shared(before: &str, after: &str) -> Shared {
     }
 }
 
+/// The bytes `before` changed in to make `after`: where the change starts,
+/// and where it ends in each text.
+pub(super) fn changed_bytes(before: &str, after: &str) -> (usize, usize, usize) {
+    let shared = shared(before, after);
+    (
+        shared.prefix,
+        before.len() - shared.suffix,
+        after.len() - shared.suffix,
+    )
+}
+
 /// The UTF-16 range of `before` that changed into `after`: the two texts
 /// are the same before and after it.
 pub(super) fn changed_range(before: &str, after: &str) -> (usize, usize) {

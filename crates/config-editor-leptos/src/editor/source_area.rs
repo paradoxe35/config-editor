@@ -183,9 +183,10 @@ impl EditorState {
             .is_some_and(|element| {
                 self.doc().text.with_untracked(|doc| {
                     let view = projection.view(doc);
-                    let rewrite = element.value() != view;
+                    let shown = element.value();
+                    let rewrite = shown != view;
                     if rewrite {
-                        element.set_value(view);
+                        replace_changed(&element, &shown, view);
                     }
                     rewrite
                 })
@@ -198,5 +199,21 @@ impl EditorState {
             self.view().projection.set(Arc::new(projection));
         }
         rewritten
+    }
+}
+
+/// Writes `view` into `element`, which shows `shown`: only the stretch that
+/// differs is replaced (two lines' text for a line moved), so the browser
+/// lays out what changed rather than the whole document.
+fn replace_changed(element: &web_sys::HtmlTextAreaElement, shown: &str, view: &str) {
+    use super::text_change::{changed_bytes, utf16_len};
+    let (start, old_end, new_end) = changed_bytes(shown, view);
+    let from = utf16_len(&shown[..start]);
+    let to = from + utf16_len(&shown[start..old_end]);
+    if element
+        .set_range_text_with_start_and_end(&view[start..new_end], from as u32, to as u32)
+        .is_err()
+    {
+        element.set_value(view);
     }
 }

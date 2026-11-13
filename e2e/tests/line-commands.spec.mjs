@@ -188,6 +188,11 @@ test.describe("a closed fold is one unit", () => {
         await expect
           .poll(() => saved(page), `${at} ${key} undone in one step`)
           .toBe(value);
+        // Undone, the fold is closed where it was (it used to open).
+        expect(
+          await isClosed(page, header),
+          `${at} ${key}: folded again when undone`,
+        ).toBe(true);
       }
       expect(errors).toEqual([]);
     });

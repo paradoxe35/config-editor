@@ -1846,6 +1846,23 @@ pub trait ConfigLanguage: Send + Sync + 'static {
         let _ = (value, indent, unit);
         None
     }
+
+    /// Whether replacing the bytes `range` of `source` (a text that parses)
+    /// with `inserted` changes one scalar value written on that line and
+    /// nothing else: the text parses afterwards as it did, every other value
+    /// reads as before, and nothing reads that one elsewhere (a YAML alias of
+    /// an anchored node). A lock off that line then holds without reading
+    /// the document again, so a lock costs a keystroke away from it nothing.
+    /// `false` when unsure (the default: the document is read).
+    fn edits_one_scalar(
+        &self,
+        source: &str,
+        range: std::ops::Range<usize>,
+        inserted: &str,
+    ) -> bool {
+        let _ = (source, range, inserted);
+        false
+    }
 }
 
 /// `key` as `language` writes it (see [`ConfigLanguage::written_key`]): the
