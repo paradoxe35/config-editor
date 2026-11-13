@@ -2,7 +2,7 @@
 //! change counts, and schema warnings. Documents (`parse`, `rangeOf`, …)
 //! are in `documents`, accepted names in `catalog`.
 
-use config_editor_leptos::{ChangeSummary, Schema};
+use config_editor_leptos::ChangeSummary;
 use serde::Serialize;
 use wasm_bindgen::prelude::*;
 
@@ -57,7 +57,7 @@ pub fn validate(
     let text = text.as_str();
     let schema = optional_text(&schema, "schema")?;
     let problems = match schema {
-        Some(json) => Schema::compile(&json)
+        Some(json) => crate::schema_cache::compiled(&json)
             .map_err(|error| JsError::new(&error.to_string()))?
             .validate(language, text),
         None => config_editor_leptos::check_syntax(language, text),
@@ -80,7 +80,7 @@ pub fn convert(
     let text = text_arg(&text, "text")?;
     let text = text.as_str();
     let converted = match schema {
-        Some(json) => Schema::compile(&json)
+        Some(json) => crate::schema_cache::compiled(&json)
             .map_err(|error| JsError::new(&error.to_string()))?
             .convert(from, text, to),
         None => from.convert(text, to),
@@ -105,7 +105,7 @@ pub fn convert(
 pub fn schema_warnings(
     #[wasm_bindgen(unchecked_param_type = "string")] schema: JsValue,
 ) -> Result<Names, JsError> {
-    let schema = Schema::compile(&text_arg(&schema, "schema")?)
+    let schema = crate::schema_cache::compiled(&text_arg(&schema, "schema")?)
         .map_err(|error| JsError::new(&error.to_string()))?;
     Ok(to_js(&schema.warnings()).unchecked_into())
 }
