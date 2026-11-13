@@ -146,6 +146,24 @@ impl CompletionState {
 }
 
 impl EditorState {
+    /// Whether the list is showing: asked for and with options. A request
+    /// that filtered down to nothing shows no popup, so no key treats it as
+    /// one (Escape goes on to the find widget, Tab to the focus).
+    pub(crate) fn suggestions_showing(&self) -> bool {
+        self.completion().requested.get_untracked()
+            && !self.completion().suggestions.with_untracked(Vec::is_empty)
+    }
+
+    /// Escape in the text: closes the list when it shows (`true`); a request
+    /// with no options is dropped and left for the next thing Escape closes.
+    pub(crate) fn escape_suggestions(&self) -> bool {
+        let showing = self.suggestions_showing();
+        if self.completion().requested.get_untracked() {
+            self.close_suggestions();
+        }
+        showing
+    }
+
     pub(crate) fn close_suggestions(&self) {
         self.completion().requested.set(false);
         if self.completion().replace_word.get_untracked() {

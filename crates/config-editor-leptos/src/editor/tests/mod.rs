@@ -17,6 +17,8 @@ mod bom_edits;
 mod convert_messages;
 #[cfg(feature = "yaml")]
 mod handle;
+#[cfg(feature = "yaml")]
+mod hidden_suggestions;
 // Reads what the view reads (folds, suggestions) on every language's sample.
 #[cfg(all(
     feature = "yaml",

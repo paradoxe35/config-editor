@@ -180,9 +180,8 @@ pub(super) fn next_problem(state: EditorState, event: &KeyboardEvent) -> bool {
 /// Escape closes the suggestion list, then the find widget, or with nothing
 /// to close collapses a selection.
 pub(super) fn escape(state: EditorState, event: &KeyboardEvent) {
-    if state.completion().requested.get_untracked() {
+    if state.escape_suggestions() {
         event.prevent_default();
-        state.close_suggestions();
         return;
     }
     if super::super::search::close_on_escape(state) {

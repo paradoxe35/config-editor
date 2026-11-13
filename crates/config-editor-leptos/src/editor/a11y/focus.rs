@@ -72,8 +72,7 @@ pub(super) fn decide(key: &str, modifiers: Modifiers, context: Context) -> (Acti
 
 /// Whether anything Escape closes is open.
 fn popup_open(state: EditorState) -> bool {
-    !state.completion().suggestions.with_untracked(Vec::is_empty)
-        || state.completion().requested.get_untracked()
+    state.suggestions_showing()
         || super::super::search::is_open(state)
         || state.hover().card.with_untracked(Option::is_some)
         || super::super::changes::preview_open(state)
