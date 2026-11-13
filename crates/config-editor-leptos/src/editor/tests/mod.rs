@@ -41,6 +41,8 @@ mod keystroke_work;
 ))]
 mod line_breaks;
 // Observes what every setting switches, so it needs every optional feature.
+#[cfg(all(feature = "yaml", feature = "toml", feature = "schema-validation"))]
+mod hover_look_back;
 #[cfg(all(
     feature = "yaml",
     feature = "diff",

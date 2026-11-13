@@ -121,6 +121,9 @@ pub(crate) enum Work {
     /// Two list items compared while matching a list's items to the ones
     /// they were (`codec::moves`).
     ItemComparison,
+    /// The docs of a place looked up (`completion::key_hover`): its key or
+    /// value read off the whole document.
+    HoverLookup,
 }
 
 impl Work {
@@ -153,13 +156,14 @@ impl Work {
             Self::ExpressionLookup => 23,
             Self::MergeKeyVisit => 24,
             Self::ItemComparison => 25,
+            Self::HoverLookup => 26,
         }
     }
 }
 
 #[cfg(test)]
 thread_local! {
-    static COUNTS: std::cell::Cell<[usize; 26]> = const { std::cell::Cell::new([0; 26]) };
+    static COUNTS: std::cell::Cell<[usize; 27]> = const { std::cell::Cell::new([0; 27]) };
 }
 
 /// `work` is starting (counted on this thread in tests).

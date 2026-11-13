@@ -9,6 +9,7 @@ use super::a11y::{
 };
 use super::completion::{KeyHover, key_hover};
 use super::components::HoverCard;
+use super::paths::split_line;
 use super::positioning::hover_card_anchor;
 use super::state::EditorState;
 
@@ -132,7 +133,13 @@ impl EditorState {
                     column.checked_sub(1),
                     past_tag_open(self.behavior(), text, line, column),
                 ];
-                let before = (0..column.saturating_sub(1)).rev().take(LOOK_BACK);
+                // Only where the line writes a key (read off the line
+                // alone): each look further reads the document.
+                let line_text = split_line(text, line).unwrap_or_default();
+                let before = (0..column.saturating_sub(1))
+                    .rev()
+                    .take(LOOK_BACK)
+                    .filter(|at| self.behavior().hover_key(line_text, *at).is_some());
                 near.into_iter()
                     .flatten()
                     .chain(before)
@@ -196,10 +203,18 @@ impl EditorState {
             }
             self.config().schema.with_value(|schema| {
                 let docs = |at| key_hover(text, line, at, schema.as_deref(), self.behavior());
+                // The nearest key before it: looked up only where the line
+                // writes one (read off the line alone), as each look reads
+                // the document (a pointer over a long comment looked up
+                // every word before it: seconds per move).
+                let keyed = |at: usize| self.behavior().hover_key(line_text, at).is_some();
                 docs(column).or_else(|| {
-                    word_starts(&chars, column)
-                        .take(LOOK_BACK)
-                        .find_map(|at| docs(at).or_else(|| docs(at + 1)))
+                    word_starts(&chars, column).take(LOOK_BACK).find_map(|at| {
+                        [at, at + 1]
+                            .into_iter()
+                            .filter(|at| keyed(*at))
+                            .find_map(docs)
+                    })
                 })
             })
         })

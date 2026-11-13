@@ -1,6 +1,7 @@
 //! Schema docs for the key or documented value under the pointer.
 
 use super::super::paths::{line_start, split_line, units_at};
+use super::super::work_count::{Work, note};
 use super::*;
 use crate::editor::language::cursor_at;
 
@@ -87,17 +88,14 @@ pub(crate) fn key_hover(
     schema: Option<&SchemaBundle>,
     behavior: &dyn ConfigLanguage,
 ) -> Option<KeyHover> {
+    note(Work::HoverLookup);
     let bundle = schema?;
     if let Some((path, key, start_column)) = hovered_key(source, line_index, column, behavior) {
         return property_hover(source, &path, key, start_column, bundle, behavior);
     }
     // No key under the pointer: maybe a value the schema documents.
-    let line_start: usize = source
-        .split('\n')
-        .take(line_index)
-        .map(|line| line.len() + 1)
-        .sum();
-    let line = source.get(line_start..)?.split('\n').next()?;
+    let line_start = line_start(source, line_index);
+    let line = split_line(source, line_index)?;
     if behavior.hover_path(source, line_index, column).is_some()
         || behavior.hover_key(line, column).is_some()
     {
