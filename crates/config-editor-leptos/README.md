@@ -1268,9 +1268,15 @@ else the one whose `const` properties the object has
 
 Accepting an object key writes its required children. The caret goes to
 the first one (left empty unless it has a `default`); each other takes its
-`default`, else its first `examples` entry, else a typed placeholder. `Tab`
-then walks the block like a snippet, selecting each written value (typing
+`default` or `const`, else its first `examples` entry, else a typed
+placeholder (the first `enum` value), alike in every language. `Tab` then
+walks the block like a snippet, selecting each written value (typing
 replaces it) and stopping at each empty one.
+
+A schema value is written only as text the language reads back as that
+value: an object or list default in XML is written as elements (a list's
+items repeat the key), and a `null` default in TOML or XML, which have no
+null, is left out, the caret where the value goes.
 
 `patternProperties` regexes are compiled once per pattern, when the schema
 is built. One the editor's engine cannot compile (look-around, and Unicode

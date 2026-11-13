@@ -2,6 +2,17 @@
 
 use super::*;
 
+/// The default a suggestion writes for `property`: one YAML reads back as
+/// it is, else none (the caret stays where the value goes).
+fn written_default<'a>(property: &'a Value, root: &'a Value) -> Option<&'a Value> {
+    kept_default(&YamlBehavior, property, root)
+}
+
+/// The `const` a suggestion writes for `property`, as [`written_default`].
+fn written_const<'a>(property: &'a Value, root: &'a Value) -> Option<&'a Value> {
+    kept_const(&YamlBehavior, property, root)
+}
+
 pub(super) fn yaml_key_for_completion(key: &str) -> Option<String> {
     let plain_key = !key.is_empty()
         && key
@@ -127,12 +138,7 @@ pub(super) fn append_required_properties(
         output.push(':');
         // A default, else (once the caret has its child) an example: a
         // value Tab selects (see `stops`).
-        if let Some(default) = schema_default(property, root).cloned().or_else(|| {
-            cursor_offset
-                .is_some()
-                .then(|| schema_example(property, root))
-                .flatten()
-        }) {
+        if let Some(default) = child_fill(&YamlBehavior, property, root, cursor_offset.is_none()) {
             output.push(' ');
             output.push_str(&yaml_value(&default));
             output.push('\n');
@@ -175,9 +181,9 @@ pub(super) fn flow_property_insert(key: &str, property: &Value, root: &Value) ->
     };
     let mut insert = format!("{yaml_key}: ");
     let mut cursor = None;
-    if let Some(value) = schema_const(property, root) {
+    if let Some(value) = written_const(property, root) {
         insert.push_str(&flow(value));
-    } else if let Some(default) = schema_default(property, root).filter(|value| {
+    } else if let Some(default) = written_default(property, root).filter(|value| {
         !value.as_array().is_some_and(Vec::is_empty)
             && !value.as_object().is_some_and(serde_json::Map::is_empty)
     }) {
@@ -209,10 +215,7 @@ pub(super) fn flow_property_insert(key: &str, property: &Value, root: &Value) ->
             if takes_caret {
                 cursor = Some(insert.len());
             }
-            if let Some(default) = schema_default(child, root)
-                .cloned()
-                .or_else(|| (!takes_caret).then(|| schema_example(child, root)).flatten())
-            {
+            if let Some(default) = child_fill(&YamlBehavior, child, root, takes_caret) {
                 insert.push_str(&flow(&default));
             }
         }
@@ -238,11 +241,11 @@ pub(super) fn property_completion_insert(
     let yaml_key = yaml_key_for_completion(key)?;
     let child_indent = format!("{base_indent}{unit}");
     let mut insert = format!("{yaml_key}:");
-    if let Some(value) = schema_const(property, root) {
+    if let Some(value) = written_const(property, root) {
         insert.push(' ');
         insert.push_str(&yaml_value(value));
     } else if array_branch(property, root).is_some() {
-        let default = schema_default(property, root);
+        let default = written_default(property, root);
         if let Some(default) = default.filter(|value| !value.as_array().is_some_and(Vec::is_empty))
         {
             insert.push(' ');
@@ -253,7 +256,7 @@ pub(super) fn property_completion_insert(
             insert.push_str("- ");
         }
     } else if let Some(branch) = object_branch(property, root) {
-        let default = schema_default(property, root);
+        let default = written_default(property, root);
         if let Some(default) =
             default.filter(|value| !value.as_object().is_some_and(serde_json::Map::is_empty))
         {
@@ -286,7 +289,7 @@ pub(super) fn property_completion_insert(
         }
         let cursor = cursor_offset.unwrap_or_else(|| insert.encode_utf16().count());
         return Some((insert, cursor));
-    } else if let Some(default) = schema_default(property, root) {
+    } else if let Some(default) = written_default(property, root) {
         insert.push(' ');
         insert.push_str(&yaml_value(default));
     } else {

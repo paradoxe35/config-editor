@@ -7,6 +7,7 @@ mod choices;
 mod docs;
 mod headless;
 mod hover;
+mod kept;
 mod live;
 mod matching;
 mod patterns;
@@ -22,6 +23,7 @@ pub(crate) use docs::*;
 pub use headless::{HoverDocs, Suggestion};
 pub(crate) use headless::{schema_hover, schema_suggestions};
 pub(crate) use hover::*;
+pub use kept::{child_fill, fill_value, kept_const, kept_default, language_keeps};
 pub(crate) use live::{CompletionState, Sources, SuggestionPlace};
 pub(crate) use matching::*;
 pub(crate) use patterns::unsupported_patterns;
@@ -31,7 +33,7 @@ pub(crate) use stops::*;
 pub(crate) use window::*;
 // Public for languages written outside the crate (see `language`).
 pub use schema::{array_branch, object_branch, placeholder, schema_const, schema_default};
-pub use stops::{fill_value, schema_example};
+pub use stops::schema_example;
 
 use super::commands::indent_unit;
 use super::diagnostics::SchemaBundle;

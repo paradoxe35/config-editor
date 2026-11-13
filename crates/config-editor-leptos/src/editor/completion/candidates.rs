@@ -96,8 +96,8 @@ pub(super) fn default_selection(
     behavior: &dyn ConfigLanguage,
 ) -> (usize, usize) {
     let unselected = (cursor_offset, 0);
-    let Some(default) = schema_default(property, root)
-        .or_else(|| schema_const(property, root))
+    let Some(default) = kept_default(behavior, property, root)
+        .or_else(|| kept_const(behavior, property, root))
         .filter(|value| !value.is_object() && !value.is_array() && !value.is_null())
     else {
         return unselected;

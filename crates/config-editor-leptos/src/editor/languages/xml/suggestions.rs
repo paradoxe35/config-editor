@@ -2,6 +2,17 @@
 
 use super::*;
 
+/// The default a suggestion writes for `property`: one XML reads back as
+/// it is, else none (the caret stays where the value goes).
+fn written_default<'a>(property: &'a Value, root: &'a Value) -> Option<&'a Value> {
+    kept_default(&XmlBehavior, property, root)
+}
+
+/// The `const` a suggestion writes for `property`, as [`written_default`].
+fn written_const<'a>(property: &'a Value, root: &'a Value) -> Option<&'a Value> {
+    kept_const(&XmlBehavior, property, root)
+}
+
 pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionContext {
     let cursor = utf16_to_byte_index(source, cursor);
     let snapshot = caret_snapshot(source, cursor);
@@ -465,51 +476,95 @@ pub(super) fn property_insert(
         return attribute_insert(key, property, root);
     }
     let (base_indent, unit) = (context.base_indent, context.unit);
+    // An object or list default is elements of its own (a list's items
+    // repeat the key), as the XML writer writes them.
+    if written_const(property, root).is_none()
+        && let Some(elements) = written_default(property, root)
+            .filter(|value| is_filled_container(value))
+            .and_then(|value| written_elements(key, value, base_indent, unit))
+    {
+        let caret = utf16(&elements);
+        return Some((elements, caret));
+    }
     let mut insert = format!("<{key}>");
     let mut caret = None;
-    if let Some(value) = schema_const(property, root) {
+    let scalar_default = written_default(property, root).filter(|value| !value.is_array() && !value.is_object());
+    if let Some(value) = written_const(property, root).or(scalar_default) {
         insert.push_str(&escape_text(&xml_text(value)));
     } else if let Some(branch) = object_branch(property, root).or_else(|| item_object(property, root)) {
-        // An array default lists items, which are separate elements.
-        match schema_default(property, root)
-            .filter(|value| !value.is_array() && !value.as_object().is_some_and(Map::is_empty))
-        {
-            Some(default) => insert.push_str(&escape_text(&xml_text(default))),
-            None => {
-                let children = required_children(branch);
-                if children.is_empty() {
-                    // No required children: leave the caret between the tags.
-                    caret = Some(insert.len());
-                } else {
-                    let child_indent = format!("{base_indent}{unit}");
+        let children = required_children(branch);
+        if children.is_empty() {
+            // No required children: leave the caret between the tags.
+            caret = Some(insert.len());
+        } else {
+            let child_indent = format!("{base_indent}{unit}");
+            insert.push('\n');
+            for (name, child) in &children {
+                let takes_caret = caret.is_none();
+                // A default, else (past the caret's child) a fill: a value
+                // Tab selects.
+                let fill = child_fill(&XmlBehavior, child, root, takes_caret);
+                insert.push_str(&child_indent);
+                if let Some(elements) = fill
+                    .as_ref()
+                    .filter(|value| is_filled_container(value))
+                    .and_then(|value| written_elements(name, value, &child_indent, unit))
+                {
+                    insert.push_str(&elements);
                     insert.push('\n');
-                    for (name, child) in &children {
-                        let takes_caret = caret.is_none();
-                        if takes_caret {
-                            caret = Some(insert.len() + child_indent.len() + name.len() + 2);
-                        }
-                        insert.push_str(&child_indent);
-                        insert.push_str(&format!("<{name}>"));
-                        // A default, else (past the caret's child) an
-                        // example: a value Tab selects.
-                        if let Some(default) = schema_default(child, root).cloned().or_else(|| {
-                            (!takes_caret).then(|| schema_example(child, root)).flatten()
-                        }) {
-                            insert.push_str(&escape_text(&xml_text(&default)));
-                        }
-                        insert.push_str(&format!("</{name}>\n"));
-                    }
-                    insert.push_str(base_indent);
+                    continue;
                 }
+                insert.push_str(&format!("<{name}>"));
+                if takes_caret {
+                    caret = Some(insert.len());
+                }
+                if let Some(value) = fill.filter(|value| !value.is_object() && !value.is_array()) {
+                    insert.push_str(&escape_text(&xml_text(&value)));
+                }
+                insert.push_str(&format!("</{name}>\n"));
             }
+            insert.push_str(base_indent);
         }
-    } else if let Some(default) = schema_default(property, root).filter(|value| !value.is_array()) {
-        insert.push_str(&escape_text(&xml_text(default)));
     }
     let caret = caret.unwrap_or(insert.len());
     insert.push_str(&format!("</{key}>"));
     let caret = utf16(&insert[..caret]);
     Some((insert, caret))
+}
+
+/// A non-empty object or list: written as elements, not as text.
+fn is_filled_container(value: &Value) -> bool {
+    value.as_object().is_some_and(|members| !members.is_empty())
+        || value.as_array().is_some_and(|items| !items.is_empty())
+}
+
+/// The elements `key: value` stands for (one per item of a list), as the
+/// XML writer writes them, each line after the first under `base_indent`,
+/// nested ones by `unit`; `None` when the writer refuses the value or
+/// writes text the indentation cannot follow (a multi-line text).
+fn written_elements(key: &str, value: &Value, base_indent: &str, unit: &str) -> Option<String> {
+    let text = XmlBehavior
+        .serialize(&serde_json::json!({ "r": { key: value } }), None)
+        .ok()?;
+    let lines: Vec<&str> = text.lines().collect();
+    let inner = lines.get(1..lines.len().checked_sub(1)?)?;
+    let first = inner.first()?;
+    let step = first.len() - first.trim_start().len();
+    let mut written = String::new();
+    for (index, line) in inner.iter().enumerate() {
+        let trimmed = line.trim_start();
+        let indent = line.len() - trimmed.len();
+        if step == 0 || indent % step != 0 || indent < step {
+            return None;
+        }
+        if index > 0 {
+            written.push('\n');
+            written.push_str(base_indent);
+        }
+        written.push_str(&unit.repeat(indent / step - 1));
+        written.push_str(trimmed);
+    }
+    Some(written)
 }
 
 /// The object schema of an array's items: each repeated element is one item,
@@ -526,9 +581,9 @@ pub(super) fn attribute_insert(name: &str, property: &Value, root: &Value) -> Op
         return None;
     }
     let mut insert = format!("{name}=\"");
-    if let Some(value) = schema_const(property, root) {
+    if let Some(value) = written_const(property, root) {
         insert.push_str(&escape_attribute(&xml_text(value)));
-    } else if let Some(default) = schema_default(property, root) {
+    } else if let Some(default) = written_default(property, root) {
         insert.push_str(&escape_attribute(&xml_text(default)));
     }
     let caret = utf16(&insert);

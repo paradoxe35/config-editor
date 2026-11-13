@@ -68,4 +68,12 @@ mod reveal_range;
 ))]
 mod schema_message;
 
+#[cfg(all(
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod kept_defaults;
 mod save;

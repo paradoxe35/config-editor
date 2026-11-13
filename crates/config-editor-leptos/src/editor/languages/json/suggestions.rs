@@ -2,6 +2,23 @@
 
 use super::*;
 
+/// The default a suggestion writes for `property`: one JSON reads back as
+/// it is, else none (the caret stays where the value goes).
+fn written_default<'a>(property: &'a Value, root: &'a Value) -> Option<&'a Value> {
+    kept_default(&JsonBehavior, property, root)
+}
+
+/// The `const` a suggestion writes for `property`, as [`written_default`].
+fn written_const<'a>(property: &'a Value, root: &'a Value) -> Option<&'a Value> {
+    kept_const(&JsonBehavior, property, root)
+}
+
+/// The text a block writes for a required child past the caret's: its
+/// [`fill_value`], or nothing when JSON keeps none.
+fn written_fill(child: &Value, root: &Value) -> String {
+    fill_value(&JsonBehavior, child, root).map(|value| json_text(&value)).unwrap_or_default()
+}
+
 pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionContext {
     let cursor = utf16_to_byte_index(source, cursor);
     let snapshot = caret_snapshot(source, cursor);
@@ -211,10 +228,10 @@ pub(super) fn property_insert(
 ) -> Option<(String, usize)> {
     let mut insert = format!("{}: ", serde_json::to_string(key).ok()?);
     let mut caret = None;
-    if let Some(value) = schema_const(property, root) {
+    if let Some(value) = written_const(property, root) {
         insert.push_str(&json_text(value));
     } else if let Some(array) = array_branch(property, root) {
-        match schema_default(property, root)
+        match written_default(property, root)
             .filter(|value| !value.as_array().is_some_and(Vec::is_empty))
         {
             Some(default) => insert.push_str(&json_text(default)),
@@ -233,7 +250,7 @@ pub(super) fn property_insert(
             }
         }
     } else if let Some(branch) = object_branch(property, root) {
-        match schema_default(property, root)
+        match written_default(property, root)
             .filter(|value| !value.as_object().is_some_and(Map::is_empty))
         {
             Some(default) => insert.push_str(&json_text(default)),
@@ -258,9 +275,9 @@ pub(super) fn property_insert(
                         if takes_caret {
                             caret = Some(insert.len());
                         }
-                        match schema_default(child, root) {
+                        match written_default(child, root) {
                             Some(default) => insert.push_str(&json_text(default)),
-                            None if !takes_caret => insert.push_str(&json_text(&fill_value(child, root))),
+                            None if !takes_caret => insert.push_str(&written_fill(child, root)),
                             // The caret's own child: a string starts quoted, caret inside.
                             None if placeholder(child, root).is_string() => {
                                 insert.push_str("\"\"");
@@ -275,7 +292,7 @@ pub(super) fn property_insert(
                 }
             }
         }
-    } else if let Some(default) = schema_default(property, root) {
+    } else if let Some(default) = written_default(property, root) {
         insert.push_str(&json_text(default));
     } else if placeholder(property, root).is_string() {
         // A string value starts quoted, with the caret inside.

@@ -50,7 +50,7 @@ use convert::*;
 use text_bodies::*;
 
 use super::super::commands::indent_unit;
-use super::super::completion::{array_branch, object_branch, schema_const, schema_default, schema_example};
+use super::super::completion::{child_fill, kept_const, kept_default, array_branch, object_branch};
 use super::super::highlight::{MultilineConstruct, Token as HighlightToken, TokenKind, Tokens};
 use super::super::keyboard::utf16_to_byte_index;
 use super::super::language::pointer_segments;

@@ -2,6 +2,23 @@
 
 use super::*;
 
+/// The default a suggestion writes for `property`: one HCL reads back as
+/// it is, else none (the caret stays where the value goes).
+fn written_default<'a>(property: &'a Value, root: &'a Value) -> Option<&'a Value> {
+    kept_default(&HclBehavior, property, root)
+}
+
+/// The `const` a suggestion writes for `property`, as [`written_default`].
+fn written_const<'a>(property: &'a Value, root: &'a Value) -> Option<&'a Value> {
+    kept_const(&HclBehavior, property, root)
+}
+
+/// The text a block writes for a required child past the caret's: its
+/// [`fill_value`], or nothing when HCL keeps none.
+fn written_fill(child: &Value, root: &Value) -> String {
+    fill_value(&HclBehavior, child, root).map(|value| hcl_text(&value)).unwrap_or_default()
+}
+
 /// A key typed in a block written on one line (`websocket { ho|path = "/x" }`,
 /// `websocket { path = "/x" ho| }`): a block on one line holds a single
 /// attribute, so a new one opens it over lines, its attribute on a line of
@@ -624,13 +641,13 @@ pub(super) fn property_insert(
         return None;
     }
     let mut insert = format!("{key} = ");
-    if let Some(value) = schema_const(property, root) {
+    if let Some(value) = written_const(property, root) {
         insert.push_str(&hcl_text(value));
         let caret = utf16(&insert);
         return Some((insert, caret));
     }
     if array_branch(property, root).is_some() {
-        match schema_default(property, root)
+        match written_default(property, root)
             .filter(|value| !value.as_array().is_some_and(Vec::is_empty))
         {
             Some(default) => insert.push_str(&hcl_text(default)),
@@ -644,7 +661,7 @@ pub(super) fn property_insert(
         return Some((insert, caret));
     }
     if object_branch(property, root).is_some() {
-        if let Some(default) = schema_default(property, root)
+        if let Some(default) = written_default(property, root)
             .filter(|value| !value.as_object().is_some_and(serde_json::Map::is_empty))
         {
             insert.push_str(&hcl_text(default));
@@ -674,9 +691,9 @@ pub(super) fn property_insert(
                 if takes_caret {
                     caret = Some(utf16(&insert));
                 }
-                match schema_default(child, root) {
+                match written_default(child, root) {
                     Some(default) => insert.push_str(&hcl_text(default)),
-                    None if !takes_caret => insert.push_str(&hcl_text(&fill_value(child, root))),
+                    None if !takes_caret => insert.push_str(&written_fill(child, root)),
                     // The caret's own child: a string starts quoted, caret inside.
                     None if placeholder(child, root).is_string() => {
                         insert.push_str("\"\"");
@@ -697,7 +714,7 @@ pub(super) fn property_insert(
         insert.push('}');
         return Some((insert, caret.unwrap_or_default()));
     }
-    if let Some(default) = schema_default(property, root) {
+    if let Some(default) = written_default(property, root) {
         insert.push_str(&hcl_text(default));
     } else if placeholder(property, root).is_string() {
         // A string value starts quoted, with the caret inside.

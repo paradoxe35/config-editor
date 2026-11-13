@@ -2,6 +2,23 @@
 
 use super::*;
 
+/// The default a suggestion writes for `property`: one TOML reads back as
+/// it is, else none (the caret stays where the value goes).
+fn written_default<'a>(property: &'a Value, root: &'a Value) -> Option<&'a Value> {
+    kept_default(&TomlBehavior, property, root)
+}
+
+/// The `const` a suggestion writes for `property`, as [`written_default`].
+fn written_const<'a>(property: &'a Value, root: &'a Value) -> Option<&'a Value> {
+    kept_const(&TomlBehavior, property, root)
+}
+
+/// The text a block writes for a required child past the caret's: its
+/// [`fill_value`], or nothing when TOML keeps none.
+fn written_fill(child: &Value, root: &Value) -> String {
+    fill_value(&TomlBehavior, child, root).map(|value| toml_text(&value)).unwrap_or_default()
+}
+
 pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionContext {
     let cursor = utf16_to_byte_index(source, cursor);
     let lines = super::lines::TextLines::new(source, false);
@@ -398,7 +415,7 @@ pub(super) fn property_insert(
         && schema_const(property, root).is_none()
         && array_branch(property, root).is_none()
     {
-        if let Some(default) = schema_default(property, root)
+        if let Some(default) = written_default(property, root)
             .filter(|value| !value.as_object().is_some_and(|map| map.is_empty()))
         {
             let insert = format!("{toml_key} = {}", toml_inline_table(default));
@@ -422,9 +439,9 @@ pub(super) fn property_insert(
             if takes_caret {
                 cursor = Some(insert.encode_utf16().count());
             }
-            match schema_default(child, root) {
+            match written_default(child, root) {
                 Some(default) => insert.push_str(&toml_text(default)),
-                None if !takes_caret => insert.push_str(&toml_text(&fill_value(child, root))),
+                None if !takes_caret => insert.push_str(&written_fill(child, root)),
                 // The caret's own child: a string starts quoted, caret inside.
                 None if placeholder(child, root).is_string() => {
                     insert.push_str("\"\"");
@@ -441,15 +458,17 @@ pub(super) fn property_insert(
         insert.push_str(" }");
         return Some((insert, cursor));
     }
-    if let Some(value) = schema_const(property, root) {
+    if let Some(value) = written_const(property, root) {
         let insert = format!("{toml_key} = {}", toml_text(value));
         let cursor = insert.encode_utf16().count();
         return Some((insert, cursor));
     }
     if let Some(array) = array_branch(property, root) {
+        let default = written_default(property, root).filter(|value| !value.as_array().is_some_and(Vec::is_empty));
         // An array of tables at table level is idiomatic as `[[path.key]]`
-        // with the item's required keys.
-        if context.position == EntryPosition::Block
+        // with the item's required keys; a default is the list itself.
+        if default.is_none()
+            && context.position == EntryPosition::Block
             && let Some(item) = array
                 .get("items")
                 .and_then(|items| object_branch(items, root))
@@ -463,7 +482,7 @@ pub(super) fn property_insert(
                     let Some(child_key) = toml_key_for_completion(name) else {
                         continue;
                     };
-                    insert.push_str(&format!("{child_key} = {}\n", toml_text(&fill_value(child, root))));
+                    insert.push_str(&format!("{child_key} = {}\n", written_fill(child, root)));
                     continue;
                 }
                 let inline = InsertContext {
@@ -481,9 +500,7 @@ pub(super) fn property_insert(
             let cursor = cursor.unwrap_or_else(|| insert.encode_utf16().count());
             return Some((insert, cursor));
         }
-        match schema_default(property, root)
-            .filter(|value| !value.as_array().is_some_and(Vec::is_empty))
-        {
+        match default {
             Some(default) => {
                 let insert = format!("{toml_key} = {}", toml_text(default));
                 let cursor = insert.encode_utf16().count();
@@ -497,7 +514,7 @@ pub(super) fn property_insert(
         }
     }
     if let Some(branch) = object_branch(property, root) {
-        if let Some(default) = schema_default(property, root)
+        if let Some(default) = written_default(property, root)
             .filter(|value| !value.as_object().is_some_and(|map| map.is_empty()))
         {
             let insert = format!("{toml_key} = {}", toml_inline_table(default));
@@ -527,9 +544,9 @@ pub(super) fn property_insert(
             if takes_caret {
                 cursor = Some(insert.encode_utf16().count());
             }
-            match schema_default(child, root) {
+            match written_default(child, root) {
                 Some(default) => insert.push_str(&toml_text(default)),
-                None if !takes_caret => insert.push_str(&toml_text(&fill_value(child, root))),
+                None if !takes_caret => insert.push_str(&written_fill(child, root)),
                 // The caret's own child: a string starts quoted, caret inside.
                 None if placeholder(child, root).is_string() => {
                     insert.push_str("\"\"");
@@ -542,7 +559,7 @@ pub(super) fn property_insert(
         let cursor = cursor.unwrap_or_else(|| insert.encode_utf16().count());
         return Some((insert, cursor));
     }
-    if let Some(default) = schema_default(property, root) {
+    if let Some(default) = written_default(property, root) {
         let insert = format!("{toml_key} = {}", toml_text(default));
         let cursor = insert.encode_utf16().count();
         return Some((insert, cursor));
@@ -607,7 +624,8 @@ pub(super) fn toml_text(value: &Value) -> String {
             format!("[{}]", items.join(", "))
         }
         Value::Object(map) => toml_inline_table(&Value::Object(map.clone())),
-        // TOML has no null (a save refuses one); a suggestion writes `nan`.
+        // TOML has no null (a save refuses one, and a suggestion writes
+        // none, see `kept_default`): `nan` keeps a line readable.
         Value::Null => "nan".to_string(),
         _ => value.to_string(),
     }

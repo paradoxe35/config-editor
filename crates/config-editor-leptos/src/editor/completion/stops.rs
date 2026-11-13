@@ -23,20 +23,6 @@ pub fn schema_example(schema: &Value, root: &Value) -> Option<Value> {
     (!typed || branches.iter().any(|branch| accepts(branch, &example))).then_some(example)
 }
 
-/// What an inserted block writes for a required child the caret does not
-/// go to: its default or const, else its first example
-/// ([`schema_example`]), else [`placeholder`].
-pub fn fill_value(schema: &Value, root: &Value) -> Value {
-    let branches = resolve_branches(schema, root, 0);
-    if let Some(value) = branches
-        .iter()
-        .find_map(|branch| branch.get("default").or_else(|| branch.get("const")))
-    {
-        return value.clone();
-    }
-    schema_example(schema, root).unwrap_or_else(|| placeholder(schema, root))
-}
-
 /// `(key, value text)` of each scalar a block insert for `property` writes
 /// for its required children, depth first in schema order: what the
 /// language helpers write ([`fill_value`]), as found later by
@@ -77,12 +63,13 @@ fn collect_fills(
         let Some(child) = properties.and_then(|properties| properties.get(key)) else {
             continue;
         };
-        match fill_value(child, root) {
-            Value::Object(_) | Value::Array(_) => {
+        match fill_value(behavior, child, root) {
+            Some(Value::Object(_) | Value::Array(_)) => {
                 collect_fills(behavior, child, root, fills, depth + 1);
             }
-            Value::String(text) if text.is_empty() => {}
-            value => fills.push((key.to_string(), value_label(&value))),
+            Some(Value::String(text)) if text.is_empty() => {}
+            Some(value) => fills.push((key.to_string(), value_label(&value))),
+            None => {}
         }
     }
 }
