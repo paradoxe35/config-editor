@@ -326,7 +326,7 @@ fn whole_values_of_a_text_that_does_not_parse_cost_one_reading() {
                     matcher.known(case.language.behavior(), &text)
                 })
             });
-            let whole = known.iter().filter(|known| known.whole).count();
+            let whole = known.iter().filter(|known| known.whole.is_some()).count();
             Some((whole == count, documents, spans))
         };
         let (few, many) = (reads(20), reads(200));

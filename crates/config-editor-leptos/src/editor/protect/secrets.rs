@@ -59,12 +59,21 @@ impl SecretState {
         }
     }
 
-    /// The host's tokens in fields, each with the field it stands in.
+    /// The host's tokens in fields, each with the field it stands in, and
+    /// the value of a field that holds its token alone as the host wrote
+    /// it (with a block's last line break): each stands for the field's
+    /// current secret.
     pub(crate) fn known_tokens(&self) -> Vec<(String, String)> {
         self.known.with(|known| {
             known
                 .iter()
-                .filter_map(|known| Some((known.token.clone(), known.field.clone()?)))
+                .filter_map(|known| Some((known, known.field.as_ref()?)))
+                .flat_map(|(known, field)| {
+                    let written = known.whole.as_ref().filter(|whole| **whole != known.token);
+                    std::iter::once(&known.token)
+                        .chain(written)
+                        .map(|value| (value.clone(), field.clone()))
+                })
                 .collect()
         })
     }

@@ -62,6 +62,7 @@ method and headless function here has a JS option, method or function there
   - [Without a feature](#without-a-feature)
   - [Size](#size)
 - [License](#license)
+
 <!-- /toc -->
 
 ## Install
@@ -1187,7 +1188,11 @@ view! { <ConfigEditor value=text schema=SCHEMA secrets=secrets /> }
 - A placeholder the host gave as a field's whole value stands for the
   whole secret, so nothing is written beside it: typing or pasting next to
   it in its field (`«secret 3f2a»Z`) is refused with a tip, in the host's
-  language and in every Edit-as view. Text that gets there while the
+  language and in every Edit-as view. A token alone in a string written
+  over lines (a YAML block scalar of any chomping, folding or indentation
+  indicator, a TOML `"""` string, an HCL heredoc, XML text on its own line)
+  is its field's whole value too: the line breaks and indentation the form
+  puts around it are not text beside it. Text that gets there while the
   document does not parse is flagged at the token once it does, a save
   holding it waits (in the host's language too), and only taking that text
   away is free until then. A token the host wrote inside longer text is the
@@ -1195,7 +1200,8 @@ view! { <ConfigEditor value=text schema=SCHEMA secrets=secrets /> }
   does not parse, the host's characters decide which tokens are a field's
   whole value: one is when the language finds that field's value written
   around the token and it is the token alone (`key: «secret 3f2a»`, not
-  `key: «secret 3f2a»x`), whatever is typed on screen afterwards; a value
+  `key: «secret 3f2a»x`) or with only the whitespace a string written over
+  lines puts around it, whatever is typed on screen afterwards; a value
   the language cannot find there (the syntax error hides where it is
   written) takes no token as whole.
 - It is drawn as a chip (`--config-editor-secret-chip`,
@@ -1204,8 +1210,10 @@ view! { <ConfigEditor value=text schema=SCHEMA secrets=secrets /> }
 - In a secret field's value, suggestions offer references instead of
   values: `${VAR}` (the caret inside the braces) and `file:`; HCL writes
   `${` escaped as `$${`, so the text survives conversion.
-- The schema check takes an untouched placeholder as the current secret:
-  no `pattern`, `format`, length or type problem is reported on it, and
+- The schema check takes an untouched placeholder as the current secret,
+  also one alone in a string written over lines (`key: |` keeps a line
+  break after it): no `pattern`, `format`, length or type problem is
+  reported on it, and
   messages about a secret field never quote what was typed there.
 - Edit-as conversions and saves keep each placeholder byte-for-byte, in
   every language pair and back. Real secret values never reach the editor;

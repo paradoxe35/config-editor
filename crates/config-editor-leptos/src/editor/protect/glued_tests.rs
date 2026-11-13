@@ -87,7 +87,7 @@ fn field_a(language: Language, text: &str) -> Option<String> {
 }
 
 /// Text that keeps each language from parsing, appended at the end.
-fn breaking(language: Language) -> &'static str {
+pub(super) fn breaking(language: Language) -> &'static str {
     match language.label() {
         "JSON" => "\n,",
         "XML" => "\n<z>",

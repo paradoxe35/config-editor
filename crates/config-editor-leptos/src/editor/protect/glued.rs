@@ -19,38 +19,55 @@ use super::tokens::{Known, field_value};
 use crate::EditorStrings;
 use crate::strings::fill;
 
-/// Whether the host's `text` (written in `behavior`), which does not parse,
-/// gives the token at bytes `token` as the whole value of the field at
-/// `pointer`: the language finds that value written in the text around
-/// the token, and writes the token alone just so there. The host's own
-/// characters decide, never what is typed on screen later; a value the
-/// language cannot find is not taken as whole.
+/// The value of the field at `pointer` when the host's `text` (written in
+/// `behavior`), which does not parse, gives the token at bytes `token` as
+/// that field's whole value: the language finds the value written in the
+/// text around the token, and writes the token, alone or with whitespace
+/// around it a multi-line form holds (a block's last line break, XML text's
+/// indentation), just so there. The host's own characters decide, never
+/// what is typed on screen later; a value the language cannot find is not
+/// taken as whole.
 pub(crate) fn written_alone(
     behavior: &dyn ConfigLanguage,
     text: &str,
     pointer: &str,
     token: Range<usize>,
-) -> bool {
-    let Some(range) = written_value_span(behavior, text, pointer)
-        .and_then(|span| scalar_range(behavior, text, span))
-    else {
-        return false;
-    };
+) -> Option<String> {
+    let range = written_value_span(behavior, text, pointer)
+        .and_then(|span| scalar_range(behavior, text, span))?;
+    if token.start < range.start || range.end < token.end {
+        return None;
+    }
     let written = &text[range.clone()];
-    range.start <= token.start
-        && token.end <= range.end
-        && behavior.format_value_like(&Value::String(text[token].to_string()), written) == written
+    let token_text = &text[token.clone()];
+    // The whitespace written right before the token inside the value's
+    // written form; after it, a line break however written (an escape in
+    // a quoted string), or through its line's end or all of the whitespace
+    // that follows (a kept block's blank lines are past its written form).
+    let before = &text[range.start..token.start];
+    let leading = ["", &before[before.trim_end().len()..]];
+    let after = &text[token.end..];
+    let after = &after[..after.len() - after.trim_start().len()];
+    let line_end = after.find('\n').map_or(after, |at| &after[..=at]);
+    [&after[..0], "\n", line_end, after]
+        .into_iter()
+        .flat_map(|trail| {
+            leading
+                .iter()
+                .map(move |lead| format!("{lead}{token_text}{trail}"))
+        })
+        .find(|value| behavior.format_value_like(&Value::String(value.clone()), written) == written)
 }
 
 /// The first of `known`'s tokens the host gave as its field's whole value
 /// that `document` holds in that field with other text beside it.
 pub(crate) fn first_glued<'a>(document: &Value, known: &'a [Known]) -> Option<&'a Known> {
     known.iter().find(|known| {
-        known.whole
+        known.whole.is_some()
             && known.field.as_deref().is_some_and(|field| {
                 field_value(document, field)
                     .and_then(Value::as_str)
-                    .is_some_and(|value| value != known.token && value.contains(&known.token))
+                    .is_some_and(|value| !known.alone_in(value) && value.contains(&known.token))
             })
     })
 }
@@ -75,7 +92,7 @@ pub(crate) fn glued_by_edit(
     before: &str,
     after: &str,
 ) -> Option<String> {
-    if tokens.is_empty() || !known.iter().any(|known| known.whole) {
+    if tokens.is_empty() || !known.iter().any(|known| known.whole.is_some()) {
         return None;
     }
     let lines = changed_lines(before, after);
@@ -157,7 +174,7 @@ pub(crate) fn glued_in_save(
     new: &str,
     reading: Option<&Value>,
 ) -> Option<String> {
-    if !known.iter().any(|known| known.whole) {
+    if !known.iter().any(|known| known.whole.is_some()) {
         return None;
     }
     let after = super::super::codec::read(behavior, new, reading).ok()?;
@@ -181,7 +198,7 @@ pub(crate) fn glued_placeholders(
     known: &[Known],
     strings: &EditorStrings,
 ) -> Vec<Diagnostic> {
-    if !known.iter().any(|known| known.whole) {
+    if !known.iter().any(|known| known.whole.is_some()) {
         return Vec::new();
     }
     let parsed = parse_cache::parsed(behavior, text);

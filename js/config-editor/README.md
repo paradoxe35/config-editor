@@ -54,6 +54,7 @@ which build on this package.
   - [Size](#size)
   - [Strict Content-Security-Policy](#strict-content-security-policy)
 - [License](#license)
+
 <!-- /toc -->
 
 ## Install
@@ -746,7 +747,9 @@ const editor = new ConfigEditor(element, {
   `secret-chip-border`) with a key in the gutter; hovering shows `hint`.
 - In a secret field, suggestions offer `${VAR}` and `file:` references.
 - The schema check accepts an untouched placeholder (no `pattern`,
-  `format`, length or type problem), and `editAs` and saving keep it
+  `format`, length or type problem), also one alone in a string written
+  over lines (a YAML block scalar, a TOML `"""` string, an HCL heredoc, XML
+  text on its own line), and `editAs` and saving keep it
   byte-for-byte. Nothing the editor shows, says or hands back (problems,
   hover, announcements, the diff preview, copies, `onChange`, console
   messages) holds a token the host did not send.

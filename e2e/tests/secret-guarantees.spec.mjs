@@ -70,13 +70,13 @@ const setHost = (browserPage, list) =>
     list,
   );
 
-async function open(browserPage, host) {
+async function open(browserPage, host, value = documentOf(host)) {
   const consoleMessages = [];
   browserPage.on("console", (message) => consoleMessages.push(message.text()));
   browserPage.on("pageerror", (error) => consoleMessages.push(String(error)));
   await browserPage.goto(
     page({
-      value: documentOf(host),
+      value,
       schema: SCHEMA,
       secrets: { placeholder: host.placeholder },
       showDiff: true,
@@ -431,6 +431,63 @@ for (const host of HOSTS) {
           changes.filter((change) =>
             /Z«|»Z|» x|Z\{\{|\}\}Z|\}\} x/.test(change),
           ),
+        ).toEqual([]);
+      });
+    }
+
+    // A token alone in a block scalar is `a`'s whole value too, whatever the
+    // chomping (`|` keeps a line break after it): untouched, the schema
+    // check takes it as the current secret; keys typed at either edge are
+    // refused, and the host never hears it glued to text.
+    for (const header of ["|", ">", "|-", "|+"]) {
+      test(`a placeholder alone in a ${header} block is its field's whole value`, async ({
+        page: browserPage,
+      }) => {
+        const quoted = `a: ${host.quote}${host.same}${host.quote}\n`;
+        const value = documentOf(host).replace(
+          quoted,
+          `a: ${header}\n  ${host.same}\n`,
+        );
+        await open(browserPage, host, value);
+        // A chip in `a` and in `b`.
+        await expect(
+          browserPage
+            .locator(".config-editor__code-line .config-editor__secret")
+            .filter({ hasText: host.same }),
+        ).toHaveCount(2);
+        // The other fields' problems show; none is `a`'s.
+        await expect(
+          browserPage.locator('[data-message^="/name"]'),
+        ).toHaveCount(1);
+        await expect(browserPage.locator('[data-message^="/a"]')).toHaveCount(
+          0,
+        );
+        for (const after of [true, false]) {
+          await input(browserPage).evaluate(
+            (element, [token, after]) => {
+              const at =
+                element.value.indexOf(token) + (after ? token.length : 0);
+              element.focus();
+              element.setSelectionRange(at, at);
+              element.dispatchEvent(new Event("select", { bubbles: true }));
+            },
+            [host.same, after],
+          );
+          await browserPage.keyboard.type("Z");
+          await expect(
+            browserPage.locator(".config-editor__protect-tip"),
+          ).toContainText(
+            "/a: a secret placeholder stands for the whole secret",
+          );
+          await expect(input(browserPage)).toHaveValue(value);
+        }
+        await browserPage.waitForTimeout(600);
+        await expect(browserPage.locator('[data-message^="/a"]')).toHaveCount(
+          0,
+        );
+        const changes = await browserPage.evaluate(() => window.changes);
+        expect(
+          changes.filter((change) => /Z«|»Z|Z\{\{|\}\}Z/.test(change)),
         ).toEqual([]);
       });
     }

@@ -76,6 +76,15 @@ mod arrival_tests;
     feature = "hcl",
     feature = "xml"
 ))]
+mod block_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
 mod bom_tests;
 #[cfg(all(
     test,
