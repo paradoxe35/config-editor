@@ -30,6 +30,10 @@ versions move together.
   schema says so (`"x-xml-lexical": "xsd"`). Saves keep the text as written.
 - A custom language whose values are all text gets the same reading
   (`Scalars::Text`; `scalars: "text"` in JavaScript).
+- A property the schema marks `"xml": {"attribute": true}` is written as an
+  attribute where the text does not write it yet (a conversion to XML, a key
+  added in another view), and completion offers attributes in a start tag
+  and elements in the content.
 
 ## 0.1.0 — unreleased
 

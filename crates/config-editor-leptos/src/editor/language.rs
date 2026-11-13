@@ -1017,6 +1017,24 @@ pub trait ConfigLanguage: Send + Sync + 'static {
         Err(format!("{} documents cannot be written", self.info().label))
     }
 
+    /// [`serialize`](Self::serialize), with the JSON Schema the document
+    /// follows when there is one, for a language whose form for a value
+    /// depends on hints in it (XML writes a property marked
+    /// `"xml": {"attribute": true}` as an attribute). Default: `serialize`.
+    ///
+    /// # Errors
+    ///
+    /// As [`serialize`](Self::serialize).
+    fn serialize_with(
+        &self,
+        value: &Value,
+        previous: Option<&str>,
+        schema: Option<&Value>,
+    ) -> Result<String, String> {
+        let _ = schema;
+        self.serialize(value, previous)
+    }
+
     /// Whether the language has numbers for infinity and NaN, which
     /// [`serialize`](Self::serialize) then writes from the values
     /// [`float_value`](crate::float_value) makes. Without them (the default)

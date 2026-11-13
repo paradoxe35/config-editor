@@ -4,7 +4,7 @@
 use super::super::flow_syntax::Flow;
 use super::super::language::ConfigLanguage;
 use super::compare::{comment_start, comparable, spaced_trailing_comment, trailing_comment};
-use super::{empty_containers, kept_inline, reads_as, serialize};
+use super::{empty_containers, kept_inline, reads_as, serialize_shaped};
 use serde_json::Value;
 
 /// `previous` with a structural edit (keys or items added or removed) applied
@@ -61,14 +61,14 @@ fn patch_kept_lines(
 ) -> Option<String> {
     let reads_as_new = |text: &str| reads_as(language, text, schema, new);
     if let Some(kept) = kept_inline::hide(language, previous, old, new)
-        && let Some(patched) = patch_lines(language, &kept.host, &kept.old, &kept.new)
+        && let Some(patched) = patch_lines(language, &kept.host, &kept.old, &kept.new, schema)
     {
         let restored = kept.restore(&patched);
         if reads_as_new(&restored) {
             return Some(restored);
         }
     }
-    patch_lines(language, previous, old, new).filter(|patched| reads_as_new(patched))
+    patch_lines(language, previous, old, new, schema).filter(|patched| reads_as_new(patched))
 }
 
 /// [`patch_structure`]'s line diff, unchecked.
@@ -77,10 +77,11 @@ fn patch_lines(
     previous: &str,
     old: &Value,
     new: &Value,
+    schema: Option<&Value>,
 ) -> Option<String> {
     use super::super::diff::{DiffEdit, myers_edits};
-    let before = serialize(language, old, Some(previous)).ok()?;
-    let after = serialize(language, new, Some(previous)).ok()?;
+    let before = serialize_shaped(language, old, Some(previous), schema).ok()?;
+    let after = serialize_shaped(language, new, Some(previous), schema).ok()?;
     let rendered_old: Vec<&str> = before.lines().collect();
     let rendered_new: Vec<&str> = after.lines().collect();
     let host: Vec<&str> = previous.lines().collect();

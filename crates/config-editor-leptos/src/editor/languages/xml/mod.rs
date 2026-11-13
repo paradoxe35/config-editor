@@ -36,6 +36,7 @@ mod prefixed;
 mod attribute_order;
 mod markup;
 mod declarations;
+mod hints;
 // The fold ranges (the `folding` feature).
 #[cfg(feature = "folding")]
 mod folding;
@@ -354,6 +355,12 @@ impl ConfigLanguage for XmlBehavior {
     /// rootless unless `previous` had a config root, which is kept along with
     /// its declaration.
     fn serialize(&self, value: &Value, previous: Option<&str>) -> Result<String, String> {
+        self.serialize_with(value, previous, None)
+    }
+
+    /// A new scalar the schema marks `"xml": {"attribute": true}` is
+    /// written as an attribute (one the previous text writes keeps its form).
+    fn serialize_with(&self, value: &Value, previous: Option<&str>, schema: Option<&Value>) -> Result<String, String> {
         if let Some(pointer) = empty_key(value, String::new()) {
             return Err(format!("an empty key cannot be an XML element name (at {pointer})"));
         }
@@ -370,8 +377,17 @@ impl ConfigLanguage for XmlBehavior {
             return Err(reason);
         }
         let framing = previous.map(xml_framing).unwrap_or_default();
-        let attributes = previous.map(attribute_paths).unwrap_or_default();
+        let mut attributes = previous.map(attribute_paths).unwrap_or_default();
         let old = previous.filter(|_| !attributes.is_empty()).and_then(|previous| xml_parse(previous).ok());
+        if let Some(schema) = schema {
+            // What the text writes keeps its form: elements of the
+            // previous text stay elements.
+            let written = match (&old, previous) {
+                (Some(_), _) | (_, None) => None,
+                (None, Some(previous)) => super::super::parse_cache::parse(self, previous).ok(),
+            };
+            attributes.extend(hints::schema_attribute_paths(value, schema, old.as_ref().or(written.as_ref())));
+        }
         if let Some(reason) = attribute_values::first_container_attribute(value, old.as_ref(), &attributes) {
             return Err(reason);
         }
@@ -560,3 +576,5 @@ fn empty_key(value: &Value, pointer: String) -> Option<String> {
 mod tests;
 #[cfg(test)]
 mod existing_tests;
+#[cfg(all(test, feature = "yaml", feature = "json", feature = "toml", feature = "hcl"))]
+mod hints_tests;

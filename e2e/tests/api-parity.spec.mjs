@@ -137,6 +137,7 @@ const CONFIG_LANGUAGE = {
   config: { custom: ['comments', 'brackets', 'separators', 'mapBrackets', 'listBrackets', 'itemSeparator', 'itemMarker', 'literalQuotes', 'writtenSeparator'] },
   parse: { custom: 'parse' },
   serialize: { custom: 'serialize' },
+  serialize_with: { exempt: 'a custom language writes each value one way; a schema hint for how (XML\'s `xml.attribute`) is read by a Rust language that needs it' },
   one_number_type: { exempt: RUST_ONLY_REFINEMENT },
   writes_non_finite: { exempt: 'a custom language writes infinities and NaN as the text `inf` / `nan` (JS data holds them as numbers)' },
   indent_is_structure: { exempt: RUST_ONLY_REFINEMENT },

@@ -157,7 +157,7 @@ pub(super) fn render(
     previous: Option<&str>,
     schema: Option<&Value>,
 ) -> Result<Conversion, ConvertError> {
-    let text = serialize(target, value, previous)?;
+    let text = serialize_shaped(target, value, previous, schema)?;
     let reread = read(target, &text, schema).map_err(|error| {
         ConvertError::Unsupported(format!(
             "the converted document does not read back: {}",
@@ -178,6 +178,17 @@ pub(super) fn serialize(
     value: &Value,
     previous: Option<&str>,
 ) -> Result<String, ConvertError> {
+    serialize_shaped(language, value, previous, None)
+}
+
+/// [`serialize`], the document following `schema` (see
+/// [`ConfigLanguage::serialize_with`]).
+pub(super) fn serialize_shaped(
+    language: &dyn ConfigLanguage,
+    value: &Value,
+    previous: Option<&str>,
+    schema: Option<&Value>,
+) -> Result<String, ConvertError> {
     // A language without infinities writes them as text, which reads back
     // as a string: a loss (see `non_finite`).
     let value = if language.writes_non_finite() {
@@ -187,7 +198,7 @@ pub(super) fn serialize(
     };
     let value = emptied_items::without_emptied(language, previous, value);
     let mut text = language
-        .serialize(&value, previous)
+        .serialize_with(&value, previous, schema)
         .map_err(ConvertError::Unsupported)?;
     text.truncate(text.trim_end_matches('\n').len());
     text.push('\n');

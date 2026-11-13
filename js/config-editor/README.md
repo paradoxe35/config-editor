@@ -949,6 +949,13 @@ where the schema marks XSD's spellings (`"x-xml-lexical": "xsd"`).
 its whitespace as XSD does. Where the schema allows several types, or says
 none, the text is read as without a schema.
 
+A property the schema marks `"xml": {"attribute": true}` (the OpenAPI XML
+object, which other views ignore) is written as an attribute where the XML
+text does not write it already: converting `{"server": {"port": 80}}` writes
+`<server port="80"/>`, and a key added in another view of an XML file is an
+attribute there. In a start tag, completion then offers the element's
+attributes only, and in its content only its elements.
+
 Namespace declarations (`xmlns`, `xmlns:m`) and the attributes of the XML
 Schema instance namespace (`xsi:schemaLocation`, `xsi:type`, with whatever
 prefix is bound to it) are markup, not data: `<project xmlns="…"
