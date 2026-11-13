@@ -1,11 +1,11 @@
 //! Simple types: the built-in ones, and restrictions, lists and unions of
 //! them, as JSON Schema for one text value (an attribute's, or a
 //! text-only element's), with the hints the editor types the text by
-//! (`x-xml-lexical`, `x-xml-whitespace`).
+//! (`x-true`, `x-false`, `x-whitespace`).
 
 use serde_json::{Map, Value, json};
 
-use super::super::super::completion::number_of;
+use super::super::super::completion::text_typing::number_of;
 
 /// The JSON type a simple type's values read as.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -52,8 +52,7 @@ impl Simple {
                 _ => Value::String(text.to_string()),
             },
             Kind::String
-                if self.schema.get("x-xml-whitespace").and_then(Value::as_str)
-                    == Some("collapse") =>
+                if self.schema.get("x-whitespace").and_then(Value::as_str) == Some("collapse") =>
             {
                 Value::String(trimmed.split_whitespace().collect::<Vec<_>>().join(" "))
             }
@@ -83,7 +82,7 @@ fn bound(value: i128) -> Value {
 
 /// A string type whose whitespace XSD collapses, with a pattern.
 fn token(pattern: Option<&str>) -> Simple {
-    let mut schema = json!({"type": "string", "x-xml-whitespace": "collapse"});
+    let mut schema = json!({"type": "string", "x-whitespace": "collapse"});
     if let Some(pattern) = pattern {
         schema["pattern"] = Value::String(pattern.to_string());
     }
@@ -95,7 +94,7 @@ fn token(pattern: Option<&str>) -> Simple {
 pub(super) fn built_in(name: &str) -> Option<(Simple, Option<&'static str>)> {
     let name_pattern = |pattern: &str| super::regex::translate(pattern).ok();
     let string = |format: Option<&str>| {
-        let mut schema = json!({"type": "string", "x-xml-whitespace": "collapse"});
+        let mut schema = json!({"type": "string", "x-whitespace": "collapse"});
         if let Some(format) = format {
             schema["format"] = Value::String(format.to_string());
         }
@@ -104,14 +103,14 @@ pub(super) fn built_in(name: &str) -> Option<(Simple, Option<&'static str>)> {
     let pattern = |pattern: &str| {
         Simple::of(
             Kind::String,
-            json!({"type": "string", "x-xml-whitespace": "collapse", "pattern": pattern}),
+            json!({"type": "string", "x-whitespace": "collapse", "pattern": pattern}),
         )
     };
     let simple = match name {
         "string" => Simple::of(Kind::String, json!({"type": "string"})),
         "normalizedString" => Simple::of(
             Kind::String,
-            json!({"type": "string", "x-xml-whitespace": "replace"}),
+            json!({"type": "string", "x-whitespace": "replace"}),
         ),
         "token" | "ENTITY" | "IDREF" | "ID" => token(None),
         "language" => token(Some("^[a-zA-Z]{1,8}(-[a-zA-Z0-9]{1,8})*$")),
@@ -126,7 +125,7 @@ pub(super) fn built_in(name: &str) -> Option<(Simple, Option<&'static str>)> {
         }
         "boolean" => Simple::of(
             Kind::Boolean,
-            json!({"type": "boolean", "x-xml-lexical": "xsd"}),
+            json!({"type": "boolean", "x-true": ["true", "1"], "x-false": ["false", "0"]}),
         ),
         "decimal" => Simple::of(Kind::Number, json!({"type": "number"})),
         "float" | "double" => {

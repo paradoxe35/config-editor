@@ -956,10 +956,11 @@ the schema gives its place instead of guessed: `<price>1.50</price>` is the
 number 1.5 where the schema wants a number (a save keeps `1.50` as written
 until the value changes), `<port> 080 </port>` is 80 where it wants an
 integer and the exact text where it wants a string, `<name>true</name>` is
-the string `"true"` where it wants a string, and `1` and `0` are booleans
-where the schema marks XSD's spellings (`"x-xml-lexical": "xsd"`).
-`"x-xml-whitespace": "collapse"` (or `"replace"`) on a string schema treats
-its whitespace as XSD does. Where the schema allows several types, or says
+the string `"true"` where it wants a string, and a schema
+may list other spellings of a boolean (`"x-true": ["true", "1"]`,
+`"x-false": ["false", "0"]`, as the XSD format writes them).
+`"x-whitespace": "collapse"` (or `"replace"`) on a string schema trims and
+joins its whitespace. Where the schema allows several types, or says
 none, the text is read as without a schema.
 
 A property the schema marks `"xml": {"attribute": true}` (the OpenAPI XML

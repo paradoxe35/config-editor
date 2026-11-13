@@ -72,9 +72,11 @@ mod xml {
 
     #[test]
     fn each_text_reads_as_the_type_the_schema_gives_its_place() {
-        let lexical = json!({"type": "boolean", "x-xml-lexical": "xsd"});
-        let collapse = json!({"type": "string", "x-xml-whitespace": "collapse"});
-        let replace = json!({"type": "string", "x-xml-whitespace": "replace"});
+        let lexical =
+            json!({"type": "boolean", "x-true": ["true", "1"], "x-false": ["false", "0"]});
+        let yes_no = json!({"type": "boolean", "x-true": ["yes", "on"], "x-false": ["no", "off"]});
+        let collapse = json!({"type": "string", "x-whitespace": "collapse"});
+        let replace = json!({"type": "string", "x-whitespace": "replace"});
         let cases: Vec<(&str, Value, Value)> = vec![
             // Only a string: the exact text.
             (
@@ -122,8 +124,8 @@ mod xml {
                 json!({"type": "integer"}),
                 json!("1.5"),
             ),
-            // A boolean: `true` and `false`, and XSD's `1` and `0` only
-            // where the schema says the text is XSD's.
+            // A boolean: `true` and `false`, or the spellings the schema
+            // lists (`x-true`, `x-false`: XSD's `1` and `0`).
             (
                 "<r><v> false </v></r>",
                 json!({"type": "boolean"}),
@@ -137,6 +139,10 @@ mod xml {
                 json!({"type": "boolean"}),
                 json!("False"),
             ),
+            // Spellings any schema lists, not XSD's only.
+            ("<r><v> on </v></r>", yes_no.clone(), json!(true)),
+            ("<r><v>no</v></r>", yes_no.clone(), json!(false)),
+            ("<r><v>true</v></r>", yes_no, json!("true")),
             // Null.
             ("<r><v>null</v></r>", json!({"type": "null"}), json!(null)),
             // Types without a string: each allowed reading in turn.

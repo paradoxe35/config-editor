@@ -8,7 +8,7 @@ use wasm_bindgen::prelude::*;
 
 use crate::languages::language_named;
 use crate::options::warn_unknown_keys;
-use crate::schema_formats::{SOURCE_KEYS, SchemaSpec};
+use crate::schema_formats::{SOURCE_KEYS, read_spec};
 use crate::typings::{ChangeSummaryResult, ConversionResult, Diagnostics, Names};
 use crate::values::{
     ChangeSummaryOut, context_arg, diagnostics_to_js, optional_text, text_arg, to_js,
@@ -60,7 +60,7 @@ fn schema_from(text: &str, source: &JsValue) -> Result<Schema, JsError> {
             "option",
         );
     }
-    let spec = SchemaSpec::read(source, &SOURCE_KEYS, "")?;
+    let spec = read_spec(source, &SOURCE_KEYS, "")?;
     crate::schema_cache::compiled(text, &spec).map_err(|error| JsError::new(&error.to_string()))
 }
 

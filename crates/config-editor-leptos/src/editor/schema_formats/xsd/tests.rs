@@ -402,6 +402,13 @@ fn each_construct_with_no_json_schema_form_is_its_loss() {
             5,
         ),
         (
+            r#"<xs:element name="p">
+<xs:complexType mixed="true"><xs:sequence><xs:element name="b" type="xs:string" minOccurs="0"/></xs:sequence></xs:complexType></xs:element>"#,
+            "mixed content",
+            LossEffect::Loosened,
+            3,
+        ),
+        (
             r#"
 <xs:notation name="gif" public="image/gif"/>"#,
             "xs:notation",

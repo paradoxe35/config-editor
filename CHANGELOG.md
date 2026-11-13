@@ -34,8 +34,8 @@ versions move together.
 - With a schema, XML attribute values and element text are read as the type
   the schema gives their place instead of guessed: `1.50`, `+5`, `007` and
   `1e3` are numbers where it wants a number, `true`, `null` and `80` stay
-  strings where it wants a string, and XSD's `1`/`0` are booleans where the
-  schema says so (`"x-xml-lexical": "xsd"`). Saves keep the text as written.
+  strings where it wants a string, and the spellings a schema lists for a
+  boolean (`"x-true"`, `"x-false"`) are booleans. Saves keep the text as written.
 - A custom language whose values are all text gets the same reading
   (`Scalars::Text`; `scalars: "text"` in JavaScript).
 - A property the schema marks `"xml": {"attribute": true}` is written as an

@@ -146,7 +146,7 @@ mod tests {
             }
         }
         let name = translate("\\i\\c*").unwrap();
-        let regex = regex_lite::Regex::new(&name).unwrap();
+        let regex = crate::editor::pattern_engine::Regex::new(&name).unwrap();
         assert!(regex.is_match("ns:item-1") && !regex.is_match("1item"));
     }
 }

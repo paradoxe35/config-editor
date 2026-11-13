@@ -12,7 +12,8 @@ use crate::host_diagnostics::host_diagnostics_from;
 use crate::languages::{language_for_path, language_named, writable_edit_as};
 use crate::options::{bool_option, warn_unknown_keys};
 use crate::protect::{paths_from, ranges_from, secrets_from};
-use crate::schema_formats::{SOURCE_KEYS, SchemaSpec, SpecKey, registrations};
+use crate::schema_formats::{SOURCE_KEYS, read_spec};
+use crate::schema_spec::{SpecKey, registrations};
 use crate::settings::{setting_keys, settings_over};
 use crate::values::{field, json_from_js, optional_text, text_arg};
 
@@ -329,7 +330,7 @@ fn schema_of(
         return Ok(Some(schema));
     }
     let text = text_arg(&given, &name("schema"))?;
-    let spec = SchemaSpec::read(item, &SOURCE_KEYS, prefix)?;
+    let spec = read_spec(item, &SOURCE_KEYS, prefix)?;
     let key = spec.key(&text);
     let shared = kept
         .schemas

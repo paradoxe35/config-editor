@@ -36,10 +36,20 @@ impl<'a> Compiler<'a> {
             mixed: node.attribute("mixed") == Some("true"),
             ..Model::default()
         };
+        let mixed_at = [Some(node), node.child("complexContent")]
+            .into_iter()
+            .flatten()
+            .find(|at| at.attribute("mixed") == Some("true"));
+        if let Some(at) = mixed_at {
+            model.mixed = true;
+            self.lose(
+                at,
+                "mixed content",
+                LossEffect::Loosened,
+                "mixed content: the text between the child elements is not checked (and such a document converts to no other language)".to_string(),
+            );
+        }
         if let Some(content) = node.child("complexContent") {
-            if content.attribute("mixed") == Some("true") {
-                model.mixed = true;
-            }
             if let Some(derivation) = content
                 .child("extension")
                 .or_else(|| content.child("restriction"))

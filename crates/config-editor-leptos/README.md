@@ -1444,14 +1444,25 @@ for loss in pom.losses() { log::info!("{loss}"); } // what is not checked
   (`additionalProperties: false`), catching typos; the option `lax: true`
   opens them for hand-extended configs. `xs:any` opens them too, and
   `xs:anyAttribute namespace="##other"` allows prefixed attributes.
-- **Losses**, each with its line: element order (`xs:sequence`), a
-  repeated or nested `xs:choice` (each option allowed), substitution groups
-  (each member allowed), `xs:any`'s namespace, identity constraints
-  (`xs:key`, `xs:keyref`, `xs:unique`), `totalDigits` and
-  `fractionDigits`, `xs:list` items, patterns using Unicode blocks
-  (`\p{IsBasicLatin}`), `float`/`double`'s `INF` and `NaN`, `nillable`,
-  abstract types and `xsi:type`, XSD 1.1 (`xs:assert`, `xs:alternative`,
-  `xs:override`) and `xs:redefine`.
+- **Not checked.** These XSD rules have no JSON Schema form, so a
+  document breaking only them shows no problem. Each one the schema uses
+  is reported as a schema warning (`Schema::losses()`, `on_schema_warning`)
+  with its file and line:
+  - the order of the elements of an `xs:sequence`;
+  - mixed content (`mixed="true"`): the text between child elements;
+  - identity constraints: `xs:key`, `xs:keyref`, `xs:unique`;
+  - `xs:any` and `xs:anyAttribute`: any key is allowed there, whatever
+    its namespace (namespaces in general: elements are keyed by local
+    name);
+  - a repeated or nested `xs:choice`, and substitution groups: each
+    option or member is allowed, several at once too;
+  - `totalDigits`, `fractionDigits`, the items of an `xs:list`, and
+    patterns using Unicode blocks (`\p{IsBasicLatin}`);
+  - `float` and `double`'s `INF`, `-INF` and `NaN`; `nillable` and
+    `xsi:nil`; abstract types and `xsi:type`; `blockDefault` and
+    `finalDefault`;
+  - XSD 1.1 (`xs:assert`, `xs:alternative`, `xs:override`),
+    `xs:notation`; `xs:redefine` (its definitions are used as they are).
 - **Several files**: `imports(text)` lists the `schemaLocation`s of
   `xs:include`, `xs:import` and `xs:redefine` for the host to fetch.
 
@@ -1714,10 +1725,11 @@ the schema gives its place instead of guessed: `<price>1.50</price>` is the
 number 1.5 where the schema wants a number (a save keeps `1.50` as written
 until the value changes), `<port> 080 </port>` is 80 where it wants an
 integer and the exact text where it wants a string, `<name>true</name>` is
-the string `"true"` where it wants a string, and `1` and `0` are booleans
-where the schema marks XSD's spellings (`"x-xml-lexical": "xsd"`).
-`"x-xml-whitespace": "collapse"` (or `"replace"`) on a string schema treats
-its whitespace as XSD does. Where the schema allows several types, or says
+the string `"true"` where it wants a string, and a schema
+may list other spellings of a boolean (`"x-true": ["true", "1"]`,
+`"x-false": ["false", "0"]`, as the XSD format writes them).
+`"x-whitespace": "collapse"` (or `"replace"`) on a string schema trims and
+joins its whitespace. Where the schema allows several types, or says
 none, the text is read as without a schema.
 
 A property the schema marks `"xml": {"attribute": true}` (the OpenAPI XML

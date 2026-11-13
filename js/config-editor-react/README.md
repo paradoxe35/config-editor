@@ -596,13 +596,14 @@ they take and return: `EditorSettings`, `EditorStrings`, `ThemeName`,
 `ThemeColorMap`, `LanguageName`, `DocumentSpec`, `CloseRequest`,
 `ChangeSummary`, `BaselineConflict`, `FieldPath`, `EditorPath`,
 `EditorRange`, `LineRange`, `EditorView` (what `editor(id)` returns),
-`HostDiagnostic`, `Diagnostic` (a problem the editor reports), `Severity`, `SecretOptions`, `TextRangeInput`.
+`HostDiagnostic`, `Diagnostic` (a problem the editor reports), `Severity`, `SecretOptions`, `TextRangeInput`, `SchemaFormatName` (a `schemaFormat`).
 
 The helpers come from `@pngwasi/config-editor`, a peer dependency:
-`loadConfigEditor`, `languages()`, `themes()`, `languageForFile` and
-`registerLanguage` from its main entry, and the tools (`validate`,
+`loadConfigEditor`, `languages()`, `themes()`, `languageForFile`,
+`registerLanguage`, `registerSchemaFormat`, `schemaFormats()` and
+`schemaFormatForFile` from its main entry, and the tools (`validate`,
 `convert`, `parse`, `serialize`, `unifiedDiff`, `changeSummary`, `rangeOf`, `rangesOf`,
-`pathAt`, `schemaWarnings`, `presetCss`) from
+`pathAt`, `schemaWarnings`, `compileSchema`, `schemaImports`, `presetCss`) from
 `@pngwasi/config-editor/tools`, called after `loadConfigEditor()` has
 resolved; see the [`@pngwasi/config-editor` README](https://www.npmjs.com/package/@pngwasi/config-editor#pngwasiconfig-editortools).
 

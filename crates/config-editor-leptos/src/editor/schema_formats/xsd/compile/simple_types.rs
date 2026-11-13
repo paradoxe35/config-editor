@@ -80,7 +80,7 @@ impl<'a> Compiler<'a> {
             );
             Simple {
                 kind: Kind::String,
-                schema: json!({"type": "string", "x-xml-whitespace": "collapse"})
+                schema: json!({"type": "string", "x-whitespace": "collapse"})
                     .as_object()
                     .cloned()
                     .unwrap_or_default(),
@@ -184,7 +184,7 @@ impl<'a> Compiler<'a> {
                 "whiteSpace" => {
                     if simple.kind == Kind::String {
                         simple.schema.insert(
-                            "x-xml-whitespace".to_string(),
+                            "x-whitespace".to_string(),
                             Value::String(value.trim().to_string()),
                         );
                     }

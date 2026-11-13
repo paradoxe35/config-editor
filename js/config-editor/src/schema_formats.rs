@@ -7,8 +7,8 @@ use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
 
 use config_editor_leptos::{
-    CompiledSchema, LossEffect, Schema, SchemaCompiler, SchemaError, SchemaFormat,
-    SchemaFormatInfo, SchemaInput, SchemaLoss, SchemaResources,
+    CompiledSchema, LossEffect, SchemaCompiler, SchemaError, SchemaFormat, SchemaFormatInfo,
+    SchemaInput, SchemaLoss, SchemaResources,
 };
 use js_sys::{Array, Function, Object};
 use serde::Serialize;
@@ -17,6 +17,7 @@ use wasm_bindgen::prelude::*;
 
 use crate::languages::interned;
 use crate::options::warn_unknown_keys;
+use crate::schema_spec::{SchemaSpec, note_registration};
 use crate::typings::NameResult;
 use crate::values::{
     field, json_from_js, json_to_js, optional_text, string_field, text_arg, to_js,
@@ -138,13 +139,6 @@ pub(crate) fn format_named(name: &str) -> Result<SchemaFormat, JsError> {
     })
 }
 
-/// A schema's format, resources and options, as JavaScript gives them.
-pub(crate) struct SchemaSpec {
-    pub(crate) format: SchemaFormat,
-    pub(crate) resources: SchemaResources,
-    pub(crate) options: Map<String, Value>,
-}
-
 /// The keys a [`SchemaSpec`] is read from.
 pub(crate) struct SpecKeys {
     pub(crate) format: &'static str,
@@ -166,68 +160,26 @@ const COMPILE_KEYS: SpecKeys = SpecKeys {
     options: "options",
 };
 
-impl SchemaSpec {
-    /// JSON Schema, with no resources or options.
-    pub(crate) fn json_schema() -> Self {
-        SchemaSpec {
-            format: SchemaFormat::JSON_SCHEMA,
-            resources: SchemaResources::new(),
-            options: Map::new(),
-        }
+/// Read from `object`'s `keys` (absent ones take the defaults); errors
+/// name the key after `prefix` (`"documents[0]."`).
+pub(crate) fn read_spec(
+    object: &JsValue,
+    keys: &SpecKeys,
+    prefix: &str,
+) -> Result<SchemaSpec, JsError> {
+    if object.is_undefined() || object.is_null() {
+        return Ok(SchemaSpec::json_schema());
     }
-
-    /// Read from `object`'s `keys` (absent ones take the defaults); errors
-    /// name the key after `prefix` (`"documents[0]."`).
-    pub(crate) fn read(object: &JsValue, keys: &SpecKeys, prefix: &str) -> Result<Self, JsError> {
-        if object.is_undefined() || object.is_null() {
-            return Ok(Self::json_schema());
-        }
-        let name = |key: &str| format!("{prefix}{key}");
-        let format = match optional_text(&field(object, keys.format), &name(keys.format))? {
-            Some(format) => format_named(&format)?,
-            None => SchemaFormat::JSON_SCHEMA,
-        };
-        Ok(SchemaSpec {
-            format,
-            resources: resources_from(&field(object, keys.resources), &name(keys.resources))?,
-            options: options_from(&field(object, keys.options), &name(keys.options))?,
-        })
-    }
-
-    /// `text` in this format, compiled; the error names `what`.
-    pub(crate) fn compile(&self, text: &str) -> Result<Schema, SchemaError> {
-        let input = SchemaInput::new(text)
-            .resources(&self.resources)
-            .options(&self.options);
-        Schema::compile_as(self.format, &input)
-    }
-
-    /// What identifies the schema `text` compiles to in this format.
-    pub(crate) fn key(&self, text: &str) -> SpecKey {
-        (
-            self.format.name(),
-            text.to_string(),
-            self.resources.clone(),
-            Value::Object(self.options.clone()).to_string(),
-            registrations(),
-        )
-    }
-}
-
-/// A schema's format name, text, resources and options (as JSON text), and
-/// the [`registrations`] made when it was read: a format registered again
-/// compiles the same text anew.
-pub(crate) type SpecKey = (&'static str, String, SchemaResources, String, u64);
-
-thread_local! {
-    static REGISTRATIONS: Cell<u64> = const { Cell::new(0) };
-}
-
-/// How many times `registerSchemaFormat` was called: a schema compiled
-/// before the last call may have been compiled by a definition since
-/// replaced.
-pub(crate) fn registrations() -> u64 {
-    REGISTRATIONS.with(Cell::get)
+    let name = |key: &str| format!("{prefix}{key}");
+    let format = match optional_text(&field(object, keys.format), &name(keys.format))? {
+        Some(format) => format_named(&format)?,
+        None => SchemaFormat::JSON_SCHEMA,
+    };
+    Ok(SchemaSpec {
+        format,
+        resources: resources_from(&field(object, keys.resources), &name(keys.resources))?,
+        options: options_from(&field(object, keys.options), &name(keys.options))?,
+    })
 }
 
 /// The resources object (`{ location: text }`) named `name`.
@@ -461,7 +413,7 @@ pub fn register_schema_format(definition: CustomSchemaFormat) -> Result<String, 
         label: interned::text(&label),
         extensions: interned::texts(&extensions),
     };
-    REGISTRATIONS.with(|count| count.set(count.get() + 1));
+    note_registration();
     match OWN.with(|own| own.borrow().get(&name).copied()) {
         Some(format) => {
             *format.definition.borrow_mut() = definition;
@@ -595,7 +547,7 @@ pub fn compile_schema(
     if !options.is_undefined() && !options.is_null() {
         warn_unknown_keys(&options, &["format", "resources", "options"], "option");
     }
-    let spec = SchemaSpec::read(&options, &COMPILE_KEYS, "")?;
+    let spec = read_spec(&options, &COMPILE_KEYS, "")?;
     let schema = spec
         .compile(&text)
         .map_err(|error| JsError::new(&error.to_string()))?;

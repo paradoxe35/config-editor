@@ -183,9 +183,22 @@ fn typed(
             }
         }
     }
-    let lexical_xsd = branches
-        .iter()
-        .any(|branch| branch.get("x-xml-lexical").and_then(Value::as_str) == Some("xsd"));
+    // The texts read as `true` and `false`: those the schema lists
+    // (`"x-true": ["true", "1"]`), else `true` and `false`.
+    let spellings = |key: &str, plain: &'static str| -> Vec<&str> {
+        let listed: Vec<&str> = branches
+            .iter()
+            .filter_map(|branch| branch.get(key).and_then(Value::as_array))
+            .flatten()
+            .filter_map(Value::as_str)
+            .collect();
+        if listed.is_empty() {
+            vec![plain]
+        } else {
+            listed
+        }
+    };
+    let (trues, falses) = (spellings("x-true", "true"), spellings("x-false", "false"));
     let space = whitespace(branches);
     let has = |name: &str| types.contains(&name);
     if types.iter().all(|name| *name == "string") && has("string") {
@@ -199,10 +212,11 @@ fn typed(
             return Value::Null;
         }
         if has("boolean") {
-            match (trimmed, lexical_xsd) {
-                ("true", _) | ("1", true) => return Value::Bool(true),
-                ("false", _) | ("0", true) => return Value::Bool(false),
-                _ => {}
+            if trues.contains(&trimmed) {
+                return Value::Bool(true);
+            }
+            if falses.contains(&trimmed) {
+                return Value::Bool(false);
             }
         }
         if (has("integer") || has("number"))
@@ -222,7 +236,7 @@ fn typed(
     }
 }
 
-/// What a schema's `x-xml-whitespace` asks of a string's whitespace.
+/// What a schema's `x-whitespace` asks of a string's whitespace.
 #[derive(Clone, Copy)]
 enum Space {
     Preserve,
@@ -246,7 +260,7 @@ impl Space {
 fn whitespace(branches: &[&Value]) -> Space {
     let rules = branches
         .iter()
-        .filter_map(|branch| branch.get("x-xml-whitespace").and_then(Value::as_str));
+        .filter_map(|branch| branch.get("x-whitespace").and_then(Value::as_str));
     let mut space = Space::Preserve;
     for rule in rules {
         match rule {

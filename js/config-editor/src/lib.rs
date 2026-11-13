@@ -48,6 +48,7 @@ mod reentry;
 mod remap;
 mod schema_cache;
 mod schema_formats;
+mod schema_spec;
 mod settings;
 mod settle;
 mod text_lines;

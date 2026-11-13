@@ -7,7 +7,7 @@ use std::cell::RefCell;
 
 use config_editor_leptos::{Schema, SchemaError};
 
-use crate::schema_formats::{SchemaSpec, SpecKey};
+use crate::schema_spec::{SchemaSpec, SpecKey};
 
 thread_local! {
     static LAST: RefCell<Option<(SpecKey, Schema)>> = const { RefCell::new(None) };
@@ -40,7 +40,7 @@ pub(crate) fn compiled(text: &str, spec: &SchemaSpec) -> Result<Schema, SchemaEr
 #[cfg(test)]
 mod tests {
     use super::{COMPILES, compiled};
-    use crate::schema_formats::SchemaSpec;
+    use crate::schema_spec::SchemaSpec;
 
     /// Design review item 2: a schema checked against many times is
     /// compiled once; another schema text compiles again, and so does the
