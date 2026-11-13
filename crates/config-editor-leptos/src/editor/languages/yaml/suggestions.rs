@@ -421,10 +421,12 @@ impl Ancestors {
         let Some(colon) = mapping_colon_anywhere(mapping) else {
             return;
         };
-        let key = without_node_properties(mapping[..colon].trim()).trim_matches(['\'', '"']);
-        if key.is_empty() {
+        // A key written `""` is the empty key; nothing before the colon is none.
+        let written = without_node_properties(mapping[..colon].trim());
+        if written.is_empty() {
             return;
         }
+        let key = written.trim_matches(['\'', '"']);
         while ancestors
             .last()
             .is_some_and(|(level, _)| *level >= mapping_indent)
@@ -551,12 +553,9 @@ pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionConte
         before_caret.len() - before_caret.trim_start().len()
     });
     let value_key = colon
-        .map(|colon| {
-            without_node_properties(line_content[..colon].trim())
-                .trim_matches(['\'', '"'])
-                .to_string()
-        })
-        .filter(|key| !key.is_empty());
+        .map(|colon| without_node_properties(line_content[..colon].trim()))
+        .filter(|written| !written.is_empty())
+        .map(|written| written.trim_matches(['\'', '"']).to_string());
     let typed_start_byte = if let Some(colon) = colon {
         current_line_start + content_start + colon + 1 + value_start.unwrap_or_default()
     } else {

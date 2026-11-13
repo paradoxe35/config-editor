@@ -9,8 +9,10 @@ pub(super) fn key_at_column(line: &str, column: usize) -> Option<(String, usize)
     let code = code_before_comment(line)?;
     let byte = byte_at_column(line, column);
     if let Some(key) = inline_key_at(code, b'=', byte) {
-        let raw = line[key.start..key.end].trim_matches('"');
-        return (!raw.is_empty()).then(|| (raw.to_string(), line[..key.start].chars().count()));
+        // `""` is the empty key; nothing before the `=` is none.
+        let written = line[key.start..key.end].trim();
+        let raw = written.trim_matches('"');
+        return (!written.is_empty()).then(|| (raw.to_string(), line[..key.start].chars().count()));
     }
     // A block header (`letsencrypt {`, `services "web" {`): its type word or
     // a label.

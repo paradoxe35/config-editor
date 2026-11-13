@@ -171,10 +171,11 @@ pub(super) fn key_at_column(line: &str, column: usize) -> Option<(String, usize)
     let properties = colon - without_node_properties(&body[..colon]).len();
     let (body, colon) = (&body[properties..], colon - properties);
     let key_raw = &body[..colon];
-    let key = key_raw.trim().trim_matches(['\'', '"']);
-    if key.is_empty() {
+    // `""` is the empty key; nothing before the colon is none.
+    if key_raw.trim().is_empty() {
         return None;
     }
+    let key = key_raw.trim().trim_matches(['\'', '"']);
     let body_start = line.len() - body.len();
     let start_column = line[..body_start].chars().count();
     let end_column = line[..body_start + key_raw.trim_end().len()]

@@ -186,3 +186,34 @@ fn a_selection_starting_inside_the_indentation_keeps_its_column_through_tab_and_
     assert_eq!(outdented, source);
     assert_eq!(back_start, start);
 }
+
+/// The value of the `""` key is that key's field, `/` (round 6's
+/// `D6.docs-2`: `pathAt` named the document root there), in every
+/// language that can write it.
+#[cfg(all(feature = "yaml", feature = "json", feature = "toml", feature = "hcl"))]
+#[test]
+fn the_empty_key_has_its_own_path() {
+    use crate::{Language, TextPosition};
+    let mut failures = Vec::new();
+    for (language, text) in [
+        (Language::YAML, "a: 1\n\"\": 4\n"),
+        (Language::JSON, "{\n  \"a\": 1,\n  \"\": 4\n}\n"),
+        (Language::TOML, "a = 1\n\"\" = 4\n"),
+        (Language::HCL, "a = 1\n\"\" = 4\n"),
+    ] {
+        let line = text.lines().position(|line| line.contains("4")).unwrap() + 1;
+        let written = text.lines().nth(line - 1).unwrap();
+        for column in [
+            written.find('"').unwrap() + 2,
+            written.find('4').unwrap() + 1,
+        ] {
+            let path = language
+                .path_at(text, TextPosition::new(line, column))
+                .map(|path| path.to_pointer());
+            if path.as_deref() != Some("/") {
+                failures.push(format!("{language} line {line} column {column}: {path:?}"));
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
