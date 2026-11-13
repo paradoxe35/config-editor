@@ -318,3 +318,40 @@ fn placeholders_also_written_in_comments_are_placed_in_one_parse_in_every_langua
     }
     assert!(failures.is_empty(), "{failures:#?}");
 }
+
+/// A text that does not parse (a stray line at its end) holding the
+/// placeholders of `clients` clients.
+fn broken(language: Language, clients: usize) -> String {
+    format!("{}\n@@@ [\n", written(language, clients))
+}
+
+/// Reading the host's placeholders out of a text that does not parse, and
+/// finding them in it, reads the text from its top once, whatever the
+/// number of placeholders (each looked up its field from the top: 13 s to
+/// open a 14,690-line file with 1,689 placeholders and one syntax error).
+#[test]
+fn placeholders_of_a_text_that_does_not_parse_cost_one_reading() {
+    use super::super::work_count::{Work, counted};
+    let matcher = SecretMatcher::new(&SecretOptions::default());
+    let mut failures = Vec::new();
+    for language in languages() {
+        let behavior = language.behavior();
+        let reads = |clients: usize| {
+            let text = broken(language, clients);
+            assert!(behavior.parse(&text).is_err(), "{language}: broken");
+            let (known, known_reads) = counted(Work::PathLookup, || matcher.known(behavior, &text));
+            assert!(known.len() >= clients, "{language}: {} known", known.len());
+            let (found, locate_reads) =
+                counted(Work::PathLookup, || matcher.locate(behavior, &text, &known));
+            assert!(found.len() >= clients, "{language}: {} found", found.len());
+            [known_reads, locate_reads]
+        };
+        let (few, many) = (reads(20), reads(200));
+        if few != many {
+            failures.push(format!(
+                "{language}: [known, locate] path reads {few:?} at 20 clients, {many:?} at 200"
+            ));
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}

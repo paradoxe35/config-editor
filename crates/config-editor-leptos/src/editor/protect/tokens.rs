@@ -20,7 +20,7 @@ use leptos::prelude::Callback;
 
 use super::super::language::ConfigLanguage;
 use super::super::parse_cache;
-use super::super::paths::{path_at, same_field};
+use super::super::paths::{in_batch, path_at, same_field, units_at, with_spans};
 use super::marks::escape;
 
 /// A token of the host's text: the field it stands in (or the text's
@@ -53,9 +53,20 @@ pub(crate) fn same_place(field: Option<&str>, pointer: Option<&str>) -> bool {
 
 /// The pointer of the field holding the token at byte `start` of `text`.
 fn field_at(behavior: &dyn ConfigLanguage, text: &str, start: usize) -> String {
-    path_at(behavior, text, text[..start].encode_utf16().count())
+    path_at(behavior, text, units_at(text, start))
         .map(|path| path.to_pointer())
         .unwrap_or_default()
+}
+
+/// Runs `work`, which looks up fields of `text` one by one, with the text
+/// read once for all of them (thousands of placeholders in a text that
+/// does not parse each read it from the top).
+fn batched<T>(behavior: &dyn ConfigLanguage, text: &str, work: impl FnOnce() -> T) -> T {
+    if in_batch(text) {
+        work()
+    } else {
+        with_spans(behavior, text, &[], work)
+    }
 }
 
 use super::super::secret_options::SecretOptions;
@@ -178,10 +189,13 @@ impl SecretMatcher {
                 });
             }
             Err(_) => {
-                for range in found.iter().filter(|range| !commented(range.start)) {
-                    let pointer = field_at(behavior, text, range.start);
-                    add(&text[range.clone()], Some(pointer), false, Vec::new());
-                }
+                // Each token's field from one reading of the text.
+                batched(behavior, text, || {
+                    for range in found.iter().filter(|range| !commented(range.start)) {
+                        let pointer = field_at(behavior, text, range.start);
+                        add(&text[range.clone()], Some(pointer), false, Vec::new());
+                    }
+                });
             }
         }
         for range in found.iter().filter(|range| commented(range.start)) {
@@ -319,6 +333,16 @@ impl SecretMatcher {
     /// parse cannot place (a text that does not parse, a token also in a
     /// comment or a key) is looked up by path, occurrence by occurrence.
     pub(crate) fn locate(
+        &self,
+        behavior: &dyn ConfigLanguage,
+        text: &str,
+        known: &[Known],
+    ) -> Vec<Range<usize>> {
+        batched(behavior, text, || self.locate_in(behavior, text, known))
+    }
+
+    /// [`Self::locate`], inside a batch for `text`.
+    fn locate_in(
         &self,
         behavior: &dyn ConfigLanguage,
         text: &str,
