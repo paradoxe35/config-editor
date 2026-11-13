@@ -133,6 +133,50 @@ test.describe('memory', () => {
     expect(errors).toEqual([]);
   });
 
+  test('a long document typed in, then destroyed, is kept once, and freed, not at all', async ({
+    page: browserPage,
+  }) => {
+    const errors = await open(browserPage, 'vanilla.html');
+    // 25,000 lines (about 400 KB): a copy kept is plain in the heap.
+    const value = Array.from({ length: 25000 }, (_, index) => `key${index}: value${index}`).join('\n');
+    const textBytes = value.length + 3;
+    const cycle = async () => {
+      await browserPage.evaluate(async (value) => {
+        const { ConfigEditor } = await import('../config-editor/pkg/config_editor.js');
+        window.editor = new ConfigEditor(document.getElementById('editor'), { value });
+      }, value);
+      await browserPage.locator('.config-editor__input').click();
+      await browserPage.keyboard.press('Control+End');
+      for (const key of 'abc') await browserPage.keyboard.press(key);
+      await outlastTimers(browserPage);
+      await browserPage.evaluate(() => window.editor.destroy());
+      await outlastTimers(browserPage);
+    };
+    const free = () =>
+      browserPage.evaluate(() => {
+        window.editor.free();
+        window.editor = null;
+      });
+    // The first mount fills what stays for the page (the font's widths).
+    await cycle();
+    await free();
+    const before = await heap(browserPage);
+    test.skip(!before && !process.env.MEMORY_HEAP, 'needs a package built with alloc-stats');
+    expect(before, 'MEMORY_HEAP=1 needs a package built with alloc-stats').not.toBeNull();
+    for (let round = 0; round < 3; round += 1) {
+      await cycle();
+      // Destroyed, the instance still answers `value`: one copy of the
+      // text, not the two (the view's last text and the answer) it kept.
+      const kept = (await heap(browserPage)).bytes - before.bytes;
+      expect(kept, `round ${round}`).toBeGreaterThanOrEqual(textBytes);
+      expect(kept, `round ${round}`).toBeLessThan(textBytes + 4 * KB);
+      expect(await browserPage.evaluate(() => window.editor.value.endsWith('abc'))).toBe(true);
+      await free();
+      expect((await heap(browserPage)).bytes - before.bytes, `round ${round}, freed`).toBeLessThanOrEqual(0);
+    }
+    expect(errors).toEqual([]);
+  });
+
   test('scrolling and folding a long document keeps memory flat', async ({ page: browserPage }) => {
     const errors = await open(browserPage, 'vanilla.html');
     await browserPage.evaluate(async () => {

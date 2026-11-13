@@ -684,24 +684,32 @@ impl ConfigEditor {
         else {
             return;
         };
+        // The document is kept once, in `final_value`: `latest` lets go of
+        // its copy once the view (which writes it) is gone.
+        let latest = self.latest.clone();
         let unmount = move || {
             drop(mounted);
             owner.cleanup();
+            take_text(&latest)
         };
         if IN_CALLBACK.with(|depth| depth.get()) > 0 {
             // Called from a callback: the editor's handler is still running,
             // so it unmounts once that returns, calling nothing more.
             self.state.silence();
             *self.final_value.borrow_mut() = Some(self.latest_text());
-            let deferred = Closure::once_into_js(unmount);
+            let deferred = Closure::once_into_js(move || drop(unmount()));
             if let Ok(queue) = field(&js_sys::global(), "queueMicrotask").dyn_into::<Function>() {
                 let _ = queue.call1(&JsValue::NULL, &deferred);
             }
         } else {
-            unmount();
-            *self.final_value.borrow_mut() = Some(self.latest_text());
+            *self.final_value.borrow_mut() = Some(unmount());
         }
     }
+}
+
+/// The document `latest` holds, taken out of it.
+fn take_text(latest: &Latest) -> String {
+    std::mem::take(&mut *latest.lock().unwrap_or_else(PoisonError::into_inner))
 }
 
 /// Sends the document `latest` to the host's `onChange`, if it has one.
