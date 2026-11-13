@@ -72,7 +72,14 @@ pub(super) struct SchemaBundle {
 /// The compiled schema, or why `schema_text` is no JSON Schema (worded by
 /// the `invalidSchema` text where it is shown).
 pub(super) fn build_schema(schema_text: &str) -> Result<SchemaBundle, String> {
-    let mut schema: Value = serde_json::from_str(schema_text).map_err(|error| error.to_string())?;
+    let mut schema: Value = serde_json::from_str(schema_text).map_err(|error| {
+        if error.to_string().starts_with("recursion limit exceeded") {
+            "it nests objects and lists more than 128 levels deep, deeper than the editor reads"
+                .to_string()
+        } else {
+            error.to_string()
+        }
+    })?;
     super::empty_refs::to_root(&mut schema);
     #[cfg(feature = "schema-validation")]
     let validator = jsonschema::validator_for(
@@ -80,7 +87,15 @@ pub(super) fn build_schema(schema_text: &str) -> Result<SchemaBundle, String> {
             .as_ref()
             .unwrap_or(&schema),
     )
-    .map_err(|error| error.to_string())?;
+    .map_err(|error| {
+        // Where in the schema: a value is worded, its place is not.
+        let at = error.instance_path().to_string();
+        if at.is_empty() {
+            error.to_string()
+        } else {
+            format!("{error} (at {at})")
+        }
+    })?;
     let warnings = super::completion::unsupported_patterns(&schema);
     let has_deprecated = super::completion::mentions_deprecated(&schema);
     let has_marks = super::protect::mentions_marks(&schema);

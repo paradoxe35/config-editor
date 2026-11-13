@@ -69,3 +69,15 @@ fn the_empty_key_is_named_by_its_pointer() {
         [r#"/: "b" is not allowed here"#]
     );
 }
+
+/// Schema L.3 and L.12: an invalid schema says where in it the value is,
+/// and one nested too deep to read says so.
+#[test]
+fn an_invalid_schema_names_its_place_and_a_too_deep_one_says_so() {
+    let message = |text: &str| Schema::compile(text).expect_err("refused").0;
+    let typed = message(r#"{"properties":{"a":{"type":5}}}"#);
+    assert!(typed.contains("(at /properties/a/type)"), "{typed}");
+    let lists = format!("{}{}", "[".repeat(200), "]".repeat(200));
+    let deep = message(&format!(r#"{{"enum":[{lists}]}}"#));
+    assert!(deep.contains("more than 128 levels deep"), "{deep}");
+}
