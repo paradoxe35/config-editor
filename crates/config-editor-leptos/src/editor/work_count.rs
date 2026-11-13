@@ -115,6 +115,9 @@ pub(crate) enum Work {
         allow(dead_code, reason = "only HCL's expression check notes it")
     )]
     ExpressionLookup,
+    /// A key of a map visited while merging an Edit-as edit into the
+    /// host's value (`bridge::merge`).
+    MergeKeyVisit,
 }
 
 impl Work {
@@ -145,13 +148,14 @@ impl Work {
             Self::ParsedBytes => 21,
             Self::ConstructScan => 22,
             Self::ExpressionLookup => 23,
+            Self::MergeKeyVisit => 24,
         }
     }
 }
 
 #[cfg(test)]
 thread_local! {
-    static COUNTS: std::cell::Cell<[usize; 24]> = const { std::cell::Cell::new([0; 24]) };
+    static COUNTS: std::cell::Cell<[usize; 25]> = const { std::cell::Cell::new([0; 25]) };
 }
 
 /// `work` is starting (counted on this thread in tests).

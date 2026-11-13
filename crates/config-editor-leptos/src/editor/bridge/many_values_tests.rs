@@ -147,3 +147,32 @@ fn many_values_edited_in_a_view_are_placed_without_reading_the_text_from_the_top
     let grew = grown(Work::LineSeek);
     assert!(grew.is_empty(), "{grew:#?}");
 }
+
+/// Merging a view's edit into the host's value visits each key of a map a
+/// few times, however many are added, renamed or moved (a paste of 2,000
+/// keys into a map of 5,000 looked through all of the host's keys for
+/// each new one: 1.6–1.8 s).
+#[test]
+fn a_view_edit_of_many_keys_is_merged_visiting_each_key_a_few_times() {
+    let mut grew = Vec::new();
+    for edit in edits() {
+        for &host in Language::ALL {
+            for &view in Language::ALL {
+                if host == view {
+                    continue;
+                }
+                let few = work(Work::MergeKeyVisit, (host, view), edit, 20);
+                let many = work(Work::MergeKeyVisit, (host, view), edit, 200);
+                // Ten times the services: about ten times the visits (a
+                // hundred when each key is looked for among all the others).
+                if many > 12 * few.max(1) {
+                    grew.push(format!(
+                        "{}, {host} as {view}: {few} visits for 20 services, {many} for 200",
+                        edit.0
+                    ));
+                }
+            }
+        }
+    }
+    assert!(grew.is_empty(), "{}", grew.join("\n"));
+}

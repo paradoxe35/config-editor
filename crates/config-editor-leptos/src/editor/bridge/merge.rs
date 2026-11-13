@@ -5,6 +5,14 @@ use super::super::codec::same_order;
 use super::super::language::{ConfigLanguage, Repetition};
 use serde_json::{Map, Value};
 
+use super::super::work_count::{Work, note};
+
+/// Counts a key visited, passing `keep` on.
+fn visit(keep: bool) -> bool {
+    note(Work::MergeKeyVisit);
+    keep
+}
+
 /// The host value with the user's edits applied: where the edit equals what
 /// the edit language showed, the host's original value is kept; elsewhere
 /// the edit wins. Keys and items added or removed follow the edit.
@@ -126,31 +134,46 @@ fn merge_at(
             // A renamed key: gone from the edit, and a new key holding what
             // the edit showed for it. It keeps its place and the host's own
             // value (which the edit language may not show exactly).
-            let mut renamed_to: Vec<(&String, &String)> = Vec::new();
+            // (Each looked up in maps: a paste of thousands of keys into a
+            // map of thousands is no pass over all of them per key.)
+            // The host's keys the edit no longer has, by what the edit
+            // language showed for them (its text), in the host's order.
+            let mut gone: std::collections::HashMap<String, std::collections::VecDeque<&String>> =
+                std::collections::HashMap::new();
+            if edited.keys().any(|key| !host.contains_key(key)) {
+                for old in host.keys().filter(|old| visit(!edited.contains_key(*old))) {
+                    if let Some(shown) = seen.get(old) {
+                        gone.entry(canonical(shown)).or_default().push_back(old);
+                    }
+                }
+            }
+            let mut renamed_to: std::collections::HashMap<&String, &String> =
+                std::collections::HashMap::new();
+            let mut renamed_keys: std::collections::HashSet<&String> =
+                std::collections::HashSet::new();
             for (key, value) in edited {
-                if host.contains_key(key) {
+                note(Work::MergeKeyVisit);
+                if host.contains_key(key) || gone.is_empty() {
                     continue;
                 }
-                let from = host.keys().find(|old| {
-                    !edited.contains_key(*old)
-                        && seen.get(*old) == Some(value)
-                        && !renamed_to.iter().any(|(taken, _)| taken == old)
-                });
+                let from = gone
+                    .get_mut(&canonical(value))
+                    .and_then(|olds| olds.pop_front());
                 if let Some(from) = from {
-                    renamed_to.push((from, key));
+                    renamed_to.insert(from, key);
+                    renamed_keys.insert(key);
                 }
             }
             let mut entries: Vec<(String, Value)> = Vec::new();
             for (key, host_value) in host {
+                note(Work::MergeKeyVisit);
                 match (seen.get(key), edited.get(key)) {
                     (Some(seen_value), Some(value)) => {
                         let merged = merge_at(host_value, seen_value, value, &child(key), view)?;
                         entries.push((key.clone(), merged));
                     }
                     // Renamed by the user.
-                    (Some(_), None)
-                        if let Some((_, to)) = renamed_to.iter().find(|(from, _)| *from == key) =>
-                    {
+                    (Some(_), None) if let Some(to) = renamed_to.get(key) => {
                         entries.push(((*to).clone(), host_value.clone()));
                     }
                     // Removed by the user.
@@ -162,17 +185,32 @@ fn merge_at(
                 }
             }
             // A new key goes after the key before it in the edit, so a renamed
-            // key keeps its place.
-            let mut previous: Option<&String> = None;
+            // key keeps its place: the new keys after each key already placed
+            // (or at the start), in the edit's order.
+            let mut added: std::collections::HashMap<Option<String>, Vec<(String, Value)>> =
+                std::collections::HashMap::new();
+            let mut anchor: Option<&String> = None;
             for (key, value) in edited {
-                let renamed = renamed_to.iter().any(|(_, to)| *to == key);
-                if !host.contains_key(key) && !renamed {
-                    let at = previous
-                        .and_then(|before| entries.iter().position(|(name, _)| name == before))
-                        .map_or(0, |index| index + 1);
-                    entries.insert(at, (key.clone(), value.clone()));
+                note(Work::MergeKeyVisit);
+                if !host.contains_key(key) && !renamed_keys.contains(key) {
+                    added
+                        .entry(anchor.cloned())
+                        .or_default()
+                        .push((key.clone(), value.clone()));
+                } else {
+                    anchor = Some(key);
                 }
-                previous = Some(key);
+            }
+            if !added.is_empty() {
+                let mut placed = added.remove(&None).unwrap_or_default();
+                placed.reserve(entries.len());
+                for entry in entries {
+                    note(Work::MergeKeyVisit);
+                    let after = added.remove(&Some(entry.0.clone()));
+                    placed.push(entry);
+                    placed.extend(after.into_iter().flatten());
+                }
+                entries = placed;
             }
             if view.moves {
                 moved_as_edited(&mut entries, seen, edited);
@@ -243,6 +281,32 @@ fn merge_at(
             merge_at(host, seen, &Value::Array(vec![edited.clone()]), at, view)
         }
         _ => replaced(),
+    }
+}
+
+/// `value` written so that equal values (`==`, whatever their maps' key
+/// order) are written the same.
+fn canonical(value: &Value) -> String {
+    match value {
+        Value::Object(map) => {
+            let mut entries: Vec<(&String, String)> = map
+                .iter()
+                .map(|(key, item)| (key, canonical(item)))
+                .collect();
+            entries.sort_unstable();
+            let body: Vec<String> = entries
+                .into_iter()
+                .map(|(key, item)| format!("{}:{item}", Value::String(key.clone())))
+                .collect();
+            format!("{{{}}}", body.join(","))
+        }
+        Value::Array(items) => {
+            format!(
+                "[{}]",
+                items.iter().map(canonical).collect::<Vec<_>>().join(",")
+            )
+        }
+        other => other.to_string(),
     }
 }
 
