@@ -10,7 +10,7 @@ use leptos::prelude::*;
 use super::super::completion::{Completion, SuggestionPlace};
 use super::super::diagnostics::{Diagnostic, Severity};
 use super::super::language::ConfigLanguage;
-use super::super::line_rows::LineMarks;
+use super::super::line_rows::MarkedLines;
 use super::glued::glued_placeholders;
 use super::live::ProtectState;
 use super::problems::unknown_placeholders;
@@ -22,7 +22,7 @@ use crate::strings::fill;
 impl ProtectState {
     /// The marks of every line of `text` (the text on screen); empty when
     /// nothing is protected. Tracked.
-    pub(crate) fn line_marks(&self, text: &str, strings: &EditorStrings) -> Vec<LineMarks> {
+    pub(crate) fn line_marks(&self, text: &str, strings: &EditorStrings) -> MarkedLines {
         self.protected.with(|protected| {
             self.secrets.tokens.with(|tokens| {
                 let hint = self

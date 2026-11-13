@@ -10,6 +10,10 @@ use crate::reactive::{Fanout, notify};
 use leptos::prelude::*;
 use std::ops::Range;
 
+/// The marks of the lines that have any (see [`LineMarks`]), by zero-based
+/// line: most lines of a long document have none.
+pub(super) type MarkedLines = std::collections::BTreeMap<usize, LineMarks>;
+
 /// One line of the document plus its error flag.
 #[derive(Clone, PartialEq)]
 pub(super) struct RenderedLine {
@@ -46,7 +50,7 @@ pub(super) fn rendered_lines(
                 count += 1;
                 let has_error = error_lines.contains(&(index + 1));
                 let marks = marks
-                    .get(index)
+                    .get(&index)
                     .filter(|marks| **marks != LineMarks::default());
                 match rows.get_mut(index) {
                     Some(row)

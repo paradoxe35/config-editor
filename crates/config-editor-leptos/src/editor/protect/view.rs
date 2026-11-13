@@ -5,13 +5,14 @@
 use std::ops::Range;
 
 use super::super::keyboard::utf16_to_byte_index;
-use super::super::line_rows::LineMarks;
+use super::super::line_rows::MarkedLines;
 use super::locate::LineIndex;
 use super::locks::Protected;
 use super::texts;
 use crate::EditorStrings;
 
-/// The marks of every line of `text` (empty when nothing is protected),
+/// The marks of the lines of `text` that have any (none when nothing is
+/// protected),
 /// with its secret placeholders at `tokens` (UTF-16) and their `hint`.
 /// One pass over the text: each piece is measured within its own line,
 /// so a document with thousands of placeholders stays linear.
@@ -21,12 +22,12 @@ pub(crate) fn line_marks(
     tokens: &[Range<usize>],
     hint: &str,
     strings: &EditorStrings,
-) -> Vec<LineMarks> {
+) -> MarkedLines {
     if protected.is_empty() && tokens.is_empty() {
-        return Vec::new();
+        return MarkedLines::new();
     }
     let lines = LineIndex::new(text);
-    let mut marks = vec![LineMarks::default(); lines.line_count()];
+    let mut marks = MarkedLines::new();
     for lock in &protected.locks {
         let label = lock.reason.label(strings);
         for range in &lock.ranges {
@@ -34,7 +35,7 @@ pub(crate) fn line_marks(
                 let bounds = lines.line_bounds(line);
                 let line_text = lines.line_text(line);
                 let byte = |at: usize| utf16_to_byte_index(line_text, at - bounds.start);
-                let entry = &mut marks[line];
+                let entry = marks.entry(line).or_default();
                 if piece.start < piece.end {
                     entry.muted.push(byte(piece.start)..byte(piece.end));
                 }
@@ -48,12 +49,12 @@ pub(crate) fn line_marks(
             let bounds = lines.line_bounds(line);
             let line_text = lines.line_text(line);
             let byte = |at: usize| utf16_to_byte_index(line_text, at - bounds.start);
-            let entry = &mut marks[line];
+            let entry = marks.entry(line).or_default();
             entry.secret.push(byte(piece.start)..byte(piece.end));
             entry.key.get_or_insert_with(|| key_label.clone());
         }
     }
-    for entry in &mut marks {
+    for entry in marks.values_mut() {
         entry.muted.sort_by_key(|range| range.start);
     }
     marks
@@ -112,10 +113,11 @@ mod tests {
         });
         let byte_start = "  secret: ".len();
         let expected = byte_start..byte_start + "«secret 3f2a»".len();
-        assert_eq!(marks.len(), lines + 1);
+        // Only the lines with a placeholder: not an entry for every line.
+        assert_eq!(marks.len(), lines);
         assert!(
-            marks[..lines]
-                .iter()
+            marks
+                .values()
                 .all(|marks| marks.secret == [expected.clone()])
         );
         assert!(took.as_secs() < 5, "{took:?}");

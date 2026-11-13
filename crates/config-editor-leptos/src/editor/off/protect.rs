@@ -16,7 +16,7 @@ use super::diagnostics::{Diagnostic, SchemaBundle};
 use super::edit::{Edit, Origin};
 use super::language::ConfigLanguage;
 use super::languages::Language;
-use super::line_rows::LineMarks;
+use super::line_rows::MarkedLines;
 use super::paths::{FieldPath, TextRange};
 use super::secret_options::SecretOptions;
 use super::state::EditorState;
@@ -75,8 +75,8 @@ impl ProtectState {
         Self
     }
 
-    pub(super) fn line_marks(&self, _text: &str, _strings: &EditorStrings) -> Vec<LineMarks> {
-        Vec::new()
+    pub(super) fn line_marks(&self, _text: &str, _strings: &EditorStrings) -> MarkedLines {
+        MarkedLines::new()
     }
 
     pub(super) fn adjust_suggestions(
