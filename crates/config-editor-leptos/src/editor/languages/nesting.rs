@@ -8,4 +8,5 @@ pub(super) fn too_deep(what: &str) -> String {
 }
 
 /// What JSON, YAML, TOML and HCL values are.
+#[cfg(any(feature = "json", feature = "yaml", feature = "toml", feature = "hcl"))]
 pub(super) const VALUES: &str = "Maps and lists";

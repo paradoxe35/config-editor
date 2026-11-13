@@ -215,6 +215,13 @@ mod number_forms;
 #[cfg(any(feature = "json", feature = "yaml", feature = "toml", feature = "hcl"))]
 mod wide_integers;
 // One sentence for a text nested deeper than its reader goes.
+#[cfg(any(
+    feature = "json",
+    feature = "yaml",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
 mod nesting;
 
 macro_rules! registry {
