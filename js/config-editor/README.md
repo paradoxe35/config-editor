@@ -1323,8 +1323,10 @@ view.editAs("main", "toml"); // after an undo across the switch: ask again
   not listed): its `value` (the host's, then each edit), `settings` (its
   own over the view's) and `unifiedDiff` against its baseline, paths,
   folds, `focus`, `save` and `isDirty`. An editor mounts the first time
-  its document is shown: until then its queries answer `null` or `false`
-  (`text` answers the document's `value`). Once its document is removed,
+  its document is shown: until then `value`, `text` and `unifiedDiff`
+  answer the document as listed, `settings` and `isDirty` answer too and
+  `save()` sends it, while its paths, folds and `reveal` answer `null` or
+  `false` (`[]` for `foldedLines`). Once its document is removed,
   it stays with it and answers `null` (`value`, `text`, `currentPath`) or
   `false` (`save()`, `isDirty`, `reveal`, …), also when a new document
   with the same id is listed: ask `editor(id)` again for that one.
@@ -1394,7 +1396,11 @@ const env = registerLanguage({
       text
         .split("\n")
         .filter((line) => line.trim() && !line.startsWith("#"))
-        .map((line) => line.split("=")),
+        // `KEY=value`: the value is all after the first `=` (it may hold more).
+        .map((line) => [
+          line.slice(0, line.indexOf("=")),
+          line.slice(line.indexOf("=") + 1),
+        ]),
     );
   },
   serialize(value) {

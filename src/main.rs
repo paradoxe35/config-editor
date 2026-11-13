@@ -17,8 +17,10 @@
 //!   `&lock=/name,/listen` locks more fields as the host.
 //! - `?documents` — several files as tabs (`ConfigDocuments`), see
 //!   `documents_demo`.
-//! - `?styled=0` — no injected stylesheet (`styled: false`): the page serves
-//!   `preset.css` itself, as under a strict Content-Security-Policy;
+//! - `?styled=0` — no injected stylesheet (`styled: false`): the editor
+//!   shows unstyled, as a host that serves `preset.css` itself (under a
+//!   strict Content-Security-Policy, see `e2e/csp/`) has it before its
+//!   stylesheet loads; this page serves none;
 //!   `?colors=custom` overrides a few theme colors (`colors`).
 
 use config_editor_leptos::{

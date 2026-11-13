@@ -631,10 +631,12 @@ impl ConfigDocuments {
     }
 
     /// The editor of the document `id`: paths, folds, focus and saving for
-    /// that document (`null` when no document has that id). Its
-    /// queries answer `null` (or `false`) until the document has been shown
-    /// once, which mounts its editor, and again once the document is
-    /// removed (one listed again with the same id is another document).
+    /// that document (`null` when no document has that id). Until the
+    /// document has been shown once, which mounts its editor, its `value`,
+    /// `text`, `unifiedDiff`, `settings`, `isDirty` and `save` answer for
+    /// the document as listed and its paths, folds and `reveal` answer
+    /// `null` (or `false`); once the document is removed all of them do
+    /// (one listed again with the same id is another document).
     pub fn editor(
         &self,
         #[wasm_bindgen(unchecked_param_type = "string")] id: JsValue,

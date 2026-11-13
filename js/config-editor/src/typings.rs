@@ -37,7 +37,7 @@ export interface EditorOptions extends EditorSettings {
   onChange?: (value: string) => void;
   /** Called with the language on screen: once on mount, then each time an `editAs` switch completes and when undo or redo steps back across one (it waits while the document cannot convert yet, the host's language staying on screen). */
   onEditAsChange?: (language: LanguageName) => void;
-  /** Called with whether the text on screen is written back to the document (`value`): once on mount, then each time that changes. `false` while an `editAs` edit cannot convert back (`value()` is `null`, `onChange` waits), from whatever brought it there (typing, paste, undo, a switch, a reload, a new `value`); read after each pause in typing. Always `true` while editing in `language`. */
+  /** Called with whether the text on screen is written back to the document (`value`): once on mount, then each time that changes. `false` while an `editAs` edit cannot convert back (`value` stays the last document, `onChange` waits), from whatever brought it there (typing, paste, undo, a switch, a reload, a new `value`); read after each pause in typing. Always `true` while editing in `language`. */
   onSyncChange?: (inSync: boolean) => void;
   /** Called with how the document differs from `baseline`: on mount, then whenever that changes. */
   onChangeSummary?: (summary: ChangeSummary) => void;
@@ -367,7 +367,7 @@ export interface DocumentSpec {
   schema?: string;
   /** Edit in another language than `language`; switches live. A list with the same `editAs` changes nothing: to ask for it again (after an undo stepped back across the switch), call `editAs(id, language)`. */
   editAs?: LanguageName;
-  /** The text on screen when the document's editor opens, in the `editAs` language, in place of `value` converted: what the user had on screen before the view went away (`editor(id).text()`). `value` and `baseline` stay yours; it converts back like an edit, so `onChange` hears it once it converts, and until then `onSyncChange` says `false`. Undo starts at it. Read when the editor mounts (the first time the document is shown); ignored without `editAs`. */
+  /** The text on screen when the document's editor opens, in the `editAs` language, in place of `value` converted: what the user had on screen before the view went away (`editor(id).text`). `value` and `baseline` stay yours; it converts back like an edit, so `onChange` hears it once it converts, and until then `onSyncChange` says `false`. Undo starts at it. Read when the editor mounts (the first time the document is shown); ignored without `editAs`. */
   editAsText?: string;
   /** Settings for this document's editor, over the view's: the keys given replace the view's (which still apply to the rest, and follow its `update`). Switch live. The view's `styled` applies to every editor. */
   settings?: EditorSettings;
