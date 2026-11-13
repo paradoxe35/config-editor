@@ -433,6 +433,72 @@ pub(in crate::editor) fn document_lines(text: &str) -> Vec<&str> {
     }
 }
 
+/// The edits turning `old` into `new` between the lines each holds once
+/// and in the same order (patience diff): many separate changes, past what
+/// the exact searches take, stay separate changes, each region between
+/// two such lines diffed on its own. `None` without such a line.
+fn anchored_edits(old: &[&str], new: &[&str]) -> Option<Vec<DiffEdit>> {
+    use std::collections::HashMap;
+    // Per line text: (times in old, times in new, its index in old, in new).
+    let mut seen: HashMap<&str, (usize, usize, usize, usize)> = HashMap::new();
+    for (index, line) in old.iter().enumerate() {
+        let entry = seen.entry(line).or_insert((0, 0, index, 0));
+        entry.0 += 1;
+    }
+    for (index, line) in new.iter().enumerate() {
+        if let Some(entry) = seen.get_mut(line) {
+            entry.1 += 1;
+            entry.3 = index;
+        }
+    }
+    let mut unique: Vec<(usize, usize)> = seen
+        .values()
+        .filter(|(in_old, in_new, _, _)| *in_old == 1 && *in_new == 1)
+        .map(|(_, _, at_old, at_new)| (*at_old, *at_new))
+        .collect();
+    unique.sort_unstable();
+    let anchors = increasing_run(&unique);
+    if anchors.is_empty() {
+        return None;
+    }
+    let mut edits = Vec::with_capacity(old.len() + new.len());
+    let (mut from_old, mut from_new) = (0, 0);
+    for (at_old, at_new) in anchors {
+        edits.extend(middle_edits(&old[from_old..at_old], &new[from_new..at_new]));
+        edits.push(DiffEdit::Equal);
+        (from_old, from_new) = (at_old + 1, at_new + 1);
+    }
+    edits.extend(middle_edits(&old[from_old..], &new[from_new..]));
+    Some(edits)
+}
+
+/// The longest run of `pairs` (sorted by their first) whose seconds also
+/// increase.
+fn increasing_run(pairs: &[(usize, usize)]) -> Vec<(usize, usize)> {
+    // Patience sorting: the pile tops, and each pair's predecessor.
+    let mut tops: Vec<usize> = Vec::new();
+    let mut before: Vec<Option<usize>> = vec![None; pairs.len()];
+    for (index, (_, second)) in pairs.iter().enumerate() {
+        let pile = tops.partition_point(|top| pairs[*top].1 < *second);
+        if pile > 0 {
+            before[index] = Some(tops[pile - 1]);
+        }
+        if pile == tops.len() {
+            tops.push(index);
+        } else {
+            tops[pile] = index;
+        }
+    }
+    let mut run = Vec::with_capacity(tops.len());
+    let mut at = tops.last().copied();
+    while let Some(index) = at {
+        run.push(pairs[index]);
+        at = before[index];
+    }
+    run.reverse();
+    run
+}
+
 /// LCS table cells past which the diff switches to Myers.
 const LCS_MAX_CELLS: usize = 1_000_000;
 
@@ -443,6 +509,9 @@ pub(in crate::editor) fn middle_edits(old: &[&str], new: &[&str]) -> Vec<DiffEdi
     let cell_count = (old.len() + 1).saturating_mul(new.len() + 1);
     if cell_count > LCS_MAX_CELLS {
         if let Some(edits) = myers_edits(old, new) {
+            return edits;
+        }
+        if let Some(edits) = anchored_edits(old, new) {
             return edits;
         }
         let mut edits = Vec::with_capacity(old.len() + new.len());
@@ -758,6 +827,34 @@ mod tests {
             &shifted,
             &diff_lines(baseline, &shifted.join("\n"))
         ));
+    }
+
+    /// Many separate changes stay separate past what the exact searches
+    /// take (round 17's `D17.perf-1`: past 512 they became one
+    /// delete-then-insert hunk, "1 change", which could not be stepped).
+    #[test]
+    fn many_separate_changes_stay_separate() {
+        for changes in [513, 2_000, 5_000] {
+            let baseline: String = (0..2 * changes)
+                .map(|index| format!("- item {index}\n"))
+                .collect();
+            let current: String = (0..2 * changes)
+                .map(|index| {
+                    if index % 2 == 1 {
+                        format!("- item {index} changed\n")
+                    } else {
+                        format!("- item {index}\n")
+                    }
+                })
+                .collect();
+            let diff = diff_lines(&baseline, &current);
+            let modified: usize = diff.hunks.iter().map(|hunk| hunk.modified).sum();
+            assert_eq!(
+                (diff.hunks.len(), modified),
+                (changes, changes),
+                "{changes} changes"
+            );
+        }
     }
 
     /// A new baseline under the peeked line makes it another change: its
