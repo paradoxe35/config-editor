@@ -104,8 +104,13 @@ fn Config() -> impl IntoView {
 }
 ```
 
-The editor injects its stylesheet ([`PRESET_CSS`]) by default; under a
-strict Content-Security-Policy, serve it as a file instead (see
+The editor injects its stylesheet ([`PRESET_CSS`]) by default: one
+`<style>` at the end of the page's `<head>` (or in the shadow root the
+editor is in), shared by every editor and documents view there and removed
+with the last. Host stylesheets later in `<head>` or in `<body>` win over its
+rules at equal specificity; the theme variables have zero specificity, so
+any rule overrides them. Under a strict Content-Security-Policy, serve it as
+a file instead (see
 [Strict Content-Security-Policy](#strict-content-security-policy)).
 
 ## `<ConfigEditor>` props

@@ -28,7 +28,7 @@ pub use model::{CloseRequest, Document};
 
 use crate::cssom::cssom;
 use crate::reactive::KeyedList;
-use crate::{Diagnostic, EditorSettings, Language, PRESET_CSS, SaveRequest};
+use crate::{Diagnostic, EditorSettings, Language, SaveRequest};
 use components::{DocumentPanel, TabStrip};
 use entries::{Callbacks, Documents, Entry};
 
@@ -158,7 +158,8 @@ pub fn ConfigDocuments(
     /// (the `Tab*` tokens of [`ThemeColor`](crate::ThemeColor) included); a
     /// document's own [`Document::settings`] replace them for its editor.
     /// May be a signal: every setting switches live. `styled` injects
-    /// [`PRESET_CSS`] once, for the whole view.
+    /// [`PRESET_CSS`](crate::PRESET_CSS) once, for the whole view (shared with the page's
+    /// other editors).
     #[prop(optional, into)]
     settings: Signal<EditorSettings>,
     /// Extra class on the view's root for host styles.
@@ -237,7 +238,7 @@ pub fn ConfigDocuments(
             on:mousedown=mousedown
             on:focusout=focusout
         >
-            {move || styled.get().then(|| view! { <style>{PRESET_CSS}</style> })}
+            {crate::preset_style::preset_style(documents_view.root, styled)}
             <TabStrip documents=documents_view label=label />
             <div class="config-editor-documents__panels">
                 <KeyedList each=panels key=|entry| entry.serial children=panel />

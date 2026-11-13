@@ -122,11 +122,13 @@ use state::{EditorState, Init};
 /// The preset stylesheet: the base styles, every bundled theme, and the tabs
 /// of [`ConfigDocuments`](crate::ConfigDocuments) (the parts in `src/css/`).
 ///
-/// The editor injects it unless the `styled` setting is off, in which case a
-/// host can serve it itself: the crate ships it whole as one file,
-/// `preset.css` (and the npm package as `@pngwasi/config-editor/preset.css`),
-/// for pages under a strict Content-Security-Policy that refuses the
-/// injected `<style>`.
+/// The editor injects it unless the `styled` setting is off: one `<style>`
+/// at the end of the page's `<head>` (or in the shadow root the editor is
+/// in), shared by every editor and documents view there and removed with
+/// the last. With `styled` off a host can serve it itself: the crate ships
+/// it whole as one file, `preset.css` (and the npm package as
+/// `@pngwasi/config-editor/preset.css`), for pages under a strict
+/// Content-Security-Policy that refuses the injected `<style>`.
 pub const PRESET_CSS: &str = concat!(
     include_str!("css/base.css"),
     include_str!("css/themes.css"),
@@ -403,7 +405,7 @@ pub fn ConfigEditor(
             on:keydown=move |event| keys::on_root_keydown(state, &event)
             on:focusout=move |event| state.tip_follows_focus(event.related_target().as_ref())
         >
-            {move || shown.styled.get().then(|| view! { <style>{PRESET_CSS}</style> })}
+            {crate::preset_style::preset_style(state.view().root_ref, shown.styled)}
             <FillProbe fills=fills />
             <section class="config-editor__frame" aria-label=state.language_text(|strings| &strings.editor_label)>
                 <Kept when=shown.toolbar view=move || view! { <Toolbar state=state file_name=file_name.clone() has_schema=has_schema /> } />

@@ -118,9 +118,10 @@ const SHOWN = {
   showDiff: (page, name) => scope(page, name).locator('.config-editor__diff-marker').count().then((count) => count > 0),
   highlighting: (page, name) => scope(page, name).locator('.config-editor__key').count().then((count) => count > 0),
   folding: (page, name) => scope(page, name).locator('.config-editor__gutter-folding').count().then((count) => count > 0),
+  // The page's one shared copy (or, before it joins, the view's own).
   styled: (page, name) =>
     page
-      .locator(isDocuments(name) ? '.config-editor-documents > style' : '.config-editor > style')
+      .locator(`head > style[data-config-editor-preset], ${isDocuments(name) ? '.config-editor-documents > style' : '.config-editor > style'}`)
       .count()
       .then((count) => count > 0),
 };

@@ -1630,9 +1630,13 @@ its display name and whether it is dark.
 
 ## Styling
 
-The editor injects its own stylesheet. Every theme color is a CSS variable
-on the `.config-editor` root, and the bundled themes set them with zero
-specificity, so a plain rule in your stylesheet overrides any theme:
+The editor injects its own stylesheet: one `<style>` at the end of the
+page's `<head>` (or in the shadow root the editor is in), shared by every
+editor and documents view there and removed with the last. Your stylesheets
+later in `<head>` or in `<body>` win over its rules at equal specificity.
+Every theme color is a CSS variable on the `.config-editor` root, and the
+bundled themes set them with zero specificity, so a plain rule in your
+stylesheet overrides any theme, wherever it sits:
 
 ```css
 .config-editor {
