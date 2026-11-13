@@ -14,7 +14,9 @@ use super::super::codec::scalar_range;
 use super::super::diagnostics::{Diagnostic, Severity};
 use super::super::language::ConfigLanguage;
 use super::super::parse_cache;
-use super::super::paths::{field_range, written_value_span};
+use super::super::parse_cache::line_path;
+use super::super::paths::{field_range, path_at, written_value_span};
+use super::locate::within;
 use super::tokens::{Known, field_value};
 use crate::EditorStrings;
 use crate::strings::fill;
@@ -78,13 +80,15 @@ fn glued_in(document: &Value, known: &Known) -> bool {
 }
 
 /// The field of the token an edit from `before` to `after` (texts in
-/// `behavior`, both parsing) writes text beside: one the host gave whole,
-/// alone in its field before, or with text beside it already that the edit
-/// adds to (it may only take text away). An edit that makes the text parse
-/// is let through: what it holds beside a token is flagged instead. Read
-/// only when the edit changes a line holding one of `tokens` (UTF-16
-/// ranges of the real placeholders in `before`); a value written over
-/// several lines is left to the problems and the save.
+/// `behavior`, `after` parsing) writes text beside: one the host gave
+/// whole, alone in its field before, or with text beside it already that
+/// the edit adds to (it may only take text away). Read only when the edit
+/// changes a line holding one of `tokens` (UTF-16 ranges of the real
+/// placeholders in `before`), or a line of a field holding one given whole
+/// (a line typed or copied inside a value written over lines). An edit
+/// there making the text parse joins what it holds onto the token (a word
+/// typed below it, the line break deleted): it is refused too. One made
+/// elsewhere is let through, what the text holds beside a token flagged.
 pub(crate) fn glued_by_edit(
     behavior: &dyn ConfigLanguage,
     known: &[Known],
@@ -96,10 +100,12 @@ pub(crate) fn glued_by_edit(
         return None;
     }
     let lines = changed_lines(before, after);
-    if !tokens
-        .iter()
-        .any(|token| token.start <= lines.end && lines.start <= token.end)
-    {
+    let on_token = || {
+        tokens
+            .iter()
+            .any(|token| token.start <= lines.end && lines.start <= token.end)
+    };
+    if !on_token() && !in_whole_field(behavior, known, before, after) {
         return None;
     }
     let parsed = parse_cache::parsed(behavior, after);
@@ -112,14 +118,60 @@ pub(crate) fn glued_by_edit(
         return None;
     }
     let earlier = parse_cache::parsed(behavior, before);
-    let earlier = earlier.as_ref().as_ref().ok()?;
+    let earlier = earlier.as_ref().as_ref().ok();
     glued
         .into_iter()
-        .find(|known| {
-            !glued_in(earlier, known)
-                || !only_taken_from(value_of(earlier, known), value_of(document, known))
+        .find(|known| match earlier {
+            Some(earlier) => {
+                !glued_in(earlier, known)
+                    || !only_taken_from(value_of(earlier, known), value_of(document, known))
+            }
+            None => joins(behavior, known, before, after),
         })
         .and_then(|known| known.field.clone())
+}
+
+/// Whether the edit from `before` (which does not parse) to `after` is
+/// made in the value of `known`'s field as `after` writes it (a line break
+/// deleted between the token and a word): it joins the two. A repair made
+/// elsewhere, even on the same line, leaves the text beside the token to be
+/// flagged. Where the language cannot say where the value is written, any
+/// edit the check reads is taken as joining.
+fn joins(behavior: &dyn ConfigLanguage, known: &Known, before: &str, after: &str) -> bool {
+    use super::super::text_change::changed_bytes;
+    let (start, _, end) = changed_bytes(before, after);
+    let written = known.field.as_deref().and_then(|field| {
+        written_value_span(behavior, after, field)
+            .and_then(|span| scalar_range(behavior, after, span))
+    });
+    written.is_none_or(|range| start <= range.end && range.start <= end)
+}
+
+/// Whether the first line the edit from `before` to `after` changes is,
+/// in `after`, inside the field of a token given whole: a line of its value
+/// written over lines. Its path is read once for the edit's check and the
+/// locks' (see `parse_cache::line_path`).
+fn in_whole_field(
+    behavior: &dyn ConfigLanguage,
+    known: &[Known],
+    before: &str,
+    after: &str,
+) -> bool {
+    use super::super::text_change::{changed_bytes, utf16_len};
+    let (start, _, _) = changed_bytes(before, after);
+    let line_start = after[..start].rfind('\n').map_or(0, |at| at + 1);
+    let line = after[line_start..].split('\n').next().unwrap_or_default();
+    let first = utf16_len(&after[..line_start]);
+    let code = first + utf16_len(&line[..line.len() - line.trim_start().len()]);
+    let read = || path_at(behavior, after, code).map(|path| path.to_pointer());
+    let Some(path) = line_path(behavior, after, first, read) else {
+        return false;
+    };
+    known
+        .iter()
+        .filter(|known| known.whole.is_some())
+        .filter_map(|known| known.field.as_deref())
+        .any(|field| within(behavior, &path, field))
 }
 
 /// The string `known`'s field holds in `document`.
@@ -197,25 +249,43 @@ pub(crate) fn glued_placeholders(
         .filter(|known| glued_in(document, known))
         .filter_map(|known| {
             let field = known.field.as_deref()?;
-            let range = field_range(behavior, text, field)?;
-            let units: Vec<u16> = text.encode_utf16().collect();
-            let (from, to) = (range.start.to_offset(text), range.end.to_offset(text));
-            let written =
-                String::from_utf16_lossy(&units[from.min(units.len())..to.min(units.len())]);
-            let byte_from = String::from_utf16_lossy(&units[..from.min(units.len())]).len();
-            let at = byte_from + written.find(&known.token).unwrap_or(0);
-            let line_start = text[..at].rfind('\n').map_or(0, |found| found + 1);
-            let column = text[line_start..at].chars().count() + 1;
-            Some(Diagnostic {
-                line: Some(text[..at].matches('\n').count() + 1),
-                column: Some(column),
-                end_column: Some(column + known.token.chars().count()),
-                message: glued_message(strings, field),
-                severity: Severity::Warning,
-                ..Diagnostic::default()
-            })
+            let message = glued_message(strings, field);
+            Some(at_token(behavior, text, field, &known.token, message))
         })
         .collect()
+}
+
+/// A warning `message` on `token` in the field at `field` of `text`; on the
+/// whole text where the language cannot say where the field is written
+/// (the save waits for it all the same).
+fn at_token(
+    behavior: &dyn ConfigLanguage,
+    text: &str,
+    field: &str,
+    token: &str,
+    message: String,
+) -> Diagnostic {
+    let warning = Diagnostic {
+        message,
+        severity: Severity::Warning,
+        ..Diagnostic::default()
+    };
+    let Some(range) = field_range(behavior, text, field) else {
+        return warning;
+    };
+    let units: Vec<u16> = text.encode_utf16().collect();
+    let (from, to) = (range.start.to_offset(text), range.end.to_offset(text));
+    let written = String::from_utf16_lossy(&units[from.min(units.len())..to.min(units.len())]);
+    let byte_from = String::from_utf16_lossy(&units[..from.min(units.len())]).len();
+    let at = byte_from + written.find(token).unwrap_or(0);
+    let line_start = text[..at].rfind('\n').map_or(0, |found| found + 1);
+    let column = text[line_start..at].chars().count() + 1;
+    Diagnostic {
+        line: Some(text[..at].matches('\n').count() + 1),
+        column: Some(column),
+        end_column: Some(column + token.chars().count()),
+        ..warning
+    }
 }
 
 /// What a refusal, a warning and a waiting save say about the token in

@@ -120,6 +120,7 @@ fn a_locked_fields_parent_moved_past_it_is_refused_in_every_language() {
         let none = Folded {
             folds: &[],
             units: &[],
+            neighbors: &[],
         };
         let edit = line_edit(before, (at, at), LineCommand::Move { down: true }, none).unwrap();
         if check(behavior, None, &protected, before, &edit.text).is_ok() {

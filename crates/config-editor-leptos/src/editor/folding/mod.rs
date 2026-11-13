@@ -104,6 +104,11 @@ impl EditorState {
     pub(super) fn with_closed_folds_untracked<R>(&self, f: impl FnOnce(&[FoldRange]) -> R) -> R {
         self.fold().folded.with_untracked(|folds| f(folds))
     }
+
+    /// What can fold in the text on screen (untracked).
+    pub(super) fn foldable_untracked(&self) -> Vec<FoldRange> {
+        self.fold().fold_ranges.get_untracked()
+    }
 }
 
 /// Switching the `folding` setting off opens every fold.

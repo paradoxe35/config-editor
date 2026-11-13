@@ -11,8 +11,10 @@ use super::super::edit::Edit;
 use super::super::host_editing::SaveRequest;
 use super::super::language::{ConfigLanguage, LanguageInfo, ParseError};
 use super::super::paths::FieldPath;
+use super::super::secret_options::SecretOptions;
 use super::super::state::EditorState;
 use super::super::test_state::TestEditor;
+use super::guarantee_tests::problems;
 use super::guard::check;
 use super::locks::{Protected, Sources, protect};
 use super::save::locked_pointers;
@@ -365,5 +367,32 @@ fn a_refusal_takes_back_only_the_typing_it_is_about() {
         state.doc().text.get_untracked(),
         TEXT.replace("NAME=a", "NAME=abc"),
         "only the refused input is undone"
+    );
+}
+
+/// A placeholder given as a field's whole value that gets text beside it
+/// (typed while the text did not parse) is a problem the host hears and
+/// the status shows, though the language cannot say where it is written:
+/// the save waits for it (it used to wait with no problem shown).
+#[test]
+fn a_glued_placeholder_is_a_problem_without_spans() {
+    let token = "«secret 3f2a91c0»";
+    let text = format!("KEY={token}\nNAME=a\n");
+    let mut editor = TestEditor::new(Language::new(&ENV), &text);
+    editor.secrets = Some(SecretOptions::default().with_placeholder("«secret [0-9a-f]{8}»"));
+    let (_owner, state) = editor.mount();
+    assert!(change(state, "NAME=a", "NAMEa"), "breaking a line is free");
+    assert!(
+        change(state, token, &format!("{token}Z")),
+        "typed while broken"
+    );
+    assert!(change(state, "NAMEa", "NAME=a"), "the repair elsewhere");
+    assert!(!state.save(), "the save waits");
+    let found = problems(state, Language::new(&ENV), None);
+    assert!(
+        found
+            .iter()
+            .any(|problem| problem.contains("/KEY: a secret placeholder stands for the whole")),
+        "{found:?}"
     );
 }

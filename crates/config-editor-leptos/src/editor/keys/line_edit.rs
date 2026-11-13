@@ -130,10 +130,46 @@ pub(in crate::editor) fn block_lines(
 /// through its last hidden one, and on through the line closing its
 /// construct when that line shows (`}`, an end tag), as a cut of the
 /// folded line takes it (see [`fold_units`]).
+///
+/// `neighbors` are the whole constructs (as `units` are) ending right above
+/// or starting right below the lines a move acts on: lines holding a closed
+/// fold move past one whole, at their own level, not into it (see
+/// [`neighbor_units`]).
 #[derive(Clone, Copy)]
 pub(in crate::editor) struct Folded<'a> {
     pub(in crate::editor) folds: &'a [FoldRange],
     pub(in crate::editor) units: &'a [FoldRange],
+    pub(in crate::editor) neighbors: &'a [FoldRange],
+}
+
+/// The whole constructs among `foldable` (what can fold in `text`) right
+/// above the lines `first..=last` (ending on the line before, through its
+/// closing line) and right below them (starting on the line after), read
+/// in one batch; `None` unless those lines hold one of `folds` (closed).
+pub(in crate::editor) fn neighbor_units(
+    text: &str,
+    (first, last): (usize, usize),
+    folds: &[FoldRange],
+    foldable: &[FoldRange],
+    behavior: &dyn super::super::language::ConfigLanguage,
+) -> Option<Vec<FoldRange>> {
+    if !folds
+        .iter()
+        .any(|fold| (first..=last).contains(&fold.start))
+    {
+        return None;
+    }
+    // A construct above ends on the line before, or hides through the line
+    // before that and is closed on its own line.
+    let candidates: Vec<FoldRange> = foldable
+        .iter()
+        .filter(|range| {
+            range.start == last + 1
+                || (range.start < first && range.end < first && range.end + 2 >= first)
+        })
+        .copied()
+        .collect();
+    Some(fold_units(text, &candidates, behavior))
 }
 
 /// The lines each of `folds` goes as in `text` (see [`Folded`]):
@@ -185,6 +221,7 @@ pub(in crate::editor) fn line_edit(
     let Folded {
         folds,
         units: spans,
+        neighbors,
     } = folded;
     let Lines {
         lines,
@@ -230,10 +267,16 @@ pub(in crate::editor) fn line_edit(
             if first == 0 {
                 return None;
             }
-            // The line above, or the whole closed fold it ends.
+            // The line above, or the whole closed fold, or construct
+            // next to a closed fold, it ends.
             let above = spans
                 .iter()
                 .filter(|fold| fold.contains(first - 1))
+                .chain(
+                    neighbors
+                        .iter()
+                        .filter(|unit| unit.end + 1 == first && unit.start < first),
+                )
                 .map(|fold| fold.start)
                 .min()
                 .unwrap_or(first - 1);
@@ -263,6 +306,7 @@ pub(in crate::editor) fn line_edit(
             let below = spans
                 .iter()
                 .filter(|fold| fold.contains(last + 1))
+                .chain(neighbors.iter().filter(|unit| unit.start == last + 1))
                 .map(|fold| fold.end.min(count - 1))
                 .max()
                 .unwrap_or(last + 1);

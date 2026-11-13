@@ -196,6 +196,15 @@ mod glued_broken_host_tests;
     feature = "hcl",
     feature = "xml"
 ))]
+mod glued_lines_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
 mod glued_tests;
 #[cfg(all(
     test,
@@ -359,6 +368,15 @@ mod repair_tests;
     feature = "xml"
 ))]
 mod secret_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod sibling_tests;
 #[cfg(all(
     test,
     feature = "yaml",

@@ -17,6 +17,10 @@ impl EditorState {
         f(&[])
     }
 
+    pub(super) fn foldable_untracked(&self) -> Vec<FoldRange> {
+        Vec::new()
+    }
+
     pub(super) fn folds_through(&self, _new: &str) -> Option<Vec<FoldRange>> {
         None
     }
