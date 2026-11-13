@@ -112,6 +112,37 @@ test.describe('L24-A3: a short window', () => {
       await context.close();
     });
   }
+
+  // The page scrolled so the text area runs past the window's bottom (as CI's
+  // fonts left it): the widget is capped to the part in the window, not to
+  // the whole text area.
+  for (const [width, height] of [
+    [320, 180],
+    [200, 150],
+  ]) {
+    test(`${width}x${height}, the text area past the window's bottom: the find widget stays in the window`, async ({ browser }) => {
+      const context = await browser.newContext({ viewport: { width, height } });
+      const page = await context.newPage();
+      const errors = await open(page, { value: DOCUMENTS.yaml.split('\n').slice(0, 15).join('\n') });
+      await input(page).focus();
+      await page.keyboard.press('Control+h');
+      const find = page.locator('.config-editor__find');
+      await expect(find).toBeVisible();
+      // Up to where a row of the text area still shows above the window's bottom.
+      for (const past of [10, 30, Math.round(height / 4)]) {
+        // Scroll the page so the text area's bottom is `past` px below the window.
+        await page.evaluate((past) => {
+          const area = document.querySelector('.config-editor__surface').getBoundingClientRect();
+          scrollBy(0, area.bottom - innerHeight - past);
+        }, past);
+        await frames(page);
+        const box = await find.boundingBox();
+        expect(box.y + box.height, `${past} px past`).toBeLessThanOrEqual(height + 1);
+      }
+      expect(errors).toEqual([]);
+      await context.close();
+    });
+  }
 });
 
 test.describe('L24-A6: forced colors', () => {

@@ -16,11 +16,18 @@ pub(crate) fn FindWidget(state: EditorState) -> impl IntoView {
     let editable = move || !state.config().read_only.get();
     let invalid = move || search.results.with(|results| results.error.is_some());
     // A message that wraps the row ("Replaced 3 occurrences") moves the
-    // button just pressed: it stays in view, at any zoom.
+    // button just pressed: it stays in view, at any zoom. The rows are
+    // watched, not the widget: one capped to the window (see `room`) keeps
+    // its size while what it holds grows, and scrolls instead.
     Effect::new(move |_| {
         if let Some(widget) = search.widget_ref.get() {
-            let watched = widget.clone();
-            untrack(|| size_observer(&widget, move || crate::focus::keep_in_view(&watched)));
+            let children = widget.children();
+            for index in 0..children.length() {
+                if let Some(row) = children.item(index) {
+                    let watched = widget.clone();
+                    untrack(|| size_observer(&row, move || crate::focus::keep_in_view(&watched)));
+                }
+            }
         }
     });
     view! {
@@ -30,6 +37,7 @@ pub(crate) fn FindWidget(state: EditorState) -> impl IntoView {
             aria-label=state.text(|strings| &strings.find_widget)
             node_ref=search.widget_ref
             prop:hidden=move || !search.open.get()
+            style:max-height=move || room(state)
             on:keydown=move |event| widget_keys(state, &event)
         >
             <div class="config-editor__find-row">
@@ -281,4 +289,34 @@ fn replace_keys(state: EditorState, event: &KeyboardEvent) {
 
 fn replace_all_chord(event: &KeyboardEvent) -> bool {
     (event.ctrl_key() || event.meta_key()) && event.alt_key()
+}
+
+/// The widget's height cap: the part of the text area inside the window
+/// (the stylesheet's 100% of the text area, when all of it is shown), so a
+/// text area that runs past the window's bottom keeps the widget, which
+/// scrolls inside itself, in the window. Measured again as the window or
+/// the page scrolls or resizes.
+fn room(state: EditorState) -> String {
+    let search = state.search();
+    if !search.open.get() {
+        return String::new();
+    }
+    state.view().layout_revision.track();
+    let Some(area) = search
+        .widget_ref
+        .get()
+        .and_then(|widget| widget.parent_element())
+    else {
+        return String::new();
+    };
+    let window_height = web_sys::window()
+        .and_then(|window| window.inner_height().ok())
+        .and_then(|height| height.as_f64())
+        .unwrap_or(f64::INFINITY);
+    let rect = area.get_bounding_client_rect();
+    let shown = rect.bottom().min(window_height) - rect.top().max(0.0);
+    if shown >= rect.height() {
+        return String::new();
+    }
+    format!("{}px", shown.max(0.0).floor())
 }
