@@ -293,19 +293,7 @@ pub(super) fn patch_scalars(
         let Some(span) = span else {
             continue;
         };
-        // A value never takes the line break after it (a heredoc's span runs
-        // through its terminator line).
-        let mut range = byte_range(previous, span)?;
-        while range.end > range.start && previous[..range.end].ends_with('\n') {
-            range.end -= 1;
-        }
-        // A string in one of the language's long quotes runs to its closing
-        // delimiter.
-        range.end = through_long_quote(language, previous, range.clone());
-        // With the whitespace around it that belongs to the value (XML text).
-        range = language.written_value_range(previous, range.clone());
-        // Its anchor or tag (`&x two`) stays: only the value after it changes.
-        range.start += language.value_properties_len(&previous[range.clone()]);
+        let mut range = scalar_range(language, previous, span)?;
         // An alias (`*x`) reads its anchor's value, which the read-back
         // checks: the anchor's own change carries to it.
         let written = previous[range.clone()].trim();
@@ -806,6 +794,29 @@ fn scalar_changes<'a>(
             Some(())
         }
     }
+}
+
+/// The bytes of `source` the scalar whose value span is `span` is written
+/// in, without its anchor or tag (`&x two`): what a patch rewrites, and
+/// what reads as the value.
+pub(super) fn scalar_range(
+    language: &dyn ConfigLanguage,
+    source: &str,
+    span: Span,
+) -> Option<std::ops::Range<usize>> {
+    // A value never takes the line break after it (a heredoc's span runs
+    // through its terminator line).
+    let mut range = byte_range(source, span)?;
+    while range.end > range.start && source[..range.end].ends_with('\n') {
+        range.end -= 1;
+    }
+    // A string in one of the language's long quotes runs to its closing
+    // delimiter.
+    range.end = through_long_quote(language, source, range.clone());
+    // With the whitespace around it that belongs to the value (XML text).
+    range = language.written_value_range(source, range.clone());
+    range.start += language.value_properties_len(&source[range.clone()]);
+    Some(range)
 }
 
 /// The end of `range`, run through the closing delimiter when the value

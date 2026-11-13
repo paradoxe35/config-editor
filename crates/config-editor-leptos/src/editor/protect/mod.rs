@@ -176,6 +176,15 @@ mod follow_items_tests;
     feature = "hcl",
     feature = "xml"
 ))]
+mod glued_broken_host_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
 mod glued_tests;
 #[cfg(all(
     test,

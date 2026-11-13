@@ -82,6 +82,20 @@ pub(crate) fn lone_spelling(
     (lone != pointer).then_some(lone)
 }
 
+/// Where the value of the field at `pointer` is written, in any spelling of
+/// the pointer, inside an inline container or not; also in a text that
+/// does not parse, where the language finds it.
+#[cfg(feature = "protect")]
+pub(crate) fn written_value_span(
+    behavior: &dyn ConfigLanguage,
+    source: &str,
+    pointer: &str,
+) -> Option<Span> {
+    spellings(behavior, source, pointer)
+        .iter()
+        .find_map(|pointer| value_span(behavior, source, pointer))
+}
+
 /// The key written for `pointer`, inside an inline container or not.
 fn key_span(behavior: &dyn ConfigLanguage, source: &str, pointer: &str) -> Option<Span> {
     inline_location(behavior, source, pointer, true)

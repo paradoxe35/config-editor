@@ -14,11 +14,12 @@ use super::super::edit_as::SaveError;
 use super::super::keyboard::utf16_to_byte_index;
 use super::super::language::ConfigLanguage;
 use super::super::languages::Language;
+use super::super::parse_cache;
 use super::super::paths::{FieldPath, TextRange};
 use super::super::secret_options::SecretOptions;
 use super::super::state::EditorState;
 use super::follow::follow_ranges;
-use super::glued::{glued_by_edit, glued_in_save, glued_message};
+use super::glued::{first_glued, glued_by_edit, glued_in_save, glued_message};
 use super::guard::{Blocked, check};
 use super::locate::LineIndex;
 use super::locks::{Protected, Sources, protect};
@@ -511,10 +512,37 @@ impl EditorState {
         self.protect().ranges.set(placed);
     }
 
-    /// Why a save of the text on screen waits, when it does: the text does
-    /// not parse and holds a read-only field the language cannot locate
-    /// (it gives no spans), so nothing shows that its value is kept.
+    /// Why a save of the text on screen waits, when it does: it holds text
+    /// beside a placeholder the host gave as a field's whole value, or it
+    /// does not parse and holds a read-only field the language cannot
+    /// locate (it gives no spans), so nothing shows that its value is kept.
     pub(crate) fn save_waits(&self) -> Option<String> {
+        self.glued_waits().or_else(|| self.unplaced_waits())
+    }
+
+    /// The glued placeholder a save of the text on screen waits on.
+    fn glued_waits(&self) -> Option<String> {
+        let secrets = self.protect().secrets;
+        if !secrets
+            .known
+            .with_untracked(|known| known.iter().any(|known| known.whole))
+        {
+            return None;
+        }
+        let parsed = self
+            .doc()
+            .text
+            .with_untracked(|text| parse_cache::parsed(self.behavior(), text));
+        let document = parsed.as_ref().as_ref().ok()?;
+        let pointer = secrets.known.with_untracked(|known| {
+            first_glued(document, known).and_then(|known| known.field.clone())
+        })?;
+        Some(self.strings_untracked(|strings| glued_message(strings, &pointer)))
+    }
+
+    /// The read-only field the language cannot locate in the text on
+    /// screen, which does not parse, that a save waits on.
+    fn unplaced_waits(&self) -> Option<String> {
         let pointer = self.protect().protected.with_untracked(|protected| {
             protected
                 .unplaced

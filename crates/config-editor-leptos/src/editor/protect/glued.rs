@@ -10,13 +10,37 @@ use std::ops::Range;
 
 use serde_json::Value;
 
+use super::super::codec::scalar_range;
 use super::super::diagnostics::{Diagnostic, Severity};
 use super::super::language::ConfigLanguage;
 use super::super::parse_cache;
-use super::super::paths::field_range;
+use super::super::paths::{field_range, written_value_span};
 use super::tokens::{Known, field_value};
 use crate::EditorStrings;
 use crate::strings::fill;
+
+/// Whether the host's `text` (written in `behavior`), which does not parse,
+/// gives the token at bytes `token` as the whole value of the field at
+/// `pointer`: the language finds that value written in the text around
+/// the token, and writes the token alone just so there. The host's own
+/// characters decide, never what is typed on screen later; a value the
+/// language cannot find is not taken as whole.
+pub(crate) fn written_alone(
+    behavior: &dyn ConfigLanguage,
+    text: &str,
+    pointer: &str,
+    token: Range<usize>,
+) -> bool {
+    let Some(range) = written_value_span(behavior, text, pointer)
+        .and_then(|span| scalar_range(behavior, text, span))
+    else {
+        return false;
+    };
+    let written = &text[range.clone()];
+    range.start <= token.start
+        && token.end <= range.end
+        && behavior.format_value_like(&Value::String(text[token].to_string()), written) == written
+}
 
 /// The first of `known`'s tokens the host gave as its field's whole value
 /// that `document` holds in that field with other text beside it.
@@ -37,11 +61,13 @@ fn glued_in(document: &Value, known: &Known) -> bool {
 }
 
 /// The field of the token an edit from `before` to `after` (texts in
-/// `behavior`) writes text beside, when `after` parses: one the host gave
-/// whole, alone in its field before. Read only when the edit changes a
-/// line holding one of `tokens` (UTF-16 ranges of the real placeholders
-/// in `before`); a value written over several lines is left to the
-/// problems and the save.
+/// `behavior`, both parsing) writes text beside: one the host gave whole,
+/// alone in its field before, or with text beside it already that the edit
+/// adds to (it may only take text away). An edit that makes the text parse
+/// is let through: what it holds beside a token is flagged instead. Read
+/// only when the edit changes a line holding one of `tokens` (UTF-16
+/// ranges of the real placeholders in `before`); a value written over
+/// several lines is left to the problems and the save.
 pub(crate) fn glued_by_edit(
     behavior: &dyn ConfigLanguage,
     known: &[Known],
@@ -69,11 +95,32 @@ pub(crate) fn glued_by_edit(
         return None;
     }
     let earlier = parse_cache::parsed(behavior, before);
-    let earlier = earlier.as_ref().as_ref().ok();
+    let earlier = earlier.as_ref().as_ref().ok()?;
     glued
         .into_iter()
-        .find(|known| earlier.is_none_or(|earlier| !glued_in(earlier, known)))
+        .find(|known| {
+            !glued_in(earlier, known)
+                || !only_taken_from(value_of(earlier, known), value_of(document, known))
+        })
         .and_then(|known| known.field.clone())
+}
+
+/// The string `known`'s field holds in `document`.
+fn value_of<'a>(document: &'a Value, known: &Known) -> &'a str {
+    known
+        .field
+        .as_deref()
+        .and_then(|field| field_value(document, field))
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+}
+
+/// Whether `after` is `before` with characters taken out, or the same.
+fn only_taken_from(before: &str, after: &str) -> bool {
+    let mut left = before.chars();
+    after
+        .chars()
+        .all(|character| left.any(|kept| kept == character))
 }
 
 /// The UTF-16 range of `before`, from the start of the first line an edit

@@ -1006,7 +1006,7 @@ export interface EditorStrings {
    */
   commentPlaceholder?: string;
   /**
-   * Text written beside a placeholder the host gave as a field's whole value: the edit refused, the field flagged, an Edit-as save waiting.
+   * Text written beside a placeholder the host gave as a field's whole value: the edit refused, the field flagged, a save waiting.
    *
    * @default "{pointer}: a secret placeholder stands for the whole secret, so nothing can be written beside it: replace it whole to write a new value"
    */

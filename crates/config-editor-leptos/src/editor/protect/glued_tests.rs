@@ -2,7 +2,7 @@
 //! beside it: typing or pasting next to it in its field is refused (the
 //! token stays whole and the host never hears it glued to other text),
 //! and text that got there while the text did not parse is flagged at the
-//! token, with an Edit-as save waiting. In every host language, shown in
+//! token, with a save waiting. In every host language, shown in
 //! its own language and as every other one, for two unrelated patterns.
 
 use leptos::prelude::*;
@@ -40,7 +40,7 @@ fn mount(
 }
 
 /// Types `typed` at byte `at` of the text on screen, one key at a time.
-fn type_at(state: EditorState, at: usize, typed: &str) {
+pub(super) fn type_at(state: EditorState, at: usize, typed: &str) {
     let mut at = utf16(&state.doc().text.get_untracked(), at);
     for character in typed.chars() {
         let before = state.doc().text.get_untracked();
@@ -61,7 +61,7 @@ fn type_at(state: EditorState, at: usize, typed: &str) {
 }
 
 /// Replaces bytes `range` of the text on screen with `with` (a paste).
-fn paste(state: EditorState, range: std::ops::Range<usize>, with: &str) -> bool {
+pub(super) fn paste(state: EditorState, range: std::ops::Range<usize>, with: &str) -> bool {
     let before = state.doc().text.get_untracked();
     let after = format!("{}{with}{}", &before[..range.start], &before[range.end..]);
     let (start, end) = (utf16(&before, range.start), utf16(&before, range.end));

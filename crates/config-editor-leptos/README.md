@@ -490,7 +490,7 @@ they come.
 | `moved_placeholder`             | `"{pointer}: this placeholder stands for the secret of {owner}, not this field's; here it is plain text"`                                   | One of the host's placeholders outside the field it stands in.                                                                                                                                                                                 |
 | `placeholder_in_comment`        | `"This placeholder stands for the secret of {owner}; in a comment it is plain text"`                                                        | One of the host's field placeholders written in a comment.                                                                                                                                                                                     |
 | `comment_placeholder`           | `"{pointer}: this placeholder stands for a secret in a comment, not this field's; here it is plain text"`                                   | A placeholder the host wrote in a comment, in a field.                                                                                                                                                                                         |
-| `glued_placeholder`             | `"{pointer}: a secret placeholder stands for the whole secret, so nothing can be written beside it: replace it whole to write a new value"` | Text written beside a placeholder the host gave as a field's whole value: the edit refused, the field flagged, an Edit-as save waiting.                                                                                                        |
+| `glued_placeholder`             | `"{pointer}: a secret placeholder stands for the whole secret, so nothing can be written beside it: replace it whole to write a new value"` | Text written beside a placeholder the host gave as a field's whole value: the edit refused, the field flagged, a save waiting.                                                                                                                 |
 | `env_reference`                 | `"Read the secret from an environment variable"`                                                                                            | The detail of the `${…}` reference suggestion.                                                                                                                                                                                                 |
 | `file_reference`                | `"Read the secret from a file"`                                                                                                             | The detail of the `file:` reference suggestion.                                                                                                                                                                                                |
 | `other_reference`               | `"A reference starting with {prefix}"`                                                                                                      | The detail of another reference suggestion.                                                                                                                                                                                                    |
@@ -569,7 +569,9 @@ save dialog prevented) and `EditorHandle::save` call `on_save` with a
 `SaveRequest { text, language }`: the document in the host's `language`.
 Text that does not parse is never saved, in any language: nothing is sent,
 `save` returns `false`, and the caret goes to the syntax error with its
-message shown (`on_change` still hears every edit). While editing as another
+message shown (`on_change` still hears every edit). Text written beside a
+secret placeholder the host gave as a field's whole value waits the same
+way, its message shown. While editing as another
 language, an edit still waiting out the typing pause is converted first (it
 reaches `on_change` before `on_save`); when it cannot be written in
 `language` (invalid, or a `null` for TOML), the save waits the same way.
@@ -1160,9 +1162,16 @@ view! { <ConfigEditor value=text schema=SCHEMA secrets=secrets /> }
   whole secret, so nothing is written beside it: typing or pasting next to
   it in its field (`«secret 3f2a»Z`) is refused with a tip, in the host's
   language and in every Edit-as view. Text that gets there while the
-  document does not parse is flagged at the token once it does, and an
-  Edit-as save holding it waits. A token the host wrote inside longer text
-  is the host's to embed: editing around it is free.
+  document does not parse is flagged at the token once it does, a save
+  holding it waits (in the host's language too), and only taking that text
+  away is free until then. A token the host wrote inside longer text is the
+  host's to embed: editing around it is free. When the host's own `value`
+  does not parse, the host's characters decide which tokens are a field's
+  whole value: one is when the language finds that field's value written
+  around the token and it is the token alone (`key: «secret 3f2a»`, not
+  `key: «secret 3f2a»x`), whatever is typed on screen afterwards; a value
+  the language cannot find there (the syntax error hides where it is
+  written) takes no token as whole.
 - It is drawn as a chip (`--config-editor-secret-chip`,
   `--config-editor-secret-chip-border`: `ThemeColor::SecretChip`,
   `SecretChipBorder`), with a key in the gutter; hovering it shows the hint.

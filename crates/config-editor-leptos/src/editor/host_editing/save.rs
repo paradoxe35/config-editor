@@ -14,8 +14,10 @@ impl EditorState {
     /// without `on_save`, and not while the text on screen does not parse
     /// (in any language: invalid text is never saved) or cannot be written
     /// in the host's language (holding a value it cannot, such as a `null`
-    /// for TOML), nor while it does not parse and holds a read-only field
-    /// the language cannot locate (its value cannot be read to be checked):
+    /// for TOML), nor while it holds text beside a placeholder the host gave
+    /// as a field's whole value, or does not parse and holds a read-only
+    /// field the language cannot locate (its value cannot be read to be
+    /// checked):
     /// then the caret goes to the problem, whose message shows, and nothing
     /// is sent.
     pub(in crate::editor) fn save(&self) -> bool {

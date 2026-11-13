@@ -21,6 +21,7 @@ use leptos::prelude::Callback;
 use super::super::language::ConfigLanguage;
 use super::super::parse_cache;
 use super::super::paths::{in_batch, path_at, same_field, units_at, with_spans};
+use super::glued::written_alone;
 use super::marks::escape;
 
 /// A token of the host's text: the field it stands in (or the text's
@@ -145,7 +146,9 @@ impl SecretMatcher {
     /// per field, with how often that field holds it.
     ///
     /// Read off the parsed document (one parse, whatever the number of
-    /// tokens); a text that does not parse is read token by token instead.
+    /// tokens); a text that does not parse is read token by token instead,
+    /// each field's value where the language finds it written (see
+    /// [`written_alone`]).
     pub(crate) fn known(&self, behavior: &dyn ConfigLanguage, text: &str) -> Vec<Known> {
         let mut known: Vec<Known> = Vec::new();
         // Where each token is in `known`: a lookup per token, not a pass
@@ -189,12 +192,24 @@ impl SecretMatcher {
                 });
             }
             Err(_) => {
-                // Each token's field from one reading of the text.
+                // Each token's field from one reading of the text, then
+                // the values of those fields read at once.
                 batched(behavior, text, || {
-                    for range in found.iter().filter(|range| !commented(range.start)) {
-                        let pointer = field_at(behavior, text, range.start);
-                        add(&text[range.clone()], Some(pointer), false, Vec::new());
-                    }
+                    let placed: Vec<(Range<usize>, String)> = found
+                        .iter()
+                        .filter(|range| !commented(range.start))
+                        .map(|range| (range.clone(), field_at(behavior, text, range.start)))
+                        .collect();
+                    let mut pointers: Vec<String> =
+                        placed.iter().map(|(_, pointer)| pointer.clone()).collect();
+                    pointers.sort_unstable();
+                    pointers.dedup();
+                    with_spans(behavior, text, &pointers, || {
+                        for (range, pointer) in placed {
+                            let whole = written_alone(behavior, text, &pointer, range.clone());
+                            add(&text[range], Some(pointer), whole, Vec::new());
+                        }
+                    });
                 });
             }
         }

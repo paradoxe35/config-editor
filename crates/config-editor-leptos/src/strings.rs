@@ -412,7 +412,7 @@ pub struct EditorStrings {
     /// A placeholder the host wrote in a comment, in a field.
     pub comment_placeholder: String,
     /// Text written beside a placeholder the host gave as a field's whole
-    /// value: the edit refused, the field flagged, an Edit-as save waiting.
+    /// value: the edit refused, the field flagged, a save waiting.
     pub glued_placeholder: String,
     /// The detail of the `${…}` reference suggestion.
     pub env_reference: String,
