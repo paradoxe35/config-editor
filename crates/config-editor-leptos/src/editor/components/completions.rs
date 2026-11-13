@@ -4,9 +4,9 @@
 
 use leptos::prelude::*;
 
+use super::super::completion::RowSize;
 use super::super::completion::{
-    COMPLETION_ROW_CSS_HEIGHT, COMPLETION_ROW_HEIGHT, ShownOption, completion_list_scrolled,
-    completion_popup_style, most_option_rows,
+    ShownOption, completion_list_scrolled, completion_popup_style, most_option_rows,
 };
 use super::super::state::EditorState;
 use crate::cssom::{Declarations, cssom};
@@ -24,6 +24,7 @@ pub(crate) fn CompletionList(state: EditorState) -> impl IntoView {
     view! {
         <div
             class="config-editor__completions"
+            class:config-editor__completions--compact=move || state.completion().row_size.get() == RowSize::Compact
             class:hidden=move || state.completion().suggestions.with(Vec::is_empty)
             role="listbox"
             id=state.a11y().suggestions_id()
@@ -45,21 +46,21 @@ pub(crate) fn CompletionList(state: EditorState) -> impl IntoView {
                     .get()
                     .map(|editor| {
                         state.view().projection.with(|projection| {
-                            completion_popup_style(state, &editor, projection, &state.doc().text.get(), state.doc().caret.get(), count)
+                            completion_popup_style(state, &editor, projection, &state.doc().text.get(), state.doc().caret.get(), count, state.completion().row_size.get())
                         })
                     })
                     .unwrap_or_else(hidden)
             })
         >
-            <RowSpacer rows=move || state.shown_rows().start row_height=COMPLETION_ROW_CSS_HEIGHT />
+            <RowSpacer rows=move || state.shown_rows().start row_height=move || state.completion().row_size.get().css_height() />
             <KeyedList
                 each=move || state.shown_options()
                 key=|row: &ShownOption| (row.listing, row.index)
                 // A new list replaces every row: room for the old and the new.
-                reserve=2 * most_option_rows()
+                reserve=2 * most_option_rows(RowSize::Compact)
                 children=move |row| view! { <Suggestion state=state active=active row=row pinned=false /> }
             />
-            <RowSpacer rows=rows_after row_height=COMPLETION_ROW_CSS_HEIGHT />
+            <RowSpacer rows=rows_after row_height=move || state.completion().row_size.get().css_height() />
             // The highlighted row when the list is scrolled away from it,
             // at its place: `aria-activedescendant` always finds it.
             <KeyedList
@@ -89,7 +90,10 @@ fn Suggestion(
     let active = active.read();
     let selected = move || active.get() == index;
     let top = if pinned {
-        format!("{}px", index as f64 * COMPLETION_ROW_HEIGHT)
+        format!(
+            "{}px",
+            index as f64 * state.completion().row_size.get_untracked().height()
+        )
     } else {
         String::new()
     };

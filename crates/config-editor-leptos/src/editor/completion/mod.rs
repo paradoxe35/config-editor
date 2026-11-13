@@ -88,10 +88,10 @@ pub(super) struct Completion {
 mod tests {
     use super::{
         COMPLETION_LIST_PADDING, COMPLETION_POPUP_MAX_HEIGHT, COMPLETION_POPUP_WIDTH,
-        COMPLETION_ROW_CSS_HEIGHT, COMPLETION_ROW_HEIGHT, MATCH_SUBSTRING_INDEX_PENALTY,
-        MATCH_SUBSTRING_LENGTH_DIVISOR, MATCH_TIER_CASE_INSENSITIVE_PREFIX,
-        MATCH_TIER_EXACT_PREFIX, MATCH_TIER_INITIALS, MATCH_TIER_SUBSEQUENCE, MATCH_TIER_SUBSTRING,
-        PopupFrame, completion_popup_geometry,
+        MATCH_SUBSTRING_INDEX_PENALTY, MATCH_SUBSTRING_LENGTH_DIVISOR,
+        MATCH_TIER_CASE_INSENSITIVE_PREFIX, MATCH_TIER_EXACT_PREFIX, MATCH_TIER_INITIALS,
+        MATCH_TIER_SUBSEQUENCE, MATCH_TIER_SUBSTRING, PopupFrame, RowSize,
+        completion_popup_geometry,
     };
 
     /// Changing these must be deliberate: the sizes mirror `css/base.css`.
@@ -105,18 +105,28 @@ mod tests {
         assert_eq!(MATCH_SUBSTRING_INDEX_PENALTY, 2);
         assert_eq!(MATCH_SUBSTRING_LENGTH_DIVISOR, 4);
         assert_eq!(COMPLETION_POPUP_WIDTH, 420.0);
-        assert_eq!(COMPLETION_ROW_HEIGHT, 44.0);
-        assert_eq!(COMPLETION_ROW_CSS_HEIGHT, "44px");
         // The list's rows are rendered by their place (`window`): the
         // stylesheet fixes their height.
         let base = include_str!("../../css/base.css");
-        let rule = &base[base
-            .find(".config-editor__completion {")
-            .expect("the row rule")..];
-        assert!(
-            rule[..rule.find('}').expect("its end")].contains("height: 44px;"),
-            "a suggestion row is 44px high in css/base.css"
-        );
+        for (rule, size) in [
+            (".config-editor__completion {", RowSize::Tall),
+            (
+                ".config-editor__completions--compact .config-editor__completion {",
+                RowSize::Compact,
+            ),
+        ] {
+            let rule = &base[base.find(rule).expect("the row rule")..];
+            let height = format!("height: {};", size.css_height());
+            assert!(
+                rule[..rule.find('}').expect("its end")].contains(&height),
+                "a {size:?} suggestion row is {} high in css/base.css",
+                size.css_height()
+            );
+            assert_eq!(format!("{}px", size.height()), size.css_height());
+        }
+        // A page is the whole rows of the popup's height.
+        assert_eq!(RowSize::Tall.page_rows(), 7);
+        assert_eq!(RowSize::Compact.page_rows(), 11);
         assert_eq!(COMPLETION_LIST_PADDING, 2.0);
         assert_eq!(COMPLETION_POPUP_MAX_HEIGHT, 320.0);
     }
@@ -129,6 +139,7 @@ mod tests {
             200.0,
             21.6,
             3,
+            RowSize::Tall,
         )
         .to_string();
         // 3 options: ideal height = 3*44+2 = 134. Below: 768-200-21.6-8 = 538.4.
@@ -154,6 +165,7 @@ mod tests {
             700.0,
             21.6,
             3,
+            RowSize::Tall,
         )
         .to_string();
         // Below: 768-700-21.6-8 = 38.4 < 134; above: 700-8 = 692. So flip.
@@ -175,6 +187,7 @@ mod tests {
             200.0,
             21.6,
             3,
+            RowSize::Tall,
         )
         .to_string();
         // width = min(420, 1024-16) = 420; left clamped to 1024-420-8 = 596.

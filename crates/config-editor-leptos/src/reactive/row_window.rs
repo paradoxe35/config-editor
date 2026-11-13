@@ -43,13 +43,13 @@ fn rows_in(row_height: f64, height: f64) -> usize {
 #[component]
 pub(crate) fn RowSpacer(
     rows: impl Fn() -> usize + Send + 'static,
-    row_height: &'static str,
+    row_height: impl Fn() -> &'static str + Send + 'static,
 ) -> impl IntoView {
     view! {
         <span
             class="config-editor__row-spacer"
             aria-hidden="true"
-            style:height=move || format!("calc({} * {row_height})", rows())
+            style:height=move || format!("calc({} * {})", rows(), row_height())
         ></span>
     }
 }

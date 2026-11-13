@@ -31,7 +31,7 @@ pub(crate) fn Gutter(state: EditorState, rows: LineRows) -> impl IntoView {
             >
                 <RowSpacer
                     rows=move || state.view().visible_rows.with(|rows| rows.start)
-                    row_height="1lh"
+                    row_height=|| "1lh"
                 />
                 <KeyedList
                     each=move || state.view().visible_lines.get()
