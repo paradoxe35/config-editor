@@ -58,28 +58,14 @@ mod line_breaks;
 mod line_endings;
 mod line_rows;
 mod live_settings;
-mod outside_press;
-mod popup_pointer;
-mod popup_under;
-// Observes what every setting switches, so it needs every optional feature.
-#[cfg(all(
-    test,
-    feature = "yaml",
-    feature = "diff",
-    feature = "search",
-    feature = "folding",
-    feature = "protect"
-))]
-mod live_settings_tests;
 mod metrics;
-#[cfg(all(test, feature = "yaml", feature = "schema-validation"))]
-mod own_problems_tests;
+mod outside_press;
 mod parse_cache;
 mod paths;
 mod pattern_engine;
+mod popup_pointer;
+mod popup_under;
 mod positioning;
-#[cfg(all(test, feature = "yaml", feature = "protect"))]
-mod problem_cap_tests;
 mod problem_hit;
 mod problem_walk;
 mod problems;
@@ -507,25 +493,6 @@ fn moves_editor(state: EditorState, event: &web_sys::Event) -> bool {
     let textarea: &web_sys::Node = textarea.unchecked_ref();
     &scrolled != textarea && scrolled.contains(Some(textarea))
 }
-
-#[cfg(all(
-    test,
-    feature = "yaml",
-    feature = "json",
-    feature = "toml",
-    feature = "hcl",
-    feature = "xml"
-))]
-mod bom_edits_tests;
-#[cfg(all(
-    test,
-    feature = "yaml",
-    feature = "json",
-    feature = "toml",
-    feature = "hcl",
-    feature = "xml"
-))]
-mod convert_messages_tests;
 #[cfg(all(
     test,
     feature = "yaml",
@@ -535,18 +502,6 @@ mod convert_messages_tests;
     feature = "xml"
 ))]
 mod declared_syntax;
-#[cfg(all(test, feature = "yaml"))]
-mod handle_tests;
-#[cfg(all(
-    test,
-    feature = "schema-validation",
-    feature = "yaml",
-    feature = "json",
-    feature = "toml",
-    feature = "hcl",
-    feature = "xml"
-))]
-mod line_breaks_tests;
 #[cfg(all(
     test,
     feature = "yaml",
@@ -556,116 +511,6 @@ mod line_breaks_tests;
     feature = "xml"
 ))]
 mod odd_syntax;
-#[cfg(all(test, feature = "yaml"))]
-mod reveal_range_tests;
-#[cfg(all(
-    test,
-    feature = "yaml",
-    feature = "json",
-    feature = "toml",
-    feature = "hcl",
-    feature = "xml"
-))]
-mod save_blank_lines_tests;
-#[cfg(all(
-    test,
-    feature = "yaml",
-    feature = "json",
-    feature = "toml",
-    feature = "hcl",
-    feature = "xml"
-))]
-mod save_blocks_tests;
-#[cfg(all(
-    test,
-    feature = "yaml",
-    feature = "json",
-    feature = "toml",
-    feature = "hcl",
-    feature = "xml"
-))]
-mod save_bom_tests;
-#[cfg(all(
-    test,
-    feature = "yaml",
-    feature = "json",
-    feature = "toml",
-    feature = "hcl",
-    feature = "xml"
-))]
-mod save_exact_tests;
-#[cfg(all(
-    test,
-    feature = "yaml",
-    feature = "json",
-    feature = "toml",
-    feature = "hcl",
-    feature = "xml"
-))]
-mod save_flow_fill_tests;
-#[cfg(all(
-    test,
-    feature = "yaml",
-    feature = "json",
-    feature = "toml",
-    feature = "hcl",
-    feature = "xml"
-))]
-mod save_flow_root_tests;
-#[cfg(all(
-    test,
-    feature = "yaml",
-    feature = "json",
-    feature = "toml",
-    feature = "hcl",
-    feature = "xml"
-))]
-mod save_forms_tests;
-#[cfg(all(
-    test,
-    feature = "yaml",
-    feature = "json",
-    feature = "toml",
-    feature = "hcl",
-    feature = "xml"
-))]
-mod save_hcl_expressions_tests;
-#[cfg(all(
-    test,
-    feature = "yaml",
-    feature = "json",
-    feature = "toml",
-    feature = "hcl",
-    feature = "xml"
-))]
-mod save_hcl_labels_tests;
-#[cfg(all(
-    test,
-    feature = "yaml",
-    feature = "json",
-    feature = "toml",
-    feature = "hcl",
-    feature = "xml"
-))]
-mod save_hcl_repeated_labels_tests;
-#[cfg(all(
-    test,
-    feature = "yaml",
-    feature = "json",
-    feature = "toml",
-    feature = "hcl",
-    feature = "xml"
-))]
-mod save_hcl_templates_tests;
-#[cfg(all(
-    test,
-    feature = "yaml",
-    feature = "json",
-    feature = "toml",
-    feature = "hcl",
-    feature = "xml"
-))]
-mod save_key_order_tests;
 #[cfg(all(
     test,
     feature = "yaml",
@@ -683,43 +528,7 @@ mod save_matrix;
     feature = "hcl",
     feature = "xml"
 ))]
-mod save_merge_keys_tests;
-#[cfg(all(
-    test,
-    feature = "yaml",
-    feature = "json",
-    feature = "toml",
-    feature = "hcl",
-    feature = "xml"
-))]
 mod save_moves_properties;
-#[cfg(all(
-    test,
-    feature = "yaml",
-    feature = "json",
-    feature = "toml",
-    feature = "hcl",
-    feature = "xml"
-))]
-mod save_moves_tests;
-#[cfg(all(
-    test,
-    feature = "yaml",
-    feature = "json",
-    feature = "toml",
-    feature = "hcl",
-    feature = "xml"
-))]
-mod save_newline_strings_tests;
-#[cfg(all(
-    test,
-    feature = "yaml",
-    feature = "json",
-    feature = "toml",
-    feature = "hcl",
-    feature = "xml"
-))]
-mod save_number_forms_tests;
 #[cfg(all(
     test,
     feature = "yaml",
@@ -737,155 +546,7 @@ mod save_properties;
     feature = "hcl",
     feature = "xml"
 ))]
-mod save_renamed_aliases_tests;
-#[cfg(all(
-    test,
-    feature = "yaml",
-    feature = "json",
-    feature = "toml",
-    feature = "hcl",
-    feature = "xml"
-))]
-mod save_session_tests;
-#[cfg(all(
-    test,
-    feature = "yaml",
-    feature = "json",
-    feature = "toml",
-    feature = "hcl",
-    feature = "xml"
-))]
-mod save_splice_tests;
-#[cfg(all(
-    test,
-    feature = "yaml",
-    feature = "json",
-    feature = "toml",
-    feature = "hcl",
-    feature = "xml"
-))]
-mod save_tags_tests;
-#[cfg(all(
-    test,
-    feature = "yaml",
-    feature = "json",
-    feature = "toml",
-    feature = "hcl",
-    feature = "xml"
-))]
-mod save_tests;
-#[cfg(all(
-    test,
-    feature = "yaml",
-    feature = "json",
-    feature = "toml",
-    feature = "hcl",
-    feature = "xml"
-))]
-mod save_typed_tests;
-#[cfg(all(
-    test,
-    feature = "yaml",
-    feature = "json",
-    feature = "toml",
-    feature = "hcl",
-    feature = "xml"
-))]
-mod save_xml_at_keys_tests;
-#[cfg(all(
-    test,
-    feature = "yaml",
-    feature = "json",
-    feature = "toml",
-    feature = "hcl",
-    feature = "xml"
-))]
-mod save_xml_attribute_values_tests;
-#[cfg(all(
-    test,
-    feature = "yaml",
-    feature = "json",
-    feature = "toml",
-    feature = "hcl",
-    feature = "xml"
-))]
-mod save_xml_attributes_tests;
-#[cfg(all(
-    test,
-    feature = "yaml",
-    feature = "json",
-    feature = "toml",
-    feature = "hcl",
-    feature = "xml"
-))]
-mod save_xml_comments_tests;
-#[cfg(all(
-    test,
-    feature = "yaml",
-    feature = "json",
-    feature = "toml",
-    feature = "hcl",
-    feature = "xml"
-))]
-mod save_xml_names_tests;
-#[cfg(all(
-    test,
-    feature = "yaml",
-    feature = "json",
-    feature = "toml",
-    feature = "hcl",
-    feature = "xml"
-))]
-mod save_xml_strings_tests;
-#[cfg(all(
-    test,
-    feature = "yaml",
-    feature = "json",
-    feature = "toml",
-    feature = "hcl",
-    feature = "xml"
-))]
-mod save_xml_tests;
-#[cfg(all(
-    test,
-    feature = "yaml",
-    feature = "json",
-    feature = "toml",
-    feature = "hcl",
-    feature = "xml"
-))]
-mod save_yaml_keys_tests;
-#[cfg(all(
-    test,
-    feature = "schema-validation",
-    feature = "yaml",
-    feature = "json",
-    feature = "toml",
-    feature = "hcl"
-))]
-mod schema_message_tests;
-#[cfg(all(
-    test,
-    feature = "yaml",
-    feature = "json",
-    feature = "toml",
-    feature = "hcl",
-    feature = "xml"
-))]
 mod termination_matrix;
-// Reads what the view reads (folds, suggestions) on every language's sample.
-#[cfg(all(
-    test,
-    feature = "yaml",
-    feature = "json",
-    feature = "toml",
-    feature = "hcl",
-    feature = "xml",
-    feature = "folding",
-    feature = "diff",
-    feature = "schema-validation"
-))]
-mod keystroke_work_tests;
 #[cfg(test)]
 mod tests;
 // The timing tests' helper. Declared after the code, as every `#[cfg(test)]`

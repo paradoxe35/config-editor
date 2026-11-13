@@ -11,7 +11,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 // Each keystroke is timed from its `keydown` to just after the next frame
 // is drawn (a timer set in that frame's callback): the editor's own work,
 // the host's, and drawing. What one keystroke reads is counted elsewhere
-// (`keystroke-work.spec.mjs`, `editor/keystroke_work_tests.rs`); this is the
+// (`keystroke-work.spec.mjs`, `editor/tests/keystroke_work.rs`); this is the
 // ceiling against a pass over the whole document coming back into it.
 // The browser draws frames at 60 Hz here, so a keystroke shows in the next
 // frame (about 17 ms) when its work fits in one, as it does now; the

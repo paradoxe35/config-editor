@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import { editor, setupEditor } from './helpers.mjs';
 
 // Twelfth-round findings, replayed with real keys. The classes behind them
-// are covered by the unit tests (`save_tests`, `editing_matrix`).
+// are covered by the unit tests (`editor/tests/save/`, `editing_matrix`).
 
 test.describe('toml', () => {
   setupEditor(test, '?language=toml');

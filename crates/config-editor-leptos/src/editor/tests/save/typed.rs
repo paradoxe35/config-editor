@@ -1,0 +1,288 @@
+//! Numbers and booleans typed in a spelling of their own in another view
+//! (`2.50`, `2e3`, `007`, `+6`, `False`): the host's type decides what the
+//! text is, and the host keeps the spelling where it reads it the same.
+
+use crate::editor::Language;
+use crate::editor::bridge::Bridge;
+use crate::editor::codec;
+use crate::editor::save_matrix::{ALL, from_every_view, report};
+use serde_json::Value;
+
+/// One host per language holding a float, an integer and a boolean.
+fn hosts() -> [(Language, &'static str); 5] {
+    [
+        (Language::YAML, "f: 1.50 # f\ni: 5\nb: true\nn: x\n"),
+        (
+            Language::JSON,
+            "{\n  \"f\": 1.50,\n  \"i\": 5,\n  \"b\": true,\n  \"n\": \"x\"\n}\n",
+        ),
+        (Language::TOML, "f = 1.50 # f\ni = 5\nb = true\nn = \"x\"\n"),
+        (Language::HCL, "f = 1.50 # f\ni = 5\nb = true\nn = \"x\"\n"),
+        (
+            Language::XML,
+            "<c>\n  <f>1.50</f> <!-- f -->\n  <i>5</i>\n  <b>true</b>\n  <n>x</n>\n</c>\n",
+        ),
+    ]
+}
+
+/// `text` with the value at `pointer` replaced by `typed`.
+fn typed_over(language: Language, text: &str, pointer: &str, typed: &str) -> Option<String> {
+    let span = language.behavior().value_span(text, pointer)?;
+    let range = codec::byte_range(text, span)?;
+    let mut typed_text = text.to_string();
+    typed_text.replace_range(range, typed);
+    Some(typed_text)
+}
+
+/// The value's pointer in the host and every view: an XML host holds
+/// everything under its root element.
+fn in_host(host: Language, key: &str) -> String {
+    if host == Language::XML {
+        format!("/c/{key}")
+    } else {
+        format!("/{key}")
+    }
+}
+
+#[test]
+fn numbers_and_booleans_typed_in_their_own_spelling_keep_the_host_type_and_spelling() {
+    let cases: [(&str, &str, Value); 11] = [
+        ("f", "2.50", 2.5.into()),
+        ("f", "0.10", 0.1.into()),
+        ("f", "2e3", 2000.0.into()),
+        ("f", "2.0e3", 2000.0.into()),
+        ("f", "2", 2.0.into()),
+        ("i", "007", 7.into()),
+        ("i", "+6", 6.into()),
+        ("i", "6", 6.into()),
+        ("b", "False", false.into()),
+        ("b", "TRUE", true.into()),
+        ("b", "false", false.into()),
+    ];
+    let mut failures = Vec::new();
+    let mut tried = 0;
+    for (host, host_text) in hosts() {
+        for edit in ALL.into_iter().filter(|edit| *edit != host) {
+            let bridge = Bridge::new(host, edit, None).unwrap();
+            let shown = bridge.to_edit(host_text).unwrap().text;
+            for (key, typed, expected) in &cases {
+                let view_pointer = in_host(host, key);
+                let Some(edited) = typed_over(edit, &shown, &view_pointer, typed) else {
+                    failures.push(format!("{host} via {edit}: no {view_pointer} in\n{shown}"));
+                    continue;
+                };
+                // Spellings the view itself cannot read are not typed there.
+                let Ok(read) = codec::read(edit.behavior(), &edited, None) else {
+                    continue;
+                };
+                let typed_value = read.pointer(&view_pointer);
+                if edit != Language::XML
+                    && !typed_value.is_some_and(|value| value.is_number() || value.is_boolean())
+                {
+                    continue;
+                }
+                tried += 1;
+                let case = format!("{host} host via {edit}: {key} typed {typed}");
+                let saved = match bridge.to_host(&edited, host_text) {
+                    Ok(saved) => saved,
+                    Err(error) => {
+                        failures.push(format!("{case}: waits: {error:?}"));
+                        continue;
+                    }
+                };
+                let pointer = in_host(host, key);
+                let value = codec::read(host.behavior(), &saved, None)
+                    .ok()
+                    .and_then(|value| value.pointer(&pointer).cloned());
+                // The host's type where the view cannot tell: a float stays
+                // a float (`2` typed in XML, or in HCL, whose numbers are one
+                // type, is 2.0); a view that can writes what was typed.
+                let typed_integer = Value::from(2);
+                let expected = if *typed == "2" && edit != Language::XML && edit != Language::HCL {
+                    &typed_integer
+                } else {
+                    expected
+                };
+                // XML holds `1.50` as text.
+                let same = match (&value, expected) {
+                    (Some(Value::Number(saved)), Value::Number(expected)) => {
+                        saved.as_f64() == expected.as_f64()
+                            && (saved.is_f64() == expected.is_f64() || host == Language::XML)
+                    }
+                    (Some(Value::String(saved)), Value::Number(expected))
+                        if host == Language::XML =>
+                    {
+                        saved.parse::<f64>().ok() == expected.as_f64()
+                    }
+                    (Some(saved), expected) => saved == expected,
+                    _ => false,
+                };
+                if !same {
+                    failures.push(format!("{case}: saved {value:?}, not {expected}:\n{saved}"));
+                    continue;
+                }
+                // The spelling, where the host reads it as the same value.
+                let spelled = host
+                    .behavior()
+                    .value_span(&saved, &pointer)
+                    .and_then(|span| codec::byte_range(&saved, span))
+                    .map(|range| saved[range].trim().to_string());
+                if expected.is_number()
+                    && host.behavior().scalar_reads_as(typed, expected)
+                    && spelled.as_deref() != Some(*typed)
+                {
+                    failures.push(format!("{case}: written {spelled:?}:\n{saved}"));
+                }
+                // The comment on the float's line stays.
+                if !saved.contains(if host == Language::XML {
+                    "<!-- f -->"
+                } else {
+                    "# f"
+                }) && host != Language::JSON
+                {
+                    failures.push(format!("{case}: lost the comment:\n{saved}"));
+                }
+            }
+        }
+    }
+    assert!(tried > 100, "only {tried} cases tried");
+    report(failures);
+}
+
+/// A host whose values are all text (XML) keeps a number exactly as it was
+/// typed in a view (`4.10` over `4.8` is `4.10`, not `4.1`): the view only
+/// reads it as a number. The other hosts keep the spelling where they read
+/// it as the typed number. Every host, every view, attributes and element
+/// text.
+#[test]
+fn a_number_typed_in_a_view_keeps_its_spelling_in_a_host_whose_values_are_text() {
+    const WEB_CONFIG: &str = include_str!("../../../../tests/fixtures/real/web.config");
+    let hosts: [(Language, &str, &[&str]); 5] = [
+        (
+            Language::XML,
+            WEB_CONFIG,
+            &[
+                "/configuration/system.web/compilation/targetFramework",
+                "/configuration/system.web/httpRuntime/targetFramework",
+            ],
+        ),
+        (Language::XML, "<c>\n  <v>4.8</v>\n</c>\n", &["/c/v"]),
+        (Language::YAML, "v: 4.8 # v\n", &["/v"]),
+        (Language::TOML, "v = 4.8 # v\n", &["/v"]),
+        (Language::HCL, "v = 4.8 # v\n", &["/v"]),
+    ];
+    let mut failures = Vec::new();
+    for (host, host_text, pointers) in hosts {
+        for edit in ALL.into_iter().filter(|edit| *edit != host) {
+            let bridge = Bridge::new(host, edit, None).unwrap();
+            let shown = bridge.to_edit(host_text).unwrap().text;
+            for pointer in pointers {
+                for typed in ["4.10", "4.80", "4.85"] {
+                    let case = format!("{host} host via {edit}: {pointer} typed {typed}");
+                    let Some(edited) = typed_over(edit, &shown, pointer, typed) else {
+                        failures.push(format!("{case}: not in\n{shown}"));
+                        continue;
+                    };
+                    let saved = match bridge.to_host(&edited, host_text) {
+                        Ok(saved) => saved,
+                        Err(error) => {
+                            failures.push(format!("{case}: waits: {error:?}"));
+                            continue;
+                        }
+                    };
+                    let written = host
+                        .behavior()
+                        .value_span(&saved, pointer)
+                        .and_then(|span| codec::byte_range(&saved, span))
+                        .map(|range| saved[range].trim().trim_matches('"').to_string());
+                    if written.as_deref() != Some(typed) {
+                        failures.push(format!("{case}: written {written:?}:\n{saved}"));
+                    }
+                    let rest = saved.replacen(typed, "4.8", 1);
+                    if rest != host_text {
+                        failures.push(format!("{case}: more changed:\n{saved}"));
+                    }
+                }
+            }
+        }
+    }
+    report(failures);
+}
+
+/// Text edited in a character that begins like the one it replaces (`é`
+/// made `è`), beside a number, saves as edited.
+#[test]
+fn an_edit_of_a_character_beside_a_number_saves_from_every_view() {
+    let mut failures = Vec::new();
+    for (host, text) in [
+        (Language::XML, "<c>\n  <s>é4</s>\n  <v>4.8</v>\n</c>\n"),
+        (Language::YAML, "s: é4\nv: 4.8\n"),
+    ] {
+        let pointer = if host == Language::XML { "/c/s" } else { "/s" };
+        from_every_view(
+            &mut failures,
+            "é made è",
+            host,
+            text,
+            &|value| *value.pointer_mut(pointer).unwrap() = "è4".into(),
+            &text.replace('é', "è"),
+        );
+    }
+    report(failures);
+}
+
+/// A YAML string tagged `!!str` stays plain when edited to text that would
+/// otherwise read as a number or boolean, in a block and a flow list.
+#[test]
+fn a_yaml_str_tagged_value_edited_from_every_view_stays_plain() {
+    let mut failures = Vec::new();
+    let host = "s: !!str 1  # c\nl: [!!str 1, x]\nn: 1\n";
+    from_every_view(
+        &mut failures,
+        "!!str",
+        Language::YAML,
+        host,
+        &|value| {
+            value["s"] = "2".into();
+            value["l"][0] = "true".into();
+        },
+        "s: !!str 2  # c\nl: [!!str true, x]\nn: 1\n",
+    );
+    report(failures);
+}
+
+/// An element copied in an XML view (a value become a list):
+/// each copy keeps the type of the host's value it copies, strings stay
+/// strings (round 29 read `"1"` copied as `[1, 1]`).
+#[test]
+fn an_element_copied_in_an_xml_view_keeps_the_host_type_of_what_it_copies() {
+    let hosts = [
+        (Language::YAML, "s: \"1\"\nn: 2\nb: \"true\"\n"),
+        (
+            Language::JSON,
+            "{\n  \"s\": \"1\",\n  \"n\": 2,\n  \"b\": \"true\"\n}\n",
+        ),
+        (Language::TOML, "s = \"1\"\nn = 2\nb = \"true\"\n"),
+        (Language::HCL, "s = \"1\"\nn = 2\nb = \"true\"\n"),
+    ];
+    let mut failures = Vec::new();
+    for (host, text) in hosts {
+        let old = host.parse(text).expect("the host reads");
+        let copied = |value: &mut Value| {
+            for key in ["s", "n", "b"] {
+                let item = value[key].clone();
+                value[key] = Value::Array(vec![item.clone(), item]);
+            }
+        };
+        let mut expected = old.clone();
+        copied(&mut expected);
+        match crate::editor::save_matrix::save_value(host, Language::XML, text, &copied) {
+            Ok(saved) => match host.parse(&saved) {
+                Ok(read) if read == expected => {}
+                other => failures.push(format!("{host}: saved {saved:?}, reads {other:?}")),
+            },
+            Err(error) => failures.push(format!("{host}: {error}")),
+        }
+    }
+    report(failures);
+}
