@@ -125,7 +125,7 @@ test.describe('vanilla.html', () => {
     await browserPage.keyboard.press('Escape');
     await expect
       .poll(() => markers(browserPage).first().evaluate((element) => element.style.top))
-      .toContain('2 * var(--config-editor-line-height)');
+      .toMatch(/[^0-9]2 \* 1lh\)/);
     await expect(markers(browserPage).first()).toHaveText('7835');
     // In TOML the paths still find their fields, and the range, given in the
     // YAML text (line 4: `public_address` since the line added), marks the
