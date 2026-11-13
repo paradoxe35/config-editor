@@ -66,7 +66,7 @@ fn every_focus_goes_through_focus_in_place() {
     }
     let failures: Vec<String> = files
         .iter()
-        .filter(|path| !path.ends_with("src/focus.rs"))
+        .filter(|path| !path.ends_with("src/focus/mod.rs"))
         .flat_map(|path| {
             let text = std::fs::read_to_string(path).expect("read source file");
             plain_focus_calls(&text)
