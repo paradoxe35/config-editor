@@ -5,6 +5,32 @@ All notable changes to the crate `config-editor-leptos` and the npm packages
 `@pngwasi/config-editor-vue` and `@pngwasi/config-editor-svelte`. Their
 versions move together.
 
+## 0.2.0 — unreleased
+
+### Schema formats
+
+- Schemas in other formats than JSON Schema written as JSON, compiled into
+  JSON Schema by a `SchemaCompiler` wrapped in a `SchemaFormat` (Rust) or a
+  compiler registered with `registerSchemaFormat` (JavaScript); the format
+  is always named, never guessed. Built in: JSON Schema written in YAML
+  (`json-schema-yaml`).
+- The files a schema refers to come from the host (`SchemaResources`,
+  `schemaResources`; `schemaImports` lists them): nothing is fetched.
+- What a format cannot express in JSON Schema is a loss (`Schema::losses`,
+  `compileSchema`'s `losses`), reported like a schema warning.
+- `compileSchema` (and `Schema::json`) gives the JSON Schema, to compile at
+  build time and ship plain JSON Schema.
+
+### Reading XML by the schema
+
+- With a schema, XML attribute values and element text are read as the type
+  the schema gives their place instead of guessed: `1.50`, `+5`, `007` and
+  `1e3` are numbers where it wants a number, `true`, `null` and `80` stay
+  strings where it wants a string, and XSD's `1`/`0` are booleans where the
+  schema says so (`"x-xml-lexical": "xsd"`). Saves keep the text as written.
+- A custom language whose values are all text gets the same reading
+  (`Scalars::Text`; `scalars: "text"` in JavaScript).
+
 ## 0.1.0 — unreleased
 
 The first release: a lightweight and fast, VS Code–style editor for

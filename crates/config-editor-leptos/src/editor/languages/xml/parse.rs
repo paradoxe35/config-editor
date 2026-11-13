@@ -2,8 +2,32 @@
 
 use super::*;
 
+/// How text scalars are read: guessed (`<v>1</v>` is the number 1), or
+/// left as their exact text for the schema to type (see
+/// `ConfigLanguage::parse_text`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Reading {
+    Guessed,
+    Text,
+}
+
+impl Reading {
+    /// A text scalar (an attribute value, an element's text) as read.
+    fn scalar(self, text: &str) -> Value {
+        match self {
+            Reading::Guessed => typed_scalar(text),
+            Reading::Text => Value::String(text.to_string()),
+        }
+    }
+}
+
 /// Every error carries a one-based line and character column.
 pub(super) fn xml_parse(source: &str) -> Result<Value, ParseError> {
+    xml_parse_as(source, Reading::Guessed)
+}
+
+/// [`xml_parse`], its text scalars read as `reading` says.
+pub(super) fn xml_parse_as(source: &str, reading: Reading) -> Result<Value, ParseError> {
     // A character XML 1.0 does not allow (a control character, U+FFFE),
     // which XML readers refuse.
     if let Some((at, character)) = source.char_indices().find(|(_, character)| !is_xml_char(*character)) {
@@ -18,7 +42,7 @@ pub(super) fn xml_parse(source: &str) -> Result<Value, ParseError> {
             column: Some(column),
         });
     }
-    build_value(source)
+    build_value_as(source, reading)
 }
 
 /// Whether XML 1.0 allows `character` in a document, raw or as a
@@ -84,6 +108,11 @@ const MAX_NESTING: usize = 128;
 /// Builds the document model from `quick-xml` events, reporting structural
 /// errors at the offending markup.
 pub(super) fn build_value(source: &str) -> Result<Value, ParseError> {
+    build_value_as(source, Reading::Guessed)
+}
+
+/// [`build_value`], its text scalars read as `reading` says.
+pub(super) fn build_value_as(source: &str, reading: Reading) -> Result<Value, ParseError> {
     if source.trim().is_empty() {
         return Ok(Value::Object(Map::new()));
     }
@@ -128,13 +157,13 @@ pub(super) fn build_value(source: &str) -> Result<Value, ParseError> {
                     ));
                 }
                 let top_level = stack.is_empty();
-                stack.push(open_element(source, &element, event_start, top_level, &markup)?);
+                stack.push(open_element(source, &element, (event_start, top_level), &markup, reading)?);
             }
             Event::Empty(element) => {
                 flush_text(&mut pending_text, &mut stack);
                 let top_level = stack.is_empty();
-                let open = open_element(source, &element, event_start, top_level, &markup)?;
-                push_child(&mut stack, &mut roots, open);
+                let open = open_element(source, &element, (event_start, top_level), &markup, reading)?;
+                push_child(&mut stack, &mut roots, open, reading);
             }
             Event::End(element) => {
                 flush_text(&mut pending_text, &mut stack);
@@ -157,7 +186,7 @@ pub(super) fn build_value(source: &str) -> Result<Value, ParseError> {
                         ),
                     ));
                 }
-                push_child(&mut stack, &mut roots, open);
+                push_child(&mut stack, &mut roots, open, reading);
             }
             Event::Text(text) => {
                 let content = text.xml10_content();
@@ -256,9 +285,9 @@ pub(super) fn document_value(source: &str, roots: Vec<TopLevel>) -> Result<Value
 pub(super) fn open_element(
     source: &str,
     element: &BytesStart<'_>,
-    event_start: usize,
-    top_level: bool,
+    (event_start, top_level): (usize, bool),
     markup: &declarations::Markup,
+    reading: Reading,
 ) -> Result<OpenElement, ParseError> {
     let start = markup_start(source, event_start);
     let name = element.local_name().into_inner().to_string();
@@ -284,10 +313,14 @@ pub(super) fn open_element(
             return Err(syntax_error(source, start, not_xml_char_message(character)));
         }
         if !markup.holds(&key) {
-            attrs.insert(key, typed_scalar(&value));
+            attrs.insert(key, reading.scalar(&value));
         }
     }
-    let config_root = top_level && attrs.get(CONFIG_ROOT_ATTRIBUTE) == Some(&Value::Bool(true));
+    let config_root = top_level
+        && matches!(attrs.get(CONFIG_ROOT_ATTRIBUTE), Some(Value::Bool(true)))
+        || top_level
+            && reading == Reading::Text
+            && attrs.get(CONFIG_ROOT_ATTRIBUTE).and_then(Value::as_str).map(str::trim) == Some("true");
     if config_root {
         attrs.clear();
     }
@@ -342,14 +375,14 @@ pub(super) fn flush_text(pending: &mut String, stack: &mut [OpenElement]) {
 /// alone is the empty element's formatting unless written as CDATA. Beside
 /// child elements, the text runs are trimmed: there the whitespace is the
 /// children's indentation.
-pub(super) fn finalize(open: OpenElement) -> Value {
+pub(super) fn finalize(open: OpenElement, reading: Reading) -> Value {
     let text = if open.children.is_empty() {
         if open.exact.trim().is_empty() && !open.cdata { String::new() } else { open.exact }
     } else {
         open.text.trim().to_string()
     };
     if open.children.is_empty() && open.attrs.is_empty() && (!text.is_empty() || open.cdata) {
-        return typed_scalar(&text);
+        return reading.scalar(&text);
     }
     // An attribute a child element shares its name with is `@name`: the
     // two stay apart, as the serializer writes them.
@@ -370,9 +403,9 @@ pub(super) fn finalize(open: OpenElement) -> Value {
     Value::Object(map)
 }
 
-pub(super) fn push_child(stack: &mut [OpenElement], roots: &mut Vec<TopLevel>, open: OpenElement) {
+pub(super) fn push_child(stack: &mut [OpenElement], roots: &mut Vec<TopLevel>, open: OpenElement, reading: Reading) {
     let (name, start, config_root) = (open.name.clone(), open.start, open.config_root);
-    let value = finalize(open);
+    let value = finalize(open, reading);
     match stack.last_mut() {
         Some(parent) => insert_child(&mut parent.children, name, value),
         None => roots.push(TopLevel {

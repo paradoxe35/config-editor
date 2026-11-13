@@ -32,9 +32,9 @@ pub(super) use renames::{patch_renames, patch_scalar_to_container, with_renames_
 pub(super) use reorder::{patch_reorder, unmoved_comments};
 pub(super) use steps::steps;
 
-use super::completion::conform_arrays;
+use super::completion::{conform_arrays, type_texts};
 use super::flow_syntax::Flow;
-use super::language::{ConfigLanguage, ParseError, Repetition, Span};
+use super::language::{ConfigLanguage, ParseError, Repetition, Scalars, Span};
 use serde_json::Value;
 use std::fmt;
 
@@ -83,18 +83,36 @@ impl fmt::Display for ConvertError {
 
 impl std::error::Error for ConvertError {}
 
-/// Parses `source`, reading lone values as the arrays `schema` expects in a
-/// language that repeats keys for arrays.
+/// Parses `source` as `schema` expects it: in a language that writes every
+/// scalar as text, each one typed by the schema (see `text_typing`), and
+/// in a language that repeats keys for arrays, lone values read as the
+/// arrays the schema wants.
 pub(super) fn read(
     language: &dyn ConfigLanguage,
     source: &str,
     schema: Option<&Value>,
 ) -> Result<Value, ParseError> {
-    let mut value = super::parse_cache::parse(language, source)?;
-    if let Some(schema) = schema.filter(|_| language.repetition() != Repetition::None) {
-        conform_arrays(&mut value, schema, language.repetition());
+    match schema {
+        Some(schema) if language.scalars() == Scalars::Text => {
+            let mut value = super::parse_cache::parse_text(language, source)?;
+            by_schema(language, &mut value, schema);
+            Ok(value)
+        }
+        Some(schema) if language.repetition() != Repetition::None => {
+            let mut value = super::parse_cache::parse(language, source)?;
+            conform_arrays(&mut value, schema, language.repetition());
+            Ok(value)
+        }
+        _ => super::parse_cache::parse(language, source),
     }
-    Ok(value)
+}
+
+/// `value`, as `language.parse_text` read it, typed and shaped by `schema`.
+pub(super) fn by_schema(language: &dyn ConfigLanguage, value: &mut Value, schema: &Value) {
+    type_texts(value, schema, schema, language);
+    if language.repetition() != Repetition::None {
+        conform_arrays(value, schema, language.repetition());
+    }
 }
 
 /// Whether `text` reads back as `new`, its keys spelled as `new` spells
@@ -117,11 +135,19 @@ pub(super) fn read_aside(
     source: &str,
     schema: Option<&Value>,
 ) -> Result<Value, ParseError> {
-    let mut value = language.parse(source)?;
-    if let Some(schema) = schema.filter(|_| language.repetition() != Repetition::None) {
-        conform_arrays(&mut value, schema, language.repetition());
+    match schema {
+        Some(schema) if language.scalars() == Scalars::Text => {
+            let mut value = language.parse_text(source)?;
+            by_schema(language, &mut value, schema);
+            Ok(value)
+        }
+        Some(schema) if language.repetition() != Repetition::None => {
+            let mut value = language.parse(source)?;
+            conform_arrays(&mut value, schema, language.repetition());
+            Ok(value)
+        }
+        _ => language.parse(source),
     }
-    Ok(value)
 }
 
 /// Renders `value` in `target`, reading the result back to find the losses.
@@ -310,7 +336,7 @@ pub(super) fn patch_scalars(
         // attribute's `"…"`; a TOML string made a number loses them).
         let written = &previous[range.clone()];
         let flow = Flow::of(language);
-        if language.scalars_are_text()
+        if language.scalars() == Scalars::Text
             && let Some(quote) = written
                 .chars()
                 .next()

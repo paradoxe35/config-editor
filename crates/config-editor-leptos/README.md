@@ -1653,6 +1653,17 @@ adds a root: `{"listen": 4343, "port": 80}` writes `<listen>4343</listen>` and
 `<port>80</port>`, and a key added at the top in another view is one more
 top-level element.
 
+With a schema, each attribute value and element text is read as the type
+the schema gives its place instead of guessed: `<price>1.50</price>` is the
+number 1.5 where the schema wants a number (a save keeps `1.50` as written
+until the value changes), `<port> 080 </port>` is 80 where it wants an
+integer and the exact text where it wants a string, `<name>true</name>` is
+the string `"true"` where it wants a string, and `1` and `0` are booleans
+where the schema marks XSD's spellings (`"x-xml-lexical": "xsd"`).
+`"x-xml-whitespace": "collapse"` (or `"replace"`) on a string schema treats
+its whitespace as XSD does. Where the schema allows several types, or says
+none, the text is read as without a schema.
+
 Namespace declarations (`xmlns`, `xmlns:m`) and the attributes of the XML
 Schema instance namespace (`xsi:schemaLocation`, `xsi:type`, with whatever
 prefix is bound to it) are markup, not data: `<project xmlns="…"
@@ -1693,15 +1704,16 @@ const ENV: Language = Language::new(&DOTENV);
 // <ConfigEditor language=ENV .../>, ENV.convert(text, Language::YAML), …
 ```
 
-| Method                                                                                              | Adds                                                            |
-| --------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
-| `info`, `parse` (required)                                                                          | Name, icon, extensions; syntax errors and the data model        |
-| `serialize`                                                                                         | Conversion into the language (Edit-as, either way)              |
-| `key_span`, `value_span`                                                                            | Positions for schema diagnostics and read-only fields           |
-| `completion_context`, `existing_keys`, `property_insert`, `format_value`                            | Schema completion; see [below](#completion-and-hover)           |
-| `hover_key`                                                                                         | Hover docs                                                      |
-| `highlight`, `comments`, `multiline_strings`                                                        | Syntax colors, comments and strings over several lines included |
-| `newline`, `toggle_comments`, `auto_close`, `complete_on_type`, `reindent_on_type`, `lexical_state` | Editing behavior                                                |
+| Method                                                                                              | Adds                                                                                                       |
+| --------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `info`, `parse` (required)                                                                          | Name, icon, extensions; syntax errors and the data model                                                   |
+| `serialize`                                                                                         | Conversion into the language (Edit-as, either way)                                                         |
+| `key_span`, `value_span`                                                                            | Positions for schema diagnostics and read-only fields                                                      |
+| `completion_context`, `existing_keys`, `property_insert`, `format_value`                            | Schema completion; see [below](#completion-and-hover)                                                      |
+| `hover_key`                                                                                         | Hover docs                                                                                                 |
+| `highlight`, `comments`, `multiline_strings`                                                        | Syntax colors, comments and strings over several lines included                                            |
+| `newline`, `toggle_comments`, `auto_close`, `complete_on_type`, `reindent_on_type`, `lexical_state` | Editing behavior                                                                                           |
+| `scalars` (`Scalars::Text`), `parse_text`, `guess_scalar`                                           | Values that are all text in your syntax (`.env`) read as the types the schema gives (`PORT=80` an integer) |
 
 Read-only fields hold in a language without spans too: the editor then
 compares the field's value on every edit whose text parses, and refuses one
@@ -1814,6 +1826,7 @@ all.
 | With sections (`[table]`)               | `starts_section`                              | A lock in a large text that does not parse finds the section's lines                                        | —                                                                                                                  |
 | With trailing comments                  | `comment_start`                               | Edit-as keeps a line's comment when the line is renamed or moves                                            | `comment_start_outside_quotes`                                                                                     |
 | With values over lines (`[` … `]`)      | `multiline_constructs`, `highlight_continued` | Each line of an array, a flow collection or a start tag written over several lines is colored as its inside | `MultilineConstruct::structure`, `MultilineConstruct::colored`                                                     |
+| Writing every scalar as text (`.env`)   | `scalars`, `parse_text`, `guess_scalar`       | Where the schema gives a type, the text there reads as it (`PORT=80` is a number); elsewhere the guess      | —                                                                                                                  |
 | Any                                     | `fold_ranges`                                 | What folds; the default folds by indentation, `config`'s brackets and comments, and multi-line strings      | `indent_fold_ranges`, `bracket_fold_ranges`, `comment_fold_ranges`, `string_body_fold_ranges`, `merge_fold_ranges` |
 
 `config_editor_leptos::language` also exports the other helpers the built-in

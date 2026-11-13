@@ -343,6 +343,8 @@ export interface CustomLanguage {
   keyAt?(text: string, offset: number): { key: string; path: (string | number)[]; start: number } | null | undefined | void;
   /** Strings and comments written over several lines (string indices, as `indexOf` gives): their lines are colored as such up to `end`, the rest of the last line by `highlight`; nothing is suggested inside. */
   multilineRanges?(text: string): { start: number; end: number; kind: "string" | "comment" }[] | null | undefined | void;
+  /** `"text"` when every value is text in the language's syntax (`parse` then returns strings): where the schema gives a place a type, the text there is read as it (`"80"` as the number 80 where it wants an integer, `"true"` as the boolean), and a value edited in another view keeps the document's type. Default `"typed"`: `parse` gives each value its type. */
+  scalars?: "typed" | "text";
 }
 
 /** Where the caret is in a custom language's document; see `CustomLanguage.contextAt`. */

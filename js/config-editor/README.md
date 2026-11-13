@@ -938,6 +938,17 @@ adds a root: `{"listen": 4343, "port": 80}` writes `<listen>4343</listen>` and
 `<port>80</port>`, and a key added at the top in another view is one more
 top-level element.
 
+With a schema, each attribute value and element text is read as the type
+the schema gives its place instead of guessed: `<price>1.50</price>` is the
+number 1.5 where the schema wants a number (a save keeps `1.50` as written
+until the value changes), `<port> 080 </port>` is 80 where it wants an
+integer and the exact text where it wants a string, `<name>true</name>` is
+the string `"true"` where it wants a string, and `1` and `0` are booleans
+where the schema marks XSD's spellings (`"x-xml-lexical": "xsd"`).
+`"x-xml-whitespace": "collapse"` (or `"replace"`) on a string schema treats
+its whitespace as XSD does. Where the schema allows several types, or says
+none, the text is read as without a schema.
+
 Namespace declarations (`xmlns`, `xmlns:m`) and the attributes of the XML
 Schema instance namespace (`xsi:schemaLocation`, `xsi:type`, with whatever
 prefix is bound to it) are markup, not data: `<project xmlns="…"
@@ -1555,11 +1566,19 @@ const env = registerLanguage({
     ["[", "]"],
   ], // they auto-close, and Enter between them opens a line
   separators: ["="], // key renames, Tab through empty values, schema completion and hover
+  scalars: "text", // optional: every value is text, read as the type the schema gives its key
 });
 
 new ConfigEditor(element, { language: env, schema });
 convert("env", "listen=7835\n", "yaml").text; // 'listen: "7835"\n'
 ```
+
+With `scalars: "text"` (a language whose values are all text, as `.env`
+files are), a value is read as the type the schema gives its key: under a
+schema saying `PORT` is an integer, `PORT=80` is the number 80 and
+`PORT=x` is the text `"x"` validation reports; where the schema says no
+type it stays the string `parse` returned. A value edited in another view
+keeps the type the document reads it as.
 
 A registered language gets schema validation (placed with `keySpan` and
 `valueSpan`), conversion to and from every other language, and Edit-as;

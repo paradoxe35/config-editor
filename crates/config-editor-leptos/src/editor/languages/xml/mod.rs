@@ -55,7 +55,7 @@ use super::super::completion::{child_fill, kept_const, kept_default, array_branc
 use super::super::highlight::{MultilineConstruct, Token as HighlightToken, TokenKind, Tokens};
 use super::super::keyboard::utf16_to_byte_index;
 use super::super::language::pointer_segments;
-use super::super::language::{OneLine, CompletionContext, Newline, Repetition, EntryPosition, InlineBlock, InsertContext, ConfigLanguage, LanguageInfo, Lexical, Span, ParseError,
+use super::super::language::{Scalars, OneLine, CompletionContext, Newline, Repetition, EntryPosition, InlineBlock, InsertContext, ConfigLanguage, LanguageInfo, Lexical, Span, ParseError,
     SchemaPathSegment, inline_block,
 };
 use quick_xml::XmlVersion;
@@ -250,8 +250,18 @@ impl ConfigLanguage for XmlBehavior {
         parse::mixed_content(source)
     }
 
-    fn scalars_are_text(&self) -> bool {
-        true
+    fn scalars(&self) -> Scalars {
+        Scalars::Text
+    }
+
+    /// Every attribute value and element text exactly as written.
+    fn parse_text(&self, source: &str) -> Result<Value, ParseError> {
+        xml_parse_as(source, Reading::Text).map(super::super::codec::non_finite::escape_strings)
+    }
+
+    /// Numbers that write back unchanged, `true`, `false` and `null`.
+    fn guess_scalar(&self, text: &str) -> Value {
+        typed_scalar(text)
     }
 
     fn unconvertible(&self, source: &str) -> Option<String> {

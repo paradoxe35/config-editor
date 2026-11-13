@@ -6,7 +6,7 @@ use std::ops::Range;
 
 use config_editor_leptos::language::{
     CompletionContext, ConfigLanguage, InsertContext, LanguageConfig, LanguageInfo, Lexical,
-    ParseError, SchemaPathSegment, Span, Token, TokenKind, Tokens,
+    ParseError, Scalars, SchemaPathSegment, Span, Token, TokenKind, Tokens,
 };
 use js_sys::{Array, Function};
 use serde_json::Value;
@@ -39,6 +39,8 @@ pub(super) struct JsLanguage {
     definition: RefCell<JsValue>,
     info: Cell<LanguageInfo>,
     config: Cell<LanguageConfig>,
+    /// Its `scalars`: whether every scalar is text the schema types.
+    scalars: Cell<Scalars>,
     /// `multilineRanges` of the last text it was called for.
     multiline: RefCell<Option<(String, Multiline)>>,
 }
@@ -52,20 +54,31 @@ unsafe impl Send for JsLanguage {}
 unsafe impl Sync for JsLanguage {}
 
 impl JsLanguage {
-    pub(super) fn new(definition: JsValue, info: LanguageInfo, config: LanguageConfig) -> Self {
+    pub(super) fn new(
+        definition: JsValue,
+        info: LanguageInfo,
+        (config, scalars): (LanguageConfig, Scalars),
+    ) -> Self {
         Self {
             definition: RefCell::new(definition),
             info: Cell::new(info),
             config: Cell::new(config),
+            scalars: Cell::new(scalars),
             multiline: RefCell::default(),
         }
     }
 
     /// Takes a new definition of its label: editors already open follow it.
-    pub(super) fn replace(&self, definition: JsValue, info: LanguageInfo, config: LanguageConfig) {
+    pub(super) fn replace(
+        &self,
+        definition: JsValue,
+        info: LanguageInfo,
+        (config, scalars): (LanguageConfig, Scalars),
+    ) {
         *self.definition.borrow_mut() = definition;
         self.info.set(info);
         self.config.set(config);
+        self.scalars.set(scalars);
         self.multiline.borrow_mut().take();
     }
 
@@ -418,6 +431,12 @@ impl ConfigLanguage for JsLanguage {
             return None;
         }
         assist::key_at(self, source, line_index, column)
+    }
+
+    /// `"text"`: every value `parse` gives is text, typed by the schema
+    /// where it says a type (and left as text where not).
+    fn scalars(&self) -> Scalars {
+        self.scalars.get()
     }
 
     fn config(&self) -> LanguageConfig {

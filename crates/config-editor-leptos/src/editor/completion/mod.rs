@@ -15,6 +15,9 @@ mod patterns;
 mod popup;
 mod schema;
 mod stops;
+mod text_typing;
+#[cfg(test)]
+mod text_typing_tests;
 mod window;
 
 pub(crate) use accept::*;
@@ -32,6 +35,7 @@ pub(crate) use patterns::unsupported_patterns;
 pub(crate) use popup::*;
 pub(crate) use schema::*;
 pub(crate) use stops::*;
+pub(crate) use text_typing::type_texts;
 pub(crate) use window::*;
 // Public for languages written outside the crate (see `language`).
 pub use schema::{array_branch, object_branch, placeholder, schema_const, schema_default};
@@ -41,7 +45,8 @@ use super::commands::indent_unit;
 use super::diagnostics::SchemaBundle;
 use super::keyboard::{replace_selection, utf16_to_byte_index};
 use super::language::{
-    CompletionContext, ConfigLanguage, EntryPosition, InsertContext, Repetition, SchemaPathSegment,
+    CompletionContext, ConfigLanguage, EntryPosition, InsertContext, Repetition, Scalars,
+    SchemaPathSegment,
 };
 use super::metrics::read_editor_metrics;
 use super::positioning::{POPUP_MARGIN, PopupFrame};

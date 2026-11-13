@@ -5,7 +5,7 @@
 //! of the one it replaces (`0x1F90` edited to 8083 is `0x1F93`).
 
 use super::super::codec;
-use super::super::language::ConfigLanguage;
+use super::super::language::{ConfigLanguage, Scalars};
 use super::changed_scalars;
 use serde_json::Value;
 
@@ -105,7 +105,7 @@ pub(super) fn kept(
                 .filter(|text| text != written)
         };
         if let Some(text) = typed.or_else(in_form) {
-            if host.scalars_are_text() && value.is_number() {
+            if host.scalars() == Scalars::Text && value.is_number() {
                 as_text.push((pointer.clone(), text.clone()));
             }
             edits.push((range, text));
@@ -323,7 +323,8 @@ fn spelled(
         typed
     };
     // A host whose values are all text holds a number as typed.
-    let reads = host.scalar_reads_as(typed, value) || host.scalars_are_text() && value.is_number();
+    let reads =
+        host.scalar_reads_as(typed, value) || host.scalars() == Scalars::Text && value.is_number();
     (!typed.is_empty() && written != typed && reads).then(|| typed.to_string())
 }
 

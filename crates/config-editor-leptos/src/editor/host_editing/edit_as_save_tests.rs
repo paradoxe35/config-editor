@@ -103,7 +103,8 @@ fn a_value_the_host_cannot_read_back_as_the_view_holds_it_waits() {
                 // is an empty map in a view that writes it as an empty
                 // element, which reads as text over the host's string.
                 if edit.parse(&typed).ok().as_ref() != Some(&read)
-                    || edit.behavior().scalars_are_text() && value == serde_json::json!({})
+                    || edit.behavior().scalars() == crate::editor::language::Scalars::Text
+                        && value == serde_json::json!({})
                 {
                     continue;
                 }

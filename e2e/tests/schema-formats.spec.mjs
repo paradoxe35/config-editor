@@ -167,6 +167,46 @@ test.describe('schema formats in the tools', () => {
   });
 });
 
+test.describe('a custom language whose values are text', () => {
+  test.beforeEach(async ({ page }) => open(page));
+
+  test('with scalars "text", a value reads as the type the schema gives its key', async ({ page }) => {
+    const result = await attempt(page, (core, tools) => {
+      const definition = (label, extra) => ({
+        label,
+        separators: ['='],
+        parse: (text) => Object.fromEntries(text.split('\n').filter(Boolean).map((line) => line.split('='))),
+        serialize: (value) => Object.entries(value).map(([key, item]) => key + '=' + item).join('\n') + '\n',
+        ...extra,
+      });
+      const text = core.registerLanguage(definition('Lines', { scalars: 'text' }));
+      const typed = core.registerLanguage(definition('Plain', {}));
+      const schema = JSON.stringify({ properties: { port: { type: 'integer' }, debug: { type: 'boolean' }, name: { type: 'string' } } });
+      const problems = (language, source) => tools.validate(language, source, schema).map((problem) => problem.message);
+      let refused;
+      try {
+        core.registerLanguage(definition('Bad', { scalars: 'numbers' }));
+      } catch (error) {
+        refused = error.message;
+      }
+      return {
+        text: problems(text, 'port=80\ndebug=true\nname=007\n'),
+        wrong: problems(text, 'port=eighty\n'),
+        typed: problems(typed, 'port=80\n'),
+        converted: tools.convert(text, 'port=80\nname=007\n', 'json', schema).text,
+        refused,
+      };
+    });
+    expect(result).toEqual({
+      text: [],
+      wrong: ['/port: "eighty" is not of type "integer"'],
+      typed: ['/port: "80" is not of type "integer"'],
+      converted: '{\n  "port": 80,\n  "name": "007"\n}\n',
+      refused: 'scalars must be "typed" or "text"',
+    });
+  });
+});
+
 test.describe('schema formats in the editor and the documents view', () => {
   test.beforeEach(async ({ page }) => open(page));
 

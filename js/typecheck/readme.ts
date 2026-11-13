@@ -37,6 +37,7 @@ const env = registerLanguage({
   comments: { lineComment: "#" },
   brackets: [["{", "}"], ["[", "]"]],
   separators: ["="],
+  scalars: "text",
 });
 new ConfigEditor(element, { language: env, schema: schemaText });
 // Schema completion and hover for a nested custom language.

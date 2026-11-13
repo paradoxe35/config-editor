@@ -782,6 +782,18 @@ impl SchemaPathSegment {
     }
 }
 
+/// How a language writes scalars; see [`ConfigLanguage::scalars`].
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum Scalars {
+    /// Each type is written its own way (`1`, `"1"`, `true`).
+    #[default]
+    Typed,
+    /// Every scalar is text; its type comes from the schema, else from the
+    /// language's guess (XML).
+    Text,
+}
+
 /// How a language writes arrays besides literal lists; see
 /// [`ConfigLanguage::repetition`].
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -1036,14 +1048,32 @@ pub trait ConfigLanguage: Send + Sync + 'static {
         false
     }
 
-    /// Whether every scalar is written as text, its type only guessed on
-    /// reading (XML: `<v>1</v>` reads as a number, `<v></v>` as an empty
-    /// element). A value edited while editing as such a language keeps the
-    /// host's type: a string stays a string, and an emptied value is the
-    /// empty string, or waits where the host holds a number or a boolean.
-    /// Default: no, the language writes each type its own way.
-    fn scalars_are_text(&self) -> bool {
-        false
+    /// Whether the language writes each scalar's type ([`Scalars::Typed`],
+    /// the default) or writes every scalar as text ([`Scalars::Text`], XML:
+    /// `<v>1</v>`), its type read from the schema where there is one
+    /// ([`parse_text`](Self::parse_text)) and guessed where not
+    /// ([`guess_scalar`](Self::guess_scalar)). A value edited while editing
+    /// as a text language keeps the host's type: a string stays a string,
+    /// and an emptied value is the empty string, or waits where the host
+    /// holds a number or a boolean.
+    fn scalars(&self) -> Scalars {
+        Scalars::Typed
+    }
+
+    /// For [`Scalars::Text`]: the document with every text scalar left as
+    /// its exact string (whitespace included), for the editor to type by the
+    /// schema. Where the schema says nothing about a place, the text there
+    /// takes [`guess_scalar`](Self::guess_scalar): `parse` should read a
+    /// document as `parse_text` and that guess do. Default: `parse`.
+    fn parse_text(&self, source: &str) -> Result<Value, ParseError> {
+        self.parse(source)
+    }
+
+    /// For [`Scalars::Text`]: the value the language reads `text` (a text
+    /// scalar, exactly as written) as where the schema does not say its
+    /// type. Default: the string.
+    fn guess_scalar(&self, text: &str) -> Value {
+        Value::String(text.to_string())
     }
 
     /// The span of the key at the JSON pointer `pointer`, for diagnostics.
