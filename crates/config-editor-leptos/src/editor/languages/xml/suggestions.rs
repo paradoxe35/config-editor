@@ -620,8 +620,10 @@ pub(super) fn required_children(branch: &Value) -> Vec<(String, &Value)> {
         .collect()
 }
 
+/// Text as element content: a carriage return as a reference, since XML
+/// reads a raw one as a line feed.
 pub(super) fn escape_text(text: &str) -> String {
-    text.replace('&', "&amp;").replace('<', "&lt;")
+    text.replace('&', "&amp;").replace('<', "&lt;").replace('\r', "&#13;")
 }
 
 pub(super) fn escape_attribute(text: &str) -> String {

@@ -181,6 +181,15 @@ pub fn view(many: bool) -> impl IntoView {
             close(&request.id);
         }
     };
+    // The asked document's file name, as its tab shows it.
+    let asking_name = Signal::derive(move || {
+        let id = asking.get().unwrap_or_default();
+        documents.with(|list| {
+            list.iter()
+                .find(|document| document.id == id)
+                .map_or(id.clone(), |document| document.file_name.clone())
+        })
+    });
     let discard = move || {
         if let Some(id) = asking.get() {
             close(&id);
@@ -264,7 +273,7 @@ pub fn view(many: bool) -> impl IntoView {
             <p class="demo__visually-hidden demo__announcement" role="status" aria-live="polite">
                 {move || announcement.get()}
             </p>
-            <UnsavedDialog asking=asking discard=discard />
+            <UnsavedDialog asking=asking name=asking_name discard=discard />
             <ConfigDocuments
                 documents=documents
                 handle=tabs

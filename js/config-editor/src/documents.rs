@@ -1,14 +1,17 @@
 //! Documents without an editor: parsing into plain data and writing it back,
 //! where a field is written, which field an index is on, and what folds.
-//! The same answers as an editor's `rangeOf` and `pathAt`.
+//! The same answers as an editor's `rangeOf` and `pathAt`. Lines and
+//! columns are in the document (a leading byte order mark is none of it);
+//! string indices in the text given.
 
 use wasm_bindgen::prelude::*;
 
 use crate::languages::language_named;
+use crate::text_lines::{TextLines, document};
 use crate::typings::{Data, PathResult, RangeResult, RangeResults};
 use crate::values::{
-    index_arg, json_from_js, json_to_js, path_at_index, path_from_js, path_to_js, range_to_js,
-    ranges_to_js, text_arg,
+    index_arg, json_from_js, json_to_js, path_from_js, path_to_js, range_to_js, ranges_to_js,
+    text_arg,
 };
 
 /// Parses `text` into plain data (objects, arrays, strings, numbers,
@@ -21,7 +24,7 @@ pub fn parse(
 ) -> Result<Data, JsError> {
     let language = language_named(&text_arg(&language, "language")?)?;
     let value = language
-        .parse(&text_arg(&text, "text")?)
+        .parse(document(&text_arg(&text, "text")?))
         .map_err(|error| JsError::new(&error.to_string()))?;
     Ok(json_to_js(&value).unchecked_into())
 }
@@ -55,10 +58,8 @@ pub fn range_of(
     let language = language_named(&text_arg(&language, "language")?)?;
     let text = text_arg(&text, "text")?;
     let path = path_from_js(&path)?;
-    Ok(language
-        .range_of(&text, path)
-        .map_or(JsValue::NULL, |range| range_to_js(&text, range))
-        .unchecked_into())
+    let range = language.range_of(document(&text), path);
+    Ok(range_to_js(&TextLines::new(&text), range).unchecked_into())
 }
 
 /// [`rangeOf`](range_of) for each of `paths`, in order: the text read once
@@ -79,11 +80,12 @@ pub fn ranges_of(
         .iter()
         .map(|path| path_from_js(&path))
         .collect::<Result<Vec<_>, _>>()?;
-    let ranges = language.ranges_of(&text, paths);
+    let ranges = language.ranges_of(document(&text), paths);
     Ok(ranges_to_js(&text, &ranges).unchecked_into())
 }
 
-/// The path of what `text` holds at string index `index`: the key under or
+/// The path of what `text` holds at string index `index` (in `text`, a
+/// byte order mark counted): the key under or
 /// just before it, else the value or container holding it (`""` at the top
 /// level); `null` past the end of the text.
 #[wasm_bindgen(js_name = pathAt)]
@@ -95,9 +97,11 @@ pub fn path_at(
     let language = language_named(&text_arg(&language, "language")?)?;
     let text = text_arg(&text, "text")?;
     let index = index_arg(&index, "index")?;
-    Ok(
-        path_at_index(&text, index, |position| language.path_at(&text, position))
-            .map_or(JsValue::NULL, |path| path_to_js(&path))
-            .unchecked_into(),
-    )
+    let lines = TextLines::new(&text);
+    let path = (index <= lines.units())
+        .then(|| language.path_at(document(&text), lines.position(index)))
+        .flatten();
+    Ok(path
+        .map_or(JsValue::NULL, |path| path_to_js(&path))
+        .unchecked_into())
 }

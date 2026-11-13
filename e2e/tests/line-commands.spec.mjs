@@ -99,12 +99,19 @@ const FOLDED = {
 // Whether a folded construct closes on a line of its own shown below the
 // fold (`}`, an end tag): the folded line goes with it, as a cut takes it.
 const CLOSES = { yaml: 0, json: 1, toml: 0, hcl: 1, xml: 1 };
+// The lines of the constructs right below and above the fold (`spec:` and
+// its child, HCL's `output` and `variable` blocks), which the folded line
+// moves past whole, not into.
+const NEXT = { yaml: 2, json: 1, toml: 1, hcl: 3, xml: 1 };
+const PREVIOUS = { yaml: 1, json: 1, toml: 1, hcl: 3, xml: 1 };
 
 /**
  * What a command makes of `text` with lines `first..last` (one-based) one
  * unit: the text, and where the fold's header is then (`null`: gone).
+ * `next`, `previous`: the lines of the constructs below and above it,
+ * which it moves past whole.
  */
-function expected(text, [first, last], at, key) {
+function expected(text, [first, last], at, key, [next, previous] = [1, 1]) {
   const lines = text.slice(0, -1).split("\n");
   const block = lines.slice(first - 1, last);
   const size = block.length;
@@ -114,11 +121,19 @@ function expected(text, [first, last], at, key) {
   if (at === "header") {
     switch (key) {
       case "Alt+ArrowDown":
-        return [join([before, after[0], block, after.slice(1)]), first + 1];
+        return [
+          join([before, after.slice(0, next), block, after.slice(next)]),
+          first + next,
+        ];
       case "Alt+ArrowUp":
         return [
-          join([before.slice(0, -1), block, before.at(-1), after]),
-          first - 1,
+          join([
+            before.slice(0, -previous),
+            block,
+            before.slice(-previous),
+            after,
+          ]),
+          first - previous,
         ];
       case "Shift+Alt+ArrowDown":
         return [join([before, block, block, after]), first + size];
@@ -176,7 +191,10 @@ test.describe("a closed fold is one unit", () => {
           await page.keyboard.press("End");
         }
         await page.keyboard.press(key);
-        const [want, folded] = expected(value, [header, last], at, key);
+        const [want, folded] = expected(value, [header, last], at, key, [
+          NEXT[language],
+          PREVIOUS[language],
+        ]);
         // The document (the textarea shows it with the folded lines out).
         await expect.poll(() => saved(page), `${at} ${key}`).toBe(want);
         if (folded !== null)

@@ -142,6 +142,7 @@ fn type_over_closer(state: EditorState, event: &KeyboardEvent, start: usize, typ
                 .is_none()
         {
             event.prevent_default();
+            stepped_over(state, event, start, start + 1);
             state.place_caret(start + 1);
             return true;
         }
@@ -175,11 +176,20 @@ fn type_over_closer(state: EditorState, event: &KeyboardEvent, start: usize, typ
             ..closer
         });
     }
+    stepped_over(state, event, start, next);
     state.place_caret(next);
     // The value or container is finished: its suggestions are done too.
     state.close_suggestions();
     state.completion().explicit.set(false);
     true
+}
+
+/// Typing goes on past a closer typed over, in one undo step.
+fn stepped_over(state: EditorState, event: &KeyboardEvent, from: usize, to: usize) {
+    state
+        .doc()
+        .history
+        .update(|history| history.stepped_over(from, to, event.time_stamp()));
 }
 
 /// A closer typed where the same one already follows: the `}` the editor

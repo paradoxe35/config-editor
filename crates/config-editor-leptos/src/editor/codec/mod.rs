@@ -32,7 +32,7 @@ pub(super) use renames::{patch_renames, patch_scalar_to_container, with_renames_
 pub(super) use reorder::{patch_reorder, unmoved_comments};
 pub(super) use steps::steps;
 
-use super::completion::{conform_arrays, type_texts};
+use super::completion::{conform_arrays, conform_typed_arrays, type_texts};
 use super::flow_syntax::Flow;
 use super::language::{ConfigLanguage, ParseError, Repetition, Scalars, Span};
 use serde_json::Value;
@@ -86,32 +86,58 @@ impl std::error::Error for ConvertError {}
 /// Parses `source` as `schema` expects it: in a language that writes every
 /// scalar as text, each one typed by the schema (see `text_typing`), and
 /// in a language that repeats keys for arrays, lone values read as the
-/// arrays the schema wants.
+/// arrays the schema wants; from the last reading of the same text (see
+/// `parse_cache`).
 pub(super) fn read(
     language: &dyn ConfigLanguage,
     source: &str,
     schema: Option<&Value>,
 ) -> Result<Value, ParseError> {
-    match schema {
-        Some(schema) if language.scalars() == Scalars::Text => {
-            let mut value = super::parse_cache::parse_text(language, source)?;
-            by_schema(language, &mut value, schema);
-            Ok(value)
-        }
-        Some(schema) if language.repetition() != Repetition::None => {
-            let mut value = super::parse_cache::parse(language, source)?;
-            conform_arrays(&mut value, schema, language.repetition());
-            Ok(value)
-        }
-        _ => super::parse_cache::parse(language, source),
+    let shaped = language.scalars() == Scalars::Text || language.repetition() != Repetition::None;
+    match schema.filter(|_| shaped) {
+        Some(schema) => super::parse_cache::conformed(language, source, schema, |value| {
+            by_schema(language, value, schema);
+        }),
+        None => super::parse_cache::parse(language, source),
     }
 }
 
-/// `value`, as `language.parse_text` read it, typed and shaped by `schema`.
+/// `value`, as the language reads it for a schema (`parse_text` for one
+/// whose scalars are text), typed and shaped by `schema`.
 pub(super) fn by_schema(language: &dyn ConfigLanguage, value: &mut Value, schema: &Value) {
-    type_texts(value, schema, schema, language);
-    if language.repetition() != Repetition::None {
+    if language.scalars() == Scalars::Text {
+        type_texts(value, schema, schema, language);
+        if language.repetition() != Repetition::None {
+            conform_typed_arrays(value, schema, language.repetition());
+        }
+    } else if language.repetition() != Repetition::None {
         conform_arrays(value, schema, language.repetition());
+    }
+}
+
+/// Whether `source` may be saved in `language`, its own: it reads, or
+/// all that stands in the way are numbers the editor cannot hold exactly
+/// that the language allows (see [`ConfigLanguage::unheld_number`]), each
+/// read as `0` to find the next.
+pub(super) fn saves_in_own_language(language: &dyn ConfigLanguage, source: &str) -> bool {
+    let mut error = match read(language, source, None) {
+        Ok(_) => return true,
+        Err(error) => error,
+    };
+    let mut text = source.to_string();
+    loop {
+        let Some(range) = language.unheld_number(&text, &error) else {
+            return false;
+        };
+        if range.is_empty() || text[range.clone()] == *"0" {
+            return false;
+        }
+        text.replace_range(range, "0");
+        // Read aside: the stand-in does not push out the text on screen.
+        match language.parse(&text) {
+            Ok(_) => return true,
+            Err(next) => error = next,
+        }
     }
 }
 

@@ -25,7 +25,7 @@ use crate::options::{bool_option, function_option, string_option, warn_unknown_o
 use crate::settings::{settings_from, settings_over, settings_result};
 use crate::told::{self, Told};
 use crate::typings::{DocumentEditorResult, DocumentsOptions, DocumentsUpdate, SettingsResult};
-use crate::update::{callback_change, given, plain_object, refuse_remount, settings_change};
+use crate::update::{Fixed, callback_change, given, plain_object, refuse_remount, settings_change};
 use crate::values::{diagnostics_to_js, field, text_arg, to_js};
 
 mod echoing;
@@ -537,7 +537,14 @@ impl ConfigDocuments {
             owner,
             id: std::cell::Cell::new(Some(id)),
             reentry: crate::reentry::Reentry::default(),
-            built_from: crate::update::BuiltFrom::of(&options, DOCUMENTS_REMOUNT_OPTIONS),
+            built_from: crate::update::BuiltFrom::of(
+                &options,
+                vec![
+                    Fixed::or("className", vec![JsValue::from_str("")]),
+                    Fixed::plain("label"),
+                    Fixed::or("echoes", vec![JsValue::FALSE]),
+                ],
+            ),
         })
     }
 
@@ -716,7 +723,8 @@ impl ConfigDocuments {
     /// focus where it is (an id not listed throws). `className`, `label` and `echoes`, and an `onClose` or
     /// `onAdd` for a view mounted without one (its tabs have no close
     /// buttons, its strip no "+"), throw: create a new view instead (the value the
-    /// view was built with, given again, changes nothing). Every key is checked before any applies.
+    /// view was built with, given again, changes nothing; one left out was built with its default:
+    /// `null`, `echoes: false`, `className: ""`). Every key is checked before any applies.
     pub fn update(&self, options: DocumentsUpdate) -> Result<(), JsError> {
         let options: JsValue = options.into();
         plain_object(
@@ -795,7 +803,9 @@ impl ConfigDocuments {
                 let edits = self.edits();
                 for document in &mut listed.documents {
                     if replaced.contains(&document.id.as_str())
-                        && let Some(value) = edits.get(&document.id)
+                        && let Some(value) = edits
+                            .get(&document.id)
+                            .and_then(|edited| edited.value.as_ref())
                     {
                         document.value.clone_from(value);
                     }
@@ -886,9 +896,9 @@ impl ConfigDocuments {
         Ok(())
     }
 
-    /// The text each shown document's editor holds (pending input
-    /// applied), for [`keep_edits`].
-    fn edits(&self) -> HashMap<String, String> {
+    /// What each open document holds that its list may not say, for
+    /// [`keep_edits`].
+    fn edits(&self) -> HashMap<String, Edited> {
         let ids: Vec<String> = self
             .state
             .documents
@@ -901,8 +911,13 @@ impl ConfigDocuments {
             .unwrap_or_default();
         ids.into_iter()
             .filter_map(|id| {
-                let value = self.state.handle.editor(&id)?.value()?;
-                Some((id, value))
+                let edit_as = config_editor_leptos::js_support::edit_as(&self.state.handle, &id)?;
+                let value = self
+                    .state
+                    .handle
+                    .editor(&id)
+                    .and_then(|editor| editor.value());
+                Some((id, Edited { value, edit_as }))
             })
             .collect()
     }
@@ -963,14 +978,26 @@ impl ConfigDocuments {
     }
 }
 
-/// Lists each shown document with the text its editor holds (`edits`): a
-/// list the view gives its documents again (a `replaceValue` of another
-/// one, the view's settings) is no discard of their edits, as a list the
-/// host gives is.
-fn keep_edits(documents: &mut [Document], edits: &HashMap<String, String>) {
+/// What an open document holds that its list may not say.
+struct Edited {
+    /// The text its editor holds (pending input applied), once shown.
+    value: Option<String>,
+    /// The language it is edited as, as its list or `editAs` asked last.
+    edit_as: Option<config_editor_leptos::Language>,
+}
+
+/// Lists each document with the text its editor holds and the language it
+/// is edited as (`edits`): a list the view gives its documents again (a
+/// `replaceValue` of another one, the view's settings) is no discard of
+/// their edits, nor of an `editAs` the handle made (QA 30, L30-4), as a
+/// list the host gives is.
+fn keep_edits(documents: &mut [Document], edits: &HashMap<String, Edited>) {
     for document in documents {
-        if let Some(value) = edits.get(&document.id) {
-            document.value.clone_from(value);
+        if let Some(edited) = edits.get(&document.id) {
+            if let Some(value) = &edited.value {
+                document.value.clone_from(value);
+            }
+            document.edit_as = edited.edit_as;
         }
     }
 }

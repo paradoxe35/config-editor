@@ -34,9 +34,11 @@ impl EditorState {
             return false;
         }
         // A converted view's host text parses already; the host's own
-        // language is read here: a save never sends text its reader refuses.
+        // language is read here: a save never sends text its reader refuses
+        // (a number the editor cannot hold exactly, which the language
+        // allows, saves).
         let document = document.filter(|text| {
-            self.bridge().is_some() || codec::read(self.behavior(), text, None).is_ok()
+            self.bridge().is_some() || codec::saves_in_own_language(self.behavior(), text)
         });
         match document {
             Some(text) => {

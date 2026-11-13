@@ -65,6 +65,7 @@ fn run(text: &str, line: &str, command: LineCommand) -> String {
     let none = Folded {
         folds: &[],
         units: &[],
+        neighbors: &[],
     };
     line_edit(text, (at, at), command, none)
         .expect("an edit")
@@ -165,4 +166,42 @@ fn a_key_holding_a_lock_moved_out_of_its_object_is_refused() {
     let moved = run(text, "  \"web\"", LineCommand::Move { down: false });
     assert!(moved.starts_with("  \"web\": {\n{\n"), "{moved}");
     assert!(!allowed(Language::JSON, text, &moved, pointer), "{moved}");
+}
+
+/// YAML: a locked field on a list item's first line (`- id: 7`) stays
+/// above the item's other keys: the line moved below one of them, or one
+/// of them moved above it, leaves the item's keys outside it (it went
+/// through, the text then broken). Its siblings reordered, or moved past
+/// the item's end, stay free.
+#[test]
+fn a_locked_key_on_a_list_items_first_line_stays_above_its_keys() {
+    let text = "list:\n  - id: 7\n    n: a\n    m: b\n  - n: c\n";
+    let pointer = "/list/0/id";
+    let down = LineCommand::Move { down: true };
+    let up = LineCommand::Move { down: false };
+    let refused = [
+        (
+            "the locked line moved below a key",
+            run(text, "  - id", down),
+        ),
+        ("a key moved above it", run(text, "    n: a", up)),
+    ];
+    let mut failures: Vec<String> = refused
+        .iter()
+        .filter(|(_, after)| allowed(Language::YAML, text, after, pointer))
+        .map(|(name, after)| format!("{name} let through:\n{after}"))
+        .collect();
+    let free = [
+        ("its keys reordered", run(text, "    n: a", down)),
+        (
+            "its last key moved past the item",
+            run(text, "    m: b", down),
+        ),
+    ];
+    failures.extend(
+        free.iter()
+            .filter(|(_, after)| !allowed(Language::YAML, text, after, pointer))
+            .map(|(name, after)| format!("{name} refused:\n{after}")),
+    );
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
 }

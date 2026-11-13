@@ -161,6 +161,29 @@ test.describe('a drag near a closed fold is one move', () => {
     });
   }
 
+  // The closing line a closed fold leaves shown (`},`, `</server>`): taken
+  // away, the fold would run to another closer and the textarea be written
+  // again under the drag, its drop landing at the text's start. The drag is
+  // refused, whole (round 30's `E30-4`).
+  for (const language of ['json', 'hcl', 'xml']) {
+    const { text, fold, header, plain } = CASES[language];
+    for (const [where, target] of [
+      ["the fold's header end", (shown) => [header, shown[header].length]],
+      ['a line above', (shown) => [plain, shown[plain].length]],
+    ]) {
+      test(`${language}: the fold's closing line dragged to ${where} is refused`, async ({ page }) => {
+        await open(page);
+        await mount(page, { language, value: text });
+        expect(await page.evaluate((fold) => window.qa.fold(fold), fold)).toBe(true);
+        const shown = (await input(page).inputValue()).split('\n');
+        await select(page, header + 1, 0, Infinity);
+        await drag(page, [header + 1, 1], target(shown));
+        await expect.poll(() => page.evaluate(() => window.qa.value)).toBe(text);
+        expect(await saveNow(page)).toBe(text);
+      });
+    }
+  }
+
   test('control: without folds the line moves, one undo step', async ({ page }) => {
     await open(page);
     const text = 'a: 1\nb: 2\nc: 3\n';

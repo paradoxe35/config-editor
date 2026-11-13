@@ -24,20 +24,20 @@ use super::super::state::EditorState;
 use super::super::test_state::TestEditor;
 
 /// The locked value's text, once in each sample.
-const VALUE: &str = "512";
+pub(super) const VALUE: &str = "512";
 
 /// A document with a block (`parent`) holding the field `leaf`, whose
 /// value is [`VALUE`]; the lines are given whole.
-struct Sample {
-    text: &'static str,
-    leaf: &'static str,
-    parent: &'static str,
-    leaf_line: &'static str,
-    header_line: &'static str,
+pub(super) struct Sample {
+    pub(super) text: &'static str,
+    pub(super) leaf: &'static str,
+    pub(super) parent: &'static str,
+    pub(super) leaf_line: &'static str,
+    pub(super) header_line: &'static str,
     end_line: &'static str,
 }
 
-fn sample(language: Language) -> Sample {
+pub(super) fn sample(language: Language) -> Sample {
     match language.label() {
         "YAML" => Sample {
             text: "name: demo\nserver:\n  listen: 7835\n  limits:\n    burst: 4\n    max_pending: 512\n    idle: 30\n  tags:\n    - a\ntail: x\n",
@@ -84,7 +84,7 @@ fn sample(language: Language) -> Sample {
 
 /// How the field is locked.
 #[derive(Clone, Copy, Debug)]
-enum Kind {
+pub(super) enum Kind {
     LeafPath,
     LeafSchema,
     RangeOverValue,
@@ -94,6 +94,14 @@ enum Kind {
     RangeOverBlock,
     RangeOverHeader,
 }
+
+/// The ways the leaf alone is locked.
+pub(super) const KINDS_OF_LEAF: [Kind; 4] = [
+    Kind::LeafPath,
+    Kind::LeafSchema,
+    Kind::RangeOverValue,
+    Kind::RangeOverLine,
+];
 
 const KINDS: [Kind; 8] = [
     Kind::LeafPath,
@@ -149,7 +157,7 @@ fn schema(pointer: &str) -> std::sync::Arc<super::super::diagnostics::SchemaBund
     std::sync::Arc::new(bundle)
 }
 
-fn mount(language: Language, kind: Kind) -> (Owner, EditorState) {
+pub(super) fn mount(language: Language, kind: Kind) -> (Owner, EditorState) {
     let sample = sample(language);
     let text = sample.text;
     let range =
@@ -176,7 +184,7 @@ fn mount(language: Language, kind: Kind) -> (Owner, EditorState) {
     editor.mount()
 }
 
-fn units(text: &str, at: usize) -> usize {
+pub(super) fn units(text: &str, at: usize) -> usize {
     text[..at].encode_utf16().count()
 }
 
@@ -230,7 +238,7 @@ fn press(
 
 /// Where `VALUE` is written in `text` and a digit typed into it is let
 /// through.
-fn typed_into(state: EditorState) -> Vec<usize> {
+pub(super) fn typed_into(state: EditorState) -> Vec<usize> {
     let text = state.doc().text.get_untracked();
     let mut taken = Vec::new();
     for (found, _) in text.match_indices(VALUE) {

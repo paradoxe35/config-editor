@@ -190,6 +190,7 @@ pub(crate) fn branches_for<'a>(
         Visit(&'a Value),
         Emit(&'a Value),
     }
+    crate::editor::work_count::note(crate::editor::work_count::Work::BranchWalk);
     let ref_alone = refs_stand_alone(root);
     let mut seen: HashSet<*const Value> = HashSet::new();
     let mut branches = Vec::new();
@@ -362,9 +363,15 @@ pub(crate) fn child_schemas_in<'a>(
     segment: &SchemaPathSegment,
     instance: Option<&Value>,
 ) -> Vec<&'a Value> {
-    let branches = branches_for(schema, root, instance);
+    children_of(&branches_for(schema, root, instance), segment)
+}
+
+/// The schemas of one child (a key or an array item) of a value whose
+/// schema's branches are `branches` (see [`branches_for`]): a walk taking
+/// every child of one value resolves its branches once.
+fn children_of<'a>(branches: &[&'a Value], segment: &SchemaPathSegment) -> Vec<&'a Value> {
     let mut next = Vec::new();
-    for branch in &branches {
+    for branch in branches {
         let named = named_properties(branch, &segment.as_key());
         let item = segment
             .as_index()
@@ -409,7 +416,7 @@ pub(crate) fn child_schemas_in<'a>(
 /// The schema of item `index` of an array of `branch`: its tuple position
 /// (`prefixItems`, or up to draft-07 an `items` list), else the schema of
 /// the other items (`items`, or after a draft-07 tuple `additionalItems`).
-fn item_schema(branch: &Value, index: usize) -> Option<&Value> {
+pub(crate) fn item_schema(branch: &Value, index: usize) -> Option<&Value> {
     let tuple = |keyword: &str| branch.get(keyword).and_then(Value::as_array);
     if let Some(positions) = tuple("prefixItems") {
         return positions
@@ -447,7 +454,13 @@ pub(crate) fn named_properties<'a>(branch: &'a Value, key: &str) -> Vec<&'a Valu
 /// where only an array is allowed becomes a one-item array (a single XML
 /// `<dns>` element is `dns: [...]`).
 pub(crate) fn conform_arrays(value: &mut Value, schema: &Value, repetition: Repetition) {
-    conform(value, schema, schema, repetition, 0);
+    conform(value, schema, schema, repetition, 0, false);
+}
+
+/// [`conform_arrays`] of a value whose text scalars the schema typed
+/// already (see `text_typing`): they are not guessed again.
+pub(crate) fn conform_typed_arrays(value: &mut Value, schema: &Value, repetition: Repetition) {
+    conform(value, schema, schema, repetition, 0, true);
 }
 
 pub(super) fn conform(
@@ -456,6 +469,7 @@ pub(super) fn conform(
     root: &Value,
     repetition: Repetition,
     depth: usize,
+    typed: bool,
 ) {
     if depth > 64 {
         return;
@@ -469,17 +483,24 @@ pub(super) fn conform(
     // XML text that looks like a number, boolean, or `null` is a string
     // where only a string is allowed (`<public_address>123</…>`).
     if repetition == Repetition::Elements
+        && !typed
         && matches!(value, Value::Number(_) | Value::Bool(_) | Value::Null)
         && !branches.iter().any(|branch| accepts(branch, value))
         && branches
             .iter()
             .any(|branch| type_includes(branch, "string"))
     {
-        let text = match &*value {
-            Value::Null => "null".to_string(),
-            other => other.to_string(),
-        };
-        *value = Value::String(text);
+        *value = Value::String(scalar_text(value));
+    }
+    // Likewise where the values allowed are listed (`const`, `enum`) as
+    // strings, untyped: `<v>1.3</v>` is the `"1.3"` listed. (XML reads a
+    // number only from text it writes back unchanged: `1.3`, not `1.30`.)
+    if repetition == Repetition::Elements
+        && !typed
+        && matches!(value, Value::Number(_) | Value::Bool(_) | Value::Null)
+        && listed_as_strings(&branches, value)
+    {
+        *value = Value::String(scalar_text(value));
     }
     // An empty XML element reads as `{}`; where the schema wants text it is
     // the empty string.
@@ -500,25 +521,55 @@ pub(super) fn conform(
     if wants_array && repeatable && !branches.iter().any(|branch| accepts(branch, value)) {
         *value = Value::Array(vec![value.take()]);
     }
+    // Each child's schemas from the branches resolved above.
     match value {
         Value::Array(items) => {
             for (index, item) in items.iter_mut().enumerate() {
-                for item_schema in child_schemas(schema, root, &SchemaPathSegment::ArrayItem(index))
-                {
-                    conform(item, item_schema, root, repetition, depth + 1);
+                for item_schema in children_of(&branches, &SchemaPathSegment::ArrayItem(index)) {
+                    conform(item, item_schema, root, repetition, depth + 1, typed);
                 }
             }
         }
         Value::Object(map) => {
             for (key, child) in map.iter_mut() {
                 let segment = SchemaPathSegment::Key(key.clone());
-                for child_schema in child_schemas(schema, root, &segment) {
-                    conform(child, child_schema, root, repetition, depth + 1);
+                for child_schema in children_of(&branches, &segment) {
+                    conform(child, child_schema, root, repetition, depth + 1, typed);
                 }
             }
         }
         _ => {}
     }
+}
+
+/// A scalar as XML text writes it.
+fn scalar_text(value: &Value) -> String {
+    match value {
+        Value::Null => "null".to_string(),
+        other => other.to_string(),
+    }
+}
+
+/// Whether `branches` list the values allowed (`const`, `enum`), `value`
+/// is not one of them, and they are strings: its text, or all of them.
+fn listed_as_strings(branches: &[&Value], value: &Value) -> bool {
+    let listed: Vec<&Value> = branches
+        .iter()
+        .flat_map(|branch| {
+            branch.get("const").into_iter().chain(
+                branch
+                    .get("enum")
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten(),
+            )
+        })
+        .collect();
+    let text = scalar_text(value);
+    !listed.is_empty()
+        && !listed.contains(&value)
+        && (listed.iter().any(|allowed| allowed.as_str() == Some(&text))
+            || listed.iter().all(|allowed| allowed.is_string()))
 }
 
 /// Whether one resolved branch allows `value`'s kind as it is.

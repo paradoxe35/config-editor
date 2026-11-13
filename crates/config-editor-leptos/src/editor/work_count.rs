@@ -146,6 +146,18 @@ pub(crate) enum Work {
     /// (`keyboard::utf16_to_byte_index`): ASCII is passed a block at a
     /// time.
     CharacterStep,
+    /// A byte of a whole document's value read the way a schema expects
+    /// (`completion::conform_arrays`: lone values where only a list is
+    /// allowed made lists; one note per byte of its text, see
+    /// [`note_many`]), as a host that repeats keys for lists reads a text.
+    ConformedBytes,
+    /// A schema's branches resolved (`completion::branches_for`): its
+    /// references, combinators and conditionals walked.
+    BranchWalk,
+    /// A byte of a text passed from its top to find where a UTF-16 offset
+    /// is (`keyboard::utf16_to_byte_index`, outside a batch that splits
+    /// its lines once; one note per byte).
+    OffsetSeek,
 }
 
 impl Work {
@@ -184,13 +196,60 @@ impl Work {
             Self::RowText => 29,
             Self::SuggestionRow => 30,
             Self::CharacterStep => 31,
+            Self::ConformedBytes => 32,
+            Self::BranchWalk => 33,
+            Self::OffsetSeek => 34,
         }
     }
+
+    /// Every kind, for a test counting them all ([`counted_all`]).
+    #[cfg(test)]
+    pub(crate) const ALL: [Self; KINDS] = [
+        Self::DocumentRead,
+        Self::PathLookup,
+        Self::LineSplit,
+        Self::SpanScan,
+        Self::ElementPath,
+        Self::MarkerComparison,
+        Self::TokenScan,
+        Self::StringBodies,
+        Self::CompletionContext,
+        Self::Spanning,
+        Self::FoldRanges,
+        Self::LineDiff,
+        Self::LexicalState,
+        Self::IndentUnit,
+        Self::SpanLookup,
+        Self::FlowEntry,
+        Self::UngroupedParse,
+        Self::Statements,
+        Self::OffsetBytes,
+        Self::LineSeek,
+        Self::KeyScan,
+        Self::ParsedBytes,
+        Self::ConstructScan,
+        Self::ExpressionLookup,
+        Self::MergeKeyVisit,
+        Self::ItemComparison,
+        Self::HoverLookup,
+        Self::TabNameVisit,
+        Self::PlaceLookup,
+        Self::RowText,
+        Self::SuggestionRow,
+        Self::CharacterStep,
+        Self::ConformedBytes,
+        Self::BranchWalk,
+        Self::OffsetSeek,
+    ];
 }
+
+/// How many kinds of work there are.
+#[cfg(test)]
+const KINDS: usize = 35;
 
 #[cfg(test)]
 thread_local! {
-    static COUNTS: std::cell::Cell<[usize; 32]> = const { std::cell::Cell::new([0; 32]) };
+    static COUNTS: std::cell::Cell<[usize; KINDS]> = const { std::cell::Cell::new([0; KINDS]) };
 }
 
 /// `work` is starting (counted on this thread in tests).
@@ -228,9 +287,22 @@ pub(crate) fn counted<T>(work: Work, run: impl FnOnce() -> T) -> (T, usize) {
     (result, after - before)
 }
 
+/// Runs `run` and returns its result and how many times it started each
+/// kind of work, by [`Work::index`] (see [`Work::ALL`]).
+#[cfg(test)]
+pub(crate) fn counted_all<T>(run: impl FnOnce() -> T) -> (T, [usize; KINDS]) {
+    let before = COUNTS.with(std::cell::Cell::get);
+    let result = run();
+    let after = COUNTS.with(std::cell::Cell::get);
+    (
+        result,
+        std::array::from_fn(|kind| after[kind] - before[kind]),
+    )
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{Work, counted, note};
+    use super::{KINDS, Work, counted, counted_all, note};
 
     #[test]
     fn counts_only_the_work_asked_inside_the_run() {
@@ -243,5 +315,15 @@ mod tests {
         assert_eq!(reads, 2);
         let ((), lookups) = counted(Work::PathLookup, || note(Work::PathLookup));
         assert_eq!(lookups, 1);
+    }
+
+    #[test]
+    fn counting_all_kinds_lists_each_by_its_place() {
+        for (place, work) in Work::ALL.into_iter().enumerate() {
+            assert_eq!(work.index(), place, "{work:?}");
+            let ((), counts) = counted_all(|| note(work));
+            let expected: [usize; KINDS] = std::array::from_fn(|kind| usize::from(kind == place));
+            assert_eq!(counts, expected, "{work:?}");
+        }
     }
 }

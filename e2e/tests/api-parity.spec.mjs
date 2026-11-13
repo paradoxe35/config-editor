@@ -227,6 +227,7 @@ const CONFIG_LANGUAGE = {
   members_in_order: { exempt: SAVE_FORMS },
   entries_apart: { exempt: SAVE_FORMS },
   entries_together: { exempt: SAVE_FORMS },
+  unheld_number: { exempt: RUST_ONLY_REFINEMENT },
   edits_one_scalar: { exempt: 'a speed-up for locks away from an edit; without it (a custom language) every edit reads the document through `parse` while anything is locked' },
 };
 
@@ -389,6 +390,7 @@ const CRATE_EXPORTS = {
 // Options of `ConfigEditor` / `ConfigDocuments` that no Rust prop maps to
 // and no component has, and why.
 const OPTIONS_JS_ONLY = {
+  rangesFor: 'says which text the ranges were given for (a text the document has moved past): in Rust the ranges props are signals the host sets for the document; a component\'s binding passes its bound value',
   echoes: 'a host handing every `onChange` text back through `update`: in Rust the `value` prop is a signal the host sets, with no echo to tell apart; a component\'s binding tells its parent\'s echoes apart itself (`ValueSync`)',
 };
 const DOCUMENTS_OPTIONS_JS_ONLY = {
@@ -396,9 +398,7 @@ const DOCUMENTS_OPTIONS_JS_ONLY = {
 };
 
 // `update` keys of `ConfigEditor` that are no option, and why.
-const UPDATE_ONLY = {
-  rangesFor: 'says which text an update\'s ranges were given for (a text the user typed past): the editor is built on the text it is given; a component\'s binding passes its bound value',
-};
+const UPDATE_ONLY = {};
 
 // Instance members of `ConfigEditor` / `ConfigDocuments` that a component
 // does not expose, and why.

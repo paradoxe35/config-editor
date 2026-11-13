@@ -93,7 +93,10 @@ impl EditorState {
             element.set_scroll_top(top);
             element.set_scroll_left(left);
         }
-        self.commit(Edit::new(before, selection, text, caret));
+        if self.commit(Edit::new(before, selection, text, caret)) {
+            let said = self.strings_untracked(|strings| strings.reverted.clone());
+            self.a11y().announce(said);
+        }
     }
 
     /// Moves the caret to the start of the next (or previous) change,
@@ -124,6 +127,8 @@ impl EditorState {
                 .map_or(1, |index| index + 1);
             Some((line, peek, position, line_diff.hunks.len()))
         }) else {
+            let said = self.strings_untracked(|strings| strings.no_changes.clone());
+            self.a11y().announce(said);
             return;
         };
         self.focus_at(line + 1, 1);

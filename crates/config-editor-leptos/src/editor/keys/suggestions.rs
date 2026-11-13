@@ -3,7 +3,7 @@
 use leptos::prelude::*;
 use web_sys::KeyboardEvent;
 
-use super::super::completion::{apply_completion, scroll_completion_into_view};
+use super::super::completion::apply_completion;
 use super::super::keyboard::utf16_to_byte_index;
 use super::super::state::EditorState;
 
@@ -28,6 +28,7 @@ pub(super) fn request(state: EditorState, event: &KeyboardEvent) -> bool {
         state.completion().replace_word.set(true);
     }
     state.completion().active.set(0);
+    state.completion().asked.set_value(true);
     state.completion().explicit.set(true);
     state.completion().requested.set(true);
     // Nothing to list where the text is protected (a secret placeholder):
@@ -127,6 +128,6 @@ pub(super) fn list_keys(state: EditorState, event: &KeyboardEvent) -> bool {
     };
     event.prevent_default();
     state.completion().active.set(next);
-    scroll_completion_into_view(state, next);
+    state.completion().asked.set_value(true);
     true
 }

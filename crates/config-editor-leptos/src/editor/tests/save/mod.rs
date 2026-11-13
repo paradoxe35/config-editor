@@ -141,6 +141,14 @@ mod number_forms;
     feature = "hcl",
     feature = "xml"
 ))]
+mod pause_reads;
+#[cfg(all(
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
 mod read_back;
 #[cfg(all(
     feature = "yaml",
@@ -174,6 +182,14 @@ mod splice;
     feature = "xml"
 ))]
 mod tags;
+#[cfg(all(
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod toml_tables;
 #[cfg(all(
     feature = "yaml",
     feature = "json",
@@ -278,6 +294,14 @@ mod xml_prefixes;
     feature = "xml"
 ))]
 mod xml_strings;
+#[cfg(all(
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod xml_tag_layout;
 #[cfg(all(
     feature = "yaml",
     feature = "json",

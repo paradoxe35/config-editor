@@ -95,7 +95,7 @@ impl State {
     pub(super) fn given(&self, id: &str, value: &str) {
         let _ = self.echoes.try_update_value(|echoes| {
             if let Some(echo) = echoes.get_mut(id) {
-                echo.given(value);
+                echo.replaced(value);
             }
         });
     }

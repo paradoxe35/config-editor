@@ -21,6 +21,7 @@ test.skip(!built, 'js packages not built: run `npm run build` in js/');
 // instead (`cargo test -p config-editor-leptos strings`, `edit_as`,
 // `status_bar`, `protect`, `diagnostics`).
 const ELSEWHERE = {
+  noSuggestions: 'said only for a list the user asked for (Ctrl+Space or moving in it): completion-window.spec',
   infosOne: 'info-level problems come from hosts; counts are unit tested',
   infosOther: 'as infosOne',
   problemCode: 'a host problem with a code: a11y tests and host-diagnostics.spec',
@@ -65,6 +66,10 @@ const ELSEWHERE = {
   hoverLabel: 'the focused hover card: the qa-round25-a11y spec',
   problemTipLabel: 'the focused problem tip: the qa-round25-a11y spec',
   changePosition: 'Alt+F5 with a baseline: the qa-round25-a11y spec',
+  walkNoProblems: 'F8 with no problems: the qa-round30-a11y spec',
+  noChanges: 'Alt+F5 with no changes: the qa-round30-a11y spec',
+  reverted: 'reverting a change: the qa-round30-a11y spec',
+  reloaded: 'Reload in the changed-baseline notice: the qa-round30-a11y spec',
   foldedLines: 'fold commands: the qa-round25-a11y spec and folding change_tests',
   unfoldedLines: 'as foldedLines',
   foldedRanges: 'as foldedLines',
@@ -107,6 +112,7 @@ const ELSEWHERE = {
   keyDeprecated: 'schema help tests',
   keyDeprecatedInstead: 'schema help tests',
   notOneOf: 'diagnostics tests',
+  notFormat: 'a value out of its format (drafts 4 to 7): schema_message tests',
   noOptionMatches: 'a value matching no oneOf/anyOf option: schema_option_messages tests',
   severalOptionsMatch: 'as noOptionMatches',
   optionNeeds: 'as noOptionMatches',

@@ -444,35 +444,21 @@ pub(crate) fn range_out_to_js(range: TextRange, start: usize, end: usize) -> JsV
     })
 }
 
-pub(crate) fn range_to_js(text: &str, range: TextRange) -> JsValue {
-    to_js(&RangeOut {
-        start: range.start.to_offset(text),
-        end: range.end.to_offset(text),
-        start_line: range.start.line,
-        start_column: range.start.column,
-        end_line: range.end.line,
-        end_column: range.end.column,
+/// `range` (`null` for none) of the document in `text`, with its string
+/// indices in `text` (see `text_lines`).
+pub(crate) fn range_to_js(lines: &TextLines, range: Option<TextRange>) -> JsValue {
+    range.map_or(JsValue::NULL, |range| {
+        range_out_to_js(range, lines.offset(range.start), lines.offset(range.end))
     })
 }
 
-/// Each of `ranges` (`null` for none) as [`range_to_js`] writes it, the
-/// string indexes found from the text's lines split once (not by reading
-/// the text up to each).
+/// Each of `ranges` as [`range_to_js`] writes it, the string indexes found
+/// from the text's lines split once (not by reading the text up to each).
 pub(crate) fn ranges_to_js(text: &str, ranges: &[Option<TextRange>]) -> JsValue {
     let lines = TextLines::new(text);
-    let offset = |position: TextPosition| lines.offset(position);
     let out = Array::new();
     for range in ranges {
-        out.push(&range.map_or(JsValue::NULL, |range| {
-            to_js(&RangeOut {
-                start: offset(range.start),
-                end: offset(range.end),
-                start_line: range.start.line,
-                start_column: range.start.column,
-                end_line: range.end.line,
-                end_column: range.end.column,
-            })
-        }));
+        out.push(&range_to_js(&lines, *range));
     }
     out.into()
 }
@@ -555,19 +541,6 @@ pub(crate) fn index_arg(value: &JsValue, name: &str) -> Result<usize, JsError> {
         .filter(|index| index.is_finite() && *index >= 0.0 && index.fract() == 0.0)
         .map(|index| index as usize)
         .ok_or_else(|| JsError::new(&format!("{name} must be a non-negative integer")))
-}
-
-/// The path of what `text` holds at UTF-16 index `index`, or `None` past its
-/// end: what `pathAt` answers, headless and on an editor.
-pub(crate) fn path_at_index(
-    text: &str,
-    index: usize,
-    path_at: impl FnOnce(TextPosition) -> Option<FieldPath>,
-) -> Option<FieldPath> {
-    if index > text.encode_utf16().count() {
-        return None;
-    }
-    path_at(TextPosition::from_offset(text, index))
 }
 
 /// One-based lines `startLine..=endLine`: a fold keeps `startLine` visible

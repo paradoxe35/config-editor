@@ -352,6 +352,12 @@ export interface EditorStrings {
    */
   reload?: string;
   /**
+   * Announced after Reload took the changed baseline.
+   *
+   * @default "Reloaded"
+   */
+  reloaded?: string;
+  /**
    * Its tooltip.
    *
    * @default "Replace your text with the new version ({cmd}+Z brings yours back)"
@@ -652,6 +658,18 @@ export interface EditorStrings {
    */
   changePosition?: string;
   /**
+   * Announced on `Alt+F5` / `Alt+F3` when nothing differs from the baseline.
+   *
+   * @default "No changes"
+   */
+  noChanges?: string;
+  /**
+   * Announced when a change is reverted.
+   *
+   * @default "Reverted"
+   */
+  reverted?: string;
+  /**
    * The preview's revert button.
    *
    * @default "Revert"
@@ -862,6 +880,12 @@ export interface EditorStrings {
    */
   problemPosition?: string;
   /**
+   * Announced on `F8` when there are no problems.
+   *
+   * @default "No problems"
+   */
+  walkNoProblems?: string;
+  /**
    * After a problem's text for screen readers: its `{code}` (from the host).
    *
    * @default " Code {code}."
@@ -1054,7 +1078,7 @@ export interface EditorStrings {
    */
   endTag?: string;
   /**
-   * Said when typing leaves the open list with nothing to suggest.
+   * Said when typing empties a list opened with Ctrl+Space or moved in; a list that opened by itself closes silently.
    *
    * @default "No suggestions"
    */
@@ -1095,6 +1119,12 @@ export interface EditorStrings {
    * @default "{value} is not of type {types}"
    */
   wrongType?: string;
+  /**
+   * A value out of its `format` (checked up to draft-07): `{format}` is its name, quoted.
+   *
+   * @default "{value} is not a valid {format}"
+   */
+  notFormat?: string;
   /**
    * A value that matches none of a schema's options (`{keyword}`: `oneOf` or `anyOf`), with why each fails (`{reasons}`, each worded by `option_needs`, `option_refuses` or `option_problem`, joined by `; `).
    *

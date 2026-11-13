@@ -90,6 +90,8 @@ impl EditorState {
             );
         }
         self.close_conflict(BaselineConflict::Reloaded);
+        let said = self.strings_untracked(|strings| strings.reloaded.clone());
+        self.a11y().announce(said);
     }
 
     /// Keep mine: the text stays and is compared with the new baseline.
@@ -114,9 +116,11 @@ impl EditorState {
         }
     }
 
+    /// Tells the host, once the current task's work is done: a baseline
+    /// is taken in the middle of the host setting it (see `connect`).
     fn report_conflict(&self, how: BaselineConflict) {
         if let Some(callback) = self.editing().on_conflict {
-            callback.run(how);
+            crate::reactive::later::soon(*self, move |_| callback.run(how));
         }
     }
 

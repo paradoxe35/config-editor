@@ -7,7 +7,7 @@ use std::ops::Range;
 
 use super::super::super::language::{ConfigLanguage, SchemaPathSegment};
 use super::super::super::paths::{FieldPath, path_at};
-use super::super::locate::{LineIndex, within};
+use super::super::locate::{LineIndex, plain, within};
 use super::super::locks::Lock;
 use super::super::scan::names_word;
 
@@ -94,12 +94,28 @@ pub(super) fn joining_lines(
         };
         let holds = !path.is_empty()
             && within(behavior, pointer, &path)
-            && !within(behavior, &path, pointer);
+            && !within(behavior, &path, pointer)
+            && names_holder(behavior, &path, content);
         if holds || within(behavior, &path, pointer) {
             count += 1;
         }
     }
     Some(count)
+}
+
+/// Whether `line`, read at `path` (a block holding a locked field), names
+/// that block's key: a second key holding the field (`limits:` again). A
+/// line half typed inside the block reads at the block too (`c` on its way
+/// to `ca: 1`, a sibling's separator deleted), but it names another key: a
+/// sibling, which joins nothing locked.
+fn names_holder(behavior: &dyn ConfigLanguage, path: &str, line: &str) -> bool {
+    match FieldPath::from(plain(behavior, path).as_str())
+        .segments()
+        .last()
+    {
+        Some(SchemaPathSegment::Key(key)) => names_word(std::slice::from_ref(key), line),
+        _ => false,
+    }
 }
 
 /// The lines near the field covering UTF-16 `low..high` of a text: its

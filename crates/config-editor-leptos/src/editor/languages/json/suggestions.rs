@@ -19,6 +19,10 @@ fn written_fill(child: &Value, root: &Value) -> String {
     fill_value(&JsonBehavior, child, root).map(|value| json_text(&value)).unwrap_or_default()
 }
 
+/// The indentation of the root object's entries a blank document's first
+/// key opens (as its `entry_wrap` writes it).
+const ROOT_INDENT: &str = "  ";
+
 pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionContext {
     let cursor = utf16_to_byte_index(source, cursor);
     let snapshot = caret_snapshot(source, cursor);
@@ -85,6 +89,7 @@ pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionConte
             ..Default::default()
         };
     }
+    let at_root = snapshot.frame.is_none();
     // A typed opening quote is the start of a key, so the key list opens now.
     let explicit_entry_start = snapshot.partial.is_some() && source[typed_start..].starts_with('"');
     let (path, value_key, is_array_item) = match snapshot.frame {
@@ -160,8 +165,17 @@ pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionConte
     };
     // The key typed in front of gets back the quote the insert replaced.
     let entry_suffix = if key_after.is_some() { format!("{entry_suffix}\"") } else { entry_suffix };
-    // An empty document has no root object yet: the first key opens it.
-    let empty_document = source.trim().is_empty();
+    // A blank document (but for the key being typed) has no root object
+    // yet: the first key opens it, replacing the whole text, its block's
+    // lines indented inside it.
+    let empty_document = at_root
+        && source[..replace_start].trim().is_empty()
+        && source[replace_end..].trim().is_empty();
+    let (replace_start, replace_end, base_indent) = if empty_document {
+        (0, source.len(), ROOT_INDENT.to_string())
+    } else {
+        (replace_start, replace_end, base_indent)
+    };
     CompletionContext {
         entry_wrap: if empty_document {
             Some(("{\n  ", "\n}\n"))

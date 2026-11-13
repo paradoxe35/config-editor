@@ -187,4 +187,59 @@ test.describe('the suggestion list', () => {
     await page.keyboard.press('Backspace');
     await expect(options(page).first()).toBeVisible();
   });
+
+  // U30-1: a new selection (a filter result, a reopened list) is scrolled
+  // into view, for both row heights, however the list got scrolled before.
+  for (const [described, row] of [[false, 28], [true, 44]]) {
+    test(`a filter after paging down selects and shows its first match (${row} px rows)`, async ({ page }) => {
+      await openWith(page, 1200, described);
+      for (let step = 0; step < 5; step++) await page.keyboard.press('PageDown');
+      await page.keyboard.type('k09');
+      await expect.poll(async () => (await readList(page)).active?.inView).toBe(true);
+      const { active } = await readList(page);
+      expect(active).toMatchObject({ selected: 'true', posinset: '1' });
+      const top = await list(page).evaluate((element) => element.scrollTop);
+      expect(top).toBe(0);
+    });
+
+    test(`the list reopened after End and typing shows its selection (${row} px rows)`, async ({ page }) => {
+      const input = await openWith(page, 1200, described);
+      for (let step = 0; step < 12; step++) await page.keyboard.press('PageDown');
+      await page.keyboard.press('Escape');
+      await input.press('End');
+      await page.keyboard.type('k1');
+      await page.keyboard.press('Control+Space');
+      await expect(list(page)).toBeVisible();
+      await expect.poll(async () => (await readList(page)).active?.inView).toBe(true);
+    });
+  }
+
+  // A30-4: "No suggestions" is for a list the user opened or moved in; a
+  // list that opened by itself on a first letter closes silently.
+  test('typing lines announces no "No suggestions"; an asked-for list emptied does once', async ({ page }) => {
+    await page.goto(VANILLA);
+    await page.waitForFunction(() => document.body.dataset.ready === 'true');
+    await page.evaluate(async (schema) => {
+      const CE = await import(new URL('../config-editor/index.js', location.href).href);
+      const host = document.createElement('div');
+      host.id = 'listed';
+      host.style.height = '300px';
+      document.body.prepend(host);
+      window.listed = new CE.ConfigEditor(host, { language: 'yaml', value: '', schema });
+      window.said = [];
+      new MutationObserver(() => {
+        const text = host.querySelector('.config-editor__announcement')?.textContent;
+        if (text) window.said.push(text);
+      }).observe(host, { subtree: true, childList: true, characterData: true });
+    }, schema(50));
+    await page.locator('#listed .config-editor__input').click();
+    await page.keyboard.type('k0001: 1\nfoo: 1\nbar: 2\nqux: 3\n', { delay: 30 });
+    await page.waitForTimeout(300);
+    expect(await page.evaluate(() => window.said.filter((text) => /^No suggestions/.test(text)))).toEqual([]);
+    await page.keyboard.press('Control+Space');
+    await expect(list(page)).toBeVisible();
+    await page.keyboard.type('zz');
+    await expect(page.locator('#listed .config-editor__announcement')).toHaveText(/^No suggestions/);
+    expect(await page.evaluate(() => window.said.filter((text) => /^No suggestions/.test(text)).length)).toBeGreaterThanOrEqual(1);
+  });
 });

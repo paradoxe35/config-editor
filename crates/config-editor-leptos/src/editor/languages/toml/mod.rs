@@ -19,6 +19,7 @@ mod lines;
 mod suggestions;
 mod editing;
 mod colors;
+mod table_spacing;
 // The fold ranges (the `folding` feature).
 #[cfg(feature = "folding")]
 mod folding;
@@ -342,7 +343,8 @@ impl ConfigLanguage for TomlBehavior {
                 // a sub-table belongs to the array-of-tables entry above it.
                 let ordered = order_tables_like(&folded, previous);
                 let same = toml_parse(&ordered).ok().is_some_and(|value| toml_parse(&folded).ok() == Some(value));
-                if same { ordered } else { folded }
+                // Its tables parted as the host parts its own.
+                table_spacing::spaced_like(if same { ordered } else { folded }, previous)
             }
             None => rendered,
         })

@@ -77,6 +77,10 @@ pub(crate) struct ProtectState {
     /// through edits; empty while editing as another language (there the
     /// fields they cover are locked by path).
     pub(crate) ranges: RwSignal<Vec<Range<usize>>>,
+    /// The host's ranges `ranges` was first placed from, until the effect
+    /// placing them again first runs: ranges the host changed before then
+    /// (an update in the task that mounts the editor) are placed then.
+    placed_at_mount: StoredValue<Option<Vec<TextRange>>>,
     /// The locks of the text on screen.
     pub(crate) protected: Memo<Arc<Protected>>,
     pub(crate) tip: RwSignal<Option<Tip>>,
@@ -120,8 +124,8 @@ impl ProtectState {
                 )
             })
         });
-        let local =
-            RwSignal::new(source.with_untracked(|text| offsets(text, &ranges.get_untracked())));
+        let mounted_with = ranges.get_untracked();
+        let local = RwSignal::new(source.with_untracked(|text| offsets(text, &mounted_with)));
         let marks = StoredValue::new(Marks::default());
         let covered = Covered(StoredValue::new(None));
         let protected = Memo::new_with_compare(
@@ -178,6 +182,7 @@ impl ProtectState {
             host_paths: paths,
             host_ranges: ranges,
             ranges: local,
+            placed_at_mount: StoredValue::new(Some(mounted_with)),
             protected,
             tip: RwSignal::new(None),
             marks,
@@ -315,7 +320,21 @@ impl EditorState {
 
         Effect::new(move |previous: Option<()>| {
             state.protect().host_ranges.track();
-            if previous.is_some() {
+            // The first run places them only if the host changed them since
+            // the mount (in the same task: the effect runs after it).
+            let changed = previous.is_some()
+                || state
+                    .protect()
+                    .placed_at_mount
+                    .try_update_value(Option::take)
+                    .flatten()
+                    .is_some_and(|placed| {
+                        state
+                            .protect()
+                            .host_ranges
+                            .with_untracked(|ranges| *ranges != placed)
+                    });
+            if changed {
                 state.place_ranges();
             }
         });

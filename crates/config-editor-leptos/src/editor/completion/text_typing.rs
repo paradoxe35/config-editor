@@ -45,6 +45,26 @@ fn walk(
         .iter()
         .flat_map(|schema| resolve_branches(schema, root))
         .collect();
+    // Only a list is described here: a lone value (an element written
+    // once) is its first item, and typed as one.
+    let describes_one = |branch: &&Value| {
+        !wants_array(branch)
+            && (scalar_types(branch).is_some()
+                || ["properties", "additionalProperties", "patternProperties"]
+                    .iter()
+                    .any(|keyword| branch.get(*keyword).is_some()))
+    };
+    if !value.is_array()
+        && branches.iter().any(|branch| wants_array(branch))
+        && !branches.iter().any(describes_one)
+    {
+        let items: Vec<&Value> = schemas
+            .iter()
+            .flat_map(|schema| child_schemas(schema, root, &SchemaPathSegment::ArrayItem(0)))
+            .collect();
+        walk(value, &items, root, language, beside_children, depth + 1);
+        return;
+    }
     match value {
         Value::String(text) => {
             let scalar: Vec<&Value> = branches
@@ -52,17 +72,6 @@ fn walk(
                 .copied()
                 .filter(|branch| !wants_array(branch))
                 .collect();
-            if scalar.is_empty() && !branches.is_empty() {
-                // Only a list is allowed: the text is its first item.
-                let items: Vec<&Value> = schemas
-                    .iter()
-                    .flat_map(|schema| {
-                        child_schemas(schema, root, &SchemaPathSegment::ArrayItem(0))
-                    })
-                    .collect();
-                walk(value, &items, root, language, beside_children, depth + 1);
-                return;
-            }
             let text = std::mem::take(text);
             *value = typed(text, &scalar, language, beside_children);
         }

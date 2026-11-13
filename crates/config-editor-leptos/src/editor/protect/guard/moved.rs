@@ -4,10 +4,11 @@
 //! same path afterwards (a key moved above the document's opening brace
 //! holds nothing); and where indentation is structure, no line more
 //! indented than the field comes to follow it (a list's items left under a
-//! locked key, its own key moved or deleted); and the field's lines holding
-//! code keep their order with no other line of code coming between them
-//! (its key moved away from the lines under it). Reorders among siblings
-//! keep all three, and go through.
+//! locked key, its own key moved or deleted), nor, where such lines followed
+//! it (the other keys of the list item its line opens), comes above it; and
+//! the field's lines holding code keep their order with no other line of
+//! code coming between them (its key moved away from the lines under it).
+//! Reorders among siblings keep all three, and go through.
 
 use std::ops::Range;
 
@@ -52,21 +53,12 @@ impl Place<'_, '_, '_, '_> {
             return true;
         }
         let code = |text: &str| holds_code(edit.behavior, text);
-        let added = self.new_lines.line_count() as isize - old_lines.line_count() as isize;
         let mut previous: Option<usize> = None;
         for line in first..=last {
-            let text = old_lines.line_text(line);
-            if !code(text) {
+            if !code(old_lines.line_text(line)) {
                 continue;
             }
-            let now = if line < from {
-                Some(line)
-            } else if line > to {
-                line.checked_add_signed(added)
-            } else {
-                self.new_line(text)
-            };
-            let Some(now) = now else {
+            let Some(now) = self.now(line) else {
                 return true;
             };
             if let Some(previous) = previous
@@ -111,7 +103,7 @@ impl Place<'_, '_, '_, '_> {
 
     /// Where indentation is structure: the line holding code after the
     /// lock's last line is no more indented than its first line, unless it
-    /// already was before the edit.
+    /// already was before the edit; then the lines it opens stay below it.
     fn nothing_indented_under(&self, lock: &Lock) -> bool {
         let edit = self.edit;
         if !edit.behavior.indent_is_structure() {
@@ -134,7 +126,7 @@ impl Place<'_, '_, '_, '_> {
                 .is_some_and(|text| indent(text) > depth)
         };
         if deeper_after(old_lines, last) {
-            return true;
+            return self.followers_kept(first, last, depth);
         }
         let new_last = if high <= edit.region.start {
             Some(last)
@@ -144,6 +136,50 @@ impl Place<'_, '_, '_, '_> {
             self.new_line(old_lines.line_text(last))
         };
         new_last.is_none_or(|line| !deeper_after(self.new_lines, line))
+    }
+
+    /// Where line `line` of the text before the edit is after it: as it was
+    /// above the lines the edit rewrote, shifted below them, found once
+    /// among those it wrote otherwise.
+    fn now(&self, line: usize) -> Option<usize> {
+        let old_lines = &self.edit.lines;
+        let region = &self.edit.region;
+        let (from, to) = (
+            old_lines.line_of(region.start),
+            old_lines.line_of(region.end),
+        );
+        let added = self.new_lines.line_count() as isize - old_lines.line_count() as isize;
+        if line < from {
+            Some(line)
+        } else if line > to {
+            line.checked_add_signed(added)
+        } else {
+            self.new_line(old_lines.line_text(line))
+        }
+    }
+
+    /// The lock's first line (`first`, at indent `depth`) was followed by
+    /// more indented lines up to `last`'s next line (the other keys of the
+    /// list item it opens): none of those comes above it now.
+    fn followers_kept(&self, first: usize, last: usize, depth: usize) -> bool {
+        let old_lines = &self.edit.lines;
+        let Some(lock_now) = self.now(first) else {
+            return true;
+        };
+        let indent = |text: &str| text.len() - text.trim_start().len();
+        for line in last + 1..old_lines.line_count() {
+            let text = old_lines.line_text(line);
+            if !holds_code(self.edit.behavior, text) {
+                continue;
+            }
+            if indent(text) <= depth {
+                break;
+            }
+            if self.now(line).is_some_and(|now| now < lock_now) {
+                return false;
+            }
+        }
+        true
     }
 
     /// The one line among those the edit wrote that reads `text`, if one

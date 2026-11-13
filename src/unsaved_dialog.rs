@@ -9,17 +9,19 @@ use leptos::prelude::*;
 use leptos::wasm_bindgen::JsCast;
 use web_sys::{HtmlDialogElement, HtmlElement};
 
-/// The question for the document `asking` names (empty: none asked); it
-/// closes on Cancel or Escape (`asking` is set to `None`) and `discard`
-/// runs on Discard.
+/// The question for the document `asking` names (`None`: none asked), called
+/// `name` in the question (its tab's file name); it closes on Cancel or
+/// Escape (`asking` is set to `None`) and `discard` runs on Discard. Focus
+/// starts on Cancel, the choice that loses nothing.
 #[component]
 pub fn UnsavedDialog(
     asking: RwSignal<Option<String>>,
+    #[prop(into)] name: Signal<String>,
     #[prop(into)] discard: Callback<()>,
 ) -> impl IntoView {
     view! {
         <Show when=move || asking.get().is_some()>
-            <OpenDialog asking=asking discard=discard />
+            <OpenDialog asking=asking name=name discard=discard />
         </Show>
     }
 }
@@ -61,7 +63,11 @@ fn keep_tab_inside(dialog: &HtmlDialogElement, event: &web_sys::KeyboardEvent) {
 
 /// The dialog while it is asked: modal from the moment it exists.
 #[component]
-fn OpenDialog(asking: RwSignal<Option<String>>, discard: Callback<()>) -> impl IntoView {
+fn OpenDialog(
+    asking: RwSignal<Option<String>>,
+    name: Signal<String>,
+    discard: Callback<()>,
+) -> impl IntoView {
     let dialog = NodeRef::<html::Dialog>::new();
     let before = web_sys::window()
         .and_then(|window| window.document())
@@ -69,6 +75,15 @@ fn OpenDialog(asking: RwSignal<Option<String>>, discard: Callback<()>) -> impl I
         .and_then(|element| element.dyn_into::<HtmlElement>().ok());
     dialog.on_load(|element: HtmlDialogElement| {
         let _ = element.show_modal();
+        // The browser would focus the first button, Discard.
+        if let Some(keep) = element
+            .query_selector(".demo__keep")
+            .ok()
+            .flatten()
+            .and_then(|keep| keep.dyn_into::<HtmlElement>().ok())
+        {
+            let _ = keep.focus();
+        }
     });
     on_cleanup(move || {
         // Focus goes nowhere while the modal dialog is still open.
@@ -110,6 +125,7 @@ fn OpenDialog(asking: RwSignal<Option<String>>, discard: Callback<()>) -> impl I
             class="demo__ask"
             role="alertdialog"
             aria-label="Unsaved changes"
+            aria-describedby="demo-ask-text"
             on:cancel=move |_: web_sys::Event| asking.set(None)
             on:keydown=move |event| {
                 if let Some(element) = dialog.get_untracked() {
@@ -117,8 +133,8 @@ fn OpenDialog(asking: RwSignal<Option<String>>, discard: Callback<()>) -> impl I
                 }
             }
         >
-            <p class="demo__ask-text">
-                {move || format!("Discard unsaved changes to {}?", asking.get().unwrap_or_default())}
+            <p id="demo-ask-text" class="demo__ask-text">
+                {move || format!("Discard unsaved changes to {}?", name.get())}
             </p>
             <div class="demo__ask-buttons">
                 <button class="demo__button demo__discard" type="button" on:click=move |_| discard.run(())>"Discard"</button>

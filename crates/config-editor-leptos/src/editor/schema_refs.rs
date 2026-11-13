@@ -20,13 +20,22 @@ pub(super) fn message(kind: &ValidationErrorKind, schema: &Value) -> Option<Stri
     };
     Some(match error {
         ReferencingError::Unretrievable { uri, .. } => {
-            let at = site(schema, |reference| {
-                uri.ends_with(reference) || reference.starts_with(uri.as_str())
-            })
-            .map(|at| format!(" at {at}"))
-            .unwrap_or_default();
+            // The validator meets the references outside the schema in no
+            // fixed order: the first one the schema writes is named, the
+            // same each time.
+            let ids = embedded_ids(schema);
+            let (at, named) = match first_ref(schema, |reference| outside(reference, &ids)) {
+                Some((at, reference)) => (Some(at), reference),
+                None => (
+                    site(schema, |reference| {
+                        uri.ends_with(reference) || reference.starts_with(uri.as_str())
+                    }),
+                    uri.to_string(),
+                ),
+            };
+            let at = at.map(|at| format!(" at {at}")).unwrap_or_default();
             format!(
-                "the $ref{at} names \"{uri}\", outside this schema: the editor follows references inside the schema only. Put that schema under $defs with its $id, or inline it"
+                "the $ref{at} names \"{named}\", outside this schema: the editor follows references inside the schema only. Put that schema under $defs with its $id, or inline it"
             )
         }
         ReferencingError::PointerToNowhere { pointer } => {
@@ -45,17 +54,64 @@ pub(super) fn message(kind: &ValidationErrorKind, schema: &Value) -> Option<Stri
                 "the $ref{at} names the anchor \"{anchor}\", which no $anchor in the schema declares"
             )
         }
+        ReferencingError::UnknownSpecification { specification } => format!(
+            "its $schema \"{specification}\" is not a JSON Schema version the editor knows: it reads drafts 4, 6 and 7, 2019-09 and 2020-12"
+        ),
+        ReferencingError::CircularMetaschema { uri } => {
+            format!("its $schema \"{uri}\" names a meta-schema that names itself in a cycle")
+        }
         other => format!("a $ref cannot be followed: {other}"),
     })
 }
 
 /// The JSON pointer of the first `$ref` in `schema` whose text `matches`.
 fn site(schema: &Value, matches: impl Fn(&str) -> bool + Copy) -> Option<String> {
+    first_ref(schema, matches).map(|(at, _)| at)
+}
+
+/// The `$id`s the schema embeds (the documents a `$ref` may name by them).
+fn embedded_ids(schema: &Value) -> Vec<&str> {
+    fn walk<'a>(value: &'a Value, ids: &mut Vec<&'a str>) {
+        match value {
+            Value::Object(members) => {
+                if let Some(id) = members
+                    .get("$id")
+                    .or_else(|| members.get("id"))
+                    .and_then(Value::as_str)
+                {
+                    let id = id.trim_end_matches('#');
+                    if !id.is_empty() && !id.starts_with('#') {
+                        ids.push(id);
+                    }
+                }
+                members.values().for_each(|member| walk(member, ids));
+            }
+            Value::Array(items) => items.iter().for_each(|item| walk(item, ids)),
+            _ => {}
+        }
+    }
+    let mut ids = Vec::new();
+    walk(schema, &mut ids);
+    ids
+}
+
+/// Whether `reference` names a document the schema does not embed.
+fn outside(reference: &str, ids: &[&str]) -> bool {
+    let document = reference.split('#').next().unwrap_or_default();
+    !document.is_empty()
+        && !ids
+            .iter()
+            .any(|id| id.ends_with(document) || document.ends_with(id))
+}
+
+/// The JSON pointer and the text of the first `$ref` in `schema`, in the
+/// order it is written, whose text `matches`.
+fn first_ref(schema: &Value, matches: impl Fn(&str) -> bool + Copy) -> Option<(String, String)> {
     fn walk(
         value: &Value,
         path: &mut Vec<String>,
         matches: &dyn Fn(&str) -> bool,
-    ) -> Option<String> {
+    ) -> Option<(String, String)> {
         match value {
             Value::Object(members) => {
                 if let Some(reference) = members.get("$ref").and_then(Value::as_str)
@@ -64,7 +120,7 @@ fn site(schema: &Value, matches: impl Fn(&str) -> bool + Copy) -> Option<String>
                     path.push("$ref".to_string());
                     let found = pointer(path);
                     path.pop();
-                    return Some(found);
+                    return Some((found, reference.to_string()));
                 }
                 for (key, member) in members {
                     path.push(key.clone());
@@ -136,5 +192,45 @@ mod tests {
         .expect("compiles");
         assert_eq!(schema.validate(Language::YAML, "a: 1\n"), Vec::new());
         assert_eq!(schema.validate(Language::YAML, "a: x\n").len(), 1);
+    }
+
+    /// SC30-9: with several references outside the schema, the first one
+    /// it writes is named, the same on every compile.
+    #[test]
+    fn the_first_outside_ref_is_named_every_time() {
+        let schema = r#"{"$id":"https://example.com/root.json","properties":{
+            "a":{"$ref":"https://example.com/one.json"},
+            "b":{"$ref":"two.json"},
+            "c":{"$ref":"root.json#/$defs/x"},
+            "d":{"$ref":"https://example.com/three.json#/x"},
+            "e":{"$ref":"four.json"},
+            "f":{"$ref":"https://example.com/five.json"}
+        },"$defs":{"x":{}}}"#;
+        for _ in 0..20 {
+            let message = refused(schema);
+            assert!(
+                message.contains("at /properties/a/$ref names \"https://example.com/one.json\""),
+                "{message}"
+            );
+        }
+    }
+
+    /// SC30-4: a `$schema` naming a version the validator does not know is
+    /// told as that, not as a `$ref`.
+    #[test]
+    fn an_unknown_schema_version_is_named_as_one() {
+        for version in [
+            "http://json-schema.org/draft-03/schema#",
+            "https://example.com/my-meta",
+        ] {
+            let message = refused(&format!(r#"{{"$schema":"{version}","type":"object"}}"#));
+            assert!(
+                message.contains(&format!(
+                    "$schema \"{version}\" is not a JSON Schema version"
+                )),
+                "{message}"
+            );
+            assert!(!message.contains("$ref"), "{message}");
+        }
     }
 }

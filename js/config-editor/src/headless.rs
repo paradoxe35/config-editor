@@ -76,7 +76,8 @@ pub fn validate(
 ) -> Result<Diagnostics, JsError> {
     let language = language_named(&text_arg(&language, "language")?)?;
     let text = text_arg(&text, "text")?;
-    let text = text.as_str();
+    // Lines and columns in the document, as the editor gives them.
+    let text = crate::text_lines::document(&text);
     let schema = optional_text(&schema, "schema")?;
     let problems = match schema {
         Some(schema) => schema_from(&schema, &source)?.validate(language, text),

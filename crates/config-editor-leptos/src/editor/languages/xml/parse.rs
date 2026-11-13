@@ -123,6 +123,7 @@ pub(super) fn build_value_as(source: &str, reading: Reading) -> Result<Value, Pa
     let mut roots: Vec<TopLevel> = Vec::new();
     let mut pending_text = String::new();
     let markup = declarations::Markup::of(source);
+    let mut scopes = namespaces::Scopes::default();
     loop {
         // `buffer_position` before a read is where the next event begins.
         let event_start = reader.buffer_position() as usize;
@@ -156,17 +157,21 @@ pub(super) fn build_value_as(source: &str, reading: Reading) -> Result<Value, Pa
                         super::super::nesting::too_deep("Elements"),
                     ));
                 }
+                unbound_prefix(source, &mut scopes, &element, event_start, &stack)?;
                 let top_level = stack.is_empty();
                 stack.push(open_element(source, &element, (event_start, top_level), &markup, reading)?);
             }
             Event::Empty(element) => {
                 flush_text(&mut pending_text, &mut stack);
+                unbound_prefix(source, &mut scopes, &element, event_start, &stack)?;
+                scopes.leave();
                 let top_level = stack.is_empty();
                 let open = open_element(source, &element, (event_start, top_level), &markup, reading)?;
                 push_child(&mut stack, &mut roots, open, reading);
             }
             Event::End(element) => {
                 flush_text(&mut pending_text, &mut stack);
+                scopes.leave();
                 let name = element.local_name().into_inner().to_string();
                 let start = markup_start(source, event_start);
                 let Some(open) = stack.pop() else {
@@ -334,6 +339,31 @@ pub(super) fn open_element(
         start,
         config_root,
     })
+}
+
+/// Enters `element`'s namespace scope, refusing it where it uses a prefix
+/// no declaration binds (see `namespaces`), at that name.
+fn unbound_prefix(
+    source: &str,
+    scopes: &mut namespaces::Scopes,
+    element: &BytesStart<'_>,
+    event_start: usize,
+    stack: &[OpenElement],
+) -> Result<(), ParseError> {
+    let Some((qualified, attribute)) = scopes.enter(element) else {
+        return Ok(());
+    };
+    let local = element.local_name().as_ref().to_string();
+    let names = stack.iter().map(|open| open.name.as_str()).chain([local.as_str()]);
+    let pointer: String = names
+        .chain(attribute.then_some(qualified.as_str()))
+        .map(|name| format!("/{}", name.replace('~', "~0").replace('/', "~1")))
+        .collect();
+    let start = markup_start(source, event_start);
+    // At the name, in the start tag.
+    let tag_end = source[start..].find('>').map_or(source.len(), |end| start + end);
+    let at = source[start..tag_end].find(qualified.as_str()).map_or(start, |offset| start + offset);
+    Err(syntax_error(source, at, namespaces::unbound(&qualified, &pointer)))
 }
 
 /// Collects text inside an element; non-blank text outside any element is an
@@ -678,6 +708,13 @@ pub(super) fn xml_value_span(source: &str, path: &str) -> Option<(usize, usize, 
     Some(span_between(source, start, end))
 }
 
+/// [`build_value`] for a check of `source` beside its parse (which
+/// `parse_cache` keeps), counted as one.
+fn built_aside(source: &str) -> Result<Value, ParseError> {
+    crate::editor::work_count::note_many(crate::editor::work_count::Work::ParsedBytes, source.len());
+    build_value(source)
+}
+
 pub(super) fn first_content_span(source: &str) -> Option<(usize, usize, usize)> {
     source.lines().enumerate().find_map(|(index, line)| {
         let start = line.find(|character: char| !character.is_whitespace())?;
@@ -698,7 +735,9 @@ pub(super) fn first_content_span(source: &str) -> Option<(usize, usize, usize)> 
 /// keys them by local name, so another language would merge them. Says
 /// which, at the parent's pointer.
 pub(super) fn namespace_clash(source: &str) -> Option<String> {
-    build_value(source).ok()?;
+    // A text that does not parse has none: told once one is found, so a
+    // text without one is read once, not built into its value first.
+    let parses = || built_aside(source).is_ok();
     let mut reader = Reader::from_str(source);
     reader.config_mut().trim_text(false);
     let mut buf = Vec::new();
@@ -731,7 +770,7 @@ pub(super) fn namespace_clash(source: &str) -> Option<String> {
         let siblings = &mut stack.last_mut()?.1;
         if let Some(other) = siblings.get(&local).filter(|other| **other != qualified) {
             let at = if pointer.is_empty() { "/".to_string() } else { pointer };
-            return Some(format!(
+            return parses().then(|| format!(
                 "<{other}> and <{qualified}> are in different namespaces but read as the same key {local}, which another language cannot tell apart (at {at})"
             ));
         }
@@ -748,7 +787,7 @@ pub(super) fn namespace_clash(source: &str) -> Option<String> {
             if let Some(other) = attributes.get(&local).filter(|other| **other != qualified) {
                 // At the element holding them.
                 let element = element_local.replace('~', "~0").replace('/', "~1");
-                return Some(format!(
+                return parses().then(|| format!(
                     "the attributes {other} and {qualified} are in different namespaces but read as the same key {local}, which another language cannot tell apart (at {pointer}/{element})"
                 ));
             }
@@ -769,7 +808,6 @@ pub(super) fn mixed_content(source: &str) -> Option<String> {
         text: bool,
         children: bool,
     }
-    let value = build_value(source).ok()?;
     let mut reader = Reader::from_str(source);
     reader.config_mut().trim_text(false);
     let mut buf = Vec::new();
@@ -818,6 +856,10 @@ pub(super) fn mixed_content(source: &str) -> Option<String> {
             }
             Event::End(_) => {
                 if stack.last().is_some_and(|open| open.text && open.children) {
+                    // A text that does not parse has none: its value is
+                    // built once one is found (for the indexes in its path),
+                    // so a text without one is read once.
+                    let value = built_aside(source).ok()?;
                     // Its path, an index where the name repeats (an array).
                     let mut pointer = String::new();
                     let mut at = &value;

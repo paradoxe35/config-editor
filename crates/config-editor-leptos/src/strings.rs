@@ -158,6 +158,8 @@ pub struct EditorStrings {
     pub baseline_changed_detail: String,
     /// The notice's button that takes the new baseline as the text.
     pub reload: String,
+    /// Announced after Reload took the changed baseline.
+    pub reloaded: String,
     /// Its tooltip.
     pub reload_title: String,
     /// The notice's button that keeps the text against the new baseline.
@@ -268,6 +270,11 @@ pub struct EditorStrings {
     /// Announced on `Alt+F5` / `Shift+Alt+F5`: the change's `{title}` (as
     /// the preview's), its `{line}`, and its `{position}` of `{total}`.
     pub change_position: String,
+    /// Announced on `Alt+F5` / `Alt+F3` when nothing differs from the
+    /// baseline.
+    pub no_changes: String,
+    /// Announced when a change is reverted.
+    pub reverted: String,
     /// The preview's revert button.
     pub revert: String,
     /// Its tooltip, for a one-line change.
@@ -350,6 +357,8 @@ pub struct EditorStrings {
     pub problem: String,
     /// Announced on `F8`: problem `{position}` of `{total}`.
     pub problem_position: String,
+    /// Announced on `F8` when there are no problems.
+    pub walk_no_problems: String,
     /// After a problem's text for screen readers: its `{code}` (from the
     /// host).
     pub problem_code: String,
@@ -432,7 +441,7 @@ pub struct EditorStrings {
     pub closes_tag: String,
     /// Its type column.
     pub end_tag: String,
-    /// Said when typing leaves the open list with nothing to suggest.
+    /// Said when typing empties a list opened with Ctrl+Space or moved in; a list that opened by itself closes silently.
     pub no_suggestions: String,
 
     // Problems the editor words.
@@ -451,6 +460,9 @@ pub struct EditorStrings {
     pub not_one_of: String,
     /// A value of none of the accepted types.
     pub wrong_type: String,
+    /// A value out of its `format` (checked up to draft-07): `{format}` is
+    /// its name, quoted.
+    pub not_format: String,
     /// A value that matches none of a schema's options (`{keyword}`:
     /// `oneOf` or `anyOf`), with why each fails (`{reasons}`, each worded
     /// by `option_needs`, `option_refuses` or `option_problem`, joined by
@@ -577,6 +589,7 @@ impl Default for EditorStrings {
                 "Reload it, losing your changes, or keep your text and compare it with the new version.",
             ),
             reload: text("Reload"),
+            reloaded: text("Reloaded"),
             reload_title: text(
                 "Replace your text with the new version ({cmd}+Z brings yours back)",
             ),
@@ -633,6 +646,8 @@ impl Default for EditorStrings {
             preview_heading: text("{title} · line {line}"),
             preview_label: text("{title}, line {line}"),
             change_position: text("{title}, line {line}: change {position} of {total}"),
+            no_changes: text("No changes"),
+            reverted: text("Reverted"),
             revert: text("Revert"),
             revert_title: text("Revert this change (R)"),
             revert_lines_title: text("Revert this change (lines {first}–{last}) (R)"),
@@ -672,6 +687,7 @@ impl Default for EditorStrings {
             problem_source: text(" from {source}"),
             problem: text("{severity}{source}: {message}"),
             problem_position: text("{severity} {position} of {total}{source}: {message}"),
+            walk_no_problems: text("No problems"),
             problem_code: text(" Code {code}."),
             problem_docs: text(" Documentation: {url} (Alt+Enter opens it)."),
             problem_marker: text("{language} {severity}{source} on line {line}: {message}"),
@@ -727,6 +743,7 @@ impl Default for EditorStrings {
             key_deprecated_instead: text("{pointer}: \"{key}\" is deprecated. {message}"),
             not_one_of: text("{value} is not one of {allowed}"),
             wrong_type: text("{value} is not of type {types}"),
+            not_format: text("{value} is not a valid {format}"),
             no_option_matches: text("matches none of the {keyword} options: {reasons}"),
             several_options_match: text(
                 "matches more than one of the oneOf options ({options}); only one may match",

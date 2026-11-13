@@ -1111,10 +1111,17 @@
 .config-editor__find-field-invalid:focus-within { border-color: var(--config-editor-error); }
 
 .config-editor__find-input {
+  /* Its own size whatever the page says of `input` (a framework's
+     `width: 100%; display: block; padding: …; font-size: …`). */
+  display: block;
+  box-sizing: border-box;
+  width: auto;
+  margin: 0;
   min-width: 10ch;
   flex: 1 1 10ch;
   height: 24px;
   padding: 0 6px;
+  line-height: normal;
   border: 0;
   outline: 0;
   background: transparent;
@@ -1470,6 +1477,7 @@
   color: var(--config-editor-completion-match-active);
 }
 .config-editor__completion-active .config-editor__completion-type,
+.config-editor__completion-active .config-editor__completion-detail,
 .config-editor__completion-active .config-editor__completion-deprecated {
   color: var(--config-editor-completion-type-active);
 }

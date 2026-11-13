@@ -7,7 +7,8 @@
 //! | Entry point | Built in | Origin |
 //! |---|---|---|
 //! | Typing, IME, paste, cut, drop, dictation (the browser's own edits) | `input::flush_input` | [`Origin::Input`] |
-//! | Enter, Tab, Shift+Tab, pairs and tags, Backspace in a pair, Ctrl+/, join lines, the line commands (closed folds given) | `keys::*` | [`Origin::Command`] |
+//! | Enter, a typed pair, closing tag or re-indenting closer, a selection wrapped in a pair (typing, grouped with the typing around them) | `keys::*` | [`Origin::Input`] |
+//! | Ctrl+Enter, Tab, Shift+Tab, Backspace in a pair, Ctrl+/, join lines, the line commands (closed folds given) | `keys::*` | [`Origin::Command`] |
 //! | A line copied, cut or pasted whole, a cut across a fold | `input` | [`Origin::Command`] |
 //! | An accepted suggestion | `completion::live` | [`Origin::Command`] |
 //! | Replace, Replace All | `search::actions` | [`Origin::Command`] |

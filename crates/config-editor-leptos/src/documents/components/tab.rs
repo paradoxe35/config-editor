@@ -33,11 +33,13 @@ pub(in crate::documents) fn DocumentTab(documents: Documents, entry: Entry) -> i
     let strings = documents.follows.strings.read();
     let names = documents.follows.names.read();
     // What the tab shows of the name (the title and accessible name keep
-    // it whole).
-    let name = move || {
+    // it whole): a memo, so a list relabelling other tabs leaves this
+    // one's text as it is.
+    let label = Memo::new(move |_| {
         let name = file_name.get();
         names.with(|names| tab_label(&name, names))
-    };
+    });
+    let name = move || label.get();
     // Room for the letters that tell it from the tabs with the same
     // file's name, and the ellipsis after them.
     let style = move || {

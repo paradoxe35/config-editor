@@ -26,8 +26,16 @@ pub(super) fn enter(state: EditorState, event: &KeyboardEvent) {
     } else {
         Pressed::Enter
     };
-    enter_at(state, textarea_selection(&element), pressed);
+    enter_at(
+        state,
+        textarea_selection(&element),
+        pressed,
+        Some(event.time_stamp()),
+    );
 }
+
+/// The history kind of a line break Enter types (the browser's own).
+const LINE_BREAK: &str = "insertLineBreak";
 
 /// Which of the Enter keys was pressed.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -40,9 +48,19 @@ pub(in crate::editor) enum Pressed {
 }
 
 /// The Enter key `pressed` with `selection` (UTF-16, before the edit, for
-/// undo) in the document.
-pub(in crate::editor) fn enter_at(state: EditorState, selection: (usize, usize), pressed: Pressed) {
+/// undo) in the document; typed at `time` (a key event's), a plain Enter
+/// goes on with the typing around it as one undo step.
+pub(in crate::editor) fn enter_at(
+    state: EditorState,
+    selection: (usize, usize),
+    pressed: Pressed,
+    time: Option<f64>,
+) {
     let text = state.doc().text.get_untracked();
+    let typed = |edit: Edit| match time {
+        Some(time) if pressed == Pressed::Enter => edit.typed(LINE_BREAK, time),
+        _ => edit,
+    };
     if pressed == Pressed::LineAbove {
         open_line_above(state, text, selection);
         return;
@@ -64,7 +82,7 @@ pub(in crate::editor) fn enter_at(state: EditorState, selection: (usize, usize),
         && !modified
         && let Some(updated) = break_in_indentation(&text, start)
     {
-        state.commit(Edit::new(text, selection, updated, start + 1));
+        state.commit(typed(Edit::new(text, selection, updated, start + 1)));
         state.close_suggestions();
         return;
     }
@@ -119,7 +137,7 @@ pub(in crate::editor) fn enter_at(state: EditorState, selection: (usize, usize),
             .count();
     let (updated, _) = replace_selection(&text, start, replaced_end, &newline.text);
     let caret = start + newline.text[..newline.caret].encode_utf16().count();
-    state.commit(Edit::new(text, selection, updated, caret));
+    state.commit(typed(Edit::new(text, selection, updated, caret)));
     state.close_suggestions();
 }
 

@@ -3,6 +3,8 @@
 
 use std::ops::Range;
 
+use super::elsewhere::OtherPlaces;
+use super::offsets::ByteOffsets;
 use super::*;
 
 /// Schemas often give a port a string example (`"7835"`) next to an integer
@@ -46,6 +48,7 @@ pub(super) fn value_completions(
                 .and_then(Value::as_str)
                 .unwrap_or_default();
             let type_label = schema_type_label(branch, root, "value");
+            let docs = ValueDocs::of(branch);
             for value in schema_value_candidates(branch, open) {
                 let value = numeric_example_as_number(value, numeric_allowed);
                 let label = value_label(&value);
@@ -55,7 +58,8 @@ pub(super) fn value_completions(
                 if let Some(score) = match_score(&label, query) {
                     let insert = format!("{leading}{}", behavior.format_value(&value));
                     // The value's own words, else its branch's.
-                    let detail = value_doc(branch, &value)
+                    let detail = docs
+                        .of_value(&value)
                         .and_then(|doc| doc.detail())
                         .unwrap_or_else(|| description.to_string());
                     candidates.push((
@@ -139,10 +143,24 @@ pub(super) fn property_completions(
     instance: Option<&Value>,
 ) -> Vec<Completion> {
     let mut candidates = Vec::new();
-    for branch in schemas
+    let branches: Vec<&Value> = schemas
         .iter()
         .flat_map(|schema| branches_for(schema, root, instance))
+        .collect();
+    // A key one branch only names (`"version": true`, as an `anyOf` saying
+    // "at least one of" does) is described where another branch declares
+    // it: its type, its docs, what accepting it writes.
+    let mut described: std::collections::HashMap<&str, &Value> = std::collections::HashMap::new();
+    for (key, property) in branches
+        .iter()
+        .filter_map(|branch| branch.get("properties").and_then(Value::as_object))
+        .flatten()
     {
+        if !names_only(property) {
+            described.entry(key.as_str()).or_insert(property);
+        }
+    }
+    for branch in branches {
         let Some(properties) = branch.get("properties").and_then(Value::as_object) else {
             continue;
         };
@@ -164,6 +182,10 @@ pub(super) fn property_completions(
             .map(|names| names.iter().filter_map(Value::as_str).collect())
             .unwrap_or_default();
         for (key, property) in properties {
+            let property = match described.get(key.as_str()) {
+                Some(described) if names_only(property) => *described,
+                _ => property,
+            };
             // A list key written by repetition can appear again: any list in
             // XML, a list of objects as HCL blocks (never inside `{ … }`).
             let repeatable = match repetition {
@@ -197,14 +219,18 @@ pub(super) fn property_completions(
             let (cursor_offset, selected) =
                 default_selection(&insert, cursor_offset, property, root, behavior);
             let holding = choices.holding(key);
-            let (title, type_label) = if holding.is_empty() {
-                (None, schema_type_label(property, root, "property"))
+            let typed_by: Vec<&Value> = holding
+                .iter()
+                .map(|(_, schema)| *schema)
+                .filter(|schema| !names_only(schema))
+                .collect();
+            let title = (!holding.is_empty())
+                .then(|| choices.titles_holding(key))
+                .flatten();
+            let type_label = if typed_by.is_empty() {
+                schema_type_label(property, root, "property")
             } else {
-                let schemas: Vec<&Value> = holding.iter().map(|(_, schema)| *schema).collect();
-                (
-                    choices.titles_holding(key),
-                    type_label_of_all(&schemas, root, "property"),
-                )
+                type_label_of_all(&typed_by, root, "property")
             };
             candidates.push((
                 score,
@@ -239,6 +265,16 @@ pub(super) fn property_completions(
         }
     }
     sorted_completions(candidates)
+}
+
+/// Whether a property's schema only names the key (`true`, `{}`),
+/// describing nothing of its value.
+fn names_only(property: &Value) -> bool {
+    match property {
+        Value::Bool(true) => true,
+        Value::Object(members) => members.is_empty(),
+        _ => false,
+    }
 }
 
 #[cfg(test)]
@@ -415,12 +451,16 @@ pub(crate) fn completions_in(
     if !replaces_word && let Some(word) = context.entry_after.as_deref() {
         options.retain(|option| option.is_value || option.label != word);
     }
+    // The places suggestions name are read off the text once for the list,
+    // not once per suggestion.
+    let mut offsets = ByteOffsets::new(source);
+    let mut other_places = OtherPlaces::new(source, &context, behavior);
     for option in &mut options {
         let renamed = frame_insert(option, &context, replaces_word);
         // A whole key replaced: every other place it is written follows.
         let names_a_key = !option.is_value || context.position == EntryPosition::Name;
         let elsewhere = if names_a_key {
-            other_places(source, &context, option, behavior)
+            other_places.of(option, &mut offsets)
         } else {
             Vec::new()
         };
@@ -446,7 +486,7 @@ pub(crate) fn completions_in(
             }
             // A rename keeps what the insert writes before the name (`<`)
             // only where the document has it there too (not in `</name>`).
-            let start_byte = utf16_to_byte_index(source, option.start);
+            let start_byte = offsets.byte(option.start);
             if let Some(at) = option.insert.find(option.label.as_str())
                 && at > 0
                 && !source[start_byte..].starts_with(&option.insert[..at])
@@ -466,8 +506,8 @@ pub(crate) fn completions_in(
                 .collect();
             before.sort_unstable();
             for (name_start, name_end) in before.into_iter().rev() {
-                let between_start = utf16_to_byte_index(source, name_end);
-                let between_end = utf16_to_byte_index(source, option.start);
+                let between_start = offsets.byte(name_end);
+                let between_end = offsets.byte(option.start);
                 let prefix = format!("{}{}", option.label, &source[between_start..between_end]);
                 option.cursor_offset += prefix.encode_utf16().count();
                 option.insert.insert_str(0, &prefix);
@@ -484,8 +524,8 @@ pub(crate) fn completions_in(
                 if name_start < option.end {
                     continue;
                 }
-                let between_start = utf16_to_byte_index(source, option.end);
-                let between_end = utf16_to_byte_index(source, name_start);
+                let between_start = offsets.byte(option.end);
+                let between_end = offsets.byte(name_start);
                 option.insert.push_str(&source[between_start..between_end]);
                 option.insert.push_str(&option.label);
                 option.end = name_end;
@@ -498,7 +538,7 @@ pub(crate) fn completions_in(
                 .as_deref()
                 .is_some_and(|word| !word.is_empty());
         if !in_front && !renamed_elsewhere {
-            rename_key_with_value(option, source, cursor, behavior);
+            rename_key_with_value(option, source, cursor, behavior, &mut offsets);
         }
         // The key already written, the caret at its end and the key going on
         // (`tcp|.nodelay`, `tcp|: …`, `tcp| {`): accepting changes nothing.
@@ -513,7 +553,7 @@ pub(crate) fn completions_in(
         }
         // A key typed after an auto-paired quote (`"pub|"`) whose insert is
         // written without quotes takes the closing quote along.
-        let typed_start = utf16_to_byte_index(source, option.start);
+        let typed_start = offsets.byte(option.start);
         let quotes = quote_starts(behavior);
         if !option.is_value
             && option.end == cursor
@@ -530,8 +570,8 @@ pub(crate) fn completions_in(
         // attribute's `mode="|"`) takes the closing quote along, so the caret
         // ends after it, as values written with their quotes do.
         if option.is_value {
-            let start_byte = utf16_to_byte_index(source, option.start);
-            let end_byte = utf16_to_byte_index(source, option.end);
+            let start_byte = offsets.byte(option.start);
+            let end_byte = offsets.byte(option.end);
             if let Some(quote) = source[..start_byte].chars().next_back()
                 && quotes.contains(&quote)
                 && source[end_byte..].starts_with(quote)
@@ -544,7 +584,7 @@ pub(crate) fn completions_in(
         }
         // An insert ending in a line break before an existing one would leave
         // a blank line, unless the caret goes on that line (`[pool]\n|`).
-        let end = utf16_to_byte_index(source, option.end);
+        let end = offsets.byte(option.end);
         let caret_on_new_line = option.cursor_offset == option.insert.encode_utf16().count();
         if option.insert.ends_with('\n') && source[end..].starts_with('\n') && !caret_on_new_line {
             option.insert.pop();
@@ -553,73 +593,6 @@ pub(crate) fn completions_in(
         }
     }
     options
-}
-
-/// Where else the key the option replaces is written (UTF-16 ranges), per
-/// the language's [`ConfigLanguage::key_renames`]: other dotted keys and
-/// headers through it, other blocks or elements of its name. Empty unless
-/// the replaced text is a whole key written in the document.
-fn other_places(
-    source: &str,
-    context: &CompletionContext,
-    option: &Completion,
-    behavior: &dyn ConfigLanguage,
-) -> Vec<(usize, usize)> {
-    const STAND_IN: &str = "configeditorrenamed";
-    let stop = |character: char| character.is_whitespace() || "\"'.=:[]{}<>/,#".contains(character);
-    let start = utf16_to_byte_index(source, option.start);
-    let end = utf16_to_byte_index(source, option.end);
-    let replaced = source[start..end].trim_start_matches(|character: char| stop(character));
-    let word_start = end - replaced.len();
-    let word_len = replaced.find(stop).unwrap_or(replaced.len());
-    let old = &replaced[..word_len];
-    if old.is_empty() || old == option.label {
-        return Vec::new();
-    }
-    let mut pointer = String::new();
-    for segment in &context.path {
-        pointer.push('/');
-        match segment {
-            SchemaPathSegment::Key(key) => {
-                pointer.push_str(&key.replace('~', "~0").replace('/', "~1"))
-            }
-            SchemaPathSegment::ArrayItem(index) => pointer.push_str(&index.to_string()),
-        }
-    }
-    pointer.push('/');
-    pointer.push_str(&old.replace('~', "~0").replace('/', "~1"));
-    let Some(renamed) = behavior
-        .key_renames(source, &pointer, STAND_IN)
-        .map(|edits| crate::editor::language::with_edits(source, edits))
-    else {
-        return Vec::new();
-    };
-    // Each stand-in maps back to the word it replaced.
-    let mut places = Vec::new();
-    let mut delta: isize = 0;
-    for (at, _) in renamed.match_indices(STAND_IN) {
-        let Some(place) = at.checked_add_signed(-delta) else {
-            return Vec::new();
-        };
-        let length = source
-            .get(place..)
-            .map_or(0, |rest| rest.find(stop).unwrap_or(rest.len()));
-        if source.get(place..place + length) != Some(old) {
-            return Vec::new();
-        }
-        delta += STAND_IN.len() as isize - length as isize;
-        places.push((place, place + length));
-    }
-    // Only a key written where the caret is: a new key is not a rename.
-    if !places.iter().any(|(place, _)| *place == word_start) {
-        return Vec::new();
-    }
-    let utf16 = |byte: usize| source[..byte].encode_utf16().count();
-    places
-        .into_iter()
-        .filter(|(place, _)| *place != word_start)
-        .map(|(place, place_end)| (utf16(place), utf16(place_end)))
-        .collect()
 }
 
 /// On a line holding only indentation and the word being typed: an entry

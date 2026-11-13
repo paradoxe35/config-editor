@@ -66,6 +66,27 @@ test.describe("the unsaved-changes question is a modal dialog (D1.a11y-1, D21.a1
     ).toHaveValue(/# unsaved$/);
   });
 
+  // QA 30 (A30-2): it starts on the choice that loses nothing, names the
+  // tab's file and describes itself.
+  test("it starts on Cancel, names the tab's file and has its message as description", async ({
+    page,
+  }) => {
+    await dirtyMain(page);
+    await tab(page, "main").focus();
+    await page.keyboard.press("Delete");
+    await expect(dialog(page)).toBeVisible();
+    await expect(page.getByRole("button", { name: "Cancel" })).toBeFocused();
+    await expect(dialog(page)).toContainText("tunnel.yaml");
+    const described = await dialog(page).evaluate((element) =>
+      document.getElementById(element.getAttribute("aria-describedby") ?? "")?.textContent,
+    );
+    expect(described).toBe("Discard unsaved changes to tunnel.yaml?");
+    // Enter right away keeps the document.
+    await page.keyboard.press("Enter");
+    await expect(dialog(page)).toHaveCount(0);
+    await expect(status(page)).toHaveAttribute("data-open", "main,limits,clients");
+  });
+
   test("Cancel and Discard from the keyboard: focus returns to the tab, or the next one", async ({
     page,
   }) => {

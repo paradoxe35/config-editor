@@ -16,6 +16,16 @@ pub(super) mod enter_newline;
     feature = "xml"
 ))]
 pub(in crate::editor) mod fold_scale_tests;
+#[cfg(all(
+    test,
+    feature = "folding",
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod fold_unit_tests;
 pub(super) mod line_edit;
 #[cfg(test)]
 mod line_edit_tests;

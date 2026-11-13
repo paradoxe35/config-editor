@@ -69,6 +69,9 @@ const PAIRS = [
   ['deprecated completion key, selected', CODE, '.config-editor__completion--deprecated .config-editor__completion-key', ['raised', 'completion-active']],
   ['completion type', CODE, 'completion-type', ['raised']],
   ['completion detail', CODE, 'completion-detail', ['raised']],
+  // The selected row's detail, as its rule colors it (QA 30: 4.06:1 in
+  // VS Code Dark).
+  ['completion detail, selected', CODE, '.config-editor__completion-active .config-editor__completion-detail', ['raised', 'completion-active']],
   // The hover card's Documentation link, the tips' text and the change
   // preview's code.
   ['hover card Documentation link', CODE, '.config-editor__hover-link', ['raised']],

@@ -65,7 +65,10 @@ mod xml {
 
     /// `xml` read by `schema` (the property `v`'s schema, under `<r>`).
     fn read(xml: &str, property: Value) -> Value {
-        let schema = json!({"properties": {"r": {"properties": {"v": property}}}});
+        let schema = json!({
+            "properties": {"r": {"properties": {"v": property}}},
+            "$defs": {"list": {"type": "array", "items": {"type": "number"}}},
+        });
         let value = codec::read(Language::XML.behavior(), xml, Some(&schema)).expect("parses");
         value["r"]["v"].clone()
     }
@@ -230,6 +233,20 @@ mod xml {
                 "<r><v>1</v><v>2.0</v></r>",
                 json!({"type": "array", "items": {"type": "number"}}),
                 json!([1, 2.0]),
+            ),
+            // A lone element where only a list of objects is allowed: its
+            // attributes typed by the item's schema (the guess would make
+            // `true` a boolean).
+            (
+                "<r><v a=\"true\" n=\"07\"/></r>",
+                json!({"type": "array", "items": {"properties": {"a": {"type": "string"}, "n": {"type": "integer"}}}}),
+                json!([{"a": "true", "n": 7}]),
+            ),
+            // Through a reference to the list.
+            (
+                "<r><v>1.50</v></r>",
+                json!({"$ref": "#/$defs/list", "description": "d"}),
+                json!([1.5]),
             ),
             // Inside an element with attributes: each by its own schema;
             // the text beside them by `#text`, or as text.

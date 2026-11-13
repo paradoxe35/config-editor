@@ -319,12 +319,14 @@ test.describe('typing triggers', () => {
     await page.keyboard.type('al');
     await expect.poll(() => e.keys()).toContain('allow');
     await e.clickKey('allow');
-    await expect(e.input).toHaveValue('self:\n  allow:\n    - ');
+    // `allow` has `default: []`: the empty list is written as one, the
+    // caret inside it, so it reads back as the default (SC30-10).
+    await expect(e.input).toHaveValue('self:\n  allow: []');
     expect(await e.isOpen()).toBe(false);
 
     await page.keyboard.type('192.0.2.1');
     expect(await e.isOpen()).toBe(false);
-    await expect(e.input).toHaveValue('self:\n  allow:\n    - 192.0.2.1');
+    await expect(e.input).toHaveValue('self:\n  allow: [192.0.2.1]');
   });
 });
 

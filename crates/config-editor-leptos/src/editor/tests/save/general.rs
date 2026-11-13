@@ -1252,7 +1252,7 @@ fn round_13_saves_change_only_the_edit() {
                 .unwrap()
                 .push(json!({"name": "x"}))
         },
-        "[[services.web.clients]] # backup\nname = \"beta\"\ntarget = 81\n[[services.web.clients]]\nname = \"x\"\n\n[services.web]\nallow_from = [\n]\n[services.api]\ntarget = 81\nclients = [\n]\n",
+        "[[services.web.clients]] # backup\nname = \"beta\"\ntarget = 81\n[[services.web.clients]]\nname = \"x\"\n[services.web]\nallow_from = [\n]\n[services.api]\ntarget = 81\nclients = [\n]\n",
     );
     // MEDIUM: number spellings on a one-line JSON host.
     check(

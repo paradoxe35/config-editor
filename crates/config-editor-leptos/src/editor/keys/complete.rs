@@ -88,7 +88,10 @@ pub(super) fn complete(
         opener: Some('<'),
         completion: true,
     });
-    state.commit(Edit::new(before, (start, start), done.text, done.caret));
+    state.commit(
+        Edit::new(before, (start, start), done.text, done.caret)
+            .typed("insertText", event.time_stamp()),
+    );
     state.close_suggestions();
     true
 }
@@ -105,7 +108,9 @@ pub(super) fn reindent(
         return false;
     };
     event.prevent_default();
-    state.commit(Edit::new(before, (start, start), updated, caret));
+    state.commit(
+        Edit::new(before, (start, start), updated, caret).typed("insertText", event.time_stamp()),
+    );
     state.close_suggestions();
     true
 }

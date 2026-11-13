@@ -42,6 +42,7 @@ fn run(
     let none = Folded {
         folds: &[],
         units: &[],
+        neighbors: &[],
     };
     let edit = line_edit(&before, selection, command, none)?;
     let (anchor, caret) = edit.selection;

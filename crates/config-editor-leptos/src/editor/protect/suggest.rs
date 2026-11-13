@@ -65,15 +65,20 @@ pub(crate) fn adjust(options: Vec<Completion>, around: &Around<'_>) -> Vec<Compl
     // read-only block (whose keys would all be read-only).
     let browsing = around.protected.lock_at(around.cursor).is_some()
         || (!context.path.is_empty() && lock_reason(around, &context.path).is_some());
+    // Every value is the same field's: whether it is read-only is asked once.
+    let value_lock = context
+        .value_key
+        .as_deref()
+        .map(|key| lock_reason(around, &path_with_key(&context.path, key)));
     options
         .into_iter()
         .filter_map(|mut option| {
-            let path = match context.value_key.as_deref() {
-                Some(key) if option.is_value => path_with_key(&context.path, key),
+            let lock = match &value_lock {
+                Some(lock) if option.is_value => lock.clone(),
                 _ if option.is_value => return Some(option),
-                _ => path_with_key(&context.path, &option.label),
+                _ => lock_reason(around, &path_with_key(&context.path, &option.label)),
             };
-            match lock_reason(around, &path) {
+            match lock {
                 None => Some(option),
                 Some(reason) if browsing => {
                     option.detail = reason;

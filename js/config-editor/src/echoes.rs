@@ -157,6 +157,9 @@ pub(crate) struct Echoes {
     now: f64,
     /// The text the host gave last.
     last_given: Option<Print>,
+    /// The text the host gave last in a list or an update, which
+    /// `replaceValue` leaves as it was.
+    last_listed: Option<Print>,
     /// The document's print, while known (the text sent, given or shown
     /// last).
     document: Option<Print>,
@@ -186,9 +189,22 @@ impl Echoes {
     }
 
     /// The host gave `text` as the document is built (the constructor's
-    /// `value`, a document first listed), or of its own as the document
-    /// (`replaceValue`).
+    /// `value`, a document first listed).
     pub(crate) fn given(&mut self, text: &str) {
+        if self.on {
+            let print = Print::of(text);
+            self.last_listed = Some(print);
+            self.last_given = Some(print);
+            self.document = Some(print);
+        }
+    }
+
+    /// The host gave `text` of its own as the document (`replaceValue`).
+    /// Its list is no news until it changes: a list the host gives again as
+    /// it gave it last, the text it replaced in it (a framework's render
+    /// before the host took the new text), keeps the document (QA 30,
+    /// F30-2: React's `setValue` was rolled back by the render it caused).
+    pub(crate) fn replaced(&mut self, text: &str) {
         if self.on {
             let print = Print::of(text);
             self.last_given = Some(print);
@@ -304,7 +320,8 @@ impl Echoes {
             return Echo::Apply;
         }
         let print = Print::of(value);
-        let again = self.last_given.replace(print) == Some(print);
+        self.last_given = Some(print);
+        let again = self.last_listed.replace(print) == Some(print);
         let news = if listed && again {
             // Listed again: a render, or the echo of a copy sent since (and
             // a text sent after it may have come and gone in the same
@@ -662,6 +679,41 @@ mod tests {
         assert_eq!(echoes.listed("abc", "abc", NONE), Echo::Apply);
         assert_eq!(echoes.listed("reset", "abc", NONE), Echo::Apply);
         assert_eq!(echoes.listed("reset", "reset", NONE), Echo::Apply);
+    }
+
+    /// QA 30 (F30-2): after `replaceValue`, a list as the host gave it
+    /// last (React's render right after `setValue`, before the host took
+    /// the new text) is no news, nor are the echoes of what was typed
+    /// before, in any order: the document stays the replaced text.
+    #[test]
+    fn a_list_as_before_a_replace_value_keeps_the_replaced_text() {
+        let typed = ["listen: 78351", "listen: 783512", "listen: 7835123"];
+        for reversed in [false, true] {
+            let mut echoes = Echoes::new(true);
+            echoes.given("listen: 7835");
+            for text in typed {
+                echoes.sent(text);
+            }
+            echoes.replaced("listen: 1");
+            let document = "listen: 1";
+            assert_ne!(
+                echoes.listed("listen: 7835", document, NONE),
+                Echo::Apply,
+                "reversed {reversed}"
+            );
+            let mut back: Vec<&str> = typed.to_vec();
+            back.push(document);
+            if reversed {
+                back.reverse();
+            }
+            for text in back {
+                let echo = echoes.listed(text, document, NONE);
+                assert!(
+                    text == document || echo != Echo::Apply,
+                    "{text} applied (reversed {reversed})"
+                );
+            }
+        }
     }
 
     /// An update giving the text the host gave last (the constructor's: a

@@ -1,3 +1,11 @@
+#[cfg(all(
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod backspace_suggestions;
 mod basics;
 #[cfg(all(
     feature = "yaml",
@@ -90,4 +98,31 @@ mod save;
 mod schema_options;
 #[cfg(all(feature = "yaml", feature = "schema-validation"))]
 mod schema_walk;
+// Counts the suggestions' work in every language.
+#[cfg(all(
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod suggestion_scale;
+#[cfg(all(
+    feature = "schema-validation",
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod unevaluated_beside_errors;
 mod utf16_offsets;
+#[cfg(all(
+    feature = "schema-validation",
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod xml_numeric_strings;

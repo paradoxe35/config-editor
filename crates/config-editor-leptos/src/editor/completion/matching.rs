@@ -143,7 +143,9 @@ pub(super) fn sorted_completions(mut scored: Vec<(i64, Completion)>) -> Vec<Comp
                 }
             })
     });
-    scored.dedup_by(|left, right| left.1.label == right.1.label);
+    // One entry per label, the best placed (a key two branches declare).
+    let mut seen = std::collections::HashSet::new();
+    scored.retain(|(_, completion)| seen.insert(completion.label.clone()));
     scored
         .into_iter()
         .map(|(_, completion)| completion)

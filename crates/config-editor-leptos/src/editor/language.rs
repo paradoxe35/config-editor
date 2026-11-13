@@ -1005,6 +1005,17 @@ pub trait ConfigLanguage: Send + Sync + 'static {
     /// two never read as each other.
     fn parse(&self, source: &str) -> Result<Value, ParseError>;
 
+    /// Where the number literal `error` (what [`parse`](Self::parse)
+    /// returned for `source`) is about is written, when the error is only
+    /// that the editor cannot hold the number exactly (an integer past 64
+    /// bits, a float past the largest) and the language allows it: the text
+    /// then saves in this language, the problem still shown. Default:
+    /// `None`, every error holds the save.
+    fn unheld_number(&self, source: &str, error: &ParseError) -> Option<std::ops::Range<usize>> {
+        let _ = (source, error);
+        None
+    }
+
     /// The document for `value`, keeping the framing of `previous` (this
     /// language's last text for the document) where the language has any.
     ///
@@ -1306,8 +1317,8 @@ pub trait ConfigLanguage: Send + Sync + 'static {
 
     /// Why `source` does not convert to another language although it parses
     /// (XML elements of one parent with the same local name in different
-    /// namespaces, which the document model would merge; a prefix no
-    /// namespace declaration binds, which the language's readers refuse),
+    /// namespaces, which the document model would merge; an entity
+    /// reference only the document's own declarations resolve),
     /// ending with `(at /pointer)`; `None` when nothing stands in the way.
     /// An Edit-as save whose host text this refuses waits.
     fn unconvertible(&self, source: &str) -> Option<String> {

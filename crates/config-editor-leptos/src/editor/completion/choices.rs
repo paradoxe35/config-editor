@@ -245,8 +245,9 @@ pub(crate) fn object_at(
 
 /// [`object_at`] with the line at `cursor_byte` left empty: the caret's
 /// line holds a key being typed (`<` in XML), which would keep the rest
-/// from parsing. Still `None` where the text around it does not parse
-/// (a JSON entry ending in a comma): the keys alone then decide.
+/// from parsing (see [`document_around`]). Still `None` where the text
+/// around it does not parse (an error elsewhere): the keys alone then
+/// decide.
 pub(crate) fn object_around(
     source: &str,
     cursor_byte: usize,
@@ -268,10 +269,35 @@ pub(crate) fn document_around(
     let line_end = source[cursor_byte..]
         .find('\n')
         .map_or(source.len(), |at| cursor_byte + at);
-    let blanked = format!("{}{}", &source[..line_start], &source[line_end..]);
+    let (before, after) = (&source[..line_start], &source[line_end..]);
     // Read aside: the text with the line left out must not push the text
     // on screen out of the shared parse.
-    behavior.parse(&blanked).ok()
+    behavior
+        .parse(&format!("{before}{after}"))
+        .ok()
+        .or_else(|| without_dangling_separator(before, after, behavior))
+}
+
+/// The document `before` and `after` the caret's line make when the
+/// entry before that line ended in the item separator for the entry being
+/// typed (JSON's `"kind": "a",` then a new line): read without it, as the
+/// container closes right after.
+fn without_dangling_separator(
+    before: &str,
+    after: &str,
+    behavior: &dyn ConfigLanguage,
+) -> Option<Value> {
+    let config = behavior.config();
+    let separator = config.item_separator?;
+    let kept = before.trim_end();
+    let closes = after
+        .trim_start()
+        .chars()
+        .next()
+        .is_some_and(|next| config.brackets.iter().any(|(_, close)| *close == next));
+    let kept = kept.strip_suffix(separator).filter(|_| closes)?;
+    let gap = &before[kept.len() + separator.len_utf8()..];
+    behavior.parse(&format!("{kept}{gap}{after}")).ok()
 }
 
 /// The choices of the value at `path`, and the one it is in.

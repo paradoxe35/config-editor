@@ -31,6 +31,11 @@ pub(crate) struct CompletionState {
     /// The list was asked for over a selected word (Ctrl+Space): it offers
     /// every key, and accepting one replaces the word.
     pub(crate) replace_word: RwSignal<bool>,
+    /// The list showed options since it was last asked for: Backspace
+    /// asks for it again, as taking back what the filter emptied it with
+    /// can bring them back; a list that showed none has none to bring back,
+    /// and is not worked out again on each Backspace.
+    pub(crate) showed: StoredValue<bool>,
     /// The highlighted option.
     pub(crate) active: RwSignal<usize>,
     pub(crate) suggestions: Memo<Vec<Completion>>,
@@ -41,6 +46,10 @@ pub(crate) struct CompletionState {
     pub(crate) row_size: Memo<RowSize>,
     /// How far the list is scrolled, in pixels (see `window`).
     pub(crate) list_top: RwSignal<f64>,
+    /// The user opened the open list (`Ctrl+Space`) or moved in it: typing
+    /// that empties it says so; a list that opened by itself closes
+    /// silently.
+    pub(crate) asked: StoredValue<bool>,
     /// An inserted default left selected after an accept: typing replaces
     /// it, Tab keeps it and moves past it, Enter keeps it and starts a new
     /// line.
@@ -148,11 +157,13 @@ impl CompletionState {
             requested,
             explicit,
             replace_word,
+            showed: StoredValue::new(false),
             active: RwSignal::new(0),
             suggestions,
             listing,
             row_size,
             list_top: RwSignal::new(0.0),
+            asked: StoredValue::new(false),
             placeholder: StoredValue::new(None),
             slot_region: StoredValue::new(None),
             value_stops: StoredValue::new(Vec::new()),

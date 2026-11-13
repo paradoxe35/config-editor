@@ -19,8 +19,8 @@ use crate::host_diagnostics::host_diagnostics_from;
 use crate::languages::{language_named, writable_edit_as};
 use crate::mount::{self, IN_CALLBACK, Latest, Setup, State, call_host};
 use crate::options::{
-    EDITOR_OPTIONS, EDITOR_REMOUNT_OPTIONS, EDITOR_UPDATE_ONLY_OPTIONS, bool_option,
-    function_option, string_option, warn_unknown_options,
+    EDITOR_OPTIONS, EDITOR_REMOUNT_OPTIONS, bool_option, function_option, string_option,
+    warn_unknown_options,
 };
 use crate::protect::{paths_from, ranges_from, secrets_from};
 use crate::remap::moved_between;
@@ -31,7 +31,7 @@ use crate::typings::{
     EditorOptions, EditorUpdate, LineRanges, PathResult, RangeResult, SettingsResult,
 };
 use crate::update::{
-    callback_change, flag_change, given, plain_object, refuse_remount, settings_change,
+    Fixed, callback_change, flag_change, given, plain_object, refuse_remount, settings_change,
 };
 use crate::values::{context_arg, field, text_arg};
 
@@ -93,6 +93,27 @@ thread_local! {
     /// Rust side dropped), but the editor stays on the page until `destroy`.
     pub(crate) static MOUNTED: RefCell<HashMap<u32, Mounted>> = RefCell::new(HashMap::new());
     pub(crate) static NEXT_ID: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+}
+
+/// What a `ConfigEditor` is built from (`EDITOR_REMOUNT_OPTIONS`), with
+/// the values that are each one's default: an editor built without a
+/// `fileName` shows its language's (`untitled.yaml`).
+fn editor_fixed(language: Language) -> Vec<Fixed> {
+    EDITOR_REMOUNT_OPTIONS
+        .iter()
+        .map(|key| match *key {
+            "fileName" => Fixed::or(
+                key,
+                vec![
+                    JsValue::from_str(""),
+                    JsValue::from_str(&language.default_file_name()),
+                ],
+            ),
+            "className" => Fixed::or(key, vec![JsValue::from_str("")]),
+            "echoes" => Fixed::or(key, vec![JsValue::FALSE]),
+            _ => Fixed::plain(key),
+        })
+        .collect()
 }
 
 impl ConfigEditor {
@@ -167,14 +188,31 @@ impl ConfigEditor {
         let on_save = function_option(&options, "onSave")?;
         let on_dirty_change = function_option(&options, "onDirtyChange")?;
         let on_baseline_conflict = function_option(&options, "onBaselineConflict")?;
+        // Ranges are in `rangesFor` (a text the document has moved past, a
+        // component's bound value), else in `value`; moved to `value`.
+        let ranges_for = text_option("rangesFor")?;
+        let host_text = ranges_for.as_deref().unwrap_or(&value);
         let host_diagnostics = match field(&options, "hostDiagnostics") {
             list if list.is_undefined() || list.is_null() => Vec::new(),
-            list => host_diagnostics_from(&list, &value)?,
+            list => host_diagnostics_from(&list, host_text)?,
         };
         let on_schema_warning = function_option(&options, "onSchemaWarning")?;
         let read_only_paths = paths_from(&field(&options, "readOnlyPaths"), "readOnlyPaths")?;
-        let read_only_ranges =
-            ranges_from(&field(&options, "readOnlyRanges"), &value, "readOnlyRanges")?;
+        let read_only_ranges = ranges_from(
+            &field(&options, "readOnlyRanges"),
+            host_text,
+            "readOnlyRanges",
+        )?;
+        let (read_only_ranges, host_diagnostics) = moved_between(
+            host_text,
+            &value,
+            Some(read_only_ranges),
+            Some(host_diagnostics),
+        );
+        let (read_only_ranges, host_diagnostics) = (
+            read_only_ranges.unwrap_or_default(),
+            host_diagnostics.unwrap_or_default(),
+        );
         warn_unknown_options(&options, EDITOR_OPTIONS);
         // The editor replaces whatever the element held, editors included.
         replace_editors_in(&element);
@@ -244,7 +282,7 @@ impl ConfigEditor {
             final_value: RefCell::new(None),
             id: std::cell::Cell::new(Some(id)),
             reentry: crate::reentry::Reentry::default(),
-            built_from: crate::update::BuiltFrom::of(&options, EDITOR_REMOUNT_OPTIONS),
+            built_from: crate::update::BuiltFrom::of(&options, editor_fixed(language)),
         })
     }
 
@@ -281,7 +319,8 @@ impl ConfigEditor {
     /// `language`, `schema`, `fileName`, `className`,
     /// `secrets` and `echoes` are what the editor is built from: they throw (create
     /// a new editor instead), but for the value it was built with given again
-    /// (`Object.is`; `language` naming the editor's own).
+    /// (`Object.is`; `language` naming the editor's own; an option left out
+    /// was built with its default: `null`, `echoes: false`, …).
     /// Every key is checked before any applies.
     pub fn update(&self, options: EditorUpdate) -> Result<(), JsError> {
         let options: JsValue = options.into();
@@ -301,10 +340,7 @@ impl ConfigEditor {
             .filter(|key| !(same_language && *key == "language"))
             .collect();
         refuse_remount(&options, &remount, &self.built_from, "ConfigEditor")?;
-        warn_unknown_options(
-            &options,
-            &[EDITOR_OPTIONS, EDITOR_UPDATE_ONLY_OPTIONS].concat(),
-        );
+        warn_unknown_options(&options, EDITOR_OPTIONS);
         let value = given(&options, "value")
             .map(|value| text_arg(&value, "value"))
             .transpose()?;
@@ -536,7 +572,7 @@ impl ConfigEditor {
         let _ = self
             .state
             .echoes
-            .try_update_value(|echoes| echoes.given(&value));
+            .try_update_value(|echoes| echoes.replaced(&value));
         self.show(value);
         Ok(())
     }

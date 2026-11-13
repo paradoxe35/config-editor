@@ -503,9 +503,8 @@ impl Bridge {
             }
             None => {}
         }
-        // Nor is a text the host's readers refuse though it reads (an XML
-        // prefix whose declaration the edit removed), or that would not
-        // convert back to the view (XML text beside child elements).
+        // Nor is a text that would not convert back to the view (XML text
+        // beside child elements, an entity only the document declares).
         codec::convertible(host, &conversion.text)?;
         self.tags_kept(previous_host, &conversion.text, (&old, &target))?;
         // The read-back check cannot tell forms that read the same (an HCL

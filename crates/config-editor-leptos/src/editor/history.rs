@@ -84,7 +84,7 @@ impl EditHistory {
         timestamp: f64,
     ) {
         let group = match input_type {
-            "insertText" => Some(Group::Typing),
+            "insertText" | "insertLineBreak" | "insertParagraph" => Some(Group::Typing),
             "insertCompositionText" | "deleteCompositionText" | "insertFromComposition" => {
                 Some(Group::Composing)
             }
@@ -130,6 +130,24 @@ impl EditHistory {
             });
         }
         self.open = group.map(|group| (group, timestamp));
+    }
+
+    /// The caret stepped from `from` over a closer the editor wrote to `to`
+    /// (a `"` typed before the `"` it put there) at `timestamp`: typing
+    /// still open goes on past it in the same step, so one undo takes back
+    /// a member typed in one go, its pairs with it.
+    pub(super) fn stepped_over(&mut self, from: usize, to: usize, timestamp: f64) {
+        if !self.open.is_some_and(|(open, at)| {
+            open == Group::Typing && timestamp - at <= UNDO_GROUPING_WINDOW_MS
+        }) {
+            return;
+        }
+        if let Some(step) = self.undo.last_mut()
+            && step.after == (from, from)
+        {
+            step.after = (to, to);
+            self.open = Some((Group::Typing, timestamp));
+        }
     }
 
     /// Ends the open step: the next edit starts a new one (the caret moved, or
@@ -390,6 +408,30 @@ mod tests {
         history.seal();
         history.record_input(at("日", 1), (2, 2), "insertCompositionText", 10.0);
         assert_eq!(history.undo("日本".into()), Some(at("日", 1)));
+    }
+
+    #[test]
+    fn typing_on_past_a_closer_stepped_over_is_one_step() {
+        let mut history = EditHistory::default();
+        // `"` writes `""`, `k` goes in it, `"` steps over the closer, `:`.
+        history.record_input(at("{}", 1), (2, 2), "insertText", 0.0);
+        history.record_input(at("{\"\"}", 2), (3, 3), "insertText", 100.0);
+        history.stepped_over(3, 4, 200.0);
+        history.record_input(at("{\"k\"}", 4), (5, 5), "insertText", 300.0);
+        // A line break Enter typed goes on with it.
+        history.record_input(at("{\"k\":}", 5), (6, 6), "insertLineBreak", 400.0);
+        assert_eq!(history.undo("{\"k\":\n}".into()), Some(at("{}", 1)));
+        // Past a pause, or once the caret moved, stepping over starts nothing.
+        let mut history = EditHistory::default();
+        history.record_input(at("{}", 1), (3, 3), "insertText", 0.0);
+        history.stepped_over(3, 4, 2000.0);
+        history.record_input(at("{\"\"}", 4), (5, 5), "insertText", 2100.0);
+        assert_eq!(history.undo("{\"\":}".into()), Some(at("{\"\"}", 4)));
+        let mut history = EditHistory::default();
+        history.record_input(at("{}", 1), (3, 3), "insertText", 0.0);
+        history.stepped_over(1, 2, 100.0);
+        history.record_input(at("{\"\"}", 2), (3, 3), "insertText", 200.0);
+        assert_eq!(history.undo("{\"\":}".into()), Some(at("{\"\"}", 2)));
     }
 
     #[test]

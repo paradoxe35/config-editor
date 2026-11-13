@@ -160,7 +160,7 @@ test.describe('documents as tabs', () => {
     await page.keyboard.type('# unsaved');
     await tab(page, 'main').hover();
     await tab(page, 'main').locator('.config-editor-documents__close').click();
-    await expect(page.locator('.demo__ask')).toContainText('Discard unsaved changes to main?');
+    await expect(page.locator('.demo__ask')).toContainText('Discard unsaved changes to tunnel.yaml?');
     await expect(status(page)).toHaveAttribute('data-open', 'main,limits,clients');
     await page.locator('.demo__keep').click();
     await expect(page.locator('[role="tab"]')).toHaveCount(3);

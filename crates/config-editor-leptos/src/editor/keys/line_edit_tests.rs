@@ -33,7 +33,16 @@ fn run_units(
         text,
         selection,
         mut folds,
-    } = line_edit(&text, (start, end), command, Folded { folds, units })?;
+    } = line_edit(
+        &text,
+        (start, end),
+        command,
+        Folded {
+            folds,
+            units,
+            neighbors: &[],
+        },
+    )?;
     let byte = |offset: usize| {
         text.char_indices()
             .scan(0, |units, (at, character)| {

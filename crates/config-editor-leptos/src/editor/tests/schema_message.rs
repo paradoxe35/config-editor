@@ -81,3 +81,68 @@ fn an_invalid_schema_names_its_place_and_a_too_deep_one_says_so() {
     let deep = message(&format!(r#"{{"enum":[{lists}]}}"#));
     assert!(deep.contains("more than 128 levels deep"), "{deep}");
 }
+
+/// Up to draft-07 `format` is checked; the problem reads "is not a valid",
+/// not "is not a "email"". From 2019-09 on it is an annotation only.
+#[test]
+fn a_value_out_of_its_format_reads_plainly_up_to_draft_07() {
+    let schema = |draft: &str| {
+        format!(
+            r#"{{"$schema":"{draft}","properties":{{"e":{{"type":"string","format":"email"}},"d":{{"type":"string","format":"date"}}}}}}"#
+        )
+    };
+    let yaml = "e: nope\nd: \"2020-13-45\"\n";
+    for draft in [
+        "http://json-schema.org/draft-04/schema#",
+        "http://json-schema.org/draft-06/schema#",
+        "http://json-schema.org/draft-07/schema#",
+    ] {
+        for language in [
+            Language::YAML,
+            Language::JSON,
+            Language::TOML,
+            Language::HCL,
+        ] {
+            assert_eq!(
+                messages(language, yaml, &schema(draft)),
+                [
+                    r#"/d: "2020-13-45" is not a valid "date""#,
+                    r#"/e: "nope" is not a valid "email""#,
+                ],
+                "{draft} {language}"
+            );
+        }
+    }
+    for draft in [
+        "https://json-schema.org/draft/2019-09/schema",
+        "https://json-schema.org/draft/2020-12/schema",
+    ] {
+        assert!(
+            messages(Language::YAML, yaml, &schema(draft)).is_empty(),
+            "{draft}"
+        );
+    }
+}
+
+/// A value for options chosen by type (a number, or an expression string)
+/// that is text matching neither: the message names both options, the
+/// number one too, and a pattern's line breaks are written escaped, never
+/// raw.
+#[test]
+fn a_value_for_options_chosen_by_type_names_each_and_escapes_its_pattern() {
+    let schema = r#"{"properties":{"n":{"oneOf":[{"type":"number"},{"type":"string","pattern":"^\\$\\{[^\r\n]*\\}$"}]}}}"#;
+    let expected = r#"/n: matches none of the oneOf options: option 1: "abc" is not of type "number"; option 2: "abc" does not match "^\\$\\{[^\r\n]*\\}$""#;
+    for language in [
+        Language::YAML,
+        Language::JSON,
+        Language::TOML,
+        Language::HCL,
+        Language::XML,
+    ] {
+        let found = messages(language, "n: abc\n", schema);
+        assert_eq!(found, [expected], "{language}");
+        assert!(!found[0].contains(['\r', '\n']), "{language}");
+    }
+    // A number written as one is fine; an object's typo is still the typo.
+    assert!(messages(Language::YAML, "n: 5\n", schema).is_empty());
+}

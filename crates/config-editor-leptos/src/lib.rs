@@ -193,4 +193,11 @@ pub mod js_support {
     pub fn take_documents(handle: &crate::DocumentsHandle, documents: &[crate::Document]) {
         handle.take_documents(documents);
     }
+
+    /// The language the document `id` of the view of `handle` is edited
+    /// as, as its list or the handle's `edit_as` asked last (`None` inside:
+    /// its own); `None` when it is not open.
+    pub fn edit_as(handle: &crate::DocumentsHandle, id: &str) -> Option<Option<crate::Language>> {
+        handle.edit_as_of(id)
+    }
 }

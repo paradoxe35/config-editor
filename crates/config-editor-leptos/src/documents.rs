@@ -25,6 +25,8 @@ mod plan;
 #[cfg(all(test, feature = "yaml", feature = "toml"))]
 mod screen_tests;
 mod tab_names;
+#[cfg(all(test, feature = "yaml"))]
+mod tab_names_tests;
 
 pub use handle::DocumentsHandle;
 pub use model::{CloseRequest, Document};

@@ -14,7 +14,7 @@ use super::super::commands::indent_lines_through;
 use super::super::edit::Edit;
 use super::super::fold_ranges::FoldRange;
 use super::super::state::{EditorState, is_backward, select, textarea_selection};
-use super::line_edit::{Folded, LineCommand, block_lines, fold_units, line_edit};
+use super::line_edit::{Folded, LineCommand, block_lines, fold_units, line_edit, neighbor_units};
 
 /// A line command.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -83,11 +83,20 @@ pub(in crate::editor) fn run(
             indent(state, text, selection, (outdent, backward), (folds, &units));
         }
         Command::Lines(command) => {
+            let moving = matches!(command, LineCommand::Move { .. });
+            // Lines holding a closed fold move past whole constructs, and
+            // take no other line into it.
+            let neighbors = moving
+                .then(|| neighbors(state, &text, selection, (&folds, &units)))
+                .flatten();
             let folded = Folded {
                 folds: &folds,
                 units: &units,
+                neighbors: neighbors.as_deref().unwrap_or_default(),
             };
-            if let Some(edit) = line_edit(&text, selection, command, folded) {
+            let edit = line_edit(&text, selection, command, folded)
+                .filter(|edit| neighbors.is_none() || folds_kept(state, &edit.text, &edit.folds));
+            if let Some(edit) = edit {
                 let (anchor, caret) = if backward {
                     (edit.selection.1, edit.selection.0)
                 } else {
@@ -99,6 +108,36 @@ pub(in crate::editor) fn run(
         }
     }
     state.close_suggestions();
+}
+
+/// The constructs a move of `selection`'s lines goes past whole, when they
+/// hold a closed fold (see [`neighbor_units`]); `None` when they hold none.
+fn neighbors(
+    state: EditorState,
+    text: &str,
+    selection: (usize, usize),
+    (folds, units): (&[FoldRange], &[FoldRange]),
+) -> Option<Vec<FoldRange>> {
+    if folds.is_empty() {
+        return None;
+    }
+    let folded = Folded {
+        folds,
+        units,
+        neighbors: &[],
+    };
+    let lines = block_lines(text, selection, folded)?;
+    let foldable = state.foldable_untracked();
+    neighbor_units(text, lines, folds, &foldable, state.behavior())
+}
+
+/// Whether each of `folds`, closed as a move left them in `text`, still
+/// folds just so there: the move took no other line into one (a YAML
+/// block moved above its sibling's last child, a TOML table above a key
+/// with no table).
+fn folds_kept(state: EditorState, text: &str, folds: &[FoldRange]) -> bool {
+    let foldable = state.behavior().fold_ranges(text);
+    folds.iter().all(|fold| foldable.contains(fold))
 }
 
 /// `edit`, leaving `after` closed when folds were (`before`): with none,
@@ -124,6 +163,7 @@ fn indent(
     let folded = Folded {
         folds: &folds,
         units,
+        neighbors: &[],
     };
     let Some((_, through)) = block_lines(&text, (start, end), folded) else {
         return;

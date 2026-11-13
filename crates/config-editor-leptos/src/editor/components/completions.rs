@@ -7,6 +7,7 @@ use leptos::prelude::*;
 use super::super::completion::RowSize;
 use super::super::completion::{
     ShownOption, completion_list_scrolled, completion_popup_style, most_option_rows,
+    scroll_completion_into_view,
 };
 use super::super::state::EditorState;
 use crate::cssom::{Declarations, cssom};
@@ -17,6 +18,16 @@ pub(crate) fn CompletionList(state: EditorState) -> impl IntoView {
     // The rows come and go as the list filters and scrolls, so they read
     // the selection through a relay (see `reactive`).
     let active = Relay::new(move || state.completion().active.get());
+    // Whatever changes the selection (arrow and page keys, a filter that
+    // selects its first match, the list reopening) shows it: the list
+    // scrolls once its rows are laid out.
+    Effect::new(move |_| {
+        let active = state.completion().active.get();
+        state.completion().listing.track();
+        if state.completion().suggestions.with(Vec::len) > active {
+            scroll_completion_into_view(state, active);
+        }
+    });
     let rows_after = move || {
         let count = state.completion().suggestions.with(Vec::len);
         count - state.shown_rows().end.min(count)
