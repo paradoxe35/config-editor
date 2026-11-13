@@ -95,6 +95,9 @@ pub(super) fn build_schema(schema_text: &str) -> Result<SchemaBundle, String> {
             .unwrap_or(&schema),
     )
     .map_err(|error| {
+        if let Some(message) = super::schema_refs::message(error.kind(), &schema) {
+            return message;
+        }
         // Where in the schema: a value is worded, its place is not.
         let at = error.instance_path().to_string();
         if at.is_empty() {

@@ -1232,6 +1232,14 @@ beside it ignored up to draft-07), `allOf`/`anyOf`/`oneOf`, the
 written, `unevaluatedProperties`, and tuples (`prefixItems`, draft-07
 `items` lists):
 
+References are followed inside the schema only: a `$ref` to another file or
+a URL is refused when the schema is compiled, even from an unused `$defs`
+entry, with the place of the `$ref` ("the $ref at /properties/a/$ref names
+…"). Put such a schema under `$defs` with its `$id` and the references to
+that `$id` resolve. The `format` keyword is an annotation: a schema that
+declares the 2020-12 format-assertion vocabulary is accepted, and `format`
+still does not fail validation.
+
 | Keyword                                      | Shown                                                                                                                                                                                                                                    |
 | -------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `description`, `type`, `default`, `examples` | Suggestion detail and hover. A key is marked `required` when its parent lists it.                                                                                                                                                        |
