@@ -675,6 +675,13 @@ pub(super) fn xml_value_span(source: &str, path: &str) -> Option<(usize, usize, 
     Some(span_between(source, start, end))
 }
 
+/// [`build_value`] for a check of `source` beside its parse (which
+/// `parse_cache` keeps), counted as one.
+fn built_aside(source: &str) -> Result<Value, ParseError> {
+    crate::editor::work_count::note_many(crate::editor::work_count::Work::ParsedBytes, source.len());
+    build_value(source)
+}
+
 pub(super) fn first_content_span(source: &str) -> Option<(usize, usize, usize)> {
     source.lines().enumerate().find_map(|(index, line)| {
         let start = line.find(|character: char| !character.is_whitespace())?;
@@ -695,7 +702,9 @@ pub(super) fn first_content_span(source: &str) -> Option<(usize, usize, usize)> 
 /// keys them by local name, so another language would merge them. Says
 /// which, at the parent's pointer.
 pub(super) fn namespace_clash(source: &str) -> Option<String> {
-    build_value(source).ok()?;
+    // A text that does not parse has none: told once one is found, so a
+    // text without one is read once, not built into its value first.
+    let parses = || built_aside(source).is_ok();
     let mut reader = Reader::from_str(source);
     reader.config_mut().trim_text(false);
     let mut buf = Vec::new();
@@ -728,7 +737,7 @@ pub(super) fn namespace_clash(source: &str) -> Option<String> {
         let siblings = &mut stack.last_mut()?.1;
         if let Some(other) = siblings.get(&local).filter(|other| **other != qualified) {
             let at = if pointer.is_empty() { "/".to_string() } else { pointer };
-            return Some(format!(
+            return parses().then(|| format!(
                 "<{other}> and <{qualified}> are in different namespaces but read as the same key {local}, which another language cannot tell apart (at {at})"
             ));
         }
@@ -745,7 +754,7 @@ pub(super) fn namespace_clash(source: &str) -> Option<String> {
             if let Some(other) = attributes.get(&local).filter(|other| **other != qualified) {
                 // At the element holding them.
                 let element = element_local.replace('~', "~0").replace('/', "~1");
-                return Some(format!(
+                return parses().then(|| format!(
                     "the attributes {other} and {qualified} are in different namespaces but read as the same key {local}, which another language cannot tell apart (at {pointer}/{element})"
                 ));
             }
@@ -766,7 +775,6 @@ pub(super) fn mixed_content(source: &str) -> Option<String> {
         text: bool,
         children: bool,
     }
-    let value = build_value(source).ok()?;
     let mut reader = Reader::from_str(source);
     reader.config_mut().trim_text(false);
     let mut buf = Vec::new();
@@ -815,6 +823,10 @@ pub(super) fn mixed_content(source: &str) -> Option<String> {
             }
             Event::End(_) => {
                 if stack.last().is_some_and(|open| open.text && open.children) {
+                    // A text that does not parse has none: its value is
+                    // built once one is found (for the indexes in its path),
+                    // so a text without one is read once.
+                    let value = built_aside(source).ok()?;
                     // Its path, an index where the name repeats (an array).
                     let mut pointer = String::new();
                     let mut at = &value;

@@ -121,7 +121,7 @@ fn insert_whole(state: EditorState, selection: (usize, usize), text: String, tim
             time,
         )
     };
-    apply_input(state, edit, &before, kind, false);
+    apply_input(state, edit, &before, kind);
 }
 
 /// The input events of one burst: the browser can send many in one task
@@ -285,11 +285,6 @@ pub(super) fn flush_input(state: EditorState) {
     } else {
         burst.input_type
     };
-    // Backspace with the list asked for refilters it instead of closing,
-    // also when the filter had left nothing: taking back what emptied it
-    // brings the options back. A list the user closed is not asked for.
-    let refilter =
-        input_type == "deleteContentBackward" && state.completion().requested.get_untracked();
     let typed = replayed_caret.map_or(burst.latest_selection, |caret| (caret, caret));
     let edit = Edit::input(
         before.clone(),
@@ -299,19 +294,29 @@ pub(super) fn flush_input(state: EditorState) {
         input_type.clone(),
         burst.time,
     );
-    apply_input(state, edit, &before, &input_type, refilter);
+    apply_input(state, edit, &before, &input_type);
 }
 
 /// Commits `edit`, input the browser made (or the editor made for it) on
-/// `before`, and updates the suggestions and popups after it; `refilter`
-/// keeps the suggestion list open to filter it again (Backspace).
-fn apply_input(state: EditorState, edit: Edit, before: &str, input_type: &str, refilter: bool) {
+/// `before`, and updates the suggestions and popups after it.
+pub(super) fn apply_input(state: EditorState, edit: Edit, before: &str, input_type: &str) {
     let showing = state.suggestions_showing();
     if !showing {
         // A list that opens by itself is not one the user asked for.
         state.completion().asked.set_value(false);
     }
+    // "No suggestions" is said only for a list the user asked for.
     let listed = showing && state.completion().asked.get_value();
+    // Backspace with the list asked for refilters it instead of closing,
+    // also when the filter had left nothing: taking back what emptied it
+    // brings the options back. A list the user closed is not asked for,
+    // nor one typing asked for that showed no options since (its filter
+    // emptied nothing, so a Backspace brings nothing back).
+    let showed = state.completion().requested.get_untracked()
+        && (showing
+            || state.completion().showed.get_value()
+            || state.completion().explicit.get_untracked());
+    let refilter = input_type == "deleteContentBackward" && showed;
     let committed = state.commit(edit);
     if input_type == "insertFromDrop" {
         if committed {
@@ -343,6 +348,10 @@ fn apply_input(state: EditorState, edit: Edit, before: &str, input_type: &str, r
         state.completion().explicit.set(false);
     }
     state.completion().requested.set(auto_trigger || refilter);
+    state
+        .completion()
+        .showed
+        .set_value((auto_trigger || refilter) && showed);
     super::a11y::say_no_suggestions_after(state, listed);
     if !state.suggestions_showing() {
         state.completion().asked.set_value(false);

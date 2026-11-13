@@ -9,9 +9,12 @@
 //! the line typed on while something is locked (see `protect::reach`),
 //! which a keystroke's check and its locks both ask, and the next keystroke
 //! on the line too (typing in a scalar leaves the line's path as it was).
+//! And the documents read the way a schema expects (see [`conformed`]),
+//! which an Edit-as save reads in several of its steps.
 //!
 //! Two parses (an Edit-as view's text and the host's, which each pause
-//! reads in turn) and one entry of each other reading, kept only while an editor is mounted ([`hold`] on mount,
+//! reads in turn), three documents read as a schema expects and one entry
+//! of each other reading, kept only while an editor is mounted ([`hold`] on mount,
 //! [`release`] on unmount), so closed editors leave no document behind
 //! and code outside an editor (the tools) keeps nothing.
 
@@ -23,6 +26,9 @@ use serde_json::Value;
 
 use super::language::{CompletionContext, ConfigLanguage, Lexical, ParseError};
 use super::work_count::{Work, note, note_many};
+
+mod conformed;
+pub(crate) use conformed::conformed;
 
 /// How many parses are kept.
 const PARSES_KEPT: usize = 2;
@@ -248,4 +254,5 @@ pub(crate) fn release() {
     let _ = CONTEXT.try_with(|last| last.borrow_mut().take());
     let _ = LEXICAL.try_with(|last| last.borrow_mut().take());
     let _ = LINE_PATHS.try_with(|kept| kept.borrow_mut().clear());
+    conformed::forget();
 }

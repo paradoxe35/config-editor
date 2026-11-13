@@ -190,6 +190,7 @@ pub(crate) fn branches_for<'a>(
         Visit(&'a Value),
         Emit(&'a Value),
     }
+    crate::editor::work_count::note(crate::editor::work_count::Work::BranchWalk);
     let ref_alone = refs_stand_alone(root);
     let mut seen: HashSet<*const Value> = HashSet::new();
     let mut branches = Vec::new();
@@ -362,9 +363,15 @@ pub(crate) fn child_schemas_in<'a>(
     segment: &SchemaPathSegment,
     instance: Option<&Value>,
 ) -> Vec<&'a Value> {
-    let branches = branches_for(schema, root, instance);
+    children_of(&branches_for(schema, root, instance), segment)
+}
+
+/// The schemas of one child (a key or an array item) of a value whose
+/// schema's branches are `branches` (see [`branches_for`]): a walk taking
+/// every child of one value resolves its branches once.
+fn children_of<'a>(branches: &[&'a Value], segment: &SchemaPathSegment) -> Vec<&'a Value> {
     let mut next = Vec::new();
-    for branch in &branches {
+    for branch in branches {
         let named = named_properties(branch, &segment.as_key());
         let item = segment
             .as_index()
@@ -505,11 +512,11 @@ pub(super) fn conform(
     if wants_array && repeatable && !branches.iter().any(|branch| accepts(branch, value)) {
         *value = Value::Array(vec![value.take()]);
     }
+    // Each child's schemas from the branches resolved above.
     match value {
         Value::Array(items) => {
             for (index, item) in items.iter_mut().enumerate() {
-                for item_schema in child_schemas(schema, root, &SchemaPathSegment::ArrayItem(index))
-                {
+                for item_schema in children_of(&branches, &SchemaPathSegment::ArrayItem(index)) {
                     conform(item, item_schema, root, repetition, depth + 1);
                 }
             }
@@ -517,7 +524,7 @@ pub(super) fn conform(
         Value::Object(map) => {
             for (key, child) in map.iter_mut() {
                 let segment = SchemaPathSegment::Key(key.clone());
-                for child_schema in child_schemas(schema, root, &segment) {
+                for child_schema in children_of(&branches, &segment) {
                     conform(child, child_schema, root, repetition, depth + 1);
                 }
             }

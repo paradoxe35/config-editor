@@ -146,6 +146,14 @@ pub(crate) enum Work {
     /// (`keyboard::utf16_to_byte_index`): ASCII is passed a block at a
     /// time.
     CharacterStep,
+    /// A byte of a whole document's value read the way a schema expects
+    /// (`completion::conform_arrays`: lone values where only a list is
+    /// allowed made lists; one note per byte of its text, see
+    /// [`note_many`]), as a host that repeats keys for lists reads a text.
+    ConformedBytes,
+    /// A schema's branches resolved (`completion::branches_for`): its
+    /// references, combinators and conditionals walked.
+    BranchWalk,
 }
 
 impl Work {
@@ -184,13 +192,15 @@ impl Work {
             Self::RowText => 29,
             Self::SuggestionRow => 30,
             Self::CharacterStep => 31,
+            Self::ConformedBytes => 32,
+            Self::BranchWalk => 33,
         }
     }
 }
 
 #[cfg(test)]
 thread_local! {
-    static COUNTS: std::cell::Cell<[usize; 32]> = const { std::cell::Cell::new([0; 32]) };
+    static COUNTS: std::cell::Cell<[usize; 34]> = const { std::cell::Cell::new([0; 34]) };
 }
 
 /// `work` is starting (counted on this thread in tests).

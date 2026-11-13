@@ -84,17 +84,19 @@ impl fmt::Display for ConvertError {
 impl std::error::Error for ConvertError {}
 
 /// Parses `source`, reading lone values as the arrays `schema` expects in a
-/// language that repeats keys for arrays.
+/// language that repeats keys for arrays; from the last reading of the
+/// same text (see `parse_cache`).
 pub(super) fn read(
     language: &dyn ConfigLanguage,
     source: &str,
     schema: Option<&Value>,
 ) -> Result<Value, ParseError> {
-    let mut value = super::parse_cache::parse(language, source)?;
-    if let Some(schema) = schema.filter(|_| language.repetition() != Repetition::None) {
-        conform_arrays(&mut value, schema, language.repetition());
+    match schema.filter(|_| language.repetition() != Repetition::None) {
+        Some(schema) => super::parse_cache::conformed(language, source, schema, |value| {
+            conform_arrays(value, schema, language.repetition());
+        }),
+        None => super::parse_cache::parse(language, source),
     }
-    Ok(value)
 }
 
 /// Whether `source` may be saved in `language`, its own: it reads, or

@@ -31,6 +31,11 @@ pub(crate) struct CompletionState {
     /// The list was asked for over a selected word (Ctrl+Space): it offers
     /// every key, and accepting one replaces the word.
     pub(crate) replace_word: RwSignal<bool>,
+    /// The list showed options since it was last asked for: Backspace
+    /// asks for it again, as taking back what the filter emptied it with
+    /// can bring them back; a list that showed none has none to bring back,
+    /// and is not worked out again on each Backspace.
+    pub(crate) showed: StoredValue<bool>,
     /// The highlighted option.
     pub(crate) active: RwSignal<usize>,
     pub(crate) suggestions: Memo<Vec<Completion>>,
@@ -152,6 +157,7 @@ impl CompletionState {
             requested,
             explicit,
             replace_word,
+            showed: StoredValue::new(false),
             active: RwSignal::new(0),
             suggestions,
             listing,
