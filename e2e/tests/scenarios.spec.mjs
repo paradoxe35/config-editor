@@ -62,7 +62,19 @@ test.describe('large documents', () => {
     const e = editor(page);
     await e.paste(LARGE);
     expect(await e.isOpen()).toBe(false);
-    await expect(page.locator('.config-editor__gutter-content > div')).toHaveCount(LARGE.split('\n').length);
+    // All of it loaded (only the rows in view are rendered): the text holds every line,
+    // and the last one renders once scrolled to.
+    const lines = LARGE.split('\n').length;
+    await expect.poll(() => page.locator('.config-editor__input').first().inputValue().then((value) => value.split('\n').length)).toBe(lines);
+    await page.locator('.config-editor__input').first().evaluate((element) => {
+      element.scrollTop = element.scrollHeight;
+      element.dispatchEvent(new Event('scroll'));
+    });
+    await expect(page.locator(`.config-editor__gutter-content > div[data-line="${lines}"]`)).toHaveCount(1);
+    await page.locator('.config-editor__input').first().evaluate((element) => {
+      element.scrollTop = 0;
+      element.dispatchEvent(new Event('scroll'));
+    });
     await e.screenshot('large-document');
     expect(await e.diagnosticCount(), 'a valid document has no diagnostics').toBe(0);
   });

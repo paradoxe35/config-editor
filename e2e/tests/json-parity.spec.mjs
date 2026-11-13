@@ -383,7 +383,15 @@ test.describe('large documents', () => {
     const e = editor(page);
     await e.paste(LARGE_JSON);
     expect(await e.isOpen()).toBe(false);
-    await expect(page.locator('.config-editor__gutter-content > div')).toHaveCount(LARGE_JSON.split('\n').length);
+    // All of it loaded (only the rows in view are rendered): the text holds every line,
+    // and the last one renders once scrolled to.
+    const lines = LARGE_JSON.split('\n').length;
+    await expect.poll(() => e.input.inputValue().then((value) => value.split('\n').length)).toBe(lines);
+    await e.input.evaluate((element) => {
+      element.scrollTop = element.scrollHeight;
+      element.dispatchEvent(new Event('scroll'));
+    });
+    await expect(page.locator(`.config-editor__gutter-content > div[data-line="${lines}"]`)).toHaveCount(1);
     expect(await e.diagnosticCount(), 'a valid document has no diagnostics').toBe(0);
   });
 
