@@ -351,11 +351,19 @@ fn debounce_validation(state: EditorState) {
         token.update_value(|token| *token += 1);
         let current = token.get_value();
         later::after(state, DIAGNOSTICS_DEBOUNCE_MS, move |state| {
-            if token.get_value() == current {
-                state.problems().diagnosed_text.set(text);
-                // The pause in typing: the placeholders' fields too.
-                state.recheck_tokens();
+            if token.get_value() != current {
+                return;
             }
+            // The pause in typing: the placeholders' fields first (a read
+            // of the whole text), then the problems in a task of their
+            // own, so a key pressed meanwhile is not held up by both; the
+            // problems wait for the next pause then.
+            state.recheck_tokens();
+            later::after(state, 0, move |state| {
+                if token.get_value() == current {
+                    state.problems().diagnosed_text.set(text);
+                }
+            });
         });
     });
 }
