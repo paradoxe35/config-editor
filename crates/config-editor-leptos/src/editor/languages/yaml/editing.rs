@@ -5,6 +5,11 @@ use super::*;
 /// Finds the start of a YAML comment on a single line, ignoring `#` characters
 /// that appear inside quoted scalars.
 pub(super) fn line_comment_start(line: &str) -> Option<usize> {
+    // Most lines hold no `#` at all: found without reading them by
+    // character.
+    if !line.contains('#') {
+        return None;
+    }
     let mut quote = None;
     let mut escaped = false;
     for (index, character) in line.char_indices() {
