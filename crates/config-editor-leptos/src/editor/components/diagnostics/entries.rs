@@ -5,7 +5,7 @@
 use leptos::prelude::*;
 
 use super::super::super::a11y::severity_name;
-use super::super::super::diagnostics::{Diagnostic, Severity};
+use super::super::super::diagnostics::{Diagnostic, MAX_DIAGNOSTICS, Severity};
 use super::super::super::problem_hit::covering;
 use super::super::super::state::EditorState;
 use crate::EditorStrings;
@@ -124,16 +124,39 @@ pub(crate) fn entries_at(
 ) -> Vec<Entry> {
     let mut here: Vec<&Diagnostic> = covering(problems, line, column, line_text).collect();
     here.sort_by_key(|problem| problem.severity as u8);
-    here.into_iter()
-        .map(|problem| Entry {
-            severity: problem.severity,
-            severity_name: severity_name(strings, problem.severity).to_string(),
-            message: problem.message.clone(),
-            detail: reported_by(problem),
-            docs_url: problem.docs_url.clone(),
-            current: walked == Some(problem),
-        })
-        .collect()
+    // As many as the editor's own list shows (a host may report thousands
+    // at one place), the one F8 went to among them; past them, a note
+    // that more follow.
+    if here.len() > MAX_DIAGNOSTICS
+        && let Some(at) = here.iter().position(|problem| walked == Some(*problem))
+        && at >= MAX_DIAGNOSTICS
+    {
+        let problem = here.remove(at);
+        here.insert(MAX_DIAGNOSTICS - 1, problem);
+    }
+    let cut = here.split_off(here.len().min(MAX_DIAGNOSTICS));
+    let entry = |problem: &Diagnostic| Entry {
+        severity: problem.severity,
+        severity_name: severity_name(strings, problem.severity).to_string(),
+        message: problem.message.clone(),
+        detail: reported_by(problem),
+        docs_url: problem.docs_url.clone(),
+        current: walked == Some(problem),
+    };
+    let mut entries: Vec<Entry> = here.into_iter().map(entry).collect();
+    if let Some(first) = cut.first() {
+        // Most serious first: the note has the severity of the most serious
+        // it leaves out.
+        entries.push(Entry {
+            severity: first.severity,
+            severity_name: severity_name(strings, first.severity).to_string(),
+            message: fill(&strings.problems_more, &[("count", &MAX_DIAGNOSTICS)]),
+            detail: None,
+            docs_url: None,
+            current: false,
+        });
+    }
+    entries
 }
 
 /// "validator · E_PORT": who reported a host's problem, and its code.
@@ -236,5 +259,50 @@ mod tests {
                 ),
             ]
         );
+    }
+
+    /// D23.ux-4: a host's thousands of problems at one place are cut to
+    /// the editor's own cap, the one F8 went to kept, with a note that
+    /// more follow (they all rendered, with no note).
+    #[test]
+    fn many_problems_at_one_place_are_cut_with_a_note_keeping_the_current_one() {
+        let problems: Vec<Diagnostic> = (0..6_000)
+            .map(|index| Diagnostic {
+                line: Some(1),
+                column: Some(1),
+                severity: if index == 5_999 {
+                    Severity::Error
+                } else {
+                    Severity::Warning
+                },
+                message: format!("p{index}"),
+                origin: DiagnosticOrigin::Host,
+                ..Diagnostic::default()
+            })
+            .collect();
+        let walked = &problems[3_000];
+        let entries = entries_at(
+            &EditorStrings::default(),
+            &problems,
+            (1, 1, "key: value"),
+            Some(walked),
+        );
+        assert_eq!(entries.len(), 21);
+        assert_eq!(entries[0].message, "p5999", "the most serious first");
+        assert!(
+            entries[..20]
+                .iter()
+                .any(|entry| entry.current && entry.message == "p3000")
+        );
+        let note = entries.last().expect("a note");
+        assert!(note.message.contains("more follow"), "{}", note.message);
+        assert_eq!(note.severity, Severity::Warning);
+        let few = entries_at(
+            &EditorStrings::default(),
+            &problems[..20],
+            (1, 1, "key: value"),
+            None,
+        );
+        assert_eq!(few.len(), 20, "no note when nothing is cut");
     }
 }
