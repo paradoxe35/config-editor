@@ -3,6 +3,7 @@
 
 use leptos::prelude::*;
 
+pub(super) mod pieces;
 pub(super) mod spanning;
 
 /// What a highlighted run of text is. Each kind maps to one CSS class
@@ -149,7 +150,11 @@ pub(super) fn render(
     tokens: &[Token],
     marks: &[(std::ops::Range<usize>, &'static str)],
 ) -> AnyView {
-    let runs = runs_of(line, tokens);
+    render_runs(line, &runs_of(line, tokens), marks)
+}
+
+/// Renders `line` cut into `runs` (see [`runs_of`]), with its `marks`.
+pub(super) fn render_runs(line: &str, runs: &[Run], marks: &[Mark]) -> AnyView {
     let mut parts = Vec::with_capacity(runs.len() + marks.len() * 2);
     // Plain text gets no class attribute at all: rows are many.
     let piece = |from: usize, to: usize, class: Option<&'static str>| match class {
@@ -159,7 +164,7 @@ pub(super) fn render(
     // Pieces cut at the marks' ends, each with its mark; a run of pieces
     // under one mark goes in one wrapper (a placeholder is one chip).
     let mut group: Option<(&'static str, usize, Vec<AnyView>)> = None;
-    for (start, end, class) in runs {
+    for &(start, end, class) in runs {
         if marks.is_empty() {
             parts.push(piece(start, end, class));
             continue;
@@ -204,9 +209,16 @@ pub(super) fn render(
     view! { <span>{parts}</span> }.into_any()
 }
 
+/// A run of a line, `start..end` in bytes, with its token's class (`None`
+/// for plain text).
+pub(super) type Run = (usize, usize, Option<&'static str>);
+
+/// A byte range of a line drawn in a span of its class (see `LineMarks`).
+pub(super) type Mark = (std::ops::Range<usize>, &'static str);
+
 /// `line` cut into runs, each with its token's class (`None` for plain
 /// text); always at least one run.
-fn runs_of(line: &str, tokens: &[Token]) -> Vec<(usize, usize, Option<&'static str>)> {
+pub(super) fn runs_of(line: &str, tokens: &[Token]) -> Vec<Run> {
     let mut runs = Vec::with_capacity(tokens.len() * 2 + 1);
     let mut at = 0;
     for token in tokens {

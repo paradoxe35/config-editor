@@ -697,6 +697,10 @@
   display: block;
 }
 
+/* A piece of a long row: laid out on its own, so an edit lays out again
+   only the pieces it changed (see `highlight::pieces`). */
+.config-editor__code-piece { display: inline-block; }
+
 .config-editor__gutter-content {
   position: relative;
 }

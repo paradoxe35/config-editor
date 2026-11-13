@@ -1,10 +1,12 @@
 //! The highlighted copy of the text drawn under the transparent textarea.
 
+use leptos::either::Either;
 use leptos::prelude::*;
 
 use super::super::diff::DiffKind;
 use super::super::highlight;
-use super::super::line_rows::LineRows;
+use super::super::highlight::pieces::{self, Piece, RowPieces};
+use super::super::line_rows::{LineRows, RowUiState};
 use super::super::state::EditorState;
 use super::{RowSpacer, row_state_for};
 use crate::reactive::{KeyedList, MANY_ROWS};
@@ -31,10 +33,13 @@ pub(crate) fn CodeLayer(state: EditorState, rows: LineRows) -> impl IntoView {
 }
 
 /// One line of the highlighted text. It reads only its row's own state
-/// (see `line_rows`).
+/// (see `line_rows`). A long row is drawn in pieces (see
+/// `highlight::pieces`), and a short one whole.
 #[component]
 fn CodeLine(state: EditorState, rows: LineRows, index: usize) -> impl IntoView {
     let row = row_state_for(state, rows, index);
+    let pieces = row_pieces(row);
+    let split = Memo::new(move |_| pieces.with(Option::is_some));
     view! {
         <span
             class="config-editor__code-line"
@@ -45,16 +50,60 @@ fn CodeLine(state: EditorState, rows: LineRows, index: usize) -> impl IntoView {
             class:config-editor__code-line-modified=move || row.with(|row| row.change == DiffKind::Modified)
         >
             {move || {
-                let (text, marks, highlight) = row.with(|row| {
-                    (
-                        row.text.clone(),
-                        row.marks.as_ref().map_or_else(Vec::new, |marks| marks.classes()),
-                        row.highlight,
-                    )
-                });
-                let tokens = highlight.tokens(&text);
-                highlight::render(&text, &tokens, &marks)
+                if split.get() {
+                    Either::Left(view! { <RowPieceViews pieces=pieces /> })
+                } else {
+                    Either::Right(move || {
+                        let (text, marks, highlight) = row.with(|row| {
+                            (row.text.clone(), row_marks(row), row.highlight)
+                        });
+                        let tokens = highlight.tokens(&text);
+                        highlight::render(&text, &tokens, &marks)
+                    })
+                }
             }}
         </span>
+    }
+}
+
+/// The pieces of a long row, kept from one state of the row to the next;
+/// `None` for a row drawn whole.
+fn row_pieces(row: RwSignal<RowUiState>) -> Memo<Option<RowPieces>> {
+    Memo::new_owning(move |previous: Option<Option<RowPieces>>| {
+        let previous = previous.flatten();
+        row.with(|row| {
+            if !pieces::splits(&row.text) {
+                return (None, previous.is_some());
+            }
+            let runs = highlight::runs_of(&row.text, &row.highlight.tokens(&row.text));
+            let (next, changed) = RowPieces::next(previous, &row.text, &runs, &row_marks(row));
+            (Some(next), changed)
+        })
+    })
+}
+
+fn row_marks(row: &RowUiState) -> Vec<highlight::Mark> {
+    row.marks
+        .as_ref()
+        .map_or_else(Vec::new, |marks| marks.classes())
+}
+
+/// The pieces of a long row, each an element of its own kept while it
+/// draws the same.
+#[component]
+fn RowPieceViews(pieces: Memo<Option<RowPieces>>) -> impl IntoView {
+    view! {
+        <KeyedList
+            each=move || pieces.with(|pieces| pieces.as_ref().map(|pieces| pieces.pieces().to_vec()).unwrap_or_default())
+            key=|piece: &Piece| piece.id
+            children=|piece: Piece| {
+                let content = piece.content;
+                view! {
+                    <span class="config-editor__code-piece">
+                        {highlight::render_runs(&content.text, &content.runs, &content.marks)}
+                    </span>
+                }
+            }
+        />
     }
 }

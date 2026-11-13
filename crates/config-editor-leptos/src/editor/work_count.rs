@@ -133,6 +133,10 @@ pub(crate) enum Work {
         allow(dead_code, reason = "only the secret placeholders note it")
     )]
     PlaceLookup,
+    /// A byte of a row's text built into a new view of the code layer (one
+    /// note per byte, see [`note_many`]): a long row is drawn in pieces, and
+    /// a keystroke builds again only the pieces it changed.
+    RowText,
 }
 
 impl Work {
@@ -168,13 +172,14 @@ impl Work {
             Self::HoverLookup => 26,
             Self::TabNameVisit => 27,
             Self::PlaceLookup => 28,
+            Self::RowText => 29,
         }
     }
 }
 
 #[cfg(test)]
 thread_local! {
-    static COUNTS: std::cell::Cell<[usize; 29]> = const { std::cell::Cell::new([0; 29]) };
+    static COUNTS: std::cell::Cell<[usize; 30]> = const { std::cell::Cell::new([0; 30]) };
 }
 
 /// `work` is starting (counted on this thread in tests).
