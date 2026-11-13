@@ -75,21 +75,31 @@ fn OpenDialog(asking: RwSignal<Option<String>>, discard: Callback<()>) -> impl I
         if let Some(element) = dialog.get_untracked() {
             element.close();
         }
-        // To where it was; if that is gone (the document was discarded),
+        // To where it was, at once: focus moved a frame later would take it
+        // from wherever the user put it meanwhile.
+        if let Some(element) = before.filter(|element| element.is_connected()) {
+            let _ = element.focus();
+        }
+        // If that is gone (the document was discarded) and focus with it,
         // to the tab now selected, once the tabs are drawn again.
-        request_animation_frame(move || {
-            let back = before.filter(|element| element.is_connected()).or_else(|| {
-                web_sys::window()
-                    .and_then(|window| window.document())
-                    .and_then(|document| {
-                        document
-                            .query_selector("[role=tab][aria-selected=true]")
-                            .ok()
-                            .flatten()
-                    })
-                    .and_then(|element| element.dyn_into::<HtmlElement>().ok())
+        request_animation_frame(|| {
+            let Some(document) = web_sys::window().and_then(|window| window.document()) else {
+                return;
+            };
+            let lost = document.active_element().is_none_or(|active| {
+                document
+                    .body()
+                    .is_some_and(|body| active.is_same_node(Some(&body)))
             });
-            if let Some(element) = back {
+            if !lost {
+                return;
+            }
+            let selected = document
+                .query_selector("[role=tab][aria-selected=true]")
+                .ok()
+                .flatten()
+                .and_then(|element| element.dyn_into::<HtmlElement>().ok());
+            if let Some(element) = selected {
                 let _ = element.focus();
             }
         });
