@@ -3,7 +3,7 @@ use super::super::super::completion::{
     completions as shared_completions, key_hover as shared_key_hover,
 };
 use super::super::super::diagnostics::{
-    Diagnostic, SchemaBundle, build_schema, validate as shared_validate,
+    Diagnostic, SchemaBundle, SchemaFailure, build_schema, validate as shared_validate,
 };
 use super::super::super::keyboard::paired_edit as shared_paired_edit;
 use super::super::super::language::ConfigLanguage;
@@ -14,7 +14,7 @@ use super::{highlight, scalar_kind, split_yaml_comment};
 fn validate_yaml(
     source: &str,
     schema: Option<&SchemaBundle>,
-    schema_error: Option<&str>,
+    schema_error: Option<&SchemaFailure>,
     enabled: bool,
 ) -> Vec<Diagnostic> {
     shared_validate(source, schema, schema_error, enabled, &YamlBehavior)
@@ -239,7 +239,7 @@ fn duplicate_keys_are_detected_in_flow_mappings_and_quoted_forms() {
 
 #[test]
 fn malformed_schema_is_reported_as_a_diagnostic() {
-    let schema_error = build_schema("not-json").err().unwrap();
+    let schema_error = SchemaFailure::JsonSchema(build_schema("not-json").err().unwrap());
     let errors = validate_yaml("name: app\n", None, Some(&schema_error), true);
     assert_eq!(errors.len(), 1);
     assert!(

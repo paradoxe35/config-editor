@@ -72,7 +72,7 @@ pub(super) struct Sources {
     pub(super) text: RwSignal<String>,
     pub(super) host_language: Language,
     pub(super) schema: Option<Arc<SchemaBundle>>,
-    pub(super) schema_error: Option<String>,
+    pub(super) schema_error: Option<super::diagnostics::SchemaFailure>,
     /// The `show_diagnostics` setting.
     pub(super) enabled: Memo<bool>,
     pub(super) host_diagnostics: Signal<Vec<HostDiagnostic>>,
@@ -114,7 +114,7 @@ impl ProblemsState {
                     validate_with(
                         text,
                         schema.as_deref(),
-                        schema_error.as_deref(),
+                        schema_error.as_ref(),
                         enabled,
                         behavior,
                         &accepted,

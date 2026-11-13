@@ -256,6 +256,18 @@ registry! {
     "xml" => XML => xml::XmlBehavior,
 }
 
+/// JSON Schema written as YAML (`SchemaFormat::JSON_SCHEMA_YAML`).
+#[cfg(feature = "yaml")]
+pub(crate) static JSON_SCHEMA_IN_YAML: super::schema_formats::written_in::SchemaWrittenIn =
+    super::schema_formats::written_in::SchemaWrittenIn {
+        language: Language::YAML,
+        info: super::schema_formats::SchemaFormatInfo {
+            name: "json-schema-yaml",
+            label: "JSON Schema (YAML)",
+            extensions: &["yaml", "yml", "schema.yaml", "schema.yml"],
+        },
+    };
+
 impl Language {
     /// Wraps a language implementation, built-in or external.
     ///

@@ -5,6 +5,7 @@ use super::language::Span;
 use jsonschema::error::{ValidationError, ValidationErrorKind};
 use serde_json::Value;
 
+use super::schema_formats::{SchemaFormat, SchemaInput, SchemaLoss, SchemaResources};
 use crate::EditorStrings;
 use crate::strings::{default_strings, fill};
 
@@ -61,8 +62,13 @@ pub(super) const DIAGNOSTICS_DEBOUNCE_MS: i32 = 250;
 
 pub(super) struct SchemaBundle {
     pub(super) schema: Value,
+    /// The JSON Schema as compiled, where the editor rewrote some of its
+    /// references in `schema` (see [`Schema::json`]).
+    emitted: Option<Value>,
     /// What the editor cannot use in the schema (see [`Schema::warnings`]).
     pub(super) warnings: Vec<String>,
+    /// What the schema's format said that the JSON Schema does not check.
+    losses: Vec<SchemaLoss>,
     /// Whether the warnings went to the console already: the editors that
     /// share this compiled schema (a documents view's, of one schema text)
     /// say them there once.
@@ -79,17 +85,53 @@ pub(super) struct SchemaBundle {
     validator: jsonschema::Validator,
 }
 
+/// Why a schema did not compile, worded where it is shown (the
+/// `invalidSchema` and `invalidSchemaSource` texts).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) enum SchemaFailure {
+    /// Its format's compiler refused the text: the format's label, and why.
+    Source { format: &'static str, error: String },
+    /// The JSON Schema is not valid.
+    JsonSchema(String),
+}
+
+impl SchemaFailure {
+    /// The message, worded by `strings`.
+    pub(super) fn message(&self, strings: &EditorStrings) -> String {
+        match self {
+            SchemaFailure::Source { format, error } => fill(
+                &strings.invalid_schema_source,
+                &[("format", format), ("error", error)],
+            ),
+            SchemaFailure::JsonSchema(error) => fill(&strings.invalid_schema, &[("error", error)]),
+        }
+    }
+}
+
 /// The compiled schema, or why `schema_text` is no JSON Schema (worded by
 /// the `invalidSchema` text where it is shown).
 pub(super) fn build_schema(schema_text: &str) -> Result<SchemaBundle, String> {
-    let mut schema: Value = serde_json::from_str(schema_text).map_err(|error| {
-        if error.to_string().starts_with("recursion limit exceeded") {
-            "it nests objects and lists more than 128 levels deep, deeper than the editor reads"
-                .to_string()
-        } else {
-            error.to_string()
-        }
-    })?;
+    let schema = super::schema_formats::json::parse(schema_text).map_err(|error| error.0)?;
+    build_compiled(schema, Vec::new())
+}
+
+/// The bundle of `input` in `format`.
+fn build_formatted(
+    format: SchemaFormat,
+    input: &SchemaInput<'_>,
+) -> Result<SchemaBundle, SchemaFailure> {
+    let compiled = format
+        .compile(input)
+        .map_err(|error| SchemaFailure::Source {
+            format: format.label(),
+            error: error.0,
+        })?;
+    build_compiled(compiled.schema, compiled.losses).map_err(SchemaFailure::JsonSchema)
+}
+
+/// The bundle of a compiled JSON Schema and the losses of its format, or why
+/// it is no JSON Schema.
+fn build_compiled(mut schema: Value, losses: Vec<SchemaLoss>) -> Result<SchemaBundle, String> {
     super::empty_refs::to_root(&mut schema);
     #[cfg(feature = "schema-validation")]
     let validator = jsonschema::validator_for(
@@ -111,14 +153,19 @@ pub(super) fn build_schema(schema_text: &str) -> Result<SchemaBundle, String> {
     })?;
     // The validator resolves `$id` and `$anchor` references itself;
     // completion and hover read them as pointers.
-    super::ui_refs::to_pointers(&mut schema);
-    let warnings = super::completion::unsupported_patterns(&schema);
+    let rewrites = super::ui_refs::pointer_rewrites(&schema);
+    let emitted = (!rewrites.is_empty()).then(|| schema.clone());
+    super::ui_refs::rewrite(&mut schema, rewrites);
+    let mut warnings = super::completion::unsupported_patterns(&schema);
+    warnings.extend(losses.iter().map(SchemaLoss::to_string));
     let has_conditionals = super::completion::mentions_conditionals(&schema);
     let has_deprecated = super::completion::mentions_deprecated(&schema);
     let has_marks = super::protect::mentions_marks(&schema);
     Ok(SchemaBundle {
         schema,
+        emitted,
         warnings,
+        losses,
         warned_console: std::sync::atomic::AtomicBool::new(false),
         has_deprecated,
         has_marks,
@@ -277,7 +324,8 @@ impl std::fmt::Debug for Schema {
 }
 
 /// The `schema` of a [`ConfigEditor`](crate::ConfigEditor): a JSON Schema
-/// document, or a [`Schema`] compiled once and shared between editors.
+/// document, a schema in another [`SchemaFormat`], or a [`Schema`] compiled
+/// once and shared between editors.
 ///
 /// Converts from `&str`, `String`, and `Schema`, so `schema=SCHEMA_JSON` and
 /// `schema=compiled.clone()` both work.
@@ -287,8 +335,33 @@ pub enum SchemaSource {
     /// A JSON Schema document, compiled when the editor mounts; a compile
     /// error is shown inline.
     Json(String),
+    /// A schema in `format` (with the files it refers to and the format's
+    /// options), compiled when the editor mounts; a compile error is shown
+    /// inline, and what the format loses is a schema warning.
+    Formatted {
+        /// Its format.
+        format: SchemaFormat,
+        /// The schema.
+        text: String,
+        /// The files it refers to, by location.
+        resources: SchemaResources,
+        /// The format's options (an XSD's `"root"`).
+        options: serde_json::Map<String, Value>,
+    },
     /// An already compiled schema.
     Compiled(Schema),
+}
+
+impl SchemaSource {
+    /// `text` in `format`, with no resources or options.
+    pub fn formatted(format: SchemaFormat, text: impl Into<String>) -> Self {
+        SchemaSource::Formatted {
+            format,
+            text: text.into(),
+            resources: SchemaResources::new(),
+            options: serde_json::Map::new(),
+        }
+    }
 }
 
 impl From<&str> for SchemaSource {
@@ -317,10 +390,73 @@ impl Schema {
     }
 }
 
+/// What a schema is compiled from, apart from a compiled one: sources with
+/// the same key compile to the same schema.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub(crate) struct SchemaKey {
+    format: SchemaFormat,
+    text: String,
+    resources: SchemaResources,
+    /// The options as JSON text (a map is not hashable).
+    options: String,
+}
+
+impl SchemaKey {
+    /// The schema it names, compiled.
+    pub(crate) fn compile(&self) -> Result<Schema, SchemaError> {
+        let options = match serde_json::from_str(&self.options) {
+            Ok(Value::Object(options)) => options,
+            _ => serde_json::Map::new(),
+        };
+        let input = SchemaInput::new(&self.text)
+            .resources(&self.resources)
+            .options(&options);
+        Schema::compile_as(self.format, &input)
+    }
+}
+
 impl SchemaSource {
-    pub(super) fn resolve(self) -> Result<std::sync::Arc<SchemaBundle>, String> {
+    /// What it compiles from; `None` for a compiled schema.
+    pub(crate) fn key(&self) -> Option<SchemaKey> {
         match self {
-            SchemaSource::Json(json) => build_schema(&json).map(std::sync::Arc::new),
+            SchemaSource::Json(text) => Some(SchemaKey {
+                format: SchemaFormat::JSON_SCHEMA,
+                text: text.clone(),
+                resources: SchemaResources::new(),
+                options: "{}".to_string(),
+            }),
+            SchemaSource::Formatted {
+                format,
+                text,
+                resources,
+                options,
+            } => Some(SchemaKey {
+                format: *format,
+                text: text.clone(),
+                resources: resources.clone(),
+                options: Value::Object(options.clone()).to_string(),
+            }),
+            SchemaSource::Compiled(_) => None,
+        }
+    }
+
+    pub(super) fn resolve(self) -> Result<std::sync::Arc<SchemaBundle>, SchemaFailure> {
+        match self {
+            SchemaSource::Json(json) => build_schema(&json)
+                .map(std::sync::Arc::new)
+                .map_err(SchemaFailure::JsonSchema),
+            SchemaSource::Formatted {
+                format,
+                text,
+                resources,
+                options,
+            } => build_formatted(
+                format,
+                &SchemaInput::new(&text)
+                    .resources(&resources)
+                    .options(&options),
+            )
+            .map(std::sync::Arc::new),
             SchemaSource::Compiled(schema) => Ok(schema.bundle),
         }
     }
@@ -346,10 +482,48 @@ impl Schema {
             })
     }
 
+    /// Compiles a schema written in `format`.
+    ///
+    /// ```
+    /// # #[cfg(feature = "yaml")] {
+    /// use config_editor_leptos::{Schema, SchemaFormat, SchemaInput};
+    /// let yaml = "properties:\n  listen: {type: integer}\n";
+    /// let input = SchemaInput::new(yaml);
+    /// let schema = Schema::compile_as(SchemaFormat::JSON_SCHEMA_YAML, &input).unwrap();
+    /// assert_eq!(schema.json()["properties"]["listen"]["type"], "integer");
+    /// # }
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SchemaError`] when the format's compiler refuses the text,
+    /// or what it gives is not a valid JSON Schema.
+    pub fn compile_as(format: SchemaFormat, input: &SchemaInput<'_>) -> Result<Self, SchemaError> {
+        build_formatted(format, input)
+            .map(|bundle| Schema {
+                bundle: std::sync::Arc::new(bundle),
+            })
+            .map_err(|failure| SchemaError(failure.message(default_strings())))
+    }
+
+    /// What the schema's format said that its JSON Schema does not check
+    /// (none for JSON Schema itself). Each is also one of the
+    /// [`warnings`](Self::warnings).
+    pub fn losses(&self) -> &[SchemaLoss] {
+        &self.bundle.losses
+    }
+
+    /// The JSON Schema this schema checks with, as its format's compiler
+    /// gave it: to cache, or to ship instead of the source.
+    pub fn json(&self) -> &Value {
+        self.bundle.emitted.as_ref().unwrap_or(&self.bundle.schema)
+    }
+
     /// What the editor cannot use in this schema, one message each, such as
     /// a `patternProperties` regex its engine cannot compile (keys it was
-    /// meant to match get no completions or hover docs). The editor passes
-    /// each to `on_schema_warning` when it mounts.
+    /// meant to match get no completions or hover docs), then what its
+    /// format loses ([`losses`](Self::losses)). The editor passes each to
+    /// `on_schema_warning` when it mounts.
     ///
     /// ```
     /// use config_editor_leptos::Schema;
@@ -574,7 +748,7 @@ fn shift_columns(validated: &str, current: &str, diagnostics: &[Diagnostic]) -> 
 pub(super) fn validate(
     source: &str,
     schema: Option<&SchemaBundle>,
-    schema_error: Option<&str>,
+    schema_error: Option<&SchemaFailure>,
     enabled: bool,
     behavior: &dyn ConfigLanguage,
 ) -> Vec<Diagnostic> {
@@ -596,7 +770,7 @@ pub(super) fn validate(
 pub(super) fn validate_with(
     source: &str,
     schema: Option<&SchemaBundle>,
-    schema_error: Option<&str>,
+    schema_error: Option<&SchemaFailure>,
     enabled: bool,
     behavior: &dyn ConfigLanguage,
     accepted: &[(String, String)],
@@ -663,7 +837,7 @@ pub(super) fn validate_with(
             line: None,
             column: None,
             end_column: None,
-            message: fill(&strings.invalid_schema, &[("error", &error)]),
+            message: error.message(strings),
             severity: Severity::Error,
             ..Diagnostic::default()
         }];

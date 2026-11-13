@@ -39,7 +39,15 @@ struct Index {
 
 /// Rewrites each `$ref` of `schema` that names a schema of the same
 /// document to `#` and that schema's pointer from the root.
+#[cfg(test)]
 pub(super) fn to_pointers(schema: &mut Value) {
+    let rewrites = pointer_rewrites(schema);
+    rewrite(schema, rewrites);
+}
+
+/// What [`to_pointers`] changes: the pointer of each object whose `$ref`
+/// it rewrites, and the new reference.
+pub(super) fn pointer_rewrites(schema: &Value) -> Vec<(String, String)> {
     let mut index = Index::default();
     let base = schema
         .get("$id")
@@ -51,14 +59,23 @@ pub(super) fn to_pointers(schema: &mut Value) {
         );
     index.resources.insert(base.clone(), String::new());
     walk(schema, String::new(), &base, &mut index);
+    let mut rewrites = Vec::new();
     for (site, base, reference) in index.references {
         let Some(target) = resolve(&index.resources, &index.anchors, &base, &reference) else {
             continue;
         };
         let rewritten = format!("#{target}");
-        if rewritten != reference
-            && let Some(Value::Object(members)) = schema.pointer_mut(&site)
-        {
+        if rewritten != reference {
+            rewrites.push((site, rewritten));
+        }
+    }
+    rewrites
+}
+
+/// Applies [`pointer_rewrites`] to `schema`.
+pub(super) fn rewrite(schema: &mut Value, rewrites: Vec<(String, String)>) {
+    for (site, rewritten) in rewrites {
+        if let Some(Value::Object(members)) = schema.pointer_mut(&site) {
             members.insert("$ref".to_string(), Value::String(rewritten));
         }
     }

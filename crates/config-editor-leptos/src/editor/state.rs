@@ -77,7 +77,7 @@ pub(super) struct Init {
     pub(super) host_language: Language,
     pub(super) edit_language: Language,
     pub(super) schema: Option<Arc<SchemaBundle>>,
-    pub(super) schema_error: Option<String>,
+    pub(super) schema_error: Option<super::diagnostics::SchemaFailure>,
     /// The host's text (controlled value or initial value), its line
     /// endings as the host wrote them.
     pub(super) host_text: String,
