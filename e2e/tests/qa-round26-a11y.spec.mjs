@@ -378,8 +378,10 @@ test.describe('N26-A5: a tip listing many problems with docs', () => {
     const names = await tip(page)
       .locator('a')
       .evaluateAll((links) => links.map((link) => link.getAttribute('aria-label')));
-    expect(names).toHaveLength(30);
-    expect(new Set(names).size).toBe(30);
+    // The tip lists as many as the editor's own list (20), then says more follow.
+    expect(names).toHaveLength(20);
+    expect(new Set(names).size).toBe(20);
+    await expect(tip(page)).toContainText('more follow');
     for (const name of names) {
       // Its visible text first (as speech input says it), then its problem.
       expect(name).toMatch(/^Open docs ↗ \(Alt\+Enter\): Host message number \d+ /);
