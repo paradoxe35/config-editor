@@ -867,7 +867,7 @@ let drop_in = Document::new("tls", "conf.d/tls.toml", tls_text)
 Keyboard: the tab strip is a WAI-ARIA `tablist` (each tab a `tab` with its
 `tabpanel`; one tab in the `Tab` order). `←` / `→` select the previous /
 next tab (wrapping), `Home` / `End` the first / last, `Enter` moves into the
-editor, `Delete` asks to close (a closable document's tab only); `Tab`
+editor (a typed character too, typed at the editor's caret), `Delete` asks to close (a closable document's tab only); `Tab`
 moves on to the "+" when there is one. From anywhere in the view, the editor
 included, `Alt+PageDown` / `Alt+PageUp` switch to the next / previous
 document, the focus going along. Browsers keep `Ctrl+Tab` and

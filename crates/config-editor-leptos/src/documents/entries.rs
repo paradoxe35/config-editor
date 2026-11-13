@@ -705,7 +705,7 @@ impl Documents {
 
     /// Whether the panel of `id` is still inert (it is shown on the next
     /// render).
-    fn panel_inert(&self, id: &str) -> bool {
+    pub(super) fn panel_inert(&self, id: &str) -> bool {
         let (Some(entry), Some(root)) = (self.entry(id), self.root.get_untracked()) else {
             return false;
         };

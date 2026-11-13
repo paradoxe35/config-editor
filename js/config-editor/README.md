@@ -1243,7 +1243,8 @@ view.isDirty("main");
   its editor's memory back, as `destroy()` does for a `ConfigEditor` (all
   but under 1 KB).
 - Keys: `←`/`→`, `Home`/`End` in the tab list (a WAI-ARIA `tablist`),
-  `Enter` into the editor, `Delete` to close a closable one, `Tab` on to
+  `Enter` into the editor (a typed character goes there too, typed at its
+  caret), `Delete` to close a closable one, `Tab` on to
   the "+"; `Alt+PageDown`/`Alt+PageUp`
   switch documents from anywhere in the view (browsers keep `Ctrl+Tab` and
   `Ctrl+PageDown`). `Ctrl+S` saves the document being edited.

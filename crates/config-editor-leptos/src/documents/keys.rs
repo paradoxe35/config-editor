@@ -2,8 +2,9 @@
 //!
 //! - In the tab list (a WAI-ARIA tab list with automatic activation):
 //!   `ArrowLeft` / `ArrowRight` select the previous / next document,
-//!   wrapping around, `Home` / `End` the first / last one, `Enter` moves
-//!   into the document's editor, `Delete` asks to close the focused one
+//!   wrapping around, `Home` / `End` the first / last one, `Enter` (and
+//!   `Space`) moves into the document's editor, a typed character moves
+//!   there and is typed at its caret, `Delete` asks to close the focused one
 //!   when it may be closed (the focus then on the tab taking its place).
 //!   The "+" button after the tab list is a plain
 //!   button outside it, next in the `Tab` order; no key adds a document
@@ -55,7 +56,35 @@ pub(super) fn on_root_keydown(documents: Documents, event: &KeyboardEvent) {
     documents.pick(&next, if from_tabs { Focus::Tab } else { Focus::Editor });
 }
 
-/// Arrow keys, `Home`, `End`, `Enter` and `Delete` on a tab.
+/// Whether `key` (a `KeyboardEvent.key` without `Ctrl`, `Alt` or `Meta`)
+/// types a character: one character, not a named key (`Tab`, `Dead`, …)
+/// and not `Space`, which activates the tab.
+fn typed(key: &str) -> bool {
+    let mut characters = key.chars();
+    characters.next().is_some_and(|first| first != ' ') && characters.next().is_none()
+}
+
+/// A character typed on the tab of `id`: the focus moves into its editor
+/// now, so the key lands there, at the editor's caret, and so does what
+/// is typed after it (a `Space` included). An editor not on screen yet
+/// takes the focus once it is; the key itself does nothing then.
+fn type_into_editor(documents: Documents, id: &str, event: &KeyboardEvent) {
+    let shown = documents.active_id().as_deref() == Some(id)
+        && documents
+            .entry(id)
+            .is_some_and(|entry| untrack(|| entry.handle.is_mounted()))
+        && !documents.panel_inert(id);
+    match documents.entry(id).filter(|_| shown) {
+        Some(entry) => entry.handle.focus(),
+        None => {
+            event.prevent_default();
+            documents.pick(id, Focus::Editor);
+        }
+    }
+}
+
+/// Arrow keys, `Home`, `End`, `Enter`, `Delete` and typed characters on a
+/// tab.
 pub(super) fn on_tab_keydown(documents: Documents, id: &str, event: &KeyboardEvent) {
     if event.ctrl_key() || event.meta_key() || event.alt_key() {
         return;
@@ -79,6 +108,10 @@ pub(super) fn on_tab_keydown(documents: Documents, id: &str, event: &KeyboardEve
         "Enter" | " " => {
             event.prevent_default();
             documents.pick(id, Focus::Editor);
+            return;
+        }
+        key if typed(key) => {
+            type_into_editor(documents, id, event);
             return;
         }
         _ => return,
