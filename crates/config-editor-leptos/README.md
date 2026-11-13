@@ -1224,7 +1224,13 @@ view! { <ConfigEditor value=text schema=SCHEMA secrets=secrets /> }
 ## Schema help
 
 Completions and hover read these keywords, with or without the
-`schema-validation` feature:
+`schema-validation` feature. They follow the schema as validation applies
+it: `$ref` (by pointer, `$anchor` or `$id`, chains of any length, keywords
+beside it ignored up to draft-07), `allOf`/`anyOf`/`oneOf`, the
+`then` or `else` the object's `if` decides (both while it does not),
+`dependentSchemas` (and draft-07 `dependencies`) once their key is
+written, `unevaluatedProperties`, and tuples (`prefixItems`, draft-07
+`items` lists):
 
 | Keyword                                      | Shown                                                                                                                                                                                        |
 | -------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

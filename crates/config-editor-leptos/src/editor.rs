@@ -50,6 +50,7 @@ mod hover_path;
 mod hover_problems;
 mod input;
 mod kept_focus;
+mod ui_refs;
 pub use input::flush_pending_input;
 pub use sync::flush_pending_edits;
 mod keyboard;

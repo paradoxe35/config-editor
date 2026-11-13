@@ -4,7 +4,7 @@
 use super::*;
 
 pub(super) fn schema_type_label(schema: &Value, root: &Value, fallback: &str) -> String {
-    let mut labels: Vec<String> = resolve_branches(schema, root, 0)
+    let mut labels: Vec<String> = resolve_branches(schema, root)
         .into_iter()
         .filter_map(|branch| {
             // A const is its one value (`"static"`), unless that is long.
@@ -93,7 +93,7 @@ pub(super) fn type_includes(schema: &Value, expected: &str) -> bool {
 
 /// The `default` of a property schema, through `$ref` and `anyOf`/`oneOf`/`allOf`.
 pub fn schema_default<'a>(schema: &'a Value, root: &'a Value) -> Option<&'a Value> {
-    resolve_branches(schema, root, 0)
+    resolve_branches(schema, root)
         .into_iter()
         .find_map(|branch| branch.get("default"))
 }
@@ -102,7 +102,7 @@ pub fn schema_default<'a>(schema: &'a Value, root: &'a Value) -> Option<&'a Valu
 /// const, or first enum value, else an empty value of its first type (`""`,
 /// `0`, `false`, `[]`, `{}`, `null`). Inserting it keeps the document valid.
 pub fn placeholder(schema: &Value, root: &Value) -> Value {
-    let branches = resolve_branches(schema, root, 0);
+    let branches = resolve_branches(schema, root);
     if let Some(value) = branches
         .iter()
         .find_map(|branch| branch.get("default").or_else(|| branch.get("const")))
@@ -141,59 +141,159 @@ pub fn placeholder(schema: &Value, root: &Value) -> Value {
 
 /// The `const` of a property schema, through `$ref` and the combinators.
 pub fn schema_const<'a>(schema: &'a Value, root: &'a Value) -> Option<&'a Value> {
-    resolve_branches(schema, root, 0)
+    resolve_branches(schema, root)
         .into_iter()
         .find_map(|branch| branch.get("const"))
 }
 
 /// The branch of a property schema that describes an object, if any.
 pub fn object_branch<'a>(schema: &'a Value, root: &'a Value) -> Option<&'a Value> {
-    resolve_branches(schema, root, 0)
-        .into_iter()
-        .find(|branch| {
-            branch.get("properties").is_some()
-                || branch.get("patternProperties").is_some()
-                || branch.get("additionalProperties").is_some()
-                || type_includes(branch, "object")
-        })
+    resolve_branches(schema, root).into_iter().find(|branch| {
+        branch.get("properties").is_some()
+            || branch.get("patternProperties").is_some()
+            || branch.get("additionalProperties").is_some()
+            || branch.get("unevaluatedProperties").is_some()
+            || type_includes(branch, "object")
+    })
 }
 
 /// The branch of a property schema that describes an array, if any.
 pub fn array_branch<'a>(schema: &'a Value, root: &'a Value) -> Option<&'a Value> {
-    resolve_branches(schema, root, 0)
-        .into_iter()
-        .find(|branch| {
-            branch.get("items").is_some()
-                || branch.get("prefixItems").is_some()
-                || type_includes(branch, "array")
+    resolve_branches(schema, root).into_iter().find(|branch| {
+        branch.get("items").is_some()
+            || branch.get("prefixItems").is_some()
+            || type_includes(branch, "array")
+    })
+}
+
+/// The branches of `schema`: itself and every schema applying to the same
+/// value, through `$ref`, `anyOf`/`oneOf`/`allOf`, `if`/`then`/`else` and
+/// `dependentSchemas`, the value unknown (both of a conditional's
+/// branches, every dependent schema; see [`branches_for`]).
+pub(crate) fn resolve_branches<'a>(schema: &'a Value, root: &'a Value) -> Vec<&'a Value> {
+    branches_for(schema, root, None)
+}
+
+/// [`resolve_branches`] for `instance`, the value the schema describes
+/// when the document gives it: a conditional takes the branch its `if`
+/// decides for it (both while the value does not decide), and a dependent
+/// schema applies when the object has its key. Each schema is walked once,
+/// so a reference cycle ends and a chain of references has no length
+/// limit. Up to draft-07 a `$ref` stands alone: the keywords beside it are
+/// ignored, as the validator ignores them.
+pub(crate) fn branches_for<'a>(
+    schema: &'a Value,
+    root: &'a Value,
+    instance: Option<&Value>,
+) -> Vec<&'a Value> {
+    enum Step<'a> {
+        Visit(&'a Value),
+        Emit(&'a Value),
+    }
+    let ref_alone = refs_stand_alone(root);
+    let mut seen: HashSet<*const Value> = HashSet::new();
+    let mut branches = Vec::new();
+    let mut steps = vec![Step::Visit(schema)];
+    while let Some(step) = steps.pop() {
+        let schema = match step {
+            Step::Emit(schema) => {
+                branches.push(schema);
+                continue;
+            }
+            Step::Visit(schema) => schema,
+        };
+        if !seen.insert(std::ptr::from_ref(schema)) {
+            continue;
+        }
+        let target = schema
+            .get("$ref")
+            .and_then(Value::as_str)
+            .and_then(|reference| ref_target(reference, root));
+        // Pushed last first: the walk takes the target's branches, the
+        // schema, then its applicators in order.
+        let mut next: Vec<Step<'a>> = Vec::new();
+        if let Some(target) = target {
+            next.push(Step::Visit(target));
+        }
+        if !(ref_alone && schema.get("$ref").is_some()) {
+            next.push(Step::Emit(schema));
+            for keyword in ["anyOf", "oneOf", "allOf"] {
+                for option in schema
+                    .get(keyword)
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten()
+                {
+                    next.push(Step::Visit(option));
+                }
+            }
+            next.extend(conditional_branches(schema, root, instance).map(Step::Visit));
+            next.extend(dependent_schemas(schema, instance).map(Step::Visit));
+        }
+        steps.extend(next.into_iter().rev());
+    }
+    branches
+}
+
+/// The schema a `$ref` names in `root`: a `#` JSON pointer, its tokens
+/// percent-decoded. (References by `$id` or `$anchor` are rewritten to
+/// pointers when the schema is built, see `ui_refs`.)
+pub(crate) fn ref_target<'a>(reference: &str, root: &'a Value) -> Option<&'a Value> {
+    let pointer = reference.strip_prefix('#')?;
+    root.pointer(pointer)
+        .or_else(|| root.pointer(&super::super::ui_refs::percent_decoded(pointer)))
+}
+
+/// Whether the keywords beside a `$ref` are ignored: up to draft-07, which
+/// the root's `$schema` names.
+fn refs_stand_alone(root: &Value) -> bool {
+    root.get("$schema")
+        .and_then(Value::as_str)
+        .is_some_and(|dialect| {
+            ["draft-03", "draft-04", "draft-06", "draft-07"]
+                .iter()
+                .any(|draft| dialect.contains(draft))
         })
 }
 
-pub(crate) fn resolve_branches<'a>(
+/// The `then`/`else` of `schema`'s `if` that apply to `instance`: the one
+/// the `if` decides, or both while it does not.
+fn conditional_branches<'a>(
     schema: &'a Value,
     root: &'a Value,
-    depth: usize,
-) -> Vec<&'a Value> {
-    if depth > 16 {
-        return Vec::new();
-    }
-    let mut branches = Vec::new();
-    if let Some(reference) = schema.get("$ref").and_then(Value::as_str)
-        && let Some(target) = reference
-            .strip_prefix('#')
-            .and_then(|pointer| root.pointer(pointer))
-    {
-        branches.extend(resolve_branches(target, root, depth + 1));
-    }
-    branches.push(schema);
-    for keyword in ["anyOf", "oneOf", "allOf"] {
-        if let Some(options) = schema.get(keyword).and_then(Value::as_array) {
-            for option in options {
-                branches.extend(resolve_branches(option, root, depth + 1));
-            }
-        }
-    }
-    branches
+    instance: Option<&Value>,
+) -> impl Iterator<Item = &'a Value> {
+    let condition = schema.get("if");
+    let decided = condition.and_then(|condition| {
+        instance.and_then(|instance| super::conditions::decides(condition, instance, root))
+    });
+    let then = schema
+        .get("then")
+        .filter(|_| condition.is_some() && decided != Some(false));
+    let otherwise = schema
+        .get("else")
+        .filter(|_| condition.is_some() && decided != Some(true));
+    then.into_iter().chain(otherwise)
+}
+
+/// The dependent schemas of `schema` (`dependentSchemas`, and draft-07's
+/// `dependencies` given as schemas) that apply to `instance`: those whose
+/// key the object has, or all of them while the value is unknown.
+fn dependent_schemas<'a>(
+    schema: &'a Value,
+    instance: Option<&Value>,
+) -> impl Iterator<Item = &'a Value> {
+    ["dependentSchemas", "dependencies"]
+        .into_iter()
+        .filter_map(|keyword| schema.get(keyword).and_then(Value::as_object))
+        .flatten()
+        .filter(|(_, dependent)| dependent.is_object() || dependent.is_boolean())
+        .filter(move |(key, _)| match instance {
+            None => true,
+            Some(Value::Object(members)) => members.contains_key(key.as_str()),
+            Some(_) => false,
+        })
+        .map(|(_, dependent)| dependent)
 }
 
 /// The schemas `path` leads to from the root. With `repeats_arrays` a key
@@ -204,11 +304,24 @@ pub(crate) fn schema_at_path<'a>(
     path: &[SchemaPathSegment],
     repeats_arrays: bool,
 ) -> Vec<&'a Value> {
+    schema_at_path_in(root, path, repeats_arrays, None)
+}
+
+/// [`schema_at_path`] through `document`, the parsed document when there is
+/// one: each step's conditionals are decided by the value there (see
+/// [`branches_for`]).
+pub(crate) fn schema_at_path_in<'a>(
+    root: &'a Value,
+    path: &[SchemaPathSegment],
+    repeats_arrays: bool,
+    document: Option<&Value>,
+) -> Vec<&'a Value> {
     let mut schemas = vec![root];
-    for segment in path {
+    for (depth, segment) in path.iter().enumerate() {
+        let instance = document.and_then(|document| value_at(document, &path[..depth]));
         let mut next: Vec<&Value> = schemas
             .iter()
-            .flat_map(|schema| child_schemas(schema, root, segment))
+            .flat_map(|schema| child_schemas_in(schema, root, segment, instance))
             .collect();
         // An item of something the schema has as one value (a block or an
         // element written twice): each copy is that value.
@@ -216,9 +329,12 @@ pub(crate) fn schema_at_path<'a>(
             next = schemas.clone();
         }
         if repeats_arrays && matches!(segment, SchemaPathSegment::Key(_)) {
+            let instance = document.and_then(|document| value_at(document, &path[..=depth]));
             let items: Vec<&Value> = next
                 .iter()
-                .flat_map(|schema| child_schemas(schema, root, &SchemaPathSegment::ArrayItem(0)))
+                .flat_map(|schema| {
+                    child_schemas_in(schema, root, &SchemaPathSegment::ArrayItem(0), instance)
+                })
                 .collect();
             next.extend(items);
         }
@@ -236,8 +352,19 @@ pub(crate) fn child_schemas<'a>(
     root: &'a Value,
     segment: &SchemaPathSegment,
 ) -> Vec<&'a Value> {
+    child_schemas_in(schema, root, segment, None)
+}
+
+/// [`child_schemas`] of `instance`, the value of `schema` when known.
+pub(crate) fn child_schemas_in<'a>(
+    schema: &'a Value,
+    root: &'a Value,
+    segment: &SchemaPathSegment,
+    instance: Option<&Value>,
+) -> Vec<&'a Value> {
+    let branches = branches_for(schema, root, instance);
     let mut next = Vec::new();
-    for branch in resolve_branches(schema, root, 0) {
+    for branch in &branches {
         let named = named_properties(branch, &segment.as_key());
         let item = segment
             .as_index()
@@ -262,16 +389,41 @@ pub(crate) fn child_schemas<'a>(
             },
         }
     }
+    // What no branch evaluates is the `unevaluatedProperties` (or
+    // `unevaluatedItems`) schema's.
+    if next.is_empty() {
+        let keyword = match segment {
+            SchemaPathSegment::Key(_) => "unevaluatedProperties",
+            SchemaPathSegment::ArrayItem(_) => "unevaluatedItems",
+        };
+        next.extend(
+            branches
+                .iter()
+                .filter_map(|branch| branch.get(keyword))
+                .filter(|unevaluated| unevaluated.is_object()),
+        );
+    }
     next
 }
 
-/// The schema of item `index` of an array of `branch`.
+/// The schema of item `index` of an array of `branch`: its tuple position
+/// (`prefixItems`, or up to draft-07 an `items` list), else the schema of
+/// the other items (`items`, or after a draft-07 tuple `additionalItems`).
 fn item_schema(branch: &Value, index: usize) -> Option<&Value> {
-    branch
-        .get("prefixItems")
-        .and_then(Value::as_array)
-        .and_then(|prefix_items| prefix_items.get(index))
-        .or_else(|| branch.get("items").filter(|items| items.is_object()))
+    let tuple = |keyword: &str| branch.get(keyword).and_then(Value::as_array);
+    if let Some(positions) = tuple("prefixItems") {
+        return positions
+            .get(index)
+            .or_else(|| branch.get("items").filter(|items| items.is_object()));
+    }
+    if let Some(positions) = tuple("items") {
+        return positions.get(index).or_else(|| {
+            branch
+                .get("additionalItems")
+                .filter(|items| items.is_object())
+        });
+    }
+    branch.get("items").filter(|items| items.is_object())
 }
 
 /// The schemas `branch` gives the key `key` by name: its property and the
@@ -308,7 +460,7 @@ pub(super) fn conform(
     if depth > 64 {
         return;
     }
-    let branches = resolve_branches(schema, root, 0);
+    let branches = resolve_branches(schema, root);
     let wants_array = branches.iter().any(|branch| {
         branch.get("items").is_some()
             || branch.get("prefixItems").is_some()

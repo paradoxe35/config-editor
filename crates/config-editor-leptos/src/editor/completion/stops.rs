@@ -8,7 +8,7 @@ use super::*;
 /// types allow it; a numeric string example is a number where only numbers
 /// are allowed.
 pub fn schema_example(schema: &Value, root: &Value) -> Option<Value> {
-    let branches = resolve_branches(schema, root, 0);
+    let branches = resolve_branches(schema, root);
     let example = branches
         .iter()
         .find_map(|branch| match branch.get("examples") {

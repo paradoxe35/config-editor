@@ -34,6 +34,13 @@ pub(crate) fn pattern_matches(pattern: &str, key: &str) -> bool {
     })
 }
 
+/// Whether `text` matches the regex `pattern`; `None` when the engine
+/// cannot compile it.
+pub(crate) fn pattern_decides(pattern: &str, text: &str) -> Option<bool> {
+    let matched = pattern_matches(pattern, text);
+    (matched || compiles(pattern)).then_some(matched)
+}
+
 /// Whether the engine can compile `pattern`, compiling it into the cache.
 fn compiles(pattern: &str) -> bool {
     pattern_matches(pattern, "");

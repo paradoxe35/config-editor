@@ -74,7 +74,7 @@ fn holds_read_only(schema: &Value, root: &Value, depth: usize) -> bool {
     if read_only_reason(&[schema], root).is_some() {
         return true;
     }
-    resolve_branches(schema, root, 0).iter().any(|branch| {
+    resolve_branches(schema, root).iter().any(|branch| {
         ["items", "additionalProperties", "contains"]
             .iter()
             .filter_map(|key| branch.get(*key))
@@ -98,7 +98,7 @@ fn holds_read_only(schema: &Value, root: &Value, depth: usize) -> bool {
 pub(crate) fn read_only_reason(schemas: &[&Value], root: &Value) -> Option<Option<String>> {
     let branches: Vec<&Value> = schemas
         .iter()
-        .flat_map(|schema| resolve_branches(schema, root, 0))
+        .flat_map(|schema| resolve_branches(schema, root))
         .collect();
     branches
         .iter()
@@ -117,7 +117,7 @@ pub(crate) fn read_only_reason(schemas: &[&Value], root: &Value) -> Option<Optio
 pub(crate) fn is_secret(schemas: &[&Value], root: &Value) -> bool {
     schemas
         .iter()
-        .flat_map(|schema| resolve_branches(schema, root, 0))
+        .flat_map(|schema| resolve_branches(schema, root))
         .any(|branch| {
             branch.get("writeOnly") == Some(&Value::Bool(true))
                 || branch.get("x-secret") == Some(&Value::Bool(true))

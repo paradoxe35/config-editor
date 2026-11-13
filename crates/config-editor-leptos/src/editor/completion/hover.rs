@@ -195,9 +195,11 @@ fn value_hover(
     };
     let root = &bundle.schema;
     let repeats = behavior.repetition() != Repetition::None;
-    let doc = schema_at_path(root, &path, repeats)
+    let parsed = conditional_document(source, bundle, behavior);
+    let document = parsed.as_deref().and_then(|parsed| parsed.as_ref().ok());
+    let doc = schema_at_path_in(root, &path, repeats, document)
         .into_iter()
-        .flat_map(|schema| resolve_branches(schema, root, 0))
+        .flat_map(|schema| resolve_branches(schema, root))
         .find_map(|branch| {
             schema_value_candidates(branch, false)
                 .into_iter()
@@ -266,17 +268,20 @@ fn property_hover(
     let parent = &property[..property.len().checked_sub(1)?];
     let root = &bundle.schema;
     let repeats = behavior.repetition() != Repetition::None;
-    let schemas = schema_at_path(root, path, repeats);
+    let parsed = conditional_document(source, bundle, behavior);
+    let document = parsed.as_deref().and_then(|parsed| parsed.as_ref().ok());
+    let at = |path: &[SchemaPathSegment]| document.and_then(|document| value_at(document, path));
+    let schemas = schema_at_path_in(root, path, repeats, document);
     if schemas.is_empty() {
         return None;
     }
     let owners = if property.len() < path.len() {
-        schema_at_path(root, property, repeats)
+        schema_at_path_in(root, property, repeats, document)
     } else {
         Vec::new()
     };
     let documented: Vec<&Value> = owners.iter().chain(&schemas).copied().collect();
-    let branches = branches_of(&documented, root);
+    let branches = branches_of(&documented, root, at(path));
     // An item of a list: the list's docs, the item's own under them.
     let (title, description, item) = if owners.is_empty() {
         (
@@ -291,8 +296,8 @@ fn property_hover(
             .filter(|&&owner| !schemas.iter().any(|&item| std::ptr::eq(owner, item)))
             .copied()
             .collect();
-        let list = branches_of(&lists, root);
-        let items = branches_of(&schemas, root);
+        let list = branches_of(&lists, root, at(property));
+        let items = branches_of(&schemas, root, at(path));
         let (title, description) = (text_of(&list, "title"), text_of(&list, "description"));
         let own = |name: &str, list: &Option<String>| {
             text_of(&items, name).filter(|text| Some(text) != list.as_ref())
@@ -326,9 +331,10 @@ fn property_hover(
         }
     }
     examples.truncate(5);
-    let required = schema_at_path(root, parent, repeats)
+    let parents = schema_at_path_in(root, parent, repeats, document);
+    let required = parents
         .iter()
-        .flat_map(|schema| resolve_branches(schema, root, 0))
+        .flat_map(|schema| branches_for(schema, root, at(parent)))
         .any(|branch| {
             branch
                 .get("required")
@@ -337,9 +343,8 @@ fn property_hover(
         });
     // A key of `oneOf`/`anyOf` options of the object holding it: the
     // option it is in (or those offering it), and its schema there.
-    let parent_choices = ChoicesAt::in_object(&schema_at_path(root, parent, repeats), root, || {
-        object_at(source, parent, behavior)
-    });
+    let parent_choices =
+        ChoicesAt::in_object(&parents, root, || object_at(source, parent, behavior));
     let holding = parent_choices.holding(&key);
     let type_label = if let Some(list) = owners.first() {
         schema_type_label(list, root, "property")
@@ -382,12 +387,28 @@ fn property_hover(
     })
 }
 
-/// The `allOf`/`$ref` branches of `schemas` (see `resolve_branches`).
-fn branches_of<'a>(schemas: &[&'a Value], root: &'a Value) -> Vec<&'a Value> {
+/// The branches of `schemas` for `instance` (see [`branches_for`]).
+fn branches_of<'a>(
+    schemas: &[&'a Value],
+    root: &'a Value,
+    instance: Option<&Value>,
+) -> Vec<&'a Value> {
     schemas
         .iter()
-        .flat_map(|schema| resolve_branches(schema, root, 0))
+        .flat_map(|schema| branches_for(schema, root, instance))
         .collect()
+}
+
+/// The parsed document, when the schema has conditionals its values
+/// decide (see [`branches_for`]); not read otherwise.
+fn conditional_document(
+    source: &str,
+    bundle: &SchemaBundle,
+    behavior: &dyn ConfigLanguage,
+) -> Option<std::rc::Rc<Result<Value, super::super::language::ParseError>>> {
+    bundle
+        .has_conditionals
+        .then(|| crate::editor::parse_cache::parsed(behavior, source))
 }
 
 /// The first non-blank `name` text (`title`, `description`) of `branches`;

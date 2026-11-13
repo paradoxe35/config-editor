@@ -69,6 +69,9 @@ pub(super) struct SchemaBundle {
     /// Some field is `readOnly`, `writeOnly` or `x-secret`: documents are
     /// walked for them.
     pub(super) has_marks: bool,
+    /// Some schema is conditional (`if`, a dependent schema): completion
+    /// and hover read the document to decide it.
+    pub(super) has_conditionals: bool,
     #[cfg(feature = "schema-validation")]
     validator: jsonschema::Validator,
 }
@@ -100,7 +103,11 @@ pub(super) fn build_schema(schema_text: &str) -> Result<SchemaBundle, String> {
             format!("{error} (at {at})")
         }
     })?;
+    // The validator resolves `$id` and `$anchor` references itself;
+    // completion and hover read them as pointers.
+    super::ui_refs::to_pointers(&mut schema);
     let warnings = super::completion::unsupported_patterns(&schema);
+    let has_conditionals = super::completion::mentions_conditionals(&schema);
     let has_deprecated = super::completion::mentions_deprecated(&schema);
     let has_marks = super::protect::mentions_marks(&schema);
     Ok(SchemaBundle {
@@ -109,6 +116,7 @@ pub(super) fn build_schema(schema_text: &str) -> Result<SchemaBundle, String> {
         warned_console: std::sync::atomic::AtomicBool::new(false),
         has_deprecated,
         has_marks,
+        has_conditionals,
         #[cfg(feature = "schema-validation")]
         validator,
     })

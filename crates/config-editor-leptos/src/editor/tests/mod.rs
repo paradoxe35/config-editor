@@ -77,3 +77,5 @@ mod schema_message;
 ))]
 mod kept_defaults;
 mod save;
+#[cfg(all(feature = "yaml", feature = "schema-validation"))]
+mod schema_walk;

@@ -6,7 +6,7 @@ use super::*;
 /// Whether a property is deprecated (`deprecated: true` on it, through
 /// `$ref` and the combinators).
 pub(crate) fn is_deprecated(schema: &Value, root: &Value) -> bool {
-    resolve_branches(schema, root, 0)
+    resolve_branches(schema, root)
         .into_iter()
         .any(|branch| branch.get("deprecated").and_then(Value::as_bool) == Some(true))
 }
@@ -14,7 +14,7 @@ pub(crate) fn is_deprecated(schema: &Value, root: &Value) -> bool {
 /// What to use instead of a deprecated property, from VS Code's
 /// `deprecationMessage`.
 pub(crate) fn deprecation_message(schema: &Value, root: &Value) -> Option<String> {
-    resolve_branches(schema, root, 0)
+    resolve_branches(schema, root)
         .into_iter()
         .find_map(|branch| {
             branch
@@ -27,7 +27,7 @@ pub(crate) fn deprecation_message(schema: &Value, root: &Value) -> Option<String
 /// The property's `x-docs-url`, when it is a web address: anything else
 /// (a `javascript:` URL) is never made a link.
 pub(crate) fn docs_url(schema: &Value, root: &Value) -> Option<String> {
-    resolve_branches(schema, root, 0)
+    resolve_branches(schema, root)
         .into_iter()
         .find_map(|branch| {
             branch

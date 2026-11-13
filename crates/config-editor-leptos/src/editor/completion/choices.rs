@@ -51,52 +51,63 @@ impl ObjectChoice<'_> {
 /// and `allOf`) that offers at least two objects; other options (a `null`
 /// beside an object) are left out.
 pub(crate) fn object_choices<'a>(schema: &'a Value, root: &'a Value) -> Vec<ObjectChoice<'a>> {
+    enum Step<'a> {
+        Visit(&'a Value),
+        Options(&'a Value),
+    }
     let mut choices = Vec::new();
-    collect(schema, root, &mut choices, 0);
-    choices
-}
-
-fn collect<'a>(
-    schema: &'a Value,
-    root: &'a Value,
-    choices: &mut Vec<ObjectChoice<'a>>,
-    depth: usize,
-) {
-    if depth > 16 {
-        return;
-    }
-    if let Some(target) = schema
-        .get("$ref")
-        .and_then(Value::as_str)
-        .and_then(|reference| root.pointer(reference.strip_prefix('#')?))
-    {
-        collect(target, root, choices, depth + 1);
-    }
-    for part in schema
-        .get("allOf")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-    {
-        collect(part, root, choices, depth + 1);
-    }
-    for keyword in ["oneOf", "anyOf"] {
-        let Some(options) = schema.get(keyword).and_then(Value::as_array) else {
-            continue;
+    let mut seen: HashSet<*const Value> = HashSet::new();
+    // Each schema walked once, so a reference cycle ends and a chain of
+    // any length is followed: the target's choices, then `allOf`'s, then
+    // the schema's own.
+    let mut steps = vec![Step::Visit(schema)];
+    while let Some(step) = steps.pop() {
+        let schema = match step {
+            Step::Options(schema) => {
+                for keyword in ["oneOf", "anyOf"] {
+                    let Some(options) = schema.get(keyword).and_then(Value::as_array) else {
+                        continue;
+                    };
+                    let objects: Vec<ObjectChoice<'a>> = options
+                        .iter()
+                        .filter_map(|option| choice(option, root))
+                        .collect();
+                    if objects.len() >= 2 {
+                        choices.extend(objects);
+                    }
+                }
+                continue;
+            }
+            Step::Visit(schema) => schema,
         };
-        let objects: Vec<ObjectChoice<'a>> = options
-            .iter()
-            .filter_map(|option| choice(option, root))
-            .collect();
-        if objects.len() >= 2 {
-            choices.extend(objects);
+        if !seen.insert(std::ptr::from_ref(schema)) {
+            continue;
         }
+        let mut next: Vec<Step<'a>> = Vec::new();
+        if let Some(target) = schema
+            .get("$ref")
+            .and_then(Value::as_str)
+            .and_then(|reference| ref_target(reference, root))
+        {
+            next.push(Step::Visit(target));
+        }
+        next.extend(
+            schema
+                .get("allOf")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .map(Step::Visit),
+        );
+        next.push(Step::Options(schema));
+        steps.extend(next.into_iter().rev());
     }
+    choices
 }
 
 /// `option` as a choice, when it describes an object.
 fn choice<'a>(option: &'a Value, root: &'a Value) -> Option<ObjectChoice<'a>> {
-    let branches = resolve_branches(option, root, 0);
+    let branches = resolve_branches(option, root);
     let is_object = branches.iter().any(|branch| {
         branch.get("properties").is_some()
             || branch.get("required").is_some()
@@ -242,6 +253,17 @@ pub(crate) fn object_around(
     path: &[SchemaPathSegment],
     behavior: &dyn ConfigLanguage,
 ) -> Option<serde_json::Map<String, Value>> {
+    let document = document_around(source, cursor_byte, behavior)?;
+    value_at(&document, path)?.as_object().cloned()
+}
+
+/// The document `source` holds with the line at `cursor_byte` left empty
+/// (see [`object_around`]), when that parses.
+pub(crate) fn document_around(
+    source: &str,
+    cursor_byte: usize,
+    behavior: &dyn ConfigLanguage,
+) -> Option<Value> {
     let line_start = source[..cursor_byte].rfind('\n').map_or(0, |at| at + 1);
     let line_end = source[cursor_byte..]
         .find('\n')
@@ -249,8 +271,7 @@ pub(crate) fn object_around(
     let blanked = format!("{}{}", &source[..line_start], &source[line_end..]);
     // Read aside: the text with the line left out must not push the text
     // on screen out of the shared parse.
-    let document = behavior.parse(&blanked).ok()?;
-    value_at(&document, path)?.as_object().cloned()
+    behavior.parse(&blanked).ok()
 }
 
 /// The choices of the value at `path`, and the one it is in.

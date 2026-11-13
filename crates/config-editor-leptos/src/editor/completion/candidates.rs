@@ -37,10 +37,10 @@ pub(super) fn value_completions(
         .is_ok();
     let numeric_allowed = schemas
         .iter()
-        .flat_map(|schema| resolve_branches(schema, root, 0))
+        .flat_map(|schema| resolve_branches(schema, root))
         .any(|branch| type_includes(branch, "integer") || type_includes(branch, "number"));
     for schema in schemas {
-        for branch in resolve_branches(schema, root, 0) {
+        for branch in resolve_branches(schema, root) {
             let description = branch
                 .get("description")
                 .and_then(Value::as_str)
@@ -136,11 +136,12 @@ pub(super) fn property_completions(
     insert_context: &InsertContext<'_>,
     behavior: &dyn ConfigLanguage,
     choices: &ChoicesAt<'_>,
+    instance: Option<&Value>,
 ) -> Vec<Completion> {
     let mut candidates = Vec::new();
     for branch in schemas
         .iter()
-        .flat_map(|schema| resolve_branches(schema, root, 0))
+        .flat_map(|schema| branches_for(schema, root, instance))
     {
         let Some(properties) = branch.get("properties").and_then(Value::as_object) else {
             continue;
@@ -829,10 +830,17 @@ pub(super) fn completions_for_context(
     bundle: &SchemaBundle,
     behavior: &dyn ConfigLanguage,
 ) -> Vec<Completion> {
-    let schemas = schema_at_path(
+    // A conditional schema follows the document: read it only then.
+    let document = bundle
+        .has_conditionals
+        .then(|| document_around(source, cursor_byte, behavior))
+        .flatten();
+    let document = document.as_ref();
+    let schemas = schema_at_path_in(
         &bundle.schema,
         &context.path,
         behavior.repetition() != Repetition::None,
+        document,
     );
 
     if let Some(key) = context.value_key.as_deref() {
@@ -842,10 +850,11 @@ pub(super) fn completions_for_context(
         if !force && !typed_value.is_empty() && typed_value.parse::<f64>().is_ok() {
             return Vec::new();
         }
-        let value_schemas = schema_at_path(
+        let value_schemas = schema_at_path_in(
             &bundle.schema,
             &path_with_key(&context.path, key),
             behavior.repetition() != Repetition::None,
+            document,
         );
         let leading = if context.value_needs_space { " " } else { "" };
         let mut options = value_completions(
@@ -887,7 +896,7 @@ pub(super) fn completions_for_context(
     if context.is_array_item {
         let has_object_properties = schemas
             .iter()
-            .flat_map(|schema| resolve_branches(schema, &bundle.schema, 0))
+            .flat_map(|schema| resolve_branches(schema, &bundle.schema))
             .any(|branch| {
                 branch.get("properties").is_some()
                     || branch.get("patternProperties").is_some()
@@ -955,6 +964,7 @@ pub(super) fn completions_for_context(
         },
         behavior,
         &choices,
+        document.and_then(|document| value_at(document, &context.path)),
     );
     // A key typed directly in an array starts a new object item, which needs
     // its delimiters: `[|]` becomes `[{ hosts = [] }]`, not `[hosts = []]`.

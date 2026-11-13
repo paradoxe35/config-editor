@@ -59,7 +59,7 @@ pub fn kept_const<'a>(
 /// `language` keeps, else nothing (an empty value Tab stops at).
 pub fn fill_value(language: &dyn ConfigLanguage, schema: &Value, root: &Value) -> Option<Value> {
     let keeps = |value: &Value| language_keeps(language, value, schema, root);
-    let branches = resolve_branches(schema, root, 0);
+    let branches = resolve_branches(schema, root);
     branches
         .iter()
         .find_map(|branch| branch.get("default").or_else(|| branch.get("const")))

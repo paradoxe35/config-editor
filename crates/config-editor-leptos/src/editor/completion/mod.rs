@@ -4,6 +4,7 @@
 mod accept;
 mod candidates;
 mod choices;
+mod conditions;
 mod docs;
 mod headless;
 mod hover;
@@ -19,6 +20,7 @@ mod window;
 pub(crate) use accept::*;
 pub(crate) use candidates::*;
 pub(crate) use choices::*;
+pub(crate) use conditions::mentions_conditionals;
 pub(crate) use docs::*;
 pub use headless::{HoverDocs, Suggestion};
 pub(crate) use headless::{schema_hover, schema_suggestions};
