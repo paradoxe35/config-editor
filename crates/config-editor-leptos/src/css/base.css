@@ -545,7 +545,10 @@
 
 .config-editor__diff-peek {
   position: absolute;
-  z-index: 5;
+  /* Above the find and Go to Line widgets: the peek hangs from its line,
+     they sit in the corner, and on a narrow editor they cover its header
+     (Revert, Close), which then take no pointer. */
+  z-index: 8;
   min-width: 180px;
   overflow: auto;
   border: 1px solid var(--config-editor-raised-border);

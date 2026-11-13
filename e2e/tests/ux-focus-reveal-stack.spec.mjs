@@ -84,3 +84,29 @@ test.describe('a renamed tab on a narrow screen', () => {
   });
 });
 
+test.describe('on a narrow screen', () => {
+  test.use({ viewport: { width: 320, height: 700 } });
+  setupEditor(test);
+
+  test('the change preview stays above the open find widget, so its buttons take the pointer', async ({ page }) => {
+    await edit(page, 'X');
+    await page.keyboard.press('Alt+F3');
+    await expect(page.locator('.config-editor__diff-peek')).toBeVisible();
+    await page.keyboard.press('Control+h');
+    await expect(page.locator('.config-editor__find')).toBeVisible();
+    const toggle = page.locator('.config-editor__find button[aria-label="Toggle replace"]').first();
+    if (await toggle.count()) await toggle.click();
+    for (const label of ['Revert', 'Close']) {
+      const button = page
+        .locator('.config-editor__diff-peek button', { hasText: label })
+        .or(page.locator(`.config-editor__diff-peek button[aria-label*="${label}"]`))
+        .first();
+      const hit = await button.evaluate((element) => {
+        const box = element.getBoundingClientRect();
+        const at = document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2);
+        return element === at || element.contains(at);
+      });
+      expect(hit, `${label} takes the pointer`).toBe(true);
+    }
+  });
+});
