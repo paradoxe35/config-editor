@@ -161,7 +161,7 @@ fn in_their_fields(
             .all(|(token, count)| held.get(token.as_str()) == Some(count))
 }
 
-use super::super::text_change::replaces;
+use super::super::text_change::{replaces, utf16_len};
 
 /// The UTF-16 range of `before` an edit to `after` replaced when the
 /// browser did not say (an `insertFromPaste` input without a `beforeinput`)
@@ -258,8 +258,7 @@ impl EditorState {
             let texts: Vec<&str> = known.iter().map(|known| known.token.as_str()).collect();
             super::rewritten::around_written(&texts, before, after, &region)
         });
-        let inserted_len = (after.encode_utf16().count() + end - start)
-            .saturating_sub(before.encode_utf16().count());
+        let inserted_len = (utf16_len(after) + end - start).saturating_sub(utf16_len(before));
         let followed = secrets
             .tokens
             .with_untracked(|tokens| follow(tokens, &(start..end), inserted_len));

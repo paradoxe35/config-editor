@@ -19,18 +19,50 @@ struct Shared {
     full_suffix: usize,
 }
 
+/// Bytes compared at once while the texts agree (a slice comparison, far
+/// faster than byte by byte over a long text).
+const BLOCK: usize = 256;
+
+/// The bytes `old` and `new` share at their start.
+fn common_prefix(old: &[u8], new: &[u8]) -> usize {
+    let length = old.len().min(new.len());
+    let mut at = 0;
+    while at + BLOCK <= length && old[at..at + BLOCK] == new[at..at + BLOCK] {
+        at += BLOCK;
+    }
+    at + old[at..length]
+        .iter()
+        .zip(&new[at..length])
+        .take_while(|(a, b)| a == b)
+        .count()
+}
+
+/// The bytes `old` and `new` share at their end.
+fn common_suffix(old: &[u8], new: &[u8]) -> usize {
+    let length = old.len().min(new.len());
+    let mut shared = 0;
+    while shared + BLOCK <= length
+        && old[old.len() - shared - BLOCK..old.len() - shared]
+            == new[new.len() - shared - BLOCK..new.len() - shared]
+    {
+        shared += BLOCK;
+    }
+    shared
+        + old[..old.len() - shared]
+            .iter()
+            .rev()
+            .zip(new[..new.len() - shared].iter().rev())
+            .take_while(|(a, b)| a == b)
+            .count()
+}
+
 fn shared(before: &str, after: &str) -> Shared {
     let (old, new) = (before.as_bytes(), after.as_bytes());
-    let mut prefix = old.iter().zip(new).take_while(|(a, b)| a == b).count();
+    let mut prefix = common_prefix(old, new);
     while !before.is_char_boundary(prefix) {
         prefix -= 1;
     }
-    let mut full_suffix = old
-        .iter()
-        .rev()
-        .zip(new.iter().rev())
-        .take_while(|(a, b)| a == b)
-        .count();
+    let mut full_suffix = common_suffix(old, new);
     while !before.is_char_boundary(old.len() - full_suffix) {
         full_suffix -= 1;
     }

@@ -81,3 +81,4 @@ mod save;
 mod schema_options;
 #[cfg(all(feature = "yaml", feature = "schema-validation"))]
 mod schema_walk;
+mod utf16_offsets;

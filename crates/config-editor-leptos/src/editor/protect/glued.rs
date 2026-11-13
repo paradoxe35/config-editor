@@ -126,26 +126,13 @@ fn only_taken_from(before: &str, after: &str) -> bool {
 /// The UTF-16 range of `before`, from the start of the first line an edit
 /// to `after` changes to the end of the last.
 fn changed_lines(before: &str, after: &str) -> Range<usize> {
-    let old: Vec<u16> = before.encode_utf16().collect();
-    let new: Vec<u16> = after.encode_utf16().collect();
-    let prefix = old.iter().zip(&new).take_while(|(a, b)| a == b).count();
-    let suffix = old[prefix..]
-        .iter()
-        .rev()
-        .zip(new[prefix..].iter().rev())
-        .take_while(|(a, b)| a == b)
-        .count();
-    let end = old.len() - suffix;
-    let newline = u16::from(b'\n');
-    let start = old[..prefix]
-        .iter()
-        .rposition(|unit| *unit == newline)
-        .map_or(0, |at| at + 1);
-    let end = old[end..]
-        .iter()
-        .position(|unit| *unit == newline)
-        .map_or(old.len(), |at| end + at);
-    start..end
+    use super::super::text_change::{changed_bytes, utf16_len};
+    // Read off the bytes: no copy of either text.
+    let (start, end, _) = changed_bytes(before, after);
+    let start = before[..start].rfind('\n').map_or(0, |at| at + 1);
+    let end = before[end..].find('\n').map_or(before.len(), |at| end + at);
+    let units = utf16_len(&before[..start]);
+    units..units + utf16_len(&before[start..end])
 }
 
 /// The field of a token the host gave whole that the host text `new` holds

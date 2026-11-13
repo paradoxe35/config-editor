@@ -7,14 +7,35 @@ pub fn utf16_to_byte_index(source: &str, offset: usize) -> usize {
     if let Some(byte) = super::paths::byte_at(source, offset) {
         return byte;
     }
-    let mut utf16_offset = 0;
-    for (byte_index, character) in source.char_indices() {
-        if utf16_offset >= offset {
-            return byte_index;
+    // ASCII runs a block at a time (one unit per byte), the rest by
+    // character: a long document is mostly ASCII.
+    const BLOCK: usize = 64;
+    let bytes = source.as_bytes();
+    let (mut byte, mut unit) = (0, 0);
+    while byte < bytes.len() && unit < offset {
+        let block = (offset - unit).min(BLOCK).min(bytes.len() - byte);
+        // The ASCII bytes the block starts with, then one other character.
+        let run = &bytes[byte..byte + block];
+        let ascii = if run.is_ascii() {
+            block
+        } else {
+            run.iter()
+                .position(|byte| !byte.is_ascii())
+                .unwrap_or(block)
+        };
+        byte += ascii;
+        unit += ascii;
+        if ascii == block {
+            continue;
         }
-        utf16_offset += character.len_utf16();
+        let Some(character) = source[byte..].chars().next() else {
+            break;
+        };
+        super::work_count::note(super::work_count::Work::CharacterStep);
+        byte += character.len_utf8();
+        unit += character.len_utf16();
     }
-    source.len()
+    byte
 }
 
 pub(super) fn replace_selection(

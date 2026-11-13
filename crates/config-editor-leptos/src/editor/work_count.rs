@@ -39,10 +39,12 @@ pub(crate) enum Work {
     /// end of a group of them), looking for the ones it overlaps.
     MarkerComparison,
     /// A pass over the host's secret placeholders (each compared with a
-    /// value or a path), where one lookup among them was wanted.
+    /// value or a path), where one lookup among them was wanted; or one
+    /// lookup of the text at a place among them (one note per length of
+    /// their texts).
     #[cfg_attr(
-        not(feature = "schema-validation"),
-        allow(dead_code, reason = "only schema validation notes it")
+        not(any(feature = "schema-validation", feature = "protect")),
+        allow(dead_code, reason = "only schema validation and protection note it")
     )]
     TokenScan,
     /// The lines of a whole text's multi-line string bodies read
@@ -140,6 +142,10 @@ pub(crate) enum Work {
     /// A suggestion of the open list built for the page
     /// (`completion::window`).
     SuggestionRow,
+    /// A character read on its own to place a UTF-16 offset in a text
+    /// (`keyboard::utf16_to_byte_index`): ASCII is passed a block at a
+    /// time.
+    CharacterStep,
 }
 
 impl Work {
@@ -177,13 +183,14 @@ impl Work {
             Self::PlaceLookup => 28,
             Self::RowText => 29,
             Self::SuggestionRow => 30,
+            Self::CharacterStep => 31,
         }
     }
 }
 
 #[cfg(test)]
 thread_local! {
-    static COUNTS: std::cell::Cell<[usize; 31]> = const { std::cell::Cell::new([0; 31]) };
+    static COUNTS: std::cell::Cell<[usize; 32]> = const { std::cell::Cell::new([0; 32]) };
 }
 
 /// `work` is starting (counted on this thread in tests).

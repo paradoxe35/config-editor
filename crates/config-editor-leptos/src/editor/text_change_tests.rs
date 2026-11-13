@@ -139,3 +139,40 @@ fn reads_what_the_utf16_units_read() {
         );
     }
 }
+
+/// Long texts are compared a block of bytes at a time while they agree:
+/// the same answers as unit by unit, wherever the edit falls against the
+/// blocks (inside one, on a block's edge, a character split across one).
+#[test]
+fn reads_long_texts_as_the_utf16_units_do() {
+    let mut random = Random(0x10_0000);
+    for _ in 0..3_000 {
+        let head = random.text(1_200);
+        let tail = random.text(1_200);
+        let removed = random.text(3);
+        let inserted = random.text(3);
+        let before = format!("{head}{removed}{tail}");
+        let after = format!("{head}{inserted}{tail}");
+        let caret = utf16_len(&head) + utf16_len(&inserted);
+        assert_eq!(
+            changed_range(&before, &after),
+            units::changed_range(&before, &after),
+            "{} + {removed:?} → {inserted:?}",
+            head.len()
+        );
+        assert_eq!(
+            edit_range(&before, &after, caret),
+            units::edit_range(&before, &after, caret)
+        );
+        let range = (utf16_len(&head), utf16_len(&head) + utf16_len(&removed));
+        assert_eq!(
+            replaces(&before, &after, range),
+            units::replaces(&before, &after, range)
+        );
+        let offset = offset_of(&before, random.below(before.chars().count() + 1));
+        assert_eq!(
+            map_through_change(&before, &after, offset),
+            units::map_through_change(&before, &after, offset)
+        );
+    }
+}
