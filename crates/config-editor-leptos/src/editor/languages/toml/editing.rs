@@ -97,9 +97,11 @@ pub(super) fn multi_line_string_bodies(source: &str) -> Vec<std::ops::Range<usiz
         match open {
             Some((delimiter, first)) => {
                 if let Some(at) = closing_delimiter(line, delimiter) {
-                    if first < index {
-                        bodies.push(first..index);
-                    }
+                    // Empty when the closing line is the body's only line
+                    // (the quotes, then `text` and the closing quotes): no
+                    // line is wholly inside, and the closing line still
+                    // belongs to the string.
+                    bodies.push(first..index);
                     open = opens_unclosed_string(&line[at + 3..]).map(|next| (next, index + 1));
                 }
             }

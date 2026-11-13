@@ -614,3 +614,18 @@ fn a_header_in_a_later_array_entry_suggests_the_tables_that_entry_lacks() {
     let labels: Vec<&str> = options.iter().map(|option| option.label.as_str()).collect();
     assert!(labels.contains(&"s") && labels.contains(&"u"), "{labels:?}");
 }
+
+/// A `"""` or `'''` string whose closing quotes share its only body line:
+/// a place on that line is in the string's field (it was the root).
+#[test]
+fn a_place_on_a_string_s_closing_line_is_in_its_field() {
+    use crate::TextPosition;
+    use crate::editor::languages::Language;
+    for text in ["a = \"\"\"\nxyz\"\"\"\n", "a = '''\nxyz'''\n", "b = 1\na = \"\"\"\nxyz\"\"\"\n"] {
+        let line = text.lines().position(|line| line.starts_with("xyz")).expect("a body") + 1;
+        for column in [1, 2, 4] {
+            let path = Language::TOML.path_at(text, TextPosition { line, column });
+            assert_eq!(path.map(|path| path.to_string()), Some("/a".to_string()), "{text:?} {line}:{column}");
+        }
+    }
+}
