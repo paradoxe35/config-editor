@@ -338,6 +338,7 @@ pub(super) fn take_host_value(state: EditorState, external: String) {
         switch_to(state, waiting);
     } else if change.before != change.text {
         state.commit(change);
+        state.hide_hover_for_new_text();
     }
 }
 

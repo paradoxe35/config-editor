@@ -215,6 +215,21 @@ impl EditorState {
         })
     }
 
+    /// The host replaced the text: a card about what was there goes. One
+    /// that had the focus gives it back to the text, as `Escape` does.
+    pub(super) fn hide_hover_for_new_text(&self) {
+        let focused = self.hover().card_ref.get_untracked().is_some_and(|card| {
+            let active = web_sys::window()
+                .and_then(|window| window.document())
+                .and_then(|document| document.active_element());
+            active.is_some_and(|active| card.contains(Some(&active)))
+        });
+        self.hide_hover();
+        if focused && let Some(element) = self.textarea() {
+            let _ = element.focus_in_place();
+        }
+    }
+
     pub(super) fn hide_hover(&self) {
         self.drop_card_problems();
         self.hover().token.update_value(|token| *token += 1);
