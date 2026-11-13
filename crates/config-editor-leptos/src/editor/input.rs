@@ -42,7 +42,15 @@ pub(super) fn before_input(state: EditorState, event: &web_sys::InputEvent) {
     }
     if let Some(element) = target_textarea(state, event) {
         let (start, end) = textarea_selection(&element);
-        let reach = match event.input_type().as_str() {
+        let kind = event.input_type();
+        if kind == "deleteByDrag" {
+            state.drag_starts();
+        } else if kind == "insertFromDrop" && state.drop_refused_by_its_delete() {
+            event.prevent_default();
+            state.drop_done();
+            return;
+        }
+        let reach = match kind.as_str() {
             kind if kind.starts_with("deleteContentBackward")
                 || kind.starts_with("deleteWordBackward")
                 || kind.starts_with("deleteSoftLineBackward")
@@ -55,6 +63,9 @@ pub(super) fn before_input(state: EditorState, event: &web_sys::InputEvent) {
         };
         if state.touches_fold(reach.0, reach.1) {
             event.prevent_default();
+            if kind == "insertFromDrop" {
+                state.drop_refused();
+            }
             state.unfold_touched(reach.0, reach.1);
             return;
         }
@@ -280,7 +291,15 @@ pub(super) fn flush_input(state: EditorState) {
 /// `before`, and updates the suggestions and popups after it; `refilter`
 /// keeps the suggestion list open to filter it again (Backspace).
 fn apply_input(state: EditorState, edit: Edit, before: &str, input_type: &str, refilter: bool) {
-    if !state.commit(edit) {
+    let committed = state.commit(edit);
+    if input_type == "insertFromDrop" {
+        if committed {
+            state.drop_done();
+        } else {
+            state.drop_refused();
+        }
+    }
+    if !committed {
         return;
     }
     // The text as made (widened over a placeholder it cut).

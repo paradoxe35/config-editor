@@ -235,6 +235,12 @@ impl EditHistory {
         !self.undo.is_empty()
     }
 
+    /// Forgets the newest undone step: an undo that took back an edit the
+    /// user did not make (see `drag_move`), which redo must not make again.
+    pub(super) fn forget_redo(&mut self) {
+        self.redo.pop();
+    }
+
     /// Whether an undone step can be redone.
     pub(super) fn can_redo(&self) -> bool {
         !self.redo.is_empty()

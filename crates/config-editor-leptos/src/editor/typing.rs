@@ -42,6 +42,9 @@ pub(super) struct TypingState {
     /// `Ctrl+K` was pressed: the next key may finish a chord (see
     /// `keys::chord`).
     pub(super) chord: StoredValue<bool>,
+    /// The document before the delete of a drag going on (see
+    /// `drag_move`).
+    pub(super) drag_before: StoredValue<Option<String>>,
 }
 
 impl TypingState {
@@ -52,6 +55,7 @@ impl TypingState {
             pre_edit_selection: StoredValue::new(UNKNOWN_SELECTION),
             input_burst: StoredValue::new(None),
             chord: StoredValue::new(false),
+            drag_before: StoredValue::new(None),
         }
     }
 }

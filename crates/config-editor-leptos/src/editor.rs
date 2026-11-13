@@ -26,6 +26,7 @@ mod components;
 mod diagnostics;
 mod diff;
 mod document;
+mod drag_move;
 mod edit;
 mod edit_as;
 #[cfg(feature = "schema-validation")]
