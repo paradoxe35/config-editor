@@ -13,7 +13,7 @@ use super::line_edit::LineCommand;
 use super::lines::{Command, run};
 
 /// `blocks` blocks of two fields each, in `language`.
-fn blocks(language: Language, blocks: usize) -> String {
+pub(in crate::editor) fn blocks(language: Language, blocks: usize) -> String {
     let each = |index: usize| match language.label() {
         "YAML" => format!("  svc_{index}:\n    image: \"app-{index}\"\n    port: {index}\n"),
         "JSON" => format!(

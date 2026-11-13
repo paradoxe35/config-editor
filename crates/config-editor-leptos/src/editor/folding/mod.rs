@@ -38,6 +38,15 @@ mod tests;
     feature = "hcl",
     feature = "xml"
 ))]
+mod switch_scale_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
 mod switch_tests;
 
 pub(super) use components::mount_fold_layers;

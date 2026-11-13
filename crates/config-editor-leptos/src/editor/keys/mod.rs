@@ -15,7 +15,7 @@ pub(super) mod enter_newline;
     feature = "hcl",
     feature = "xml"
 ))]
-mod fold_scale_tests;
+pub(in crate::editor) mod fold_scale_tests;
 pub(super) mod line_edit;
 #[cfg(test)]
 mod line_edit_tests;
