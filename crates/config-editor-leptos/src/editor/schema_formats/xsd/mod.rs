@@ -10,6 +10,7 @@
 //! [`SchemaLoss`](super::SchemaLoss).
 
 mod compile;
+mod files;
 mod regex;
 mod simple;
 mod tree;
@@ -29,13 +30,9 @@ const OPTIONS: [&str; 3] = ["root", "configRoot", "lax"];
 
 /// Constructs XSD 1.1 adds, or that no JSON Schema keyword holds: each is a
 /// loss where it is written.
-const NOT_CHECKED: [(&str, &str); 4] = [
+const NOT_CHECKED: [(&str, &str); 3] = [
     ("assert", "xs:assert (XSD 1.1) is not checked"),
     ("override", "xs:override (XSD 1.1) is not applied"),
-    (
-        "redefine",
-        "xs:redefine is not applied: the definitions it changes are used as they are",
-    ),
     ("notation", "xs:notation is not checked"),
 ];
 
@@ -87,36 +84,47 @@ impl SchemaCompiler for Xsd {
         };
         let only = text_option("root")?;
         let config_root = text_option("configRoot")?;
+        let others = files::load(&root, input.location, input.resources)?;
+        let schemas: Vec<&Node> = std::iter::once(&root).chain(others.iter()).collect();
         let mut compiler = Compiler::new(&root, Settings { lax });
-        for (name, message) in NOT_CHECKED {
-            for found in descendants(&root).filter(|node| node.is(name)) {
-                let construct = match name {
-                    "assert" => "xs:assert",
-                    "override" => "xs:override",
-                    "redefine" => "xs:redefine",
-                    _ => "xs:notation",
-                };
-                compiler.lose(
-                    found,
-                    construct,
-                    LossEffect::NotChecked,
-                    message.to_string(),
-                );
+        for other in &others {
+            compiler.index(other);
+        }
+        for schema in &schemas {
+            for redefine in schema.xsd_children().filter(|node| node.name == "redefine") {
+                compiler.redefine(redefine);
             }
         }
-        for attribute in ["blockDefault", "finalDefault"] {
-            if root.attribute(attribute).is_some() {
-                compiler.lose(
-                    &root,
-                    "derivation control",
-                    LossEffect::NotChecked,
-                    format!("{attribute} (derivation control) is not checked"),
-                );
+        for schema in &schemas {
+            for (name, message) in NOT_CHECKED {
+                for found in descendants(schema).filter(|node| node.is(name)) {
+                    let construct = match name {
+                        "assert" => "xs:assert",
+                        "override" => "xs:override",
+                        _ => "xs:notation",
+                    };
+                    compiler.lose(
+                        found,
+                        construct,
+                        LossEffect::NotChecked,
+                        message.to_string(),
+                    );
+                }
+            }
+            for attribute in ["blockDefault", "finalDefault"] {
+                if schema.attribute(attribute).is_some() {
+                    compiler.lose(
+                        schema,
+                        "derivation control",
+                        LossEffect::NotChecked,
+                        format!("{attribute} (derivation control) is not checked"),
+                    );
+                }
             }
         }
         let schema = if let Some(name) = config_root {
             let Some(element) = compiler
-                .global_elements(&root)
+                .global_elements(&schemas)
                 .into_iter()
                 .find(|node| node.attribute("name") == Some(name))
             else {
@@ -127,7 +135,7 @@ impl SchemaCompiler for Xsd {
             compiler.element(element)?
         } else {
             let mut properties = Map::new();
-            for element in compiler.global_elements(&root) {
+            for element in compiler.global_elements(&schemas) {
                 let Some(name) = element.attribute("name") else {
                     continue;
                 };
@@ -204,5 +212,7 @@ fn descendants(node: &Node) -> Box<dyn Iterator<Item = &Node> + '_> {
 
 #[cfg(all(test, feature = "xml", feature = "json", feature = "schema-validation"))]
 mod corpus_tests;
+#[cfg(test)]
+mod files_tests;
 #[cfg(test)]
 mod tests;

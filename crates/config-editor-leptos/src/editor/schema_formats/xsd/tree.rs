@@ -28,6 +28,8 @@ pub(super) struct Node {
     pub(super) line: usize,
     pub(super) column: usize,
     prefixes: Prefixes,
+    /// The file it is in, when not the schema's own text.
+    pub(super) location: Option<Rc<str>>,
 }
 
 impl Node {
@@ -116,6 +118,20 @@ impl Lines {
             .map_or(1, |before| before.chars().count() + 1);
         (line, column)
     }
+}
+
+/// The root element of the file at `location` (a resource), its errors
+/// and its elements naming the file.
+pub(super) fn read_at(text: &str, location: &str) -> Result<Node, SchemaError> {
+    fn place(node: &mut Node, location: &Rc<str>) {
+        node.location = Some(Rc::clone(location));
+        for child in &mut node.children {
+            place(child, location);
+        }
+    }
+    let mut root = read(text).map_err(|error| SchemaError(format!("{location}: {}", error.0)))?;
+    place(&mut root, &Rc::from(location));
+    Ok(root)
 }
 
 /// The document's root element, or why `text` is no XML.
@@ -276,5 +292,6 @@ fn open(
         line,
         column,
         prefixes,
+        location: None,
     })
 }

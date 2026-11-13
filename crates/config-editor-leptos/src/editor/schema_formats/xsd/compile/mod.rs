@@ -55,6 +55,13 @@ pub(super) struct Compiler<'a> {
     pub(super) losses: Vec<SchemaLoss>,
     /// Losses reported once for the whole schema, by construct.
     once: HashSet<&'static str>,
+    /// The target namespace each component (by kind and name) was read
+    /// from.
+    origins: HashMap<(String, String), Option<String>>,
+    /// The definitions an `xs:redefine` replaced, by kind and name.
+    originals: HashMap<(String, String), &'a Node>,
+    /// The groups being read, innermost last.
+    grouping: Vec<String>,
 }
 
 /// One child element or attribute of a content model.
@@ -163,18 +170,38 @@ impl<'a> Compiler<'a> {
             models_read: 0,
             losses: Vec::new(),
             once: HashSet::new(),
+            origins: HashMap::new(),
+            originals: HashMap::new(),
+            grouping: Vec::new(),
         };
         compiler.index(schema);
         compiler
     }
 
-    /// Indexes the top-level components of `schema` (and of the schemas it
-    /// redefines or includes, once they are read into it).
+    /// Indexes the top-level components of `schema` (the schema's own text
+    /// first, then each file it includes or imports). A name two
+    /// namespaces define is a loss: the data model keys by local name, so
+    /// the first one read is used.
     pub(super) fn index(&mut self, schema: &'a Node) {
+        let namespace = schema.attribute("targetNamespace").map(str::to_string);
         for child in schema.xsd_children() {
             let Some(name) = child.attribute("name").map(str::to_string) else {
                 continue;
             };
+            let kind = child.name.clone();
+            match self.origins.get(&(kind.clone(), name.clone())) {
+                Some(known) if *known != namespace => {
+                    let message = format!(
+                        "two namespaces define the {kind} \"{name}\": the one read first is used (the data model keys by local name)"
+                    );
+                    self.lose(child, "namespace clash", LossEffect::Approximated, message);
+                    continue;
+                }
+                Some(_) => {}
+                None => {
+                    self.origins.insert((kind, name.clone()), namespace.clone());
+                }
+            }
             let table = match child.name.as_str() {
                 "element" => {
                     if let Some(head) = child.attribute("substitutionGroup") {
@@ -196,6 +223,34 @@ impl<'a> Compiler<'a> {
         }
     }
 
+    /// Applies `redefine` (an `xs:redefine`): each definition in it
+    /// replaces the one of its name, which stays the base it derives from.
+    pub(super) fn redefine(&mut self, redefine: &'a Node) {
+        for child in redefine.xsd_children() {
+            let Some(name) = child.attribute("name").map(str::to_string) else {
+                continue;
+            };
+            let table = match child.name.as_str() {
+                "complexType" => &mut self.complex_types,
+                "simpleType" => &mut self.simple_types,
+                "group" => &mut self.groups,
+                "attributeGroup" => &mut self.attribute_groups,
+                _ => continue,
+            };
+            if let Some(original) = table.insert(name.clone(), child) {
+                self.originals.insert((child.name.clone(), name), original);
+            }
+        }
+    }
+
+    /// The definition `redefinition` replaced (its kind and name), when
+    /// `redefinition` is being read and refers to its own name.
+    pub(super) fn original(&self, kind: &str, name: &str) -> Option<&'a Node> {
+        self.originals
+            .get(&(kind.to_string(), name.to_string()))
+            .copied()
+    }
+
     /// A loss of `construct` at `node`.
     pub(super) fn lose(
         &mut self,
@@ -204,8 +259,11 @@ impl<'a> Compiler<'a> {
         effect: LossEffect,
         message: String,
     ) {
-        self.losses
-            .push(SchemaLoss::new(construct, effect, message).at(node.line, node.column));
+        let mut loss = SchemaLoss::new(construct, effect, message).at(node.line, node.column);
+        if let Some(location) = &node.location {
+            loss = loss.in_file(location.to_string());
+        }
+        self.losses.push(loss);
     }
 
     /// [`lose`](Self::lose), reported once for the whole schema.
@@ -221,12 +279,20 @@ impl<'a> Compiler<'a> {
         }
     }
 
-    /// The global elements a document may start with: every one that is not
-    /// abstract.
-    pub(super) fn global_elements(&self, schema: &'a Node) -> Vec<&'a Node> {
-        schema
-            .xsd_children()
+    /// The global elements a document may start with: every one of
+    /// `schemas` (the schema's own text first) that is not abstract, each
+    /// name once.
+    pub(super) fn global_elements(&self, schemas: &[&'a Node]) -> Vec<&'a Node> {
+        let mut seen = HashSet::new();
+        schemas
+            .iter()
+            .flat_map(|schema| schema.xsd_children())
             .filter(|child| child.name == "element" && child.attribute("abstract") != Some("true"))
+            .filter(|child| {
+                child
+                    .attribute("name")
+                    .is_some_and(|name| seen.insert(name))
+            })
             .collect()
     }
 
@@ -360,8 +426,12 @@ impl<'a> Compiler<'a> {
 
 /// A compile error placed at `node`.
 pub(super) fn error(node: &Node, message: String) -> SchemaError {
+    let file = node
+        .location
+        .as_deref()
+        .map_or_else(String::new, |location| format!("{location}, "));
     SchemaError(format!(
-        "{message} (line {}, column {})",
+        "{message} ({file}line {}, column {})",
         node.line, node.column
     ))
 }

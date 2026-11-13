@@ -215,6 +215,38 @@ test.describe('XML Schema', () => {
   });
 });
 
+test.describe('schemas in several files', () => {
+  test.beforeEach(async ({ page }) => open(page));
+
+  test('an XSD include and a JSON $ref read their files from the resources', async ({ page }) => {
+    const result = await attempt(page, (core, tools) => {
+      const xs = 'xmlns:xs="http://www.w3.org/2001/XMLSchema"';
+      const main = `<xs:schema ${xs}><xs:include schemaLocation="common.xsd"/><xs:element name="port" type="portType"/></xs:schema>`;
+      const common = `<xs:schema ${xs}><xs:simpleType name="portType"><xs:restriction base="xs:int"><xs:maxInclusive value="65535"/></xs:restriction></xs:simpleType></xs:schema>`;
+      const json = '{"properties":{"port":{"$ref":"defs.json#/port"}}}';
+      const defs = '{"port":{"type":"integer","maximum":10}}';
+      let missing;
+      try {
+        tools.compileSchema(main, { format: 'xsd' });
+      } catch (error) {
+        missing = error.message;
+      }
+      return {
+        imports: tools.schemaImports(main, 'xsd'),
+        jsonImports: tools.schemaImports(json),
+        missing,
+        xsd: tools.validate('xml', '<port>70000</port>', main, { schemaFormat: 'xsd', schemaResources: { 'common.xsd': common } }).map((p) => p.message),
+        json: tools.validate('json', '{"port": 11}', json, { schemaResources: { 'defs.json': defs } }).map((p) => p.message),
+      };
+    });
+    expect(result.imports).toEqual(['common.xsd']);
+    expect(result.jsonImports).toEqual(['defs.json']);
+    expect(result.missing).toContain('"common.xsd" is not among the schema\'s resources');
+    expect(result.xsd).toEqual(['/port: 70000 is greater than the maximum of 65535']);
+    expect(result.json).toEqual(['/port: 11 is greater than the maximum of 10']);
+  });
+});
+
 test.describe('a custom language whose values are text', () => {
   test.beforeEach(async ({ page }) => open(page));
 

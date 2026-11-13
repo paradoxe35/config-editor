@@ -556,7 +556,7 @@ fn each_named_type_is_read_once() {
     let root = super::tree::read(&text).unwrap();
     let mut compiler =
         super::compile::Compiler::new(&root, super::compile::Settings { lax: false });
-    for element in compiler.global_elements(&root) {
+    for element in compiler.global_elements(&[&root]) {
         let name = element.attribute("name").unwrap().to_string();
         compiler.global_element(&name, element).unwrap();
     }

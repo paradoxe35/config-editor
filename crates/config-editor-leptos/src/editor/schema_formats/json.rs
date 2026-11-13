@@ -17,8 +17,17 @@ impl SchemaCompiler for JsonSchema {
         }
     }
 
+    /// The schema, the files its `$ref`s name bundled from the resources.
     fn compile(&self, input: &SchemaInput<'_>) -> Result<CompiledSchema, SchemaError> {
-        parse(input.text).map(CompiledSchema::new)
+        let schema = parse(input.text)?;
+        super::bundle::bundle(schema, input, &parse).map(CompiledSchema::new)
+    }
+
+    /// The files its `$ref`s name.
+    fn imports(&self, text: &str) -> Vec<String> {
+        parse(text)
+            .map(|schema| super::bundle::external_references(&schema))
+            .unwrap_or_default()
     }
 }
 

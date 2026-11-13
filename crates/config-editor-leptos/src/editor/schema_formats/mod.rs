@@ -17,6 +17,7 @@ use serde_json::{Map, Value};
 
 use super::diagnostics::SchemaError;
 
+mod bundle;
 pub(super) mod json;
 // Only JSON Schema written in YAML uses it so far.
 #[cfg(feature = "yaml")]

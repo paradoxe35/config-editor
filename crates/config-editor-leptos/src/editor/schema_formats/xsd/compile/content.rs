@@ -23,6 +23,15 @@ impl<'a> Compiler<'a> {
 
     /// The content model of complex type `node` (named or anonymous).
     pub(super) fn model(&mut self, node: &'a Node, depth: usize) -> Result<Model, SchemaError> {
+        // The groups a model reads are its own: an element's type reading
+        // the same group again is no group within itself.
+        let outer = std::mem::take(&mut self.grouping);
+        let model = self.model_inner(node, depth);
+        self.grouping = outer;
+        model
+    }
+
+    fn model_inner(&mut self, node: &'a Node, depth: usize) -> Result<Model, SchemaError> {
         if node.attribute("name").is_some() {
             self.models_read += 1;
         }
@@ -122,6 +131,12 @@ impl<'a> Compiler<'a> {
         let Some(node) = self.complex_types.get(name).copied() else {
             return Err(error(at, format!("the type \"{name}\" is not defined")));
         };
+        if self.modeling.contains(name)
+            && let Some(original) = self.original("complexType", name)
+        {
+            // A redefinition deriving from the definition it replaces.
+            return self.model(original, depth + 1);
+        }
         if !self.modeling.insert(name.to_string()) {
             return Err(error(
                 node,
@@ -234,14 +249,32 @@ impl<'a> Compiler<'a> {
                     return Ok(());
                 };
                 let (_, local) = node.resolve(name);
-                let Some(group) = self.groups.get(&local).copied() else {
+                let Some(mut group) = self.groups.get(&local).copied() else {
                     return Err(error(node, format!("the group \"{name}\" is not defined")));
                 };
-                for child in group.xsd_children() {
-                    if matches!(child.name.as_str(), "sequence" | "choice" | "all") {
-                        self.particle(child, (min, max), model, false)?;
+                if self.grouping.contains(&local) {
+                    // A redefined group taking in the one it replaces.
+                    match self.original("group", &local) {
+                        Some(original) => group = original,
+                        None => {
+                            return Err(error(
+                                node,
+                                format!("the group \"{name}\" contains itself"),
+                            ));
+                        }
                     }
                 }
+                self.grouping.push(local.clone());
+                for child in group.xsd_children() {
+                    if matches!(child.name.as_str(), "sequence" | "choice" | "all") {
+                        let added = self.particle(child, (min, max), model, false);
+                        if added.is_err() {
+                            self.grouping.pop();
+                        }
+                        added?;
+                    }
+                }
+                self.grouping.pop();
             }
             "any" => {
                 model.open = true;

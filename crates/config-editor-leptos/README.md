@@ -1260,11 +1260,13 @@ beside it ignored up to draft-07), `allOf`/`anyOf`/`oneOf`, the
 written, `unevaluatedProperties`, and tuples (`prefixItems`, draft-07
 `items` lists):
 
-References are followed inside the schema only: a `$ref` to another file or
-a URL is refused when the schema is compiled, even from an unused `$defs`
+The editor fetches nothing: a `$ref` to another file or a URL is followed
+when the host passes that file in the schema's resources (see
+[Schema formats](#schema-formats); the file is bundled into the schema), and
+refused when the schema is compiled otherwise, even from an unused `$defs`
 entry, with the place of the `$ref` ("the $ref at /properties/a/$ref names
-…"). Put such a schema under `$defs` with its `$id` and the references to
-that `$id` resolve. The `format` keyword is checked up to draft-07, as
+…"). A schema under `$defs` with its `$id` resolves the references to that
+`$id` too. The `format` keyword is checked up to draft-07, as
 those drafts assert it (`"nope" is not a valid "email"`); from 2019-09
 on (and without a `$schema`) it is an annotation: a schema that declares the
 2020-12 format-assertion vocabulary is accepted, and `format` still does not
@@ -1372,7 +1374,12 @@ pass the [`Schema`].
 
 - **Resources.** The editor never fetches anything. A schema that refers to
   other files (an include, an import, an external `$ref`) gets them from
-  `resources`, by location; a missing one is a compile error naming it.
+  `resources`, by location: resolved against the schema's location (its
+  `SchemaInput::at`, which a file's own references resolve against too),
+  then as written; an XSD import without a location is the resource
+  `urn:` and its namespace. A missing one is a compile error naming it and
+  where to pass it. JSON Schema files are bundled into the schema's `$defs`
+  (`#/$defs/common.json/…`), so completion and hover follow them too.
   `SchemaFormat::imports(text)` lists the locations a text refers to, so a
   host fetches them first (and calls it again on each fetched text).
 - **Losses.** What a format says that JSON Schema cannot (an identity
@@ -1470,10 +1477,16 @@ for loss in pom.losses() { log::info!("{loss}"); } // what is not checked
   - `float` and `double`'s `INF`, `-INF` and `NaN`; `nillable` and
     `xsi:nil`; abstract types and `xsi:type`; `blockDefault` and
     `finalDefault`;
-  - XSD 1.1 (`xs:assert`, `xs:alternative`, `xs:override`),
-    `xs:notation`; `xs:redefine` (its definitions are used as they are).
-- **Several files**: `imports(text)` lists the `schemaLocation`s of
-  `xs:include`, `xs:import` and `xs:redefine` for the host to fetch.
+  - XSD 1.1 (`xs:assert`, `xs:alternative`, `xs:override`) and
+    `xs:notation`;
+  - a name two namespaces both define (the data model keys by local name:
+    the one read first is used).
+- **Several files**: `xs:include`, `xs:import` and `xs:redefine` read
+  their files from the resources (an import without a `schemaLocation` from
+  `urn:` and its namespace; the XML namespace's own needs none); a
+  redefinition replaces the definition it names and may derive from it.
+  `imports(text)` lists the `schemaLocation`s a text names, for the host to
+  fetch (call it again on each fetched file).
 
 Checked against `xmllint --schema` on real schemas (Maven POM 4.0.0, Log4j
 2, Spring beans, JUnit XML, a .NET-style config): the verdicts agree,

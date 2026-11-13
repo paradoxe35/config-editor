@@ -43,6 +43,12 @@ impl<'a> Compiler<'a> {
                 format!("the simple type \"{name}\" is not defined"),
             ));
         };
+        if self.started.contains(&format!("simple.{name}"))
+            && let Some(original) = self.original("simpleType", name)
+        {
+            // A redefinition restricting the definition it replaces.
+            return self.simple_type(original);
+        }
         if !self.started.insert(format!("simple.{name}")) {
             return Err(error(
                 node,

@@ -347,6 +347,102 @@ fn sources_share_a_key_only_when_everything_they_compile_from_is_the_same() {
     assert_eq!(SchemaSource::Compiled(compiled).key(), None);
 }
 
+/// Phase 5: a JSON Schema's `$ref`s to other files are bundled from the
+/// resources (resolved against the schema's location, then as written),
+/// files they refer to come along, each file's own pointers point into its
+/// copy, and completion and validation both follow them.
+#[test]
+fn external_refs_are_bundled_from_the_resources() {
+    let main = r#"{"properties":{"port":{"$ref":"types/common.json#/$defs/port"},"name":{"$ref":"types/common.json#/$defs/name"}}}"#;
+    let common = r##"{"$id":"https://elsewhere/common.json","$defs":{"port":{"$ref":"#/$defs/number"},"number":{"type":"integer"},"name":{"$ref":"names.json"}}}"##;
+    let names = r#"{"type":"string","minLength":2}"#;
+    let resources = SchemaResources::new()
+        .with("https://example.com/schemas/types/common.json", common)
+        .with("names.json", names);
+    let input = SchemaInput::new(main)
+        .at("https://example.com/schemas/main.json")
+        .resources(&resources);
+    let schema = Schema::compile_as(SchemaFormat::JSON_SCHEMA, &input).expect("bundled");
+    let json = schema.json();
+    assert_eq!(
+        json["properties"]["port"]["$ref"],
+        json!("#/$defs/https:~1~1example.com~1schemas~1types~1common.json/$defs/port")
+    );
+    let common_copy = &json["$defs"]["https://example.com/schemas/types/common.json"];
+    assert_eq!(
+        common_copy["$defs"]["port"]["$ref"],
+        json!("#/$defs/https:~1~1example.com~1schemas~1types~1common.json/$defs/number")
+    );
+    assert!(
+        common_copy.get("$id").is_none(),
+        "a copy is no resource of its own"
+    );
+    // The second file is named relative to the first, found as written.
+    assert_eq!(
+        json["$defs"]["https://example.com/schemas/types/names.json"]["minLength"],
+        json!(2)
+    );
+    assert_eq!(
+        SchemaFormat::JSON_SCHEMA.imports(main),
+        ["types/common.json"],
+        "what to fetch"
+    );
+    #[cfg(all(feature = "schema-validation", feature = "yaml"))]
+    {
+        use crate::editor::Language;
+        let problems = |text: &str| -> Vec<String> {
+            schema
+                .validate(Language::YAML, text)
+                .into_iter()
+                .map(|problem| problem.message)
+                .collect()
+        };
+        assert!(problems("port: 80\nname: ab\n").is_empty());
+        assert_eq!(problems("port: x\nname: a\n").len(), 2);
+    }
+}
+
+/// A `$ref` to a file the resources do not have is refused as before,
+/// saying where to pass it.
+#[cfg(feature = "schema-validation")]
+#[test]
+fn an_external_ref_with_no_resource_is_refused_saying_how_to_pass_it() {
+    let main = r#"{"properties":{"port":{"$ref":"common.json#/port"}}}"#;
+    let resources = SchemaResources::new().with("other.json", "{}");
+    let error = Schema::compile_as(
+        SchemaFormat::JSON_SCHEMA,
+        &SchemaInput::new(main).resources(&resources),
+    )
+    .expect_err("refused");
+    assert!(
+        error.0.contains("Pass that file in the schema's resources"),
+        "{}",
+        error.0
+    );
+}
+
+/// JSON Schema written in YAML bundles its files the same way, read as
+/// YAML.
+#[cfg(feature = "yaml")]
+#[test]
+fn a_yaml_schema_bundles_yaml_files() {
+    let main = "properties:\n  port: {$ref: 'common.yaml#/port'}\n";
+    let resources = SchemaResources::new().with("common.yaml", "port:\n  type: integer\n");
+    let schema = Schema::compile_as(
+        SchemaFormat::JSON_SCHEMA_YAML,
+        &SchemaInput::new(main).resources(&resources),
+    )
+    .expect("bundled");
+    assert_eq!(
+        schema.json()["$defs"]["common.yaml"]["port"]["type"],
+        json!("integer")
+    );
+    assert_eq!(
+        SchemaFormat::JSON_SCHEMA_YAML.imports(main),
+        ["common.yaml"]
+    );
+}
+
 /// The doc example's compiler, run by many threads at once (the trait is
 /// `Send + Sync`): each compile sees only its own input.
 #[test]

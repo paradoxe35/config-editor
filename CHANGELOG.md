@@ -27,7 +27,10 @@ versions move together.
   `schemaFormat: "xsd"` in JavaScript): compiled into JSON Schema in the XML
   mapping, it validates and completes every view of the document. Options
   `root`, `configRoot` and `lax`; what JSON Schema cannot check is a
-  reported loss with its line.
+  reported loss with its line. `xs:include`, `xs:import` and `xs:redefine`
+  read their files from the host's resources.
+- A JSON Schema's `$ref`s to other files are followed when the host passes
+  those files as resources: they are bundled into the schema.
 
 ### Reading XML by the schema
 
