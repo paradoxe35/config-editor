@@ -70,9 +70,13 @@ fn AddButton(documents: Documents) -> impl IntoView {
     }
 }
 
-/// Scrolls the strip so the active tab shows whole, after each switch.
+/// Scrolls the strip so the active tab shows whole, after each switch and
+/// after anything that moves or widens it: tabs added, closed or reordered
+/// and names changed (the tab names follow all of those).
 fn reveal_active_tab(documents: Documents) {
+    let names = documents.follows.names.read();
     Effect::new(move |_| {
+        names.with(|_| ());
         let Some(id) = documents.active.get() else {
             return;
         };

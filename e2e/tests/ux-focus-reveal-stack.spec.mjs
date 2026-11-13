@@ -60,3 +60,27 @@ test.describe('the documents view', () => {
   });
 });
 
+test.describe('a renamed tab on a narrow screen', () => {
+  test.use({ viewport: { width: 320, height: 700 } });
+  setupEditor(test, '?documents');
+
+  test('the active tab is scrolled back whole into the strip', async ({ page }) => {
+    for (let added = 0; added < 3; added += 1) await page.locator('.demo__add').click();
+    const limits = page.locator('[role="tab"][data-document-id="limits"]');
+    await limits.click();
+    await page.locator('.config-editor-documents__tabs').evaluate((strip) => {
+      const tab = strip.querySelector('[data-document-id="limits"]');
+      strip.scrollLeft = tab.offsetLeft + tab.offsetWidth - strip.clientWidth;
+    });
+    await page.locator('.demo__rename').click();
+    await expect(limits.locator('.config-editor-documents__name')).toHaveText('conf.d/10-limits.toml');
+    await expect
+      .poll(async () => {
+        const tab = await limits.boundingBox();
+        const strip = await page.locator('.config-editor-documents__tabs').boundingBox();
+        return tab.x >= strip.x - 0.5 && tab.x + tab.width <= strip.x + strip.width + 0.5;
+      })
+      .toBe(true);
+  });
+});
+
