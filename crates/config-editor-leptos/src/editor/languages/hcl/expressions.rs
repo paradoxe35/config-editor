@@ -7,6 +7,8 @@ use hcl_edit::expr::Expression;
 use serde_json::Value;
 use std::collections::HashSet;
 
+use crate::editor::work_count::{Work, note};
+
 use super::read::MARK;
 
 /// The JSON pointer of each value `source` writes as an expression.
@@ -156,6 +158,8 @@ pub(super) fn changed_expression(previous: &str, patched: &str) -> Option<String
     };
     // (Sets: a document of many expressions is looked through once.)
     let (before_set, after_set): (HashSet<&String>, HashSet<&String>) = (before.iter().collect(), after.iter().collect());
+    let after_set = Pointers(after_set);
+    let before_set = Pointers(before_set);
     let string = |value: &Value, pointer: &str| value.pointer(pointer).and_then(Value::as_str).map(str::to_string);
     let to_literal = before.iter().find(|pointer| {
         !after_set.contains(pointer)
@@ -171,7 +175,7 @@ pub(super) fn changed_expression(previous: &str, patched: &str) -> Option<String
 /// an expression of `previous` (at `before`) that `patched` no longer
 /// writes (at `after`) reads as: that expression moved (to another block)
 /// and was written as a literal.
-fn moved_to_literal(before: &[String], after: &HashSet<&String>, old: &Value, new: &Value) -> Option<String> {
+fn moved_to_literal(before: &[String], after: &Pointers<'_>, old: &Value, new: &Value) -> Option<String> {
     let string = |value: &Value, pointer: &str| value.pointer(pointer).and_then(Value::as_str).map(str::to_string);
     let gone: HashSet<String> = before.iter().filter(|pointer| !after.contains(pointer)).filter_map(|pointer| string(old, pointer)).collect();
     if gone.is_empty() {
@@ -185,6 +189,18 @@ fn moved_to_literal(before: &[String], after: &HashSet<&String>, old: &Value, ne
             !after.contains(pointer) && (text.contains("${") || text.contains("%{")) && string(old, pointer).as_ref() != Some(text) && gone.contains(text)
         })
         .map(|(pointer, _)| pointer)
+}
+
+/// A text's expression pointers, looked up one by one (each lookup
+/// counted: a check of every expression against all the others grows with
+/// the square of the document).
+struct Pointers<'a>(HashSet<&'a String>);
+
+impl Pointers<'_> {
+    fn contains(&self, pointer: &String) -> bool {
+        note(Work::ExpressionLookup);
+        self.0.contains(pointer)
+    }
 }
 
 /// Every string of `value`, with its pointer.

@@ -108,6 +108,13 @@ pub(crate) enum Work {
     /// (brackets, strings, elements), to widen a selection over them
     /// (`ConfigLanguage::whole_constructs`).
     ConstructScan,
+    /// An expression's pointer looked for among another text's (HCL: a
+    /// save's check that expressions stay expressions).
+    #[cfg_attr(
+        not(feature = "hcl"),
+        allow(dead_code, reason = "only HCL's expression check notes it")
+    )]
+    ExpressionLookup,
 }
 
 impl Work {
@@ -137,13 +144,14 @@ impl Work {
             Self::KeyScan => 20,
             Self::ParsedBytes => 21,
             Self::ConstructScan => 22,
+            Self::ExpressionLookup => 23,
         }
     }
 }
 
 #[cfg(test)]
 thread_local! {
-    static COUNTS: std::cell::Cell<[usize; 23]> = const { std::cell::Cell::new([0; 23]) };
+    static COUNTS: std::cell::Cell<[usize; 24]> = const { std::cell::Cell::new([0; 24]) };
 }
 
 /// `work` is starting (counted on this thread in tests).

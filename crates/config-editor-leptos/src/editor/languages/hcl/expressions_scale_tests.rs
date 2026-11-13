@@ -4,7 +4,7 @@
 //! a pass over all the others.
 
 use super::expressions::changed_expression;
-use crate::editor::test_timing::best_of;
+use crate::editor::work_count::{Work, counted};
 
 /// `services` blocks, each writing two references and a literal.
 fn document(services: usize, literal: &str) -> String {
@@ -18,14 +18,15 @@ fn document(services: usize, literal: &str) -> String {
 
 #[test]
 fn checking_a_save_for_changed_expressions_grows_with_the_document_not_its_square() {
-    let cost = |services: usize| {
+    let lookups = |services: usize| {
         let (previous, patched) = (document(services, "web"), document(services, "web7"));
-        let (took, changed) = best_of(3, || changed_expression(&previous, &patched));
+        let (changed, lookups) = counted(Work::ExpressionLookup, || changed_expression(&previous, &patched));
         assert_eq!(changed, None, "{services} services");
-        took.as_secs_f64()
+        lookups
     };
-    let (few, many) = (cost(1_000), cost(8_000));
-    // Eight times the document: about eight times the cost (sixty-four when
-    // each expression is looked for among all the others).
-    assert!(many < 14.0 * few, "1,000 services {few:.4}s, 8,000 {many:.4}s");
+    let (few, many) = (lookups(1_000), lookups(8_000));
+    // Eight times the document: eight times the lookups (each expression
+    // looked for among all the others: sixty-four).
+    assert!(few > 0, "the check looks expressions up");
+    assert!(many <= 8 * few, "1,000 services {few} lookups, 8,000 {many}");
 }
