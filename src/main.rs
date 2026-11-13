@@ -25,8 +25,8 @@
 //!   `?colors=custom` overrides a few theme colors (`colors`).
 
 use config_editor_leptos::{
-    ConfigEditor, ConfigEditorToolbar, EditorSettings, FieldPath, Language, SaveRequest,
-    ThemeColor, ThemeColors,
+    ConfigEditor, ConfigEditorToolbar, EditorHandle, EditorSettings, FieldPath, Language,
+    SaveRequest, ThemeColor, ThemeColors,
 };
 use leptos::prelude::*;
 
@@ -274,6 +274,13 @@ fn demo() -> impl IntoView {
             baseline.set(request.text);
             saves.update(|count| *count += 1);
         };
+        // Applying disables its own button, which has the focus when it is
+        // pressed from the keyboard: the editor takes it.
+        let editor = EditorHandle::new();
+        let apply = move |_| {
+            baseline.set(saved.get());
+            editor.focus();
+        };
         // The language on screen, as the editor reports it: the file's own
         // until a switch completes (one that waits keeps showing the file's
         // language, with the reason on the value in the way), and back after
@@ -388,7 +395,7 @@ fn demo() -> impl IntoView {
                         class="config-editor__action-button"
                         type="button"
                         disabled=move || baseline.with(|baseline| saved.with(|saved| baseline == saved))
-                        on:click=move |_| baseline.set(saved.get())
+                        on:click=apply
                     >
                         "Apply changes"
                     </button>
@@ -399,6 +406,7 @@ fn demo() -> impl IntoView {
                     edit_as=edit_as
                     initial_value=sample
                     baseline=baseline
+                    handle=editor
                     value=saved
                     on_change=move |text| saved.set(text)
                     on_save=save

@@ -8,6 +8,10 @@
 //! (clippy bans the plain `focus()`): the page stays where it is, and the
 //! editor reveals the caret inside its own scroll area as usual.
 
+mod keeper;
+
+pub(crate) use keeper::keep_focus;
+
 use wasm_bindgen::JsValue;
 use web_sys::{FocusOptions, HtmlElement};
 

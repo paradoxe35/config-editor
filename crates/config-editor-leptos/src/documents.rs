@@ -16,6 +16,7 @@ mod adding;
 mod components;
 mod entries;
 mod handle;
+mod kept_focus;
 mod keys;
 mod model;
 mod plan;
@@ -199,6 +200,7 @@ pub fn ConfigDocuments(
             untrack(|| documents_view.sync(&list));
         }
     });
+    kept_focus::keep_focus_in_view(documents_view);
     if let Some(handle) = handle {
         handle.attach(documents_view);
     }
@@ -243,7 +245,7 @@ pub fn ConfigDocuments(
             <div class="config-editor-documents__panels">
                 <KeyedList each=panels key=|entry| entry.serial children=panel />
                 <Show when=empty>
-                    <p class="config-editor-documents__empty">{documents_view.text(|strings| &strings.no_documents)}</p>
+                    <p class="config-editor-documents__empty" tabindex="-1" node_ref=documents_view.empty>{documents_view.text(|strings| &strings.no_documents)}</p>
                 </Show>
             </div>
         </div>

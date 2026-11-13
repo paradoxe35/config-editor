@@ -47,6 +47,7 @@ mod hover_focus;
 mod hover_path;
 mod hover_problems;
 mod input;
+mod kept_focus;
 pub use input::flush_pending_input;
 pub use sync::flush_pending_edits;
 mod keyboard;
@@ -377,6 +378,7 @@ pub fn ConfigEditor(
     }
     remeasure_on_window_changes(state);
     outside_press::close_popups_on_outside_press(state);
+    kept_focus::keep_focus_in_editor(state);
     outside_press::close_popups_on_escape_over_them(state);
     live_settings::follow(state);
     let rows = components::row_states(state);

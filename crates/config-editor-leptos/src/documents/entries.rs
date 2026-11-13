@@ -270,6 +270,8 @@ pub(super) struct Documents {
     pub(super) follows: Follows,
     pub(super) root: NodeRef<Div>,
     pub(super) strip: NodeRef<Div>,
+    /// The note shown while no document is open.
+    pub(super) empty: NodeRef<leptos::html::P>,
     /// Unique per view, for DOM ids.
     pub(super) prefix: u32,
     next_serial: StoredValue<u64>,
@@ -342,6 +344,7 @@ impl Documents {
             },
             root: NodeRef::new(),
             strip: NodeRef::new(),
+            empty: NodeRef::new(),
             prefix,
             next_serial: StoredValue::new(0),
             schemas: StoredValue::new_local(SchemaCache::default()),
