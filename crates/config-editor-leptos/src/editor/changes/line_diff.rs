@@ -75,7 +75,15 @@ pub(in crate::editor) fn peek_survives_edit(
             && current.get(index) == peek.after.first()
     };
     match peek.kind {
-        PeekKind::Modified => line_is(DiffKind::Modified),
+        // The line it was, too: a new baseline makes it another change.
+        PeekKind::Modified => {
+            line_is(DiffKind::Modified)
+                && line_diff
+                    .modified_before
+                    .get(index)
+                    .and_then(Option::as_ref)
+                    == peek.before.first()
+        }
         PeekKind::Added => line_is(DiffKind::Added),
         PeekKind::Removed => {
             line_diff
@@ -749,6 +757,32 @@ mod tests {
             &peek,
             &shifted,
             &diff_lines(baseline, &shifted.join("\n"))
+        ));
+    }
+
+    /// A new baseline under the peeked line makes it another change: its
+    /// `Before` is no longer the baseline's, so the peek closes (round 16's
+    /// `D16.ux-2`: it kept showing the old baseline's line).
+    #[test]
+    fn peek_closes_when_the_baseline_under_it_changes() {
+        let current = "a: 1\nb: 2X\nc: 3\n";
+        let lines: Vec<String> = current.split('\n').map(str::to_string).collect();
+        let peek = modified_peek(2, "b: 2", "b: 2X");
+        assert!(peek_survives_edit(
+            &peek,
+            &lines,
+            &diff_lines("a: 1\nb: 2\nc: 3\n", current)
+        ));
+        assert!(!peek_survives_edit(
+            &peek,
+            &lines,
+            &diff_lines("a: 1\nb: 9\nc: 3\n", current)
+        ));
+        // A baseline change elsewhere keeps it.
+        assert!(peek_survives_edit(
+            &peek,
+            &lines,
+            &diff_lines("a: 5\nb: 2\nc: 3\n", current)
         ));
     }
 
