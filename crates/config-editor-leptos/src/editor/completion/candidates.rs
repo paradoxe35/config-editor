@@ -147,8 +147,12 @@ pub(super) fn property_completions(
             continue;
         };
         // A key of `oneOf`/`anyOf` options names them (the matched one
-        // alone when it has the key); the matched option's keys come first.
+        // alone when it has the key); once an option matches, another
+        // option's keys are not offered (adding one would leave it).
         let choice = choices.of(branch);
+        if choices.matched.is_some() && choice.is_some_and(|(_, matched)| !matched) {
+            continue;
+        }
         let bonus = if choice.is_some_and(|(_, matched)| matched) {
             MATCHED_CHOICE_BONUS
         } else {

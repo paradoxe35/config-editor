@@ -281,14 +281,44 @@ fn property_hover(
         Vec::new()
     };
     let documented: Vec<&Value> = owners.iter().chain(&schemas).copied().collect();
-    let branches = branches_of(&documented, root, at(path));
+    // The `oneOf`/`anyOf` options of the field's object: an option other
+    // than the matched one documents nothing here, and the matched one's
+    // title and description are its own row (`choice`), not the field's.
+    let options = ChoicesAt::in_object(&schemas, root, || object_at(source, path, behavior));
+    let not_other_option = |branch: &&Value| !matches!(options.of(branch), Some((_, false)));
+    let branches: Vec<&Value> = branches_of(&documented, root, at(path))
+        .into_iter()
+        .filter(not_other_option)
+        .collect();
+    let parents = schema_at_path_in(root, parent, repeats, document);
+    // The schemas one object schema gives the key when it names it more
+    // than once (its property and each pattern matching it), as validation
+    // applies them all.
+    let named: Vec<&Value> = match path.last() {
+        Some(SchemaPathSegment::Key(name)) if owners.is_empty() => parents
+            .iter()
+            .flat_map(|schema| branches_for(schema, root, at(parent)))
+            .map(|branch| named_properties(branch, name))
+            .find(|named| named.len() > 1)
+            .unwrap_or_default(),
+        _ => Vec::new(),
+    };
     // An item of a list: the list's docs, the item's own under them.
-    let (title, description, item) = if owners.is_empty() {
-        (
-            text_of(&branches, "title"),
-            text_of(&branches, "description"),
-            None,
-        )
+    let (title, description, item) = if named.len() > 1 {
+        let each = |name: &str| {
+            let mut texts: Vec<String> = Vec::new();
+            for schema in &named {
+                let own = field_own(&options, &branches_of(&[*schema], root, at(path)));
+                if let Some(text) = text_of(&own, name).filter(|text| !texts.contains(text)) {
+                    texts.push(text);
+                }
+            }
+            (!texts.is_empty()).then(|| texts.join(if name == "title" { ", " } else { " " }))
+        };
+        (each("title"), each("description"), None)
+    } else if owners.is_empty() {
+        let own = field_own(&options, &branches);
+        (text_of(&own, "title"), text_of(&own, "description"), None)
     } else {
         // (A repeating language finds the item at the list's path too.)
         let lists: Vec<&Value> = owners
@@ -297,7 +327,7 @@ fn property_hover(
             .copied()
             .collect();
         let list = branches_of(&lists, root, at(property));
-        let items = branches_of(&schemas, root, at(path));
+        let items = field_own(&options, &branches_of(&schemas, root, at(path)));
         let (title, description) = (text_of(&list, "title"), text_of(&list, "description"));
         let own = |name: &str, list: &Option<String>| {
             text_of(&items, name).filter(|text| Some(text) != list.as_ref())
@@ -312,9 +342,10 @@ fn property_hover(
             (item != ValueDoc::default()).then_some(item),
         )
     };
-    let default = schemas
-        .iter()
-        .find_map(|schema| schema_default(schema, root))
+    let default = branches_of(&schemas, root, at(path))
+        .into_iter()
+        .filter(not_other_option)
+        .find_map(|branch| branch.get("default"))
         .map(value_label);
     let mut examples: Vec<String> = Vec::new();
     for branch in &branches {
@@ -331,7 +362,6 @@ fn property_hover(
         }
     }
     examples.truncate(5);
-    let parents = schema_at_path_in(root, parent, repeats, document);
     let required = parents
         .iter()
         .flat_map(|schema| branches_for(schema, root, at(parent)))
@@ -348,13 +378,15 @@ fn property_hover(
     let holding = parent_choices.holding(&key);
     let type_label = if let Some(list) = owners.first() {
         schema_type_label(list, root, "property")
+    } else if named.len() > 1 {
+        type_label_of_all(&named, root, "property")
     } else if holding.is_empty() {
         schema_type_label(schemas[0], root, "property")
     } else {
         let schemas: Vec<&Value> = holding.iter().map(|(_, schema)| *schema).collect();
         type_label_of_all(&schemas, root, "property")
     };
-    let choice = ChoicesAt::in_object(&schemas, root, || object_at(source, path, behavior))
+    let choice = options
         .hover()
         .or_else(|| parent_choices.key_hover(&key))
         // The option's description when it is not the property's own.
@@ -385,6 +417,15 @@ fn property_hover(
         value: None,
         item,
     })
+}
+
+/// The branches outside every option of `options`: the field's own.
+fn field_own<'a>(options: &ChoicesAt<'_>, branches: &[&'a Value]) -> Vec<&'a Value> {
+    branches
+        .iter()
+        .filter(|branch| options.of(branch).is_none())
+        .copied()
+        .collect()
 }
 
 /// The branches of `schemas` for `instance` (see [`branches_for`]).

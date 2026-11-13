@@ -428,7 +428,7 @@ fn item_schema(branch: &Value, index: usize) -> Option<&Value> {
 
 /// The schemas `branch` gives the key `key` by name: its property and the
 /// patterns matching it.
-fn named_properties<'a>(branch: &'a Value, key: &str) -> Vec<&'a Value> {
+pub(crate) fn named_properties<'a>(branch: &'a Value, key: &str) -> Vec<&'a Value> {
     let property = branch
         .get("properties")
         .and_then(|properties| properties.get(key));

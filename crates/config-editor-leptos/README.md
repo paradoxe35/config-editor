@@ -1232,15 +1232,15 @@ beside it ignored up to draft-07), `allOf`/`anyOf`/`oneOf`, the
 written, `unevaluatedProperties`, and tuples (`prefixItems`, draft-07
 `items` lists):
 
-| Keyword                                      | Shown                                                                                                                                                                                        |
-| -------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `description`, `type`, `default`, `examples` | Suggestion detail and hover. A key is marked `required` when its parent lists it.                                                                                                            |
-| `deprecated: true`                           | The key is struck through and listed last, its hover says so, and a key written in the document gets a warning on the key, struck through (`Diagnostic::deprecated`).                        |
-| `deprecationMessage`                         | What to use instead, in the hover and the warning.                                                                                                                                           |
-| `x-docs-url`                                 | A "Documentation" link in the hover, and an "Open docs" link (and `Alt+Enter`) on the field's problems, opening in a new tab (`http(s)` addresses only).                                     |
-| `x-enum-descriptions` (and `x-enum-titles`)  | Arrays parallel to `enum`: each value's own line in the suggestion list and in the hover of that value in the document.                                                                      |
-| `title` / `description` of a `const` branch  | The same for `oneOf`/`anyOf` lists of documented constants.                                                                                                                                  |
-| `title` / `description` of an object branch  | Which `oneOf`/`anyOf` option the object is in, in the hover of its key ("One of" all titles until one matches); each key suggested inside names its option, the matched option's keys first. |
+| Keyword                                      | Shown                                                                                                                                                                                                                                    |
+| -------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `description`, `type`, `default`, `examples` | Suggestion detail and hover. A key is marked `required` when its parent lists it.                                                                                                                                                        |
+| `deprecated: true`                           | The key is struck through and listed last, its hover says so, and a key written in the document gets a warning on the key, struck through (`Diagnostic::deprecated`).                                                                    |
+| `deprecationMessage`                         | What to use instead, in the hover and the warning.                                                                                                                                                                                       |
+| `x-docs-url`                                 | A "Documentation" link in the hover, and an "Open docs" link (and `Alt+Enter`) on the field's problems, opening in a new tab (`http(s)` addresses only).                                                                                 |
+| `x-enum-descriptions` (and `x-enum-titles`)  | Arrays parallel to `enum`: each value's own line in the suggestion list and in the hover of that value in the document.                                                                                                                  |
+| `title` / `description` of a `const` branch  | The same for `oneOf`/`anyOf` lists of documented constants.                                                                                                                                                                              |
+| `title` / `description` of an object branch  | Which `oneOf`/`anyOf` option the object is in, in the hover of its key ("One of" all titles until one matches); each key suggested inside names its option, and once one matches only its keys are offered, its docs alone in the hover. |
 
 ```json
 {
