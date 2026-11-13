@@ -789,7 +789,7 @@ new ConfigEditor(element, {
 `start`/`end` and `pathAt`'s index are string indices (UTF-16 units) into the
 text on screen, `text` (the `editAs` language while editing as another one),
 the lines of closed folds included; lines and columns are one-based. The
-textarea leaves a closed fold's lines out, so its `selectionStart` names the
+text area leaves a closed fold's lines out, so its `selectionStart` names the
 same place only while no fold is closed: follow the caret with
 `currentPath` / `onPathChange`. `reveal` and `rangeOf` cover the key
 and its value when they share a line (`listen: 7835`, `<listen>7835</listen>`),
@@ -981,7 +981,9 @@ ConfigEditor` and `update()`.
 
 **Writing**
 
-- `Ctrl+Space`: suggestions; `Enter` or `Tab` accepts one
+- `Ctrl+Space`: suggestions; `↑` / `↓` and `PageUp` / `PageDown` move in
+  the list, `Enter` or `Tab` accepts one; `Tab` after accepting a block
+  goes to the next empty value it wrote, or selects the next value
 - `Tab` / `Shift+Tab`: indent / outdent
 - `Ctrl+/`: comment or uncomment the lines
 - `Ctrl+Enter` / `Ctrl+Shift+Enter`: new line below / above
@@ -999,7 +1001,7 @@ ConfigEditor` and `update()`.
 
 **Finding your way**
 
-- `Ctrl+F` / `Ctrl+H`: find / find and replace; `Enter` and `Shift+Enter` (or `F3` / `Shift+F3`) next / previous match
+- `Ctrl+F` / `Ctrl+H`: find / find and replace; `Enter` and `Shift+Enter` (or `F3` / `Shift+F3`) next / previous match; in the replace field `Enter` replaces the match and `Ctrl+Alt+Enter` all of them (one undo step)
 - `Ctrl+G`: go to a line (`line` or `line:column`)
 - `F8` / `Shift+F8`: next / previous problem
 - `Alt+Enter`: open the documentation of the problem at the caret (a problem with a docs link), else the hover card's Documentation link
@@ -1034,7 +1036,9 @@ ConfigEditor` and `update()`.
 - `Ctrl+M`: toggle "Tab moves focus"
 - `Escape`, then `Tab` / `Shift+Tab`: leave the editor once
 
-`Cmd` works in place of `Ctrl` on macOS.
+`Cmd` works in place of `Ctrl` on macOS, but for `Ctrl+Y` (redo is
+`Cmd+Shift+Z` there), `Ctrl+Space` and `Ctrl+M`, which macOS keeps for
+itself.
 
 ### Leaving the editor and screen readers
 
@@ -1042,7 +1046,7 @@ ConfigEditor` and `update()`.
 moving the focus out of the editor (announced, and shown in the footer as
 "Tab moves focus" until `Ctrl+M` again or a click on it); right after an
 `Escape` that had nothing to close, one `Tab` or `Shift+Tab` leaves. `Tab`
-still accepts an open suggestion. The textarea's `aria-describedby` holds
+still accepts an open suggestion. The text area's `aria-describedby` holds
 what is at the caret: each problem's message (host ones with their source),
 a read-only value's reason, a secret placeholder's hint; `F8` announces
 "Error 2 of 5: …". On a touch screen a tap on underlined or read-only text
@@ -1077,7 +1081,7 @@ An edit that touches a fold (typing at the end of a folded line, Backspace
 at the start of the next one, a paste over a selection reaching into it)
 opens it first, and whatever moves the caret into a fold (find, go to line,
 `F8`, `reveal`, a click on a problem) opens it. A folded block hiding an
-error or changes marks its line. The textarea holds the text on screen
+error or changes marks its line. The text area holds the text on screen
 without the lines of closed folds, so read the document from `value` (or
 `text`), not from the element.
 

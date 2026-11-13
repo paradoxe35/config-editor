@@ -1,6 +1,7 @@
 //! Demo host for `config-editor-leptos`: the same tunnel server config in every
-//! language, switchable from the toolbar (all state lives in the URL so a
-//! reload keeps it):
+//! language, switchable from the toolbar (the language and Edit as live in
+//! the URL, so a reload keeps them; the theme, settings and read-only
+//! switches made on the page do not, but the flags below set them):
 //!
 //! - `?language=xml` — the language the host stores (YAML by default);
 //! - `?edit=hcl` — edit it as another language (`edit_as`);

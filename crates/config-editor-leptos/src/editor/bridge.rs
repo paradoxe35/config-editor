@@ -454,7 +454,7 @@ impl Bridge {
         // expression and the literal text it reads as): the host can.
         if let Some(pointer) = host.changed_form(previous_host, &conversion.text) {
             return Err(ConvertError::Unsupported(format!(
-                "this edit would write the value at {pointer} in another form than {} writes it, though it reads the same: make it editing as {} (at {pointer})",
+                "this edit would write the value at {pointer} in another form than {} writes it, though it reads the same: edit it as {} (at {pointer})",
                 self.host.label(),
                 self.host.label()
             ))

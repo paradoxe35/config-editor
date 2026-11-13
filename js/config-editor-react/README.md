@@ -563,7 +563,7 @@ The keys are those of [`@pngwasi/config-editor`](https://www.npmjs.com/package/@
 `Ctrl+M` switches `Tab` and `Shift+Tab` to moving the focus (announced, and
 shown in the footer as "Tab moves focus" until `Ctrl+M` again), and right
 after an `Escape` that had nothing to close one `Tab` or `Shift+Tab` leaves.
-The textarea's `aria-describedby` holds what is at the caret (each problem's
+The text area's `aria-describedby` holds what is at the caret (each problem's
 message, host ones with their source, a read-only value's reason, a secret
 placeholder's hint), `F8` announces "Error 2 of 5: …", and `Ctrl+K Ctrl+I`
 shows and reads the schema docs of the key at the caret. Nothing to set:

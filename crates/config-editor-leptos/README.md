@@ -1314,7 +1314,7 @@ its footer and what follows the view, `Shift+Tab` back towards the tabs.
 <details>
 <summary>Screen-reader descriptions and announcements, touch screens</summary>
 
-The textarea is described (`aria-describedby`) by what is at the caret: the
+The text area is described (`aria-describedby`) by what is at the caret: the
 message of each problem there, the editor's or the host's ("Warning from
 validator: port in use"), why a read-only value is read-only, a secret
 placeholder's hint. It follows the caret a moment after it stops. `F8` and
@@ -1404,7 +1404,7 @@ and selecting stay within their budgets on 6,000–8,000-line documents
 (`e2e/tests/large-files.spec.mjs`). One thing on the host's page can slow
 selecting down: in Chrome, while the page holds a closed `<details>` or an
 element with `hidden="until-found"` anywhere, selecting many lines of a
-textarea takes time quadratic in the lines selected (`Ctrl+A` over 8,000
+text area takes time quadratic in the lines selected (`Ctrl+A` over 8,000
 lines takes seconds). A disclosure button (`aria-expanded` and `hidden`)
 in their place keeps it instant; the demo pages use one.
 
