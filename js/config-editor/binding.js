@@ -237,7 +237,9 @@ export class EditorBinding extends Binding {
     const value = this.#reset ?? this.#carried?.value ?? props.value ?? props.defaultValue ?? "";
     const baseline = props.baseline ?? this.#carried?.baseline ?? value;
     this.#carried = { value, baseline };
-    const inBoundValue = props.value === undefined || value === props.value;
+    // Ranges are in the bound value: on a document carried past it, they
+    // are moved from it to the document.
+    const rangesFor = props.value === undefined || value === props.value ? undefined : props.value;
     return new ConfigEditor(element, {
       ...settings,
       value,
@@ -261,11 +263,10 @@ export class EditorBinding extends Binding {
       onChangeSummary: (summary) => this.props.onChangeSummary?.(summary),
       onProblems: (problems) => this.props.onProblems?.(problems),
       onPathChange: props.onPathChange ? this.#followPath : undefined,
-      // Ranges are in the bound value: on a document carried past it, they
-      // come from `sync` right after the mount, mapped to it.
-      hostDiagnostics: inBoundValue ? props.hostDiagnostics : undefined,
+      hostDiagnostics: props.hostDiagnostics,
       readOnlyPaths: props.readOnlyPaths,
-      readOnlyRanges: inBoundValue ? props.readOnlyRanges : undefined,
+      readOnlyRanges: props.readOnlyRanges,
+      rangesFor,
       secrets: props.secrets && {
         ...props.secrets,
         isPlaceholder: props.secrets.isPlaceholder

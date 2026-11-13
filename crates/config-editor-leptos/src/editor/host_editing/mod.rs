@@ -288,12 +288,25 @@ pub(super) fn connect(state: EditorState, host: Host) {
         baseline,
         on_dirty_change,
     } = host;
-    Effect::new(move |_| {
+    // At once, as a controlled `value` is (`sync::follow_value`): a host
+    // loading a file sets both in one task, and the text never differs
+    // from its baseline in between (no dirty flag or change count for a
+    // moment, `isDirty` right after).
+    leptos::reactive::effect::ImmediateEffect::new_scoped(move || {
         let new = editor_text(baseline.get());
         untrack(|| state.offer_baseline(new));
     });
     conflict::settle_when_text_matches(state);
     if let Some(callback) = on_dirty_change {
-        Effect::new(move |_| callback.run(state.editing().dirty.get()));
+        // Only a change: the flag may flip and flip back in one task (read
+        // between a host's `value` and its `baseline`), waking this with
+        // the value it last reported.
+        Effect::new(move |told: Option<bool>| {
+            let dirty = state.editing().dirty.get();
+            if told != Some(dirty) {
+                callback.run(dirty);
+            }
+            dirty
+        });
     }
 }

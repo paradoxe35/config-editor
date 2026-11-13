@@ -59,6 +59,8 @@ export interface EditorOptions extends EditorSettings {
   readOnlyPaths?: FieldPath[];
   /** Stretches of the document (in `language`) the user cannot change; they follow the text through edits; `update` replaces them. */
   readOnlyRanges?: TextRangeInput[];
+  /** The text `readOnlyRanges` and `hostDiagnostics` ranges were given for, when it is not `value` (a check of a text the document has moved past): they are checked in it and moved to `value`. Default: `value`. */
+  rangesFor?: string;
   /** How secret placeholders (`«secret 3f2a»`) are matched, described and completed in fields the schema marks `writeOnly` or `x-secret`. */
   secrets?: SecretOptions;
 }

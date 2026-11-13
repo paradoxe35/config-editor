@@ -25,7 +25,7 @@ use crate::options::{bool_option, function_option, string_option, warn_unknown_o
 use crate::settings::{settings_from, settings_over, settings_result};
 use crate::told::{self, Told};
 use crate::typings::{DocumentEditorResult, DocumentsOptions, DocumentsUpdate, SettingsResult};
-use crate::update::{callback_change, given, plain_object, refuse_remount, settings_change};
+use crate::update::{Fixed, callback_change, given, plain_object, refuse_remount, settings_change};
 use crate::values::{diagnostics_to_js, field, text_arg, to_js};
 
 mod echoing;
@@ -537,7 +537,14 @@ impl ConfigDocuments {
             owner,
             id: std::cell::Cell::new(Some(id)),
             reentry: crate::reentry::Reentry::default(),
-            built_from: crate::update::BuiltFrom::of(&options, DOCUMENTS_REMOUNT_OPTIONS),
+            built_from: crate::update::BuiltFrom::of(
+                &options,
+                vec![
+                    Fixed::or("className", vec![JsValue::from_str("")]),
+                    Fixed::plain("label"),
+                    Fixed::or("echoes", vec![JsValue::FALSE]),
+                ],
+            ),
         })
     }
 
@@ -716,7 +723,8 @@ impl ConfigDocuments {
     /// focus where it is (an id not listed throws). `className`, `label` and `echoes`, and an `onClose` or
     /// `onAdd` for a view mounted without one (its tabs have no close
     /// buttons, its strip no "+"), throw: create a new view instead (the value the
-    /// view was built with, given again, changes nothing). Every key is checked before any applies.
+    /// view was built with, given again, changes nothing; one left out was built with its default:
+    /// `null`, `echoes: false`, `className: ""`). Every key is checked before any applies.
     pub fn update(&self, options: DocumentsUpdate) -> Result<(), JsError> {
         let options: JsValue = options.into();
         plain_object(

@@ -2,9 +2,21 @@
 //! range is checked against its lines and turned into lines and columns by
 //! lookups (QA 21: each of 3000 ranges split the whole text again, and an
 //! update froze for most of a second). LF, CRLF and a lone CR each end a
-//! line, as everywhere else in the API.
+//! line, as everywhere else in the API. A leading byte order mark is no
+//! part of the document: string indices count it (they index the text as
+//! given), lines and columns do not (line 1, column 1 is the character
+//! after it, as in the editor).
 
 use config_editor_leptos::TextPosition;
+
+/// A byte order mark.
+const MARK: char = '\u{feff}';
+
+/// `text` without a leading byte order mark: the document, whose lines and
+/// columns positions name.
+pub(crate) fn document(text: &str) -> &str {
+    text.strip_prefix(MARK).unwrap_or(text)
+}
 
 /// Where each line of a text starts and where its content ends (before its
 /// break), and the text's length in UTF-16 units.
@@ -22,18 +34,21 @@ pub(crate) struct TextLines<'a> {
 
 impl<'a> TextLines<'a> {
     pub(crate) fn new(text: &'a str) -> Self {
-        let mut starts = vec![(0, 0)];
+        // Line 1 starts after a byte order mark (one UTF-16 unit).
+        let mark = usize::from(text.starts_with(MARK));
+        let mut starts = vec![(mark * MARK.len_utf8(), mark)];
         let mut ends = Vec::new();
         let mut lf_starts = vec![0];
-        let mut units = 0;
-        let mut crlf = 0;
-        let mut characters = text.char_indices().peekable();
+        let mut units = mark;
+        // Units the LF form on screen has not: a mark, each CRLF's CR.
+        let mut dropped = mark;
+        let mut characters = text.char_indices().skip(mark).peekable();
         while let Some((byte, character)) = characters.next() {
             units += character.len_utf16();
             let ending = match character {
                 '\r' if characters.next_if(|(_, next)| *next == '\n').is_some() => {
                     units += 1;
-                    crlf += 1;
+                    dropped += 1;
                     2
                 }
                 '\r' | '\n' => 1,
@@ -41,7 +56,7 @@ impl<'a> TextLines<'a> {
             };
             ends.push(byte);
             starts.push((byte + ending, units));
-            lf_starts.push(units - crlf);
+            lf_starts.push(units - dropped);
         }
         ends.push(text.len());
         Self {
@@ -114,6 +129,8 @@ impl<'a> TextLines<'a> {
     /// The position of UTF-16 `offset`, as [`TextPosition::from_offset`]
     /// gives it.
     pub(crate) fn position(&self, offset: usize) -> TextPosition {
+        // Before a byte order mark: where the document starts.
+        let offset = offset.max(self.starts[0].1);
         let index = self.starts.partition_point(|(_, units)| *units <= offset) - 1;
         let mut units = self.starts[index].1;
         let mut column = 1;
@@ -138,7 +155,7 @@ impl<'a> TextLines<'a> {
 mod tests {
     use config_editor_leptos::TextPosition;
 
-    use super::TextLines;
+    use super::{TextLines, document};
 
     /// Every answer is the one `TextPosition` gives reading the text from
     /// the top, whichever breaks end its lines.
@@ -215,5 +232,43 @@ mod tests {
             }
         }
         assert!(failures.is_empty(), "{}", failures.join("\n"));
+    }
+
+    /// A byte order mark is no column (line 1, column 1 is the character
+    /// after it, as in the editor) but a string index (`L30-4`: a host's
+    /// `{ start, end }` in its own text landed one character right).
+    #[test]
+    fn a_byte_order_mark_is_an_index_but_no_column() {
+        for text in ["", "port: x\n", "a: 1\r\nport: x\r\n", "é😀\rx"] {
+            let marked = format!("\u{feff}{text}");
+            assert_eq!(document(&marked), text);
+            let (plain, lines) = (TextLines::new(text), TextLines::new(&marked));
+            assert_eq!(lines.units(), plain.units() + 1, "{text:?}");
+            assert_eq!(lines.count(), plain.count(), "{text:?}");
+            assert_eq!(lines.position(0), TextPosition::new(1, 1), "{text:?}");
+            for offset in 0..=plain.units() {
+                assert_eq!(
+                    lines.position(offset + 1),
+                    plain.position(offset),
+                    "{text:?} @{offset}"
+                );
+                assert_eq!(
+                    lines.position_in_lf(offset),
+                    plain.position_in_lf(offset),
+                    "{text:?} LF @{offset}"
+                );
+            }
+            for line in 1..=plain.count() + 1 {
+                assert_eq!(lines.width(line), plain.width(line), "{text:?} line {line}");
+                for column in 1..=6 {
+                    let position = TextPosition::new(line, column);
+                    assert_eq!(
+                        lines.offset(position),
+                        plain.offset(position) + 1,
+                        "{text:?} {position:?}"
+                    );
+                }
+            }
+        }
     }
 }

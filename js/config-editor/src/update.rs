@@ -25,30 +25,67 @@ pub(crate) fn given(options: &JsValue, name: &str) -> Option<JsValue> {
     Some(field(options, name)).filter(|value| !value.is_undefined())
 }
 
-/// An error for the first of `keys` that `options` sets: the component is
-/// built from them, so changing one needs a new instance.
+/// An option a view cannot change, and the values that are its default:
+/// left out or `null`, the view is built with the default, and any of these
+/// names it too (`echoes: false`, `className: ""`).
+pub(crate) struct Fixed {
+    pub(crate) key: &'static str,
+    pub(crate) defaults: Vec<JsValue>,
+}
+
+impl Fixed {
+    /// `key`, whose default only `null` (or leaving it out) gives.
+    pub(crate) fn plain(key: &'static str) -> Self {
+        Self::or(key, Vec::new())
+    }
+
+    pub(crate) fn or(key: &'static str, defaults: Vec<JsValue>) -> Self {
+        Self { key, defaults }
+    }
+
+    /// `value` as built: `None` for the default.
+    fn built(&self, value: &JsValue) -> Option<JsValue> {
+        let default = value.is_undefined()
+            || value.is_null()
+            || self
+                .defaults
+                .iter()
+                .any(|default| js_sys::Object::is(value, default));
+        (!default).then(|| value.clone())
+    }
+}
+
 /// What a view was built from: each option it cannot change, as it was
-/// given (`undefined` when it was not).
-pub(crate) struct BuiltFrom(Vec<(&'static str, JsValue)>);
+/// given (`None`: its default).
+pub(crate) struct BuiltFrom(Vec<(Fixed, Option<JsValue>)>);
 
 impl BuiltFrom {
-    pub(crate) fn of(options: &JsValue, keys: &[&'static str]) -> Self {
+    pub(crate) fn of(options: &JsValue, fixed: Vec<Fixed>) -> Self {
         Self(
-            keys.iter()
-                .map(|key| (*key, given(options, key).unwrap_or(JsValue::UNDEFINED)))
+            fixed
+                .into_iter()
+                .map(|fixed| {
+                    let built = fixed.built(&field(options, fixed.key));
+                    (fixed, built)
+                })
                 .collect(),
         )
     }
 
     /// Whether `options` gives `key` another value than the view was built
     /// with: the same value (`Object.is`: a framework passing all its props
-    /// again) changes nothing.
+    /// again), or the default for one built with it (left out), changes
+    /// nothing.
     fn changes(&self, options: &JsValue, key: &str) -> bool {
         given(options, key).is_some_and(|value| {
-            !self
-                .0
-                .iter()
-                .any(|(built, was)| *built == key && js_sys::Object::is(&value, was))
+            !self.0.iter().any(|(fixed, was)| {
+                fixed.key == key
+                    && match (fixed.built(&value), was) {
+                        (None, None) => true,
+                        (Some(value), Some(was)) => js_sys::Object::is(&value, was),
+                        _ => false,
+                    }
+            })
         })
     }
 }
