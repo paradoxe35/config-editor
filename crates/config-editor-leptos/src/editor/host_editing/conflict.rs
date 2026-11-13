@@ -8,6 +8,7 @@
 //! focus to it and back.
 
 use leptos::prelude::*;
+use wasm_bindgen::JsCast;
 
 use super::super::edit::Edit;
 use super::super::state::{EditorState, textarea_selection};
@@ -173,6 +174,31 @@ impl EditorState {
 
 fn active_element() -> Option<web_sys::Element> {
     web_sys::window()?.document()?.active_element()
+}
+
+/// `F6` from outside the editor (the host's button that changed the
+/// baseline has the focus, say) reaches the notice too: the notice says "F6
+/// moves to the choices", and from there the user is not in the editor to
+/// press it. Inside the editor the root's own key handler takes it.
+pub(super) fn reach_notice_from_outside(state: EditorState) {
+    crate::reactive::window_listener(&["keydown"], move |event| {
+        let Ok(event) = event.dyn_into::<web_sys::KeyboardEvent>() else {
+            return;
+        };
+        let inside = state
+            .view()
+            .root_ref
+            .get_untracked()
+            .zip(event.target())
+            .is_some_and(|(root, target)| {
+                target
+                    .dyn_ref::<web_sys::Node>()
+                    .is_some_and(|node| root.contains(Some(node)))
+            });
+        if !inside && !crate::ime::composing(&event) {
+            state.notice_shortcut(&event);
+        }
+    });
 }
 
 /// While the notice is open, a text that comes to equal the new baseline

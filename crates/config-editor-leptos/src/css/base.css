@@ -982,6 +982,8 @@
   top: 0;
   right: 14px;
   width: min(300px, calc(100% - 22px));
+  max-height: 100%;
+  overflow-y: auto;
   display: grid;
   gap: 3px;
   padding: 5px 6px;
@@ -1058,6 +1060,10 @@
   top: 0;
   right: 14px;
   width: min(440px, calc(100% - 22px));
+  /* In a window a few lines tall the widget scrolls inside the text area
+     rather than being cut by it. */
+  max-height: 100%;
+  overflow-y: auto;
   display: grid;
   gap: 4px;
   padding: 5px 6px;
@@ -1085,6 +1091,9 @@
   min-width: 0;
   flex: 1 1 150px;
   display: flex;
+  /* The match options go under the query when the widget is too narrow to
+     leave it room to type in. */
+  flex-wrap: wrap;
   align-items: center;
   gap: 1px;
   padding-right: 2px;
@@ -1098,8 +1107,8 @@
 .config-editor__find-field-invalid:focus-within { border-color: var(--config-editor-error); }
 
 .config-editor__find-input {
-  min-width: 0;
-  flex: 1 1 auto;
+  min-width: 10ch;
+  flex: 1 1 10ch;
   height: 24px;
   padding: 0 6px;
   border: 0;

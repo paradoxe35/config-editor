@@ -124,6 +124,12 @@ export interface EditorStrings {
    */
   suggestionsHint?: string;
   /**
+   * `suggestions_hint` on a touch screen, which has no `suggestions_key`; shown only while suggestions open as you type.
+   *
+   * @default "suggestions appear as you type"
+   */
+  suggestionsHintTouch?: string;
+  /**
    * The chord that opens suggestions, as the footer draws it: keys between `+`.
    *
    * @default "Ctrl+Space"
@@ -348,7 +354,7 @@ export interface EditorStrings {
   /**
    * Its tooltip.
    *
-   * @default "Replace your text with the new version (Ctrl+Z brings yours back)"
+   * @default "Replace your text with the new version ({cmd}+Z brings yours back)"
    */
   reloadTitle?: string;
   /**
@@ -384,7 +390,7 @@ export interface EditorStrings {
   /**
    * Its tooltip.
    *
-   * @default "Toggle replace (Ctrl+H)"
+   * @default "Toggle replace ({cmd}+H)"
    */
   toggleReplaceTitle?: string;
   /**
@@ -492,7 +498,7 @@ export interface EditorStrings {
   /**
    * Its tooltip.
    *
-   * @default "Replace all (Ctrl+Alt+Enter)"
+   * @default "Replace all ({cmd}+Alt+Enter)"
    */
   replaceAllTitle?: string;
   /**

@@ -223,20 +223,27 @@ pub(in crate::editor) fn peek_geometry(
     // Below when it fits there, else on the roomier side.
     let place_below = space_below >= desired_height || space_below >= space_above;
     let left = left_in_viewport - viewport.root_left;
+    // In a window a few lines tall neither side has room for the header: the
+    // preview then covers the text, kept inside the area, and scrolls.
+    let floor = PEEK_HEADER_HEIGHT.min((area_bottom - area_top).max(0.0));
     if place_below {
-        let top = anchor_y + metrics.line_height + POPUP_GAP;
+        let height = space_below.min(cap).max(floor);
+        let top = (anchor_y + metrics.line_height + POPUP_GAP)
+            .min(area_bottom - height)
+            .max(area_top);
         Declarations::new()
             .set("top", format!("{:.1}px", top - viewport.root_top))
             .set("left", format!("{left:.1}px"))
             .set("width", format!("{width:.1}px"))
-            .set("max-height", format!("{:.1}px", space_below.min(cap)))
+            .set("max-height", format!("{height:.1}px"))
     } else {
-        let bottom = anchor_y - POPUP_GAP;
+        let height = space_above.min(cap).max(floor);
+        let bottom = (anchor_y - POPUP_GAP).max(area_top + height);
         Declarations::new()
             .set("bottom", format!("{:.1}px", viewport.root_bottom - bottom))
             .set("left", format!("{left:.1}px"))
             .set("width", format!("{width:.1}px"))
-            .set("max-height", format!("{:.1}px", space_above.min(cap)))
+            .set("max-height", format!("{height:.1}px"))
     }
 }
 
@@ -697,6 +704,37 @@ mod tests {
         let style = peek_geometry(&viewport, &EditorMetrics::fallback(), 2, 1, 1).to_string();
         let content = PEEK_HEADER_HEIGHT + PEEK_SIDE_HEADING_HEIGHT + 2.0 * PEEK_LINE_HEIGHT;
         assert!(style_number(&style, "max-height:") >= content, "{style}");
+    }
+
+    /// D23.ux-5: in a text area 70 px tall the roomier side had 21 px, less
+    /// than the header, so Revert and Close were clipped. The preview keeps
+    /// a header's height, inside the area, and scrolls.
+    #[test]
+    fn peek_geometry_keeps_a_header_in_a_short_text_area() {
+        let viewport = PeekViewport {
+            viewport_width: 200.0,
+            viewport_height: 150.0,
+            editor_top: 40.0,
+            editor_bottom: 110.0,
+            editor_left: 30.0,
+            editor_scroll_top: 0.0,
+            root_top: 0.0,
+            root_bottom: 150.0,
+            root_left: 0.0,
+            root_right: 200.0,
+        };
+        for line in 1..=2 {
+            let style =
+                peek_geometry(&viewport, &EditorMetrics::fallback(), line, 1, 1).to_string();
+            let height = style_number(&style, "max-height:");
+            assert!(height >= 54.0, "line {line}: {style}");
+            let top = if style.contains("top:") && !style.contains("bottom:") {
+                style_number(&style, "top:")
+            } else {
+                150.0 - style_number(&style, "bottom:") - height
+            };
+            assert!(top >= 40.0 && top + height <= 110.0, "line {line}: {style}");
+        }
     }
 
     /// QA 22: on a 390 px phone the preview ran past the editor's right

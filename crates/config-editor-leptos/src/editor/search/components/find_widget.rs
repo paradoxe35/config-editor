@@ -38,7 +38,7 @@ pub(crate) fn FindWidget(state: EditorState) -> impl IntoView {
                     class="config-editor__find-button config-editor__find-expand"
                     class:config-editor__find-expand-open=move || search.replacing.get()
                     aria-label=state.text(|strings| &strings.toggle_replace)
-                    title=state.text(|strings| &strings.toggle_replace_title)
+                    title=state.shortcut_text(|strings| &strings.toggle_replace_title)
                     aria-expanded=move || search.replacing.get().to_string()
                     prop:hidden=move || !editable()
                     on:click=move |_| toggle_replace(state)
@@ -133,7 +133,7 @@ pub(crate) fn FindWidget(state: EditorState) -> impl IntoView {
                     type="button"
                     class="config-editor__find-button config-editor__find-text-button"
                     aria-label=state.text(|strings| &strings.replace_all_label)
-                    title=state.text(|strings| &strings.replace_all_title)
+                    title=state.shortcut_text(|strings| &strings.replace_all_title)
                     on:click=move |_| search::replace_all(state)
                 >
                     {state.text(|strings| &strings.replace_all)}

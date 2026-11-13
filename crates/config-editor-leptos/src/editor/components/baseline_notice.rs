@@ -32,7 +32,7 @@ pub(crate) fn BaselineNotice(state: EditorState) -> impl IntoView {
                 <button
                     type="button"
                     class="config-editor__notice-button config-editor__notice-reload"
-                    title=state.text(|strings| &strings.reload_title)
+                    title=state.shortcut_text(|strings| &strings.reload_title)
                     on:click=reload
                 >
                     {state.text(|strings| &strings.reload)}

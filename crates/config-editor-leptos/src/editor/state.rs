@@ -370,6 +370,15 @@ impl EditorState {
         move || strings.with(|strings| pick(strings).clone())
     }
 
+    /// A built-in text that names a shortcut (`{cmd}`), as a view reads it.
+    pub(super) fn shortcut_text(
+        self,
+        pick: fn(&EditorStrings) -> &String,
+    ) -> impl Fn() -> String + Copy + Send + Sync + 'static {
+        let strings = self.strings_signal();
+        move || strings.with(|strings| super::platform::name_command_key(pick(strings)))
+    }
+
     /// A built-in text naming the language on screen (`{language}`), as a
     /// view reads it.
     pub(super) fn language_text(

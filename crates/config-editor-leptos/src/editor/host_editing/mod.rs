@@ -293,6 +293,7 @@ pub(super) fn connect(state: EditorState, host: Host) {
         untrack(|| state.offer_baseline(new));
     });
     conflict::settle_when_text_matches(state);
+    conflict::reach_notice_from_outside(state);
     if let Some(callback) = on_dirty_change {
         Effect::new(move |_| callback.run(state.editing().dirty.get()));
     }

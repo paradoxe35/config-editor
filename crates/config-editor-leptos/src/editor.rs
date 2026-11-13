@@ -81,6 +81,7 @@ mod source_area;
 mod state;
 mod sync;
 // Used by the tests that mount a YAML editor (all of them need YAML).
+mod platform;
 #[cfg(all(test, feature = "yaml"))]
 mod test_state;
 mod text_change;

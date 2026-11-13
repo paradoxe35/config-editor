@@ -14,8 +14,15 @@ use crate::strings::counted;
 #[component]
 pub(crate) fn StatusBar(state: EditorState) -> impl IntoView {
     // Follows `read_only`, which switches without remounting.
-    let offers_completions =
-        move || state.config().settings.completions.get() && !state.config().read_only.get();
+    // A touch screen has no key to name: it is told that suggestions come as
+    // you type, and told nothing when they do not.
+    let touch = super::super::touch::touch_screen();
+    let offers_completions = move || {
+        let settings = state.config().settings;
+        settings.completions.get()
+            && !state.config().read_only.get()
+            && (!touch || settings.auto_trigger.get())
+    };
     let line_total = move || {
         let count = state.doc().text.with(|text| line_count(text));
         state.strings(|strings| counted(&strings.lines_one, &strings.lines_other, count))
@@ -40,7 +47,8 @@ pub(crate) fn StatusBar(state: EditorState) -> impl IntoView {
 #[component]
 fn SuggestionsHint(state: EditorState) -> impl IntoView {
     let strings = state.strings_signal();
-    let pieces = move || strings.with(|strings| hint_pieces(strings));
+    let touch = super::super::touch::touch_screen();
+    let pieces = move || strings.with(|strings| hint_pieces(strings, touch));
     move || {
         pieces()
             .into_iter()
@@ -59,8 +67,12 @@ enum HintPiece {
     Text(String),
 }
 
-/// The hint as text and keys: "Ctrl", "+", "Space", "for suggestions".
-fn hint_pieces(strings: &EditorStrings) -> Vec<HintPiece> {
+/// The hint as text and keys: "Ctrl", "+", "Space", "for suggestions"; on a
+/// `touch` screen, only its own text.
+fn hint_pieces(strings: &EditorStrings, touch: bool) -> Vec<HintPiece> {
+    if touch {
+        return vec![HintPiece::Text(strings.suggestions_hint_touch.clone())];
+    }
     let hint = &strings.suggestions_hint;
     let (before, after) = hint.split_once("{key}").unwrap_or(("", hint.as_str()));
     let mut pieces = Vec::new();
@@ -109,7 +121,7 @@ mod tests {
         let text = |text: &str| HintPiece::Text(text.to_string());
         let key = |key: &str| HintPiece::Key(key.to_string());
         assert_eq!(
-            hint_pieces(&EditorStrings::default()),
+            hint_pieces(&EditorStrings::default(), false),
             [
                 key("Ctrl"),
                 text("+"),
@@ -123,13 +135,23 @@ mod tests {
             ..EditorStrings::default()
         };
         assert_eq!(
-            hint_pieces(&german),
+            hint_pieces(&german, false),
             [
                 text("Vorschläge mit"),
                 key("Strg"),
                 text("+"),
                 key("Leertaste")
             ]
+        );
+    }
+
+    #[test]
+    fn a_touch_screens_hint_names_no_key() {
+        assert_eq!(
+            hint_pieces(&EditorStrings::default(), true),
+            [HintPiece::Text(
+                "suggestions appear as you type".to_string()
+            )]
         );
     }
 }

@@ -37,7 +37,8 @@ use serde::{Deserialize, Serialize};
 /// each text accepts the placeholders of its default and no others
 /// ([`EditorStrings::check`] lists the unknown ones; they are shown as
 /// written). Counted texts come in pairs: `…_one` when the count is 1,
-/// `…_other` otherwise.
+/// `…_other` otherwise. A shortcut's text names its command key `{cmd}`:
+/// `Ctrl`, or `Cmd` on macOS, where the editor takes both.
 ///
 /// ```
 /// use config_editor_leptos::{EditorSettings, EditorStrings};
@@ -66,6 +67,9 @@ pub struct EditorStrings {
     // The footer.
     /// The footer's suggestions hint; `{key}` is where the chord goes.
     pub suggestions_hint: String,
+    /// `suggestions_hint` on a touch screen, which has no `suggestions_key`;
+    /// shown only while suggestions open as you type.
+    pub suggestions_hint_touch: String,
     /// The chord that opens suggestions, as the footer draws it: keys
     /// between `+`.
     pub suggestions_key: String,
@@ -499,6 +503,7 @@ impl Default for EditorStrings {
         let text = |text: &str| text.to_string();
         Self {
             suggestions_hint: text("{key} for suggestions"),
+            suggestions_hint_touch: text("suggestions appear as you type"),
             suggestions_key: text("Ctrl+Space"),
             no_problems: text("No errors"),
             errors_one: text("{count} error"),
@@ -550,7 +555,9 @@ impl Default for EditorStrings {
                 "Reload it, losing your changes, or keep your text and compare it with the new version.",
             ),
             reload: text("Reload"),
-            reload_title: text("Replace your text with the new version (Ctrl+Z brings yours back)"),
+            reload_title: text(
+                "Replace your text with the new version ({cmd}+Z brings yours back)",
+            ),
             keep_mine: text("Keep mine"),
             keep_mine_title: text(
                 "Keep your text; the changes are now shown against the new version (Escape)",
@@ -558,7 +565,7 @@ impl Default for EditorStrings {
             baseline_changed_keys: text("F6 moves to the choices and back."),
             find_widget: text("Find and replace"),
             toggle_replace: text("Toggle replace"),
-            toggle_replace_title: text("Toggle replace (Ctrl+H)"),
+            toggle_replace_title: text("Toggle replace ({cmd}+H)"),
             find: text("Find"),
             match_case: text("Match case"),
             match_case_title: text("Match case (Alt+C)"),
@@ -576,7 +583,7 @@ impl Default for EditorStrings {
             replace_title: text("Replace (Enter)"),
             replace_all: text("All"),
             replace_all_label: text("Replace all"),
-            replace_all_title: text("Replace all (Ctrl+Alt+Enter)"),
+            replace_all_title: text("Replace all ({cmd}+Alt+Enter)"),
             match_position: text("{current} of {total}"),
             no_results: text("No results"),
             invalid_pattern: text("Invalid pattern"),
