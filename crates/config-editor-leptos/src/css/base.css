@@ -1022,15 +1022,31 @@
   line-height: var(--config-editor-line-height);
 }
 
-.config-editor__search-match {
+/* A line's copy: the same font, as wide as the text lays out, the text
+   itself not shown. */
+.config-editor__search-line {
   position: absolute;
   height: 1lh;
+  white-space: pre;
+  tab-size: 2;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+}
+
+/* A match is an inline box: as tall as the font's glyph area (about 1.17em
+   in the monospace fonts the stack names), grown by padding to the line. */
+.config-editor__search-match {
+  padding-block: calc((1lh - 1.17em) / 2);
   border-radius: 2px;
   background: var(--config-editor-search-match);
 }
 
+.config-editor__search-match-bare {
+  display: inline-block;
+  width: 0.5ch;
+}
+
 .config-editor__search-match-current {
-  z-index: 1;
   background: var(--config-editor-search-match-current);
   box-shadow: inset 0 0 0 1px var(--config-editor-search-match-current-border);
 }
@@ -1923,6 +1939,24 @@
     background: ButtonFace;
     color: ButtonText;
     box-shadow: inset 0 -2px ButtonText;
+  }
+  /* The selection tinted, not the system Highlight: the highlighted code is
+     painted over the text area, in CanvasText (hard-bar D3.a11y-1: 2.07:1
+     over Highlight in the light scheme, 2.62:1 in the dark one), so the fill
+     stays near Canvas, which that text always reads on. */
+  .config-editor__input {
+    forced-color-adjust: none;
+    caret-color: CanvasText;
+  }
+  .config-editor__input::selection {
+    background: color-mix(in srgb, Highlight 40%, Canvas);
+    color: transparent;
+  }
+  /* The find field's focus: its border is CanvasText either way, so a ring
+     shows it (hard-bar D18.a11y-2). */
+  .config-editor__find-field:focus-within {
+    outline: 2px solid Highlight;
+    outline-offset: 1px;
   }
   /* The caret's line, outlined. */
   .config-editor__code-line-active { outline: 1px solid GrayText; outline-offset: -1px; }

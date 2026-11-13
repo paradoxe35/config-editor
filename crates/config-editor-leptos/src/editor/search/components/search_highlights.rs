@@ -1,28 +1,47 @@
 //! Boxes behind the find widget's matches, the current one distinct. Only
 //! matches on rendered rows are drawn, so a document with thousands of
 //! matches costs no more than one with a screenful.
+//!
+//! Each row with a match is a copy of its line in the textarea's font, its
+//! text invisible and each match a span with the fill, so the browser lays
+//! the boxes out as it lays out the text: under the user's letter and word
+//! spacing, in right-to-left and mixed-direction runs, over tabs and wide
+//! characters, with no arithmetic on columns that has to agree with it.
 
 use std::ops::Range;
 
 use leptos::prelude::*;
 
-use super::super::super::completion::visual_column;
 use super::super::super::positioning::row_box;
 use super::super::super::state::EditorState;
 use super::super::SearchMatch;
 use crate::cssom::cssom;
 
-/// Most boxes drawn at once (a minified line can hold thousands of matches).
-const MAX_BOXES: usize = 1_000;
+/// Most matches drawn at once (a minified line can hold thousands).
+const MAX_MATCHES: usize = 1_000;
 
-/// A box: zero-based textarea row, left column and width in rendered
-/// columns.
-#[derive(Clone, Copy, PartialEq)]
-struct MatchBox {
-    row: usize,
-    left: f64,
-    width: f64,
+/// The part of a match on one document line, in byte offsets of the text.
+#[derive(Clone, Copy)]
+struct Segment {
+    line: usize,
+    line_start: usize,
+    start: usize,
+    end: usize,
     current: bool,
+}
+
+/// A line with matches: its zero-based textarea row and the pieces of its
+/// text, matched or not, in order.
+#[derive(Clone, PartialEq)]
+struct MirrorRow {
+    row: usize,
+    pieces: Vec<Piece>,
+}
+
+#[derive(Clone, PartialEq)]
+enum Piece {
+    Text(String),
+    Match { text: String, current: bool },
 }
 
 #[component]
@@ -33,23 +52,42 @@ pub(crate) fn SearchHighlights(state: EditorState) -> impl IntoView {
             aria-hidden="true"
             style:transform=move || format!("translate({}px, {}px)", -state.view().scroll_x.get(), -state.view().scroll_y.get())
         >
-            {move || boxes(state).into_iter().map(match_box).collect_view()}
+            {move || mirror_rows(state).into_iter().map(mirror_row).collect_view()}
         </div>
     }
 }
 
-fn match_box(found: MatchBox) -> impl IntoView {
+fn mirror_row(found: MirrorRow) -> impl IntoView {
     view! {
-        <span
-            class="config-editor__search-match"
-            class:config-editor__search-match-current=found.current
-            style=cssom(row_box(found.left, found.row, Some(found.width)))
-        ></span>
+        <div class="config-editor__search-line" style=cssom(row_box(0, found.row, None))>
+            {found.pieces.into_iter().map(piece).collect_view()}
+        </div>
     }
 }
 
-/// The boxes for the matches on the rendered rows.
-fn boxes(state: EditorState) -> Vec<MatchBox> {
+fn piece(piece: Piece) -> impl IntoView {
+    match piece {
+        Piece::Text(text) => text.into_any(),
+        // A match that is only a line break (or empty) has no glyphs to
+        // cover: the bare class gives it a half-column mark.
+        Piece::Match { text, current } => {
+            let bare = text.is_empty();
+            view! {
+            <span
+                class="config-editor__search-match"
+                class:config-editor__search-match-current=current
+                class:config-editor__search-match-bare=bare
+            >
+                {text}
+            </span>
+            }
+            .into_any()
+        }
+    }
+}
+
+/// The mirrored lines for the matches on the rendered rows.
+fn mirror_rows(state: EditorState) -> Vec<MirrorRow> {
     let search = state.search();
     let rows = state.view().visible_rows.get();
     let current = search.current.get();
@@ -66,33 +104,59 @@ fn boxes(state: EditorState) -> Vec<MatchBox> {
                 .matches
                 .partition_point(|found| found.line < rows.start)
                 .saturating_sub(1);
-            let mut boxes = Vec::new();
+            let mut segments = Vec::new();
             for (index, found) in results.matches.iter().enumerate().skip(first) {
-                if found.line >= rows.end || boxes.len() >= MAX_BOXES {
+                if found.line >= rows.end || segments.len() >= MAX_MATCHES {
                     break;
                 }
-                push_segments(text, found, Some(index) == current, &rows)
-                    .into_iter()
-                    .filter(|found| !projection.is_hidden(found.row))
-                    .for_each(|mut found| {
-                        found.row = projection.row_of_line(found.row);
-                        boxes.push(found);
-                    });
+                push_segments(text, found, Some(index) == current, &rows, &mut segments);
             }
-            boxes
+            segments
+                .chunk_by(|a, b| a.line == b.line)
+                .filter(|line| !projection.is_hidden(line[0].line))
+                .map(|line| mirror_line(text, line, projection.row_of_line(line[0].line)))
+                .collect()
         })
     })
 }
 
-/// One box per line `found` covers within `rows`, each on its document
+/// The pieces of one line's text, cut at `segments` (its matches, in order).
+/// The whole line, not the part up to the last match: where the text of a
+/// right-to-left run lands depends on all of it.
+fn mirror_line(text: &str, segments: &[Segment], row: usize) -> MirrorRow {
+    let line_start = segments[0].line_start;
+    let line_end = text[line_start..]
+        .find('\n')
+        .map_or(text.len(), |newline| line_start + newline);
+    let mut pieces = Vec::new();
+    let mut cursor = line_start;
+    for segment in segments {
+        let start = segment.start.max(cursor);
+        let end = segment.end.max(start);
+        if cursor < start {
+            pieces.push(Piece::Text(text[cursor..start].to_string()));
+        }
+        pieces.push(Piece::Match {
+            text: text[start..end].to_string(),
+            current: segment.current,
+        });
+        cursor = end;
+    }
+    if cursor < line_end {
+        pieces.push(Piece::Text(text[cursor..line_end].to_string()));
+    }
+    MirrorRow { row, pieces }
+}
+
+/// One segment per line `found` covers within `rows`, each on its document
 /// line.
 fn push_segments(
     text: &str,
     found: &SearchMatch,
     current: bool,
     rows: &Range<usize>,
-) -> Vec<MatchBox> {
-    let mut segments = Vec::new();
+    segments: &mut Vec<Segment>,
+) {
     let (mut line, mut line_start, mut start) = (found.line, found.line_start, found.start);
     loop {
         let line_end = text[line_start..]
@@ -100,18 +164,16 @@ fn push_segments(
             .map_or(text.len(), |newline| line_start + newline);
         let end = found.end.min(line_end);
         if rows.contains(&line) && start <= end {
-            let left = visual_column(&text[line_start..start]);
-            let width = visual_column(&text[line_start..end]) - left;
-            segments.push(MatchBox {
-                row: line,
-                left,
-                // A match ending in a line break still shows on its line.
-                width: width.max(0.5),
+            segments.push(Segment {
+                line,
+                line_start,
+                start,
+                end,
                 current,
             });
         }
         if found.end <= line_end + 1 || line + 1 >= rows.end {
-            return segments;
+            return;
         }
         line += 1;
         line_start = line_end + 1;
