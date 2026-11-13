@@ -206,6 +206,14 @@ pub(super) fn input(state: EditorState, event: &web_sys::Event) {
         latest,
         latest_selection,
     }));
+    // While an input method composes, its updates stay in the textarea: the
+    // composition is applied once, when it ends (each update written back
+    // into the textarea mid-composition cost the browser seconds on a long
+    // text, and a widened update was applied twice). Code that needs the
+    // text before then flushes it itself.
+    if state.typing().composing.get_value() {
+        return;
+    }
     // Skipped if the editor unmounts first; a flush another editor or the
     // host starts drops it then.
     PENDING.with(|pending| {
@@ -519,6 +527,11 @@ fn selection_change(state: EditorState) {
 /// After a key: track the caret, and end suggestions on navigation or a
 /// selection.
 pub(super) fn key_up(state: EditorState, event: &web_sys::KeyboardEvent) {
+    // The input method's keys: the caret and selection are its own until
+    // the composition ends.
+    if crate::ime::composing(event) || state.typing().composing.get_value() {
+        return;
+    }
     let Some(element) = target_textarea(state, event) else {
         return;
     };
@@ -598,8 +611,13 @@ pub(super) fn attach_listeners(state: EditorState) {
             ),
             ("mouseup", clipboard(Box::new(move |_| mouse_up(state)))),
             (
+                "compositionstart",
+                clipboard(Box::new(move |_| state.typing().composing.set_value(true))),
+            ),
+            (
                 "compositionend",
                 clipboard(Box::new(move |_| {
+                    state.typing().composing.set_value(false);
                     // The composition's last input first, then the seal.
                     flush_input(state);
                     state.doc().history.update(EditHistory::seal);

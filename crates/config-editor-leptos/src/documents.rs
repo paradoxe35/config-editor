@@ -203,6 +203,9 @@ pub fn ConfigDocuments(
     }
     let root_class = format!("config-editor-documents {}", class.unwrap_or_default());
     let keydown = move |event: web_sys::KeyboardEvent| {
+        if crate::ime::composing(&event) {
+            return;
+        }
         adding::on_root_input(documents_view, &event);
         keys::on_root_keydown(documents_view, &event);
         if let Some(root) = documents_view.root.get_untracked() {

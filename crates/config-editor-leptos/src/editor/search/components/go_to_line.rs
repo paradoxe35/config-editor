@@ -42,6 +42,9 @@ pub(crate) fn GoToLineWidget(state: EditorState) -> impl IntoView {
 
 /// Enter goes to the typed position, Escape cancels.
 fn field_keys(state: EditorState, event: &KeyboardEvent) {
+    if crate::ime::composing(event) {
+        return;
+    }
     match event.key().as_str() {
         "Enter" => {
             event.prevent_default();

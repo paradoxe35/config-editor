@@ -35,6 +35,9 @@ use web_sys::KeyboardEvent;
 use super::state::EditorState;
 
 pub(super) fn on_keydown(state: EditorState, event: &KeyboardEvent) {
+    if crate::ime::composing(event) {
+        return;
+    }
     // Keys act on the document as the browser last left it.
     super::input::flush_input(state);
     // Before anything closes: an Escape only arms Tab to leave when it had
@@ -164,6 +167,9 @@ fn read_only_keys(state: EditorState, event: &KeyboardEvent) {
 /// nothing outside the editor, find and replace shortcuts, saving, `F6` to
 /// the baseline notice and back; Escape closes every popup.
 pub(super) fn on_root_keydown(state: EditorState, event: &KeyboardEvent) {
+    if crate::ime::composing(event) {
+        return;
+    }
     if let Some(root) = state.view().root_ref.get_untracked() {
         crate::page_scroll::keep_inside(&root, event);
     }

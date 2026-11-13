@@ -212,6 +212,9 @@ fn toggle_replace(state: EditorState) {
 /// Keys anywhere in the widget: Escape closes it, `Alt+C`/`W`/`R` flip
 /// the options. (`Ctrl+F`, `Ctrl+H` and `F3` reach the editor root.)
 fn widget_keys(state: EditorState, event: &KeyboardEvent) {
+    if crate::ime::composing(event) {
+        return;
+    }
     if event.key() == "Escape" {
         event.prevent_default();
         event.stop_propagation();
@@ -234,6 +237,9 @@ fn widget_keys(state: EditorState, event: &KeyboardEvent) {
 /// In the query: Enter for the next match, Shift+Enter for the previous,
 /// Ctrl+Alt+Enter replaces all.
 fn query_keys(state: EditorState, event: &KeyboardEvent) {
+    if crate::ime::composing(event) {
+        return;
+    }
     if event.key() != "Enter" {
         return;
     }
@@ -248,6 +254,9 @@ fn query_keys(state: EditorState, event: &KeyboardEvent) {
 /// In the replacement: Enter replaces the current match, Ctrl+Alt+Enter
 /// all of them.
 fn replace_keys(state: EditorState, event: &KeyboardEvent) {
+    if crate::ime::composing(event) {
+        return;
+    }
     if event.key() != "Enter" {
         return;
     }

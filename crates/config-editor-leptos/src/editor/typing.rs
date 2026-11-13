@@ -45,6 +45,9 @@ pub(super) struct TypingState {
     /// The document before the delete of a drag going on (see
     /// `drag_move`).
     pub(super) drag_before: StoredValue<Option<String>>,
+    /// An input method is composing text (`compositionstart` came, its
+    /// `compositionend` not yet): its input is applied once it ends.
+    pub(super) composing: StoredValue<bool>,
 }
 
 impl TypingState {
@@ -56,6 +59,7 @@ impl TypingState {
             input_burst: StoredValue::new(None),
             chord: StoredValue::new(false),
             drag_before: StoredValue::new(None),
+            composing: StoredValue::new(false),
         }
     }
 }
