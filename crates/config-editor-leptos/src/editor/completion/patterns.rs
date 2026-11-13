@@ -73,7 +73,8 @@ fn collect(schema: &Value, pointer: &mut String, warnings: &mut Vec<String>, dep
                         let place = pointer.as_str();
                         warnings.push(format!(
                             "{place}: the pattern \"{pattern}\" is not supported by the editor's \
-                             regex engine; keys it matches get no completions or hover docs"
+                             completion engine; keys it matches get no completions or hover docs \
+                             (validation still checks them)"
                         ));
                     }
                 }
