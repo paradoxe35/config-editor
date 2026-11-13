@@ -115,12 +115,84 @@ impl<'a> Remap<'a> {
     }
 }
 
+/// `text` as the editor reads positions in it: without a leading byte
+/// order mark (no part of the document) and with every line ending one
+/// line feed (CRLF, a lone CR and LF are each one line break). The text a
+/// host gives ranges for (`rangesFor`) may be the document as stored or as
+/// the editor shows it (`text`): they name the same places.
+fn as_read(text: &str) -> std::borrow::Cow<'_, str> {
+    let text = text.strip_prefix('\u{feff}').unwrap_or(text);
+    if text.contains('\r') {
+        std::borrow::Cow::Owned(text.replace("\r\n", "\n").replace('\r', "\n"))
+    } else {
+        std::borrow::Cow::Borrowed(text)
+    }
+}
+
+/// Host `ranges` and `diagnostics` given for `from`, moved to `to` (each
+/// read as the editor reads positions: see [`as_read`]); as they are when
+/// the two name the same places.
+pub(crate) fn moved_between(
+    from: &str,
+    to: &str,
+    ranges: Option<Vec<TextRange>>,
+    diagnostics: Option<Vec<HostDiagnostic>>,
+) -> (Option<Vec<TextRange>>, Option<Vec<HostDiagnostic>>) {
+    let (from, to) = (as_read(from), as_read(to));
+    if from == to {
+        return (ranges, diagnostics);
+    }
+    let remap = Remap::new(&from, &to);
+    (
+        ranges.map(|list| remap.ranges(list)),
+        diagnostics.map(|list| remap.diagnostics(list)),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use config_editor_leptos::{TextPosition, TextRange};
 
-    use super::Remap;
+    use super::{Remap, moved_between};
     use crate::text_lines::TextLines;
+
+    /// Ranges given for the text on screen of a BOM or CRLF document name
+    /// the places they name there: nothing moves (hard rounds 1–2's
+    /// `D1.host-1`, one character right after a BOM, and `D24.host-1`,
+    /// every line after the first locked in a CRLF file).
+    #[test]
+    fn ranges_for_the_shown_text_of_a_bom_or_crlf_document_stay() {
+        let range = TextRange::new(TextPosition::new(3, 3), TextPosition::new(3, 7));
+        let first = TextRange::new(TextPosition::new(1, 1), TextPosition::new(1, 2));
+        let shown = "server:\n  port: 8080\n  host: localhost\n";
+        for stored in [
+            "server:\r\n  port: 8080\r\n  host: localhost\r\n",
+            "\u{feff}server:\n  port: 8080\n  host: localhost\n",
+            "\u{feff}server:\r\n  port: 8080\r\n  host: localhost\r\n",
+            "server:\r  port: 8080\r  host: localhost\r",
+        ] {
+            for lock in [range, first] {
+                let (moved, _) = moved_between(shown, stored, Some(vec![lock]), None);
+                assert_eq!(moved, Some(vec![lock]), "{stored:?}");
+                let (back, _) = moved_between(stored, shown, Some(vec![lock]), None);
+                assert_eq!(back, Some(vec![lock]), "{stored:?} back");
+            }
+        }
+        // A text typed past still moves them.
+        let (moved, _) = moved_between(
+            shown,
+            "\u{feff}# new\r\nserver:\r\n  port: 8080\r\n  host: localhost\r\n",
+            Some(vec![range]),
+            None,
+        );
+        assert_eq!(
+            moved,
+            Some(vec![TextRange::new(
+                TextPosition::new(4, 3),
+                TextPosition::new(4, 7)
+            )])
+        );
+    }
 
     fn rng(mut seed: u64) -> impl FnMut(usize) -> usize {
         move |bound: usize| {

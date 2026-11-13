@@ -13,7 +13,7 @@ use super::State;
 use crate::documents_list::Listed;
 use crate::echoes::{Echo, Echoes};
 use crate::mount::call_host_with;
-use crate::remap::Remap;
+use crate::remap::moved_between;
 use crate::settle;
 
 /// The listed `document`'s text is an echo: it keeps `current`, and the
@@ -23,10 +23,14 @@ fn keep(document: &mut Document, current: &str) {
         return;
     }
     if !document.read_only_ranges.is_empty() || !document.host_diagnostics.is_empty() {
-        let remap = Remap::new(&document.value, current);
-        document.read_only_ranges = remap.ranges(std::mem::take(&mut document.read_only_ranges));
-        document.host_diagnostics =
-            remap.diagnostics(std::mem::take(&mut document.host_diagnostics));
+        let (ranges, diagnostics) = moved_between(
+            &document.value,
+            current,
+            Some(std::mem::take(&mut document.read_only_ranges)),
+            Some(std::mem::take(&mut document.host_diagnostics)),
+        );
+        document.read_only_ranges = ranges.unwrap_or_default();
+        document.host_diagnostics = diagnostics.unwrap_or_default();
     }
     current.clone_into(&mut document.value);
 }

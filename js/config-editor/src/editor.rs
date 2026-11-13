@@ -21,7 +21,7 @@ use crate::options::{
     function_option, string_option, warn_unknown_options,
 };
 use crate::protect::{paths_from, ranges_from, secrets_from};
-use crate::remap::Remap;
+use crate::remap::moved_between;
 use crate::settings::{settings_from, settings_result};
 use crate::settle;
 use crate::told::{self, Told};
@@ -414,9 +414,8 @@ impl ConfigEditor {
                 .or(value.as_deref())
                 .unwrap_or(document);
             if host_text != document {
-                let remap = Remap::new(host_text, document);
-                host_diagnostics = host_diagnostics.map(|list| remap.diagnostics(list));
-                read_only_ranges = read_only_ranges.map(|list| remap.ranges(list));
+                (read_only_ranges, host_diagnostics) =
+                    moved_between(host_text, document, read_only_ranges, host_diagnostics);
             }
         }
         if echo == Some(Echo::Apply)
