@@ -31,7 +31,7 @@ export interface EditorOptions extends EditorSettings {
   readOnlyReason?: string;
   /** Extra class on the editor root. */
   className?: string;
-  /** Set it when you hand every `onChange` text back through `update({ value })`, possibly late and in any order (a store that re-renders after a delay, a fetch per edit): a `value` that `onChange` gave and that has not come back yet is then its echo and keeps the document, so nothing typed is lost. A text it never gave applies; go back to one it gave with `replaceValue`. Without it (the default) every `value` applies. Fixed for the editor's life. */
+  /** Set it when you hand every `onChange` text back through `update({ value })`, possibly late and in any order (a store that re-renders after a delay, a fetch per edit): a `value` that `onChange` gave and that has not come back yet is then its echo and keeps the document, so nothing typed is lost (until 5 s after a later text came back: one skipped before it is then yours). A text it never gave applies; go back to one it gave with `replaceValue`. Without it (the default) every `value` applies. Fixed for the editor's life. */
   echoes?: boolean;
   /** Called with the document, in `language`, after every edit. */
   onChange?: (value: string) => void;
@@ -398,7 +398,7 @@ export interface DocumentsOptions extends EditorSettings {
   className?: string;
   /** The tab list's accessible name. Default `"Open files"`. */
   label?: string;
-  /** Set it when you list every `onChange` text back as the document's `value` in `update({ documents })`, possibly late and in any order: a `value` its editor gave that has not come back yet is then its echo and keeps what the editor holds. A text it never gave applies; go back to one it gave with `replaceValue(id, text)`. Without it (the default) every listed `value` applies. Fixed for the view's life. */
+  /** Set it when you list every `onChange` text back as the document's `value` in `update({ documents })`, possibly late and in any order: a `value` its editor gave that has not come back yet is then its echo and keeps what the editor holds (until 5 s after a later text came back: one skipped before it is then yours). A text it never gave applies; go back to one it gave with `replaceValue(id, text)`. Without it (the default) every listed `value` applies. Fixed for the view's life. */
   echoes?: boolean;
   /** Called with a document's id when it becomes the active one (a tab, `Alt+PageDown` / `Alt+PageUp`, `select()`, or the active one closing). */
   onSelect?: (id: string) => void;

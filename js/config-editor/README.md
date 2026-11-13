@@ -506,7 +506,11 @@ const editor = new ConfigEditor(element, {
 ```
 
 Then a `value` that `onChange` gave and that has not come back yet is its
-echo and keeps the document, whatever its order or delay: nothing typed is
+echo and keeps the document, in any order and however late, until 5
+seconds after a text `onChange` gave later came back: a host handing back
+only the latest of several never hands back the ones it skipped, so they
+are forgotten then (what the editor keeps stays bounded), and one of them
+coming back after that is taken as yours. Within that, nothing typed is
 lost. Ranges given with an echo (`readOnlyRanges`, host `range`s) are in
 the echoed text: they are moved to the document. Any other `value` is yours
 and applies, the text you gave last included (a reset to the text the

@@ -372,8 +372,9 @@ keeps them) and that comments typed there are not saved.
 
 A parent that applies `onChange` values late, even in another order (a
 store, a fetch per edit), cannot roll the document back: a `value` the
-editor sent that has not come back yet is taken as its echo, whatever its
-order or delay. Any other `value` (a revert, a reset, a loaded file) is
+editor sent that has not come back yet is taken as its echo, in any order and however
+late, until 5 seconds after a value it sent later came back (one it
+skipped before that is then yours). Any other `value` (a revert, a reset, a loaded file) is
 applied. The values the editor sent before such a value belong to the text it replaced: switching back to a file applies its text (a parent still applying every late value after one of its own resets with `setValue`, below). `readOnlyRanges` and `hostDiagnostics` passed with an echo are in the echoed text: they are moved to the document. If an echo leaves the parent's state on an older text, with nothing
 still on its way to bring it back, `onChange` reports the document again so
 both end on it. React applies several values in one render, so the echo that

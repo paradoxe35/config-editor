@@ -381,8 +381,9 @@ pairs, `…One` for 1 and `…Other` otherwise.
 
 A parent that applies the edits late, even in another order (a store, a
 server round trip per edit), cannot roll the document back: a `modelValue`
-the editor sent that has not come back yet is taken as its echo, whatever
-its order or delay. Any other value (a revert, a reset, a loaded file) is
+the editor sent that has not come back yet is taken as its echo, in any order and however
+late, until 5 seconds after a value it sent later came back (one it
+skipped before that is then yours). Any other value (a revert, a reset, a loaded file) is
 applied. The values the editor sent before such a value belong to the text it replaced: switching back to a file applies its text (a parent still applying every late value after one of its own resets with `setValue`, below). `readOnlyRanges` and `hostDiagnostics` passed with an echo are in the echoed text: they are moved to the document. If an echo leaves the parent's value on an older text, with nothing
 still on its way to bring it back, `@update:model-value` reports the
 document again. Vue applies several values in one update, so the echo that
