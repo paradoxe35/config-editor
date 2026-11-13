@@ -85,7 +85,9 @@ pub(crate) fn keep_focus(
     let changed = {
         let watch = Rc::clone(&watch);
         Closure::<dyn Fn(web_sys::js_sys::Array)>::new(move |records: web_sys::js_sys::Array| {
-            if !concerns_last(&watch, &records) {
+            // The rows re-render on every keystroke and scroll: while the
+            // focus stays on a usable control, nothing to read.
+            if still_kept(&watch) || !concerns_last(&watch, &records) {
                 return;
             }
             watch.touched.set(true);
@@ -129,6 +131,19 @@ pub(crate) fn keep_focus(
                 .remove_event_listener_with_callback("focusout", focusout.as_ref().unchecked_ref());
         });
     });
+}
+
+/// Whether the control that had the focus (if any) still has it and may:
+/// a constant check, before any mutation record is read.
+fn still_kept(watch: &Watch) -> bool {
+    let last = watch.last.borrow();
+    let Some(last) = last.as_ref() else {
+        return true;
+    };
+    let active = web_sys::window()
+        .and_then(|window| window.document())
+        .and_then(|document| document.active_element());
+    active.as_ref() == Some(last.as_ref()) && usable(last)
 }
 
 /// Whether any of the mutation `records` added, removed, disabled or hid
