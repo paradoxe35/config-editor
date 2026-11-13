@@ -40,3 +40,23 @@ test.describe('a drag from the gutter', () => {
   }
 });
 
+test.describe('the documents view', () => {
+  setupEditor(test, '?documents');
+
+  test('Alt+PageDown and Alt+PageUp page no document, so a document comes back where it was left', async ({ page }) => {
+    const main = page.locator('[role="tabpanel"][data-document-id="main"] .config-editor__input');
+    await main.fill(Array.from({ length: 200 }, (_, index) => `key${index}: value`).join('\n'));
+    await main.evaluate((element) => {
+      element.focus();
+      element.setSelectionRange(0, 0);
+      element.scrollTop = 400;
+    });
+    await expect.poll(() => main.evaluate((element) => element.scrollTop)).toBe(400);
+    await page.keyboard.press('Alt+PageDown');
+    await expect(page.locator('[role="tab"][data-document-id="limits"]')).toHaveAttribute('aria-selected', 'true');
+    await page.keyboard.press('Alt+PageUp');
+    await expect(page.locator('[role="tab"][data-document-id="main"]')).toHaveAttribute('aria-selected', 'true');
+    expect(await main.evaluate((element) => element.scrollTop)).toBe(400);
+  });
+});
+

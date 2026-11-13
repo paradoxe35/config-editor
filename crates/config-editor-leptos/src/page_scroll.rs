@@ -25,8 +25,10 @@ pub(crate) fn keep_inside(root: &Element, event: &KeyboardEvent) {
         "PageUp" => false,
         _ => return,
     };
-    // Ctrl+PageDown is the browser's tab switch, which moves no page.
-    if event.default_prevented() || event.ctrl_key() || event.meta_key() {
+    // Ctrl+PageDown is the browser's tab switch, and Alt+PageDown the
+    // documents' (the editor's text pages itself first and declines Alt):
+    // neither moves a page, least of all the one being left.
+    if event.default_prevented() || event.ctrl_key() || event.meta_key() || event.alt_key() {
         return;
     }
     event.prevent_default();
