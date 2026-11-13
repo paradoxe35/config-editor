@@ -803,7 +803,9 @@ impl ConfigDocuments {
                 let edits = self.edits();
                 for document in &mut listed.documents {
                     if replaced.contains(&document.id.as_str())
-                        && let Some(value) = edits.get(&document.id)
+                        && let Some(value) = edits
+                            .get(&document.id)
+                            .and_then(|edited| edited.value.as_ref())
                     {
                         document.value.clone_from(value);
                     }
@@ -894,9 +896,9 @@ impl ConfigDocuments {
         Ok(())
     }
 
-    /// The text each shown document's editor holds (pending input
-    /// applied), for [`keep_edits`].
-    fn edits(&self) -> HashMap<String, String> {
+    /// What each open document holds that its list may not say, for
+    /// [`keep_edits`].
+    fn edits(&self) -> HashMap<String, Edited> {
         let ids: Vec<String> = self
             .state
             .documents
@@ -909,8 +911,13 @@ impl ConfigDocuments {
             .unwrap_or_default();
         ids.into_iter()
             .filter_map(|id| {
-                let value = self.state.handle.editor(&id)?.value()?;
-                Some((id, value))
+                let edit_as = config_editor_leptos::js_support::edit_as(&self.state.handle, &id)?;
+                let value = self
+                    .state
+                    .handle
+                    .editor(&id)
+                    .and_then(|editor| editor.value());
+                Some((id, Edited { value, edit_as }))
             })
             .collect()
     }
@@ -971,14 +978,26 @@ impl ConfigDocuments {
     }
 }
 
-/// Lists each shown document with the text its editor holds (`edits`): a
-/// list the view gives its documents again (a `replaceValue` of another
-/// one, the view's settings) is no discard of their edits, as a list the
-/// host gives is.
-fn keep_edits(documents: &mut [Document], edits: &HashMap<String, String>) {
+/// What an open document holds that its list may not say.
+struct Edited {
+    /// The text its editor holds (pending input applied), once shown.
+    value: Option<String>,
+    /// The language it is edited as, as its list or `editAs` asked last.
+    edit_as: Option<config_editor_leptos::Language>,
+}
+
+/// Lists each document with the text its editor holds and the language it
+/// is edited as (`edits`): a list the view gives its documents again (a
+/// `replaceValue` of another one, the view's settings) is no discard of
+/// their edits, nor of an `editAs` the handle made (QA 30, L30-4), as a
+/// list the host gives is.
+fn keep_edits(documents: &mut [Document], edits: &HashMap<String, Edited>) {
     for document in documents {
-        if let Some(value) = edits.get(&document.id) {
-            document.value.clone_from(value);
+        if let Some(edited) = edits.get(&document.id) {
+            if let Some(value) = &edited.value {
+                document.value.clone_from(value);
+            }
+            document.edit_as = edited.edit_as;
         }
     }
 }

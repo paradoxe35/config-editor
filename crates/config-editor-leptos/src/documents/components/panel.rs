@@ -112,8 +112,18 @@ fn focus_when_mounted(documents: Documents, entry: &Entry) {
             return;
         }
         documents.focus_editor.set(None);
-        // After the panel has lost `inert`.
-        later::next_frame(documents, move |_| handle.focus());
+        // Once the panel has lost `inert`: at the end of this task, so the
+        // keys pressed right after the switch (`Enter`, then `End`) land in
+        // the editor, not on the tab (QA 30, L30-6); a panel still inert
+        // then is shown by the next frame.
+        let id = id.clone();
+        later::soon(documents, move |documents| {
+            if documents.panel_inert(&id) {
+                later::next_frame(documents, move |_| handle.focus());
+            } else {
+                handle.focus();
+            }
+        });
     });
 }
 

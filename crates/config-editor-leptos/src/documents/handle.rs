@@ -72,6 +72,13 @@ impl DocumentsHandle {
         }
     }
 
+    /// The language the document `id` is edited as, as its list or
+    /// [`DocumentsHandle::edit_as`] asked last; `None` when it is not open.
+    pub(crate) fn edit_as_of(&self, id: &str) -> Option<Option<crate::Language>> {
+        let entry = self.view()?.entry(id)?;
+        Some(entry.edit_as.get_untracked())
+    }
+
     /// Whether a view is mounted with this handle. Reactive.
     pub fn is_mounted(&self) -> bool {
         self.documents.try_with(Option::is_some).unwrap_or(false)

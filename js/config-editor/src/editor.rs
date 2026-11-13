@@ -568,7 +568,7 @@ impl ConfigEditor {
         let _ = self
             .state
             .echoes
-            .try_update_value(|echoes| echoes.given(&value));
+            .try_update_value(|echoes| echoes.replaced(&value));
         self.show(value);
         Ok(())
     }

@@ -8,6 +8,7 @@ use leptos::prelude::*;
 use super::adding::Adding;
 use super::model::{CloseRequest, Document};
 use super::plan::{Fate, SchemaCache, Setup, active_after, reconcile};
+use super::tab_names::TabNames;
 use crate::EditorStrings;
 use crate::reactive::{Relay, detached_owner, later};
 use crate::{
@@ -246,7 +247,7 @@ pub(super) struct Follows {
     pub(super) strings: Relay<Arc<EditorStrings>>,
     /// Every tab's file name: what a tab shows of its own depends on the
     /// others' (see `tab_names`).
-    pub(super) names: Relay<Arc<super::tab_names::TabNames>>,
+    pub(super) names: Relay<Arc<TabNames>>,
 }
 
 /// Where the focus goes when a document is selected.
@@ -269,6 +270,9 @@ pub(super) struct Documents {
     pub(super) active: RwSignal<Option<String>>,
     /// A document whose editor takes the focus as soon as it is mounted.
     pub(super) focus_editor: RwSignal<Option<String>>,
+    /// Every tab's label, worked out again for the names a list changes
+    /// (see [`Documents::relabel`]).
+    tab_names: RwSignal<Arc<TabNames>>,
     /// The view's live region, for what a panel cannot say (see `conflicts`).
     pub(super) said: RwSignal<String>,
     pub(super) callbacks: Callbacks,
@@ -312,6 +316,7 @@ impl Documents {
         let entries = RwSignal::new_local(Vec::<Entry>::new());
         let active = RwSignal::new(None);
         let focus_editor = RwSignal::new(None);
+        let tab_names = RwSignal::new(Arc::default());
         // Entries are no owner's children: they go with the view here. All
         // their editors first, while what an editor's last report reaches
         // (any entry, the view's callbacks) still lives: the view's own
@@ -330,6 +335,7 @@ impl Documents {
             entries,
             active,
             focus_editor,
+            tab_names,
             said: RwSignal::new(String::new()),
             callbacks,
             follows: Follows {
@@ -339,14 +345,7 @@ impl Documents {
                 strings: Relay::new(move || {
                     Arc::new(settings.with(|settings| settings.strings.clone()))
                 }),
-                names: Relay::new(move || {
-                    Arc::new(super::tab_names::TabNames::new(entries.with(|entries| {
-                        entries
-                            .iter()
-                            .map(|entry| entry.file_name.get())
-                            .collect::<Vec<_>>()
-                    })))
-                }),
+                names: Relay::new(move || tab_names.get()),
             },
             root: NodeRef::new(),
             strip: NodeRef::new(),
@@ -469,6 +468,7 @@ impl Documents {
             existing[index].dispose_later(*self);
         }
         let ids: Vec<String> = entries.iter().map(|entry| entry.id.clone()).collect();
+        self.relabel(&entries);
         self.entries.set(entries);
         for entry in &added {
             self.report_dirty(&entry.id, entry.dirty.get_untracked());
@@ -486,6 +486,23 @@ impl Documents {
             }
             Some(next) => self.show(&next),
             None => self.active.set(None),
+        }
+    }
+
+    /// Works the tabs' labels out again for the names of `entries`, once
+    /// per list: only the groups of tabs sharing a file's name whose names
+    /// changed (renaming every file of a thousand made a thousand rounds
+    /// over every name).
+    fn relabel(&self, entries: &[Entry]) {
+        let names: Vec<String> = entries
+            .iter()
+            .map(|entry| entry.file_name.get_untracked())
+            .collect();
+        let relabelled = self
+            .tab_names
+            .with_untracked(|labels| labels.relabel(&names));
+        if let Some(relabelled) = relabelled {
+            self.tab_names.set(Arc::new(relabelled));
         }
     }
 
@@ -730,13 +747,22 @@ impl Documents {
             .is_some_and(|panel| panel.has_attribute("inert"))
     }
 
-    /// Focuses the tab of `id`, once it is rendered.
+    /// Focuses the tab of `id` once it is rendered: at the end of this
+    /// task, so the keys pressed right after land on it (QA 30, L30-6), or
+    /// by the next frame for a tab not rendered yet.
     fn focus_tab(&self, id: &str) {
-        let documents = *self;
         let id = id.to_string();
-        later::next_frame(documents, move |documents| {
-            if let Some(tab) = documents.tab_element(&id) {
-                let _ = crate::focus::in_place(&tab);
+        later::soon(*self, move |documents| {
+            let focus = |documents: Documents, id: &str| {
+                documents
+                    .tab_element(id)
+                    .map(|tab| crate::focus::in_place(&tab))
+                    .is_some()
+            };
+            if !focus(documents, &id) {
+                later::next_frame(documents, move |documents| {
+                    focus(documents, &id);
+                });
             }
         });
     }
