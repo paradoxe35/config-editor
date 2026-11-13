@@ -110,19 +110,6 @@ pub(in crate::documents) fn DocumentTab(documents: Documents, entry: Entry) -> i
     let keydown = move |event: KeyboardEvent| {
         id.with_value(|id| keys::on_tab_keydown(documents, id, &event));
     };
-    let class = move || {
-        let mut class = String::from("config-editor-documents__tab");
-        if selected.get() {
-            class.push_str(" config-editor-documents__tab-active");
-        }
-        if dirty.get() {
-            class.push_str(" config-editor-documents__tab-dirty");
-        }
-        if read_only.get() {
-            class.push_str(" config-editor-documents__tab-readonly");
-        }
-        class
-    };
     let close_title = documents.text(|strings| &strings.close_tab_title);
     let unsaved_title = documents.text(|strings| &strings.unsaved);
     let marker = move || {
@@ -156,7 +143,15 @@ pub(in crate::documents) fn DocumentTab(documents: Documents, entry: Entry) -> i
         <div
             role="tab"
             id=entry.tab_id(documents)
-            class=class
+            class="config-editor-documents__tab"
+            // One toggle per state: a switch of documents re-runs only the
+            // one that follows the selection. One closure reading all three
+            // would unsubscribe and resubscribe from `dirty` and `read_only`
+            // (which the editor reads too) on every switch, and that churn
+            // grows their subscriber tables at some later switch.
+            class:config-editor-documents__tab-active=move || selected.get()
+            class:config-editor-documents__tab-dirty=move || dirty.get()
+            class:config-editor-documents__tab-readonly=move || read_only.get()
             style=cssom(style)
             aria-controls=entry.panel_id(documents)
             aria-selected=move || selected.get().to_string()
