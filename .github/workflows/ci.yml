@@ -151,7 +151,13 @@ jobs:
         run: |
           npm ci
           npx playwright install --with-deps chromium
-          npx playwright test --reporter=line,blob --project=editor --no-deps --shard=${{ matrix.shard }}/${{ strategy.job-total }}
+          # Dealt round-robin by test, not in runs: Playwright's --shard takes a
+          # run of tests in file order, and the slow specs (the later QA rounds'
+          # hover and echo matrices) sit together in it and shared a machine.
+          npx playwright test --list --project=editor --no-deps | sed -n 's/^ *\(\[editor\] › .*\)$/\1/p' |
+            awk -v i=${{ matrix.shard }} -v n=${{ strategy.job-total }} '(NR - 1) % n == i - 1' > editor-tests.txt
+          echo "$(wc -l < editor-tests.txt) tests on this machine"
+          npx playwright test --reporter=line,blob --project=editor --no-deps --test-list editor-tests.txt
       - name: Keep this machine's report
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v4
