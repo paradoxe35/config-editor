@@ -96,3 +96,55 @@ fn yaml_reads_as_many_keys_items_and_documents_as_the_text_holds() {
         error.message
     );
 }
+
+/// A shape of text and how it is written at a size.
+type Shape = (&'static str, fn(usize) -> String);
+
+/// With no count of its own, YAML's reading is bounded by the text alone:
+/// four times the keys, items, merged maps or keys merged into one map
+/// cost about four times as long (a merged map scanned its own keys for
+/// each merged one: 14× at four times the size).
+#[cfg(feature = "yaml")]
+#[test]
+fn yaml_reads_in_time_linear_in_the_text() {
+    let shapes: [Shape; 4] = [
+        ("keys", |n| {
+            (0..n).map(|index| format!("k{index}: 1\n")).collect()
+        }),
+        ("items", |n| "- 1\n".repeat(n)),
+        ("merged maps", |n| {
+            let mut text: String = "x: &d\n".to_string()
+                + &(0..20)
+                    .map(|index| format!("  o{index}: v\n"))
+                    .collect::<String>()
+                + "s:\n";
+            (0..n / 28).for_each(|index| {
+                text.push_str(&format!("  s{index}:\n    <<: *d\n    image: a{index}\n"))
+            });
+            text
+        }),
+        ("keys merged into one map", |n| {
+            let half = |name: &str| {
+                (0..n / 2)
+                    .map(|index| format!("  {name}{index}: 1\n"))
+                    .collect::<String>()
+            };
+            format!("base: &b\n{}m:\n  <<: *b\n{}", half("b"), half("m"))
+        }),
+    ];
+    for (shape, text) in shapes {
+        let time = |n: usize| {
+            let text = text(n);
+            crate::editor::test_timing::best_of(3, || {
+                Language::YAML.behavior().parse(&text).is_ok()
+            })
+            .0
+        };
+        let (small, large) = (time(20_000), time(80_000));
+        let ratio = large.as_secs_f64() / small.as_secs_f64().max(1e-6);
+        assert!(
+            ratio < 8.0,
+            "{shape}: {small:?} -> {large:?} ({ratio:.1}x for 4x)"
+        );
+    }
+}

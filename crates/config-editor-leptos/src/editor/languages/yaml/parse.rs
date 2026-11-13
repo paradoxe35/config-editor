@@ -703,7 +703,10 @@ pub(super) fn first_yaml_span(source: &str) -> Option<(usize, usize, usize)> {
 pub(super) fn with_merge_keys(value: Value) -> Value {
     match value {
         Value::Object(map) => {
-            let own: Vec<String> = map.keys().filter(|key| *key != "<<").cloned().collect();
+            // A set: a merged map as wide as its own (thousands of keys) is
+            // looked up once per key, not scanned.
+            let own: std::collections::HashSet<String> =
+                map.keys().filter(|key| *key != "<<").cloned().collect();
             let mut merged = serde_json::Map::new();
             for (key, child) in map {
                 if key != "<<" {
