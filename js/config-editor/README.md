@@ -750,6 +750,13 @@ const editor = new ConfigEditor(element, {
   byte-for-byte. Nothing the editor shows, says or hands back (problems,
   hover, announcements, the diff preview, copies, `onChange`, console
   messages) holds a token the host did not send.
+- That holds for what the host sends: the editor shows the host's texts as
+  given. The `baseline` is shown too (the diff gutter, the change preview,
+  `unifiedDiff`), so it must hold the same placeholders as `value`, never
+  the stored secrets. A real value sent in a secret field (`value`,
+  `baseline`, a document of a `ConfigDocuments`, whose hidden documents stay
+  mounted) is shown, copied and handed back like any other text: send the
+  file with its secrets replaced by placeholders, never as it was loaded.
 - Editing in `language`, `onChange` hands back exactly the text on screen
   with the host's line endings, byte order mark, final newline, tabs and
   quoting (placeholders included); a text that did not change is not
