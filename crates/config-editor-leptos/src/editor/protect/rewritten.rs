@@ -17,9 +17,11 @@
 //! pasted over part of one, gives neither: what is left there is a piece
 //! of a token.
 
+use std::collections::{HashMap, HashSet};
 use std::ops::Range;
 
 use super::super::keyboard::utf16_to_byte_index;
+use super::super::work_count::{Work, note_many};
 
 /// `region` (UTF-16 in `before`; the edit to `after` replaced it) widened
 /// to the edges of the tokens among `tokens` (UTF-16 ranges in `before`) it
@@ -114,32 +116,49 @@ pub(crate) fn around_written(
     let Some(longest) = texts.iter().map(Vec::len).max() else {
         return region.clone();
     };
-    let old_len = before.encode_utf16().count();
-    let new_len = after.encode_utf16().count();
+    let old_len = super::super::text_change::utf16_len(before);
+    let new_len = super::super::text_change::utf16_len(after);
     let Some(inserted) = (new_len + region.len()).checked_sub(old_len) else {
         return region.clone();
     };
+    // Looked up by their text at each place, a few lengths: a document
+    // holds thousands of placeholders, and each keystroke asks.
+    let known: HashSet<&[u16]> = texts.iter().map(Vec::as_slice).collect();
+    let mut lengths: Vec<usize> = texts.iter().map(Vec::len).collect();
+    lengths.sort_unstable();
+    lengths.dedup();
     // How far past `edge` of the new text an occurrence of a token's text
-    // across it reaches: before it (`start`), or after it.
+    // across it reaches: before it (`start`), or after it. Each text's
+    // first occurrence counts.
     let across = |edge: usize, start: bool| {
         let from = edge.saturating_sub(longest);
         let to = (edge + longest).min(new_len);
         let window: Vec<u16> = utf16_slice(after, from..to).encode_utf16().collect();
-        texts
+        let mut first: HashMap<&[u16], usize> = HashMap::new();
+        for offset in 0..window.len() {
+            let at = from + offset;
+            if at >= edge {
+                break;
+            }
+            note_many(Work::TokenScan, lengths.len());
+            for &length in &lengths {
+                if offset + length > window.len() || at + length <= edge {
+                    continue;
+                }
+                let piece = &window[offset..offset + length];
+                if known.contains(piece) {
+                    first.entry(piece).or_insert(at);
+                }
+            }
+        }
+        first
             .iter()
-            .filter_map(|text| {
-                window
-                    .windows(text.len())
-                    .enumerate()
-                    .map(|(at, piece)| (from + at, piece))
-                    .find(|(at, piece)| *at < edge && at + text.len() > edge && piece == text)
-                    .map(|(at, _)| {
-                        if start {
-                            edge - at
-                        } else {
-                            at + text.len() - edge
-                        }
-                    })
+            .map(|(text, at)| {
+                if start {
+                    edge - at
+                } else {
+                    at + text.len() - edge
+                }
             })
             .max()
             .unwrap_or(0)

@@ -20,6 +20,8 @@
 //! - `view`: the gutter lock and muted values of each line;
 //! - `texts`: the built-in texts.
 
+#[cfg(test)]
+mod around_written_tests;
 mod carry;
 mod components;
 mod follow;
