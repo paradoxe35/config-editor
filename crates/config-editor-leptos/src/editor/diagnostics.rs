@@ -60,6 +60,10 @@ pub(super) struct SchemaBundle {
     pub(super) schema: Value,
     /// What the editor cannot use in the schema (see [`Schema::warnings`]).
     pub(super) warnings: Vec<String>,
+    /// Whether the warnings went to the console already: the editors that
+    /// share this compiled schema (a documents view's, of one schema text)
+    /// say them there once.
+    pub(super) warned_console: std::sync::atomic::AtomicBool,
     /// Some property is `deprecated`: documents are checked for its key.
     pub(super) has_deprecated: bool,
     /// Some field is `readOnly`, `writeOnly` or `x-secret`: documents are
@@ -102,6 +106,7 @@ pub(super) fn build_schema(schema_text: &str) -> Result<SchemaBundle, String> {
     Ok(SchemaBundle {
         schema,
         warnings,
+        warned_console: std::sync::atomic::AtomicBool::new(false),
         has_deprecated,
         has_marks,
         #[cfg(feature = "schema-validation")]

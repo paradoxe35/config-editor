@@ -307,8 +307,16 @@ pub fn ConfigEditor(
         None => (None, None),
     };
     let has_schema = schema.is_some();
+    // Without a callback they go to the console, once for all the editors
+    // sharing the compiled schema.
     let schema_warnings = schema
         .as_ref()
+        .filter(|schema| {
+            on_schema_warning.is_some()
+                || !schema
+                    .warned_console
+                    .swap(true, std::sync::atomic::Ordering::Relaxed)
+        })
         .map(|schema| schema.warnings.clone())
         .unwrap_or_default();
     // As the host wrote it: the state keeps its line endings for what it
