@@ -177,8 +177,14 @@ test.describe('keys the editor handles keep the caret in view', () => {
       element.scrollTop = 4000;
     });
     await page.waitForTimeout(100);
-    const row = page.locator('.config-editor__gutter-content > div[data-line]').nth(45);
-    const line = Number(await row.getAttribute('data-line'));
+    // A row in the middle of the view (the rendered rows reach past it both ways).
+    const line = await page.evaluate(() => {
+      const view = document.querySelector('.config-editor__input').getBoundingClientRect();
+      const middle = (view.top + view.bottom) / 2;
+      const rows = [...document.querySelectorAll('.config-editor__gutter-content > div[data-line]')];
+      return Number(rows.find((row) => row.getBoundingClientRect().bottom > middle).dataset.line);
+    });
+    const row = page.locator(`.config-editor__gutter-content > div[data-line="${line}"]`);
     const before = await e.input.evaluate((element) => element.scrollTop);
     await row.click();
     const after = await e.input.evaluate((element) => element.scrollTop);
