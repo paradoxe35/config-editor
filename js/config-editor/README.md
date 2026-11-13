@@ -54,7 +54,6 @@ which build on this package.
   - [Size](#size)
   - [Strict Content-Security-Policy](#strict-content-security-policy)
 - [License](#license)
-
 <!-- /toc -->
 
 ## Install

@@ -62,7 +62,6 @@ method and headless function here has a JS option, method or function there
   - [Without a feature](#without-a-feature)
   - [Size](#size)
 - [License](#license)
-
 <!-- /toc -->
 
 ## Install
