@@ -156,6 +156,12 @@ pub(super) fn next_problem(state: EditorState, event: &KeyboardEvent) -> bool {
         })
     });
     let Some(position) = next_stop(&stops, here, last, event.shift_key()) else {
+        // Nothing to walk to: said, as the key looks like it did nothing
+        // (with the problems switched off there is no walk to speak of).
+        if state.config().settings.diagnostics.get_untracked() {
+            let said = state.strings_untracked(|strings| strings.walk_no_problems.clone());
+            state.a11y().announce(said);
+        }
         return true;
     };
     let index = stops[position].index;

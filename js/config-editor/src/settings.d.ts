@@ -352,6 +352,12 @@ export interface EditorStrings {
    */
   reload?: string;
   /**
+   * Announced after Reload took the changed baseline.
+   *
+   * @default "Reloaded"
+   */
+  reloaded?: string;
+  /**
    * Its tooltip.
    *
    * @default "Replace your text with the new version ({cmd}+Z brings yours back)"
@@ -652,6 +658,18 @@ export interface EditorStrings {
    */
   changePosition?: string;
   /**
+   * Announced on `Alt+F5` / `Alt+F3` when nothing differs from the baseline.
+   *
+   * @default "No changes"
+   */
+  noChanges?: string;
+  /**
+   * Announced when a change is reverted.
+   *
+   * @default "Reverted"
+   */
+  reverted?: string;
+  /**
    * The preview's revert button.
    *
    * @default "Revert"
@@ -861,6 +879,12 @@ export interface EditorStrings {
    * @default "{severity} {position} of {total}{source}: {message}"
    */
   problemPosition?: string;
+  /**
+   * Announced on `F8` when there are no problems.
+   *
+   * @default "No problems"
+   */
+  walkNoProblems?: string;
   /**
    * After a problem's text for screen readers: its `{code}` (from the host).
    *

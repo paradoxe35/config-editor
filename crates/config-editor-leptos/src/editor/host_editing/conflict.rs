@@ -90,6 +90,8 @@ impl EditorState {
             );
         }
         self.close_conflict(BaselineConflict::Reloaded);
+        let said = self.strings_untracked(|strings| strings.reloaded.clone());
+        self.a11y().announce(said);
     }
 
     /// Keep mine: the text stays and is compared with the new baseline.

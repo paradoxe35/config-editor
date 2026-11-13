@@ -39,7 +39,9 @@ fn chords(state: EditorState) -> String {
         chords.extend(control_or_meta("S"));
     }
     chords.push("Control+M".to_string());
-    chords.extend(["F8", "Shift+F8"].map(String::from));
+    if settings.diagnostics.get() {
+        chords.extend(["F8", "Shift+F8"].map(String::from));
+    }
     if cfg!(feature = "diff") && settings.diff.get() {
         chords.extend(["Alt+F5", "Shift+Alt+F5"].map(String::from));
     }

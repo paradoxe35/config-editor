@@ -15,7 +15,9 @@ for (const query of ['', '?documents']) {
     await page.keyboard.press('Tab');
     await expect(page.locator('.demo__skip')).toBeFocused();
     await page.keyboard.press('Enter');
-    await expect(page.locator('main')).toBeFocused();
+    // The editor's text area, not `main` (which holds the toolbar too:
+    // nothing would be skipped; QA 30's A30-6).
+    await expect(page.locator('.config-editor__input').first()).toBeFocused();
   });
 }
 

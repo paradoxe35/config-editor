@@ -1470,6 +1470,7 @@
   color: var(--config-editor-completion-match-active);
 }
 .config-editor__completion-active .config-editor__completion-type,
+.config-editor__completion-active .config-editor__completion-detail,
 .config-editor__completion-active .config-editor__completion-deprecated {
   color: var(--config-editor-completion-type-active);
 }

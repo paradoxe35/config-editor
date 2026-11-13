@@ -158,6 +158,8 @@ pub struct EditorStrings {
     pub baseline_changed_detail: String,
     /// The notice's button that takes the new baseline as the text.
     pub reload: String,
+    /// Announced after Reload took the changed baseline.
+    pub reloaded: String,
     /// Its tooltip.
     pub reload_title: String,
     /// The notice's button that keeps the text against the new baseline.
@@ -268,6 +270,11 @@ pub struct EditorStrings {
     /// Announced on `Alt+F5` / `Shift+Alt+F5`: the change's `{title}` (as
     /// the preview's), its `{line}`, and its `{position}` of `{total}`.
     pub change_position: String,
+    /// Announced on `Alt+F5` / `Alt+F3` when nothing differs from the
+    /// baseline.
+    pub no_changes: String,
+    /// Announced when a change is reverted.
+    pub reverted: String,
     /// The preview's revert button.
     pub revert: String,
     /// Its tooltip, for a one-line change.
@@ -350,6 +357,8 @@ pub struct EditorStrings {
     pub problem: String,
     /// Announced on `F8`: problem `{position}` of `{total}`.
     pub problem_position: String,
+    /// Announced on `F8` when there are no problems.
+    pub walk_no_problems: String,
     /// After a problem's text for screen readers: its `{code}` (from the
     /// host).
     pub problem_code: String,
@@ -574,6 +583,7 @@ impl Default for EditorStrings {
                 "Reload it, losing your changes, or keep your text and compare it with the new version.",
             ),
             reload: text("Reload"),
+            reloaded: text("Reloaded"),
             reload_title: text(
                 "Replace your text with the new version ({cmd}+Z brings yours back)",
             ),
@@ -630,6 +640,8 @@ impl Default for EditorStrings {
             preview_heading: text("{title} · line {line}"),
             preview_label: text("{title}, line {line}"),
             change_position: text("{title}, line {line}: change {position} of {total}"),
+            no_changes: text("No changes"),
+            reverted: text("Reverted"),
             revert: text("Revert"),
             revert_title: text("Revert this change (R)"),
             revert_lines_title: text("Revert this change (lines {first}–{last}) (R)"),
@@ -669,6 +681,7 @@ impl Default for EditorStrings {
             problem_source: text(" from {source}"),
             problem: text("{severity}{source}: {message}"),
             problem_position: text("{severity} {position} of {total}{source}: {message}"),
+            walk_no_problems: text("No problems"),
             problem_code: text(" Code {code}."),
             problem_docs: text(" Documentation: {url} (Alt+Enter opens it)."),
             problem_marker: text("{language} {severity}{source} on line {line}: {message}"),

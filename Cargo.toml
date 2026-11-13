@@ -21,7 +21,7 @@ bytecount = { git = "https://github.com/CharlesNg35/bytecount", rev = "f9dd655e3
 console_error_panic_hook = "0.1.7"
 leptos = { version = "0.8.23", features = ["csr"] }
 config-editor-leptos = { path = "crates/config-editor-leptos" }
-web-sys = { version = "0.3", features = ["DomRect", "Element", "EventTarget", "FocusEvent", "History", "HtmlDialogElement", "HtmlElement", "KeyboardEvent", "Location", "Node", "NodeList", "PointerEvent", "Window"] }
+web-sys = { version = "0.3", features = ["DomRect", "Element", "EventTarget", "FocusEvent", "History", "HtmlDialogElement", "HtmlElement", "KeyboardEvent", "Location", "MouseEvent", "Node", "NodeList", "PointerEvent", "Window"] }
 serde_json = "1"
 
 # Keep the editor responsive while developing: dependencies (schema validation,
