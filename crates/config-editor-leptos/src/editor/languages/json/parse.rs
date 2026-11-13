@@ -27,6 +27,8 @@ pub(super) fn json_parse(source: &str) -> Result<Value, ParseError> {
         // is reported as what it is, not as the token it stands in for.
         let message = if source[at..].starts_with("//") || source[at..].starts_with("/*") {
             "JSON has no comments: remove this one".to_string()
+        } else if message == "recursion limit exceeded" {
+            super::super::nesting::too_deep(super::super::nesting::VALUES)
         } else {
             message
         };

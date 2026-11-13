@@ -24,6 +24,20 @@ pub(super) fn yaml_parse(source: &str) -> Result<Value, ParseError> {
         .map(|parsed: super::super::super::codec::non_finite::Parsed| parsed.0)
         .map_err(|error| {
         let line_count = source.split('\n').count().max(1);
+        if super::limits::is_too_deep(&error) {
+            let at = super::limits::too_deep_at(source, |prefix| {
+                noyalib::from_str_with_config::<noyalib::Value>(prefix, &parser_config).map(drop)
+            });
+            let (line, column) = at.map_or((None, None), |at| {
+                let (line, column) = crate::editor::paths::line_column(source, at);
+                (Some(line), Some(column))
+            });
+            return ParseError {
+                message: super::super::nesting::too_deep(super::super::nesting::VALUES),
+                line,
+                column,
+            };
+        }
         let location = error.location();
         let line = location
             .as_ref()

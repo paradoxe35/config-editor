@@ -141,7 +141,9 @@ pub(super) fn readable_error(message: &str) -> String {
         .lines()
         .filter_map(|line| line.trim().strip_prefix("= "))
         .collect();
-    if notes.is_empty() {
+    if message.contains("invalid nesting depth") {
+        super::super::nesting::too_deep(super::super::nesting::VALUES)
+    } else if notes.is_empty() {
         message.lines().next().unwrap_or(message).trim().to_string()
     } else {
         notes.join("; ")

@@ -13,7 +13,14 @@ pub(super) fn toml_parse(source: &str) -> Result<Value, ParseError> {
             .unwrap_or((1, 1));
         let (line, column) = (line.clamp(1, line_count), column.max(1));
         ParseError {
-            message: super::super::wide_integers::out_of_range(source, line, column).unwrap_or_else(|| error.message().to_string()),
+            message: super::super::wide_integers::out_of_range(source, line, column).unwrap_or_else(|| {
+                let message = error.message();
+                if message.starts_with("cannot recurse further") {
+                    super::super::nesting::too_deep(super::super::nesting::VALUES)
+                } else {
+                    message.to_string()
+                }
+            }),
             line: Some(line),
             column: Some(column),
         }

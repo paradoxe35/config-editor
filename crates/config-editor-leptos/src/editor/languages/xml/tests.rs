@@ -690,7 +690,7 @@ fn highlighting_covers_every_character_of_tricky_lines() {
 fn nesting_deeper_than_the_limit_is_an_error_not_a_crash() {
     let deep = "<a>".repeat(20_000) + &"</a>".repeat(20_000);
     let error = XmlBehavior.parse(&deep).unwrap_err();
-    assert!(error.message.contains("deeper than 128"), "{}", error.message);
+    assert!(error.message.contains("Elements nest too deeply here"), "{}", error.message);
     assert_eq!(error.line, Some(1));
     let fine = "<a>".repeat(100) + "1" + &"</a>".repeat(100);
     assert!(XmlBehavior.parse(&fine).is_ok());

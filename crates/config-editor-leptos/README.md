@@ -15,7 +15,10 @@ headless API for the same parsing, validation, and conversion.
   gutter against a baseline (with per-change revert, a change count and a
   unified diff), read-only mode, and eleven bundled themes.
 - **Large files:** only visible rows are rendered; typing stays fast in
-  documents of thousands of lines.
+  documents of thousands of lines. No count of keys, items or lines is
+  capped; only nesting is: maps and lists (or XML elements) nested deeper
+  than the language's reader goes (64 or more levels) get a problem at the
+  place they go too deep.
 
 For JavaScript and React, see [`@pngwasi/config-editor`] and
 [`@pngwasi/config-editor-react`]; they wrap this crate. Every prop, handle

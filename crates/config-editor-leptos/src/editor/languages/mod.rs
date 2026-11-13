@@ -214,6 +214,8 @@ mod number_forms;
 // Integers past 64 bits a parser reads as floats: a syntax error.
 #[cfg(any(feature = "json", feature = "yaml", feature = "toml", feature = "hcl"))]
 mod wide_integers;
+// One sentence for a text nested deeper than its reader goes.
+mod nesting;
 
 macro_rules! registry {
     ($($(#[doc = $doc:literal])* $feature:literal => $constant:ident => $module:ident::$implementation:ident,)+) => {

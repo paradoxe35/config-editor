@@ -38,7 +38,41 @@ pub(super) fn parser_config(source: &str) -> Result<ParserConfig, usize> {
     // before the text limit (it counts each value at the size of one in
     // memory).
     config.max_document_length = usize::MAX;
+    // The counts the parser bounds on its own (keys of one map, items of
+    // one list, documents of a stream, nodes, events, scalar bytes, merge
+    // keys) are bounded by the text's length already, and what aliases add
+    // by the guard above: a large file reads as it is written. Only the
+    // nesting depth stays, which bounds the parser's stack.
+    config.max_stream_bytes = usize::MAX;
+    config.max_mapping_keys = usize::MAX;
+    config.max_sequence_length = usize::MAX;
+    config.max_events = usize::MAX;
+    config.max_nodes = usize::MAX;
+    config.max_total_scalar_bytes = usize::MAX;
+    config.max_documents = usize::MAX;
+    config.max_merge_keys = usize::MAX;
     Ok(config)
+}
+
+/// Whether `error` is the parser refusing to nest deeper.
+pub(super) fn is_too_deep(error: &Error) -> bool {
+    matches!(error, Error::RecursionLimitExceeded { .. })
+}
+
+/// Where `source` first nests deeper than `read` goes: the end of the
+/// shortest prefix whose reading is refused for its depth (the parser
+/// reads in order, so it is refused there before anything later is seen).
+/// Read only when the whole text was refused so.
+pub(super) fn too_deep_at(source: &str, read: impl Fn(&str) -> Result<(), Error>) -> Option<usize> {
+    let ends: Vec<usize> = source
+        .char_indices()
+        .map(|(at, character)| at + character.len_utf8())
+        .collect();
+    let refused = |end: usize| read(&source[..end]).is_err_and(|error| is_too_deep(&error));
+    let first = ends.partition_point(|&end| !refused(end));
+    let end = *ends.get(first)?;
+    // The character that went one level too deep.
+    Some(source[..end].char_indices().next_back().map_or(0, |(at, _)| at))
 }
 
 /// Whether `error` is the expansion guard refusing a document.

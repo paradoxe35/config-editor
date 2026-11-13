@@ -123,7 +123,7 @@ pub(super) fn build_value(source: &str) -> Result<Value, ParseError> {
                     return Err(syntax_error(
                         source,
                         event_start,
-                        format!("elements nest deeper than {MAX_NESTING} levels"),
+                        super::super::nesting::too_deep("Elements"),
                     ));
                 }
                 let top_level = stack.is_empty();
