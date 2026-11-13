@@ -122,8 +122,8 @@ fn no_edit_of_the_first_line_reaches_the_byte_order_mark() {
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
-/// A host emptied and written again gets its mark back; an emptied one is
-/// empty.
+/// A host emptied keeps its mark alone, and written again gets its text
+/// after it.
 #[test]
 fn an_emptied_document_written_again_is_marked() {
     for &language in Language::ALL {
@@ -145,7 +145,7 @@ fn an_emptied_document_written_again_is_marked() {
         state.commit(Edit::new(String::new(), (0, 0), plain.clone(), plain.len()));
         assert_eq!(
             changes.get_untracked(),
-            vec![String::new(), format!("{BOM}{plain}")],
+            vec![BOM.to_string(), format!("{BOM}{plain}")],
             "{language}"
         );
     }
@@ -183,4 +183,27 @@ fn edits_from_every_view_keep_the_byte_order_mark() {
         }
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+/// Undoing back to an empty screen (a file that is only its mark, edited and
+/// undone; a document emptied by select-all and Delete, then undone and
+/// saved) hands the host the mark, never the bare empty text.
+#[test]
+fn undoing_to_an_empty_screen_keeps_the_byte_order_mark() {
+    for &language in Language::ALL {
+        let changes = RwSignal::new(Vec::<String>::new());
+        let mut editor = TestEditor::new(language, &BOM.to_string());
+        editor.on_change = Some(Callback::new(move |text| {
+            changes.update(|all| all.push(text));
+        }));
+        let (_owner, state) = editor.mount();
+        assert_eq!(state.doc().text.get_untracked(), "", "{language}");
+        state.commit(Edit::new(String::new(), (0, 0), "Z".to_string(), 1));
+        state.commit(Edit::new("Z".to_string(), (0, 1), String::new(), 0));
+        assert_eq!(
+            changes.get_untracked().last(),
+            Some(&BOM.to_string()),
+            "{language}"
+        );
+    }
 }

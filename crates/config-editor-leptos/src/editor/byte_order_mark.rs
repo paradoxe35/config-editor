@@ -24,15 +24,16 @@ pub(crate) fn split(source: &str) -> (&str, bool) {
     }
 }
 
-/// `text` with the mark `source` starts with, if it does (an emptied
-/// document is empty).
+/// `text` with the mark `source` starts with, if it does.
 pub(crate) fn restore(source: &str, text: String) -> String {
     if split(source).1 { marked(text) } else { text }
 }
 
-/// `text` starting with the mark, once (an emptied document is empty).
+/// `text` starting with the mark, once. An emptied document keeps it: the
+/// mark belongs to the file's encoding, not to what was typed, so undoing
+/// back to nothing is the file the host started with.
 pub(crate) fn marked(text: String) -> String {
-    if split(&text).1 || text.is_empty() {
+    if split(&text).1 {
         text
     } else {
         format!("{MARK}{text}")
