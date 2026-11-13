@@ -228,6 +228,8 @@ fn FoldChip(state: EditorState, item: FoldItem) -> impl IntoView {
             data-line=line + 1
             style=cssom(row_box(item.chip_column as f64 / 100.0 + 1.0, item.row, None))
             tabindex="-1"
+            // The chip exists only while its fold is closed.
+            aria-expanded="false"
             aria-label=label
             title=label
             on:mousedown=keep_focus

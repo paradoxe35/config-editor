@@ -9,7 +9,7 @@ use leptos::prelude::*;
 
 use super::super::entries::{Documents, Entry};
 use crate::reactive::{later, mount_detached};
-use crate::{ConfigEditor, Diagnostic, EditorSettings, Language, SaveRequest};
+use crate::{BaselineConflict, ConfigEditor, Diagnostic, EditorSettings, Language, SaveRequest};
 
 #[component]
 pub(in crate::documents) fn DocumentPanel(documents: Documents, entry: Entry) -> impl IntoView {
@@ -19,7 +19,8 @@ pub(in crate::documents) fn DocumentPanel(documents: Documents, entry: Entry) ->
         active.with(|active| id.with_value(|id| active.as_deref() == Some(id.as_str())))
     });
     focus_when_mounted(documents, &entry);
-    let panel = mount_when_shown(documents, &entry);
+    let conflict = super::super::conflicts::follow_conflict(documents, &entry, shown);
+    let panel = mount_when_shown(documents, &entry, conflict);
     let class = move || {
         if shown.get() {
             "config-editor-documents__panel"
@@ -45,7 +46,11 @@ pub(in crate::documents) fn DocumentPanel(documents: Documents, entry: Entry) ->
 /// at once when the view shows it (`Entry::mount_now`), or once the panel
 /// is on the page for a document shown before. As a view of its own, with
 /// an owner of its own, unmounted (then cleaned up) with the panel.
-fn mount_when_shown(documents: Documents, entry: &Entry) -> NodeRef<leptos::html::Div> {
+fn mount_when_shown(
+    documents: Documents,
+    entry: &Entry,
+    conflict: Callback<BaselineConflict>,
+) -> NodeRef<leptos::html::Div> {
     let panel: NodeRef<leptos::html::Div> = NodeRef::new();
     let mounted = entry.editor;
     let mount = {
@@ -59,7 +64,9 @@ fn mount_when_shown(documents: Documents, entry: &Entry) -> NodeRef<leptos::html
                 return;
             };
             let shown = entry.clone();
-            let view = untrack(|| mount_detached(element.into(), move || editor(documents, shown)));
+            let view = untrack(|| {
+                mount_detached(element.into(), move || editor(documents, shown, conflict))
+            });
             mounted.set_value(Some(view));
             report_language_once_mounted(documents, entry.clone());
         }
@@ -112,7 +119,11 @@ fn focus_when_mounted(documents: Documents, entry: &Entry) {
 
 /// The document's editor, its callbacks reporting to the host with the
 /// document's id.
-fn editor(documents: Documents, entry: Entry) -> impl IntoView {
+fn editor(
+    documents: Documents,
+    entry: Entry,
+    on_conflict: Callback<BaselineConflict>,
+) -> impl IntoView {
     let Documents {
         callbacks, follows, ..
     } = documents;
@@ -181,6 +192,7 @@ fn editor(documents: Documents, entry: Entry) -> impl IntoView {
             nostrip:on_problems=problems_changed
             on_edit_as_change=language_changed
             on_sync_change=sync_changed
+            on_baseline_conflict=on_conflict
             handle=entry.handle
         />
     }

@@ -7,6 +7,7 @@
 //!   editors, the active document, shared schemas), unit-tested.
 //! - `entries`: the open documents as the view holds them, and the shared
 //!   context every part acts through.
+//! - `conflicts`: a baseline conflict in a document that is not shown.
 //! - `keys`, `handle`, `components`: keyboard, the host's
 //!   [`DocumentsHandle`], and the view.
 
@@ -14,6 +15,7 @@ use leptos::prelude::*;
 
 mod adding;
 mod components;
+mod conflicts;
 mod entries;
 mod handle;
 mod kept_focus;
@@ -242,6 +244,15 @@ pub fn ConfigDocuments(
         >
             {crate::preset_style::preset_style(documents_view.root, styled)}
             <TabStrip documents=documents_view label=label />
+            // Says what an inert panel cannot (see `conflicts`).
+            <div
+                class="config-editor__sr-only config-editor-documents__announcement"
+                role="status"
+                aria-live="polite"
+                aria-atomic="true"
+            >
+                {move || documents_view.said.get()}
+            </div>
             <div class="config-editor-documents__panels">
                 <KeyedList each=panels key=|entry| entry.serial children=panel />
                 <Show when=empty>

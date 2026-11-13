@@ -20,7 +20,9 @@ mod rows;
 mod unified;
 
 pub(super) use commands::{ChangesState, report_changes};
-pub(super) use components::{ChangeMarkers, ChangeStatus, DiffPeekPopup, tab_into_preview};
+pub(super) use components::{
+    ChangeMarkers, ChangeStatus, DiffPeekPopup, tab_around_preview, tab_into_preview,
+};
 pub(super) use keys::go_to_change;
 pub(super) use line_diff::LineDiff;
 #[cfg(feature = "folding")]

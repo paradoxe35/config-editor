@@ -112,6 +112,8 @@ pub fn view(many: bool) -> impl IntoView {
     let on_screen = RwSignal::new(Vec::<(String, Language)>::new());
     // A dirty document the user asked to close, waiting for "Discard".
     let asking = RwSignal::new(None::<String>);
+    // What the page says to a screen reader about its own buttons' doing.
+    let announcement = RwSignal::new(String::new());
     let added = RwSignal::new(0usize);
     let settings = RwSignal::new(crate::initial_settings(&crate::query_flags()));
 
@@ -229,6 +231,7 @@ pub fn view(many: bool) -> impl IntoView {
         with_document(documents, "limits", |document| {
             document.file_name = "conf.d/10-limits.toml".to_string();
         });
+        announcement.set("Renamed limits to conf.d/10-limits.toml".to_string());
     };
     let save_all = move |_| {
         tabs.save_all();
@@ -258,6 +261,9 @@ pub fn view(many: bool) -> impl IntoView {
                 <button class="demo__button demo__rename" type="button" on:click=rename>"Rename limits"</button>
                 <button class="demo__button demo__toggle-closable" type="button" on:click=toggle_closable>"Toggle closable (main)"</button>
             </div>
+            <p class="demo__visually-hidden demo__announcement" role="status" aria-live="polite">
+                {move || announcement.get()}
+            </p>
             <UnsavedDialog asking=asking discard=discard />
             <ConfigDocuments
                 documents=documents

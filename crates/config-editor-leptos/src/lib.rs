@@ -98,6 +98,7 @@ mod documents;
 mod editor;
 mod focus;
 mod ime;
+mod live_region;
 mod page_scroll;
 mod preset_style;
 mod reactive;

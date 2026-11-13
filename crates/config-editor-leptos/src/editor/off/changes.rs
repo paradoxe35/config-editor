@@ -61,6 +61,10 @@ pub(super) fn preview_open(_state: EditorState) -> bool {
     false
 }
 
+pub(super) fn tab_around_preview(_state: EditorState, _event: &KeyboardEvent) -> bool {
+    false
+}
+
 pub(super) fn tab_into_preview(_state: EditorState) -> bool {
     false
 }

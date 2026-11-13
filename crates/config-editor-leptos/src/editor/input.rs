@@ -279,10 +279,11 @@ pub(super) fn flush_input(state: EditorState) {
     } else {
         burst.input_type
     };
-    // Backspace with the list open refilters it instead of closing.
-    let refilter = input_type == "deleteContentBackward"
-        && state.completion().requested.get_untracked()
-        && !state.completion().suggestions.with_untracked(Vec::is_empty);
+    // Backspace with the list asked for refilters it instead of closing,
+    // also when the filter had left nothing: taking back what emptied it
+    // brings the options back. A list the user closed is not asked for.
+    let refilter =
+        input_type == "deleteContentBackward" && state.completion().requested.get_untracked();
     let typed = replayed_caret.map_or(burst.latest_selection, |caret| (caret, caret));
     let edit = Edit::input(
         before.clone(),

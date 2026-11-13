@@ -9,20 +9,23 @@
 //!   points at, updated a moment after the caret stops.
 //! - `announce`: one polite live region for short messages (the Tab mode,
 //!   "Error 2 of 5: …" on F8).
+//! - `shortcuts`: the keys that work in the text, as `aria-keyshortcuts`.
 //! - `suggestions`: the suggestion list named on the textarea, with the
 //!   highlighted suggestion as its active descendant.
 //! - `texts`: how problems are worded for screen readers.
 
 mod caret_note;
 mod focus;
+mod shortcuts;
 mod suggestions;
 mod texts;
 
 pub(super) use caret_note::{
     caret_position, caret_problem_docs, caret_problems_said, connect_caret_note, open_docs,
-    open_docs_key, problems_at_caret, show_at_caret,
+    open_docs_key, problems_at_caret, say_protected_at_caret, show_at_caret,
 };
 pub(super) use focus::{focus_keys, toggle_tab_focus};
+pub(super) use shortcuts::connect_shortcuts;
 pub(super) use suggestions::connect_suggestions;
 pub(super) use texts::{hover_text, problem_announcement, problem_marker, severity_name};
 
@@ -77,21 +80,9 @@ impl A11yState {
     }
 
     /// Says `message` through the live region; the same message again is
-    /// said again (a no-break space tells the two apart).
+    /// said again (see [`crate::live_region::say`]).
     pub(super) fn announce(&self, message: String) {
-        let repeated = self
-            .announcement
-            .with_untracked(|shown| shown.trim_end_matches('\u{a0}') == message);
-        let message = if repeated
-            && !self
-                .announcement
-                .with_untracked(|shown| shown.ends_with('\u{a0}'))
-        {
-            format!("{message}\u{a0}")
-        } else {
-            message
-        };
-        self.announcement.set(message);
+        crate::live_region::say(self.announcement, message);
     }
 }
 

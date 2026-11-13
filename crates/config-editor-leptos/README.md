@@ -1341,8 +1341,14 @@ validator: port in use"), why a read-only value is read-only, a secret
 placeholder's hint. It follows the caret a moment after it stops. `F8` and
 `Shift+F8` announce the problem they move to through a polite live region
 ("Error 2 of 5: …"). The suggestion list is a `listbox`, hover help a
-`tooltip`, the change preview a `dialog`, and the footer's counts
-`aria-live`.
+`tooltip`, the change preview a `dialog`, and the footer's problem count
+`aria-live` (the change count is a button: `Alt+F5` announces each change).
+The text area names the single keys that work in it, with the settings it has
+(`aria-keyshortcuts`); the two-step ones (`Ctrl+K Ctrl+I`) cannot be spelled
+there. A baseline conflict in a document that is not shown is announced by the
+documents view when it opens and when the document is shown, and the tab's
+name carries it meanwhile; `fold`, `unfold`, `fold_all` and `unfold_all` of the
+handle announce what they did, as the keys do.
 
 A click, double-click, drag or tap on underlined text reaches the text (the
 caret lands where it is clicked), and the tip lists every problem covering

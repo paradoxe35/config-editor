@@ -370,6 +370,7 @@ pub fn ConfigEditor(
     state.connect_protection();
     a11y::connect_caret_note(state);
     a11y::connect_suggestions(state);
+    a11y::connect_shortcuts(state);
     if let Some(handle) = handle {
         handle.attach(state);
     }

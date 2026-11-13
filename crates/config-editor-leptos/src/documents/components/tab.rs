@@ -24,6 +24,7 @@ pub(in crate::documents) fn DocumentTab(documents: Documents, entry: Entry) -> i
     let Entry {
         file_name,
         dirty,
+        conflicted,
         read_only,
         read_only_reason,
         ..
@@ -50,6 +51,9 @@ pub(in crate::documents) fn DocumentTab(documents: Documents, entry: Entry) -> i
         strings.with(|strings| {
             if dirty.get() {
                 name.push_str(&format!(", {}", strings.unsaved));
+            }
+            if conflicted.get() {
+                name.push_str(&format!(", {}", strings.baseline_changed));
             }
             if read_only.get() {
                 name.push_str(&format!(", {}", strings.read_only_tab));

@@ -67,14 +67,30 @@ pub(super) fn note(
         .iter()
         .filter(|problem| covers(problem, line, column))
         .map(|problem| problem_text(strings, problem))
-        .chain(protected.map(|(label, message)| {
-            fill(
-                &strings.protected_note,
-                &[("label", &label), ("message", &message)],
-            )
-        }))
+        .chain(protected.map(|(label, message)| protected_text(strings, &label, &message)))
         .collect::<Vec<_>>()
         .join(". ")
+}
+
+/// What protected text is, as the note words it: "Read-only: why".
+fn protected_text(strings: &EditorStrings, label: &str, message: &str) -> String {
+    fill(
+        &strings.protected_note,
+        &[("label", &label), ("message", &message)],
+    )
+}
+
+/// Says what the protected text at the caret is, when a key asked for
+/// something it cannot give there (suggestions on a secret placeholder),
+/// as the note describes it. Returns whether it said anything.
+pub(in crate::editor) fn say_protected_at_caret(state: EditorState) -> bool {
+    let caret = state.doc().caret.get_untracked();
+    let Some((label, message)) = state.protected_note(caret, true) else {
+        return false;
+    };
+    let said = state.strings_untracked(|strings| protected_text(strings, &label, &message));
+    state.a11y().announce(said);
+    true
 }
 
 /// Keeps the note in step with the caret, the problems and the locks.

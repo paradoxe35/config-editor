@@ -176,6 +176,9 @@ impl EditorState {
     pub(crate) fn accept(&self, option: &Completion, reveal: bool) {
         let before = self.doc().text.get_untracked();
         let (updated, anchor, caret) = apply_completion(&before, option);
+        if updated == before {
+            self.say_why_read_only(option);
+        }
         // Closers after the replaced text stay (an XML end tag the editor
         // wrote before a value was accepted into it); the insert adds its own.
         let old_length = before.encode_utf16().count();
@@ -224,6 +227,14 @@ impl EditorState {
         self.completion().active.set(0);
         self.completion().explicit.set(true);
         self.completion().requested.set(reopen);
+    }
+
+    /// A read-only key accepted as it stands changes nothing, so no refusal
+    /// says why: its reason (the option's detail) is said here.
+    pub(crate) fn say_why_read_only(&self, option: &Completion) {
+        if option.read_only {
+            self.a11y().announce(option.detail.clone());
+        }
     }
 
     /// Accepts the highlighted suggestion.

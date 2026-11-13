@@ -188,8 +188,10 @@ fn count_text(state: EditorState) -> String {
 }
 
 fn query_input(state: EditorState, value: String) {
+    let was_empty = state.search().query.with_untracked(String::is_empty);
     state.search().query.set(value);
     search::select_nearest(state, true);
+    search::say_no_results_after_empty(state, was_empty);
 }
 
 fn toggle_replace(state: EditorState) {

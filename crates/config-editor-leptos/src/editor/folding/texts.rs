@@ -8,18 +8,20 @@ use super::super::state::EditorState;
 use crate::strings::fill;
 
 impl EditorState {
-    /// Runs a fold command of the user's (a key, a chevron, a chip), then
-    /// says what it folded or opened: the lines leave the text area or come
-    /// back, which a screen reader does not see otherwise.
-    pub(crate) fn fold_command(&self, command: impl FnOnce()) {
+    /// Runs a fold command (a key, a chevron, a chip, the handle's `fold`
+    /// and `fold_all`), then says what it folded or opened: the lines leave
+    /// the text area or come back, which a screen reader does not see
+    /// otherwise. Returns what the command did.
+    pub(crate) fn fold_command<T>(&self, command: impl FnOnce() -> T) -> T {
         let before = self.fold().folded.get_untracked();
-        command();
+        let done = command();
         let said = self.fold().folded.with_untracked(|after| {
             self.strings_untracked(|strings| fold_change(strings, &before, after))
         });
         if let Some(said) = said {
             self.a11y().announce(said);
         }
+        done
     }
 }
 

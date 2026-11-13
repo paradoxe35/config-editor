@@ -77,6 +77,7 @@ pub(crate) fn adjust(options: Vec<Completion>, around: &Around<'_>) -> Vec<Compl
                 None => Some(option),
                 Some(reason) if browsing => {
                     option.detail = reason;
+                    option.read_only = true;
                     Some(option)
                 }
                 Some(_) => None,
@@ -165,6 +166,7 @@ fn references(
                 deprecated: false,
                 fills: Vec::new(),
                 closes_tag: false,
+                read_only: false,
                 label,
             })
         })

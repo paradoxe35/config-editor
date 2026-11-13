@@ -75,6 +75,7 @@ pub(super) fn value_completions(
                             deprecated: false,
                             fills: Vec::new(),
                             closes_tag: false,
+                            read_only: false,
                         },
                     ));
                 }
@@ -227,6 +228,7 @@ pub(super) fn property_completions(
                     deprecated: is_deprecated(property, root),
                     fills: required_fills(behavior, property, root),
                     closes_tag: false,
+                    read_only: false,
                 },
             ));
         }
@@ -340,6 +342,7 @@ pub(crate) fn completions_in(
             detail: String::new(),
             type_label: String::new(),
             closes_tag: true,
+            read_only: false,
             cursor_offset: insert.encode_utf16().count(),
             insert,
             start: context.replace_start,

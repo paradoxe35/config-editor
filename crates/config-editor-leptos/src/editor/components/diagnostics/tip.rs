@@ -186,16 +186,32 @@ fn tip_key(state: EditorState, event: &web_sys::KeyboardEvent) {
     super::super::super::hover_focus::card_keys(&tip, event);
 }
 
-/// The focus left the tip, or moved inside it.
+/// The focus left the tip, or moved inside it. Left for anything but the
+/// text (the footer, another control, the page), the tip closes, as it does
+/// when the focus leaves the editor; back in the text it stays, as the
+/// hover card does.
 fn leave_tip_focus(state: EditorState, event: &web_sys::FocusEvent) {
-    let inside = state.problems().tip_ref.get_untracked().is_some_and(|tip| {
-        event
-            .related_target()
-            .and_then(|to| to.dyn_into::<web_sys::Node>().ok())
-            .is_some_and(|to| tip.contains(Some(&to)))
-    });
-    if !inside {
-        state.problems().tip_focused.set(false);
+    let to = event
+        .related_target()
+        .and_then(|to| to.dyn_into::<web_sys::Node>().ok());
+    let in_tip = state
+        .problems()
+        .tip_ref
+        .get_untracked()
+        .zip(to.as_ref())
+        .is_some_and(|(tip, to)| tip.contains(Some(to)));
+    if in_tip {
+        return;
+    }
+    state.problems().tip_focused.set(false);
+    let in_text = state
+        .view()
+        .textarea_ref
+        .get_untracked()
+        .zip(to.as_ref())
+        .is_some_and(|(text, to)| text.is_same_node(Some(to)));
+    if !in_text {
+        state.hide_shown_problem();
     }
 }
 

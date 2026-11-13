@@ -177,6 +177,7 @@ pub(super) fn on_root_keydown(state: EditorState, event: &KeyboardEvent) {
     if super::search::shortcuts(state, event)
         || save_key(state, event)
         || state.notice_shortcut(event)
+        || super::changes::tab_around_preview(state, event)
     {
         return;
     }

@@ -114,6 +114,21 @@ pub(in crate::editor) fn select_nearest(state: EditorState, reveal: bool) {
     }
 }
 
+/// A query typed into an empty field that matches nothing: the count
+/// already read "No results", so its live text does not change and a
+/// screen reader says nothing; the editor's live region says it.
+pub(in crate::editor) fn say_no_results_after_empty(state: EditorState, was_empty: bool) {
+    let search = state.search();
+    let nothing = search.query.with_untracked(|query| !query.is_empty())
+        && search
+            .results
+            .with_untracked(|results| results.matches.is_empty() && results.error.is_none());
+    if was_empty && nothing {
+        let said = state.strings_untracked(|strings| strings.no_results.clone());
+        state.a11y().announce(said);
+    }
+}
+
 /// Steps to the next match (`Enter`, `F3`) or the previous one
 /// (`Shift+Enter`, `Shift+F3`), wrapping around.
 pub(in crate::editor) fn step(state: EditorState, backward: bool) {

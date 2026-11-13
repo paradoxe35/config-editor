@@ -49,6 +49,8 @@ pub(super) struct Entry {
     /// The text differs from the baseline: from the editor once mounted,
     /// from the host's text before.
     pub(super) dirty: RwSignal<bool>,
+    /// Its editor's baseline conflict notice is open (see `conflicts`).
+    pub(super) conflicted: RwSignal<bool>,
     /// Shown at least once: its editor is mounted.
     pub(super) visited: RwSignal<bool>,
     /// Mounts its editor now, once its panel is on the page (set by the
@@ -90,6 +92,7 @@ impl Entry {
             read_only_ranges: RwSignal::new(document.read_only_ranges.clone()),
             secrets: document.secrets.clone().unwrap_or_default(),
             dirty: RwSignal::new(dirty),
+            conflicted: RwSignal::new(false),
             visited: RwSignal::new(false),
             mount_now: StoredValue::new(None),
             editor: StoredValue::new_local(None),
@@ -266,6 +269,8 @@ pub(super) struct Documents {
     pub(super) active: RwSignal<Option<String>>,
     /// A document whose editor takes the focus as soon as it is mounted.
     pub(super) focus_editor: RwSignal<Option<String>>,
+    /// The view's live region, for what a panel cannot say (see `conflicts`).
+    pub(super) said: RwSignal<String>,
     pub(super) callbacks: Callbacks,
     pub(super) follows: Follows,
     pub(super) root: NodeRef<Div>,
@@ -325,6 +330,7 @@ impl Documents {
             entries,
             active,
             focus_editor,
+            said: RwSignal::new(String::new()),
             callbacks,
             follows: Follows {
                 active: Relay::new(move || active.get()),

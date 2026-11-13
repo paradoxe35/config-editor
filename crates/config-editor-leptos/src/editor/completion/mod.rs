@@ -73,6 +73,9 @@ pub(super) struct Completion {
     /// The end tag XML suggests for the element `label` names: its detail
     /// and type are worded when shown (the `closesTag` and `endTag` texts).
     pub(super) closes_tag: bool,
+    /// The key is read-only (listed while browsing a read-only region):
+    /// its `detail` is the reason, which accepting it says.
+    pub(super) read_only: bool,
 }
 
 #[cfg(test)]

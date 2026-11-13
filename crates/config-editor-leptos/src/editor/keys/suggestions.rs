@@ -32,6 +32,11 @@ pub(super) fn request(state: EditorState, event: &KeyboardEvent) -> bool {
     state.completion().active.set(0);
     state.completion().explicit.set(true);
     state.completion().requested.set(true);
+    // Nothing to list where the text is protected (a secret placeholder):
+    // the key is not silent.
+    if state.completion().suggestions.with_untracked(Vec::is_empty) {
+        super::super::a11y::say_protected_at_caret(state);
+    }
     true
 }
 
@@ -55,17 +60,19 @@ pub(super) fn step_past_unchanged(state: EditorState, event: &KeyboardEvent) -> 
     if !matches!(key.as_str(), "Enter" | "Tab") {
         return Some(true);
     }
-    let unchanged_caret = options
-        .get(state.completion().active.get_untracked())
-        .and_then(|option| {
-            state.doc().text.with_untracked(|text| {
-                let (updated, _, caret) = apply_completion(text, option);
-                (updated == *text).then_some(caret)
-            })
-        });
+    let active = options.get(state.completion().active.get_untracked());
+    let unchanged_caret = active.and_then(|option| {
+        state.doc().text.with_untracked(|text| {
+            let (updated, _, caret) = apply_completion(text, option);
+            (updated == *text).then_some(caret)
+        })
+    });
     let Some(caret) = unchanged_caret else {
         return Some(true);
     };
+    if let Some(option) = active {
+        state.say_why_read_only(option);
+    }
     if let Some(element) = state.textarea() {
         let _ = element.set_selection_range(caret as u32, caret as u32);
         state.doc().caret.set(caret);

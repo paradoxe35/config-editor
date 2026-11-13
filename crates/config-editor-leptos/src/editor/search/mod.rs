@@ -26,8 +26,8 @@ pub(super) use go_to_line::GoToLine;
 pub(super) use keys::shortcuts;
 
 use actions::{
-    SearchNotice, close, count_label, dismiss, replace_all, replace_current, select_nearest, step,
-    toggle_option,
+    SearchNotice, close, count_label, dismiss, replace_all, replace_current,
+    say_no_results_after_empty, select_nearest, step, toggle_option,
 };
 use matcher::{SearchMatch, SearchOptions};
 
