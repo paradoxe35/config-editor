@@ -19,8 +19,14 @@ export interface EditorOptions extends EditorSettings {
   language?: LanguageName;
   /** Edit in another language; `value` and `onChange` stay in `language`. */
   editAs?: LanguageName;
-  /** JSON Schema (as JSON text) for completion, hover docs and validation. */
+  /** The schema for completion, hover docs and validation: JSON Schema as JSON text, or a schema in `schemaFormat`. One that does not compile throws. */
   schema?: string;
+  /** The format `schema` is written in. Default `"json-schema"`; never guessed from the text (`schemaFormatForFile` names the format of a file). What the format cannot express in JSON Schema reaches `onSchemaWarning`. */
+  schemaFormat?: SchemaFormatName;
+  /** The files `schema` refers to (an include, an import, an external `$ref`), by location: the editor fetches nothing (`schemaImports` lists what to fetch). */
+  schemaResources?: Record<string, string>;
+  /** Options of `schemaFormat`, such as an XSD's `{ root: "project" }`. */
+  schemaOptions?: Record<string, unknown>;
   /** Text the diff gutter compares against. Default: the initial `value`. */
   baseline?: string;
   /** File name shown in the toolbar. */
@@ -159,6 +165,12 @@ export interface EditorUpdate extends SettingsUpdate {
   language?: never;
   /** The editor is built from it: create a new one to change it. */
   schema?: never;
+  /** The editor is built from it: create a new one to change it. */
+  schemaFormat?: never;
+  /** The editor is built from it: create a new one to change it. */
+  schemaResources?: never;
+  /** The editor is built from it: create a new one to change it. */
+  schemaOptions?: never;
   /** The editor is built from it: create a new one to change it. */
   fileName?: never;
   /** The editor is built from it: create a new one to change it. */
@@ -363,8 +375,14 @@ export interface DocumentSpec {
   readOnlyReason?: string;
   /** Whether the user may close it (close button, middle click, `Delete` on its tab ask `onClose`). Default `true`; `false` for a document that must stay open: its tab has no close button. Without `onClose` no tab has one. Switches live. */
   closable?: boolean;
-  /** JSON Schema as JSON text; documents with the same text share one compiled schema. One that does not compile throws, as it does for a `ConfigEditor`. */
+  /** The schema, as `ConfigEditor`'s `schema`: JSON Schema as JSON text, or a schema in `schemaFormat`; documents with the same schema (text, format, resources and options) share one compiled schema. One that does not compile throws, as it does for a `ConfigEditor`. A new one mounts a new editor. */
   schema?: string;
+  /** The format `schema` is written in, as `ConfigEditor`'s `schemaFormat`. */
+  schemaFormat?: SchemaFormatName;
+  /** The files `schema` refers to, by location, as `ConfigEditor`'s `schemaResources`. */
+  schemaResources?: Record<string, string>;
+  /** Options of `schemaFormat`, as `ConfigEditor`'s `schemaOptions`. */
+  schemaOptions?: Record<string, unknown>;
   /** Edit in another language than `language`; switches live. A list with the same `editAs` changes nothing: to ask for it again (after an undo stepped back across the switch), call `editAs(id, language)`. */
   editAs?: LanguageName;
   /** The text on screen when the document's editor opens, in the `editAs` language, in place of `value` converted: what the user had on screen before the view went away (`editor(id).text`). `value` and `baseline` stay yours; it converts back like an edit, so `onChange` hears it once it converts, and until then `onSyncChange` says `false`. Undo starts at it. Read when the editor mounts (the first time the document is shown); ignored without `editAs`. */

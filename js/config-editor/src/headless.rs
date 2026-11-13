@@ -2,11 +2,13 @@
 //! change counts, and schema warnings. Documents (`parse`, `rangeOf`, …)
 //! are in `documents`, accepted names in `catalog`.
 
-use config_editor_leptos::ChangeSummary;
+use config_editor_leptos::{ChangeSummary, Schema};
 use serde::Serialize;
 use wasm_bindgen::prelude::*;
 
 use crate::languages::language_named;
+use crate::options::warn_unknown_keys;
+use crate::schema_formats::{SOURCE_KEYS, SchemaSpec};
 use crate::typings::{ChangeSummaryResult, ConversionResult, Diagnostics, Names};
 use crate::values::{
     ChangeSummaryOut, context_arg, diagnostics_to_js, optional_text, text_arg, to_js,
@@ -44,35 +46,55 @@ pub fn change_summary(
     Ok(to_js(&ChangeSummaryOut::from(summary)).unchecked_into())
 }
 
+/// The schema `text` in the format `source` gives (JSON Schema by default),
+/// compiled once for many calls (see `schema_cache`).
+fn schema_from(text: &str, source: &JsValue) -> Result<Schema, JsError> {
+    if !source.is_undefined() && !source.is_null() {
+        warn_unknown_keys(
+            source,
+            &[
+                SOURCE_KEYS.format,
+                SOURCE_KEYS.resources,
+                SOURCE_KEYS.options,
+            ],
+            "option",
+        );
+    }
+    let spec = SchemaSpec::read(source, &SOURCE_KEYS, "")?;
+    crate::schema_cache::compiled(text, &spec).map_err(|error| JsError::new(&error.to_string()))
+}
+
 /// Syntax and schema problems in `text`, as the editor shows them. Without a
-/// schema only syntax is checked.
+/// schema only syntax is checked. A schema in another format than JSON
+/// Schema names it in `source`.
 #[wasm_bindgen]
 pub fn validate(
     #[wasm_bindgen(unchecked_param_type = "LanguageName")] language: JsValue,
     #[wasm_bindgen(unchecked_param_type = "string")] text: JsValue,
     #[wasm_bindgen(unchecked_optional_param_type = "string")] schema: JsValue,
+    #[wasm_bindgen(unchecked_optional_param_type = "SchemaSourceOptions")] source: JsValue,
 ) -> Result<Diagnostics, JsError> {
     let language = language_named(&text_arg(&language, "language")?)?;
     let text = text_arg(&text, "text")?;
     let text = text.as_str();
     let schema = optional_text(&schema, "schema")?;
     let problems = match schema {
-        Some(json) => crate::schema_cache::compiled(&json)
-            .map_err(|error| JsError::new(&error.to_string()))?
-            .validate(language, text),
+        Some(schema) => schema_from(&schema, &source)?.validate(language, text),
         None => config_editor_leptos::check_syntax(language, text),
     };
     Ok(diagnostics_to_js(problems).unchecked_into())
 }
 
 /// Converts `text` from one language to another. With a schema, lone XML
-/// elements where it expects a list convert as one-item lists.
+/// elements where it expects a list convert as one-item lists. A schema in
+/// another format than JSON Schema names it in `source`.
 #[wasm_bindgen]
 pub fn convert(
     #[wasm_bindgen(unchecked_param_type = "LanguageName")] from: JsValue,
     #[wasm_bindgen(unchecked_param_type = "string")] text: JsValue,
     #[wasm_bindgen(unchecked_param_type = "LanguageName")] to: JsValue,
     #[wasm_bindgen(unchecked_optional_param_type = "string")] schema: JsValue,
+    #[wasm_bindgen(unchecked_optional_param_type = "SchemaSourceOptions")] source: JsValue,
 ) -> Result<ConversionResult, JsError> {
     let schema = optional_text(&schema, "schema")?;
     let from = language_named(&text_arg(&from, "from")?)?;
@@ -80,9 +102,7 @@ pub fn convert(
     let text = text_arg(&text, "text")?;
     let text = text.as_str();
     let converted = match schema {
-        Some(json) => crate::schema_cache::compiled(&json)
-            .map_err(|error| JsError::new(&error.to_string()))?
-            .convert(from, text, to),
+        Some(schema) => schema_from(&schema, &source)?.convert(from, text, to),
         None => from.convert(text, to),
     }
     .map_err(|error| JsError::new(&error.to_string()))?;
@@ -98,14 +118,15 @@ pub fn convert(
     .unchecked_into())
 }
 
-/// What the editor cannot use in a JSON Schema, one message each, such as a
-/// `patternProperties` regex its engine cannot compile. An invalid schema
+/// What the editor cannot use in a schema, one message each, such as a
+/// `patternProperties` regex its engine cannot compile, then what its format
+/// loses (`compileSchema` gives those structured). An invalid schema
 /// throws.
 #[wasm_bindgen(js_name = schemaWarnings)]
 pub fn schema_warnings(
     #[wasm_bindgen(unchecked_param_type = "string")] schema: JsValue,
+    #[wasm_bindgen(unchecked_optional_param_type = "SchemaSourceOptions")] source: JsValue,
 ) -> Result<Names, JsError> {
-    let schema = crate::schema_cache::compiled(&text_arg(&schema, "schema")?)
-        .map_err(|error| JsError::new(&error.to_string()))?;
+    let schema = schema_from(&text_arg(&schema, "schema")?, &source)?;
     Ok(to_js(&schema.warnings()).unchecked_into())
 }

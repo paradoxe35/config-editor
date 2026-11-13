@@ -16,6 +16,7 @@ import {
   type HostDiagnostic,
   type LanguageName,
   type LineRange,
+  type SchemaFormatName,
   type SecretOptions,
   type TextRangeInput,
 } from "./pkg/config_editor.js";
@@ -49,6 +50,12 @@ export interface EditorBindingProps extends EditorSettings {
   readOnlyRanges?: TextRangeInput[];
   secrets?: SecretOptions;
   schema?: string;
+  /** The format `schema` is written in (default `"json-schema"`). Changing it re-mounts. */
+  schemaFormat?: SchemaFormatName;
+  /** The files `schema` refers to, by location. Changing them re-mounts. */
+  schemaResources?: Record<string, string>;
+  /** Options of `schemaFormat`, such as an XSD's `{ root: "project" }`. Changing them re-mounts. */
+  schemaOptions?: Record<string, unknown>;
   onSchemaWarning?: (message: string) => void;
   baseline?: string;
   onSave?: (value: string, language: LanguageName) => void;
@@ -177,7 +184,8 @@ export interface ConfigDocumentsHandle {
  * What a framework component does with a `ConfigEditor`, written once: feed
  * it the props (`attach` when the component's element exists, `update`
  * after every change, `detach` on unmount) and expose `handle`. Settings and
- * most props apply live; `language`, `schema`, `fileName`, `editorClassName`
+ * most props apply live; `language`, `schema` (with `schemaFormat`,
+ * `schemaResources` and `schemaOptions`), `fileName`, `editorClassName`
  * and the `secrets` patterns re-mount (the document, baseline and caret
  * carried over); an echo of the bound value, late or out of order, never rolls the document back; a mount that
  * failed on a bad prop is retried when a prop changes.

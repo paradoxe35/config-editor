@@ -57,7 +57,9 @@ const PROPS = {
   initial_value: { exempt: '`value` is both the initial and the live document in JS; the components have `defaultValue`' },
   value: { option: 'value', update: 'value' },
   baseline: { option: 'baseline', update: 'baseline' },
-  schema: { option: 'schema', fixed: 'the schema is compiled once, when the editor is built' },
+  // A `SchemaSource::Formatted` carries the format, resources and options:
+  // in JS they are options of their own beside `schema` (`also`).
+  schema: { option: 'schema', also: ['schemaFormat', 'schemaResources', 'schemaOptions'], fixed: 'the schema is compiled once, when the editor is built' },
   file_name: { option: 'fileName', fixed: 'a toolbar label, read once' },
   class: { option: 'className', prop: 'editorClassName', fixed: 'a class of the editor\'s root, read once' },
   settings: { extends: 'EditorSettings' },
@@ -232,11 +234,33 @@ const CHANGE_SUMMARY = {
 
 const SCHEMA = {
   compile: { exempt: 'JS takes the schema as JSON text wherever one is used, and throws there when it is invalid' },
+  compile_as: { tool: 'compileSchema' },
+  losses: { tool: 'compileSchema' },
+  json: { tool: 'compileSchema' },
   warnings: { tool: 'schemaWarnings' },
   validate: { tool: 'validate' },
   convert: { tool: 'convert' },
   suggestions: { exempt: 'a headless check of a Rust `ConfigLanguage`\'s completion; in JS the editor lists suggestions itself' },
   hover: { exempt: 'a headless check of a Rust `ConfigLanguage`\'s hover docs; in JS the editor shows the hover card itself' },
+};
+
+const SCHEMA_FORMAT = {
+  new: { main: 'registerSchemaFormat' },
+  info: { main: 'schemaFormats' },
+  name: { main: 'schemaFormats' },
+  label: { main: 'schemaFormats' },
+  from_path: { main: 'schemaFormatForFile' },
+  compile: { tool: 'compileSchema' },
+  imports: { tool: 'schemaImports' },
+};
+
+// `SchemaCompiler` (the trait a schema format implements in Rust) → the
+// `CustomSchemaFormat` members (`registerSchemaFormat`) its JS adapter
+// reads it from.
+const SCHEMA_COMPILER = {
+  info: { format: ['name', 'label', 'extensions'] },
+  compile: { format: 'compile' },
+  imports: { format: 'imports' },
 };
 
 const THEME = {
@@ -328,8 +352,16 @@ const CRATE_EXPORTS = {
   PRESET_CSS: { tool: 'presetCss' },
   ParseError: { exempt: 'thrown as an `Error` with its message and position' },
   SaveRequest: { exempt: 'its fields are `onSave`\'s arguments, `(value, language)`' },
+  CompiledSchema: { type: 'CompiledSchema' },
+  LossEffect: { type: 'SchemaLoss' },
   Schema: { option: 'schema', fixed: 'the schema is compiled once, when the editor is built' },
+  SchemaCompiler: { main: 'registerSchemaFormat' },
   SchemaError: { exempt: 'thrown as an `Error` with its message' },
+  SchemaFormat: { type: 'SchemaFormatName' },
+  SchemaFormatInfo: { type: 'SchemaFormatInfo' },
+  SchemaInput: { type: 'CustomSchemaFormat' },
+  SchemaLoss: { type: 'SchemaLoss' },
+  SchemaResources: { type: 'SchemaSourceOptions' },
   SchemaSource: { option: 'schema', fixed: 'the schema is compiled once, when the editor is built' },
   SecretOptions: { type: 'SecretOptions' },
   StringsProblem: { exempt: 'the editor warns about each in the console, as it does in Rust' },
@@ -340,6 +372,7 @@ const CRATE_EXPORTS = {
   ThemeColor: { type: 'ThemeColorToken' },
   ThemeColors: { type: 'ThemeColorMap' },
   UnknownLanguage: { exempt: 'thrown as an `Error` with its message' },
+  UnknownSchemaFormat: { exempt: 'thrown as an `Error` with its message' },
   UnknownTheme: { exempt: 'thrown as an `Error` with its message' },
   check_syntax: { tool: 'validate' },
   float_of: { exempt: 'JS data holds `Infinity` and `NaN` as numbers: `parse` gives them as they are' },
@@ -459,6 +492,8 @@ const rust = {
   language: implMethods(crate('editor/languages/mod.rs'), 'Language'),
   changeSummary: implMethods(crate('editor/change_summary.rs') + crate('editor/changes/mod.rs'), 'ChangeSummary'),
   schema: implMethods(crate('editor/diagnostics.rs'), 'Schema'),
+  schemaFormat: implMethods(crate('editor/schema_formats/mod.rs'), 'SchemaFormat'),
+  schemaCompiler: traitMethods(crate('editor/schema_formats/mod.rs'), 'SchemaCompiler'),
   theme: implMethods(crate('editor/theme.rs'), 'EditorTheme'),
   exports: crateExports(),
   documentsProps: componentProps('documents.rs', 'ConfigDocuments'),
@@ -572,6 +607,8 @@ function jsPackage() {
     types: new Set([...typings.matchAll(/^export (?:interface|type) (\w+)/gm)].map(([, name]) => name)),
     customLanguage: members(typings, 'CustomLanguage'),
     definitionKeys: list('DEFINITION_KEYS'),
+    customSchemaFormat: members(typings, 'CustomSchemaFormat'),
+    formatDefinitionKeys: list('FORMAT_DEFINITION_KEYS'),
   };
 }
 
@@ -808,7 +845,7 @@ const DOCUMENTS_SIDE = {
     js.extendsSettings.documents && binding.extendsSettings.documents && frameworks.every((framework) => framework.extendsSettings.documents),
 };
 
-const KINDS = ['option', 'member', 'main', 'tool', 'type', 'setting', 'extends', 'custom'];
+const KINDS = ['option', 'member', 'main', 'tool', 'type', 'setting', 'extends', 'custom', 'format'];
 
 /** Problems with one mapped Rust item `item` (entry `entry`), reached through `side`. */
 function entryProblems(what, item, entry, side, { js, binding, frameworks }) {
@@ -821,6 +858,11 @@ function entryProblems(what, item, entry, side, { js, binding, frameworks }) {
       if (!js.customLanguage.has(member)) missing(`\`${member}\` is missing from the CustomLanguage typings`);
       if (!js.definitionKeys.has(member)) missing(`\`${member}\` is missing from DEFINITION_KEYS (js/config-editor/src/languages), which \`registerLanguage\` reads`);
     }
+  } else if (kind === 'format') {
+    for (const member of [name].flat()) {
+      if (!js.customSchemaFormat.has(member)) missing(`\`${member}\` is missing from the CustomSchemaFormat typings`);
+      if (!js.formatDefinitionKeys.has(member)) missing(`\`${member}\` is missing from FORMAT_DEFINITION_KEYS (js/config-editor/src/schema_formats.rs), which \`registerSchemaFormat\` reads`);
+    }
   } else if (kind === 'setting') {
     if (!js.typedSettings.has(name)) missing(`setting \`${name}\` is missing from EditorSettings`);
     if (!EDITOR_SIDE.extends(js, binding, frameworks)) missing('the JS options, the binding\'s props and every component\'s props must extend `EditorSettings`');
@@ -830,20 +872,23 @@ function entryProblems(what, item, entry, side, { js, binding, frameworks }) {
     }
     if (!js.types.has(name)) missing(`type \`${name}\` is missing from the typings`);
   } else if (kind === 'option') {
-    if (!side.options(js).has(name) || !side.typedOptions(js).has(name)) missing(`option \`${name}\` is missing from the ${side.what} options (the options list and its typings)`);
-    if (entry.update) {
-      if (!side.updateKeys(js).has(entry.update)) missing(`\`update\` key \`${entry.update}\` is missing from the ${side.what} update typings`);
-    } else if (entry.fixed) {
-      if (!side.remount(js).has(name)) missing(`\`${name}\` is fixed: it must be in the ${side.what} re-mount list, which \`update\` refuses`);
-      if (!side.refusedKeys(js).has(name)) missing(`\`${name}\` is fixed: the ${side.what} update typings must type it \`never\``);
-    } else {
-      missing('an option needs `update` (its key) or `fixed` (why it cannot change live)');
-    }
-    const prop = entry.prop ?? name;
-    if (!side.bindingProps(binding).has(prop)) missing(`binding prop \`${prop}\` is missing from js/config-editor/binding.d.ts`);
-    for (const framework of frameworks) {
-      const own = side.rename(framework, prop);
-      if (!side.props(framework).has(own)) missing(`${framework.name} prop \`${own}\` is missing from ${framework.path}`);
+    // `also`: further options carrying parts of the same prop (fixed with it).
+    for (const option of [name, ...(entry.also ?? [])]) {
+      if (!side.options(js).has(option) || !side.typedOptions(js).has(option)) missing(`option \`${option}\` is missing from the ${side.what} options (the options list and its typings)`);
+      if (entry.update) {
+        if (!side.updateKeys(js).has(entry.update)) missing(`\`update\` key \`${entry.update}\` is missing from the ${side.what} update typings`);
+      } else if (entry.fixed) {
+        if (!side.remount(js).has(option)) missing(`\`${option}\` is fixed: it must be in the ${side.what} re-mount list, which \`update\` refuses`);
+        if (!side.refusedKeys(js).has(option)) missing(`\`${option}\` is fixed: the ${side.what} update typings must type it \`never\``);
+      } else {
+        missing('an option needs `update` (its key) or `fixed` (why it cannot change live)');
+      }
+      const prop = option === name ? (entry.prop ?? name) : option;
+      if (!side.bindingProps(binding).has(prop)) missing(`binding prop \`${prop}\` is missing from js/config-editor/binding.d.ts`);
+      for (const framework of frameworks) {
+        const own = side.rename(framework, prop);
+        if (!side.props(framework).has(own)) missing(`${framework.name} prop \`${own}\` is missing from ${framework.path}`);
+      }
     }
   } else if (kind === 'member') {
     if (!side.members(js).has(name)) missing(`member \`${name}\` is missing from the ${side.what} class`);
@@ -891,6 +936,8 @@ const groups = [
   ['Language method', LANGUAGE, rust.language, EDITOR_SIDE],
   ['ChangeSummary method', CHANGE_SUMMARY, rust.changeSummary, EDITOR_SIDE],
   ['Schema method', SCHEMA, rust.schema, EDITOR_SIDE],
+  ['SchemaFormat method', SCHEMA_FORMAT, rust.schemaFormat, EDITOR_SIDE],
+  ['SchemaCompiler method', SCHEMA_COMPILER, rust.schemaCompiler, EDITOR_SIDE],
   ['EditorTheme method', THEME, rust.theme, EDITOR_SIDE],
   ['crate export', CRATE_EXPORTS, rust.exports, EDITOR_SIDE],
   ['ConfigDocuments prop', DOCUMENTS_PROPS, rust.documentsProps, DOCUMENTS_SIDE],
@@ -899,12 +946,18 @@ const groups = [
   ['ConfigLanguage method', CONFIG_LANGUAGE, rust.configLanguage, EDITOR_SIDE],
 ];
 
-/** Every `CustomLanguage` member is what some `ConfigLanguage` method is read from. */
+/** Every `CustomLanguage` member is what some `ConfigLanguage` method is read from, and every `CustomSchemaFormat` member what some `SchemaCompiler` method is. */
 function customLanguageProblems({ js }) {
   const mapped = new Set(Object.values(CONFIG_LANGUAGE).flatMap((entry) => [entry.custom ?? []].flat()));
-  return [...js.customLanguage]
-    .filter((member) => !mapped.has(member))
-    .map((member) => `CustomLanguage member \`${member}\` maps to no ConfigLanguage method: map it in CONFIG_LANGUAGE`);
+  const formatMapped = new Set(Object.values(SCHEMA_COMPILER).flatMap((entry) => [entry.format ?? []].flat()));
+  return [
+    ...[...js.customLanguage]
+      .filter((member) => !mapped.has(member))
+      .map((member) => `CustomLanguage member \`${member}\` maps to no ConfigLanguage method: map it in CONFIG_LANGUAGE`),
+    ...[...js.customSchemaFormat]
+      .filter((member) => !formatMapped.has(member))
+      .map((member) => `CustomSchemaFormat member \`${member}\` maps to no SchemaCompiler method: map it in SCHEMA_COMPILER`),
+  ];
 }
 
 /**
@@ -942,7 +995,7 @@ function optionProblems({ tables, options, jsOnly = {}, forwarded, bindingProps,
     tables
       .flatMap((table) => Object.values(table))
       .filter((entry) => entry.option)
-      .map((entry) => [entry.option, entry.prop ?? entry.option]),
+      .flatMap((entry) => [[entry.option, entry.prop ?? entry.option], ...(entry.also ?? []).map((option) => [option, option])]),
   );
   const problems = [];
   for (const option of options) {
@@ -1146,6 +1199,10 @@ test.describe('API parity between the Rust crate and the JS packages', () => {
     expect(rust.documentsHandle).toContain('save_all');
     expect(rust.document).toContain('read_only');
     expect(rust.configLanguage).toContain('completion_context');
+    expect(rust.schemaFormat).toContain('from_path');
+    expect(rust.schemaCompiler).toContain('imports');
+    expect(js.customSchemaFormat.has('compile')).toBe(true);
+    expect(js.formatDefinitionKeys.has('imports')).toBe(true);
     expect(js.customLanguage.has('contextAt')).toBe(true);
     expect(js.definitionKeys.has('keyAt')).toBe(true);
     expect(js.options.has('readOnly')).toBe(true);
@@ -1305,6 +1362,10 @@ test.describe('API parity between the Rust crate and the JS packages', () => {
       ['a re-exported helper', (read) => read.frameworks[1].exported.add('validate'), 'Vue re-exports `validate`'],
       ['a CustomLanguage member', (read) => read.js.customLanguage.delete('insertKey'), 'insertKey'],
       ['a definition key', (read) => read.js.definitionKeys.delete('multilineRanges'), 'multilineRanges'],
+      ['a schema format definition key', (read) => read.js.formatDefinitionKeys.delete('imports'), 'FORMAT_DEFINITION_KEYS'],
+      ['a JS-only CustomSchemaFormat member', (read) => read.js.customSchemaFormat.add('jsOnlyThing'), 'CustomSchemaFormat member `jsOnlyThing`'],
+      ['a schema source option', (read) => read.js.options.delete('schemaResources'), 'schemaResources'],
+      ['a schema source prop', (read) => read.frameworks[1].props.delete('schemaFormat'), 'Vue prop `schemaFormat`'],
       ['a JS-only CustomLanguage member', (read) => read.js.customLanguage.add('jsOnlyThing'), 'CustomLanguage member `jsOnlyThing`'],
       ['a JS-only instance member', (read) => read.js.members.add('jsOnlyThing'), 'ConfigEditor member `jsOnlyThing` maps to no Rust item'],
       ['a JS-only documents member', (read) => read.js.documentsMembers.add('jsOnlyThing'), 'ConfigDocuments member `jsOnlyThing` maps to no Rust item'],

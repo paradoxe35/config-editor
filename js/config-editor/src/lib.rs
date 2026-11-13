@@ -17,6 +17,9 @@
 //! - `headless`, `documents`, `catalog`: the functions that need no editor
 //!   (checks and diffs; parsing, paths and folds; accepted names).
 //! - `languages`: language names and `registerLanguage`.
+//! - `schema_formats`: schema format names, `registerSchemaFormat`,
+//!   `compileSchema` and `schemaImports`, and reading a schema's format,
+//!   resources and options.
 //! - `options`, `values`, `host_diagnostics`, `protect`, `remap`: reading what JavaScript passes
 //!   and shaping what it gets back.
 //! - `typings`: the TypeScript declarations wasm-bindgen cannot derive.
@@ -44,6 +47,7 @@ mod protect;
 mod reentry;
 mod remap;
 mod schema_cache;
+mod schema_formats;
 mod settings;
 mod settle;
 mod text_lines;

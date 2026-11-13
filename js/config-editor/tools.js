@@ -5,12 +5,14 @@
 // `await loadConfigEditor()` (also exported here) first.
 export {
   changeSummary,
+  compileSchema,
   convert,
   parse,
   pathAt,
   presetCss,
   rangeOf,
   rangesOf,
+  schemaImports,
   schemaWarnings,
   serialize,
   unifiedDiff,

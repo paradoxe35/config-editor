@@ -1,8 +1,8 @@
 //! What a list from JavaScript read last time, by document and key: a host
 //! hands its whole list to `update` after every keystroke, its unchanged
-//! documents' texts and schemas the same strings as before. Each one the
-//! same (`Object.is`) as last time is taken from here instead of copied
-//! into the module (and its schema compiled) again.
+//! documents' texts the same strings as before. Each one the same
+//! (`Object.is`) as last time is taken from here instead of copied into
+//! the module again. (Schemas are kept the same way by `documents_list`.)
 
 use std::collections::HashMap;
 
@@ -31,8 +31,7 @@ impl<T> Default for Given<T> {
 
 impl<T: Clone> Given<T> {
     /// Document `id`'s `key`, given as `value`: what it read into last time
-    /// when it is the same value, else `read` of it (which may look among
-    /// the values already read, see [`Given::values`]).
+    /// when it is the same value, else `read` of it.
     pub(crate) fn get(
         &mut self,
         id: &str,
@@ -68,14 +67,6 @@ impl<T: Clone> Given<T> {
         let read = last.1.clone();
         self.read.insert(at, last);
         Some(read)
-    }
-
-    /// Every value read, from this list and the last.
-    pub(crate) fn values(&self) -> impl Iterator<Item = &T> {
-        self.read
-            .values()
-            .chain(self.last.values())
-            .map(|(_, value)| value)
     }
 
     /// The list is read whole: what it read is kept for the next one.

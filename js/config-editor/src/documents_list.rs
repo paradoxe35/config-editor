@@ -12,8 +12,9 @@ use crate::host_diagnostics::host_diagnostics_from;
 use crate::languages::{language_for_path, language_named, writable_edit_as};
 use crate::options::{bool_option, warn_unknown_keys};
 use crate::protect::{paths_from, ranges_from, secrets_from};
+use crate::schema_formats::{SOURCE_KEYS, SchemaSpec, SpecKey, registrations};
 use crate::settings::{setting_keys, settings_over};
-use crate::values::{field, optional_text, text_arg};
+use crate::values::{field, json_from_js, optional_text, text_arg};
 
 /// The keys of one document.
 const DOCUMENT_KEYS: &[&str] = &[
@@ -26,6 +27,9 @@ const DOCUMENT_KEYS: &[&str] = &[
     "readOnlyReason",
     "closable",
     "schema",
+    "schemaFormat",
+    "schemaResources",
+    "schemaOptions",
     "editAs",
     "editAsText",
     "settings",
@@ -44,21 +48,42 @@ pub(crate) struct Listed {
 
 /// What reading the list keeps from one reading to the next: each
 /// document's secret options, built once per id as its editor reads them
-/// when it mounts; its texts, and its schema compiled (with its JSON text),
-/// each read again only when the host gives another string (see `given`).
+/// when it mounts; its texts, and its schema compiled, each read again only
+/// when the host gives another string (see `given`).
 #[derive(Default)]
 pub(crate) struct Kept {
     secrets: HashMap<String, SecretOptions>,
     pub(crate) texts: Given<String>,
-    schemas: Given<(String, Schema)>,
+    schemas: KeptSchemas,
 }
 
 impl Kept {
     /// The list could not be read: what the last one read stays.
     pub(crate) fn abandon(&mut self) {
         self.texts.abandon();
-        self.schemas.abandon();
+        self.schemas.read.clear();
     }
+}
+
+/// Each document's schema as the last list gave it, compiled, and those of
+/// the list being read (which replace them once it is read whole).
+#[derive(Default)]
+struct KeptSchemas {
+    last: HashMap<String, KeptSchema>,
+    read: HashMap<String, KeptSchema>,
+}
+
+/// A document's schema: what it was given (the `schema` and
+/// `schemaResources` values as passed, the format's name and the options as
+/// JSON text) and what that compiled to.
+#[derive(Clone)]
+struct KeptSchema {
+    text: JsValue,
+    resources: JsValue,
+    format: Option<String>,
+    options: String,
+    key: SpecKey,
+    schema: Schema,
 }
 
 /// `message` as a console warning, once: a host hands its list to `update`
@@ -125,7 +150,7 @@ pub(crate) fn documents_from(
         let file_name = text_arg(&field(&item, "fileName"), &name("fileName"))?;
         let value = value_of(kept, &id, &item, &name("value"))?;
         let baseline = text_of(kept, &id, &item, "baseline", &name("baseline"))?;
-        let schema = schema_of(kept, &id, &field(&item, "schema"), &name("schema"))?;
+        let schema = schema_of(kept, &id, &item, &name(""))?;
         let mut document = Document::new(id, file_name, value);
         document = match optional_text(&field(&item, "language"), &name("language"))? {
             Some(language) => document.language(language_named(&language)?),
@@ -191,7 +216,7 @@ pub(crate) fn documents_from(
     kept.secrets
         .retain(|id, _| documents.iter().any(|document| document.id == *id));
     kept.texts.finish();
-    kept.schemas.finish();
+    kept.schemas.last = std::mem::take(&mut kept.schemas.read);
     Ok(Listed {
         documents,
         overrides,
@@ -264,27 +289,72 @@ fn text_of(
         .map(Some)
 }
 
-/// Document `id`'s schema, given as `given` (the JSON text): compiled once
-/// per text, shared by the documents giving the same one.
+/// Document `id`'s schema (`item`'s `schema`, in its `schemaFormat`, with
+/// its `schemaResources` and `schemaOptions`): compiled once per schema,
+/// shared by the documents giving the same one, and read again only when
+/// the host gives another text or resources object, format or options.
+/// Errors name the key after `prefix` (`documents[0].`).
 fn schema_of(
     kept: &mut Kept,
     id: &str,
-    given: &JsValue,
-    name: &str,
+    item: &JsValue,
+    prefix: &str,
 ) -> Result<Option<Schema>, JsError> {
+    let given = field(item, "schema");
     if given.is_undefined() || given.is_null() {
         return Ok(None);
     }
-    let (_, schema) = kept.schemas.get(id, "schema", given, |known| {
-        let json = text_arg(given, name)?;
-        let schema = match known.values().find(|(text, _)| *text == json) {
-            Some((_, schema)) => schema.clone(),
-            None => {
-                Schema::compile(&json).map_err(|error| JsError::new(&format!("{name}: {error}")))?
-            }
-        };
-        Ok((json, schema))
-    })?;
+    let name = |key: &str| format!("{prefix}{key}");
+    let format = optional_text(&field(item, "schemaFormat"), &name("schemaFormat"))?;
+    let resources = field(item, "schemaResources");
+    let options_value = field(item, "schemaOptions");
+    let options = if options_value.is_undefined() || options_value.is_null() {
+        "{}".to_string()
+    } else {
+        json_from_js(&options_value, 0)
+            .map_err(|error| JsError::new(&format!("{}: {error}", name("schemaOptions"))))?
+            .to_string()
+    };
+    let same = |known: &KeptSchema| {
+        Object::is(&known.text, &given)
+            && Object::is(&known.resources, &resources)
+            && known.format == format
+            && known.options == options
+            && known.key.4 == registrations()
+    };
+    if let Some(known) = kept.schemas.last.get(id).filter(|known| same(known)) {
+        let known = known.clone();
+        let schema = known.schema.clone();
+        kept.schemas.read.insert(id.to_string(), known);
+        return Ok(Some(schema));
+    }
+    let text = text_arg(&given, &name("schema"))?;
+    let spec = SchemaSpec::read(item, &SOURCE_KEYS, prefix)?;
+    let key = spec.key(&text);
+    let shared = kept
+        .schemas
+        .read
+        .values()
+        .chain(kept.schemas.last.values())
+        .find(|known| known.key == key)
+        .map(|known| known.schema.clone());
+    let schema = match shared {
+        Some(schema) => schema,
+        None => spec
+            .compile(&text)
+            .map_err(|error| JsError::new(&format!("{}: {error}", name("schema"))))?,
+    };
+    kept.schemas.read.insert(
+        id.to_string(),
+        KeptSchema {
+            text: given,
+            resources,
+            format,
+            options,
+            key,
+            schema: schema.clone(),
+        },
+    );
     Ok(Some(schema))
 }
 

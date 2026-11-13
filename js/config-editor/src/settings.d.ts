@@ -1138,6 +1138,12 @@ export interface EditorStrings {
    */
   invalidSchema?: string;
   /**
+   * A schema its format cannot read (`{format}`: the format's label, such as `XSD`).
+   *
+   * @default "Invalid {format}: {error}"
+   */
+  invalidSchemaSource?: string;
+  /**
    * A secret placeholder pattern the editor cannot use (it does not compile, or matches empty text): no token is taken for a placeholder.
    *
    * @default "secrets.placeholder: {error}"

@@ -14,7 +14,7 @@ use crate::typings::CustomLanguage;
 use crate::values::{field, string_field};
 
 mod assist;
-mod interned;
+pub(crate) mod interned;
 mod js_language;
 mod ranges;
 mod syntax;

@@ -1,4 +1,4 @@
-import type { BaselineConflict, ChangeSummary, CloseRequest, Diagnostic, DocumentSpec, EditorPath, EditorSettings, FieldPath, HostDiagnostic, LanguageName, SecretOptions, TextRangeInput } from "@pngwasi/config-editor";
+import type { BaselineConflict, ChangeSummary, CloseRequest, Diagnostic, DocumentSpec, EditorPath, EditorSettings, FieldPath, HostDiagnostic, LanguageName, SchemaFormatName, SecretOptions, TextRangeInput } from "@pngwasi/config-editor";
 /**
  * Props of `<ConfigEditor>`: the document (`bind:value`), its callbacks, and
  * every setting (`EditorSettings`: `theme`, `showFooter`, `folding`, …),
@@ -35,6 +35,12 @@ export interface ConfigEditorProps extends EditorSettings {
     secrets?: SecretOptions;
     /** JSON Schema as JSON text. Changing it re-mounts. */
     schema?: string;
+    /** The format `schema` is written in (default `"json-schema"`, never guessed). Changing it re-mounts. */
+    schemaFormat?: SchemaFormatName;
+    /** The files `schema` refers to (an include, an import, an external `$ref`), by location. Changing them re-mounts. */
+    schemaResources?: Record<string, string>;
+    /** Options of `schemaFormat`, such as an XSD's `{ root: "project" }`. Changing them re-mounts. */
+    schemaOptions?: Record<string, unknown>;
     /** Called once per thing in `schema` the editor cannot use. Default: a console warning. */
     onSchemaWarning?: (message: string) => void;
     /** Text the diff gutter compares against: the version last saved or loaded. A new one under unsaved edits opens a notice (Reload / Keep mine). */

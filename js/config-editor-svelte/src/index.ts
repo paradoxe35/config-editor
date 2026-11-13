@@ -16,6 +16,7 @@ export type {
   HostDiagnostic,
   LanguageName,
   LineRange,
+  SchemaFormatName,
   SecretOptions,
   Severity,
   TextRangeInput,

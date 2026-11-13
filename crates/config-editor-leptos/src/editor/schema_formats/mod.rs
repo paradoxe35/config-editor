@@ -18,6 +18,8 @@ use serde_json::{Map, Value};
 use super::diagnostics::SchemaError;
 
 pub(super) mod json;
+// Only JSON Schema written in YAML uses it so far.
+#[cfg(feature = "yaml")]
 pub(super) mod written_in;
 
 /// A schema format's name, label and file extensions.
