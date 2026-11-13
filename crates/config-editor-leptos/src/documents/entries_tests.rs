@@ -258,3 +258,68 @@ fn a_document_the_host_selects_in_answer_to_a_selection_stands() {
     );
     assert_eq!(lock(&selects).selects, ["tls", "main"]);
 }
+
+/// What the stand-ins for mounted editors read as they went.
+type Seen = Arc<Mutex<Vec<Option<String>>>>;
+
+/// Stands for a document's mounted editor: as it goes, it reads its
+/// document's value, as an editor's last report of an edit still waiting
+/// out the typing pause does (see the editor's `save_on_unmount`).
+struct EditorStandIn {
+    entry: super::Entry,
+    seen: Seen,
+}
+
+impl Drop for EditorStandIn {
+    fn drop(&mut self) {
+        let value = self.entry.value.try_get_untracked();
+        self.seen.lock().expect("not poisoned").push(value);
+    }
+}
+
+/// Mounts a stand-in editor for each document of `documents`.
+fn mount_stand_ins(documents: Documents, seen: &Seen) {
+    for id in ["main", "tls"] {
+        let entry = documents.entry(id).expect("listed");
+        let stand_in = EditorStandIn {
+            entry: entry.clone(),
+            seen: seen.clone(),
+        };
+        entry.editor.set_value(Some(Box::new(stand_in)));
+    }
+}
+
+#[test]
+fn a_view_going_unmounts_its_editors_while_their_documents_still_live() {
+    let owner = Owner::new();
+    let seen = Seen::default();
+    owner.with(|| {
+        let (documents, _) = view(&files(), true, false);
+        mount_stand_ins(documents, &seen);
+    });
+    owner.cleanup();
+    assert_eq!(
+        *seen.lock().expect("not poisoned"),
+        [
+            Some("listen: 7835\n".to_owned()),
+            Some("cert: a.pem\n".to_owned())
+        ]
+    );
+}
+
+#[test]
+fn a_closed_document_unmounts_its_editor_before_its_signals_go() {
+    let owner = Owner::new();
+    owner.set();
+    let seen = Seen::default();
+    let (documents, _) = view(&files(), true, false);
+    mount_stand_ins(documents, &seen);
+    hold(|| {
+        documents.sync(&files()[..1]);
+        run_held();
+    });
+    assert_eq!(
+        *seen.lock().expect("not poisoned"),
+        [Some("cert: a.pem\n".to_owned())]
+    );
+}

@@ -47,8 +47,7 @@ pub(in crate::documents) fn DocumentPanel(documents: Documents, entry: Entry) ->
 /// an owner of its own, unmounted (then cleaned up) with the panel.
 fn mount_when_shown(documents: Documents, entry: &Entry) -> NodeRef<leptos::html::Div> {
     let panel: NodeRef<leptos::html::Div> = NodeRef::new();
-    let mounted: StoredValue<Option<Box<dyn std::any::Any>>, LocalStorage> =
-        StoredValue::new_local(None);
+    let mounted = entry.editor;
     let mount = {
         let entry = entry.clone();
         move |()| {
@@ -74,9 +73,10 @@ fn mount_when_shown(documents: Documents, entry: &Entry) -> NodeRef<leptos::html
         }
     });
     let mount_now = entry.mount_now;
+    let gone = entry.clone();
     on_cleanup(move || {
         let _ = mount_now.try_set_value(None);
-        let _ = mounted.try_update_value(|view| *view = None);
+        gone.unmount_editor();
     });
     panel
 }

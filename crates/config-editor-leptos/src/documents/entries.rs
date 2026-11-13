@@ -54,6 +54,8 @@ pub(super) struct Entry {
     /// Mounts its editor now, once its panel is on the page (set by the
     /// panel): a document shown answers its editor's calls at once.
     pub(super) mount_now: StoredValue<Option<Callback<()>>>,
+    /// Its editor's view, once mounted (by its panel).
+    pub(super) editor: StoredValue<Option<Box<dyn std::any::Any>>, LocalStorage>,
     pub(super) handle: EditorHandle,
     /// Owns the signals above; disposed after the document closes, or with
     /// the view. No owner records it as a child: the view's owner lives on
@@ -90,6 +92,7 @@ impl Entry {
             dirty: RwSignal::new(dirty),
             visited: RwSignal::new(false),
             mount_now: StoredValue::new(None),
+            editor: StoredValue::new_local(None),
             handle: EditorHandle::new(),
             owner: owner.clone(),
         })
@@ -147,12 +150,28 @@ impl Entry {
         }
     }
 
+    /// Unmounts its editor, if mounted. An edit still waiting out the
+    /// typing pause reaches the host as it goes (see the editor's
+    /// `save_on_unmount`), so this comes before the entry's signals, which
+    /// that report reads, are disposed.
+    pub(super) fn unmount_editor(&self) {
+        // Dropped outside the stored value: its cleanup reads the entry.
+        let view = self.editor.try_update_value(Option::take).flatten();
+        drop(view);
+    }
+
+    /// Unmounts its editor, then frees its signals.
+    fn dispose(&self) {
+        self.unmount_editor();
+        self.owner.cleanup();
+    }
+
     /// Frees the entry's signals once its tab and editor are gone.
     fn dispose_later(&self, documents: Documents) {
-        let owner = self.owner.clone();
-        // Gone with the view, the work drops the owner, which cleans it up
-        // then.
-        later::next_frame(documents, move |_| owner.cleanup());
+        let entry = self.clone();
+        // Gone with the view, which disposed of every entry it listed, the
+        // work drops the owner, which cleans it up then.
+        later::next_frame(documents, move |_| entry.dispose());
     }
 
     /// The document's tab element id.
@@ -284,10 +303,16 @@ impl Documents {
         let entries = RwSignal::new_local(Vec::<Entry>::new());
         let active = RwSignal::new(None);
         let focus_editor = RwSignal::new(None);
-        // Entries are no owner's children: they go with the view here.
+        // Entries are no owner's children: they go with the view here. All
+        // their editors first, while what an editor's last report reaches
+        // (any entry, the view's callbacks) still lives: the view's own
+        // parts may go before or after its panels.
         on_cleanup(move || {
             if let Some(entries) = entries.try_get_untracked() {
-                for entry in entries {
+                for entry in &entries {
+                    entry.unmount_editor();
+                }
+                for entry in &entries {
                     entry.owner.cleanup();
                 }
             }

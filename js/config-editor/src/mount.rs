@@ -21,6 +21,13 @@ thread_local! {
     pub(crate) static IN_CALLBACK: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
+/// Whether a host callback is running: `free()` from inside one frees once
+/// it has returned (see `load.js`), as the instance may be in use below it.
+#[wasm_bindgen(js_name = inHostCallback)]
+pub fn in_host_callback() -> bool {
+    IN_CALLBACK.with(|depth| depth.get() > 0)
+}
+
 /// Calls a host callback; an exception it throws is logged, not swallowed.
 pub(crate) fn call_host(callback: &Function, argument: &JsValue) {
     call_host_with(callback, std::slice::from_ref(argument));

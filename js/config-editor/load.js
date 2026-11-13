@@ -1,7 +1,23 @@
 // The one WebAssembly load, shared by every entry (`.`, `./tools`,
 // `./binding`) and every framework component on the page.
 
-import init from "./pkg/config_editor.js";
+import init, {
+  ConfigDocuments,
+  ConfigEditor,
+  inHostCallback,
+} from "./pkg/config_editor.js";
+
+// `free()` inside a callback the instance's own method fired (`save()`
+// calling `onSave`, where a framework may unmount): wasm-bindgen refuses to
+// free an object while one of its methods runs, so it is freed once the
+// callback (and the method) has returned.
+for (const Class of [ConfigEditor, ConfigDocuments]) {
+  const free = Class.prototype.free;
+  Class.prototype.free = function () {
+    if (inHostCallback()) queueMicrotask(() => free.call(this));
+    else free.call(this);
+  };
+}
 
 let loading;
 // Bindings whose own load failed, retried when a later load succeeds.
