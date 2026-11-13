@@ -541,7 +541,7 @@ for your own text), so set those with `replaceValue` too.
 | `EditorView` member                                                    | Description                                                                                                                                                                            |
 | ---------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `value` (getter)                                                       | The current document, in `language`, including an edit made in `editAs` that is still waiting out the typing pause (it is sent to `onChange` first). Still readable after `destroy()`. |
-| `text` (getter)                                                        | The text on screen: in the `editAs` language while editing as another one. `rangeOf` and `pathAt` index into it; `value` is the document in `language`.                                |
+| `text` (getter)                                                        | The text on screen (closed folds' lines included): in the `editAs` language while editing as another one. `rangeOf` and `pathAt` index into it; `value` is the document in `language`. |
 | `isDirty` (getter)                                                     | Whether the document differs from the baseline.                                                                                                                                        |
 | `currentPath` (getter)                                                 | The path of what the caret is on; see [Paths](#paths).                                                                                                                                 |
 | `foldedLines` (getter)                                                 | The folded blocks, one-based `{ startLine, endLine }[]`: the line that stays visible and the last hidden one.                                                                          |
@@ -624,7 +624,7 @@ editor.update({
   text on screen (the editor's own `rangeOf`, whose lines end with LF: in a
   CRLF file its indices alone name another stretch of `value`, so give its
   range whole or its lines). `start` and `end` are string indices
-  (UTF-16 units, as `selectionStart` counts); `startColumn` and `endColumn`
+  (UTF-16 units, in `text`); `startColumn` and `endColumn`
   count characters (code points, as problems' columns do): `😀` is two
   indices and one column. A column past its line's end is read as the
   line's end, with a console warning (the rest of the update applies).
@@ -780,9 +780,12 @@ new ConfigEditor(element, {
 });
 ```
 
-`start`/`end` and `pathAt`'s index are string indices into the text on screen
-(the `editAs` language while editing as another one), as `selectionStart`
-counts; lines and columns are one-based. `reveal` and `rangeOf` cover the key
+`start`/`end` and `pathAt`'s index are string indices (UTF-16 units) into the
+text on screen, `text` (the `editAs` language while editing as another one),
+the lines of closed folds included; lines and columns are one-based. The
+textarea leaves a closed fold's lines out, so its `selectionStart` names the
+same place only while no fold is closed: follow the caret with
+`currentPath` / `onPathChange`. `reveal` and `rangeOf` cover the key
 and its value when they share a line (`listen: 7835`, `<listen>7835</listen>`),
 the key alone when the value is a block below it, the value alone for a list
 item, and the dash or header of an item holding a block (`- name: web`, a
@@ -1068,8 +1071,9 @@ An edit that touches a fold (typing at the end of a folded line, Backspace
 at the start of the next one, a paste over a selection reaching into it)
 opens it first, and whatever moves the caret into a fold (find, go to line,
 `F8`, `reveal`, a click on a problem) opens it. A folded block hiding an
-error or changes marks its line. The textarea holds the text on screen, so
-read the document from `value`, not from the element.
+error or changes marks its line. The textarea holds the text on screen
+without the lines of closed folds, so read the document from `value` (or
+`text`), not from the element.
 
 </details>
 

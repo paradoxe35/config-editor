@@ -229,7 +229,7 @@ export interface EditorPath {
   segments: (string | number)[];
 }
 
-/** A stretch of the text on screen: string indices (`start`, `end`, as `selectionStart` counts) and one-based lines and columns. */
+/** A stretch of the text on screen (`text`, folded lines included): string indices (`start`, `end`, UTF-16 units) and one-based lines and columns. */
 export interface EditorRange {
   start: number;
   end: number;
