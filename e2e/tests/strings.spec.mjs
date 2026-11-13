@@ -21,6 +21,7 @@ test.skip(!built, 'js packages not built: run `npm run build` in js/');
 // instead (`cargo test -p config-editor-leptos strings`, `edit_as`,
 // `status_bar`, `protect`, `diagnostics`).
 const ELSEWHERE = {
+  noSuggestions: 'said only for a list the user asked for (Ctrl+Space or moving in it): completion-window.spec',
   infosOne: 'info-level problems come from hosts; counts are unit tested',
   infosOther: 'as infosOne',
   problemCode: 'a host problem with a code: a11y tests and host-diagnostics.spec',
