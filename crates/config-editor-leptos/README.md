@@ -281,9 +281,9 @@ keys, `{ showFooter: true }`), and its TypeScript type is generated from it.
   scope), which namespace-aware XML readers refuse, and a character XML
   1.0 cannot hold (a control character, U+FFFE): the XML reader and writer
   refuse it, even as a character reference. A save from another view that
-  would leave a prefix unbound (its `xmlns:x` removed or renamed) waits,
-  naming the prefixed name; a namespace declaration added there is written
-  as one.
+  would leave a prefix unbound (an attribute given a prefix no declaration
+  binds) waits, naming the prefixed name; namespace declarations are not
+  shown there and are kept as written (see [XML mapping](#xml-mapping)).
 - A save that cannot write what the edit means waits, with the reason on
   the value: an edit inside nested or empty lists that the XML view shows
   flat and cannot map back, a TOML date or time typed half-way (it is saved
@@ -1557,6 +1557,19 @@ file may hold one top-level element or several (a fragment). The editor never
 adds a root: `{"listen": 4343, "port": 80}` writes `<listen>4343</listen>` and
 `<port>80</port>`, and a key added at the top in another view is one more
 top-level element.
+
+Namespace declarations (`xmlns`, `xmlns:m`) and the attributes of the XML
+Schema instance namespace (`xsi:schemaLocation`, `xsi:type`, with whatever
+prefix is bound to it) are markup, not data: `<project xmlns="…"
+xmlns:xsi="…" xsi:schemaLocation="…">` reads as `{"project": {…}}` with its
+elements only, so a schema need not list them (a closed `pom.xml` schema
+finds nothing wrong), and completion, hover and other views do not show them.
+They stay editable as text in the XML view, and every save from another view
+keeps them byte for byte where the file has them. A key spelled as one
+(`xmlns:y`) is not written to XML: the save or conversion waits, saying to
+write it in the XML text. Converting a file to another language leaves them
+behind, as it does comments. Other prefixed attributes (`m:kind`) are data,
+keyed by the name as written.
 
 ## Custom languages
 

@@ -67,10 +67,10 @@ fn a_structural_edit_of_an_element_on_one_line_keeps_its_comments() {
             "<r xmlns:x=\"urn:a\" a=\"1\"><!-- c --><?pi x?><s x:attr=\"3\">t</s><u>v</u></r>\n",
         ),
         (
-            "an attribute added",
+            "a child added",
             ATTRIBUTES,
-            |value| added(value, "/r", "x:c", "z".into()),
-            "<r xmlns:x=\"urn:a\" a=\"1\" b=\"2\" x:c=\"z\"><!-- c --><?pi x?><s x:attr=\"3\">t</s><u>v</u></r>\n",
+            |value| added(value, "/r", "c", "z".into()),
+            "<r xmlns:x=\"urn:a\" a=\"1\" b=\"2\"><!-- c --><?pi x?><s x:attr=\"3\">t</s><u>v</u><c>z</c></r>\n",
         ),
         (
             "a child of an element on one line removed",

@@ -243,6 +243,7 @@ pub(super) fn record_tag_keys(
         if let Kind::Text { quoted: false } = inner.kind
             && is_attr_name(source, tag, inner)
             && !partial
+            && !plan.markup.holds(&source[inner.start..inner.end])
         {
             key_spans.push((
                 attribute_key(path, &plan.attribute_key(tag.start, &source[inner.start..inner.end])),
@@ -589,6 +590,10 @@ pub(super) fn record_attribute_values(source: &str, tokens: &[Token], plan: &Pat
                 continue;
             }
             let name = source[name_token.start..name_token.end].to_string();
+            if plan.markup.holds(&name) {
+                position += 1;
+                continue;
+            }
             let value_token = inner
                 .get(position + 2)
                 .filter(|next| matches!(next.kind, Kind::Text { .. }));

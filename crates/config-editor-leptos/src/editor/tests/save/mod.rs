@@ -229,6 +229,14 @@ mod xml_comments;
     feature = "hcl",
     feature = "xml"
 ))]
+mod xml_declarations;
+#[cfg(all(
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
 mod xml_names;
 #[cfg(all(
     feature = "yaml",

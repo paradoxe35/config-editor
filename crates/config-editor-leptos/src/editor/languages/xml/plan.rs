@@ -28,6 +28,8 @@ pub(super) struct PathPlan {
     pub(super) root: Option<usize>,
     /// Each element's children's names, by the element's id.
     child_names: HashSet<(usize, String)>,
+    /// Which attribute names are markup, not keys (`declarations`).
+    pub(super) markup: super::declarations::Markup,
     /// Whether no two elements' paths read alike: no element named like an
     /// index (`<0>`), and no element beside the config root at the top
     /// (whose children's paths would start like its own).
@@ -230,6 +232,7 @@ pub(super) fn plan_text(source: &str, tokens: &[Token]) -> PathPlan {
             && (wrapper.is_none() || node.parent.is_some() || Some(node.start) == wrapper.map(|id| nodes[id].start))
     });
     PathPlan {
+        markup: super::declarations::Markup::of(source),
         unique,
         child_names,
         paths: (0..nodes.len()).map(|_| OnceCell::new()).collect(),

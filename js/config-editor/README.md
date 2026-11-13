@@ -853,6 +853,19 @@ adds a root: `{"listen": 4343, "port": 80}` writes `<listen>4343</listen>` and
 `<port>80</port>`, and a key added at the top in another view is one more
 top-level element.
 
+Namespace declarations (`xmlns`, `xmlns:m`) and the attributes of the XML
+Schema instance namespace (`xsi:schemaLocation`, `xsi:type`, with whatever
+prefix is bound to it) are markup, not data: `<project xmlns="…"
+xmlns:xsi="…" xsi:schemaLocation="…">` reads as `{"project": {…}}` with its
+elements only, so a schema need not list them (a closed `pom.xml` schema
+finds nothing wrong), and completion, hover and other views do not show them.
+They stay editable as text in the XML view, and every save from another view
+keeps them byte for byte where the file has them. A key spelled as one
+(`xmlns:y`) is not written to XML: the save or conversion waits, saying to
+write it in the XML text. Converting a file to another language leaves them
+behind, as it does comments. Other prefixed attributes (`m:kind`) are data,
+keyed by the name as written.
+
 ## `@pngwasi/config-editor/tools`
 
 The editor's answers about a text, without an editor: for a server, a

@@ -96,7 +96,10 @@ pub(super) fn attribute_paths(source: &str) -> AttributePaths {
             .collect();
         let mut any = false;
         for inner in tokenize_tag_inside(source, token) {
-            if matches!(inner.kind, Kind::Text { quoted: false }) && is_attr_name(source, token, inner) {
+            if matches!(inner.kind, Kind::Text { quoted: false })
+                && is_attr_name(source, token, inner)
+                && !plan.markup.holds(&source[inner.start..inner.end])
+            {
                 let mut attribute = keys.clone();
                 attribute.push(plan.attribute_key(token.start, &source[inner.start..inner.end]));
                 found.insert(attribute);
@@ -148,11 +151,10 @@ pub(super) fn with_attributes(value: &Value, attributes: &AttributePaths, path: 
                 // An attribute keyed `@name` (a child element has its name).
                 // A plain key beside `@` its name is the child element.
                 let child_of_attribute = map.contains_key(&format!("@{key}"));
-                // A namespace declaration, or a name with a prefix (the
-                // model keys elements by their local name, so only an
-                // attribute reads with one), is an attribute wherever it
-                // is added.
-                let attribute_name = key == "xmlns" || key.contains(':');
+                // A name with a prefix (the model keys elements by their
+                // local name, so only an attribute reads with one) is an
+                // attribute wherever it is added.
+                let attribute_name = key.contains(':');
                 if scalar && key.starts_with('@') {
                     attrs.insert(key.clone(), child.clone());
                 } else if scalar && !child_of_attribute && (attribute_name || attributes_only || attributes.contains(path.as_slice())) {

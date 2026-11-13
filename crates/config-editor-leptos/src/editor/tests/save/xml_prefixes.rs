@@ -1,12 +1,13 @@
-//! XML namespace declarations edited from another view: a save that leaves
-//! a prefix no declaration binds waits, at the name that needs it (hard-bar
-//! QA `D25.editing-2`: removing `xmlns:x` saved `<s x:attr="3">` unbound,
+//! Prefixes edited from another view: a save that leaves a prefix no
+//! declaration binds waits, at the name that needs it (hard-bar QA
+//! `D25.editing-2`: removing `xmlns:x` saved `<s x:attr="3">` unbound,
 //! which namespace-aware readers refuse, with no problem shown). So does a
 //! save the host could not show in the view again (text beside a child
-//! element added under it).
+//! element added under it). The declarations themselves are markup no view
+//! shows (`xml_declarations`).
 
 use crate::editor::Language;
-use crate::editor::save_matrix::{ALL, report, save_value};
+use crate::editor::save_matrix::{report, save_value};
 use serde_json::Value;
 
 const HOST: &str = "<r xmlns:x=\"urn:a\" a=\"1\">\n  <s x:attr=\"3\">t</s>\n  <u>v</u>\n</r>\n";
@@ -18,37 +19,22 @@ fn removed(value: &mut Value, pointer: &str, key: &str) {
     }
 }
 
-fn views() -> impl Iterator<Item = Language> {
-    ALL.into_iter().filter(|edit| *edit != Language::XML)
-}
-
+/// A view shows no namespace declaration, so it cannot remove one: an
+/// attribute a view gives a prefix that no declaration binds waits, at
+/// the name that needs one (hard-bar QA `D25.editing-2`).
 #[test]
-fn removing_a_declaration_a_prefix_needs_waits_on_the_prefixed_name() {
+fn a_prefix_no_declaration_binds_waits_on_the_prefixed_name() {
     let mut failures = Vec::new();
-    for edit in views() {
+    for edit in [Language::YAML, Language::JSON, Language::TOML] {
         let saved = save_value(Language::XML, edit, HOST, &|value| {
-            removed(value, "/r", "xmlns:x");
+            removed(value, "/r", "a");
+            if let Some(map) = value.pointer_mut("/r").and_then(Value::as_object_mut) {
+                map.insert("y:a".into(), 1.into());
+            }
         });
         match saved {
             Err(error)
-                if error.contains("bound to no namespace")
-                    && error.contains("(at /r/s/x:attr)") => {}
-            other => failures.push(format!("via {edit}: {other:?}")),
-        }
-    }
-    report(failures);
-}
-
-#[test]
-fn removing_a_declaration_nothing_needs_is_saved() {
-    let mut failures = Vec::new();
-    let host = "<r xmlns:x=\"urn:a\" a=\"1\">\n  <s k=\"3\">t</s>\n  <u>v</u>\n</r>\n";
-    let expected = "<r a=\"1\">\n  <s k=\"3\">t</s>\n  <u>v</u>\n</r>\n";
-    for edit in views() {
-        match save_value(Language::XML, edit, host, &|value| {
-            removed(value, "/r", "xmlns:x");
-        }) {
-            Ok(saved) if saved == expected => {}
+                if error.contains("bound to no namespace") && error.contains("(at /r/y:a)") => {}
             other => failures.push(format!("via {edit}: {other:?}")),
         }
     }
@@ -75,10 +61,10 @@ fn a_child_added_beside_an_elements_text_waits() {
     report(failures);
 }
 
-/// A namespace declaration added in a view is a declaration, not an
-/// element named `xmlns:y` (which reads back as `y`).
+/// A namespace declaration is markup, not data: one a view adds as a key
+/// waits, saying to write it in the XML text.
 #[test]
-fn a_namespace_declaration_added_in_a_view_is_an_attribute() {
+fn a_namespace_declaration_added_in_a_view_waits() {
     let mut failures = Vec::new();
     let host = "<r a=\"1\">\n  <s>t</s>\n</r>\n";
     // HCL names no attribute `xmlns:y`.
@@ -89,7 +75,9 @@ fn a_namespace_declaration_added_in_a_view_is_an_attribute() {
             }
         });
         match saved {
-            Ok(saved) if saved == "<r a=\"1\" xmlns:y=\"urn:b\">\n  <s>t</s>\n</r>\n" => {}
+            Err(error)
+                if error.contains("xmlns:y is XML markup") && error.contains("(at /r/xmlns:y)") => {
+            }
             other => failures.push(format!("via {edit}: {other:?}")),
         }
     }
