@@ -300,7 +300,12 @@ pub(super) fn flush_input(state: EditorState) {
 /// `before`, and updates the suggestions and popups after it; `refilter`
 /// keeps the suggestion list open to filter it again (Backspace).
 fn apply_input(state: EditorState, edit: Edit, before: &str, input_type: &str, refilter: bool) {
-    let listed = state.suggestions_showing();
+    let showing = state.suggestions_showing();
+    if !showing {
+        // A list that opens by itself is not one the user asked for.
+        state.completion().asked.set_value(false);
+    }
+    let listed = showing && state.completion().asked.get_value();
     let committed = state.commit(edit);
     if input_type == "insertFromDrop" {
         if committed {
@@ -333,6 +338,9 @@ fn apply_input(state: EditorState, edit: Edit, before: &str, input_type: &str, r
     }
     state.completion().requested.set(auto_trigger || refilter);
     super::a11y::say_no_suggestions_after(state, listed);
+    if !state.suggestions_showing() {
+        state.completion().asked.set_value(false);
+    }
     state.hide_hover();
     state.hide_shown_problem();
 }

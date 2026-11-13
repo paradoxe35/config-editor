@@ -1078,7 +1078,7 @@ export interface EditorStrings {
    */
   endTag?: string;
   /**
-   * Said when typing leaves the open list with nothing to suggest.
+   * Said when typing empties a list opened with Ctrl+Space or moved in; a list that opened by itself closes silently.
    *
    * @default "No suggestions"
    */

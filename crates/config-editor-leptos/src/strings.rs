@@ -441,7 +441,7 @@ pub struct EditorStrings {
     pub closes_tag: String,
     /// Its type column.
     pub end_tag: String,
-    /// Said when typing leaves the open list with nothing to suggest.
+    /// Said when typing empties a list opened with Ctrl+Space or moved in; a list that opened by itself closes silently.
     pub no_suggestions: String,
 
     // Problems the editor words.

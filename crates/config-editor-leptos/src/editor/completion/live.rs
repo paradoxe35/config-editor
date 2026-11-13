@@ -41,6 +41,10 @@ pub(crate) struct CompletionState {
     pub(crate) row_size: Memo<RowSize>,
     /// How far the list is scrolled, in pixels (see `window`).
     pub(crate) list_top: RwSignal<f64>,
+    /// The user opened the open list (`Ctrl+Space`) or moved in it: typing
+    /// that empties it says so; a list that opened by itself closes
+    /// silently.
+    pub(crate) asked: StoredValue<bool>,
     /// An inserted default left selected after an accept: typing replaces
     /// it, Tab keeps it and moves past it, Enter keeps it and starts a new
     /// line.
@@ -153,6 +157,7 @@ impl CompletionState {
             listing,
             row_size,
             list_top: RwSignal::new(0.0),
+            asked: StoredValue::new(false),
             placeholder: StoredValue::new(None),
             slot_region: StoredValue::new(None),
             value_stops: StoredValue::new(Vec::new()),
