@@ -22,6 +22,7 @@
 
 mod carry;
 mod components;
+mod follow;
 mod follow_items;
 mod glued;
 mod guard;
@@ -51,6 +52,8 @@ pub(crate) use marks::mentions_marks;
 pub(crate) use save::ReadOnlyChange;
 pub(crate) use texts::{moved_placeholder, save_refused};
 
+#[cfg(test)]
+mod follow_tests;
 #[cfg(all(test, feature = "yaml"))]
 mod pattern_tests;
 #[cfg(test)]
@@ -345,6 +348,15 @@ mod secret_tests;
     feature = "xml"
 ))]
 mod swallow_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod taken_tests;
 #[cfg(all(
     test,
     feature = "yaml",

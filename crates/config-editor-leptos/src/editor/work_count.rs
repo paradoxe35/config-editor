@@ -104,6 +104,10 @@ pub(crate) enum Work {
     /// A byte of a whole text parsed (one note per byte, see [`note_many`]):
     /// reading a document is the costliest thing a keystroke can start.
     ParsedBytes,
+    /// A whole text read for the constructs written over its lines
+    /// (brackets, strings, elements), to widen a selection over them
+    /// (`ConfigLanguage::whole_constructs`).
+    ConstructScan,
 }
 
 impl Work {
@@ -132,13 +136,14 @@ impl Work {
             Self::LineSeek => 19,
             Self::KeyScan => 20,
             Self::ParsedBytes => 21,
+            Self::ConstructScan => 22,
         }
     }
 }
 
 #[cfg(test)]
 thread_local! {
-    static COUNTS: std::cell::Cell<[usize; 22]> = const { std::cell::Cell::new([0; 22]) };
+    static COUNTS: std::cell::Cell<[usize; 23]> = const { std::cell::Cell::new([0; 23]) };
 }
 
 /// `work` is starting (counted on this thread in tests).

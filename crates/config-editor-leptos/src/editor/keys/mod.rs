@@ -6,6 +6,16 @@ mod chord;
 pub(super) mod complete;
 pub(super) mod enter;
 pub(super) mod enter_newline;
+#[cfg(all(
+    test,
+    feature = "folding",
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod fold_scale_tests;
 pub(super) mod line_edit;
 #[cfg(test)]
 mod line_edit_tests;

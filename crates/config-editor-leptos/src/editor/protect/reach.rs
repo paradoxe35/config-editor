@@ -25,8 +25,8 @@ pub(super) struct Shift {
 }
 
 impl Shift {
-    /// `lock`, where it is after the edit.
-    pub(super) fn moved(&self, lock: &Lock) -> Lock {
+    /// `range`, where it is after the edit.
+    pub(super) fn moved_range(&self, range: &Range<usize>) -> Range<usize> {
         let at = |offset: usize| {
             if offset >= self.from {
                 offset.saturating_add_signed(self.by)
@@ -34,7 +34,12 @@ impl Shift {
                 offset
             }
         };
-        let range = |range: &Range<usize>| at(range.start)..at(range.end);
+        at(range.start)..at(range.end)
+    }
+
+    /// `lock`, where it is after the edit.
+    pub(super) fn moved(&self, lock: &Lock) -> Lock {
+        let range = |range: &Range<usize>| self.moved_range(range);
         Lock {
             pointer: lock.pointer.clone(),
             key: lock.key.as_ref().map(range),

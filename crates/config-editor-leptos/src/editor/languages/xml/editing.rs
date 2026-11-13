@@ -146,8 +146,25 @@ pub(super) fn newline_insertion(source: &str, cursor: usize) -> (String, usize) 
 /// Unwraps when every selected line is commented; otherwise wraps each line.
 /// The line selection of `start..end` (UTF-16) widened so it holds whole
 /// elements, start tags, attribute values, CDATA sections and comments.
+use super::super::super::comment_scope::LineState;
+
 pub(super) fn over_balanced_xml_lines(source: &str, start: usize, end: usize) -> (usize, usize) {
-    use super::super::super::comment_scope::{LineState, selected_lines, selection_over, widen};
+    use super::super::super::comment_scope::{selected_lines, selection_over, widen};
+    let states = super::super::super::paths::batch_kept(source, || XmlLines(xml_line_states(source)));
+    let (starts, lowest) = &states.0;
+    let (first, last) = selected_lines(source, start, end);
+    selection_over(source, (start, end), widen(starts, lowest, first, last))
+}
+
+/// The states [`over_balanced_xml_lines`] widens with, read once for a
+/// text while a batch runs for it (each closed fold of a line command asks).
+struct XmlLines((Vec<LineState>, Vec<usize>));
+
+/// Each line start's state over elements, tags, comments and CDATA, and
+/// the lowest depth on each line.
+fn xml_line_states(source: &str) -> (Vec<LineState>, Vec<usize>) {
+    use super::super::super::work_count::{Work, note};
+    note(Work::ConstructScan);
     let lines: Vec<&str> = source.split('\n').collect();
     let mut starts = Vec::with_capacity(lines.len() + 1);
     let mut lowest = Vec::with_capacity(lines.len());
@@ -220,8 +237,7 @@ pub(super) fn over_balanced_xml_lines(source: &str, start: usize, end: usize) ->
         lowest.push(low);
     }
     starts.push(LineState { depth, open: open.is_some() || quote.is_some() });
-    let (first, last) = selected_lines(source, start, end);
-    selection_over(source, (start, end), widen(&starts, &lowest, first, last))
+    (starts, lowest)
 }
 
 pub(super) fn toggle_xml_comments(

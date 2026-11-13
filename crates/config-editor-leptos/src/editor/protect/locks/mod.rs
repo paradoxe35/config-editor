@@ -137,6 +137,9 @@ pub(crate) struct Protected {
     pub(crate) paths: Vec<String>,
     /// Whether the schema marks fields read-only.
     pub(crate) marking: bool,
+    /// The host's read-only ranges the locks were found with (the fields
+    /// they cover are locked by path too, see `fields::covered`).
+    pub(crate) ranges: Vec<Range<usize>>,
 }
 
 impl Protected {
@@ -189,13 +192,16 @@ pub(crate) fn protect(
         locks: range_locks(text, sources.ranges),
         ..Protected::default()
     };
-    if sources.marking_schema.is_none() && sources.paths.is_empty() {
+    if sources.marking_schema.is_none() && sources.paths.is_empty() && protected.locks.is_empty() {
         return protected;
     }
     let reading = Reading::new(behavior, text, sources);
     let carried = sources.previous.filter(|_| reading.document.is_none());
     let marks = reading.schema_marks();
-    let marked = fields::marked(&reading, carried, marks.read_only);
+    let mut marked = fields::marked(&reading, carried, marks.read_only);
+    if carried.is_none() {
+        marked.extend(fields::covered(&reading, &protected.locks));
+    }
     let mut placer = Placer::new(&reading, carried);
     let outermost = fields::outermost(&reading, &marked);
     // Every field's spans read in one pass of the document, not each
@@ -224,6 +230,7 @@ pub(crate) fn protect(
     };
     protected.paths = sources.paths.iter().map(FieldPath::to_pointer).collect();
     protected.marking = sources.marking_schema.is_some();
+    protected.ranges = range_stretches(&protected.locks);
     protected.text = text.to_string();
     protected
 }
@@ -251,6 +258,16 @@ fn carried_past(
     }
     let shift = out_of_reach(behavior, previous, &previous.text, text)?;
     let mut locks = range_locks(text, sources.ranges);
+    // The fields the ranges cover are those of the text before only when
+    // the ranges are its own, moved past the edit.
+    let moved: Vec<Range<usize>> = previous
+        .ranges
+        .iter()
+        .map(|range| shift.moved_range(range))
+        .collect();
+    if moved != range_stretches(&locks) {
+        return None;
+    }
     locks.extend(
         previous
             .locks
@@ -271,7 +288,17 @@ fn carried_past(
         origin: Some(Arc::from(text)),
         paths: previous.paths.clone(),
         marking: previous.marking,
+        ranges: moved,
     })
+}
+
+/// The stretches of the host's ranges among `locks`.
+fn range_stretches(locks: &[Lock]) -> Vec<Range<usize>> {
+    locks
+        .iter()
+        .filter(|lock| lock.pointer.is_none())
+        .flat_map(|lock| lock.ranges.iter().cloned())
+        .collect()
 }
 
 /// A lock for each of the host's `ranges` that is not empty, clamped to

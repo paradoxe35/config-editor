@@ -1055,7 +1055,10 @@ view! {
   in JSON), a space after `:` or `=`, and re-indenting where indentation is
   not structure (JSON, TOML, HCL, XML). In YAML, where the indent says
   which block a key belongs to, changing a locked line's indent is refused.
-  A host's read-only range is text: nothing in it changes.
+  A host's read-only range is text: nothing in it changes, and the fields
+  it covers are locked as read-only paths are (`Ctrl+/` cannot comment one
+  out, nor a line command move it under another key); its text goes along
+  with its lines when they are moved.
 - A syntax error anywhere keeps every lock, both ways: a read-only value
   never changes in anything sent to you (`on_change`, a save, `value()`),
   and an edit that leaves every read-only value as it was is never

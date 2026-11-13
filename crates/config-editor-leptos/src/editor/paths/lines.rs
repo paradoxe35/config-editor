@@ -127,6 +127,18 @@ pub(crate) fn line_column(source: &str, byte: usize) -> (usize, usize) {
     (line, before[line_start..].chars().count() + 1)
 }
 
+/// The line (from 0, split on `\n`) holding byte `byte` of `source`: a
+/// lookup while a batch runs for the text.
+pub(crate) fn line_of_byte(source: &str, byte: usize) -> usize {
+    let byte = byte.min(source.len());
+    if in_batch(source) {
+        let lines = lines(source);
+        return lines.starts.partition_point(|start| *start <= byte) - 1;
+    }
+    note(Work::LineSeek);
+    source[..byte].matches('\n').count()
+}
+
 /// The UTF-16 offset of byte `byte` of `source` (a character boundary):
 /// `source[..byte].encode_utf16().count()`, a lookup while a batch runs
 /// for the text.

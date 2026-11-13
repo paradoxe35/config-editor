@@ -9,7 +9,7 @@ use leptos::prelude::*;
 
 use super::super::Language;
 use super::super::edit::Edit;
-use super::super::paths::FieldPath;
+use super::super::paths::{FieldPath, TextPosition, TextRange};
 use super::super::state::EditorState;
 use super::super::test_state::TestEditor;
 use super::super::work_count::{Work, counted};
@@ -94,18 +94,44 @@ fn type_in_middle(state: EditorState, blocks: usize) {
     }
 }
 
+/// The host's read-only range over the first service's image in `text`.
+fn first_image_range(text: &str) -> TextRange {
+    let at = text.find("app-0:1.0").expect("the first image");
+    let position = |at: usize| {
+        let before = &text[..at];
+        let column = before.rsplit('\n').next().unwrap_or("").chars().count() + 1;
+        TextPosition::new(before.matches('\n').count() + 1, column)
+    };
+    TextRange::new(position(at), position(at + "app-0:1.0".len()))
+}
+
 /// The bytes parsed and the documents read for their spans typing three keys
-/// (the locks read after it, as the view does), with `locks` locked.
-fn typing_work(host: Language, view: Language, locks: &[FieldPath]) -> [usize; 3] {
+/// (the locks read after it, as the view does), with `locks` locked, and
+/// the first image too with `range` (a host's read-only range over it).
+fn typing_work(host: Language, view: Language, locks: &[FieldPath], range: bool) -> [usize; 3] {
     let blocks = 200;
+    let text = services(host, blocks);
     let (_owner, state) = TestEditor {
         edit_as: (view != host).then_some(view),
         read_only_paths: locks.to_vec(),
-        ..TestEditor::new(host, &services(host, blocks))
+        read_only_ranges: if range {
+            vec![first_image_range(&text)]
+        } else {
+            Vec::new()
+        },
+        ..TestEditor::new(host, &text)
     }
     .mount();
     let count = || state.protect().protected.with_untracked(|p| p.locks.len());
-    assert_eq!(count(), locks.len(), "{host} as {view}: locked");
+    // A range is a lock of its text and of the field it covers (in another
+    // view, of the field alone).
+    let expected = locks.len()
+        + if range && view == host {
+            2
+        } else {
+            usize::from(range)
+        };
+    assert_eq!(count(), expected, "{host} as {view}: locked");
     let ((((), parsed), reads), paths) = counted(Work::PathLookup, || {
         counted(Work::DocumentRead, || {
             counted(Work::ParsedBytes, || {
@@ -116,11 +142,22 @@ fn typing_work(host: Language, view: Language, locks: &[FieldPath]) -> [usize; 3
     });
     // The lock is where placing it in the new text puts it.
     let shown = state.doc().text.get_untracked();
+    // In another view the range locks its field by path alone.
+    let ranges = if view == host {
+        state.protect().ranges.get_untracked()
+    } else {
+        Vec::new()
+    };
+    let mut fields = locks.to_vec();
+    if range && view != host {
+        fields.push(FieldPath::from(image(host, 0).as_str()));
+    }
     let placed = protect(
         view.behavior(),
         &shown,
         Sources {
-            paths: locks,
+            paths: &fields,
+            ranges: &ranges,
             ..Sources::default()
         },
     );
@@ -138,15 +175,20 @@ fn a_lock_away_from_a_keystroke_costs_it_no_read_of_the_document_in_every_view()
     super::super::parse_cache::hold();
     let mut costly = Vec::new();
     for (host, view) in views() {
-        let free = typing_work(host, view, &[]);
-        let locked = typing_work(host, view, &[FieldPath::from(image(host, 0).as_str())]);
+        let free = typing_work(host, view, &[], false);
+        let path = [FieldPath::from(image(host, 0).as_str())];
         // The line's path is read once for the three keys (each key's check
         // and locks ask for it).
         let [parsed, reads, paths] = free;
-        if locked != [parsed, reads, paths + 1] {
-            costly.push(format!(
-                "{host} as {view}: (bytes parsed, span reads, path lookups) {locked:?} with a lock, {free:?} without"
-            ));
+        for (kind, locked) in [
+            ("a path", typing_work(host, view, &path, false)),
+            ("a range", typing_work(host, view, &[], true)),
+        ] {
+            if locked != [parsed, reads, paths + 1] {
+                costly.push(format!(
+                    "{host} as {view}, {kind}: (bytes parsed, span reads, path lookups) {locked:?} with a lock, {free:?} without"
+                ));
+            }
         }
     }
     super::super::parse_cache::release();

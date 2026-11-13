@@ -2012,47 +2012,35 @@ pub fn over_whole_strings(
     start: usize,
     end: usize,
 ) -> (usize, usize) {
-    let lines: Vec<&str> = source.split('\n').collect();
-    let mut line_starts = Vec::with_capacity(lines.len());
-    let mut offset = 0;
-    for line in &lines {
-        line_starts.push(offset);
-        offset += line.len() + 1;
-    }
-    // Lines inside a string: the language's string bodies, and lines that
-    // start inside an open quote (a quoted string over several lines).
-    let mut inside = vec![false; lines.len()];
-    for range in string_bodies(behavior, source).iter().cloned() {
-        let end = range.end.min(lines.len());
-        if range.start < end {
-            inside[range.start..end].fill(true);
-        }
-    }
-    // (Quoted strings over lines are taken whole by
-    // `comment_scope::over_balanced_lines`, which reads them in one pass.)
+    let label = behavior.info().label;
+    let kept = super::paths::batch_kept(source, || StringLines::new(behavior, source));
+    let fresh;
+    let strings = if kept.label == label {
+        &*kept
+    } else {
+        fresh = StringLines::new(behavior, source);
+        &fresh
+    };
+    let inside = &strings.inside;
+    let line_count = inside.len();
     // A closing delimiter alone after a body: one of the language's
     // multi-character quotes, or a word (a heredoc's `EOT`).
-    let long_quotes: Vec<&str> = behavior
-        .config()
-        .quotes
-        .iter()
-        .copied()
-        .filter(|quote| quote.len() > 1)
-        .collect();
     let closes = |line: usize| {
-        lines.get(line).is_some_and(|text| {
+        super::paths::split_line(source, line).is_some_and(|text| {
             let trimmed = text.trim();
-            long_quotes.iter().any(|quote| trimmed.contains(quote))
+            behavior
+                .config()
+                .quotes
+                .iter()
+                .any(|quote| quote.len() > 1 && trimmed.contains(quote))
                 || (!trimmed.is_empty()
                     && trimmed
                         .chars()
                         .all(|character| character.is_alphanumeric() || character == '_'))
         })
     };
-    let line_of = |utf16: usize| {
-        let byte = utf16_to_byte_index(source, utf16);
-        source[..byte].matches('\n').count()
-    };
+    let line_of =
+        |utf16: usize| super::paths::line_of_byte(source, utf16_to_byte_index(source, utf16));
     let (first_line, last_line) = (line_of(start), line_of(end));
     let (mut first, mut last) = (first_line, last_line);
     // On a closing delimiter (`EOF`): its body and opening line too.
@@ -2062,33 +2050,82 @@ pub fn over_whole_strings(
     while first > 0 && inside[first] {
         first -= 1;
     }
-    while last + 1 < lines.len() && inside[last + 1] {
+    while last + 1 < line_count && inside[last + 1] {
         last += 1;
     }
-    if inside[last] && last + 1 < lines.len() && closes(last + 1) {
+    if inside[last] && last + 1 < line_count && closes(last + 1) {
         last += 1;
     }
     // Strings the language gives whole (`multiline_strings`): every line
     // of one the lines touch, its opening and closing lines included.
-    let byte_line = |byte: usize| source[..byte.min(source.len())].matches('\n').count();
-    for range in behavior.multiline_strings(source) {
-        let (opens, closes) = (
-            byte_line(range.start),
-            byte_line(range.end.saturating_sub(1).max(range.start)),
-        );
-        if opens <= last && first <= closes {
-            first = first.min(opens);
-            last = last.max(closes);
+    for (opens, closes) in &strings.whole {
+        if *opens <= last && first <= *closes {
+            first = first.min(*opens);
+            last = last.max(*closes);
         }
     }
     if (first, last) == (first_line, last_line) {
         return (start, end);
     }
-    let to_utf16 = |byte: usize| source[..byte].encode_utf16().count();
+    let line_start = |line: usize| super::paths::line_start(source, line);
+    let last_end = line_start(last) + super::paths::split_line(source, last).map_or(0, str::len);
     (
-        to_utf16(line_starts[first]),
-        to_utf16(line_starts[last] + lines[last].len()),
+        super::paths::units_at(source, line_start(first)),
+        super::paths::units_at(source, last_end),
     )
+}
+
+/// What [`over_whole_strings`] reads of a whole text, once while a batch
+/// runs for it (each closed fold of a line command asks).
+struct StringLines {
+    label: &'static str,
+    /// Whether each line is inside a string: the language's string bodies.
+    /// (Quoted strings over lines are taken whole by
+    /// `comment_scope::over_balanced_lines`, which reads them in one pass.)
+    inside: Vec<bool>,
+    /// The lines each of the language's `multiline_strings` opens and
+    /// closes on.
+    whole: Vec<(usize, usize)>,
+}
+
+impl StringLines {
+    fn new(behavior: &(impl ConfigLanguage + ?Sized), source: &str) -> Self {
+        super::work_count::note(super::work_count::Work::ConstructScan);
+        let line_count = source.split('\n').count();
+        let mut inside = vec![false; line_count];
+        for range in string_bodies(behavior, source).iter().cloned() {
+            let end = range.end.min(line_count);
+            if range.start < end {
+                inside[range.start..end].fill(true);
+            }
+        }
+        // Each line's first byte, to place the strings' ends.
+        let starts: Vec<usize> = std::iter::once(0)
+            .chain(source.match_indices('\n').map(|(at, _)| at + 1))
+            .collect();
+        let line_of = |byte: usize| starts.partition_point(|start| *start <= byte) - 1;
+        let whole = behavior
+            .multiline_strings(source)
+            .into_iter()
+            .map(|range| {
+                (
+                    line_of(range.start.min(source.len())),
+                    line_of(
+                        range
+                            .end
+                            .saturating_sub(1)
+                            .max(range.start)
+                            .min(source.len()),
+                    ),
+                )
+            })
+            .collect();
+        Self {
+            label: behavior.info().label,
+            inside,
+            whole,
+        }
+    }
 }
 
 #[cfg(test)]

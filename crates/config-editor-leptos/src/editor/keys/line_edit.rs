@@ -157,14 +157,20 @@ pub(in crate::editor) fn fold_units(
     }
     let line_of = |offset: usize| starts.partition_point(|start| *start <= offset) - 1;
     let line_end = |line: usize| starts.get(line + 1).map_or(at, |next| next - 1);
-    folds
-        .iter()
-        .map(|fold| {
-            let header = starts[fold.start.min(starts.len() - 1)];
-            let (first, last) = behavior.whole_constructs(text, header, line_end(fold.end));
-            FoldRange::new(line_of(first).min(fold.start), line_of(last).max(fold.end))
-        })
-        .collect()
+    // One batch for the text: what the language reads of all of it to
+    // widen a selection (its lines, its brackets and strings) is read once
+    // for all the folds, not once for each (a line command after "fold
+    // all" read the whole text once per closed fold).
+    super::super::paths::with_spans(behavior, text, &[], || {
+        folds
+            .iter()
+            .map(|fold| {
+                let header = starts[fold.start.min(starts.len() - 1)];
+                let (first, last) = behavior.whole_constructs(text, header, line_end(fold.end));
+                FoldRange::new(line_of(first).min(fold.start), line_of(last).max(fold.end))
+            })
+            .collect()
+    })
 }
 
 /// The edit `command` makes of the lines of `selection` in `text`, with

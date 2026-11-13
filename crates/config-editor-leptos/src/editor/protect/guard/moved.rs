@@ -4,8 +4,10 @@
 //! same path afterwards (a key moved above the document's opening brace
 //! holds nothing); and where indentation is structure, no line more
 //! indented than the field comes to follow it (a list's items left under a
-//! locked key, its own key moved or deleted). Reorders among siblings keep
-//! both, and go through.
+//! locked key, its own key moved or deleted); and the field's lines holding
+//! code keep their order with no other line of code coming between them
+//! (its key moved away from the lines under it). Reorders among siblings
+//! keep all three, and go through.
 
 use std::ops::Range;
 
@@ -25,7 +27,57 @@ pub(super) struct Place<'p, 'e, 'o, 'n> {
 impl Place<'_, '_, '_, '_> {
     /// Whether `lock` stays where it is (see the module docs).
     pub(super) fn kept(&self, lock: &Lock) -> bool {
-        self.paths_kept(lock) && self.nothing_indented_under(lock)
+        self.paths_kept(lock) && self.nothing_indented_under(lock) && self.lines_together(lock)
+    }
+
+    /// The lines of `lock` holding code, followed through the edit (those
+    /// it rewrote found once among the lines it wrote), are still in order
+    /// with no other line of code between two of them. A line not found
+    /// is not followed.
+    fn lines_together(&self, lock: &Lock) -> bool {
+        let edit = self.edit;
+        let Some((low, high)) = hull(lock) else {
+            return true;
+        };
+        let old_lines = &edit.lines;
+        let (first, last) = (
+            old_lines.line_of(low),
+            old_lines.line_of(high.saturating_sub(1).max(low)),
+        );
+        let (from, to) = (
+            old_lines.line_of(edit.region.start),
+            old_lines.line_of(edit.region.end),
+        );
+        if first == last || last < from || first > to {
+            return true;
+        }
+        let code = |text: &str| holds_code(edit.behavior, text);
+        let added = self.new_lines.line_count() as isize - old_lines.line_count() as isize;
+        let mut previous: Option<usize> = None;
+        for line in first..=last {
+            let text = old_lines.line_text(line);
+            if !code(text) {
+                continue;
+            }
+            let now = if line < from {
+                Some(line)
+            } else if line > to {
+                line.checked_add_signed(added)
+            } else {
+                self.new_line(text)
+            };
+            let Some(now) = now else {
+                return true;
+            };
+            if let Some(previous) = previous
+                && (now <= previous
+                    || (previous + 1..now).any(|between| code(self.new_lines.line_text(between))))
+            {
+                return false;
+            }
+            previous = Some(now);
+        }
+        true
     }
 
     /// Each line of `lock` (its key and stretches) and of the keys holding
@@ -65,9 +117,7 @@ impl Place<'_, '_, '_, '_> {
         if !edit.behavior.indent_is_structure() {
             return true;
         }
-        let starts = lock.key.iter().chain(&lock.ranges).map(|range| range.start);
-        let ends = lock.key.iter().chain(&lock.ranges).map(|range| range.end);
-        let (Some(low), Some(high)) = (starts.min(), ends.max()) else {
+        let Some((low, high)) = hull(lock) else {
             return true;
         };
         let old_lines = &edit.lines;
@@ -108,4 +158,11 @@ impl Place<'_, '_, '_, '_> {
             _ => None,
         }
     }
+}
+
+/// The first and last UTF-16 offset of `lock`'s key and stretches.
+fn hull(lock: &Lock) -> Option<(usize, usize)> {
+    let starts = lock.key.iter().chain(&lock.ranges).map(|range| range.start);
+    let ends = lock.key.iter().chain(&lock.ranges).map(|range| range.end);
+    starts.min().zip(ends.max())
 }

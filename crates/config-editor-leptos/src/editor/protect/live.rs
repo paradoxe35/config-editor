@@ -11,13 +11,13 @@ use super::super::codec;
 use super::super::diagnostics::SchemaBundle;
 use super::super::edit::{Edit, Origin};
 use super::super::edit_as::SaveError;
-use super::super::input::edit_range;
 use super::super::keyboard::utf16_to_byte_index;
 use super::super::language::ConfigLanguage;
 use super::super::languages::Language;
 use super::super::paths::{FieldPath, TextRange};
 use super::super::secret_options::SecretOptions;
 use super::super::state::EditorState;
+use super::follow::follow_ranges;
 use super::glued::{glued_by_edit, glued_in_save, glued_message};
 use super::guard::{Blocked, check};
 use super::locate::LineIndex;
@@ -492,17 +492,8 @@ impl EditorState {
         if self.protect().ranges.with_untracked(Vec::is_empty) {
             return;
         }
-        let region = {
-            let (start, end) = edit_range(before, after, caret);
-            start..end
-        };
-        let inserted = (after.encode_utf16().count() + region.len())
-            .saturating_sub(before.encode_utf16().count());
         self.protect().ranges.update(|ranges| {
-            *ranges = ranges
-                .iter()
-                .map(|range| follow_range(range, &region, inserted))
-                .collect();
+            *ranges = follow_ranges(ranges, before, after, caret);
         });
     }
 
@@ -690,21 +681,6 @@ impl EditorState {
         }
         true
     }
-}
-
-/// A range after an edit replaced `region` with `inserted` units: before
-/// it stays, after it shifts, across it keeps what is left.
-fn follow_range(range: &Range<usize>, region: &Range<usize>, inserted: usize) -> Range<usize> {
-    let map = |at: usize| {
-        if at <= region.start {
-            at
-        } else if at >= region.end {
-            at + inserted - region.len()
-        } else {
-            region.start + inserted
-        }
-    };
-    map(range.start)..map(range.end).max(map(range.start))
 }
 
 /// Where `edit` inserts what typing writes (characters, a line break, a

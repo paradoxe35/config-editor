@@ -14,7 +14,7 @@ pub(crate) use fields::fields;
 #[cfg(any(feature = "yaml", feature = "toml"))]
 pub(crate) use lines::text_line;
 pub(crate) use lines::{
-    Lines, byte_at, line_column, line_start, lines, offset_of, split_line, units_at,
+    Lines, byte_at, line_column, line_of_byte, line_start, lines, offset_of, split_line, units_at,
 };
 #[cfg(any(feature = "toml", feature = "hcl", feature = "xml"))]
 pub(crate) use span_memo::batch_cached_as;

@@ -3,16 +3,18 @@
 //! that does not parse), the host's read-only paths, and the secret fields.
 
 use std::collections::{HashMap, HashSet};
+use std::ops::Range;
 
 use serde_json::Value;
 
 use super::super::super::language::ConfigLanguage;
 use super::super::super::paths::lone_spelling;
 use super::super::locate::{lookup, plain};
+use super::super::save::range_pointers;
 use super::super::scan;
 use super::super::texts::Reason;
-use super::Protected;
 use super::reading::Reading;
+use super::{Lock, Protected};
 
 /// The fields marked read-only: those of the text before when this one
 /// does not parse and carries from it; else, in a text that does not
@@ -32,6 +34,27 @@ pub(super) fn marked(
             .map(|(pointer, reason)| (pointer, reason.map_or(Reason::Field, Reason::Given)))
             .collect(),
     }
+}
+
+/// The fields the host's ranges (the stretches of `ranges`, the locks
+/// without a field) cover in a text that parses (`save::range_pointers`,
+/// as an Edit-as view locks them): locked by path as well, so a range keeps
+/// its field's value and place, not only its text (`Ctrl+/` or a line moved
+/// under another key would take the field with the text kept). Carried,
+/// with the schema's marks, through texts that do not parse.
+pub(super) fn covered(reading: &Reading<'_>, ranges: &[Lock]) -> Vec<(String, Reason)> {
+    let Some(document) = &reading.document else {
+        return Vec::new();
+    };
+    let stretches: Vec<Range<usize>> = ranges
+        .iter()
+        .filter(|lock| lock.pointer.is_none())
+        .flat_map(|lock| lock.ranges.iter().cloned())
+        .collect();
+    range_pointers(reading.behavior, reading.text, document, &stretches)
+        .into_iter()
+        .map(|pointer| (pointer, Reason::Range))
+        .collect()
 }
 
 /// The fields `schema` marks in a text that does not parse: the stand-in's

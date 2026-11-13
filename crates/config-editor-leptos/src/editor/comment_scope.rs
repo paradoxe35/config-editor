@@ -7,6 +7,8 @@
 
 use super::keyboard::utf16_to_byte_index;
 use super::language::ConfigLanguage;
+use super::paths::{batch_kept, line_of_byte, line_start, split_line, units_at};
+use super::work_count::{Work, note};
 
 /// The state at each line start: the nesting depth there, and whether a
 /// string (or another construct the language reads as one) is open.
@@ -54,16 +56,9 @@ pub(crate) fn selection_over(
     if (first, last) == selected_lines(source, start, end) {
         return (start, end);
     }
-    let lines: Vec<&str> = source.split('\n').collect();
-    let line_start = |line: usize| {
-        lines[..line]
-            .iter()
-            .map(|text| text.len() + 1)
-            .sum::<usize>()
-    };
-    let to_utf16 = |byte: usize| source[..byte].encode_utf16().count();
-    let new_start = to_utf16(line_start(first)).min(start);
-    let new_end = to_utf16(line_start(last) + lines[last].len()).max(end);
+    let last_end = line_start(source, last) + split_line(source, last).map_or(0, str::len);
+    let new_start = units_at(source, line_start(source, first)).min(start);
+    let new_end = units_at(source, last_end).max(end);
     (new_start, new_end)
 }
 
@@ -76,6 +71,38 @@ pub(crate) fn over_balanced_lines(
     start: usize,
     end: usize,
 ) -> (usize, usize) {
+    let label = behavior.info().label;
+    let kept = batch_kept(source, || BalancedLines {
+        label,
+        states: line_states(behavior, source),
+    });
+    let fresh;
+    let (starts, lowest) = if kept.label == label {
+        (&kept.states.0, &kept.states.1)
+    } else {
+        fresh = line_states(behavior, source);
+        (&fresh.0, &fresh.1)
+    };
+    let (first, last) = selected_lines(source, start, end);
+    let lines_over = widen(starts, lowest, first, last);
+    selection_over(source, (start, end), lines_over)
+}
+
+/// The states at each line start [`over_balanced_lines`] widens with, read
+/// once for a text while a batch runs for it (each closed fold of a line
+/// command asks, see `keys::line_edit::fold_units`).
+struct BalancedLines {
+    label: &'static str,
+    states: (Vec<LineState>, Vec<usize>),
+}
+
+/// Each line start's state over `behavior`'s brackets and strings, and the
+/// lowest depth on each line.
+fn line_states(
+    behavior: &(impl ConfigLanguage + ?Sized),
+    source: &str,
+) -> (Vec<LineState>, Vec<usize>) {
+    note(Work::ConstructScan);
     let lines: Vec<&str> = source.split('\n').collect();
     let mut body = vec![false; lines.len()];
     for range in super::parse_cache::string_bodies(behavior, source)
@@ -190,9 +217,7 @@ pub(crate) fn over_balanced_lines(
         depth,
         open: quote.is_some(),
     });
-    let (first, last) = selected_lines(source, start, end);
-    let lines_over = widen(&starts, &lowest, first, last);
-    selection_over(source, (start, end), lines_over)
+    (starts, lowest)
 }
 
 /// The first and last line the UTF-16 selection `start..end` covers; a
@@ -200,8 +225,8 @@ pub(crate) fn over_balanced_lines(
 pub(crate) fn selected_lines(source: &str, start: usize, end: usize) -> (usize, usize) {
     let start_byte = utf16_to_byte_index(source, start);
     let end_byte = utf16_to_byte_index(source, end);
-    let first = source[..start_byte].matches('\n').count();
-    let last = source[..end_byte].matches('\n').count();
+    let first = line_of_byte(source, start_byte);
+    let last = line_of_byte(source, end_byte);
     let last = if end_byte > start_byte && source[..end_byte].ends_with('\n') {
         last - 1
     } else {
