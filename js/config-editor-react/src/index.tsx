@@ -88,8 +88,9 @@ export interface ConfigEditorProps extends EditorSettings {
   readOnlyRanges?: TextRangeInput[];
   /**
    * How secret placeholders are matched, described and completed. Changing
-   * `placeholder`, `hint` or `referencePrefixes` re-mounts; `isPlaceholder`
-   * may change freely (the latest one is called).
+   * `placeholder`, `hint` or `referencePrefixes`, or adding or removing
+   * `isPlaceholder`, re-mounts; a new `isPlaceholder` function in its place
+   * does not (the latest one is called).
    */
   secrets?: SecretOptions;
   /** JSON Schema as JSON text. Changing it re-mounts. */

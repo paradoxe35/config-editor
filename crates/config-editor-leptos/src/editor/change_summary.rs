@@ -5,10 +5,10 @@
 /// gutter shows it: what `on_change_summary` reports. Counting needs the
 /// `diff` feature; without it, nothing reports one.
 ///
-/// A final line break added (or removed) is the empty last line the editor
-/// shows added (or removed); [`unified_diff`](crate::unified_diff) writes it
-/// as `diff -u` does, the last line changed and `\ No newline at end of
-/// file`.
+/// A final line break added is the empty last line the editor shows added;
+/// one removed is no change (no line goes: the last one only loses its
+/// break). [`unified_diff`](crate::unified_diff) writes both as `diff -u`
+/// does, the last line changed and `\ No newline at end of file`.
 ///
 /// ```
 /// # #[cfg(feature = "diff")] {

@@ -45,7 +45,7 @@ export interface ConfigEditorProps extends EditorSettings {
   readOnlyPaths?: FieldPath[];
   /** Stretches of the document (in `language`) the user cannot change. Updates live. */
   readOnlyRanges?: TextRangeInput[];
-  /** How secret placeholders are matched, described and completed. Changing `placeholder`, `hint` or `referencePrefixes` re-mounts; `isPlaceholder` may change freely. */
+  /** How secret placeholders are matched, described and completed. Changing `placeholder`, `hint` or `referencePrefixes`, or adding or removing `isPlaceholder`, re-mounts; a new `isPlaceholder` function in its place does not. */
   secrets?: SecretOptions;
   /** JSON Schema as JSON text. Changing it re-mounts. */
   schema?: string;
