@@ -3,7 +3,7 @@ import { setupEditor } from './helpers.mjs';
 
 // Shortcut hints and where they are true: the footer's suggestions hint on a
 // touch screen, `Cmd` named where macOS takes it (and not where it does not),
-// F6 from the host's own button, and the find widget and the diff peek in a
+// the conflict notice saying where F6 works, and the find widget and the diff peek in a
 // window a few lines tall.
 
 const MAC = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36';
@@ -59,7 +59,9 @@ test.describe('shortcut hints elsewhere (D23.ux-2)', () => {
 test.describe('F6 and the conflict notice (D23.a11y-2)', () => {
   setupEditor(test, '?language=yaml');
 
-  test('moves to the choices from the host button that opened it, and back', async ({ page }) => {
+  // The sentence says where F6 works: in the editor. The host's page keeps
+  // its own F6 (a browser moves between its address bar and the page with it).
+  test('says F6 works in the editor, where it reaches the choices and back, and leaves the host page its F6', async ({ page }) => {
     const focused = () => page.evaluate(() => document.activeElement?.className ?? '');
     await input(page).click();
     await page.keyboard.press('Control+End');
@@ -69,8 +71,11 @@ test.describe('F6 and the conflict notice (D23.a11y-2)', () => {
     await external.click();
     const notice = page.locator('.config-editor__notice');
     await expect(notice).toBeVisible();
-    await expect(notice).toContainText('F6 moves to the choices and back.');
+    await expect(notice).toContainText('In the editor, F6 moves to the choices and back.');
     await external.evaluate((button) => button.focus());
+    await page.keyboard.press('F6');
+    expect(await focused()).toContain('demo__external-change');
+    await input(page).focus();
     await page.keyboard.press('F6');
     await expect.poll(focused).toContain('config-editor__notice-keep');
     await page.keyboard.press('F6');

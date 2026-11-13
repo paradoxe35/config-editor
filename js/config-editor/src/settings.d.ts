@@ -372,7 +372,7 @@ export interface EditorStrings {
   /**
    * How to reach the notice's choices from the keyboard, shown on it (and announced with it); not on touch screens.
    *
-   * @default "F6 moves to the choices and back."
+   * @default "In the editor, F6 moves to the choices and back."
    */
   baselineChangedKeys?: string;
   /**

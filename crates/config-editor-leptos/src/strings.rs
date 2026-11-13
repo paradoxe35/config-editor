@@ -562,7 +562,7 @@ impl Default for EditorStrings {
             keep_mine_title: text(
                 "Keep your text; the changes are now shown against the new version (Escape)",
             ),
-            baseline_changed_keys: text("F6 moves to the choices and back."),
+            baseline_changed_keys: text("In the editor, F6 moves to the choices and back."),
             find_widget: text("Find and replace"),
             toggle_replace: text("Toggle replace"),
             toggle_replace_title: text("Toggle replace ({cmd}+H)"),
