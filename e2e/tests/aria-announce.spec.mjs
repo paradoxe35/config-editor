@@ -135,21 +135,21 @@ test.describe('folds and the change preview', () => {
     const peek = page.locator('.config-editor__diff-peek');
     await expect(peek).toHaveCount(1);
     const inPeek = () => page.evaluate(() => !!document.activeElement?.closest('.config-editor__diff-peek'));
-    expect(await inPeek()).toBe(true);
+    await expect.poll(inPeek).toBe(true);
     // Forward: Revert, Close, then the footer's first control.
     await page.keyboard.press('Tab');
-    expect(await inPeek()).toBe(true);
+    await expect.poll(inPeek).toBe(true);
     await page.keyboard.press('Tab');
-    expect(await inPeek()).toBe(false);
+    await expect.poll(inPeek).toBe(false);
     const first = await focusedClass(page);
     expect(first).toMatch(/config-editor__(diagnostic|change)-status/);
     // Backward from it: the preview's last button, not the text.
     await page.keyboard.press('Shift+Tab');
-    expect(await inPeek()).toBe(true);
+    await expect.poll(inPeek).toBe(true);
     // Forward from the footer's last control leaves the editor, not into the preview.
     await page.locator('.config-editor__change-status').focus();
     await page.keyboard.press('Tab');
-    expect(await inPeek()).toBe(false);
+    await expect.poll(inPeek).toBe(false);
     expect(await page.evaluate(() => !!document.activeElement?.closest('.config-editor'))).toBe(false);
   });
 });
