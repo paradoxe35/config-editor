@@ -29,6 +29,8 @@ mod document;
 mod drag_move;
 mod edit;
 mod edit_as;
+// `"$ref": ""` read as the root, for validation, completion and hover alike.
+mod empty_refs;
 #[cfg(feature = "schema-validation")]
 mod false_schema;
 mod fill;

@@ -72,7 +72,8 @@ pub(super) struct SchemaBundle {
 /// The compiled schema, or why `schema_text` is no JSON Schema (worded by
 /// the `invalidSchema` text where it is shown).
 pub(super) fn build_schema(schema_text: &str) -> Result<SchemaBundle, String> {
-    let schema: Value = serde_json::from_str(schema_text).map_err(|error| error.to_string())?;
+    let mut schema: Value = serde_json::from_str(schema_text).map_err(|error| error.to_string())?;
+    super::empty_refs::to_root(&mut schema);
     #[cfg(feature = "schema-validation")]
     let validator = jsonschema::validator_for(
         super::false_schema::for_validation(&schema)
