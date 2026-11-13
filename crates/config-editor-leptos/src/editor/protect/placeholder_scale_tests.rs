@@ -355,3 +355,42 @@ fn placeholders_of_a_text_that_does_not_parse_cost_one_reading() {
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
+
+/// One placeholder held in many fields is read and found looking each of
+/// its places up once (hard round 23's `D23.perf-1`: each held place was
+/// compared with every place found before it, 2 s to mount at 2,098
+/// fields).
+#[test]
+fn one_placeholder_in_many_fields_is_placed_by_lookups() {
+    use super::super::work_count::{Work, counted};
+    let matcher = SecretMatcher::new(&SecretOptions::default());
+    let mut failures = Vec::new();
+    for language in languages() {
+        let behavior = language.behavior();
+        let lookups = |count: usize| {
+            let mut map = serde_json::Map::new();
+            for index in 0..count {
+                map.insert(format!("c{index}"), json!({ "secret": "«secret 3f2a»" }));
+            }
+            let text = behavior
+                .serialize(&json!({ "clients": map }), None)
+                .expect("writes");
+            counted(Work::PlaceLookup, || {
+                let known = matcher.known(behavior, &text);
+                assert_eq!(
+                    matcher.locate(behavior, &text, &known).len(),
+                    count,
+                    "{language}: all found"
+                );
+            })
+            .1
+        };
+        let (few, many) = (lookups(200), lookups(2_000));
+        if many > 12 * few {
+            failures.push(format!(
+                "{language}: {few} place lookups for 200 fields, {many} for 2,000"
+            ));
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}

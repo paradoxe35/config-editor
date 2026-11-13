@@ -20,7 +20,8 @@ use leptos::prelude::Callback;
 
 use super::super::language::ConfigLanguage;
 use super::super::parse_cache;
-use super::super::paths::{in_batch, path_at, same_field, units_at, with_spans};
+use super::super::paths::{field_key, in_batch, path_at, units_at, with_spans};
+use super::super::work_count::{Work, note};
 use super::glued::written_alone;
 use super::marks::escape;
 
@@ -29,7 +30,7 @@ use super::marks::escape;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Known {
     pub(crate) token: String,
-    /// JSON pointer of the field (see [`same_field`]); `None`: the token is
+    /// JSON pointer of the field (see `paths::same_field`); `None`: the token is
     /// written in the text's comments.
     pub(crate) field: Option<String>,
     pub(crate) count: usize,
@@ -40,16 +41,6 @@ pub(crate) struct Known {
     /// The prints of the list items on the way to the field (see
     /// `follow_items`): the field follows its item when items shift.
     pub(crate) items: Vec<u64>,
-}
-
-/// Whether a known token's place (`field`, `None` for the comments) is
-/// `pointer` (`None`: a comment).
-pub(crate) fn same_place(field: Option<&str>, pointer: Option<&str>) -> bool {
-    match (field, pointer) {
-        (Some(field), Some(pointer)) => same_field(field, pointer),
-        (None, None) => true,
-        _ => false,
-    }
 }
 
 /// The pointer of the field holding the token at byte `start` of `text`.
@@ -151,19 +142,18 @@ impl SecretMatcher {
     /// [`written_alone`]).
     pub(crate) fn known(&self, behavior: &dyn ConfigLanguage, text: &str) -> Vec<Known> {
         let mut known: Vec<Known> = Vec::new();
-        // Where each token is in `known`: a lookup per token, not a pass
-        // over all of them (thousands of placeholders).
-        let mut by_token: std::collections::HashMap<String, Vec<usize>> =
+        // Where each token is in `known`, by its field: a lookup per held
+        // token, not a pass over the fields already holding it (one token
+        // held in thousands of fields).
+        let mut by_place: std::collections::HashMap<(String, Option<String>), usize> =
             std::collections::HashMap::new();
         let mut add = |token: &str, field: Option<String>, whole: bool, items: Vec<u64>| {
-            let seen = by_token.entry(token.to_string()).or_default();
-            match seen
-                .iter()
-                .find(|index| same_place(known[**index].field.as_deref(), field.as_deref()))
-            {
+            note(Work::PlaceLookup);
+            let place = (token.to_string(), field.as_deref().map(field_key));
+            match by_place.get(&place) {
                 Some(index) => known[*index].count += 1,
                 None => {
-                    seen.push(known.len());
+                    by_place.insert(place, known.len());
                     known.push(Known {
                         token: token.to_string(),
                         field,
@@ -429,17 +419,35 @@ impl SecretMatcher {
                     placed = Some(pointers);
                 }
             }
+            // The fields still to place this token in, by field: a lookup
+            // per occurrence.
+            let mut by_field: std::collections::HashMap<String, std::collections::VecDeque<usize>> =
+                std::collections::HashMap::new();
+            for (index, (field, _)) in left.iter().enumerate() {
+                if let Some(field) = field {
+                    by_field
+                        .entry(field_key(field))
+                        .or_default()
+                        .push_back(index);
+                }
+            }
             for (nth, byte) in written.into_iter().enumerate() {
                 let pointer = match placed {
                     Some(pointers) => pointers[nth].clone(),
                     None => field_at(behavior, text, byte),
                 };
-                let Some((_, count)) = left.iter_mut().find(|(field, count)| {
-                    *count > 0 && field.is_some_and(|field| same_field(field, &pointer))
-                }) else {
+                let Some(slots) = by_field.get_mut(&field_key(&pointer)) else {
                     continue;
                 };
-                *count -= 1;
+                note(Work::PlaceLookup);
+                while slots.front().is_some_and(|index| left[*index].1 == 0) {
+                    note(Work::PlaceLookup);
+                    slots.pop_front();
+                }
+                let Some(&index) = slots.front() else {
+                    continue;
+                };
+                left[index].1 -= 1;
                 found.push(byte..byte + token.len());
             }
         }
@@ -618,6 +626,7 @@ mod tests {
             custom.known(yaml, "x: «secret 11»\ny: «secret 2a»").len(),
             1
         );
+        use crate::editor::paths::same_field;
         assert!(same_field("/a/0/b", "/a/b") && !same_field("/a", "/b"));
     }
 

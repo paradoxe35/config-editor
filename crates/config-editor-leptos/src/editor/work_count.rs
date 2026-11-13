@@ -126,6 +126,13 @@ pub(crate) enum Work {
     HoverLookup,
     /// Another tab's file name read for a tab's label (`documents::tab_names`).
     TabNameVisit,
+    /// A secret placeholder's place looked up among the places it is held
+    /// (`protect::tokens`).
+    #[cfg_attr(
+        not(feature = "protect"),
+        allow(dead_code, reason = "only the secret placeholders note it")
+    )]
+    PlaceLookup,
 }
 
 impl Work {
@@ -160,13 +167,14 @@ impl Work {
             Self::ItemComparison => 25,
             Self::HoverLookup => 26,
             Self::TabNameVisit => 27,
+            Self::PlaceLookup => 28,
         }
     }
 }
 
 #[cfg(test)]
 thread_local! {
-    static COUNTS: std::cell::Cell<[usize; 28]> = const { std::cell::Cell::new([0; 28]) };
+    static COUNTS: std::cell::Cell<[usize; 29]> = const { std::cell::Cell::new([0; 29]) };
 }
 
 /// `work` is starting (counted on this thread in tests).
