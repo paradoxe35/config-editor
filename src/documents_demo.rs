@@ -15,6 +15,7 @@ use leptos::prelude::*;
 
 use crate::settings_panel::SettingsPanel;
 use crate::theme_picker::ThemePicker;
+use crate::unsaved_dialog::UnsavedDialog;
 
 const SCHEMA: &str = include_str!("../schema.json");
 const MAIN: &str = "# Tunnel server configuration\nlisten: 7835\npublic_address: tunnel.example.com\ninsecure_plaintext: false\nlimits:\n  handshake_timeout_secs: 5\n  max_handshakes: 4096\n  max_pending: 512\nheartbeat:\n  interval_secs: 15\n";
@@ -178,13 +179,12 @@ pub fn view(many: bool) -> impl IntoView {
             close(&request.id);
         }
     };
-    let discard = move |_| {
+    let discard = move || {
         if let Some(id) = asking.get() {
             close(&id);
         }
         asking.set(None);
     };
-    let keep = move |_| asking.set(None);
     let add_document = move || {
         added.update(|count| *count += 1);
         let count = added.get_untracked();
@@ -258,13 +258,7 @@ pub fn view(many: bool) -> impl IntoView {
                 <button class="demo__button demo__rename" type="button" on:click=rename>"Rename limits"</button>
                 <button class="demo__button demo__toggle-closable" type="button" on:click=toggle_closable>"Toggle closable (main)"</button>
             </div>
-            <Show when=move || asking.get().is_some()>
-                <div class="demo__ask" role="alertdialog" aria-label="Unsaved changes">
-                    {move || format!("Discard unsaved changes to {}?", asking.get().unwrap_or_default())}
-                    <button class="demo__button demo__discard" type="button" on:click=discard>"Discard"</button>
-                    <button class="demo__button demo__keep" type="button" on:click=keep>"Cancel"</button>
-                </div>
-            </Show>
+            <UnsavedDialog asking=asking discard=discard />
             <ConfigDocuments
                 documents=documents
                 handle=tabs

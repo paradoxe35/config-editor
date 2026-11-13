@@ -383,7 +383,7 @@ pub(super) fn pointer_at(state: EditorState, element: &SourceArea, x: f64, y: f6
         state.hide_hover();
         return;
     }
-    let on_protected = state.hover_protected(line, column);
+    let on_protected = state.hover_protected(line, column).is_some();
     if !state.config().settings.hover_docs.get_untracked() {
         return;
     }

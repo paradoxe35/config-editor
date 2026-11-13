@@ -164,10 +164,7 @@ fn FoldToggle(state: EditorState, item: FoldItem) -> impl IntoView {
     let strings = state.strings_signal();
     let label = move || strings.with(|strings| fold_label(strings, line, closed_end));
     let toggle = move |_: web_sys::MouseEvent| state.fold_command(|| state.toggle_fold(line));
-    let top = Declarations::new().set(
-        "top",
-        format!("calc({} * var(--config-editor-line-height))", item.row),
-    );
+    let top = Declarations::new().set("top", format!("calc({} * 1lh)", item.row));
     view! {
         <button
             type="button"

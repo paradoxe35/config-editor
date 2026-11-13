@@ -171,8 +171,7 @@ body { margin: 0; }
 
 /* `?documents`: the host's buttons and its "discard unsaved changes?" question. */
 .demo-documents { padding: 8px; box-sizing: border-box; }
-.demo__documents-actions,
-.demo__ask {
+.demo__documents-actions {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -182,5 +181,21 @@ body { margin: 0; }
   font: 12px/1.2 ui-sans-serif, system-ui, sans-serif;
 }
 .demo__documents-actions .demo__settings { order: 1; }
+/* A modal dialog: in the top layer, inside the window at any zoom. */
+.demo__ask {
+  box-sizing: border-box;
+  max-width: calc(100vw - 16px);
+  max-height: calc(100vh - 16px);
+  overflow: auto;
+  padding: 12px 16px;
+  border: 1px solid var(--config-editor-border);
+  border-radius: 6px;
+  background: var(--config-editor-panel);
+  color: var(--config-editor-toolbar-text);
+  font: 12px/1.4 ui-sans-serif, system-ui, sans-serif;
+}
+.demo__ask::backdrop { background: rgb(0 0 0 / 40%); }
+.demo__ask-text { margin: 0 0 10px; }
+.demo__ask-buttons { display: flex; flex-wrap: wrap; gap: 6px; }
 .demo__documents-status { color: var(--config-editor-muted); font: 11px/1.2 ui-sans-serif, system-ui, sans-serif; }
 .demo__documents-values { max-height: 30vh; overflow: auto; color: var(--config-editor-text); font: 11px/1.4 var(--config-editor-mono); white-space: pre-wrap; overflow-wrap: anywhere; }

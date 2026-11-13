@@ -372,9 +372,7 @@ pub(super) fn row_box(
 ) -> Declarations {
     let style = Declarations::new().set("left", format!("{left}ch")).set(
         "top",
-        format!(
-            "calc(var(--config-editor-padding-top) + {row} * var(--config-editor-line-height))"
-        ),
+        format!("calc(var(--config-editor-padding-top) + {row} * 1lh)"),
     );
     match width {
         Some(width) => style.set("width", format!("{width}ch")),

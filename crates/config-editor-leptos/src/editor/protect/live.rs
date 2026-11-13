@@ -675,8 +675,8 @@ impl EditorState {
     }
 
     /// Shows what the protected text at zero-based `line`:`column` is, for
-    /// the pointer; `false` when nothing protected is there.
-    pub(crate) fn hover_protected(&self, line: usize, column: usize) -> bool {
+    /// the pointer; its message, or `None` when nothing protected is there.
+    pub(crate) fn hover_protected(&self, line: usize, column: usize) -> Option<String> {
         let no_tokens = self.protect().secrets.tokens.with_untracked(Vec::is_empty);
         if no_tokens
             && self
@@ -685,7 +685,7 @@ impl EditorState {
                 .with_untracked(|protected| protected.is_empty())
         {
             self.protect().hide_tip(true);
-            return false;
+            return None;
         }
         let found = self.doc().text.with_untracked(|text| {
             let offset = LineIndex::new(text).offset(line + 1, column + 1);
@@ -694,7 +694,7 @@ impl EditorState {
         });
         let Some((message, offset)) = found else {
             self.protect().hide_tip(true);
-            return false;
+            return None;
         };
         let same = self.protect().tip.with_untracked(|tip| {
             tip.as_ref()
@@ -702,12 +702,12 @@ impl EditorState {
         });
         if !same {
             self.protect().tip.set(Some(Tip {
-                message,
+                message: message.clone(),
                 offset,
                 hover: true,
             }));
         }
-        true
+        Some(message)
     }
 }
 

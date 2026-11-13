@@ -15,7 +15,7 @@ pub(crate) fn SourceInput(state: EditorState) -> impl IntoView {
             class="config-editor__input"
             style:--config-editor-content-height=move || {
                 format!(
-                    "calc(var(--config-editor-padding-top) + var(--config-editor-padding-bottom) + {} * var(--config-editor-line-height))",
+                    "calc(var(--config-editor-padding-top) + var(--config-editor-padding-bottom) + {} * 1lh)",
                     state.view().projection.with(|projection| projection.rows()),
                 )
             }

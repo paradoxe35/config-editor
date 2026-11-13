@@ -18,8 +18,8 @@ impl EditorState {
     /// as a field's whole value, or does not parse and holds a read-only
     /// field the language cannot locate (its value cannot be read to be
     /// checked):
-    /// then the caret goes to the problem, whose message shows, and nothing
-    /// is sent.
+    /// then the caret goes to the problem, whose message shows and is said
+    /// through the live region, and nothing is sent.
     pub(in crate::editor) fn save(&self) -> bool {
         let Some(on_save) = self.editing().on_save else {
             return false;
@@ -49,6 +49,12 @@ impl EditorState {
             }
             None => {
                 self.show_conversion_problem();
+                // What the caret note shows there is said too, as a message
+                // that waits is (through the tip).
+                let said = super::super::a11y::caret_problems_said(*self);
+                if !said.is_empty() {
+                    self.a11y().announce(said);
+                }
                 false
             }
         }

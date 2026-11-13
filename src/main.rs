@@ -31,6 +31,7 @@ mod documents_demo;
 mod output_panel;
 mod settings_panel;
 mod theme_picker;
+mod unsaved_dialog;
 
 use output_panel::{HostState, OutputPanel};
 use settings_panel::SettingsPanel;

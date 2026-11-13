@@ -112,7 +112,7 @@ impl EditorState {
     /// as the pointer would, and says its docs to screen readers: the
     /// keyboard's way (`Ctrl+K Ctrl+I`) and a tap's to the docs. Returns
     /// whether there were docs to show.
-    pub(super) fn show_hover_at_caret(&self) -> bool {
+    pub(super) fn show_hover_at_caret(&self, protected: Option<&str>) -> bool {
         if !self.config().settings.hover_docs.get_untracked() {
             return false;
         }
@@ -143,6 +143,15 @@ impl EditorState {
         let Some((line, info)) = found else {
             return false;
         };
+        // On a protected value its own message takes the place of its key's
+        // docs, as under the pointer; on the key both show.
+        let column = self
+            .doc()
+            .text
+            .with_untracked(|text| caret_position(text, caret).1 - 1);
+        if protected.is_some() && column >= info.start_column + info.key.chars().count() {
+            return false;
+        }
         self.hide_hover();
         let caret = problems_at_caret(*self);
         // The problems it lists, then its docs.
@@ -150,11 +159,15 @@ impl EditorState {
         // Alt+Enter opens a problem's link first.
         let docs_key = caret_problem_docs(*self).is_none();
         let docs = self.strings_untracked(|strings| hover_text(strings, &info, docs_key));
-        let said = if problems.is_empty() {
-            docs
-        } else {
-            format!("{problems}. {docs}")
-        };
+        let said = [
+            protected.unwrap_or_default(),
+            problems.as_str(),
+            docs.as_str(),
+        ]
+        .into_iter()
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join(". ");
         let anchor = hover_card_anchor(&element, line, info.start_column);
         self.hover().card.set(Some(HoverCard {
             info,

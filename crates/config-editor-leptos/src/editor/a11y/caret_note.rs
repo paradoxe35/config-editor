@@ -205,7 +205,7 @@ pub(in crate::editor) fn show_at_caret(state: EditorState) {
     let place = problems_at_caret(state);
     if place.is_some() {
         state.problems().current.set(place);
-        state.show_hover_at_caret();
+        state.show_hover_at_caret(None);
         return;
     }
     let caret = state.doc().caret.get_untracked();
@@ -213,7 +213,12 @@ pub(in crate::editor) fn show_at_caret(state: EditorState) {
         .doc()
         .text
         .with_untracked(|text| caret_position(text, caret));
-    if !state.hover_protected(line - 1, column - 1) {
-        state.show_hover_at_caret();
+    // A protected key shows why it is, and its docs beside it, as under
+    // the pointer; both are said.
+    let reason = state.hover_protected(line - 1, column - 1);
+    if !state.show_hover_at_caret(reason.as_deref())
+        && let Some(reason) = reason
+    {
+        state.a11y().announce(reason);
     }
 }

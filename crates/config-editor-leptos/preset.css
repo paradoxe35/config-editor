@@ -373,7 +373,7 @@
 
 .config-editor__gutter-content > div {
   position: relative;
-  height: var(--config-editor-line-height);
+  height: 1lh;
   cursor: pointer;
 }
 
@@ -690,7 +690,7 @@
 .config-editor__code-line {
   width: max-content;
   min-width: 100%;
-  height: var(--config-editor-line-height);
+  height: 1lh;
   display: block;
 }
 
@@ -714,7 +714,8 @@
   z-index: 1;
   right: calc(-11px - var(--config-editor-fold-gutter));
   width: var(--config-editor-fold-gutter);
-  height: var(--config-editor-line-height);
+  height: 1lh;
+  line-height: var(--config-editor-line-height);
   padding: 0;
   border: 0;
   background: transparent;
@@ -759,7 +760,7 @@
   position: absolute;
   right: -9px;
   width: 3px;
-  height: calc(var(--config-editor-line-height) - 6px);
+  height: calc(1lh - 6px);
   margin-top: 3px;
   background: repeating-linear-gradient(var(--config-editor-modified) 0 2px, transparent 2px 4px);
 }
@@ -779,7 +780,7 @@
 
 .config-editor__fold-chip {
   position: absolute;
-  height: var(--config-editor-line-height);
+  height: 1lh;
   padding: 0 0.6ch;
   border: 0;
   border-radius: 3px;
@@ -839,7 +840,7 @@
 
 .config-editor__diagnostic-marker {
   position: absolute;
-  height: var(--config-editor-line-height);
+  height: 1lh;
   overflow: visible;
   padding: 0;
   border: 0;
@@ -1015,11 +1016,12 @@
   height: 100%;
   pointer-events: none;
   font: var(--config-editor-font-size)/1.8 var(--config-editor-mono);
+  line-height: var(--config-editor-line-height);
 }
 
 .config-editor__search-match {
   position: absolute;
-  height: var(--config-editor-line-height);
+  height: 1lh;
   border-radius: 2px;
   background: var(--config-editor-search-match);
 }
@@ -1803,8 +1805,8 @@
   }
   .config-editor__fold-toggle {
     right: calc(-24px - var(--config-editor-fold-gutter));
-    top: calc((var(--config-editor-line-height) - max(24px, var(--config-editor-line-height))) / 2);
-    height: max(24px, var(--config-editor-line-height));
+    top: calc((1lh - max(24px, 1lh)) / 2);
+    height: max(24px, 1lh);
   }
   .config-editor__fold-toggle::before { left: 9px; }
   /* The bar's area: from the number's edge to the chevrons, 24px tall. */
@@ -1839,7 +1841,7 @@
   /* The chip is a line tall; its hit area is 24px. */
   .config-editor__fold-chip::before {
     position: absolute;
-    inset: calc((var(--config-editor-line-height) - max(24px, var(--config-editor-line-height))) / 2) 0;
+    inset: calc((1lh - max(24px, 1lh)) / 2) 0;
     content: "";
   }
 }

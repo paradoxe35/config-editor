@@ -192,8 +192,8 @@ impl EditorState {
         None
     }
 
-    pub(super) fn hover_protected(&self, _line: usize, _column: usize) -> bool {
-        false
+    pub(super) fn hover_protected(&self, _line: usize, _column: usize) -> Option<String> {
+        None
     }
 
     #[cfg(feature = "search")]

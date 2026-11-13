@@ -100,7 +100,7 @@ fn RowSpacer(state: EditorState) -> impl IntoView {
             class="config-editor__row-spacer"
             style:height=move || {
                 format!(
-                    "calc({} * var(--config-editor-line-height))",
+                    "calc({} * 1lh)",
                     state.view().visible_rows.with(|rows| rows.start),
                 )
             }
