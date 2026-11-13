@@ -283,10 +283,25 @@ pub(in crate::editor) fn diff_lines(baseline: &str, current: &str) -> LineDiff {
         .checked_sub(1)
         .filter(|_| baseline.last() == Some(&"") && baseline_ends_with_newline);
     let reserve_baseline_eof = current_ends_with_newline && baseline_eof_slot.is_some();
-    let mut changes = vec![DiffKind::Unchanged; current.len()];
-    let mut deleted_before = vec![false; current.len()];
-    let mut deleted_lines_before = vec![Vec::new(); current.len()];
-    let mut modified_before = vec![None; current.len()];
+    // Both ending in a newline: the empty lines after them are the same
+    // place, so the lines before them are compared alone (a blank line
+    // removed before the end is then a removed line, not the end).
+    let both_end = reserve_baseline_eof && current.last() == Some(&"");
+    let lines = current.len();
+    let (baseline, current) = if both_end {
+        (
+            &baseline[..baseline.len() - 1],
+            &current[..current.len() - 1],
+        )
+    } else {
+        (&baseline[..], &current[..])
+    };
+    let baseline_eof_slot = baseline_eof_slot.filter(|_| !both_end);
+    let reserve_baseline_eof = reserve_baseline_eof && !both_end;
+    let mut changes = vec![DiffKind::Unchanged; lines];
+    let mut deleted_before = vec![false; lines];
+    let mut deleted_lines_before = vec![Vec::new(); lines];
+    let mut modified_before = vec![None; lines];
     let mut deleted_after = false;
     let mut deleted_lines_after = Vec::new();
     let mut hunks = Vec::new();
@@ -368,7 +383,7 @@ pub(in crate::editor) fn diff_lines(baseline: &str, current: &str) -> LineDiff {
             });
         }
         if !removed_lines.is_empty() {
-            if new_index >= current.len() {
+            if new_index >= lines {
                 deleted_after = true;
                 deleted_lines_after.extend(removed_lines);
             } else {
@@ -479,6 +494,57 @@ mod tests {
             root_left: 40.0,
             root_right: 1060.0,
         }
+    }
+
+    /// Blank lines removed before the end are removed lines (counted,
+    /// marked, a hunk) when both texts end with a line break, however many
+    /// and with any line ending; only the final line break removed is no
+    /// change (round 7's `D7.docs-2`, and `D7.docs-1`'s documented rule).
+    #[test]
+    fn trailing_blank_lines_removed_are_removed_lines() {
+        let mut failures = Vec::new();
+        for crlf in [false, true] {
+            let ending = |text: &str| {
+                if crlf {
+                    text.replace('\n', "\r\n")
+                } else {
+                    text.to_string()
+                }
+            };
+            // (baseline, current, removed lines, hunks)
+            for (baseline, current, removed, hunks) in [
+                ("a\n\n", "a\n", 1, 1),
+                ("a\n\n\n", "a\n", 2, 1),
+                ("a\nb\n\n", "a\nb\n", 1, 1),
+                ("a\n\n\n", "a\n\n", 1, 1),
+                ("a\nb\n", "a\n", 1, 1),
+                ("a\n", "a", 0, 0),
+                ("a\n", "a\n", 0, 0),
+            ] {
+                let diff = diff_lines(&ending(baseline), &ending(current));
+                let found: usize = diff.hunks.iter().map(|hunk| hunk.removed).sum();
+                if found != removed || diff.hunks.len() != hunks {
+                    failures.push(format!(
+                        "{baseline:?} -> {current:?} (crlf {crlf}): {found} removed in {} hunks, not {removed} in {hunks}",
+                        diff.hunks.len()
+                    ));
+                }
+                if removed > 0
+                    && !diff.deleted_after
+                    && !diff.deleted_before.iter().any(|marked| *marked)
+                {
+                    failures.push(format!(
+                        "{baseline:?} -> {current:?} (crlf {crlf}): no removed marker"
+                    ));
+                }
+            }
+        }
+        // Blank lines added before the end are still marked before it.
+        let added = diff_lines("a\n", "a\n\n");
+        if added.current != [DiffKind::Unchanged, DiffKind::Added, DiffKind::Unchanged] {
+            failures.push(format!("added blank: {:?}", added.current));
+        }
+        assert!(failures.is_empty(), "{}", failures.join("\n"));
     }
 
     #[test]
