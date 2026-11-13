@@ -35,6 +35,8 @@ pub(crate) use patterns::unsupported_patterns;
 pub(crate) use popup::*;
 pub(crate) use schema::*;
 pub(crate) use stops::*;
+#[cfg(feature = "xsd")]
+pub(crate) use text_typing::number_of;
 pub(crate) use text_typing::type_texts;
 pub(crate) use window::*;
 // Public for languages written outside the crate (see `language`).

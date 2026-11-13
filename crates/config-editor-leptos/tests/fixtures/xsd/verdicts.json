@@ -1,0 +1,119 @@
+{
+  "oracle": "libxml2 2.14.6 (xmllint --schema), through lxml",
+  "verdicts": {
+    "pom-valid.xml": {
+      "schema": "maven-4.0.0.xsd",
+      "valid": true,
+      "libxml2": []
+    },
+    "pom-unknown-element.xml": {
+      "schema": "maven-4.0.0.xsd",
+      "valid": false,
+      "libxml2": [
+        "Element '{http://maven.apache.org/POM/4.0.0}dependancies': This element is not expected."
+      ]
+    },
+    "pom-out-of-order.xml": {
+      "schema": "maven-4.0.0.xsd",
+      "valid": true,
+      "libxml2": []
+    },
+    "pom-duplicate.xml": {
+      "schema": "maven-4.0.0.xsd",
+      "valid": false,
+      "libxml2": [
+        "Element '{http://maven.apache.org/POM/4.0.0}groupId': This element is not expected. Expected is one of ( {http://maven.apache.org/POM/4.0.0}parent, {http://maven.apache.org/POM/4.0.0}artifactId, {http://maven.apache.org/POM/4.0.0}version, {http://maven.apache.org/POM/4.0.0}packaging, {http://maven.apache.org/POM/4.0.0}name, {http://maven.apache.org/POM/4.0.0}description, {http://maven.apache.org/POM/4.0.0}url, {http://maven.apache.org/POM/4.0.0}inceptionYear, {http://maven.apache.org/POM/4.0.0}organization, {http://maven.apache.org/POM/4.0.0}licenses )."
+      ]
+    },
+    "log4j-valid.xml": {
+      "schema": "log4j-config-2.xsd",
+      "valid": true,
+      "libxml2": []
+    },
+    "log4j-bad-interval.xml": {
+      "schema": "log4j-config-2.xsd",
+      "valid": false,
+      "libxml2": [
+        "Element '{https://logging.apache.org/xml/ns}Configuration', attribute 'monitorInterval': 'soon' is not a valid value of the atomic type 'xs:int'."
+      ]
+    },
+    "log4j-missing-appenders.xml": {
+      "schema": "log4j-config-2.xsd",
+      "valid": false,
+      "libxml2": [
+        "Element '{https://logging.apache.org/xml/ns}Loggers': This element is not expected. Expected is one of ( {https://logging.apache.org/xml/ns}Properties, {https://logging.apache.org/xml/ns}Appenders )."
+      ]
+    },
+    "beans-valid.xml": {
+      "schema": "spring-beans.xsd",
+      "valid": true,
+      "libxml2": []
+    },
+    "beans-bad-lazy-init.xml": {
+      "schema": "spring-beans.xsd",
+      "valid": false,
+      "libxml2": [
+        "Element '{http://www.springframework.org/schema/beans}bean', attribute 'lazy-init': [facet 'enumeration'] The value 'sometimes' is not an element of the set {'default', 'true', 'false'}."
+      ]
+    },
+    "beans-unknown-attribute.xml": {
+      "schema": "spring-beans.xsd",
+      "valid": false,
+      "libxml2": [
+        "Element '{http://www.springframework.org/schema/beans}bean', attribute 'klass': The attribute 'klass' is not allowed."
+      ]
+    },
+    "junit-valid.xml": {
+      "schema": "junit.xsd",
+      "valid": true,
+      "libxml2": []
+    },
+    "junit-bad-count.xml": {
+      "schema": "junit.xsd",
+      "valid": false,
+      "libxml2": [
+        "Element 'testsuite', attribute 'tests': 'two' is not a valid value of the atomic type 'xs:int'."
+      ]
+    },
+    "junit-out-of-order.xml": {
+      "schema": "junit.xsd",
+      "valid": false,
+      "libxml2": [
+        "Element 'system-err': This element is not expected. Expected is one of ( testcase, system-out )."
+      ]
+    },
+    "junit-missing-name.xml": {
+      "schema": "junit.xsd",
+      "valid": false,
+      "libxml2": [
+        "Element 'testsuite': The attribute 'name' is required but missing."
+      ]
+    },
+    "web-valid.xml": {
+      "schema": "dotnet-config.xsd",
+      "valid": true,
+      "libxml2": []
+    },
+    "web-bad-debug.xml": {
+      "schema": "dotnet-config.xsd",
+      "valid": false,
+      "libxml2": [
+        "Element 'compilation', attribute 'debug': 'yes' is not a valid value of the atomic type 'xs:boolean'."
+      ]
+    },
+    "web-missing-value.xml": {
+      "schema": "dotnet-config.xsd",
+      "valid": false,
+      "libxml2": [
+        "Element 'add': The attribute 'value' is required but missing."
+      ]
+    },
+    "web-negative-length.xml": {
+      "schema": "dotnet-config.xsd",
+      "valid": false,
+      "libxml2": [
+        "Element 'httpRuntime', attribute 'maxRequestLength': '-1' is not a valid value of the atomic type 'xs:unsignedInt'."
+      ]
+    }
+  }
+}

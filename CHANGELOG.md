@@ -21,6 +21,14 @@ versions move together.
 - `compileSchema` (and `Schema::json`) gives the JSON Schema, to compile at
   build time and ship plain JSON Schema.
 
+### XML Schema
+
+- XSD 1.0 as a schema format (`SchemaFormat::XSD`, cargo feature `xsd`;
+  `schemaFormat: "xsd"` in JavaScript): compiled into JSON Schema in the XML
+  mapping, it validates and completes every view of the document. Options
+  `root`, `configRoot` and `lax`; what JSON Schema cannot check is a
+  reported loss with its line.
+
 ### Reading XML by the schema
 
 - With a schema, XML attribute values and element text are read as the type

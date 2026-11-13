@@ -46,6 +46,7 @@ method and headless function here has a JS option, method or function there
 - [Secrets](#secrets)
 - [Schema help](#schema-help)
 - [Schema formats](#schema-formats)
+  - [XML Schema (XSD)](#xml-schema-xsd)
 - [Keyboard](#keyboard)
   - [Keyboard and screen-reader access](#keyboard-and-screen-reader-access)
   - [Find and replace](#find-and-replace)
@@ -1335,6 +1336,7 @@ the built-in format of a schema file by its extension.
 | ------------------------------------- | -------------------- | ---------------------------- |
 | `SchemaFormat::JSON_SCHEMA`           | `"json-schema"`      | `json`, `schema.json`        |
 | `SchemaFormat::JSON_SCHEMA_YAML`      | `"json-schema-yaml"` | `yaml`, `yml`, `schema.yaml` |
+| `SchemaFormat::XSD` (feature `xsd`)   | `"xsd"`              | `xsd`                        |
 | Your own: `SchemaFormat::new(&YOURS)` | its `info().name`    | its `info().extensions`      |
 
 ```rust
@@ -1402,6 +1404,60 @@ impl SchemaCompiler for Fields {
 static FIELDS: Fields = Fields;
 let format = SchemaFormat::new(&FIELDS);
 ```
+
+### XML Schema (XSD)
+
+`SchemaFormat::XSD` (feature `xsd`) compiles an XSD 1.0 file into JSON
+Schema in the [XML mapping](#xml-mapping), so it validates, completes and
+documents every view of the document (Edit-as YAML of a `pom.xml` is
+checked against the POM's XSD too):
+
+```rust
+use config_editor_leptos::{Schema, SchemaFormat, SchemaInput};
+
+let mut options = serde_json::Map::new();
+options.insert("root".into(), "project".into());
+let pom = Schema::compile_as(SchemaFormat::XSD, &SchemaInput::new(POM_XSD).options(&options))?;
+for loss in pom.losses() { log::info!("{loss}"); } // what is not checked
+```
+
+- **Elements** are properties keyed by local name; `minOccurs` gives
+  `required`, `maxOccurs` above 1 a list (a lone element reads as a
+  one-item list). **Attributes** are properties marked
+  `"xml": {"attribute": true}`, so a conversion to XML writes them back as
+  attributes (`@name` beside a child element of that name); `use`,
+  `default` and `fixed` map to `required`, `default` and `const`. Text
+  beside attributes is `#text`.
+- **Types**: the built-in types (integers with their bounds, `boolean`
+  with XSD's `1`/`0`, `decimal`, dates with their `format`, `token` and
+  names with their whitespace rule and pattern), restrictions with their
+  facets (`enumeration` typed by the base, lengths, bounds, `pattern`
+  anchored as XSD anchors it), unions, and complex types by extension (the
+  base's content flattened in) or restriction. Named types and global
+  elements are `$defs`; recursion is fine. `xs:documentation` is the
+  description hover shows.
+- **Roots**: every global element may start a document (a file may hold
+  several, as the XML reader allows); the option `root` names the one, and
+  `configRoot` takes one element's content as the document (a file whose
+  top element is `config-root="true"`).
+- **Closed** content models reject keys they do not name
+  (`additionalProperties: false`), catching typos; the option `lax: true`
+  opens them for hand-extended configs. `xs:any` opens them too, and
+  `xs:anyAttribute namespace="##other"` allows prefixed attributes.
+- **Losses**, each with its line: element order (`xs:sequence`), a
+  repeated or nested `xs:choice` (each option allowed), substitution groups
+  (each member allowed), `xs:any`'s namespace, identity constraints
+  (`xs:key`, `xs:keyref`, `xs:unique`), `totalDigits` and
+  `fractionDigits`, `xs:list` items, patterns using Unicode blocks
+  (`\p{IsBasicLatin}`), `float`/`double`'s `INF` and `NaN`, `nillable`,
+  abstract types and `xsi:type`, XSD 1.1 (`xs:assert`, `xs:alternative`,
+  `xs:override`) and `xs:redefine`.
+- **Several files**: `imports(text)` lists the `schemaLocation`s of
+  `xs:include`, `xs:import` and `xs:redefine` for the host to fetch.
+
+Checked against `xmllint --schema` on real schemas (Maven POM 4.0.0, Log4j
+2, Spring beans, JUnit XML, a .NET-style config): the verdicts agree,
+except where a listed loss says why.
 
 ## Keyboard
 
@@ -1947,7 +2003,8 @@ images. An end-to-end test runs every feature under this policy.
 
 ## Cargo features
 
-All are on by default; turn off what you don't use to shrink the build.
+All but `xsd` are on by default; turn off what you don't use to shrink the
+build.
 
 | Feature             | Enables                                                                                                                                                                                                                                                                   |
 | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -1961,6 +2018,7 @@ All are on by default; turn off what you don't use to shrink the build.
 | `diff`              | [Changes against the baseline](#changes-against-the-baseline): the gutter markers and their preview, revert, `Alt+F5`, the change count (`on_change_summary`) and `unified_diff`. Without it the baseline still drives the dirty flag and saving.                         |
 | `folding`           | [Folding](#folding): the chevrons, the folding keys and the handle's folding methods.                                                                                                                                                                                     |
 | `protect`           | [Read-only fields](#read-only-fields) and [secrets](#secrets): the schema's `readOnly`, `writeOnly` and `x-secret`, `read_only_paths`, `read_only_ranges` and `secrets`. The whole-document `read_only` works without it.                                                 |
+| `xsd`               | Off by default. `SchemaFormat::XSD`: XML Schema as a [schema format](#schema-formats) (`quick-xml`, which `xml` uses too).                                                                                                                                                |
 
 ```toml
 # YAML with live schema diagnostics:
@@ -2018,17 +2076,19 @@ headless functions) is left out by the linker, feature or not.
 
 | Build                                                           | wasm, gzip -9 |
 | --------------------------------------------------------------- | ------------- |
-| Everything (the default features)                               | 1815 KB       |
-| YAML + JSON, every optional feature, no `schema-validation`     | 721 KB        |
-| YAML + JSON, every optional feature, with `schema-validation`   | 1417 KB       |
-| Minimal: YAML only, no optional feature, no `schema-validation` | 579 KB        |
-| Saved by leaving out `schema-validation` (from everything)      | -700 KB       |
-| Saved by leaving out `search` (from everything)                 | -34 KB        |
-| Saved by leaving out `folding` (from everything)                | -30 KB        |
-| Saved by leaving out `diff` (from everything)                   | -25 KB        |
-| Saved by leaving out `protect` (from everything)                | -53 KB        |
+| Everything (the default features)                               | 2274 KB       |
+| YAML + JSON, every optional feature, no `schema-validation`     | 1150 KB       |
+| YAML + JSON, every optional feature, with `schema-validation`   | 1861 KB       |
+| Minimal: YAML only, no optional feature, no `schema-validation` | 914 KB        |
+| Added by `xsd` (to everything)                                  | +46 KB        |
+| XML + `xsd`, every optional feature, no `schema-validation`     | 1079 KB       |
+| Saved by leaving out `schema-validation` (from everything)      | -715 KB       |
+| Saved by leaving out `search` (from everything)                 | -39 KB        |
+| Saved by leaving out `folding` (from everything)                | -34 KB        |
+| Saved by leaving out `diff` (from everything)                   | -31 KB        |
+| Saved by leaving out `protect` (from everything)                | -109 KB       |
 
-Measured 2026-11-07 with rustc 1.99.1, without wasm-opt (not installed), by `scripts/wasm-sizes.sh`.
+Measured 2026-11-13 with rustc 1.99.1, without wasm-opt (not installed), by `scripts/wasm-sizes.sh`.
 
 <!-- wasm-sizes:end -->
 

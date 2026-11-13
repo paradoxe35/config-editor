@@ -123,7 +123,7 @@ document and its callbacks (below) and every [setting](#settings) (`theme`,
 | `value`              | `string`                                    | `""`             | The document.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | `editAs`             | `string`                                    | —                | Show and edit the document in another language; it is saved back in `language`, keeping its comments.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | `schema`             | `string`                                    | —                | The schema: completion, hover docs and validation. JSON Schema as JSON text, or a schema in `schemaFormat`; see [Schema formats](#schema-formats).                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
-| `schemaFormat`       | `string`                                    | `"json-schema"`  | The format `schema` is written in: `"json-schema"`, `"json-schema-yaml"` or one from `registerSchemaFormat`. Never guessed from the text.                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `schemaFormat`       | `string`                                    | `"json-schema"`  | The format `schema` is written in: `"json-schema"`, `"json-schema-yaml"`, `"xsd"` or one from `registerSchemaFormat`. Never guessed from the text.                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | `schemaResources`    | `Record<string, string>`                    | —                | The files `schema` refers to (an include, an import, an external `$ref`), by location: the editor fetches nothing.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | `schemaOptions`      | `Record<string, unknown>`                   | —                | Options of `schemaFormat`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | `baseline`           | `string`                                    | `value`          | Text the diff gutter compares against: the version last saved or loaded. See [Saving](#saving-and-unsaved-edits).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
@@ -861,11 +861,12 @@ compiled into JSON Schema first; the format is given with `schemaFormat`,
 never guessed from the text (`schemaFormatForFile` names a file's format by
 its extension).
 
-| `schemaFormat`       | The schema is                                                 |
-| -------------------- | ------------------------------------------------------------- |
-| `"json-schema"`      | JSON Schema as JSON text (the default).                       |
-| `"json-schema-yaml"` | JSON Schema written in YAML (Kubernetes CRDs, many repos).    |
-| your own             | compiled by a format you register with `registerSchemaFormat` |
+| `schemaFormat`       | The schema is                                                                                                                                                                                                                                                       |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `"json-schema"`      | JSON Schema as JSON text (the default).                                                                                                                                                                                                                             |
+| `"json-schema-yaml"` | JSON Schema written in YAML (Kubernetes CRDs, many repos).                                                                                                                                                                                                          |
+| `"xsd"`              | XML Schema (XSD 1.0) in the [XML mapping](#xml-mapping): options `root` (the one top element), `configRoot` (an element whose content is the document) and `lax` (open content models). What it cannot check (element order, `xs:key`, …) is a loss, with its line. |
+| your own             | compiled by a format you register with `registerSchemaFormat`                                                                                                                                                                                                       |
 
 ```js
 new ConfigEditor(element, {
@@ -873,6 +874,18 @@ new ConfigEditor(element, {
   value,
   schema: crdSchemaYaml,
   schemaFormat: "json-schema-yaml",
+});
+```
+
+```js
+// A pom.xml checked, completed and documented by Maven's XSD, in every view.
+new ConfigEditor(element, {
+  language: "xml",
+  value: pomXml,
+  schema: mavenXsd,
+  schemaFormat: "xsd",
+  schemaOptions: { root: "project" },
+  onSchemaWarning: (loss) => console.info(loss), // what the XSD says that is not checked
 });
 ```
 

@@ -256,6 +256,12 @@ registry! {
     "xml" => XML => xml::XmlBehavior,
 }
 
+/// The key XML reads text beside attributes or child elements under (see
+/// `ConfigLanguage::text_key`), which the XSD format writes its schemas
+/// with.
+#[cfg(any(feature = "xml", feature = "xsd"))]
+pub(crate) const XML_TEXT_KEY: &str = "#text";
+
 /// JSON Schema written as YAML (`SchemaFormat::JSON_SCHEMA_YAML`).
 #[cfg(feature = "yaml")]
 pub(crate) static JSON_SCHEMA_IN_YAML: super::schema_formats::written_in::SchemaWrittenIn =

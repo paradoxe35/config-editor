@@ -1,0 +1,10 @@
+<Configuration xmlns="https://logging.apache.org/xml/ns" status="WARN">
+  <Appenders>
+    <Console name="out"/>
+  </Appenders>
+  <Loggers>
+    <Root level="INFO">
+      <AppenderRef ref="out"/>
+    </Root>
+  </Loggers>
+</Configuration>

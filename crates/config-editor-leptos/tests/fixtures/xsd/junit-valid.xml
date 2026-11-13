@@ -1,0 +1,9 @@
+<testsuite name="Suite" tests="2" failures="1" errors="0" time="0.25" timestamp="2026-11-13T10:00:00" hostname="ci">
+  <properties/>
+  <testcase name="passes" classname="a.B" time="0.1"/>
+  <testcase name="fails" classname="a.B" time="0.15">
+    <failure message="expected 1" type="AssertionError">trace</failure>
+  </testcase>
+  <system-out/>
+  <system-err/>
+</testsuite>

@@ -508,7 +508,7 @@ impl ConfigLanguage for XmlBehavior {
     }
 
     fn text_key(&self) -> Option<&'static str> {
-        Some("#text")
+        Some(super::XML_TEXT_KEY)
     }
 
     fn markup_delimiters(&self) -> Option<(char, char)> {

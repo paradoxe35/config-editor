@@ -117,15 +117,16 @@ test.describe('schema formats in the tools', () => {
     const result = await attempt(page, (core) => ({
       name: window.fieldsName,
       formats: core.schemaFormats().map((format) => [format.name, format.label, format.extensions]),
-      files: ['a/app.schema.yaml', 'crd.yml', 'app.json', 'app.schema.fields', 'x.fields', 'x.xsdx', 'fields'].map((path) => core.schemaFormatForFile(path)),
+      files: ['a/app.schema.yaml', 'crd.yml', 'app.json', 'app.schema.fields', 'x.fields', 'x.xsdx', 'fields', 'pom.xsd'].map((path) => core.schemaFormatForFile(path)),
     }));
     expect(result.name).toBe('fields');
     expect(result.formats).toEqual([
       ['json-schema', 'JSON Schema', ['json', 'schema.json']],
       ['json-schema-yaml', 'JSON Schema (YAML)', ['yaml', 'yml', 'schema.yaml', 'schema.yml']],
+      ['xsd', 'XSD', ['xsd']],
       ['fields', 'Fields schema', ['fields', 'schema.fields']],
     ]);
-    expect(result.files).toEqual(['json-schema-yaml', 'json-schema-yaml', 'json-schema', 'fields', 'fields', null, null]);
+    expect(result.files).toEqual(['json-schema-yaml', 'json-schema-yaml', 'json-schema', 'fields', 'fields', null, null, 'xsd']);
     const errors = await attempt(page, (core, tools) => {
       const message = (run) => {
         try {
@@ -147,7 +148,7 @@ test.describe('schema formats in the tools', () => {
     });
     expect(errors[0]).toBe('Invalid Fields schema: no resource gone.fields');
     expect(errors[1]).toMatch(/^Invalid JSON Schema \(YAML\): /);
-    expect(errors[2]).toBe('unknown schema format "jtd" (expected json-schema, json-schema-yaml); registered: fields');
+    expect(errors[2]).toBe('unknown schema format "jtd" (expected json-schema, json-schema-yaml, xsd); registered: fields');
     expect(errors[3]).toBe('"json-schema" is a built-in schema format');
     expect(errors[4]).toBe('a schema format needs compile(text, resources, options)');
     expect(errors[5]).toBe("Invalid bad: bad's compile() must return { schema, losses? }");
@@ -164,6 +165,53 @@ test.describe('schema formats in the tools', () => {
       return { before, after };
     });
     expect(result).toEqual({ before: 1, after: 0 });
+  });
+});
+
+test.describe('XML Schema', () => {
+  test.beforeEach(async ({ page }) => open(page));
+
+  const XSD = `<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">
+  <xs:element name="server">
+    <xs:annotation><xs:documentation>The server.</xs:documentation></xs:annotation>
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element name="host" type="xs:string"/>
+        <xs:element name="price" type="xs:decimal" minOccurs="0"/>
+      </xs:sequence>
+      <xs:attribute name="port" type="xs:unsignedShort" use="required"/>
+    </xs:complexType>
+    <xs:key name="k"><xs:selector xpath="host"/><xs:field xpath="."/></xs:key>
+  </xs:element>
+</xs:schema>`;
+
+  test('an XSD compiles, types and validates every view, and reports what it cannot check', async ({ page }) => {
+    const result = await page.evaluate(async (xsd) => {
+      const source = { schemaFormat: 'xsd' };
+      const { schema, losses } = window.tools.compileSchema(xsd, { format: 'xsd', options: { root: 'server' } });
+      const problems = (language, text) => window.tools.validate(language, text, xsd, source).map((problem) => problem.message);
+      return {
+        description: JSON.parse(schema).$defs['element.server'].description,
+        losses: losses.map(({ construct, effect, line }) => ({ construct, effect, line })),
+        xml: problems('xml', '<server port="80"><host>h</host><price>1.50</price></server>'),
+        badXml: problems('xml', '<server port="99999"><hots>h</hots></server>'),
+        yaml: problems('yaml', 'server:\n  port: 80\n  host: h\n  price: x\n'),
+        converted: window.tools.convert('yaml', 'server:\n  port: 80\n  host: h\n', 'xml', xsd, source).text,
+      };
+    }, XSD);
+    expect(result.description).toBe('The server.');
+    expect(result.losses).toEqual([
+      { construct: 'xs:key', effect: 'not-checked', line: 11 },
+      { construct: 'xs:sequence order', effect: 'not-checked', line: 5 },
+    ]);
+    expect(result.xml).toEqual([]);
+    expect(result.badXml.sort()).toEqual([
+      '/server/port: 99999 is greater than the maximum of 65535',
+      '/server: "host" is a required property',
+      '/server: "hots" is not allowed here',
+    ]);
+    expect(result.yaml).toEqual(['/server/price: "x" is not of type "number"']);
+    expect(result.converted).toBe('<server port="80">\n  <host>h</host>\n</server>\n');
   });
 });
 

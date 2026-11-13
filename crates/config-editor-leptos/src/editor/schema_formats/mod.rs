@@ -21,6 +21,8 @@ pub(super) mod json;
 // Only JSON Schema written in YAML uses it so far.
 #[cfg(feature = "yaml")]
 pub(super) mod written_in;
+#[cfg(feature = "xsd")]
+mod xsd;
 
 /// A schema format's name, label and file extensions.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -357,11 +359,20 @@ impl SchemaFormat {
     #[cfg(feature = "yaml")]
     pub const JSON_SCHEMA_YAML: SchemaFormat = SchemaFormat(&super::languages::JSON_SCHEMA_IN_YAML);
 
+    /// XML Schema (XSD 1.0; feature `xsd`), in the XML language's mapping:
+    /// see the README's "Schema formats". Options: `root` (the one global
+    /// element a document starts with), `configRoot` (an element whose
+    /// content is the document), `lax` (content models open to other keys).
+    #[cfg(feature = "xsd")]
+    pub const XSD: SchemaFormat = SchemaFormat(&xsd::Xsd);
+
     /// The built-in formats this build enables, in a stable order.
     pub const ALL: &'static [SchemaFormat] = &[
         SchemaFormat::JSON_SCHEMA,
         #[cfg(feature = "yaml")]
         SchemaFormat::JSON_SCHEMA_YAML,
+        #[cfg(feature = "xsd")]
+        SchemaFormat::XSD,
     ];
 
     /// Wraps a compiler, built-in or the host's.
