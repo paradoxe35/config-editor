@@ -143,3 +143,47 @@ fn tables_reordered_in_a_view_move_in_a_toml_host() {
     }
     report(failures);
 }
+
+/// Attributes a view puts in another order are written in the start tag in
+/// that order, each as the host wrote it (they waited, the order dropped).
+#[test]
+fn attributes_reordered_in_a_view_are_written_in_that_order() {
+    let mut failures = Vec::new();
+    type Case = (
+        &'static str,
+        &'static str,
+        &'static [&'static str],
+        &'static str,
+    );
+    let cases: [Case; 3] = [
+        (
+            "<r xmlns:n=\"urn:x\" n:a=\"1\" b='2'><s>v</s></r>\n",
+            "/r",
+            &["xmlns:n", "b", "n:a"],
+            "<r xmlns:n=\"urn:x\" b='2' n:a=\"1\"><s>v</s></r>\n",
+        ),
+        (
+            "<r>\n  <!-- c -->\n  <c a=\"1\" b=\"2\" z=\"3\">\n    <s>v</s>\n  </c>\n</r>\n",
+            "/r/c",
+            &["z", "a", "b"],
+            "<r>\n  <!-- c -->\n  <c z=\"3\" a=\"1\" b=\"2\">\n    <s>v</s>\n  </c>\n</r>\n",
+        ),
+        (
+            "<r a=\"1\" b=\"2\">\n  <s>v</s>\n  <t>w</t>\n</r>\n",
+            "/r",
+            &["b", "a", "t", "s"],
+            "<r b=\"2\" a=\"1\">\n  <t>w</t>\n  <s>v</s>\n</r>\n",
+        ),
+    ];
+    for (host, pointer, order, expected) in cases {
+        for edit in ALL.into_iter().filter(|edit| *edit != Language::XML) {
+            match save_value(Language::XML, edit, host, &|value| {
+                ordered(value, pointer, order)
+            }) {
+                Ok(saved) if saved == expected => {}
+                other => failures.push(format!("{host:?} {order:?} via {edit}: {other:?}")),
+            }
+        }
+    }
+    report(failures);
+}

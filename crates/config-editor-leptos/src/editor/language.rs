@@ -1845,6 +1845,17 @@ pub trait ConfigLanguage: Send + Sync + 'static {
     /// stays. Nothing by default.
     fn forget_kept(&self) {}
 
+    /// `source` with the members of the map at `pointer` that it writes
+    /// together inside one construct, not as entries of lines of their own
+    /// (an XML element's attributes, in its start tag), in `order`'s order
+    /// among themselves, each written as it was. A save moving keys
+    /// through another view then keeps their order. Default: `None`, none
+    /// such.
+    fn members_in_order(&self, source: &str, pointer: &str, order: &[String]) -> Option<String> {
+        let _ = (source, pointer, order);
+        None
+    }
+
     /// `source` with the entries of each container it writes on one line
     /// (an XML element's children, and the comments between them) on lines
     /// of their own, reading the same, for a structural Edit-as save to

@@ -304,8 +304,11 @@ keys, `{ showFooter: true }`), and its TypeScript type is generated from it.
   keys moved where the host writes them elsewhere (an XML attribute below
   the element's text or children, which XML writes in its start tag) wait
   the same way, while tables a view reorders move in a TOML host with their
-  sub-tables. A key with a prefix (`x:attr`) is an XML attribute: the
-  model keys elements by their local name.
+  sub-tables, and attributes a view reorders are written in that order in
+  the start tag. A key with a prefix (`x:attr`) is an XML attribute: the
+  model keys elements by their local name. An attribute renamed to one
+  stays an attribute; an element renamed to one waits, since it would
+  become an attribute.
 - With a schema, a single XML element or HCL block where the schema expects a
   list reads as a one-item list.
 - A notice under the toolbar (`role="status"`, dismissible) says what the

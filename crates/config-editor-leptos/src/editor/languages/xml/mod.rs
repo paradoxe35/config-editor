@@ -32,6 +32,8 @@ mod names;
 mod attribute_values;
 mod entities;
 mod namespaces;
+mod prefixed;
+mod attribute_order;
 mod markup;
 // The fold ranges (the `folding` feature).
 #[cfg(feature = "folding")]
@@ -63,6 +65,15 @@ use serde_json::{Map, Value};
 use std::collections::{HashMap, HashSet};
 
 pub(super) struct XmlBehavior;
+
+/// Whether `value` holds a key with a prefix (`x:a`) anywhere.
+fn has_prefixed_key(value: &Value) -> bool {
+    match value {
+        Value::Object(map) => map.iter().any(|(key, child)| key.contains(':') || has_prefixed_key(child)),
+        Value::Array(items) => items.iter().any(has_prefixed_key),
+        _ => false,
+    }
+}
 
 
 /// An XML scalar edit (see `ConfigLanguage::edits_one_scalar`): an
@@ -348,6 +359,15 @@ impl ConfigLanguage for XmlBehavior {
         if let Some(reason) = attribute_values::first_container_attribute(value, old.as_ref(), &attributes) {
             return Err(reason);
         }
+        // An element renamed to a key with a prefix would be an attribute.
+        if has_prefixed_key(value) {
+            let parsed = old.is_none().then(|| previous.and_then(|previous| xml_parse(previous).ok())).flatten();
+            if let Some(old) = old.as_ref().or(parsed.as_ref())
+                && let Some(reason) = prefixed::renamed_element(value, old, &attributes)
+            {
+                return Err(reason);
+            }
+        }
         let Value::Object(map) = &with_attributes(value, &attributes, &mut Vec::new()) else {
             return Err("the XML document model is an object of elements".to_string());
         };
@@ -415,6 +435,10 @@ impl ConfigLanguage for XmlBehavior {
             None => name(key),
         };
         written.then(|| key.to_string())
+    }
+
+    fn members_in_order(&self, source: &str, pointer: &str, order: &[String]) -> Option<String> {
+        attribute_order::in_order(source, pointer, order)
     }
 
     fn entries_apart(&self, source: &str) -> Option<String> {

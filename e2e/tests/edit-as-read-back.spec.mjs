@@ -68,4 +68,17 @@ test.describe('an XML host edited in a YAML view', () => {
       .poll(() => saved(page))
       .toBe('<r xmlns:x="urn:a" xmlns:y="urn:b" a="1"><!-- c --><?pi x?><s y:attr="3">t</s><u>v</u></r>\n');
   });
+
+  test('writes attributes swapped in the view in that order', async ({ page }) => {
+    const e = await open(page);
+    await replace(page, e, '  xmlns:x: urn:a\n  a: 1\n', '  a: 1\n  xmlns:x: urn:a\n');
+    await expect.poll(() => saved(page)).toBe('<r a="1" xmlns:x="urn:a"><!-- c --><?pi x?><s x:attr="3">t</s><u>v</u></r>\n');
+  });
+
+  test('waits when an element is renamed with a prefix', async ({ page }) => {
+    const e = await open(page);
+    await replace(page, e, '  u: v', '  x:u: v');
+    await expect(marker(page, 'only as an attribute')).toHaveCount(1);
+    expect(await saved(page)).toBe(host);
+  });
 });

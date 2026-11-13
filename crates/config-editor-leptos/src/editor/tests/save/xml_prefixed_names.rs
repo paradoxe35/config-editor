@@ -1,7 +1,8 @@
 //! Keys with a prefix (`x:attr`) renamed or added in another view of an
 //! XML host: the model keys elements by their local name, so a prefixed
 //! key is an attribute (or a namespace declaration), and a save writes it
-//! as one where its prefix is declared, or waits naming the prefix
+//! as one where its prefix is declared, or waits naming the prefix. An
+//! element renamed to one waits too: it would become an attribute
 //! (hard-bar QA `D23.editing-1`: an attribute renamed `y:attr` was written
 //! as a child element, the text moved, and an element renamed `x:child` was
 //! dropped, both saves accepted).
@@ -39,7 +40,7 @@ type Case = (
     Wanted,
 );
 
-const CASES: [Case; 7] = [
+const CASES: [Case; 8] = [
     (
         "an attribute renamed to an undeclared prefix",
         "<r xmlns:x=\"urn:a\"><b x:attr=\"2\">t</b></r>\n",
@@ -91,12 +92,20 @@ const CASES: [Case; 7] = [
         Wanted::Saved("<r xmlns:y=\"urn:a\"><b attr=\"2\">t</b></r>\n"),
     ),
     (
-        "an element given a prefix: an attribute",
+        "an element given a prefix: it would be an attribute",
         "<r xmlns:x=\"urn:a\">\n  <child>1</child>\n</r>\n",
         "/r",
         "child",
         "x:child",
-        Wanted::Saved("<r xmlns:x=\"urn:a\" x:child=\"1\"/>\n"),
+        Wanted::Waits("XML keeps a key with a prefix (x:child) only as an attribute"),
+    ),
+    (
+        "an element given a prefix and another name",
+        "<r xmlns:x=\"urn:a\">\n  <child>1</child>\n</r>\n",
+        "/r",
+        "child",
+        "x:other",
+        Wanted::Waits("XML keeps a key with a prefix (x:other) only as an attribute"),
     ),
 ];
 

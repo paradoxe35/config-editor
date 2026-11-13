@@ -46,7 +46,8 @@ pub(in super::super) fn patch_key_order(
     reordered_maps(old, new, String::new(), &mut maps);
     // One map at a time, each read from the text the one before wrote. A
     // member the host writes elsewhere (an XML attribute, a YAML merged
-    // key) stays where it is; the map's own entries take the order.
+    // key) stays where it is, among the map's entries; the map's own
+    // entries take the order.
     let (mut text, mut current) = (previous.to_string(), old.clone());
     let mut own_orders = Vec::with_capacity(maps.len());
     for (pointer, order) in maps {
@@ -56,6 +57,11 @@ pub(in super::super) fn patch_key_order(
             .keys()
             .cloned()
             .collect();
+        // Members the host writes inside one construct (an XML element's
+        // attributes, in its start tag) put in the order there.
+        if let Some(inline) = language.members_in_order(&text, &pointer, &order) {
+            text = inline;
+        }
         let (moved, own) = moved_entries(language, &text, &pointer, &keys, &order)?;
         text = moved;
         let map = current.pointer_mut(&pointer)?.as_object_mut()?;
