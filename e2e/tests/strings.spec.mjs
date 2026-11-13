@@ -59,6 +59,7 @@ const ELSEWHERE = {
   showRemovedAtEnd: 'as addedLine',
   revertTitle: 'the change previewed here spans two lines (revertLinesTitle): changes spec',
   problemsHintTouch: 'a touch screen: problem_summary tests and the qa-round24-ux spec',
+  suggestionsHintTouch: 'a touch screen: status_bar tests and the shortcut-hints spec',
   hoverFocused: 'a second Ctrl+K Ctrl+I on a card: the qa-round24-ux spec',
   hoverLabel: 'the focused hover card: the qa-round25-a11y spec',
   problemTipLabel: 'the focused problem tip: the qa-round25-a11y spec',
