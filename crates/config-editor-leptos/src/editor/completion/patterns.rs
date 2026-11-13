@@ -52,14 +52,13 @@ fn compiles(pattern: &str) -> bool {
 /// completions or hover docs.
 pub(crate) fn unsupported_patterns(schema: &Value) -> Vec<String> {
     let mut warnings = Vec::new();
-    collect(schema, &mut String::new(), &mut warnings, 0);
+    collect(schema, &mut String::new(), &mut warnings);
     warnings
 }
 
-fn collect(schema: &Value, pointer: &mut String, warnings: &mut Vec<String>, depth: usize) {
-    if depth > 64 {
-        return;
-    }
+/// Every level of the schema: it was read from JSON, which the editor reads
+/// to 128 levels at most (`build_schema`), so the walk is bounded by it.
+fn collect(schema: &Value, pointer: &mut String, warnings: &mut Vec<String>) {
     let length = pointer.len();
     match schema {
         Value::Object(map) => {
@@ -78,7 +77,7 @@ fn collect(schema: &Value, pointer: &mut String, warnings: &mut Vec<String>, dep
                         ));
                     }
                 }
-                collect(child, pointer, warnings, depth + 1);
+                collect(child, pointer, warnings);
                 pointer.truncate(length);
             }
         }
@@ -86,7 +85,7 @@ fn collect(schema: &Value, pointer: &mut String, warnings: &mut Vec<String>, dep
             for (index, item) in items.iter().enumerate() {
                 pointer.push('/');
                 pointer.push_str(&index.to_string());
-                collect(item, pointer, warnings, depth + 1);
+                collect(item, pointer, warnings);
                 pointer.truncate(length);
             }
         }
@@ -134,5 +133,17 @@ mod tests {
             cfg!(feature = "schema-validation"),
             "{warnings:?}"
         );
+    }
+
+    /// Schema L.5: a pattern deep in the schema is warned about as one near
+    /// its root (one at nesting depth 33 was not).
+    #[test]
+    fn an_unsupported_pattern_deep_in_the_schema_is_warned_about() {
+        let mut schema = serde_json::json!({"patternProperties": {"^(?!x-)": {}}});
+        for _ in 0..50 {
+            schema = serde_json::json!({"properties": {"a": schema}});
+        }
+        let warnings = super::unsupported_patterns(&schema);
+        assert_eq!(warnings.len(), 1, "{warnings:?}");
     }
 }
