@@ -362,7 +362,7 @@ they come.
 <!-- Generated from crates/config-editor-leptos/src/strings.rs by js/config-editor/tests/settings.rs; do not edit. Regenerate with `UPDATE_GENERATED=1 cargo test -p config-editor-js --test settings`. -->
 
 <details>
-<summary>Every text and its default (192 texts)</summary>
+<summary>Every text and its default (193 texts)</summary>
 
 | Field                           | Default                                                                                                                                     |                                                                                                                                                                                                                                                |
 | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -533,6 +533,7 @@ they come.
 | `key_deprecated_instead`        | `"{pointer}: \"{key}\" is deprecated. {message}"`                                                                                           | A deprecated key whose schema says what to use instead.                                                                                                                                                                                        |
 | `not_one_of`                    | `"{value} is not one of {allowed}"`                                                                                                         | A value not among the allowed ones.                                                                                                                                                                                                            |
 | `wrong_type`                    | `"{value} is not of type {types}"`                                                                                                          | A value of none of the accepted types.                                                                                                                                                                                                         |
+| `not_format`                    | `"{value} is not a valid {format}"`                                                                                                         | A value out of its `format` (checked up to draft-07): `{format}` is its name, quoted.                                                                                                                                                          |
 | `no_option_matches`             | `"matches none of the {keyword} options: {reasons}"`                                                                                        | A value that matches none of a schema's options (`{keyword}`: `oneOf` or `anyOf`), with why each fails (`{reasons}`, each worded by `option_needs`, `option_refuses` or `option_problem`, joined by `; `).                                     |
 | `several_options_match`         | `"matches more than one of the oneOf options ({options}); only one may match"`                                                              | A value that matches more than one of a `oneOf`'s options (`{options}`, their names joined by `, `).                                                                                                                                           |
 | `option_needs`                  | `"{option} needs \"{key}\""`                                                                                                                | An option (`{option}`) that needs a key the value does not have.                                                                                                                                                                               |
@@ -1260,9 +1261,11 @@ References are followed inside the schema only: a `$ref` to another file or
 a URL is refused when the schema is compiled, even from an unused `$defs`
 entry, with the place of the `$ref` ("the $ref at /properties/a/$ref names
 …"). Put such a schema under `$defs` with its `$id` and the references to
-that `$id` resolve. The `format` keyword is an annotation: a schema that
-declares the 2020-12 format-assertion vocabulary is accepted, and `format`
-still does not fail validation.
+that `$id` resolve. The `format` keyword is checked up to draft-07, as
+those drafts assert it (`"nope" is not a valid "email"`); from 2019-09
+on (and without a `$schema`) it is an annotation: a schema that declares the
+2020-12 format-assertion vocabulary is accepted, and `format` still does not
+fail validation.
 
 | Keyword                                      | Shown                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -1307,7 +1310,9 @@ else the one whose `const` properties the object has
 Accepting an object key writes its required children. The caret goes to
 the first one (left empty unless it has a `default`); each other takes its
 `default` or `const`, else its first `examples` entry, else a typed
-placeholder (the first `enum` value), alike in every language. `Tab` then
+placeholder (the first `enum` value; an object with its own required
+children filled the same way; an empty list, which XML writes as an empty
+element), alike in every language. `Tab` then
 walks the block like a snippet, selecting each written value (typing
 replaces it) and stopping at each empty one.
 

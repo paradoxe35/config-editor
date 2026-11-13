@@ -560,7 +560,7 @@ fn array_item_completions_follow_items_and_prefix_items_schemas() {
             .find(|option| option.label == "modes")
             .unwrap()
             .insert,
-        "modes:\n  - "
+        "modes: []"
     );
 
     let object_input = "clients:\n  - na";

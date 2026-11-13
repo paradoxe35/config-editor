@@ -237,17 +237,15 @@ fn each_unevaluated_key_is_marked_where_it_is_written() {
         ],
         &mut failures,
     );
-    // `additionalProperties` in a failing branch refuses `b`, so the
-    // branch evaluates nothing: `unevaluatedProperties` refuses `a` and `b`.
+    // `additionalProperties` in a failing branch refuses `b`: one problem,
+    // though both keywords refuse it, and `a`, which the branch declares,
+    // is not refused (see `unevaluated_beside_errors`).
     check(
         "top:\n  a: 1\n  b: 2\n",
         &format!(
             r#"{{{draft},"properties":{{"top":{{"allOf":[{{"properties":{{"a":{{}}}},"additionalProperties":false}}],"unevaluatedProperties":false}}}}}}"#
         ),
-        &[
-            (r#"/top: "a" is not allowed here"#, "a"),
-            (r#"/top: "b" is not allowed here"#, "b"),
-        ],
+        &[(r#"/top: "b" is not allowed here"#, "b")],
         &mut failures,
     );
     assert!(failures.is_empty(), "{}", failures.join("\n\n"));

@@ -1120,6 +1120,12 @@ export interface EditorStrings {
    */
   wrongType?: string;
   /**
+   * A value out of its `format` (checked up to draft-07): `{format}` is its name, quoted.
+   *
+   * @default "{value} is not a valid {format}"
+   */
+  notFormat?: string;
+  /**
    * A value that matches none of a schema's options (`{keyword}`: `oneOf` or `anyOf`), with why each fails (`{reasons}`, each worded by `option_needs`, `option_refuses` or `option_problem`, joined by `; `).
    *
    * @default "matches none of the {keyword} options: {reasons}"

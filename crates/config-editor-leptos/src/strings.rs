@@ -460,6 +460,9 @@ pub struct EditorStrings {
     pub not_one_of: String,
     /// A value of none of the accepted types.
     pub wrong_type: String,
+    /// A value out of its `format` (checked up to draft-07): `{format}` is
+    /// its name, quoted.
+    pub not_format: String,
     /// A value that matches none of a schema's options (`{keyword}`:
     /// `oneOf` or `anyOf`), with why each fails (`{reasons}`, each worded
     /// by `option_needs`, `option_refuses` or `option_problem`, joined by
@@ -737,6 +740,7 @@ impl Default for EditorStrings {
             key_deprecated_instead: text("{pointer}: \"{key}\" is deprecated. {message}"),
             not_one_of: text("{value} is not one of {allowed}"),
             wrong_type: text("{value} is not of type {types}"),
+            not_format: text("{value} is not a valid {format}"),
             no_option_matches: text("matches none of the {keyword} options: {reasons}"),
             several_options_match: text(
                 "matches more than one of the oneOf options ({options}); only one may match",

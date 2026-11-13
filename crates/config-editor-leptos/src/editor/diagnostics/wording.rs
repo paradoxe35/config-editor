@@ -77,6 +77,19 @@ impl Wording<'_> {
                     })
                     .unwrap_or(message)
             }
+            ValidationErrorKind::Format { format } => fill(
+                &strings.not_format,
+                &[
+                    ("value", &error.instance()),
+                    ("format", &Value::from(format.as_str())),
+                ],
+            ),
+            // The pattern as JSON writes it: a line break in it escaped.
+            ValidationErrorKind::Pattern { pattern } => format!(
+                "{} does not match {}",
+                error.instance(),
+                Value::from(pattern.as_str())
+            ),
             ValidationErrorKind::FalseSchema => {
                 super::super::false_schema::message(&error.instance().to_string())
             }
@@ -110,10 +123,11 @@ impl Wording<'_> {
     ) -> Option<String> {
         let path = error.instance_path().as_str();
         let names = self.option_names(error, branches.len());
+        let typed = super::text_for_typed_option(error, branches);
         let mut reasons: Vec<String> = branches
             .iter()
             .zip(&names)
-            .filter(|(branch, _)| !super::wrong_type(branch, path))
+            .filter(|(branch, _)| typed || !super::wrong_type(branch, path))
             .filter_map(|(branch, name)| {
                 let errors: Vec<&ValidationError<'_>> =
                     branch.iter().flat_map(super::specific_errors).collect();
@@ -303,7 +317,7 @@ fn expected_types(
 
 /// The types a validator's type message lists: `"integer"` and `"string"`
 /// from `true is not of types "integer", "string"`.
-fn listed_types(message: &str) -> Option<Vec<String>> {
+pub(super) fn listed_types(message: &str) -> Option<Vec<String>> {
     let listed = message
         .split_once(" is not of type")
         .map(|(_, rest)| rest)?;

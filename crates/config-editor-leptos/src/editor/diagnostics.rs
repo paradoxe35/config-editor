@@ -9,6 +9,8 @@ use crate::EditorStrings;
 use crate::strings::{default_strings, fill};
 
 #[cfg(feature = "schema-validation")]
+mod unevaluated;
+#[cfg(feature = "schema-validation")]
 mod wording;
 
 /// The most problems of one kind (the schema's, the secret placeholders')
@@ -743,6 +745,13 @@ pub(super) fn validate_with(
             .map(|error| error.instance_path().as_str().to_string())
             .collect();
         let secret = |path: &str| inside(path, &secrets);
+        let repeats_arrays = behavior.repetition() != super::language::Repetition::None;
+        let unevaluated = unevaluated::Unevaluated::new(
+            &schema.schema,
+            &validated,
+            repeats_arrays,
+            tops.iter().flat_map(|top| specific_errors(top)),
+        );
         let wording = wording::Wording {
             root: &schema.schema,
             strings,
@@ -755,7 +764,12 @@ pub(super) fn validate_with(
                         .into_iter()
                         .flat_map(|error| {
                             let path = error.instance_path().as_str().to_string();
-                            if inside(&path, &placeholders) {
+                            if inside(&path, &placeholders)
+                                || (matches!(
+                                    error.kind(),
+                                    ValidationErrorKind::UnevaluatedItems { .. }
+                                ) && !unevaluated.refuses_items(&path))
+                            {
                                 return Vec::new();
                             }
                             // The schema's docs for the value (`x-docs-url`):
@@ -763,7 +777,7 @@ pub(super) fn validate_with(
                             let docs = super::completion::docs_url_at(
                                 &schema.schema,
                                 &path,
-                                behavior.repetition() != super::language::Repetition::None,
+                                repeats_arrays,
                             );
                             let message = wording.message(error);
                             let message = if restore {
@@ -778,66 +792,69 @@ pub(super) fn validate_with(
                             };
                             // Each unknown key gets its own marker and message, so every
                             // one is underlined and reachable with F8.
-                            let locations: Vec<(Option<Span>, String)> =
-                                if let ValidationErrorKind::AdditionalProperties { unexpected }
-                                | ValidationErrorKind::UnevaluatedProperties { unexpected } =
-                                    error.kind()
-                                {
-                                    let parent = error.instance_path().as_str();
-                                    // Only as many as can be shown are located: each is a scan.
-                                    unexpected
-                                        .iter()
-                                        .take(MAX_DIAGNOSTICS + 1)
-                                        .map(|key| {
-                                            let pointer =
-                                                format!("{parent}/{}", escape_pointer(key));
-                                            let span = super::codec::inline_location(
-                                                behavior, source, &pointer, true,
-                                            )
-                                            .or_else(|| behavior.key_span(source, &pointer));
-                                            let message =
-                                                if behavior.text_key() == Some(key.as_str()) {
-                                                    // XML mixed content: text beside child elements.
-                                                    strings.text_not_allowed.clone()
-                                                } else {
-                                                    fill(&strings.key_not_allowed, &[("key", key)])
-                                                };
-                                            // At the root, no pointer, as for the others.
-                                            let message = if parent.is_empty() {
-                                                message
-                                            } else {
-                                                format!("{parent}: {message}")
-                                            };
-                                            (span, message)
-                                        })
-                                        .collect()
-                                } else {
-                                    // A non-empty object or list may be written as an
-                                    // indented block below its key.
-                                    let written_as_block = match error.instance().as_ref() {
-                                        serde_json::Value::Object(map) => !map.is_empty(),
-                                        serde_json::Value::Array(items) => !items.is_empty(),
-                                        _ => false,
-                                    };
-                                    // A missing property is reported on the object's key.
-                                    let location = super::paths::problem_span(
-                                        behavior,
-                                        source,
-                                        &path,
-                                        match error.kind() {
-                                            ValidationErrorKind::Required { .. } => true,
-                                            // Which keys the object has decides it.
-                                            ValidationErrorKind::AnyOf { .. }
-                                            | ValidationErrorKind::OneOfNotValid { .. }
-                                            | ValidationErrorKind::OneOfMultipleValid { .. } => {
-                                                error.instance().is_object()
-                                            }
-                                            _ => false,
-                                        },
-                                        written_as_block,
-                                    );
-                                    vec![(location, message)]
+                            let locations: Vec<(Option<Span>, String)> = if let Some(unexpected) =
+                                match error.kind() {
+                                    ValidationErrorKind::AdditionalProperties { unexpected } => {
+                                        Some(unexpected.iter().collect::<Vec<_>>())
+                                    }
+                                    ValidationErrorKind::UnevaluatedProperties { unexpected } => {
+                                        Some(unevaluated.refused_keys(&path, unexpected))
+                                    }
+                                    _ => None,
+                                } {
+                                let parent = error.instance_path().as_str();
+                                // Only as many as can be shown are located: each is a scan.
+                                unexpected
+                                    .into_iter()
+                                    .take(MAX_DIAGNOSTICS + 1)
+                                    .map(|key| {
+                                        let pointer = format!("{parent}/{}", escape_pointer(key));
+                                        let span = super::codec::inline_location(
+                                            behavior, source, &pointer, true,
+                                        )
+                                        .or_else(|| behavior.key_span(source, &pointer));
+                                        let message = if behavior.text_key() == Some(key.as_str()) {
+                                            // XML mixed content: text beside child elements.
+                                            strings.text_not_allowed.clone()
+                                        } else {
+                                            fill(&strings.key_not_allowed, &[("key", key)])
+                                        };
+                                        // At the root, no pointer, as for the others.
+                                        let message = if parent.is_empty() {
+                                            message
+                                        } else {
+                                            format!("{parent}: {message}")
+                                        };
+                                        (span, message)
+                                    })
+                                    .collect()
+                            } else {
+                                // A non-empty object or list may be written as an
+                                // indented block below its key.
+                                let written_as_block = match error.instance().as_ref() {
+                                    serde_json::Value::Object(map) => !map.is_empty(),
+                                    serde_json::Value::Array(items) => !items.is_empty(),
+                                    _ => false,
                                 };
+                                // A missing property is reported on the object's key.
+                                let location = super::paths::problem_span(
+                                    behavior,
+                                    source,
+                                    &path,
+                                    match error.kind() {
+                                        ValidationErrorKind::Required { .. } => true,
+                                        // Which keys the object has decides it.
+                                        ValidationErrorKind::AnyOf { .. }
+                                        | ValidationErrorKind::OneOfNotValid { .. }
+                                        | ValidationErrorKind::OneOfMultipleValid { .. } => {
+                                            error.instance().is_object()
+                                        }
+                                        _ => false,
+                                    },
+                                    written_as_block,
+                                );
+                                vec![(location, message)]
+                            };
                             locations
                                 .into_iter()
                                 .map(|(location, message)| {
@@ -1016,6 +1033,29 @@ fn wrong_type(branch: &[ValidationError<'_>], path: &str) -> bool {
     })
 }
 
+/// Whether the value of a combinator's `error` is text and an option
+/// refuses it only for its type, wanting a number or a boolean (options
+/// chosen by type: a number, or an expression string): the value may be
+/// meant for either.
+#[cfg(feature = "schema-validation")]
+fn text_for_typed_option(
+    error: &ValidationError<'_>,
+    branches: &[Vec<ValidationError<'_>>],
+) -> bool {
+    let path = error.instance_path().as_str();
+    error.instance().is_string()
+        && branches.iter().any(|branch| {
+            wrong_type(branch, path)
+                && branch.iter().any(|nested| {
+                    wording::listed_types(&nested.to_string()).is_some_and(|types| {
+                        types.iter().any(|name| {
+                            matches!(name.as_str(), "\"number\"" | "\"integer\"" | "\"boolean\"")
+                        })
+                    })
+                })
+        })
+}
+
 /// The errors to show for `error`: inside `anyOf`/`oneOf`, every error of the
 /// branch the value was meant for. A branch that fails only because
 /// the value has another type (`null` for an object) is skipped, so a typo in
@@ -1032,6 +1072,11 @@ fn specific_errors<'e, 'a>(error: &'e ValidationError<'a>) -> Vec<&'e Validation
         _ => return vec![error],
     };
     let path = error.instance_path().as_str();
+    // Text where an option wants a number: the error itself, worded as
+    // every option (the number one too), not the text option's alone.
+    if text_for_typed_option(error, branches) {
+        return vec![error];
+    }
     let depth = |error: &ValidationError<'_>| error.instance_path().as_str().matches('/').count();
     let deepest_in = |branch: &'e Vec<ValidationError<'a>>| {
         branch

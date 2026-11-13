@@ -55,9 +55,23 @@ pub fn kept_const<'a>(
 
 /// What an inserted block writes for a required child the caret does not
 /// go to: its default or const, else its first example
-/// ([`schema_example`]), else [`placeholder`] — the first of them that
-/// `language` keeps, else nothing (an empty value Tab stops at).
+/// ([`schema_example`]), else [`placeholder`] — an object's own required
+/// children filled the same way (`{cpu: 2}`, not `{}`) — the first of them
+/// that `language` keeps, else nothing (an empty value Tab stops at).
 pub fn fill_value(language: &dyn ConfigLanguage, schema: &Value, root: &Value) -> Option<Value> {
+    filled(language, schema, root, 0)
+}
+
+/// How deep [`fill_value`] fills required children of required children
+/// (a schema requiring itself ends there).
+const MAX_FILL_DEPTH: usize = 8;
+
+fn filled(
+    language: &dyn ConfigLanguage,
+    schema: &Value,
+    root: &Value,
+    depth: usize,
+) -> Option<Value> {
     let keeps = |value: &Value| language_keeps(language, value, schema, root);
     let branches = resolve_branches(schema, root);
     branches
@@ -66,13 +80,55 @@ pub fn fill_value(language: &dyn ConfigLanguage, schema: &Value, root: &Value) -
         .filter(|value| keeps(value))
         .cloned()
         .or_else(|| schema_example(schema, root).filter(|value| keeps(value)))
-        .or_else(|| Some(placeholder(schema, root)).filter(|value| keeps(value)))
+        .or_else(|| {
+            let value = match placeholder(schema, root) {
+                Value::Object(members) if members.is_empty() => {
+                    required_filled(language, schema, root, depth).unwrap_or(Value::Object(members))
+                }
+                other => other,
+            };
+            Some(value).filter(|value| keeps(value))
+        })
+}
+
+/// An object of `schema`'s required children, each [`filled`], or `None`
+/// when none is.
+fn required_filled(
+    language: &dyn ConfigLanguage,
+    schema: &Value,
+    root: &Value,
+    depth: usize,
+) -> Option<Value> {
+    if depth >= MAX_FILL_DEPTH {
+        return None;
+    }
+    let branch = object_branch(schema, root)?;
+    let properties = branch.get("properties").and_then(Value::as_object)?;
+    let mut members = serde_json::Map::new();
+    for name in branch
+        .get("required")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+    {
+        let key = language.required_property(name);
+        let Some(child) = properties.get(key) else {
+            continue;
+        };
+        if let Some(value) = filled(language, child, root, depth + 1) {
+            members.insert(key.to_string(), value);
+        }
+    }
+    (!members.is_empty()).then_some(Value::Object(members))
 }
 
 /// What a required child gets in a block where an empty value reads as
 /// none (a YAML `key:`, an XML `<key></key>`): its kept default, and past
 /// the child the caret goes to, its [`fill_value`] unless that is an empty
-/// value (`""`, `null`, `{}`, `[]`), which the empty value stands for.
+/// value (`""`, `null`, `{}`), which the empty value stands for. An empty
+/// list is written where the language keeps one (YAML's `[]`: its `key:`
+/// would be null).
 pub fn child_fill(
     language: &dyn ConfigLanguage,
     schema: &Value,
@@ -88,7 +144,6 @@ pub fn child_fill(
     fill_value(language, schema, root).filter(|value| match value {
         Value::Null => false,
         Value::String(text) => !text.is_empty(),
-        Value::Array(items) => !items.is_empty(),
         Value::Object(members) => !members.is_empty(),
         _ => true,
     })

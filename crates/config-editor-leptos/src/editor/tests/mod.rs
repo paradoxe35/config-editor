@@ -90,4 +90,22 @@ mod save;
 mod schema_options;
 #[cfg(all(feature = "yaml", feature = "schema-validation"))]
 mod schema_walk;
+#[cfg(all(
+    feature = "schema-validation",
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod unevaluated_beside_errors;
 mod utf16_offsets;
+#[cfg(all(
+    feature = "schema-validation",
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod xml_numeric_strings;

@@ -111,6 +111,7 @@ const ELSEWHERE = {
   keyDeprecated: 'schema help tests',
   keyDeprecatedInstead: 'schema help tests',
   notOneOf: 'diagnostics tests',
+  notFormat: 'a value out of its format (drafts 4 to 7): schema_message tests',
   noOptionMatches: 'a value matching no oneOf/anyOf option: schema_option_messages tests',
   severalOptionsMatch: 'as noOptionMatches',
   optionNeeds: 'as noOptionMatches',

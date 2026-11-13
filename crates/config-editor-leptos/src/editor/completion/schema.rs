@@ -409,7 +409,7 @@ pub(crate) fn child_schemas_in<'a>(
 /// The schema of item `index` of an array of `branch`: its tuple position
 /// (`prefixItems`, or up to draft-07 an `items` list), else the schema of
 /// the other items (`items`, or after a draft-07 tuple `additionalItems`).
-fn item_schema(branch: &Value, index: usize) -> Option<&Value> {
+pub(crate) fn item_schema(branch: &Value, index: usize) -> Option<&Value> {
     let tuple = |keyword: &str| branch.get(keyword).and_then(Value::as_array);
     if let Some(positions) = tuple("prefixItems") {
         return positions
@@ -475,11 +475,16 @@ pub(super) fn conform(
             .iter()
             .any(|branch| type_includes(branch, "string"))
     {
-        let text = match &*value {
-            Value::Null => "null".to_string(),
-            other => other.to_string(),
-        };
-        *value = Value::String(text);
+        *value = Value::String(scalar_text(value));
+    }
+    // Likewise where the values allowed are listed (`const`, `enum`) as
+    // strings, untyped: `<v>1.3</v>` is the `"1.3"` listed. (XML reads a
+    // number only from text it writes back unchanged: `1.3`, not `1.30`.)
+    if repetition == Repetition::Elements
+        && matches!(value, Value::Number(_) | Value::Bool(_) | Value::Null)
+        && listed_as_strings(&branches, value)
+    {
+        *value = Value::String(scalar_text(value));
     }
     // An empty XML element reads as `{}`; where the schema wants text it is
     // the empty string.
@@ -519,6 +524,36 @@ pub(super) fn conform(
         }
         _ => {}
     }
+}
+
+/// A scalar as XML text writes it.
+fn scalar_text(value: &Value) -> String {
+    match value {
+        Value::Null => "null".to_string(),
+        other => other.to_string(),
+    }
+}
+
+/// Whether `branches` list the values allowed (`const`, `enum`), `value`
+/// is not one of them, and they are strings: its text, or all of them.
+fn listed_as_strings(branches: &[&Value], value: &Value) -> bool {
+    let listed: Vec<&Value> = branches
+        .iter()
+        .flat_map(|branch| {
+            branch.get("const").into_iter().chain(
+                branch
+                    .get("enum")
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten(),
+            )
+        })
+        .collect();
+    let text = scalar_text(value);
+    !listed.is_empty()
+        && !listed.contains(&value)
+        && (listed.iter().any(|allowed| allowed.as_str() == Some(&text))
+            || listed.iter().all(|allowed| allowed.is_string()))
 }
 
 /// Whether one resolved branch allows `value`'s kind as it is.

@@ -138,7 +138,10 @@ pub(super) fn append_required_properties(
         output.push(':');
         // A default, else (once the caret has its child) an example: a
         // value Tab selects (see `stops`).
-        if let Some(default) = child_fill(&YamlBehavior, property, root, cursor_offset.is_none()) {
+        // Required children of its own are written as a block below it.
+        let fill = child_fill(&YamlBehavior, property, root, cursor_offset.is_none())
+            .filter(|fill| !fill.is_object() || kept_default(&YamlBehavior, property, root).is_some());
+        if let Some(default) = fill {
             output.push(' ');
             output.push_str(&yaml_value(&default));
             output.push('\n');
@@ -246,8 +249,14 @@ pub(super) fn property_completion_insert(
         insert.push_str(&yaml_value(value));
     } else if array_branch(property, root).is_some() {
         let default = written_default(property, root);
-        if let Some(default) = default.filter(|value| !value.as_array().is_some_and(Vec::is_empty))
-        {
+        if default.is_some_and(|value| value.as_array().is_some_and(Vec::is_empty)) {
+            // An empty list default stays one, the caret inside it: an item
+            // left empty (`- `) reads as `[null]`.
+            insert.push_str(" []");
+            let cursor = insert.encode_utf16().count() - 1;
+            return Some((insert, cursor));
+        }
+        if let Some(default) = default {
             insert.push(' ');
             insert.push_str(&yaml_value(default));
         } else {

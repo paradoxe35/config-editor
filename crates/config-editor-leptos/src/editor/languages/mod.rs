@@ -45,6 +45,15 @@ mod array_hover_matrix;
     feature = "hcl",
     feature = "xml"
 ))]
+mod at_least_one_matrix;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
 mod choices_matrix;
 #[cfg(all(
     test,
@@ -63,7 +72,34 @@ mod completion_matrix;
     feature = "hcl",
     feature = "xml"
 ))]
+mod conditional_typing_matrix;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod default_read_back_matrix;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
 mod editing_matrix;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod empty_document_matrix;
 #[cfg(all(
     test,
     feature = "yaml",
@@ -141,6 +177,15 @@ mod pairs_matrix;
     feature = "xml"
 ))]
 mod qa_regressions;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod required_fill_matrix;
 #[cfg(all(
     test,
     feature = "yaml",

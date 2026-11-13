@@ -139,10 +139,24 @@ pub(super) fn property_completions(
     instance: Option<&Value>,
 ) -> Vec<Completion> {
     let mut candidates = Vec::new();
-    for branch in schemas
+    let branches: Vec<&Value> = schemas
         .iter()
         .flat_map(|schema| branches_for(schema, root, instance))
+        .collect();
+    // A key one branch only names (`"version": true`, as an `anyOf` saying
+    // "at least one of" does) is described where another branch declares
+    // it: its type, its docs, what accepting it writes.
+    let mut described: std::collections::HashMap<&str, &Value> = std::collections::HashMap::new();
+    for (key, property) in branches
+        .iter()
+        .filter_map(|branch| branch.get("properties").and_then(Value::as_object))
+        .flatten()
     {
+        if !names_only(property) {
+            described.entry(key.as_str()).or_insert(property);
+        }
+    }
+    for branch in branches {
         let Some(properties) = branch.get("properties").and_then(Value::as_object) else {
             continue;
         };
@@ -164,6 +178,10 @@ pub(super) fn property_completions(
             .map(|names| names.iter().filter_map(Value::as_str).collect())
             .unwrap_or_default();
         for (key, property) in properties {
+            let property = match described.get(key.as_str()) {
+                Some(described) if names_only(property) => *described,
+                _ => property,
+            };
             // A list key written by repetition can appear again: any list in
             // XML, a list of objects as HCL blocks (never inside `{ … }`).
             let repeatable = match repetition {
@@ -197,14 +215,18 @@ pub(super) fn property_completions(
             let (cursor_offset, selected) =
                 default_selection(&insert, cursor_offset, property, root, behavior);
             let holding = choices.holding(key);
-            let (title, type_label) = if holding.is_empty() {
-                (None, schema_type_label(property, root, "property"))
+            let typed_by: Vec<&Value> = holding
+                .iter()
+                .map(|(_, schema)| *schema)
+                .filter(|schema| !names_only(schema))
+                .collect();
+            let title = (!holding.is_empty())
+                .then(|| choices.titles_holding(key))
+                .flatten();
+            let type_label = if typed_by.is_empty() {
+                schema_type_label(property, root, "property")
             } else {
-                let schemas: Vec<&Value> = holding.iter().map(|(_, schema)| *schema).collect();
-                (
-                    choices.titles_holding(key),
-                    type_label_of_all(&schemas, root, "property"),
-                )
+                type_label_of_all(&typed_by, root, "property")
             };
             candidates.push((
                 score,
@@ -239,6 +261,16 @@ pub(super) fn property_completions(
         }
     }
     sorted_completions(candidates)
+}
+
+/// Whether a property's schema only names the key (`true`, `{}`),
+/// describing nothing of its value.
+fn names_only(property: &Value) -> bool {
+    match property {
+        Value::Bool(true) => true,
+        Value::Object(members) => members.is_empty(),
+        _ => false,
+    }
 }
 
 #[cfg(test)]
