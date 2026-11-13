@@ -56,7 +56,7 @@ const CASES: [Case; 6] = [
         Language::XML,
         "<r xmlns:n=\"urn:x\" n:a=\"1\" b=\"2\"><s>v</s></r>\n",
         "/r",
-        &["xmlns:n", "b", "n:a"],
+        &["b", "n:a"],
     ),
     (
         "an attribute moved below a child element",
@@ -159,7 +159,7 @@ fn attributes_reordered_in_a_view_are_written_in_that_order() {
         (
             "<r xmlns:n=\"urn:x\" n:a=\"1\" b='2'><s>v</s></r>\n",
             "/r",
-            &["xmlns:n", "b", "n:a"],
+            &["b", "n:a"],
             "<r xmlns:n=\"urn:x\" b='2' n:a=\"1\"><s>v</s></r>\n",
         ),
         (

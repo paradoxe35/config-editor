@@ -8,6 +8,9 @@ use serde_json::Value;
 use crate::EditorStrings;
 use crate::strings::{default_strings, fill};
 
+#[cfg(feature = "schema-validation")]
+mod wording;
+
 /// The most problems of one kind (the schema's, the secret placeholders')
 /// shown and underlined; past it, a note says more follow.
 pub(super) const MAX_DIAGNOSTICS: usize = 20;
@@ -95,6 +98,9 @@ pub(super) fn build_schema(schema_text: &str) -> Result<SchemaBundle, String> {
             .unwrap_or(&schema),
     )
     .map_err(|error| {
+        if let Some(message) = super::schema_refs::message(error.kind(), &schema) {
+            return message;
+        }
         // Where in the schema: a value is worded, its place is not.
         let at = error.instance_path().to_string();
         if at.is_empty() {
@@ -420,10 +426,6 @@ impl Schema {
     }
 }
 
-/// Characters of a value quoted in a message before it is abbreviated.
-#[cfg(feature = "schema-validation")]
-const MAX_QUOTED_VALUE: usize = 80;
-
 /// Syntax diagnostics for `source`, for documents without a schema.
 ///
 /// ```
@@ -740,6 +742,12 @@ pub(super) fn validate_with(
             .flat_map(|top| specific_errors(top))
             .map(|error| error.instance_path().as_str().to_string())
             .collect();
+        let secret = |path: &str| inside(path, &secrets);
+        let wording = wording::Wording {
+            root: &schema.schema,
+            strings,
+            secret: &secret,
+        };
         let mut diagnostics = super::paths::with_spans(behavior, source, &pointers, || {
             tops.iter()
                 .flat_map(|top| {
@@ -757,60 +765,7 @@ pub(super) fn validate_with(
                                 &path,
                                 behavior.repetition() != super::language::Repetition::None,
                             );
-                            let message = match error.kind() {
-                                ValidationErrorKind::AnyOf { context }
-                                | ValidationErrorKind::OneOfNotValid { context } => {
-                                    expected_types(error, context, strings)
-                                        .unwrap_or_else(|| error.to_string())
-                                }
-                                // Every allowed value, not "or 2 other candidates".
-                                ValidationErrorKind::Enum { options } => match options.as_array() {
-                                    Some(options) => fill(
-                                        &strings.not_one_of,
-                                        &[
-                                            ("value", &error.instance()),
-                                            (
-                                                "allowed",
-                                                &options
-                                                    .iter()
-                                                    .map(Value::to_string)
-                                                    .collect::<Vec<_>>()
-                                                    .join(", "),
-                                            ),
-                                        ],
-                                    ),
-                                    None => error.to_string(),
-                                },
-                                ValidationErrorKind::Type { .. } => {
-                                    let message = error.to_string();
-                                    listed_types(&message)
-                                        .map(|types| {
-                                            fill(
-                                                &strings.wrong_type,
-                                                &[
-                                                    ("value", &error.instance()),
-                                                    ("types", &types.join(", ")),
-                                                ],
-                                            )
-                                        })
-                                        .unwrap_or(message)
-                                }
-                                ValidationErrorKind::FalseSchema => {
-                                    super::false_schema::message(&error.instance().to_string())
-                                }
-                                _ => error.to_string(),
-                            };
-                            // A large value is abbreviated rather than quoted whole.
-                            let instance = error.instance().to_string();
-                            let message = if inside(&path, &secrets) {
-                                message.replace(&instance, &strings.secret_value)
-                            } else if instance.chars().count() > MAX_QUOTED_VALUE {
-                                let short: String =
-                                    instance.chars().take(MAX_QUOTED_VALUE).collect();
-                                message.replacen(&instance, &format!("{short}…"), 1)
-                            } else {
-                                message
-                            };
+                            let message = wording.message(error);
                             let message = if restore {
                                 super::codec::non_finite::restore_in_message(&message)
                             } else {
@@ -824,7 +779,8 @@ pub(super) fn validate_with(
                             // Each unknown key gets its own marker and message, so every
                             // one is underlined and reachable with F8.
                             let locations: Vec<(Option<Span>, String)> =
-                                if let ValidationErrorKind::AdditionalProperties { unexpected } =
+                                if let ValidationErrorKind::AdditionalProperties { unexpected }
+                                | ValidationErrorKind::UnevaluatedProperties { unexpected } =
                                     error.kind()
                                 {
                                     let parent = error.instance_path().as_str();
@@ -868,10 +824,16 @@ pub(super) fn validate_with(
                                         behavior,
                                         source,
                                         &path,
-                                        matches!(
-                                            error.kind(),
-                                            ValidationErrorKind::Required { .. }
-                                        ),
+                                        match error.kind() {
+                                            ValidationErrorKind::Required { .. } => true,
+                                            // Which keys the object has decides it.
+                                            ValidationErrorKind::AnyOf { .. }
+                                            | ValidationErrorKind::OneOfNotValid { .. }
+                                            | ValidationErrorKind::OneOfMultipleValid { .. } => {
+                                                error.instance().is_object()
+                                            }
+                                            _ => false,
+                                        },
                                         written_as_block,
                                     );
                                     vec![(location, message)]
@@ -896,6 +858,16 @@ pub(super) fn validate_with(
                 })
                 .take(MAX_DIAGNOSTICS + 1)
                 .collect::<Vec<_>>()
+        });
+        // A key two keywords refuse (`additionalProperties` in one place,
+        // `unevaluatedProperties` in another) is one problem.
+        let mut seen = std::collections::HashSet::new();
+        diagnostics.retain(|diagnostic| {
+            seen.insert((
+                diagnostic.line,
+                diagnostic.column,
+                diagnostic.message.clone(),
+            ))
         });
         diagnostics.extend(deprecated);
         return capped(diagnostics, strings);
@@ -1033,55 +1005,24 @@ fn deprecation_warnings(
         .collect()
 }
 
-/// For an `anyOf` whose every branch wants another type: `true is not of
-/// type "integer", "string", "null"`, instead of "not valid under any of the
-/// schemas".
+/// Whether `branch` (an option's errors) fails only because the value at
+/// `path` has another type (`null` for an object): the value was not meant
+/// for it.
 #[cfg(feature = "schema-validation")]
-fn expected_types(
-    error: &ValidationError<'_>,
-    branches: &[Vec<ValidationError<'_>>],
-    strings: &EditorStrings,
-) -> Option<String> {
-    let mut types: Vec<String> = Vec::new();
-    for nested in branches.iter().flatten() {
-        if !matches!(nested.kind(), ValidationErrorKind::Type { .. }) {
-            return None;
-        }
-        for name in listed_types(&nested.to_string())? {
-            if !types.contains(&name) {
-                types.push(name);
-            }
-        }
-    }
-    (!types.is_empty()).then(|| {
-        fill(
-            &strings.wrong_type,
-            &[("value", &error.instance()), ("types", &types.join(", "))],
-        )
+fn wrong_type(branch: &[ValidationError<'_>], path: &str) -> bool {
+    branch.iter().all(|nested| {
+        matches!(nested.kind(), ValidationErrorKind::Type { .. })
+            && nested.instance_path().as_str() == path
     })
-}
-
-/// The types a validator's type message lists: `"integer"` and `"string"`
-/// from `true is not of types "integer", "string"`.
-#[cfg(feature = "schema-validation")]
-fn listed_types(message: &str) -> Option<Vec<String>> {
-    let listed = message
-        .split_once(" is not of type")
-        .map(|(_, rest)| rest)?;
-    let listed = listed.strip_prefix('s').unwrap_or(listed);
-    Some(
-        listed
-            .split(',')
-            .map(|name| name.trim().to_string())
-            .filter(|name| !name.is_empty())
-            .collect(),
-    )
 }
 
 /// The errors to show for `error`: inside `anyOf`/`oneOf`, every error of the
 /// branch the value was meant for. A branch that fails only because
 /// the value has another type (`null` for an object) is skipped, so a typo in
 /// an object reports the typo rather than "not valid under any of the schemas".
+/// When several options remain and none reaches deeper into the value than
+/// the others (the value got further into it), the error itself is shown:
+/// it is worded as the options, each with what it misses.
 #[cfg(feature = "schema-validation")]
 fn specific_errors<'e, 'a>(error: &'e ValidationError<'a>) -> Vec<&'e ValidationError<'a>> {
     let branches = match error.kind() {
@@ -1091,12 +1032,6 @@ fn specific_errors<'e, 'a>(error: &'e ValidationError<'a>) -> Vec<&'e Validation
         _ => return vec![error],
     };
     let path = error.instance_path().as_str();
-    let wrong_type = |branch: &Vec<ValidationError<'a>>| {
-        branch.iter().all(|nested| {
-            matches!(nested.kind(), ValidationErrorKind::Type { .. })
-                && nested.instance_path().as_str() == path
-        })
-    };
     let depth = |error: &ValidationError<'_>| error.instance_path().as_str().matches('/').count();
     let deepest_in = |branch: &'e Vec<ValidationError<'a>>| {
         branch
@@ -1106,14 +1041,22 @@ fn specific_errors<'e, 'a>(error: &'e ValidationError<'a>) -> Vec<&'e Validation
             .max()
             .unwrap_or(0)
     };
-    let meant: Vec<&'e Vec<ValidationError<'a>>> = branches
+    let meant: Vec<(&'e Vec<ValidationError<'a>>, usize)> = branches
         .iter()
-        .filter(|branch| !wrong_type(branch))
+        .filter(|branch| !wrong_type(branch, path))
+        .map(|branch| (branch, deepest_in(branch)))
         .collect();
     // The branch the value was meant for: every one of its errors is shown,
     // so a second problem is not hidden behind the first.
-    if let Some(branch) = meant.into_iter().max_by_key(|branch| deepest_in(branch)) {
-        return branch.iter().flat_map(specific_errors).collect();
+    if let Some(&(branch, deepest)) = meant.iter().max_by_key(|(_, deepest)| *deepest) {
+        let alone = meant.len() == 1
+            || (deepest > depth(error)
+                && meant.iter().filter(|(_, other)| *other == deepest).count() == 1);
+        return if alone {
+            branch.iter().flat_map(specific_errors).collect()
+        } else {
+            vec![error]
+        };
     }
     // Without one, only a deeper error says more than "wrong type".
     match branches

@@ -1096,6 +1096,42 @@ export interface EditorStrings {
    */
   wrongType?: string;
   /**
+   * A value that matches none of a schema's options (`{keyword}`: `oneOf` or `anyOf`), with why each fails (`{reasons}`, each worded by `option_needs`, `option_refuses` or `option_problem`, joined by `; `).
+   *
+   * @default "matches none of the {keyword} options: {reasons}"
+   */
+  noOptionMatches?: string;
+  /**
+   * A value that matches more than one of a `oneOf`'s options (`{options}`, their names joined by `, `).
+   *
+   * @default "matches more than one of the oneOf options ({options}); only one may match"
+   */
+  severalOptionsMatch?: string;
+  /**
+   * An option (`{option}`) that needs a key the value does not have.
+   *
+   * @default "{option} needs \"{key}\""
+   */
+  optionNeeds?: string;
+  /**
+   * An option (`{option}`) that does not allow a key the value has.
+   *
+   * @default "{option} does not allow \"{key}\""
+   */
+  optionRefuses?: string;
+  /**
+   * An option (`{option}`) and another problem it has with the value.
+   *
+   * @default "{option}: {problem}"
+   */
+  optionProblem?: string;
+  /**
+   * The name of an option with no title or description (`{number}`, from 1).
+   *
+   * @default "option {number}"
+   */
+  optionNumber?: string;
+  /**
    * A schema that does not compile.
    *
    * @default "Invalid JSON Schema: {error}"

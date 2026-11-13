@@ -250,7 +250,7 @@ with that reason.
 <!-- Generated from crates/config-editor-leptos/src/strings.rs by js/config-editor/tests/settings.rs; do not edit. Regenerate with `UPDATE_GENERATED=1 cargo test -p config-editor-js --test settings`. -->
 
 <details>
-<summary>Every text and its default (182 texts)</summary>
+<summary>Every text and its default (188 texts)</summary>
 
 | Key                         | Default                                                                                                                                     |                                                                                                                                                                                                                                                |
 | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -417,6 +417,12 @@ with that reason.
 | `keyDeprecatedInstead`      | `"{pointer}: \"{key}\" is deprecated. {message}"`                                                                                           | A deprecated key whose schema says what to use instead.                                                                                                                                                                                        |
 | `notOneOf`                  | `"{value} is not one of {allowed}"`                                                                                                         | A value not among the allowed ones.                                                                                                                                                                                                            |
 | `wrongType`                 | `"{value} is not of type {types}"`                                                                                                          | A value of none of the accepted types.                                                                                                                                                                                                         |
+| `noOptionMatches`           | `"matches none of the {keyword} options: {reasons}"`                                                                                        | A value that matches none of a schema's options (`{keyword}`: `oneOf` or `anyOf`), with why each fails (`{reasons}`, each worded by `optionNeeds`, `optionRefuses` or `optionProblem`, joined by `; `).                                        |
+| `severalOptionsMatch`       | `"matches more than one of the oneOf options ({options}); only one may match"`                                                              | A value that matches more than one of a `oneOf`'s options (`{options}`, their names joined by `, `).                                                                                                                                           |
+| `optionNeeds`               | `"{option} needs \"{key}\""`                                                                                                                | An option (`{option}`) that needs a key the value does not have.                                                                                                                                                                               |
+| `optionRefuses`             | `"{option} does not allow \"{key}\""`                                                                                                       | An option (`{option}`) that does not allow a key the value has.                                                                                                                                                                                |
+| `optionProblem`             | `"{option}: {problem}"`                                                                                                                     | An option (`{option}`) and another problem it has with the value.                                                                                                                                                                              |
+| `optionNumber`              | `"option {number}"`                                                                                                                         | The name of an option with no title or description (`{number}`, from 1).                                                                                                                                                                       |
 | `invalidSchema`             | `"Invalid JSON Schema: {error}"`                                                                                                            | A schema that does not compile.                                                                                                                                                                                                                |
 | `invalidPlaceholder`        | `"secrets.placeholder: {error}"`                                                                                                            | A secret placeholder pattern the editor cannot use (it does not compile, or matches empty text): no token is taken for a placeholder.                                                                                                          |
 | `problemAtPath`             | `"{path}: {message}"`                                                                                                                       | A host's problem with a field the editor cannot find in the text, listed with the field's path.                                                                                                                                                |
@@ -746,10 +752,19 @@ const editor = new ConfigEditor(element, {
   `secret-chip-border`) with a key in the gutter; hovering shows `hint`.
 - In a secret field, suggestions offer `${VAR}` and `file:` references.
 - The schema check accepts an untouched placeholder (no `pattern`,
-  `format`, length or type problem), and `editAs` and saving keep it
+  `format`, length or type problem), also one alone in a string written
+  over lines (a YAML block scalar, a TOML `"""` string, an HCL heredoc, XML
+  text on its own line), and `editAs` and saving keep it
   byte-for-byte. Nothing the editor shows, says or hands back (problems,
   hover, announcements, the diff preview, copies, `onChange`, console
   messages) holds a token the host did not send.
+- That holds for what the host sends: the editor shows the host's texts as
+  given. The `baseline` is shown too (the diff gutter, the change preview,
+  `unifiedDiff`), so it must hold the same placeholders as `value`, never
+  the stored secrets. A real value sent in a secret field (`value`,
+  `baseline`, a document of a `ConfigDocuments`, whose hidden documents stay
+  mounted) is shown, copied and handed back like any other text: send the
+  file with its secrets replaced by placeholders, never as it was loaded.
 - Editing in `language`, `onChange` hands back exactly the text on screen
   with the host's line endings, byte order mark, final newline, tabs and
   quoting (placeholders included); a text that did not change is not
@@ -846,6 +861,19 @@ adds a root: `{"listen": 4343, "port": 80}` writes `<listen>4343</listen>` and
 `<port>80</port>`, and a key added at the top in another view is one more
 top-level element.
 
+Namespace declarations (`xmlns`, `xmlns:m`) and the attributes of the XML
+Schema instance namespace (`xsi:schemaLocation`, `xsi:type`, with whatever
+prefix is bound to it) are markup, not data: `<project xmlns="…"
+xmlns:xsi="…" xsi:schemaLocation="…">` reads as `{"project": {…}}` with its
+elements only, so a schema need not list them (a closed `pom.xml` schema
+finds nothing wrong), and completion, hover and other views do not show them.
+They stay editable as text in the XML view, and every save from another view
+keeps them byte for byte where the file has them. A key spelled as one
+(`xmlns:y`) is not written to XML: the save or conversion waits, saying to
+write it in the XML text. Converting a file to another language leaves them
+behind, as it does comments. Other prefixed attributes (`m:kind`) are data,
+keyed by the name as written.
+
 ## `@pngwasi/config-editor/tools`
 
 The editor's answers about a text, without an editor: for a server, a
@@ -854,7 +882,7 @@ build step or a review screen. They need the WebAssembly module loaded:
 
 | Function                                   | Returns                   | Description                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | ------------------------------------------ | ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `validate(language, text, schema?)`        | `Diagnostic[]`            | Syntax problems, plus schema problems when a schema is given.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `validate(language, text, schema?)`        | `Diagnostic[]`            | Syntax problems, plus schema problems when a schema is given. The schema is compiled once and kept for the next call with the same text (`convert` and `schemaWarnings` share it).                                                                                                                                                                                                                                                                                                                                                                                            |
 | `convert(from, text, to, schema?)`         | `{ text, losses }`        | Convert between languages. `losses` lists JSON pointers of values the target reads back differently (an infinity or `NaN` is written as the text `inf` or `nan` in JSON, HCL and XML, and listed). Throws when the text does not parse or the target cannot express it at all (TOML has no `null`). With a schema, a lone XML element where it expects a list converts as a one-item list.                                                                                                                                                                                    |
 | `unifiedDiff(baseline, current, context?)` | `string`                  | The `diff -u` of two texts: `--- baseline` / `+++ current` headers, then `@@` hunks with `context` lines around each change (default 3). `""` when they have the same lines; line endings are compared as LF.                                                                                                                                                                                                                                                                                                                                                                 |
 | `changeSummary(baseline, current)`         | `ChangeSummary`           | `{ added, removed, modified, hunks }` between two texts, as the diff gutter and `onChangeSummary` count them: a final line break added is the empty last line added, one removed is no change (no line goes), where `unifiedDiff` writes both as `diff -u` does (the last line changed, `\ No newline at end of file`).                                                                                                                                                                                                                                                       |

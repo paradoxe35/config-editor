@@ -3,9 +3,7 @@
 use leptos::prelude::*;
 use web_sys::KeyboardEvent;
 
-use super::super::completion::{
-    COMPLETION_PAGE_ROWS, apply_completion, scroll_completion_into_view,
-};
+use super::super::completion::{apply_completion, scroll_completion_into_view};
 use super::super::keyboard::utf16_to_byte_index;
 use super::super::state::EditorState;
 
@@ -109,9 +107,10 @@ pub(super) fn list_keys(state: EditorState, event: &KeyboardEvent) -> bool {
         return false;
     }
     let current = state.completion().active.get_untracked();
+    let page = state.completion().row_size.get_untracked().page_rows();
     let next = match event.key().as_str() {
-        "PageDown" => (current + COMPLETION_PAGE_ROWS).min(count - 1),
-        "PageUp" => current.saturating_sub(COMPLETION_PAGE_ROWS),
+        "PageDown" => (current + page).min(count - 1),
+        "PageUp" => current.saturating_sub(page),
         "ArrowDown" => (current + 1) % count,
         "ArrowUp" => current.checked_sub(1).unwrap_or(count - 1),
         "Enter" => {

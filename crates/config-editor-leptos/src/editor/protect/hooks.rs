@@ -68,7 +68,9 @@ impl ProtectState {
     }
 
     /// The host's secret placeholders, each with the field whose current
-    /// secret it stands for (the schema check accepts it there). Tracked.
+    /// secret it stands for (the schema check accepts it there), and the
+    /// host's value of a field holding one alone with a multi-line form's
+    /// whitespace around it. Tracked.
     pub(crate) fn accepted_tokens(&self) -> Vec<(String, String)> {
         self.secrets.known_tokens()
     }

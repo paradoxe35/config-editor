@@ -93,6 +93,7 @@ pub(super) fn build_value(source: &str) -> Result<Value, ParseError> {
     let mut stack: Vec<OpenElement> = Vec::new();
     let mut roots: Vec<TopLevel> = Vec::new();
     let mut pending_text = String::new();
+    let markup = declarations::Markup::of(source);
     loop {
         // `buffer_position` before a read is where the next event begins.
         let event_start = reader.buffer_position() as usize;
@@ -127,12 +128,12 @@ pub(super) fn build_value(source: &str) -> Result<Value, ParseError> {
                     ));
                 }
                 let top_level = stack.is_empty();
-                stack.push(open_element(source, &element, event_start, top_level)?);
+                stack.push(open_element(source, &element, event_start, top_level, &markup)?);
             }
             Event::Empty(element) => {
                 flush_text(&mut pending_text, &mut stack);
                 let top_level = stack.is_empty();
-                let open = open_element(source, &element, event_start, top_level)?;
+                let open = open_element(source, &element, event_start, top_level, &markup)?;
                 push_child(&mut stack, &mut roots, open);
             }
             Event::End(element) => {
@@ -250,12 +251,14 @@ pub(super) fn document_value(source: &str, roots: Vec<TopLevel>) -> Result<Value
     Ok(Value::Object(map))
 }
 
-/// Duplicate attributes are an error.
+/// Duplicate attributes are an error. Markup attributes (namespace
+/// declarations, `xsi:*`) are no data (see `declarations`).
 pub(super) fn open_element(
     source: &str,
     element: &BytesStart<'_>,
     event_start: usize,
     top_level: bool,
+    markup: &declarations::Markup,
 ) -> Result<OpenElement, ParseError> {
     let start = markup_start(source, event_start);
     let name = element.local_name().into_inner().to_string();
@@ -280,7 +283,9 @@ pub(super) fn open_element(
         if let Some(character) = value.chars().find(|character| !is_xml_char(*character)) {
             return Err(syntax_error(source, start, not_xml_char_message(character)));
         }
-        attrs.insert(key, typed_scalar(&value));
+        if !markup.holds(&key) {
+            attrs.insert(key, typed_scalar(&value));
+        }
     }
     let config_root = top_level && attrs.get(CONFIG_ROOT_ATTRIBUTE) == Some(&Value::Bool(true));
     if config_root {
@@ -668,6 +673,7 @@ pub(super) fn namespace_clash(source: &str) -> Option<String> {
     // attributes' qualified names by local name.
     let mut stack: Vec<(String, HashMap<String, String>)> = vec![(String::new(), HashMap::new())];
     let text = |name: &str| name.to_string();
+    let markup = declarations::Markup::of(source);
     loop {
         let (element, empty) = match reader.read_event_into(&mut buf).ok()? {
             Event::Eof => return None,
@@ -698,11 +704,11 @@ pub(super) fn namespace_clash(source: &str) -> Option<String> {
         }
         siblings.insert(local.clone(), qualified);
         let element_local = local.clone();
-        // Its attributes, beside its children (namespace declarations aside).
+        // Its attributes, beside its children (markup aside).
         let mut attributes: HashMap<String, String> = HashMap::new();
         for attribute in element.attributes().flatten() {
             let qualified = text(attribute.key.as_ref());
-            if qualified == "xmlns" || qualified.starts_with("xmlns:") {
+            if markup.holds(&qualified) {
                 continue;
             }
             let local = text(attribute.key.local_name().as_ref());

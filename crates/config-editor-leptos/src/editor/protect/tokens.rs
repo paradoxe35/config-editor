@@ -34,13 +34,27 @@ pub(crate) struct Known {
     /// written in the text's comments.
     pub(crate) field: Option<String>,
     pub(crate) count: usize,
-    /// The host's field holds the token alone, as its whole value: there
-    /// it stands for the whole secret, and nothing may be written beside
-    /// it (see `glued`).
-    pub(crate) whole: bool,
+    /// The host's field's value when it holds the token alone: the token,
+    /// with nothing but whitespace around it (what a multi-line form
+    /// writes: a block scalar's or heredoc's last line break, the
+    /// indentation of XML text on its own line). There the token stands
+    /// for the whole secret, and nothing may be written beside it (see
+    /// `glued`).
+    pub(crate) whole: Option<String>,
     /// The prints of the list items on the way to the field (see
     /// `follow_items`): the field follows its item when items shift.
     pub(crate) items: Vec<u64>,
+}
+
+impl Known {
+    /// Whether a field's `value` holds this token, given whole, alone: as
+    /// the host wrote it, or the bare token (a block's chomping or a
+    /// view's string form changed, the token kept).
+    pub(crate) fn alone_in(&self, value: &str) -> bool {
+        self.whole
+            .as_deref()
+            .is_some_and(|whole| value == whole || value == self.token)
+    }
 }
 
 /// The pointer of the field holding the token at byte `start` of `text`.
@@ -147,23 +161,24 @@ impl SecretMatcher {
         // held in thousands of fields).
         let mut by_place: std::collections::HashMap<(String, Option<String>), usize> =
             std::collections::HashMap::new();
-        let mut add = |token: &str, field: Option<String>, whole: bool, items: Vec<u64>| {
-            note(Work::PlaceLookup);
-            let place = (token.to_string(), field.as_deref().map(field_key));
-            match by_place.get(&place) {
-                Some(index) => known[*index].count += 1,
-                None => {
-                    by_place.insert(place, known.len());
-                    known.push(Known {
-                        token: token.to_string(),
-                        field,
-                        count: 1,
-                        whole,
-                        items,
-                    });
+        let mut add =
+            |token: &str, field: Option<String>, whole: Option<String>, items: Vec<u64>| {
+                note(Work::PlaceLookup);
+                let place = (token.to_string(), field.as_deref().map(field_key));
+                match by_place.get(&place) {
+                    Some(index) => known[*index].count += 1,
+                    None => {
+                        by_place.insert(place, known.len());
+                        known.push(Known {
+                            token: token.to_string(),
+                            field,
+                            count: 1,
+                            whole,
+                            items,
+                        });
+                    }
                 }
-            }
-        };
+            };
         let found = self.find(text);
         // The comments, read only when the text holds a token at all.
         let comments = if found.is_empty() {
@@ -178,7 +193,12 @@ impl SecretMatcher {
                 self.each_held(&document, |token, pointer, whole| {
                     let items =
                         super::follow_items::item_prints_in(&document, pointer, &mut printed);
-                    add(token, Some(pointer.to_string()), whole, items);
+                    add(
+                        token,
+                        Some(pointer.to_string()),
+                        whole.map(str::to_string),
+                        items,
+                    );
                 });
             }
             Err(_) => {
@@ -204,7 +224,7 @@ impl SecretMatcher {
             }
         }
         for range in found.iter().filter(|range| commented(range.start)) {
-            add(&text[range.clone()], None, false, Vec::new());
+            add(&text[range.clone()], None, None, Vec::new());
         }
         known
     }
@@ -227,16 +247,22 @@ impl SecretMatcher {
     }
 
     /// Calls `found` with each token the strings of `document` hold, the
-    /// pointer of the field holding it and whether it is that field's whole
-    /// value, in document order.
-    fn each_held(&self, document: &serde_json::Value, mut found: impl FnMut(&str, &str, bool)) {
+    /// pointer of the field holding it and, when the token is that field's
+    /// whole value (with nothing but whitespace around it, see
+    /// [`Known::whole`]), the value, in document order.
+    fn each_held(
+        &self,
+        document: &serde_json::Value,
+        mut found: impl FnMut(&str, &str, Option<&str>),
+    ) {
         let mut stack = vec![(String::new(), document)];
         while let Some((pointer, value)) = stack.pop() {
             match value {
                 serde_json::Value::String(written) => {
                     for range in self.find_in(written) {
-                        let whole = range.len() == written.len();
-                        found(&written[range], &pointer, whole);
+                        let token = &written[range];
+                        let whole = (written.trim() == token).then_some(written.as_str());
+                        found(token, &pointer, whole);
                     }
                 }
                 serde_json::Value::Array(items) => stack.extend(
@@ -604,7 +630,7 @@ mod tests {
                 token: TOKEN.to_string(),
                 field: Some("/a".to_string()),
                 count: 1,
-                whole: true,
+                whole: Some(TOKEN.to_string()),
                 items: Vec::new(),
             }]
         );

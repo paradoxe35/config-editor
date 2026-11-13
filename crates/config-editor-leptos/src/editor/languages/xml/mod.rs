@@ -35,6 +35,7 @@ mod namespaces;
 mod prefixed;
 mod attribute_order;
 mod markup;
+mod declarations;
 // The fold ranges (the `folding` feature).
 #[cfg(feature = "folding")]
 mod folding;
@@ -353,6 +354,11 @@ impl ConfigLanguage for XmlBehavior {
         if let Some(reason) = names::first_non_name(value) {
             return Err(reason);
         }
+        // Namespace declarations and `xsi:*` are no data (see
+        // `declarations`): a save keeps the host's as written.
+        if let Some(reason) = declarations::first_markup_key(value, previous) {
+            return Err(reason);
+        }
         let framing = previous.map(xml_framing).unwrap_or_default();
         let attributes = previous.map(attribute_paths).unwrap_or_default();
         let old = previous.filter(|_| !attributes.is_empty()).and_then(|previous| xml_parse(previous).ok());
@@ -394,8 +400,11 @@ impl ConfigLanguage for XmlBehavior {
         // are written that way again, not as `<x a="1"/>`, and each tag is
         // spelled as the host spells it (`<x a='1' />`).
         Ok(match previous {
-            Some(previous) => tag_spelling::with_tag_spelling_of(
-                &one_line::with_one_line_elements_of(&with_end_tags_of(&out, previous), previous),
+            Some(previous) => declarations::kept(
+                &tag_spelling::with_tag_spelling_of(
+                    &one_line::with_one_line_elements_of(&with_end_tags_of(&out, previous), previous),
+                    previous,
+                ),
                 previous,
             ),
             None => out,

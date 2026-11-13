@@ -33,6 +33,7 @@ mod edit_as;
 mod empty_refs;
 #[cfg(feature = "schema-validation")]
 mod false_schema;
+// What a `$ref` the editor cannot follow is told.
 mod fill;
 mod flat_keys;
 mod flow_syntax;
@@ -50,6 +51,8 @@ mod hover_path;
 mod hover_problems;
 mod input;
 mod kept_focus;
+#[cfg(feature = "schema-validation")]
+mod schema_refs;
 mod ui_refs;
 pub use input::flush_pending_input;
 pub use sync::flush_pending_edits;

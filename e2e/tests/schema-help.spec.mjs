@@ -116,7 +116,9 @@ test.describe('schema help', () => {
     // the hover: the "One of" row is covered by the unit matrix.)
   });
 
-  test('keys inside a oneOf object name their option, the matched one first', async ({ page }) => {
+  // Once the object matches one option, only that option's keys are offered
+  // (another option's key would make it match none, S.combinators-5).
+  test('keys inside a oneOf object name their option, only the matched one once it matches', async ({ page }) => {
     const ed = editor(page);
     await ed.paste('dns:\n  provider: static\n  ');
     await page.keyboard.press('Control+Space');
@@ -125,9 +127,7 @@ test.describe('schema help', () => {
     await expect(ed.options.filter({ hasText: 'path' }).locator('.config-editor__completion-detail')).toHaveText(
       'Static file',
     );
-    await expect(ed.options.filter({ hasText: 'route53' }).locator('.config-editor__completion-detail')).toHaveText(
-      'Route 53',
-    );
+    expect(await ed.keys()).not.toContain('route53');
   });
 
   test('a pattern the regex engine cannot read reaches the host once', async ({ page }) => {

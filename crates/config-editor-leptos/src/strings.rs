@@ -451,6 +451,23 @@ pub struct EditorStrings {
     pub not_one_of: String,
     /// A value of none of the accepted types.
     pub wrong_type: String,
+    /// A value that matches none of a schema's options (`{keyword}`:
+    /// `oneOf` or `anyOf`), with why each fails (`{reasons}`, each worded
+    /// by `option_needs`, `option_refuses` or `option_problem`, joined by
+    /// `; `).
+    pub no_option_matches: String,
+    /// A value that matches more than one of a `oneOf`'s options
+    /// (`{options}`, their names joined by `, `).
+    pub several_options_match: String,
+    /// An option (`{option}`) that needs a key the value does not have.
+    pub option_needs: String,
+    /// An option (`{option}`) that does not allow a key the value has.
+    pub option_refuses: String,
+    /// An option (`{option}`) and another problem it has with the value.
+    pub option_problem: String,
+    /// The name of an option with no title or description (`{number}`,
+    /// from 1).
+    pub option_number: String,
     /// A schema that does not compile.
     pub invalid_schema: String,
     /// A secret placeholder pattern the editor cannot use (it does not
@@ -707,6 +724,14 @@ impl Default for EditorStrings {
             key_deprecated_instead: text("{pointer}: \"{key}\" is deprecated. {message}"),
             not_one_of: text("{value} is not one of {allowed}"),
             wrong_type: text("{value} is not of type {types}"),
+            no_option_matches: text("matches none of the {keyword} options: {reasons}"),
+            several_options_match: text(
+                "matches more than one of the oneOf options ({options}); only one may match",
+            ),
+            option_needs: text("{option} needs \"{key}\""),
+            option_refuses: text("{option} does not allow \"{key}\""),
+            option_problem: text("{option}: {problem}"),
+            option_number: text("option {number}"),
             invalid_schema: text("Invalid JSON Schema: {error}"),
             invalid_placeholder: text("secrets.placeholder: {error}"),
             problem_at_path: text("{path}: {message}"),

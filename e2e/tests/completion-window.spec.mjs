@@ -15,19 +15,19 @@ const built = existsSync(join(js, 'config-editor', 'pkg', 'config_editor_bg.wasm
 const VANILLA = pathToFileURL(join(js, 'examples', 'vanilla.html')).href;
 
 /** A schema with `count` root keys, `k0001` up, each with a description. */
-const schema = (count) =>
+const schema = (count, described = true) =>
   JSON.stringify({
     type: 'object',
     properties: Object.fromEntries(
       Array.from({ length: count }, (_, index) => [
         `k${String(index + 1).padStart(4, '0')}`,
-        { type: 'string', description: `Key number ${index + 1}` },
+        described ? { type: 'string', description: `Key number ${index + 1}` } : { type: 'string' },
       ]),
     ),
   });
 
 /** Mounts an editor with `count` root keys to suggest and opens the list. */
-async function openWith(page, count) {
+async function openWith(page, count, described = true) {
   await page.goto(VANILLA);
   await page.waitForFunction(() => document.body.dataset.ready === 'true');
   await page.evaluate(async (schema) => {
@@ -37,7 +37,7 @@ async function openWith(page, count) {
     host.style.height = '300px';
     document.body.prepend(host);
     window.listed = new CE.ConfigEditor(host, { language: 'yaml', value: '', schema });
-  }, schema(count));
+  }, schema(count, described));
   const input = page.locator('#listed .config-editor__input');
   await input.click();
   await page.keyboard.press('Control+Space');
@@ -75,8 +75,39 @@ const readList = (page) =>
     };
   });
 
+/** The rows `row_window` renders at the top of a long list of rows `row` high in a 320 px popup. */
+const windowAtTop = (row) => {
+  const inView = Math.ceil(320 / row);
+  return inView + 2 * Math.min(40, Math.max(10, inView));
+};
+
 test.describe('the suggestion list', () => {
   test.skip(!built, 'the npm package is not built: cd js && npm run build');
+
+  test('rows are 28 px without descriptions and 44 px with, each list its own window', async ({ page }) => {
+    for (const [described, row] of [[false, 28], [true, 44]]) {
+      await openWith(page, 1200, described);
+      const rows = await options(page).evaluateAll((elements) => elements.map((element) => element.getBoundingClientRect().height));
+      expect(rows.length, `${row}px rows`).toBe(windowAtTop(row));
+      expect(new Set(rows), `${row}px rows`).toEqual(new Set([row]));
+      const height = await list(page).evaluate((element) => element.scrollHeight);
+      expect(height).toBeGreaterThanOrEqual(1200 * row);
+      expect(height).toBeLessThanOrEqual(1200 * row + 4);
+      // Scrolled: the option at that place is rendered, the window follows.
+      await list(page).evaluate((element, top) => {
+        element.scrollTop = top;
+        element.dispatchEvent(new Event('scroll'));
+      }, 600 * row);
+      await expect(page.locator('#listed .config-editor__completion[aria-posinset="601"]')).toBeVisible();
+      expect(await options(page).count(), `${row}px rows scrolled`).toBeLessThanOrEqual(windowAtTop(row) + 1);
+      // PageDown moves a popup's worth of whole rows, whatever their height.
+      await openWith(page, 1200, described);
+      await page.keyboard.press('PageDown');
+      const { active } = await readList(page);
+      expect(active.posinset, `${row}px page`).toBe(String(Math.floor(320 / row) + 1));
+      expect(active.inView).toBe(true);
+    }
+  });
 
   test('renders as many options for 1,200 keys as for 50 (D5.perf-3)', async ({ page }) => {
     const rendered = {};

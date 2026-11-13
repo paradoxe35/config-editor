@@ -545,7 +545,7 @@ impl EditorState {
         let secrets = self.protect().secrets;
         if !secrets
             .known
-            .with_untracked(|known| known.iter().any(|known| known.whole))
+            .with_untracked(|known| known.iter().any(|known| known.whole.is_some()))
         {
             return None;
         }

@@ -67,6 +67,15 @@ mod reveal_range;
     feature = "hcl"
 ))]
 mod schema_message;
+#[cfg(all(
+    feature = "schema-validation",
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod schema_option_messages;
 
 #[cfg(all(
     feature = "yaml",

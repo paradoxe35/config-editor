@@ -281,9 +281,9 @@ keys, `{ showFooter: true }`), and its TypeScript type is generated from it.
   scope), which namespace-aware XML readers refuse, and a character XML
   1.0 cannot hold (a control character, U+FFFE): the XML reader and writer
   refuse it, even as a character reference. A save from another view that
-  would leave a prefix unbound (its `xmlns:x` removed or renamed) waits,
-  naming the prefixed name; a namespace declaration added there is written
-  as one.
+  would leave a prefix unbound (an attribute given a prefix no declaration
+  binds) waits, naming the prefixed name; namespace declarations are not
+  shown there and are kept as written (see [XML mapping](#xml-mapping)).
 - A save that cannot write what the edit means waits, with the reason on
   the value: an edit inside nested or empty lists that the XML view shows
   flat and cannot map back, a TOML date or time typed half-way (it is saved
@@ -362,7 +362,7 @@ they come.
 <!-- Generated from crates/config-editor-leptos/src/strings.rs by js/config-editor/tests/settings.rs; do not edit. Regenerate with `UPDATE_GENERATED=1 cargo test -p config-editor-js --test settings`. -->
 
 <details>
-<summary>Every text and its default (182 texts)</summary>
+<summary>Every text and its default (188 texts)</summary>
 
 | Field                           | Default                                                                                                                                     |                                                                                                                                                                                                                                                |
 | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -529,6 +529,12 @@ they come.
 | `key_deprecated_instead`        | `"{pointer}: \"{key}\" is deprecated. {message}"`                                                                                           | A deprecated key whose schema says what to use instead.                                                                                                                                                                                        |
 | `not_one_of`                    | `"{value} is not one of {allowed}"`                                                                                                         | A value not among the allowed ones.                                                                                                                                                                                                            |
 | `wrong_type`                    | `"{value} is not of type {types}"`                                                                                                          | A value of none of the accepted types.                                                                                                                                                                                                         |
+| `no_option_matches`             | `"matches none of the {keyword} options: {reasons}"`                                                                                        | A value that matches none of a schema's options (`{keyword}`: `oneOf` or `anyOf`), with why each fails (`{reasons}`, each worded by `option_needs`, `option_refuses` or `option_problem`, joined by `; `).                                     |
+| `several_options_match`         | `"matches more than one of the oneOf options ({options}); only one may match"`                                                              | A value that matches more than one of a `oneOf`'s options (`{options}`, their names joined by `, `).                                                                                                                                           |
+| `option_needs`                  | `"{option} needs \"{key}\""`                                                                                                                | An option (`{option}`) that needs a key the value does not have.                                                                                                                                                                               |
+| `option_refuses`                | `"{option} does not allow \"{key}\""`                                                                                                       | An option (`{option}`) that does not allow a key the value has.                                                                                                                                                                                |
+| `option_problem`                | `"{option}: {problem}"`                                                                                                                     | An option (`{option}`) and another problem it has with the value.                                                                                                                                                                              |
+| `option_number`                 | `"option {number}"`                                                                                                                         | The name of an option with no title or description (`{number}`, from 1).                                                                                                                                                                       |
 | `invalid_schema`                | `"Invalid JSON Schema: {error}"`                                                                                                            | A schema that does not compile.                                                                                                                                                                                                                |
 | `invalid_placeholder`           | `"secrets.placeholder: {error}"`                                                                                                            | A secret placeholder pattern the editor cannot use (it does not compile, or matches empty text): no token is taken for a placeholder.                                                                                                          |
 | `problem_at_path`               | `"{path}: {message}"`                                                                                                                       | A host's problem with a field the editor cannot find in the text, listed with the field's path.                                                                                                                                                |
@@ -1187,7 +1193,11 @@ view! { <ConfigEditor value=text schema=SCHEMA secrets=secrets /> }
 - A placeholder the host gave as a field's whole value stands for the
   whole secret, so nothing is written beside it: typing or pasting next to
   it in its field (`«secret 3f2a»Z`) is refused with a tip, in the host's
-  language and in every Edit-as view. Text that gets there while the
+  language and in every Edit-as view. A token alone in a string written
+  over lines (a YAML block scalar of any chomping, folding or indentation
+  indicator, a TOML `"""` string, an HCL heredoc, XML text on its own line)
+  is its field's whole value too: the line breaks and indentation the form
+  puts around it are not text beside it. Text that gets there while the
   document does not parse is flagged at the token once it does, a save
   holding it waits (in the host's language too), and only taking that text
   away is free until then. A token the host wrote inside longer text is the
@@ -1195,7 +1205,8 @@ view! { <ConfigEditor value=text schema=SCHEMA secrets=secrets /> }
   does not parse, the host's characters decide which tokens are a field's
   whole value: one is when the language finds that field's value written
   around the token and it is the token alone (`key: «secret 3f2a»`, not
-  `key: «secret 3f2a»x`), whatever is typed on screen afterwards; a value
+  `key: «secret 3f2a»x`) or with only the whitespace a string written over
+  lines puts around it, whatever is typed on screen afterwards; a value
   the language cannot find there (the syntax error hides where it is
   written) takes no token as whole.
 - It is drawn as a chip (`--config-editor-secret-chip`,
@@ -1204,14 +1215,23 @@ view! { <ConfigEditor value=text schema=SCHEMA secrets=secrets /> }
 - In a secret field's value, suggestions offer references instead of
   values: `${VAR}` (the caret inside the braces) and `file:`; HCL writes
   `${` escaped as `$${`, so the text survives conversion.
-- The schema check takes an untouched placeholder as the current secret:
-  no `pattern`, `format`, length or type problem is reported on it, and
+- The schema check takes an untouched placeholder as the current secret,
+  also one alone in a string written over lines (`key: |` keeps a line
+  break after it): no `pattern`, `format`, length or type problem is
+  reported on it, and
   messages about a secret field never quote what was typed there.
 - Edit-as conversions and saves keep each placeholder byte-for-byte, in
   every language pair and back. Real secret values never reach the editor;
   it logs nothing about field values, and nothing it shows, says or hands
   back (problems, hover, announcements, the diff preview, copies,
   `on_change`) holds a token the host did not send.
+- That holds for what the host sends: the editor shows the host's texts as
+  given. The `baseline` is shown too (the diff gutter, the change preview,
+  `unified_diff`), so it must hold the same placeholders as `value`, never
+  the stored secrets. A real value sent in a secret field (`value`,
+  `baseline`, a document of a `ConfigDocuments`, whose hidden documents stay
+  mounted) is shown, copied and handed back like any other text: send the
+  file with its secrets replaced by placeholders, never as it was loaded.
 - Editing in the host's language, `on_change` hands back exactly the text
   on screen with the host's line endings, byte order mark, final newline,
   tabs and quoting (placeholders included); a text that did not change is
@@ -1232,15 +1252,23 @@ beside it ignored up to draft-07), `allOf`/`anyOf`/`oneOf`, the
 written, `unevaluatedProperties`, and tuples (`prefixItems`, draft-07
 `items` lists):
 
-| Keyword                                      | Shown                                                                                                                                                                                                                                    |
-| -------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `description`, `type`, `default`, `examples` | Suggestion detail and hover. A key is marked `required` when its parent lists it.                                                                                                                                                        |
-| `deprecated: true`                           | The key is struck through and listed last, its hover says so, and a key written in the document gets a warning on the key, struck through (`Diagnostic::deprecated`).                                                                    |
-| `deprecationMessage`                         | What to use instead, in the hover and the warning.                                                                                                                                                                                       |
-| `x-docs-url`                                 | A "Documentation" link in the hover, and an "Open docs" link (and `Alt+Enter`) on the field's problems, opening in a new tab (`http(s)` addresses only).                                                                                 |
-| `x-enum-descriptions` (and `x-enum-titles`)  | Arrays parallel to `enum`: each value's own line in the suggestion list and in the hover of that value in the document.                                                                                                                  |
-| `title` / `description` of a `const` branch  | The same for `oneOf`/`anyOf` lists of documented constants.                                                                                                                                                                              |
-| `title` / `description` of an object branch  | Which `oneOf`/`anyOf` option the object is in, in the hover of its key ("One of" all titles until one matches); each key suggested inside names its option, and once one matches only its keys are offered, its docs alone in the hover. |
+References are followed inside the schema only: a `$ref` to another file or
+a URL is refused when the schema is compiled, even from an unused `$defs`
+entry, with the place of the `$ref` ("the $ref at /properties/a/$ref names
+…"). Put such a schema under `$defs` with its `$id` and the references to
+that `$id` resolve. The `format` keyword is an annotation: a schema that
+declares the 2020-12 format-assertion vocabulary is accepted, and `format`
+still does not fail validation.
+
+| Keyword                                      | Shown                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `description`, `type`, `default`, `examples` | Suggestion detail and hover. A key is marked `required` when its parent lists it.                                                                                                                                                                                                                                                                                                                                                                                        |
+| `deprecated: true`                           | The key is struck through and listed last, its hover says so, and a key written in the document gets a warning on the key, struck through (`Diagnostic::deprecated`).                                                                                                                                                                                                                                                                                                    |
+| `deprecationMessage`                         | What to use instead, in the hover and the warning.                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `x-docs-url`                                 | A "Documentation" link in the hover, and an "Open docs" link (and `Alt+Enter`) on the field's problems, opening in a new tab (`http(s)` addresses only).                                                                                                                                                                                                                                                                                                                 |
+| `x-enum-descriptions` (and `x-enum-titles`)  | Arrays parallel to `enum`: each value's own line in the suggestion list and in the hover of that value in the document.                                                                                                                                                                                                                                                                                                                                                  |
+| `title` / `description` of a `const` branch  | The same for `oneOf`/`anyOf` lists of documented constants.                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `title` / `description` of an object branch  | Which `oneOf`/`anyOf` option the object is in, in the hover of its key ("One of" all titles until one matches); each key suggested inside names its option, and once one matches only its keys are offered, its docs alone in the hover. A value that matches none of the options (or more than one of a `oneOf`'s) is one problem naming them, each with what it misses (`Cloudflare needs "cloudflare"`); untitled options go by their description, else their number. |
 
 ```json
 {
@@ -1542,6 +1570,19 @@ file may hold one top-level element or several (a fragment). The editor never
 adds a root: `{"listen": 4343, "port": 80}` writes `<listen>4343</listen>` and
 `<port>80</port>`, and a key added at the top in another view is one more
 top-level element.
+
+Namespace declarations (`xmlns`, `xmlns:m`) and the attributes of the XML
+Schema instance namespace (`xsi:schemaLocation`, `xsi:type`, with whatever
+prefix is bound to it) are markup, not data: `<project xmlns="…"
+xmlns:xsi="…" xsi:schemaLocation="…">` reads as `{"project": {…}}` with its
+elements only, so a schema need not list them (a closed `pom.xml` schema
+finds nothing wrong), and completion, hover and other views do not show them.
+They stay editable as text in the XML view, and every save from another view
+keeps them byte for byte where the file has them. A key spelled as one
+(`xmlns:y`) is not written to XML: the save or conversion waits, saying to
+write it in the XML text. Converting a file to another language leaves them
+behind, as it does comments. Other prefixed attributes (`m:kind`) are data,
+keyed by the name as written.
 
 ## Custom languages
 

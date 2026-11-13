@@ -25,7 +25,12 @@ pub(super) fn hover_name(line: &str, column: usize) -> Option<(String, usize)> {
                     let start_column = line[..inner.start].chars().count();
                     let end_column = line[..inner.end].chars().count();
                     if (start_column..end_column).contains(&column) {
-                        return Some((line[inner.start..inner.end].to_string(), start_column));
+                        // Markup is no key (`declarations`). With the line
+                        // alone, `xsi` is taken as the schema-instance
+                        // prefix it is bound to as a rule.
+                        let name = &line[inner.start..inner.end];
+                        let markup = super::declarations::Markup::of(line).holds(name) || name.starts_with("xsi:");
+                        return (!markup).then(|| (name.to_string(), start_column));
                     }
                 }
             }
@@ -164,6 +169,10 @@ fn attribute_hover_path(
             && byte < inner.end
             && is_attr_name(source, open, *inner)
     })?;
+    // Markup is no key: no schema describes it.
+    if plan.markup.holds(&source[name.start..name.end]) {
+        return None;
+    }
     let written = &source[name.start..name.end];
     let mut segments: Vec<SchemaPathSegment> = plan
         .path_of(open.start)?

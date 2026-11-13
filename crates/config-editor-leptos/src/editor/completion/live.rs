@@ -13,8 +13,8 @@ use super::super::languages::Language;
 use super::super::protect::ProtectState;
 use super::super::state::EditorState;
 use super::{
-    Completion, accept_reopens_suggestions, apply_completion, completions_in, inserted_closers,
-    next_slot, stop_ranges,
+    Completion, RowSize, accept_reopens_suggestions, apply_completion, completions_in,
+    inserted_closers, next_slot, stop_ranges,
 };
 use crate::EditorStrings;
 use crate::strings::fill;
@@ -37,6 +37,8 @@ pub(crate) struct CompletionState {
     /// Which list `suggestions` holds: a new number each time it changes,
     /// so the rows rendered of an old list are never kept for a new one.
     pub(crate) listing: Memo<usize>,
+    /// How high the rows of `suggestions` are.
+    pub(crate) row_size: Memo<RowSize>,
     /// How far the list is scrolled, in pixels (see `window`).
     pub(crate) list_top: RwSignal<f64>,
     /// An inserted default left selected after an accept: typing replaces
@@ -141,6 +143,7 @@ impl CompletionState {
             suggestions.track();
             previous.map_or(0, |listing| listing + 1)
         });
+        let row_size = Memo::new(move |_| suggestions.with(|options| RowSize::of(options)));
         Self {
             requested,
             explicit,
@@ -148,6 +151,7 @@ impl CompletionState {
             active: RwSignal::new(0),
             suggestions,
             listing,
+            row_size,
             list_top: RwSignal::new(0.0),
             placeholder: StoredValue::new(None),
             slot_region: StoredValue::new(None),

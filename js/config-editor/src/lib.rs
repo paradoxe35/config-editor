@@ -43,6 +43,7 @@ mod options;
 mod protect;
 mod reentry;
 mod remap;
+mod schema_cache;
 mod settings;
 mod settle;
 mod text_lines;

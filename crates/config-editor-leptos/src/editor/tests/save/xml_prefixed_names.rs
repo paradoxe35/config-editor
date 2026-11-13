@@ -1,6 +1,6 @@
 //! Keys with a prefix (`x:attr`) renamed or added in another view of an
 //! XML host: the model keys elements by their local name, so a prefixed
-//! key is an attribute (or a namespace declaration), and a save writes it
+//! key is an attribute, and a save writes it
 //! as one where its prefix is declared, or waits naming the prefix. An
 //! element renamed to one waits too: it would become an attribute
 //! (hard-bar QA `D23.editing-1`: an attribute renamed `y:attr` was written
@@ -40,7 +40,7 @@ type Case = (
     Wanted,
 );
 
-const CASES: [Case; 8] = [
+const CASES: [Case; 6] = [
     (
         "an attribute renamed to an undeclared prefix",
         "<r xmlns:x=\"urn:a\"><b x:attr=\"2\">t</b></r>\n",
@@ -76,22 +76,6 @@ const CASES: [Case; 8] = [
         Wanted::Saved("<r xmlns:x=\"urn:a\"><b x:attr=\"2\">t</b></r>\n"),
     ),
     (
-        "a declaration renamed that a prefix needs",
-        "<r xmlns:x=\"urn:a\"><b x:attr=\"2\">t</b></r>\n",
-        "/r",
-        "xmlns:x",
-        "xmlns:y",
-        Wanted::Waits("the prefix x of x:attr is bound to no namespace"),
-    ),
-    (
-        "a declaration renamed that nothing needs",
-        "<r xmlns:x=\"urn:a\"><b attr=\"2\">t</b></r>\n",
-        "/r",
-        "xmlns:x",
-        "xmlns:y",
-        Wanted::Saved("<r xmlns:y=\"urn:a\"><b attr=\"2\">t</b></r>\n"),
-    ),
-    (
         "an element given a prefix: it would be an attribute",
         "<r xmlns:x=\"urn:a\">\n  <child>1</child>\n</r>\n",
         "/r",
@@ -120,6 +104,9 @@ fn a_prefixed_name_is_written_as_an_attribute_where_its_prefix_is_declared() {
             match (&wanted, saved) {
                 (Wanted::Saved(text), Ok(saved)) if saved == *text => {}
                 (Wanted::Waits(reason), Err(error)) if error.contains(reason) => {}
+                // HCL names no attribute of a block `x:child`.
+                (Wanted::Waits(_), Err(error))
+                    if edit == Language::HCL && error.contains("is not an HCL identifier") => {}
                 (_, other) => failures.push(format!("{label}: via {edit}: {other:?}")),
             }
         }

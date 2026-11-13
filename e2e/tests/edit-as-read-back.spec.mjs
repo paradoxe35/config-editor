@@ -5,7 +5,9 @@ import { editor, setupEditor } from './helpers.mjs';
 // (hard-bar QA D23/D24/D25): a structural edit keeps the comments and
 // processing instructions an element shares one line with, and an edit the
 // host would read back otherwise (an attribute moved below the text, a
-// prefix left unbound) waits with the reason on the value.
+// prefix left unbound) waits with the reason on the value. Namespace
+// declarations are markup, not data: the view does not show them, and the
+// saves keep them as written.
 
 const saved = (page) => page.locator('.demo__output-text').textContent();
 const pick = (page, value) => page.locator('.demo__edit-select').selectOption(value);
@@ -29,12 +31,12 @@ test.describe('an XML host edited in a YAML view', () => {
 
   const host = '<r xmlns:x="urn:a" a="1"><!-- c --><?pi x?><s x:attr="3">t</s><u>v</u></r>\n';
 
-  async function open(page) {
+  async function open(page, text = host) {
     const e = editor(page);
-    await e.paste(host);
-    await expect.poll(() => saved(page)).toBe(host);
+    await e.paste(text);
+    await expect.poll(() => saved(page)).toBe(text);
     await pick(page, 'yaml');
-    await expect.poll(() => e.value()).toContain('x:attr: 3');
+    await expect.poll(() => e.value()).toContain('a: 1');
     return e;
   }
 
@@ -44,11 +46,11 @@ test.describe('an XML host edited in a YAML view', () => {
     await expect.poll(() => saved(page)).toBe('<r xmlns:x="urn:a" a="1"><!-- c --><?pi x?><s x:attr="3">t</s></r>\n');
   });
 
-  test('waits when a declaration a prefix needs is removed', async ({ page }) => {
+  test('shows no namespace declaration and keeps it through a save', async ({ page }) => {
     const e = await open(page);
-    await replace(page, e, '  xmlns:x: urn:a\n', '');
-    await expect(marker(page, 'bound to no namespace')).toHaveCount(1);
-    expect(await saved(page)).toBe(host);
+    expect(await e.value()).not.toContain('xmlns');
+    await replace(page, e, 'a: 1', 'a: 2');
+    await expect.poll(() => saved(page)).toBe(host.replace('a="1"', 'a="2"'));
   });
 
   test('waits when an attribute is moved below the text', async ({ page }) => {
@@ -58,21 +60,21 @@ test.describe('an XML host edited in a YAML view', () => {
     expect(await saved(page)).toBe(host);
   });
 
-  test('waits when an attribute is renamed to an undeclared prefix, and saves it declared', async ({ page }) => {
+  test('waits when an attribute is renamed to an undeclared prefix, or a declaration is added', async ({ page }) => {
     const e = await open(page);
     await replace(page, e, 'x:attr: 3', 'y:attr: 3');
     await expect(marker(page, 'prefix y of y:attr is bound to no namespace')).toHaveCount(1);
     expect(await saved(page)).toBe(host);
-    await replace(page, e, '  xmlns:x: urn:a\n', '  xmlns:x: urn:a\n  xmlns:y: urn:b\n');
-    await expect
-      .poll(() => saved(page))
-      .toBe('<r xmlns:x="urn:a" xmlns:y="urn:b" a="1"><!-- c --><?pi x?><s y:attr="3">t</s><u>v</u></r>\n');
+    await replace(page, e, '  a: 1\n', '  a: 1\n  xmlns:y: urn:b\n');
+    await expect(marker(page, 'xmlns:y is XML markup')).toHaveCount(1);
+    expect(await saved(page)).toBe(host);
   });
 
-  test('writes attributes swapped in the view in that order', async ({ page }) => {
-    const e = await open(page);
-    await replace(page, e, '  xmlns:x: urn:a\n  a: 1\n', '  a: 1\n  xmlns:x: urn:a\n');
-    await expect.poll(() => saved(page)).toBe('<r a="1" xmlns:x="urn:a"><!-- c --><?pi x?><s x:attr="3">t</s><u>v</u></r>\n');
+  test('writes attributes swapped in the view in that order, the declaration in its place', async ({ page }) => {
+    const text = '<r xmlns:x="urn:a" x:b="2" a="1"><s>t</s></r>\n';
+    const e = await open(page, text);
+    await replace(page, e, '  x:b: 2\n  a: 1\n', '  a: 1\n  x:b: 2\n');
+    await expect.poll(() => saved(page)).toBe('<r xmlns:x="urn:a" a="1" x:b="2"><s>t</s></r>\n');
   });
 
   test('waits when an element is renamed with a prefix', async ({ page }) => {

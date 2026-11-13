@@ -58,13 +58,13 @@ mod tests {
     #[test]
     fn an_element_renamed_with_a_prefix_is_named_and_an_attribute_is_not() {
         let host = "<r xmlns:x=\"urn:a\" k=\"2\"><child>1</child></r>";
-        let old = json!({"r": {"xmlns:x": "urn:a", "k": 2, "child": 1}});
+        let old = json!({"r": {"k": 2, "child": 1}});
         let attributes = attribute_paths(host);
-        let renamed = json!({"r": {"xmlns:x": "urn:a", "k": 2, "x:child": 1}});
+        let renamed = json!({"r": {"k": 2, "x:child": 1}});
         assert!(renamed_element(&renamed, &old, &attributes).is_some_and(|reason| reason.ends_with("(at /r/x:child)")));
-        let attribute = json!({"r": {"xmlns:x": "urn:a", "x:k": 2, "child": 1}});
+        let attribute = json!({"r": {"x:k": 2, "child": 1}});
         assert_eq!(renamed_element(&attribute, &old, &attributes), None);
-        let added = json!({"r": {"xmlns:x": "urn:a", "k": 2, "child": 1, "x:n": 3}});
+        let added = json!({"r": {"k": 2, "child": 1, "x:n": 3}});
         assert_eq!(renamed_element(&added, &old, &attributes), None);
     }
 }

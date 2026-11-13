@@ -23,6 +23,8 @@ pub(super) fn in_order(source: &str, pointer: &str, order: &[String]) -> Option<
         if let [name, Token { kind: Kind::Equals, .. }, value] = window
             && matches!(name.kind, Kind::Text { quoted: false })
             && matches!(value.kind, Kind::Text { quoted: true })
+            // Markup stays where it is written (`declarations`).
+            && !plan.markup.holds(&source[name.start..name.end])
         {
             let key = plan.attribute_key(tag.start, &source[name.start..name.end]);
             attributes.push((key, name.start..value.end));

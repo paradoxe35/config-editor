@@ -1220,7 +1220,8 @@
 .config-editor__completions.hidden { display: none; }
 .config-editor__completion {
   width: 100%;
-  /* Every row as high (COMPLETION_ROW_HEIGHT): only the rows around the
+  /* Every row of a list as high (`RowSize`: 44px, 28px in a list without
+     descriptions): only the rows around the
      list's scroll position are rendered, each at its place. */
   height: 44px;
   box-sizing: border-box;
@@ -1236,6 +1237,8 @@
   cursor: pointer;
   font: 12px/1.45 ui-sans-serif, system-ui, sans-serif;
 }
+
+.config-editor__completions--compact .config-editor__completion { height: 28px; }
 
 .config-editor__completion-active { background: var(--config-editor-completion-active); }
 
