@@ -110,8 +110,17 @@ class Binding {
 
   /** Reports an error to `onError`, else to the console. */
   report(error) {
-    if (this.props.onError) this.props.onError(error);
-    else console.error(`${this.#name}:`, error);
+    if (!this.props.onError) {
+      console.error(`${this.#name}:`, error);
+      return;
+    }
+    // A handler that throws is the host's bug: it is logged, and the
+    // editor stays (in every framework alike).
+    try {
+      this.props.onError(error);
+    } catch (thrown) {
+      console.error(`${this.#name}: onError threw`, thrown, "reporting", error);
+    }
   }
 
   /** Runs `apply` on the instance, if mounted, reporting what it throws. */
