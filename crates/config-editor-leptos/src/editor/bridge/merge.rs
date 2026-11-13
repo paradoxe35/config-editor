@@ -1,7 +1,7 @@
 //! The host value with the user's edits applied, from what the edit
 //! language showed of it.
 
-use super::super::codec::same_order;
+use super::super::codec::{canonical, same_order};
 use super::super::language::{ConfigLanguage, Repetition};
 use serde_json::{Map, Value};
 
@@ -281,32 +281,6 @@ fn merge_at(
             merge_at(host, seen, &Value::Array(vec![edited.clone()]), at, view)
         }
         _ => replaced(),
-    }
-}
-
-/// `value` written so that equal values (`==`, whatever their maps' key
-/// order) are written the same.
-fn canonical(value: &Value) -> String {
-    match value {
-        Value::Object(map) => {
-            let mut entries: Vec<(&String, String)> = map
-                .iter()
-                .map(|(key, item)| (key, canonical(item)))
-                .collect();
-            entries.sort_unstable();
-            let body: Vec<String> = entries
-                .into_iter()
-                .map(|(key, item)| format!("{}:{item}", Value::String(key.clone())))
-                .collect();
-            format!("{{{}}}", body.join(","))
-        }
-        Value::Array(items) => {
-            format!(
-                "[{}]",
-                items.iter().map(canonical).collect::<Vec<_>>().join(",")
-            )
-        }
-        other => other.to_string(),
     }
 }
 

@@ -2,6 +2,8 @@
 //! `xml.parse` then `hcl.serialize`. A language implements only its own side
 //! ([`ConfigLanguage::parse`] and [`ConfigLanguage::serialize`]).
 
+mod canonical;
+pub(in crate::editor) use canonical::canonical;
 mod compare;
 mod emptied_items;
 mod empty_containers;

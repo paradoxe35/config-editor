@@ -9,7 +9,12 @@
 //! stage is one kind of change the patches make line by line, so a comment
 //! stays with its item through all of them.
 
+use std::collections::{HashMap, VecDeque};
+
 use serde_json::{Map, Value};
+
+use super::super::work_count::{Work, note};
+use super::canonical;
 
 /// The values between `old` and `new` when some list of `old` holds items
 /// `new` keeps in another order (some of them edited) and `new` also edits,
@@ -40,6 +45,7 @@ fn matching(old: &[Value], new: &[Value]) -> Vec<Option<usize>> {
         .iter()
         .enumerate()
         .map(|(slot, item)| {
+            note(Work::ItemComparison);
             let stays = old.get(slot) == Some(item);
             if stays {
                 used[slot] = true;
@@ -47,24 +53,50 @@ fn matching(old: &[Value], new: &[Value]) -> Vec<Option<usize>> {
             stays.then_some(slot)
         })
         .collect();
+    // The unused items of `old` by what they are, in order: each new item
+    // finds its first unused equal one in a lookup.
+    let mut equal: HashMap<String, VecDeque<usize>> = HashMap::new();
+    if found.iter().any(Option::is_none) {
+        for (at, item) in old.iter().enumerate().filter(|(at, _)| !used[*at]) {
+            note(Work::ItemComparison);
+            equal.entry(canonical(item)).or_default().push_back(at);
+        }
+    }
     for (slot, item) in new.iter().enumerate() {
         if found[slot].is_some() {
             continue;
         }
-        if let Some(at) = (0..old.len()).find(|at| !used[*at] && old[*at] == *item) {
+        note(Work::ItemComparison);
+        if let Some(at) = equal
+            .get_mut(&canonical(item))
+            .and_then(VecDeque::pop_front)
+        {
             used[at] = true;
             found[slot] = Some(at);
         }
     }
-    // The likest pairs first, the nearest of equally like ones.
+    // The likest pairs first, the nearest of equally like ones. Every
+    // unmatched pair is compared up to a budget; past it (thousands of items
+    // edited at once, a replace-all) each new item is compared with the
+    // unused ones nearest its place, as many as the budget allows.
+    let open: Vec<usize> = (0..new.len())
+        .filter(|slot| found[*slot].is_none())
+        .collect();
+    let free: Vec<usize> = (0..old.len()).filter(|at| !used[*at]).collect();
+    let reach = if open.len().saturating_mul(free.len()) <= PAIRS_COMPARED {
+        free.len()
+    } else {
+        (PAIRS_COMPARED / open.len().max(1) / 2).max(1)
+    };
     let mut pairs: Vec<(usize, usize, usize)> = Vec::new();
-    for (slot, item) in new
-        .iter()
-        .enumerate()
-        .filter(|(slot, _)| found[*slot].is_none())
-    {
-        for at in (0..old.len()).filter(|at| !used[*at]) {
-            let score = likeness(&old[at], item);
+    for &slot in &open {
+        // The unused items around the same place.
+        let middle = free.partition_point(|at| *at < slot);
+        let from = middle.saturating_sub(reach);
+        let to = (middle + reach).min(free.len());
+        for &at in &free[from..to] {
+            note(Work::ItemComparison);
+            let score = likeness(&old[at], &new[slot]);
             if score > 0 {
                 pairs.push((score, at, slot));
             }
@@ -79,6 +111,10 @@ fn matching(old: &[Value], new: &[Value]) -> Vec<Option<usize>> {
     }
     found
 }
+
+/// The most pairs of unmatched items whose likeness one list's save
+/// compares (see [`matching`]).
+const PAIRS_COMPARED: usize = 250_000;
 
 /// What one scalar `new` keeps of `old` whole counts: more than any part.
 const WHOLE: usize = 1000;
@@ -101,15 +137,19 @@ fn likeness(old: &Value, new: &Value) -> usize {
                 * WHOLE
         }
         (Value::String(left), Value::String(right)) => {
-            let (left, right): (Vec<char>, Vec<char>) =
-                (left.chars().collect(), right.chars().collect());
-            let prefix = left.iter().zip(&right).take_while(|(a, b)| a == b).count();
-            let suffix = left[prefix..]
-                .iter()
-                .rev()
-                .zip(right[prefix..].iter().rev())
+            let prefix = left
+                .chars()
+                .zip(right.chars())
                 .take_while(|(a, b)| a == b)
                 .count();
+            let shorter = left.chars().count().min(right.chars().count());
+            let suffix = left
+                .chars()
+                .rev()
+                .zip(right.chars().rev())
+                .take_while(|(a, b)| a == b)
+                .count()
+                .min(shorter - prefix);
             (prefix + suffix).min(WHOLE - 1)
         }
         // A number or flag changed tells nothing of what it was.
@@ -233,7 +273,7 @@ fn grown<'a>(
 #[cfg(test)]
 mod tests {
     use super::stages;
-    use serde_json::json;
+    use serde_json::{Value, json};
 
     #[test]
     fn a_list_moved_and_resized_is_saved_moved_then_trimmed_then_added() {
@@ -295,5 +335,53 @@ mod tests {
                 json!({"l": ["dd", "a"]}),
             ]
         );
+    }
+
+    /// Matching a list's items to the ones they were compares each a few
+    /// times, however many: thousands of items edited at once (a
+    /// replace-all in a view) compared every unmatched pair (3–4 s at 5,000),
+    /// and each moved item was looked for among all the others.
+    #[test]
+    fn matching_many_items_compares_each_a_few_times() {
+        use super::super::super::work_count::{Work, counted};
+        use super::matching;
+        fn items(count: usize, text: &str) -> Vec<Value> {
+            (0..count)
+                .map(|index| json!(format!("{text} {index}")))
+                .collect()
+        }
+        /// A list before and after an edit of `count` items.
+        type Lists = fn(usize) -> (Vec<Value>, Vec<Value>);
+        let cases: [(&str, Lists); 3] = [
+            ("every item edited", |count| {
+                (items(count, "value"), items(count, "REPLACED"))
+            }),
+            ("every item moved", |count| {
+                let old = items(count, "value");
+                let new = old.iter().rev().cloned().collect();
+                (old, new)
+            }),
+            ("every item moved and edited", |count| {
+                let old = items(count, "value");
+                let new = items(count, "REPLACED").into_iter().rev().collect();
+                (old, new)
+            }),
+        ];
+        let mut failures = Vec::new();
+        for (name, case) in cases {
+            let compared = |count: usize| {
+                let (old, new) = case(count);
+                let (found, compared) = counted(Work::ItemComparison, || matching(&old, &new));
+                assert_eq!(found.len(), count);
+                compared
+            };
+            let (few, many) = (compared(1_000), compared(10_000));
+            if many > 12 * few {
+                failures.push(format!(
+                    "{name}: {few} comparisons for 1,000 items, {many} for 10,000"
+                ));
+            }
+        }
+        assert!(failures.is_empty(), "{}", failures.join("\n"));
     }
 }

@@ -118,6 +118,9 @@ pub(crate) enum Work {
     /// A key of a map visited while merging an Edit-as edit into the
     /// host's value (`bridge::merge`).
     MergeKeyVisit,
+    /// Two list items compared while matching a list's items to the ones
+    /// they were (`codec::moves`).
+    ItemComparison,
 }
 
 impl Work {
@@ -149,13 +152,14 @@ impl Work {
             Self::ConstructScan => 22,
             Self::ExpressionLookup => 23,
             Self::MergeKeyVisit => 24,
+            Self::ItemComparison => 25,
         }
     }
 }
 
 #[cfg(test)]
 thread_local! {
-    static COUNTS: std::cell::Cell<[usize; 25]> = const { std::cell::Cell::new([0; 25]) };
+    static COUNTS: std::cell::Cell<[usize; 26]> = const { std::cell::Cell::new([0; 26]) };
 }
 
 /// `work` is starting (counted on this thread in tests).
