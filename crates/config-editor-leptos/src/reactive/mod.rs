@@ -36,7 +36,7 @@ mod tests;
 mod window_listener;
 
 pub(crate) use kept::Kept;
-pub(crate) use keyed::{KeyedList, detached_owner, mount_detached};
+pub(crate) use keyed::{KeyedList, MANY_ROWS, detached_owner, mount_detached};
 pub(crate) use relay::{Fanout, Relay, notify};
 pub(crate) use size_observer::size_observer;
 pub(crate) use window_listener::window_listener;

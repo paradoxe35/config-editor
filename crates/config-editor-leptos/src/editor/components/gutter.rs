@@ -9,7 +9,7 @@ use super::super::input;
 use super::super::line_rows::{LineRows, RowUiState};
 use super::super::state::{EditorState, line_count};
 use super::{RowSpacer, row_state_for};
-use crate::reactive::KeyedList;
+use crate::reactive::{KeyedList, MANY_ROWS};
 
 #[component]
 pub(crate) fn Gutter(state: EditorState, rows: LineRows) -> impl IntoView {
@@ -32,6 +32,7 @@ pub(crate) fn Gutter(state: EditorState, rows: LineRows) -> impl IntoView {
                 <KeyedList
                     each=move || state.view().visible_lines.get()
                     key=|index| *index
+                    reserve=MANY_ROWS
                     children=move |index| view! { <LineNumber state=state rows=rows index=index /> }
                 />
             </div>

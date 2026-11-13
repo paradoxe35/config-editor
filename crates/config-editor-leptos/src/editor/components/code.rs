@@ -7,7 +7,7 @@ use super::super::highlight;
 use super::super::line_rows::LineRows;
 use super::super::state::EditorState;
 use super::{RowSpacer, row_state_for};
-use crate::reactive::KeyedList;
+use crate::reactive::{KeyedList, MANY_ROWS};
 
 #[component]
 pub(crate) fn CodeLayer(state: EditorState, rows: LineRows) -> impl IntoView {
@@ -22,6 +22,7 @@ pub(crate) fn CodeLayer(state: EditorState, rows: LineRows) -> impl IntoView {
                 <KeyedList
                     each=move || state.view().visible_lines.get()
                     key=|index| *index
+                    reserve=MANY_ROWS
                     children=move |index| view! { <CodeLine state=state rows=rows index=index /> }
                 />
             </code>

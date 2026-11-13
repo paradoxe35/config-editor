@@ -13,7 +13,7 @@ use super::super::positioning::row_box;
 use super::super::state::EditorState;
 use super::texts::{self, chip_label, fold_label};
 use crate::cssom::{Declarations, cssom};
-use crate::reactive::KeyedList;
+use crate::reactive::{KeyedList, MANY_ROWS};
 
 /// A line in view that starts a fold range.
 #[derive(Clone, PartialEq, Eq, Hash)]
@@ -113,6 +113,7 @@ fn FoldGutter(state: EditorState, folds: FoldItems) -> impl IntoView {
         <KeyedList
             each=move || folds.get()
             key=|item| item.clone()
+            reserve=MANY_ROWS
             children=move |item| view! { <FoldToggle state=state item=item /> }
         />
     }
@@ -198,6 +199,7 @@ fn FoldChips(state: EditorState, folds: FoldItems) -> impl IntoView {
             <KeyedList
                 each=move || folds.get().into_iter().filter(|item| item.closed_end.is_some())
                 key=|item| item.clone()
+                reserve=MANY_ROWS
                 children=move |item| view! { <FoldChip state=state item=item /> }
             />
         </div>
