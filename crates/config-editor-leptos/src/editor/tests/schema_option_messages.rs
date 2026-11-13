@@ -1,6 +1,8 @@
 //! A value that matches none of a `oneOf`'s (or `anyOf`'s) options, or more
 //! than one of a `oneOf`'s, is one problem on the object's key naming the
-//! options and what each misses (S.combinators-6). In every language.
+//! options and what each misses (S.combinators-6); a key that
+//! `unevaluatedProperties` refuses is marked where it is written, one
+//! problem per key (S.combinators-9). In every language.
 
 use crate::editor::Language;
 use crate::editor::diagnostics::{Diagnostic, Schema};
@@ -216,4 +218,37 @@ fn an_option_s_reason_never_quotes_a_secret() {
             "{language}\n{text}"
         );
     }
+}
+
+/// Every key `unevaluatedProperties` refuses is its own problem on the key,
+/// as with `additionalProperties`; a key both refuse is one problem.
+#[test]
+fn each_unevaluated_key_is_marked_where_it_is_written() {
+    let mut failures = Vec::new();
+    let draft = r#""$schema":"https://json-schema.org/draft/2020-12/schema""#;
+    check(
+        "top:\n  a: 1\n  c: 2\n  d: 3\n",
+        &format!(
+            r#"{{{draft},"properties":{{"top":{{"allOf":[{{"properties":{{"a":{{}}}}}}],"unevaluatedProperties":false}}}}}}"#
+        ),
+        &[
+            (r#"/top: "c" is not allowed here"#, "c"),
+            (r#"/top: "d" is not allowed here"#, "d"),
+        ],
+        &mut failures,
+    );
+    // `additionalProperties` in a failing branch refuses `b`, so the
+    // branch evaluates nothing: `unevaluatedProperties` refuses `a` and `b`.
+    check(
+        "top:\n  a: 1\n  b: 2\n",
+        &format!(
+            r#"{{{draft},"properties":{{"top":{{"allOf":[{{"properties":{{"a":{{}}}},"additionalProperties":false}}],"unevaluatedProperties":false}}}}}}"#
+        ),
+        &[
+            (r#"/top: "a" is not allowed here"#, "a"),
+            (r#"/top: "b" is not allowed here"#, "b"),
+        ],
+        &mut failures,
+    );
+    assert!(failures.is_empty(), "{}", failures.join("\n\n"));
 }

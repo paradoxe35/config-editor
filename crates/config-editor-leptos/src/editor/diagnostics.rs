@@ -779,7 +779,8 @@ pub(super) fn validate_with(
                             // Each unknown key gets its own marker and message, so every
                             // one is underlined and reachable with F8.
                             let locations: Vec<(Option<Span>, String)> =
-                                if let ValidationErrorKind::AdditionalProperties { unexpected } =
+                                if let ValidationErrorKind::AdditionalProperties { unexpected }
+                                | ValidationErrorKind::UnevaluatedProperties { unexpected } =
                                     error.kind()
                                 {
                                     let parent = error.instance_path().as_str();
@@ -857,6 +858,16 @@ pub(super) fn validate_with(
                 })
                 .take(MAX_DIAGNOSTICS + 1)
                 .collect::<Vec<_>>()
+        });
+        // A key two keywords refuse (`additionalProperties` in one place,
+        // `unevaluatedProperties` in another) is one problem.
+        let mut seen = std::collections::HashSet::new();
+        diagnostics.retain(|diagnostic| {
+            seen.insert((
+                diagnostic.line,
+                diagnostic.column,
+                diagnostic.message.clone(),
+            ))
         });
         diagnostics.extend(deprecated);
         return capped(diagnostics, strings);
