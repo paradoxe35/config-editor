@@ -687,7 +687,9 @@ editor.update({ readOnlyPaths: ["/limits", "/tls/cert"] }); // at runtime
 - In a custom language without `spans`, a field is checked by value: while
   the text does not parse, an edit that would change a read-only value in
   the last text that parsed is refused, and `save()` waits (returns
-  `false`, saying which field) until the text parses again.
+  `false`, saying which field) until the text parses again. A host text
+  that has never parsed has no value to check: edits go through while it
+  does not parse, and a save waits until it does.
 
 </details>
 
@@ -1582,7 +1584,8 @@ The save reads your syntax only from what you declare (`comments`,
 `brackets`, `separators`, strings in `"…"` or `'…'`): no built-in
 language's characters are assumed. Declare how maps and lists are written
 on one line, and a save edits them where they are, keeping the line's
-spacing and comment:
+comment and the spacing around them (a list keeps its own spacing too; a
+changed map is written by `serialize`, with its spacing):
 
 | Member             | Example      | Says                                                                                  |
 | ------------------ | ------------ | ------------------------------------------------------------------------------------- |
