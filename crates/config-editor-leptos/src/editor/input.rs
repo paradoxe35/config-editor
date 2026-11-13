@@ -354,6 +354,21 @@ pub(super) fn gutter_move(state: EditorState, event: &web_sys::MouseEvent) {
     }
 }
 
+/// A press on the gutter (a line number, a marker, a fold control, the empty
+/// space between): the focus stays in the text, or goes there when it was
+/// elsewhere. The press is the start of a click on a line number or a marker
+/// or of a drag from one: a drag ends over the text, and the keys typed after
+/// it belong to the editor, not to the page the press would blur it to.
+pub(super) fn gutter_press(state: EditorState, event: &web_sys::MouseEvent) {
+    if event.button() != 0 {
+        return;
+    }
+    event.prevent_default();
+    if let Some(element) = state.textarea() {
+        let _ = element.focus_in_place();
+    }
+}
+
 /// Hovering a problem shows its tip (see `problem_hit`); hovering a key
 /// shows its schema docs after a short pause; hovering a
 /// read-only value says why it is read-only.

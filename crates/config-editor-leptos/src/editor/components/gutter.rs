@@ -18,6 +18,7 @@ pub(crate) fn Gutter(state: EditorState, rows: LineRows) -> impl IntoView {
             class="config-editor__gutter"
             class:config-editor__gutter-folding=state.config().settings.folding
             on:mousemove=move |event| input::gutter_move(state, &event)
+            on:mousedown=move |event| input::gutter_press(state, &event)
             // As wide as the longest line number (at least three digits);
             // the stylesheet adds the marker column and the padding.
             style:--config-editor-gutter-digits=move || {
