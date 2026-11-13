@@ -21,11 +21,21 @@ thread_local! {
     pub(crate) static IN_CALLBACK: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
-/// Whether a host callback is running: `free()` from inside one frees once
-/// it has returned (see `load.js`), as the instance may be in use below it.
-#[wasm_bindgen(js_name = inHostCallback)]
-pub fn in_host_callback() -> bool {
-    IN_CALLBACK.with(|depth| depth.get() > 0)
+/// Counts a host callback starting (`1`) or ending (`-1`). While one runs,
+/// the global `Symbol.for("config-editor.inHostCallback")` is `true`:
+/// `free()` from inside one frees once it has returned (see `load.js`), as
+/// the instance may be in use below it. A flag, not an export: no entry
+/// offers it.
+fn count_callback(step: isize) {
+    let depth = IN_CALLBACK.with(|depth| {
+        let next = depth.get().saturating_add_signed(step);
+        depth.set(next);
+        next
+    });
+    if depth <= 1 {
+        let key = js_sys::Symbol::for_("config-editor.inHostCallback");
+        let _ = js_sys::Reflect::set(&js_sys::global(), &key, &JsValue::from_bool(depth > 0));
+    }
 }
 
 /// Calls a host callback; an exception it throws is logged, not swallowed.
@@ -35,14 +45,14 @@ pub(crate) fn call_host(callback: &Function, argument: &JsValue) {
 
 /// [`call_host`] with several arguments.
 pub(crate) fn call_host_with(callback: &Function, arguments: &[JsValue]) {
-    IN_CALLBACK.with(|depth| depth.set(depth.get() + 1));
+    count_callback(1);
     let result = match arguments {
         [first, second, third] => callback.call3(&JsValue::NULL, first, second, third),
         [first, second] => callback.call2(&JsValue::NULL, first, second),
         [first] => callback.call1(&JsValue::NULL, first),
         _ => callback.call0(&JsValue::NULL),
     };
-    IN_CALLBACK.with(|depth| depth.set(depth.get() - 1));
+    count_callback(-1);
     if let Err(error) = result {
         web_sys::console::error_2(
             &JsValue::from_str("config-editor: a callback threw"),

@@ -1,11 +1,11 @@
 // The one WebAssembly load, shared by every entry (`.`, `./tools`,
 // `./binding`) and every framework component on the page.
 
-import init, {
-  ConfigDocuments,
-  ConfigEditor,
-  inHostCallback,
-} from "./pkg/config_editor.js";
+import init, { ConfigDocuments, ConfigEditor } from "./pkg/config_editor.js";
+
+// Set while a host callback runs (see `count_callback` in `src/mount.rs`).
+const inHostCallback = () =>
+  globalThis[Symbol.for("config-editor.inHostCallback")] === true;
 
 // `free()` inside a callback the instance's own method fired (`save()`
 // calling `onSave`, where a framework may unmount): wasm-bindgen refuses to
