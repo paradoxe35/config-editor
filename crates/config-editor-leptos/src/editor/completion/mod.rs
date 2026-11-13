@@ -13,6 +13,7 @@ mod patterns;
 mod popup;
 mod schema;
 mod stops;
+mod window;
 
 pub(crate) use accept::*;
 pub(crate) use candidates::*;
@@ -27,6 +28,7 @@ pub(crate) use patterns::unsupported_patterns;
 pub(crate) use popup::*;
 pub(crate) use schema::*;
 pub(crate) use stops::*;
+pub(crate) use window::*;
 // Public for languages written outside the crate (see `language`).
 pub use schema::{array_branch, object_branch, placeholder, schema_const, schema_default};
 pub use stops::{fill_value, schema_example};
@@ -82,9 +84,10 @@ pub(super) struct Completion {
 mod tests {
     use super::{
         COMPLETION_LIST_PADDING, COMPLETION_POPUP_MAX_HEIGHT, COMPLETION_POPUP_WIDTH,
-        COMPLETION_ROW_HEIGHT, MATCH_SUBSTRING_INDEX_PENALTY, MATCH_SUBSTRING_LENGTH_DIVISOR,
-        MATCH_TIER_CASE_INSENSITIVE_PREFIX, MATCH_TIER_EXACT_PREFIX, MATCH_TIER_INITIALS,
-        MATCH_TIER_SUBSEQUENCE, MATCH_TIER_SUBSTRING, PopupFrame, completion_popup_geometry,
+        COMPLETION_ROW_CSS_HEIGHT, COMPLETION_ROW_HEIGHT, MATCH_SUBSTRING_INDEX_PENALTY,
+        MATCH_SUBSTRING_LENGTH_DIVISOR, MATCH_TIER_CASE_INSENSITIVE_PREFIX,
+        MATCH_TIER_EXACT_PREFIX, MATCH_TIER_INITIALS, MATCH_TIER_SUBSEQUENCE, MATCH_TIER_SUBSTRING,
+        PopupFrame, completion_popup_geometry,
     };
 
     /// Changing these must be deliberate: the sizes mirror `css/base.css`.
@@ -99,6 +102,17 @@ mod tests {
         assert_eq!(MATCH_SUBSTRING_LENGTH_DIVISOR, 4);
         assert_eq!(COMPLETION_POPUP_WIDTH, 420.0);
         assert_eq!(COMPLETION_ROW_HEIGHT, 44.0);
+        assert_eq!(COMPLETION_ROW_CSS_HEIGHT, "44px");
+        // The list's rows are rendered by their place (`window`): the
+        // stylesheet fixes their height.
+        let base = include_str!("../../css/base.css");
+        let rule = &base[base
+            .find(".config-editor__completion {")
+            .expect("the row rule")..];
+        assert!(
+            rule[..rule.find('}').expect("its end")].contains("height: 44px;"),
+            "a suggestion row is 44px high in css/base.css"
+        );
         assert_eq!(COMPLETION_LIST_PADDING, 2.0);
         assert_eq!(COMPLETION_POPUP_MAX_HEIGHT, 320.0);
     }

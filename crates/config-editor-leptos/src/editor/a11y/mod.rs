@@ -26,7 +26,7 @@ pub(super) use caret_note::{
 };
 pub(super) use focus::{focus_keys, toggle_tab_focus};
 pub(super) use shortcuts::connect_shortcuts;
-pub(super) use suggestions::connect_suggestions;
+pub(super) use suggestions::{connect_suggestions, say_no_suggestions_after};
 pub(super) use texts::{hover_text, problem_announcement, problem_marker, severity_name};
 
 use leptos::prelude::*;

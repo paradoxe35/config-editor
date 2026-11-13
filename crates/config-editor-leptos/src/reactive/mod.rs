@@ -18,6 +18,8 @@
 //!   state), without an effect.
 //! - [`KeyedList`]: `For` whose rows own themselves instead of registering
 //!   with the list's owner.
+//! - [`row_window`] and [`RowSpacer`]: which rows of a long list exist in
+//!   the DOM, and the room of the others.
 //! - [`detached_owner`]: an owner no parent keeps a record of.
 //! - [`mount_detached`]: a view mounted under such an owner.
 //! - [`Kept`]: a part a setting switches on and off, built once and then
@@ -30,6 +32,7 @@ mod kept;
 mod keyed;
 pub(crate) mod later;
 mod relay;
+mod row_window;
 mod size_observer;
 #[cfg(test)]
 mod tests;
@@ -38,5 +41,6 @@ mod window_listener;
 pub(crate) use kept::Kept;
 pub(crate) use keyed::{KeyedList, MANY_ROWS, detached_owner, mount_detached};
 pub(crate) use relay::{Fanout, Relay, notify};
+pub(crate) use row_window::{RowSpacer, most_rows, row_window};
 pub(crate) use size_observer::size_observer;
 pub(crate) use window_listener::window_listener;

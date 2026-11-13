@@ -432,6 +432,8 @@ pub struct EditorStrings {
     pub closes_tag: String,
     /// Its type column.
     pub end_tag: String,
+    /// Said when typing leaves the open list with nothing to suggest.
+    pub no_suggestions: String,
 
     // Problems the editor words.
     /// A key the schema does not allow (`{key}`); its object's pointer
@@ -698,6 +700,7 @@ impl Default for EditorStrings {
             reference_type: text("reference"),
             closes_tag: text("Closes <{name}>"),
             end_tag: text("end tag"),
+            no_suggestions: text("No suggestions"),
             key_not_allowed: text("\"{key}\" is not allowed here"),
             text_not_allowed: text("text is not allowed here, only elements"),
             key_deprecated: text("{pointer}: \"{key}\" is deprecated"),

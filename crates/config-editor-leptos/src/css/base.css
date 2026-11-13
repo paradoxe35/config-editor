@@ -1220,8 +1220,13 @@
 .config-editor__completions.hidden { display: none; }
 .config-editor__completion {
   width: 100%;
+  /* Every row as high (COMPLETION_ROW_HEIGHT): only the rows around the
+     list's scroll position are rendered, each at its place. */
+  height: 44px;
+  box-sizing: border-box;
+  overflow: hidden;
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 9px;
   padding: 5px 9px;
   border: 0;
@@ -1233,6 +1238,13 @@
 }
 
 .config-editor__completion-active { background: var(--config-editor-completion-active); }
+
+/* The highlighted row while the list is scrolled away from it, at its
+   place (top set inline). */
+.config-editor__completion--pinned {
+  position: absolute;
+  left: 0;
+}
 
 .config-editor__hover {
   position: fixed;

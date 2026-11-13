@@ -12,12 +12,7 @@ use super::line_rows::RenderedLine;
 use super::metrics::read_editor_metrics;
 use super::projection::Projection;
 use super::readings::Readings;
-
-/// Rows rendered above and below the visible ones, so fast scrolling does
-/// not show blank lines before the next frame: a screen's worth each way,
-/// at least `MIN_OVERSCAN_ROWS` and at most `MAX_OVERSCAN_ROWS`.
-const MIN_OVERSCAN_ROWS: usize = 10;
-const MAX_OVERSCAN_ROWS: usize = 40;
+use crate::reactive::row_window;
 
 /// Rows rendered before the editor element exists to measure.
 const INITIAL_ROWS: usize = 120;
@@ -39,8 +34,8 @@ pub(super) struct ViewState {
     /// Rows must not subscribe to this memo or the diff; the row sync effect
     /// fans them out to per-row signals (see `line_rows`).
     pub(super) lines: Memo<Vec<RenderedLine>>,
-    /// Only the rows in view (plus overscan) exist in the DOM: textarea
-    /// rows, which skip folded lines.
+    /// Only the rows in view (plus overscan, see `reactive::row_window`)
+    /// exist in the DOM: textarea rows, which skip folded lines.
     pub(super) visible_rows: Memo<Range<usize>>,
     /// Lines inside multi-line strings' bodies, shown as string text.
     pub(super) string_bodies: Memo<Vec<Range<usize>>>,
@@ -119,19 +114,6 @@ impl ViewState {
     }
 }
 
-/// The rows to render of `count`, for a view `height` high scrolled `top`
-/// past the first row, rows `line_height` high: those in view, and a
-/// screen's worth more each way (see `MIN_OVERSCAN_ROWS`).
-fn row_window(top: f64, line_height: f64, height: f64, count: usize) -> Range<usize> {
-    let line_height = line_height.max(1.0);
-    let in_view = (height.max(0.0) / line_height).ceil() as usize;
-    let overscan = in_view.clamp(MIN_OVERSCAN_ROWS, MAX_OVERSCAN_ROWS);
-    let first = (top / line_height).floor().max(0.0) as usize;
-    let first = first.saturating_sub(overscan).min(count);
-    let last = (first + in_view + 2 * overscan).min(count);
-    first..last
-}
-
 /// The lines inside multi-line strings' bodies of `text` (in
 /// `edit_language`), found once per edit for the view and the suggestions.
 pub(super) fn string_bodies(
@@ -186,26 +168,4 @@ impl super::state::EditorState {
 /// Line breaks in `bytes`.
 fn line_breaks(bytes: &[u8]) -> usize {
     bytes.iter().filter(|byte| **byte == b'\n').count()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::row_window;
-
-    #[test]
-    fn a_small_view_renders_a_screen_more_each_way_not_a_fixed_band() {
-        // A 200 px editor with 20 px rows shows 10: 30 rendered, not 90.
-        assert_eq!(row_window(0.0, 20.0, 200.0, 10_000), 0..30);
-        assert_eq!(row_window(20_000.0, 20.0, 200.0, 10_000), 990..1020);
-        // A tiny one keeps the minimum band for fast scrolls.
-        assert_eq!(row_window(20_000.0, 20.0, 40.0, 10_000).len(), 2 + 2 * 10);
-        // A tall one is capped.
-        assert_eq!(
-            row_window(20_000.0, 20.0, 2000.0, 10_000).len(),
-            100 + 2 * 40
-        );
-        // Never past the document.
-        assert_eq!(row_window(0.0, 20.0, 200.0, 12), 0..12);
-        assert_eq!(row_window(1e9, 20.0, 200.0, 12), 12..12);
-    }
 }

@@ -1,25 +1,35 @@
-//! The suggestion list under the caret.
+//! The suggestion list under the caret: a listbox whose rows around its
+//! scroll position are rendered, with spacers for the others, and the
+//! highlighted row wherever it is (see `completion::window`).
 
 use leptos::prelude::*;
 
-use super::super::completion::{Completion, completion_popup_style};
+use super::super::completion::{
+    COMPLETION_ROW_CSS_HEIGHT, COMPLETION_ROW_HEIGHT, ShownOption, completion_list_scrolled,
+    completion_popup_style, most_option_rows,
+};
 use super::super::state::EditorState;
 use crate::cssom::{Declarations, cssom};
-use crate::reactive::Relay;
+use crate::reactive::{KeyedList, Relay, RowSpacer};
 
 #[component]
 pub(crate) fn CompletionList(state: EditorState) -> impl IntoView {
-    // The items are rebuilt as the list filters, so they read the selection
-    // through a relay (see `reactive`).
+    // The rows come and go as the list filters and scrolls, so they read
+    // the selection through a relay (see `reactive`).
     let active = Relay::new(move || state.completion().active.get());
+    let rows_after = move || {
+        let count = state.completion().suggestions.with(Vec::len);
+        count - state.shown_rows().end.min(count)
+    };
     view! {
         <div
             class="config-editor__completions"
-            class:hidden=move || state.completion().suggestions.get().is_empty()
+            class:hidden=move || state.completion().suggestions.with(Vec::is_empty)
             role="listbox"
             id=state.a11y().suggestions_id()
             aria-label=state.language_text(|strings| &strings.suggestions_label)
             node_ref=state.view().completion_ref
+            on:scroll=move |_| completion_list_scrolled(state)
             style=cssom(move || {
                 state.view().layout_revision.get();
                 state.view().scroll_x.get();
@@ -41,16 +51,22 @@ pub(crate) fn CompletionList(state: EditorState) -> impl IntoView {
                     .unwrap_or_else(hidden)
             })
         >
-            {move || {
-                let active = active.read();
-                state
-                    .completion().suggestions
-                    .get()
-                    .into_iter()
-                    .enumerate()
-                    .map(|(index, option)| view! { <Suggestion state=state active=active index=index option=option /> })
-                    .collect_view()
-            }}
+            <RowSpacer rows=move || state.shown_rows().start row_height=COMPLETION_ROW_CSS_HEIGHT />
+            <KeyedList
+                each=move || state.shown_options()
+                key=|row: &ShownOption| (row.listing, row.index)
+                // A new list replaces every row: room for the old and the new.
+                reserve=2 * most_option_rows()
+                children=move |row| view! { <Suggestion state=state active=active row=row pinned=false /> }
+            />
+            <RowSpacer rows=rows_after row_height=COMPLETION_ROW_CSS_HEIGHT />
+            // The highlighted row when the list is scrolled away from it,
+            // at its place: `aria-activedescendant` always finds it.
+            <KeyedList
+                each=move || state.pinned_option()
+                key=|row: &ShownOption| (row.listing, row.index)
+                children=move |row| view! { <Suggestion state=state active=active row=row pinned=true /> }
+            />
         </div>
     }
 }
@@ -59,11 +75,24 @@ pub(crate) fn CompletionList(state: EditorState) -> impl IntoView {
 fn Suggestion(
     state: EditorState,
     /// The selected item's index.
-    active: Signal<usize>,
-    index: usize,
-    option: Completion,
+    active: Relay<usize>,
+    row: ShownOption,
+    /// Shown out of the rows around the scroll position, at its place.
+    pinned: bool,
 ) -> impl IntoView {
+    let ShownOption {
+        index,
+        count,
+        option,
+        ..
+    } = row;
+    let active = active.read();
     let selected = move || active.get() == index;
+    let top = if pinned {
+        format!("{}px", index as f64 * COMPLETION_ROW_HEIGHT)
+    } else {
+        String::new()
+    };
     let label = option
         .label
         .chars()
@@ -91,9 +120,13 @@ fn Suggestion(
             role="option"
             id=state.a11y().suggestion_id(index)
             aria-selected=move || selected().to_string()
+            aria-setsize=count
+            aria-posinset=index + 1
             class="config-editor__completion"
             class:config-editor__completion-active=selected
             class:config-editor__completion--deprecated=deprecated
+            class:config-editor__completion--pinned=pinned
+            style:top=top
             on:mousedown=move |event| event.prevent_default()
             on:mousemove=move |event| hover_selects(state, index, &event)
             on:click=move |_| state.accept(&option, false)

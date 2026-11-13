@@ -8,8 +8,8 @@ use super::super::highlight;
 use super::super::highlight::pieces::{self, Piece, RowPieces};
 use super::super::line_rows::{LineRows, RowUiState};
 use super::super::state::EditorState;
-use super::{RowSpacer, row_state_for};
-use crate::reactive::{KeyedList, MANY_ROWS};
+use super::row_state_for;
+use crate::reactive::{KeyedList, MANY_ROWS, RowSpacer};
 
 #[component]
 pub(crate) fn CodeLayer(state: EditorState, rows: LineRows) -> impl IntoView {
@@ -20,7 +20,10 @@ pub(crate) fn CodeLayer(state: EditorState, rows: LineRows) -> impl IntoView {
             style:transform=move || format!("translate({}px, {}px)", -state.view().scroll_x.get(), -state.view().scroll_y.get())
         >
             <code>
-                <RowSpacer state=state />
+                <RowSpacer
+                    rows=move || state.view().visible_rows.with(|rows| rows.start)
+                    row_height="1lh"
+                />
                 <KeyedList
                     each=move || state.view().visible_lines.get()
                     key=|index| *index

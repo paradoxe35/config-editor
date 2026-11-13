@@ -43,3 +43,12 @@ pub(in crate::editor) fn connect_suggestions(state: EditorState) {
         }
     });
 }
+
+/// Typing filtered the list that showed down to nothing: it hides, and a
+/// screen reader is told why (the find widget says "No results" likewise).
+pub(in crate::editor) fn say_no_suggestions_after(state: EditorState, listed: bool) {
+    if listed && state.completion().requested.get_untracked() && !state.suggestions_showing() {
+        let said = state.strings_untracked(|strings| strings.no_suggestions.clone());
+        state.a11y().announce(said);
+    }
+}

@@ -1054,6 +1054,12 @@ export interface EditorStrings {
    */
   endTag?: string;
   /**
+   * Said when typing leaves the open list with nothing to suggest.
+   *
+   * @default "No suggestions"
+   */
+  noSuggestions?: string;
+  /**
    * A key the schema does not allow (`{key}`); its object's pointer goes before it (`/web: `), as before every schema problem but at the root.
    *
    * @default "\"{key}\" is not allowed here"

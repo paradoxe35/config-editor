@@ -34,6 +34,11 @@ pub(crate) struct CompletionState {
     /// The highlighted option.
     pub(crate) active: RwSignal<usize>,
     pub(crate) suggestions: Memo<Vec<Completion>>,
+    /// Which list `suggestions` holds: a new number each time it changes,
+    /// so the rows rendered of an old list are never kept for a new one.
+    pub(crate) listing: Memo<usize>,
+    /// How far the list is scrolled, in pixels (see `window`).
+    pub(crate) list_top: RwSignal<f64>,
     /// An inserted default left selected after an accept: typing replaces
     /// it, Tab keeps it and moves past it, Enter keeps it and starts a new
     /// line.
@@ -132,12 +137,18 @@ impl CompletionState {
                 })
             })
         });
+        let listing = Memo::new(move |previous: Option<&usize>| {
+            suggestions.track();
+            previous.map_or(0, |listing| listing + 1)
+        });
         Self {
             requested,
             explicit,
             replace_word,
             active: RwSignal::new(0),
             suggestions,
+            listing,
+            list_top: RwSignal::new(0.0),
             placeholder: StoredValue::new(None),
             slot_region: StoredValue::new(None),
             value_stops: StoredValue::new(Vec::new()),
@@ -239,10 +250,17 @@ impl EditorState {
 
     /// Accepts the highlighted suggestion.
     pub(crate) fn accept_active(&self) {
-        let options = self.completion().suggestions.get_untracked();
-        if let Some(option) = options.get(self.completion().active.get_untracked()) {
-            self.accept(option, true);
+        if let Some(option) = self.active_suggestion() {
+            self.accept(&option, true);
         }
+    }
+
+    /// The highlighted suggestion.
+    pub(crate) fn active_suggestion(&self) -> Option<Completion> {
+        let active = self.completion().active.get_untracked();
+        self.completion()
+            .suggestions
+            .with_untracked(|options| options.get(active).cloned())
     }
 }
 

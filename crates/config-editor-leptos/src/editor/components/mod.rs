@@ -91,19 +91,3 @@ pub(super) fn row_state_for(
     // Untracked: a row subscribes only to its own signal (see `line_rows`).
     untrack(|| with_row_inputs(state, |inputs| rows.state_for(index, inputs)))
 }
-
-/// The spacer above the rendered rows, keeping their positions.
-#[component]
-fn RowSpacer(state: EditorState) -> impl IntoView {
-    view! {
-        <span
-            class="config-editor__row-spacer"
-            style:height=move || {
-                format!(
-                    "calc({} * 1lh)",
-                    state.view().visible_rows.with(|rows| rows.start),
-                )
-            }
-        ></span>
-    }
-}

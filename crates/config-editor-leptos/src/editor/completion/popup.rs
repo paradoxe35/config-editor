@@ -2,28 +2,45 @@
 
 use super::*;
 use crate::cssom::Declarations;
+use leptos::prelude::*;
 
 /// Rows PageUp/PageDown move: one popup page
 /// (`COMPLETION_POPUP_MAX_HEIGHT / COMPLETION_ROW_HEIGHT`).
 pub(crate) const COMPLETION_PAGE_ROWS: usize = 7;
 
-pub(crate) fn scroll_completion_into_view(list: &web_sys::HtmlDivElement, index: usize) {
-    let Some(option) = list
-        .children()
-        .item(index as u32)
-        .and_then(|option| option.dyn_into::<web_sys::HtmlElement>().ok())
-    else {
+/// Scrolls the list just enough to show suggestion `index`, whose place
+/// follows from the rows' fixed height: it may not be rendered yet (see
+/// `window`).
+pub(crate) fn scroll_completion_into_view(state: EditorState, index: usize) {
+    let Some(list) = state.view().completion_ref.get_untracked() else {
         return;
     };
+    let top = index as f64 * COMPLETION_ROW_HEIGHT;
+    let bottom = top + COMPLETION_ROW_HEIGHT;
+    let scroll_top = f64::from(list.scroll_top());
+    let height = f64::from(list.client_height());
+    let next = if top < scroll_top {
+        top
+    } else if bottom > scroll_top + height {
+        bottom - height
+    } else {
+        return;
+    };
+    list.set_scroll_top(next as i32);
+    // The rows there are rendered now, not after the scroll event.
+    state
+        .completion()
+        .list_top
+        .set(f64::from(list.scroll_top()));
+}
 
-    let top = option.offset_top();
-    let bottom = top + option.offset_height();
-    let scroll_top = list.scroll_top();
-    let visible_bottom = scroll_top + list.client_height();
-    if top < scroll_top {
-        list.set_scroll_top(top);
-    } else if bottom > visible_bottom {
-        list.set_scroll_top(bottom - list.client_height());
+/// The list scrolled: the rows rendered follow.
+pub(crate) fn completion_list_scrolled(state: EditorState) {
+    if let Some(list) = state.view().completion_ref.get_untracked() {
+        let top = f64::from(list.scroll_top());
+        if state.completion().list_top.get_untracked() != top {
+            state.completion().list_top.set(top);
+        }
     }
 }
 
@@ -83,6 +100,9 @@ pub(crate) const COMPLETION_POPUP_VIEWPORT_GUTTER: f64 = 16.0;
 /// Height of one suggestion row, in pixels; mirrors the
 /// `.config-editor__completion` rule in `css/base.css`.
 pub(crate) const COMPLETION_ROW_HEIGHT: f64 = 44.0;
+
+/// [`COMPLETION_ROW_HEIGHT`] as CSS.
+pub(crate) const COMPLETION_ROW_CSS_HEIGHT: &str = "44px";
 
 /// Vertical padding of the completion list, in pixels.
 pub(crate) const COMPLETION_LIST_PADDING: f64 = 2.0;

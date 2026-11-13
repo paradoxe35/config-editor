@@ -74,7 +74,7 @@ pub(crate) fn HoverCardView(state: EditorState) -> impl IntoView {
             .hover()
             .card
             .get()
-            .filter(|_| state.completion().suggestions.get().is_empty())
+            .filter(|_| state.completion().suggestions.with(Vec::is_empty))
             .map(|card| {
                 let info = card.info;
                 let examples = info.examples.join(", ");

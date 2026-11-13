@@ -137,6 +137,9 @@ pub(crate) enum Work {
     /// note per byte, see [`note_many`]): a long row is drawn in pieces, and
     /// a keystroke builds again only the pieces it changed.
     RowText,
+    /// A suggestion of the open list built for the page
+    /// (`completion::window`).
+    SuggestionRow,
 }
 
 impl Work {
@@ -173,13 +176,14 @@ impl Work {
             Self::TabNameVisit => 27,
             Self::PlaceLookup => 28,
             Self::RowText => 29,
+            Self::SuggestionRow => 30,
         }
     }
 }
 
 #[cfg(test)]
 thread_local! {
-    static COUNTS: std::cell::Cell<[usize; 30]> = const { std::cell::Cell::new([0; 30]) };
+    static COUNTS: std::cell::Cell<[usize; 31]> = const { std::cell::Cell::new([0; 31]) };
 }
 
 /// `work` is starting (counted on this thread in tests).

@@ -49,8 +49,7 @@ pub(super) fn request(state: EditorState, event: &KeyboardEvent) -> bool {
 /// Returns whether the list is still open for the key, or `None` when the
 /// key was handled here.
 pub(super) fn step_past_unchanged(state: EditorState, event: &KeyboardEvent) -> Option<bool> {
-    let options = state.completion().suggestions.get_untracked();
-    if options.is_empty() {
+    if state.completion().suggestions.with_untracked(Vec::is_empty) {
         return Some(false);
     }
     if super::modified(event) {
@@ -60,7 +59,9 @@ pub(super) fn step_past_unchanged(state: EditorState, event: &KeyboardEvent) -> 
     if !matches!(key.as_str(), "Enter" | "Tab") {
         return Some(true);
     }
-    let active = options.get(state.completion().active.get_untracked());
+    // The one option, not the whole list (a long one is cloned per key).
+    let active = state.active_suggestion();
+    let active = active.as_ref();
     let unchanged_caret = active.and_then(|option| {
         state.doc().text.with_untracked(|text| {
             let (updated, _, caret) = apply_completion(text, option);
@@ -127,8 +128,6 @@ pub(super) fn list_keys(state: EditorState, event: &KeyboardEvent) -> bool {
     };
     event.prevent_default();
     state.completion().active.set(next);
-    if let Some(list) = state.view().completion_ref.get_untracked() {
-        scroll_completion_into_view(&list, next);
-    }
+    scroll_completion_into_view(state, next);
     true
 }

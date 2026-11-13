@@ -8,8 +8,8 @@ use super::super::diff::DiffKind;
 use super::super::input;
 use super::super::line_rows::{LineRows, RowUiState};
 use super::super::state::{EditorState, line_count};
-use super::{RowSpacer, row_state_for};
-use crate::reactive::{KeyedList, MANY_ROWS};
+use super::row_state_for;
+use crate::reactive::{KeyedList, MANY_ROWS, RowSpacer};
 
 #[component]
 pub(crate) fn Gutter(state: EditorState, rows: LineRows) -> impl IntoView {
@@ -29,7 +29,10 @@ pub(crate) fn Gutter(state: EditorState, rows: LineRows) -> impl IntoView {
                 class="config-editor__gutter-content"
                 style:transform=move || format!("translateY(-{}px)", state.view().scroll_y.get())
             >
-                <RowSpacer state=state />
+                <RowSpacer
+                    rows=move || state.view().visible_rows.with(|rows| rows.start)
+                    row_height="1lh"
+                />
                 <KeyedList
                     each=move || state.view().visible_lines.get()
                     key=|index| *index
