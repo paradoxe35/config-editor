@@ -35,6 +35,7 @@ pub fn utf16_to_byte_index(source: &str, offset: usize) -> usize {
         byte += character.len_utf8();
         unit += character.len_utf16();
     }
+    super::work_count::note_many(super::work_count::Work::OffsetSeek, byte);
     byte
 }
 

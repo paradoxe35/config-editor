@@ -74,41 +74,67 @@ impl ValueDoc {
 /// or the branch's own `title` and `description` when it is `const` (a
 /// `oneOf` of documented constants).
 pub(crate) fn value_doc(branch: &Value, value: &Value) -> Option<ValueDoc> {
-    let same = |candidate: &Value| value_label(candidate) == value_label(value);
-    if let Some(index) = branch
-        .get("enum")
-        .and_then(Value::as_array)
-        .and_then(|values| values.iter().position(same))
-    {
-        let text_at = |keyword: &str| {
-            branch
-                .get(keyword)
-                .and_then(Value::as_array)
-                .and_then(|texts| texts.get(index))
-                .and_then(Value::as_str)
-                .filter(|text| !text.is_empty())
-                .map(str::to_string)
-        };
-        let doc = ValueDoc {
-            title: text_at("x-enum-titles"),
-            description: text_at("x-enum-descriptions"),
-        };
-        return (doc != ValueDoc::default()).then_some(doc);
+    ValueDocs::of(branch).of_value(value)
+}
+
+/// The docs of a branch's values, its `enum` indexed once: a list of
+/// thousands of values looks each one's docs up without a pass over the
+/// others.
+pub(crate) struct ValueDocs<'a> {
+    branch: &'a Value,
+    /// The place of each `enum` value (the first, for one written twice),
+    /// by its label.
+    places: std::collections::HashMap<String, usize>,
+}
+
+impl<'a> ValueDocs<'a> {
+    pub(crate) fn of(branch: &'a Value) -> Self {
+        let mut places = std::collections::HashMap::new();
+        let values = branch.get("enum").and_then(Value::as_array);
+        for (index, value) in values.into_iter().flatten().enumerate() {
+            places.entry(value_label(value)).or_insert(index);
+        }
+        Self { branch, places }
     }
-    if branch.get("const").is_some_and(same) {
-        let text = |keyword: &str| {
-            branch
-                .get(keyword)
-                .and_then(Value::as_str)
-                .map(str::to_string)
-        };
-        let doc = ValueDoc {
-            title: text("title"),
-            description: text("description"),
-        };
-        return (doc != ValueDoc::default()).then_some(doc);
+
+    /// What the branch says about `value` (see [`value_doc`]).
+    pub(crate) fn of_value(&self, value: &Value) -> Option<ValueDoc> {
+        let branch = self.branch;
+        let label = value_label(value);
+        if let Some(&index) = self.places.get(&label) {
+            let text_at = |keyword: &str| {
+                branch
+                    .get(keyword)
+                    .and_then(Value::as_array)
+                    .and_then(|texts| texts.get(index))
+                    .and_then(Value::as_str)
+                    .filter(|text| !text.is_empty())
+                    .map(str::to_string)
+            };
+            let doc = ValueDoc {
+                title: text_at("x-enum-titles"),
+                description: text_at("x-enum-descriptions"),
+            };
+            return (doc != ValueDoc::default()).then_some(doc);
+        }
+        if branch
+            .get("const")
+            .is_some_and(|constant| value_label(constant) == label)
+        {
+            let text = |keyword: &str| {
+                branch
+                    .get(keyword)
+                    .and_then(Value::as_str)
+                    .map(str::to_string)
+            };
+            let doc = ValueDoc {
+                title: text("title"),
+                description: text("description"),
+            };
+            return (doc != ValueDoc::default()).then_some(doc);
+        }
+        None
     }
-    None
 }
 
 /// Whether any schema in `root` is marked deprecated, so documents are

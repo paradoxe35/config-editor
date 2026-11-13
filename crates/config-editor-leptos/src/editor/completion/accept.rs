@@ -1,6 +1,7 @@
 //! Writing an accepted suggestion into the document, and what the editor
 //! remembers about it (inserted closers, Tab slots).
 
+use super::offsets::ByteOffsets;
 use super::*;
 
 pub(crate) fn should_auto_trigger(input_type: &str, previous: &str, current: &str) -> bool {
@@ -47,13 +48,14 @@ pub(super) fn rename_key_with_value(
     source: &str,
     cursor: usize,
     behavior: &dyn ConfigLanguage,
+    offsets: &mut ByteOffsets<'_>,
 ) {
     if option.is_value || option.start > cursor {
         return;
     }
-    let caret = utf16_to_byte_index(source, cursor);
+    let caret = offsets.byte(cursor);
     let line_rest = source[caret..].split('\n').next().unwrap_or("");
-    let typed = source[utf16_to_byte_index(source, option.start)..caret].to_string();
+    let typed = source[offsets.byte(option.start)..caret].to_string();
     // Inside a quoted key (`"pub|lic": 1`, `'pub|lic': 1`) the rest of the
     // key goes too, and its quotes stay as written.
     let config = behavior.config();
