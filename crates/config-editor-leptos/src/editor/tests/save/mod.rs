@@ -141,6 +141,14 @@ mod number_forms;
     feature = "hcl",
     feature = "xml"
 ))]
+mod read_back;
+#[cfg(all(
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
 mod renamed_aliases;
 #[cfg(all(
     feature = "yaml",
@@ -222,6 +230,30 @@ mod xml_comments;
     feature = "xml"
 ))]
 mod xml_names;
+#[cfg(all(
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod xml_one_line_trivia;
+#[cfg(all(
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod xml_prefixed_names;
+#[cfg(all(
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod xml_prefixes;
 #[cfg(all(
     feature = "yaml",
     feature = "json",

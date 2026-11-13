@@ -379,10 +379,18 @@ fn a_key_that_cannot_be_an_xml_name_is_refused_plainly_at_the_key() {
             other => failures.push(format!("{json}: {other:?}")),
         }
     }
-    // Names XML holds still convert (`x:a`, `é`, `a-b.c`).
-    let named = "{\"r\": {\"x:a\": 1, \"é\": 2, \"a-b.c\": 3, \"_\": 4}}";
+    // Names XML holds still convert (`x:a` with its prefix declared, `é`,
+    // `a-b.c`); a prefix no declaration binds is refused at its name.
+    let named = "{\"r\": {\"xmlns:x\": \"urn:x\", \"x:a\": 1, \"é\": 2, \"a-b.c\": 3, \"_\": 4}}";
     if let Err(error) = Language::JSON.convert(named, Language::XML) {
         failures.push(format!("{named}: {error}"));
+    }
+    let unbound = "{\"r\": {\"x:a\": 1}}";
+    match Language::JSON.convert(unbound, Language::XML) {
+        Err(error)
+            if error.to_string().contains("bound to no namespace")
+                && error.to_string().ends_with("(at /r/x:a)") => {}
+        other => failures.push(format!("{unbound}: {other:?}")),
     }
     report(failures);
 }

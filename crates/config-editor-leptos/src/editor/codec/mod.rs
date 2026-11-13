@@ -910,7 +910,8 @@ pub fn first_pointer(value: &Value, predicate: &dyn Fn(&Value) -> bool) -> Optio
     }
 }
 
-fn escape(key: &str) -> String {
+/// `key` as one segment of a JSON pointer.
+pub(super) fn escape(key: &str) -> String {
     key.replace('~', "~0").replace('/', "~1")
 }
 

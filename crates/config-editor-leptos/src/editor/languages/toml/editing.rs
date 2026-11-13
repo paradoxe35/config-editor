@@ -186,15 +186,16 @@ fn table_end(source: &str, line_end: usize, segments: &[String], is_array: bool)
 
 /// The bytes of the array-of-tables entry at `pointer` (`/s/1`): from its
 /// `[[s]]` header through the last line with code of its table and the
-/// sub-tables it owns.
-pub(super) fn array_table_lines(source: &str, pointer: &str) -> Option<std::ops::Range<usize>> {
+/// sub-tables it owns; of the table at `pointer` (`/s`, `[s]`) the same
+/// way, the sub-tables right after it (`[s.sub]`) with it.
+pub(super) fn table_lines(source: &str, pointer: &str) -> Option<std::ops::Range<usize>> {
     let wanted = pointer_segments(pointer);
     let lines: Vec<&str> = source.split('\n').collect();
     let paths = table_paths(&lines);
     let mut start = 0;
     for (index, line) in lines.iter().enumerate() {
         let line_end = start + line.len();
-        if let Some((segments, true)) = parse_header(split_toml_comment(line).0)
+        if let Some((segments, _)) = parse_header(split_toml_comment(line).0)
             && path_strings(&paths[index + 1]) == wanted
         {
             return Some(start..table_end(source, line_end, &segments, true));

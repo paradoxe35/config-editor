@@ -19,13 +19,17 @@ use serde_json::Value;
 ///
 /// `respelled` adds the numbers the edit kept but typed in another
 /// spelling (`4.80` over `4.8`, see [`respelled`]).
+///
+/// A host whose values are all text reads a number kept as typed as that
+/// text (`4.10`): [`Spelled::as_text`] says which, so the save's read-back
+/// check reads them as the numbers they are.
 pub(super) fn kept(
     (host, edit): (&dyn ConfigLanguage, &dyn ConfigLanguage),
     (previous, edit_text): (&str, &str),
     (old, target): (&Value, &Value),
     (saved, respelled): (String, Vec<String>),
     shape: Option<&Value>,
-) -> String {
+) -> Spelled {
     let mut changed = Vec::new();
     changed_scalars(old, target, String::new(), &mut changed);
     changed.retain(|pointer| {
@@ -36,7 +40,7 @@ pub(super) fn kept(
     // (Disjoint: these hold the value they held.)
     changed.extend(respelled);
     if changed.is_empty() {
-        return saved;
+        return Spelled::as_saved(saved);
     }
     // Where the save writes each value that may be spelled anew.
     let mut places = Vec::new();
@@ -65,7 +69,7 @@ pub(super) fn kept(
         places.push((pointer, value, range));
     }
     if places.is_empty() {
-        return saved;
+        return Spelled::as_saved(saved);
     }
     // Only those are looked up in the edit's text, and the numbers among
     // them in the host's last (their form there).
@@ -108,7 +112,7 @@ pub(super) fn kept(
         }
     }
     if edits.is_empty() {
-        return saved;
+        return Spelled::as_saved(saved);
     }
     edits.sort_by_key(|(range, _)| std::cmp::Reverse(range.start));
     let mut spelled = saved.clone();
@@ -117,7 +121,7 @@ pub(super) fn kept(
     }
     let reads = |text: &str| codec::read(host, text, shape).ok();
     let (Some(mut read), Some(before)) = (reads(&spelled), reads(&saved)) else {
-        return saved;
+        return Spelled::as_saved(saved);
     };
     // Each number kept as typed text reads as that text: else the same.
     for (pointer, text) in &as_text {
@@ -127,7 +131,30 @@ pub(super) fn kept(
             *slot = was.clone();
         }
     }
-    if read == before { spelled } else { saved }
+    if read == before {
+        Spelled {
+            text: spelled,
+            as_text,
+        }
+    } else {
+        Spelled::as_saved(saved)
+    }
+}
+
+/// A save's text with numbers spelled as typed, and those a host whose
+/// values are all text holds as the typed text (pointer, text).
+pub(super) struct Spelled {
+    pub(super) text: String,
+    pub(super) as_text: Vec<(String, String)>,
+}
+
+impl Spelled {
+    fn as_saved(text: String) -> Self {
+        Spelled {
+            text,
+            as_text: Vec::new(),
+        }
+    }
 }
 
 /// The numbers of `edited` (the edit's value of `edit_text`) the edit left

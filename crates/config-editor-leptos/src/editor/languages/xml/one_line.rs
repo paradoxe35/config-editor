@@ -1,6 +1,8 @@
 //! Elements with children the host writes on one line
 //! (`<s n="a"><p>1</p></s>`), written on one line again by a rewrite, so
-//! a save adding, removing or moving them changes only their lines.
+//! a save adding, removing or moving them changes only their lines; and
+//! spread over lines for a structural save (see [`children_apart`]), so
+//! the comments and processing instructions between their children stay.
 
 use super::*;
 use std::collections::HashSet;
@@ -71,17 +73,117 @@ pub(super) fn with_one_line_elements_of(rendered: &str, previous: &str) -> Strin
         {
             continue;
         }
+        // Each line's indent dropped, what ends it kept (the spaces a
+        // host wrote between two children, see `children_apart`).
         out.push_str(&rendered[copied..start]);
-        out.extend(spread.lines().map(str::trim));
+        out.extend(spread.lines().map(str::trim_start));
         copied = range.end;
     }
     out.push_str(&rendered[copied..]);
     out
 }
 
+/// `source` with the children of each element it writes on one line, and
+/// the comments and processing instructions between them, on lines of
+/// their own, indented by depth (which reads the same: the whitespace
+/// between child elements is no text). A structural save patches that
+/// line by line, keeping what it does not touch, and
+/// [`with_one_line_elements_of`] joins them back. `None` when `source`
+/// writes no such element.
+pub(super) fn children_apart(source: &str) -> Option<String> {
+    let tokens = tokenize(source);
+    let unit = indent_unit(source);
+    // Where a line break and indent go: byte, depth below the outermost
+    // one-line element.
+    let mut breaks: Vec<(usize, usize)> = Vec::new();
+    // The end tokens of the one-line elements open around the next one.
+    let mut open: Vec<usize> = Vec::new();
+    for index in 0..tokens.len() {
+        while open.last().is_some_and(|end| *end < index) {
+            open.pop();
+        }
+        let Some((end, _)) = element_with_children(source, &tokens, index) else {
+            continue;
+        };
+        if source[tokens[index].start..tokens[end].end].contains('\n') {
+            continue;
+        }
+        let Some(children) = child_starts(source, &tokens, index, end) else {
+            continue;
+        };
+        let depth = open.len();
+        breaks.extend(children.into_iter().map(|at| (at, depth + 1)));
+        breaks.push((tokens[end].start, depth));
+        open.push(end);
+    }
+    if breaks.is_empty() {
+        return None;
+    }
+    breaks.sort_unstable();
+    let mut out = String::with_capacity(source.len() + breaks.len() * 8);
+    let mut copied = 0;
+    for (at, depth) in breaks {
+        let line_start = source[..at].rfind('\n').map_or(0, |found| found + 1);
+        let indent: String = source[line_start..].chars().take_while(|character| *character == ' ' || *character == '\t').collect();
+        out.push_str(&source[copied..at]);
+        out.push('\n');
+        out.push_str(&indent);
+        out.push_str(&unit.repeat(depth));
+        copied = at;
+    }
+    out.push_str(&source[copied..]);
+    Some(out)
+}
+
+/// Where each child of the element whose start tag is token `index` and end
+/// tag token `end` starts (elements, comments, processing instructions);
+/// `None` when text sits beside them (mixed content, or a CDATA section).
+fn child_starts(source: &str, tokens: &[Token], index: usize, end: usize) -> Option<Vec<usize>> {
+    let mut starts = Vec::new();
+    let mut depth = 0usize;
+    for token in &tokens[index + 1..end] {
+        let self_closing = source[..token.end].ends_with("/>");
+        match token.kind {
+            Kind::OpenTag { closing: false, .. } => {
+                if depth == 0 {
+                    starts.push(token.start);
+                }
+                if !self_closing {
+                    depth += 1;
+                }
+            }
+            Kind::EndTag => depth = depth.checked_sub(1)?,
+            Kind::Comment if depth == 0 => starts.push(token.start),
+            Kind::Special if depth == 0 && source[token.start..].starts_with("<?") => starts.push(token.start),
+            _ if depth == 0 => return None,
+            _ => {}
+        }
+    }
+    Some(starts)
+}
+
 #[cfg(test)]
 mod tests {
-    use super::with_one_line_elements_of;
+    use super::{children_apart, with_one_line_elements_of};
+
+    #[test]
+    fn children_on_one_line_are_spread_and_joined_back() {
+        let host = "<r a=\"1\"><!-- c --><?pi x?><s n=\"1\"><p>1</p> <q/></s><b><![CDATA[<x>]]></b></r>\n";
+        let apart = children_apart(host).expect("spread");
+        assert_eq!(
+            apart,
+            "<r a=\"1\">\n  <!-- c -->\n  <?pi x?>\n  <s n=\"1\">\n    <p>1</p> \n    <q/>\n  </s>\n  <b><![CDATA[<x>]]></b>\n</r>\n"
+        );
+        assert_eq!(super::super::xml_parse(&apart).ok(), super::super::xml_parse(host).ok());
+        assert_eq!(with_one_line_elements_of(&apart, host), host);
+        // Nested in a document over lines, indented from its line.
+        let host = "<r>\n  <s><p>1</p><!-- c --></s>\n</r>\n";
+        assert_eq!(children_apart(host).as_deref(), Some("<r>\n  <s>\n    <p>1</p>\n    <!-- c -->\n  </s>\n</r>\n"));
+        // Text beside children is left on its line; nothing on one line,
+        // nothing spread.
+        assert_eq!(children_apart("<r>t<a/></r>\n"), None);
+        assert_eq!(children_apart("<r>\n  <a>1</a>\n</r>\n"), None);
+    }
 
     #[test]
     fn elements_the_host_writes_on_one_line_are_joined() {

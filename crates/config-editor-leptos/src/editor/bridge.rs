@@ -26,6 +26,7 @@ mod host_strings;
 ))]
 mod many_values_tests;
 mod merge;
+mod read_back;
 mod shared;
 mod tags;
 mod text_scalars;
@@ -40,6 +41,7 @@ mod typed_spellings;
 ))]
 mod typed_spellings_tests;
 mod whole_floats;
+mod written_anew;
 use merge::{View, merge_changes};
 
 /// A save's patch of the host's text: `previous` made to read as `new`.
@@ -133,9 +135,8 @@ impl Bridge {
         let (previous, _) = byte_order_mark::split(previous_host);
         let (origin, _) = byte_order_mark::split(origin);
         let conversion = self.to_unmarked_host(edit_text, previous, origin)?;
-        // A value the host would read back otherwise (XML writes a one-item
-        // list as its item, and no empty list) waits: a save never writes
-        // what the host reads back differently from the view.
+        // A value the host would read back otherwise waits (a save written
+        // whole is checked here, a patched one before it is read back).
         if let Some(pointer) = conversion.losses.first() {
             return Err(SaveError::CannotKeep {
                 pointer: pointer.clone(),
@@ -200,6 +201,16 @@ impl Bridge {
             ),
             _ => Vec::new(),
         };
+        // Whether the user moved keys in the view (not the edit language's
+        // writer): the save then holds them in the order moved to.
+        let moved = seen
+            .as_ref()
+            .is_some_and(|seen| merge::moved_by_user(self.edit.behavior(), seen, &edited));
+        // Among keys the view showed (a rename moves none).
+        let reordered = moved
+            && seen
+                .as_ref()
+                .is_some_and(|seen| read_back::reorders(seen, &edited));
         let value = match &seen {
             // An edit where the view could not show the host's value (an
             // XML view of nested or empty lists) that does not map back onto
@@ -211,7 +222,7 @@ impl Bridge {
                 &View {
                     unshown: &unshown,
                     repetition: self.edit.behavior().repetition(),
-                    moves: merge::moved_by_user(self.edit.behavior(), seen, &edited),
+                    moves: moved,
                 },
             )
             .map_err(|pointer| {
@@ -262,6 +273,9 @@ impl Bridge {
         let Ok(target) = codec::read(host, &rendered.text, self.shape())
             .map(|target| host.spelled_like(&rendered.text, target, &value))
         else {
+            if let Some(error) = written_anew::refused(self.host, previous_host, (&old, &value)) {
+                return Err(error);
+            }
             #[cfg(test)]
             WHOLE_RENDERS.with(|count| count.set(count.get() + 1));
             return Ok(rendered);
@@ -432,23 +446,67 @@ impl Bridge {
             Some(order) => in_order(host, text, order, shape),
             None => text,
         });
-        let conversion = match patched {
-            Some(text) => Conversion {
-                text: typed_spellings::kept(
+        let (conversion, as_text) = match patched {
+            Some(text) => {
+                let spelled = typed_spellings::kept(
                     (host, self.edit.behavior()),
                     (previous_host, edit_text),
                     (&old, &target),
                     (text, respelled),
                     shape,
-                ),
-                losses,
-            },
+                );
+                let conversion = Conversion {
+                    text: spelled.text,
+                    losses,
+                };
+                (conversion, spelled.as_text)
+            }
+            // No patch applies: the host is written anew, which keeps none
+            // of its comments; a host with some waits.
             None => {
+                if let Some(error) =
+                    written_anew::refused(self.host, previous_host, (&old, &target))
+                {
+                    return Err(error);
+                }
                 #[cfg(test)]
                 WHOLE_RENDERS.with(|count| count.set(count.get() + 1));
-                rendered
+                (rendered, Vec::new())
             }
         };
+        // A value the host would read back otherwise (XML writes a one-item
+        // list as its item, and no empty list) waits: a save never writes
+        // what the host reads back differently from the view.
+        if let Some(pointer) = conversion.losses.first() {
+            return Err(SaveError::CannotKeep {
+                pointer: pointer.clone(),
+            });
+        }
+        // Nor does what is written read back otherwise, or keys in another
+        // order than the user moved them to.
+        let intended = moved_to.as_ref().unwrap_or(&target);
+        let saved = read_back::Saved {
+            text: &conversion.text,
+            as_text: &as_text,
+        };
+        match read_back::first_mismatch(host, &saved, intended, reordered, shape) {
+            Some(read_back::Mismatch::Value(pointer)) => {
+                return Err(SaveError::CannotKeep { pointer });
+            }
+            Some(read_back::Mismatch::Order(pointer)) => {
+                return Err(ConvertError::Unsupported(format!(
+                    "{} writes this key in another place than the view moved it to, so the move cannot be saved: move it back, or edit it as {} (at {pointer})",
+                    self.host.label(),
+                    self.host.label()
+                ))
+                .into());
+            }
+            None => {}
+        }
+        // Nor is a text the host's readers refuse though it reads (an XML
+        // prefix whose declaration the edit removed), or that would not
+        // convert back to the view (XML text beside child elements).
+        codec::convertible(host, &conversion.text)?;
         self.tags_kept(previous_host, &conversion.text, (&old, &target))?;
         // The read-back check cannot tell forms that read the same (an HCL
         // expression and the literal text it reads as): the host can.

@@ -1258,8 +1258,10 @@ pub trait ConfigLanguage: Send + Sync + 'static {
 
     /// Why `source` does not convert to another language although it parses
     /// (XML elements of one parent with the same local name in different
-    /// namespaces, which the document model would merge), ending with
-    /// `(at /pointer)`; `None` when nothing stands in the way.
+    /// namespaces, which the document model would merge; a prefix no
+    /// namespace declaration binds, which the language's readers refuse),
+    /// ending with `(at /pointer)`; `None` when nothing stands in the way.
+    /// An Edit-as save whose host text this refuses waits.
     fn unconvertible(&self, source: &str) -> Option<String> {
         let _ = source;
         None
@@ -1741,12 +1743,12 @@ pub trait ConfigLanguage: Send + Sync + 'static {
             .is_some()
     }
 
-    /// The bytes of the list item at `pointer` when the document writes it
-    /// as lines of its own that are no `{…}` or `[…]` value: a TOML
-    /// `[[array]]` table from its header, an HCL repeated block from its
-    /// type to its `}`. An Edit-as save that moves the item moves these
-    /// lines with the comment lines above them. `None` (the default) for
-    /// any other item.
+    /// The bytes of the list item or map entry at `pointer` when the
+    /// document writes it as lines of its own that are no `{…}` or `[…]`
+    /// value: a TOML `[[array]]` or `[table]` table from its header, an HCL
+    /// repeated block from its type to its `}`. An Edit-as save that moves
+    /// the item or entry moves these lines with the comment lines above
+    /// them. `None` (the default) for any other.
     fn item_lines(&self, source: &str, pointer: &str) -> Option<std::ops::Range<usize>> {
         let _ = (source, pointer);
         None
@@ -1842,6 +1844,25 @@ pub trait ConfigLanguage: Send + Sync + 'static {
     /// spans), once no editor is mounted: nothing of a closed editor's text
     /// stays. Nothing by default.
     fn forget_kept(&self) {}
+
+    /// `source` with the entries of each container it writes on one line
+    /// (an XML element's children, and the comments between them) on lines
+    /// of their own, reading the same, for a structural Edit-as save to
+    /// patch line by line: what it does not touch stays as written,
+    /// comments included. [`entries_together`](Self::entries_together)
+    /// writes them on one line again. Default: `None`, nothing spread.
+    fn entries_apart(&self, source: &str) -> Option<String> {
+        let _ = source;
+        None
+    }
+
+    /// `patched` (a save made on [`entries_apart`](Self::entries_apart) of
+    /// `previous`) with each container `previous` writes on one line written
+    /// on one line again. Default: `patched`.
+    fn entries_together(&self, patched: &str, previous: &str) -> String {
+        let _ = previous;
+        patched.to_string()
+    }
 
     /// The text for the `value` range of a [`OneLine`] now holding `value`
     /// (`{ nodelay = true }`), so a save edits the container where it is.

@@ -49,7 +49,7 @@ fn respelled(
                 path.push(key.to_string());
                 let attribute = attributes.contains(path.as_slice());
                 path.pop();
-                (attribute || !like.contains_key(key)).then_some(spelled)
+                attribute.then_some(spelled)
             };
             let renamed: Vec<(String, Value)> = map
                 .iter()
@@ -87,5 +87,22 @@ fn respelled(
                 .collect(),
         ),
         (read, _) => read,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::spelled_like;
+    use serde_json::json;
+
+    #[test]
+    fn only_an_attribute_is_spelled_as_one() {
+        let like = json!({"r": {"@a": 1}});
+        // The attribute `a` reads `a` alone: spelled `@a` as `like` does.
+        assert_eq!(spelled_like("<r a=\"1\"/>", json!({"r": {"a": 1}}), &like), like);
+        // A child element `a` stays `a`: a save that wrote the attribute
+        // as an element reads back otherwise.
+        let read = json!({"r": {"a": 1}});
+        assert_eq!(spelled_like("<r><a>1</a></r>", read.clone(), &like), read);
     }
 }

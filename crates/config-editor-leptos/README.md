@@ -273,9 +273,14 @@ keys, `{ showFooter: true }`), and its TypeScript type is generated from it.
   (`mixed_content` of the `strings` setting); text typed beside child elements
   in an XML view is not saved. `Language::convert` refuses it too
   (`ConvertError::MixedContent`). So is one key in two namespaces
-  (`<c:item>` beside `<item>`), which other languages would merge, and a
-  character XML 1.0 cannot hold (a control character, U+FFFE): the XML
-  reader and writer refuse it, even as a character reference.
+  (`<c:item>` beside `<item>`), which other languages would merge, a
+  prefix no namespace declaration binds (`x:a` with no `xmlns:x` in
+  scope), which namespace-aware XML readers refuse, and a character XML
+  1.0 cannot hold (a control character, U+FFFE): the XML reader and writer
+  refuse it, even as a character reference. A save from another view that
+  would leave a prefix unbound (its `xmlns:x` removed or renamed) waits,
+  naming the prefixed name; a namespace declaration added there is written
+  as one.
 - A save that cannot write what the edit means waits, with the reason on
   the value: an edit inside nested or empty lists that the XML view shows
   flat and cannot map back, a TOML date or time typed half-way (it is saved
@@ -295,14 +300,22 @@ keys, `{ showFooter: true }`), and its TypeScript type is generated from it.
   `save` sends nothing. A list the host already held, left with one item
   or none, is written as the host writes it (one XML element or HCL block,
   or none and no key): its reader knows the list, as with the host's own
-  edit.
+  edit. Every save is read back by the host's own reader before it is sent:
+  keys moved where the host writes them elsewhere (an XML attribute below
+  the element's text or children, which XML writes in its start tag) wait
+  the same way, while tables a view reorders move in a TOML host with their
+  sub-tables. A key with a prefix (`x:attr`) is an XML attribute: the
+  model keys elements by their local name.
 - With a schema, a single XML element or HCL block where the schema expects a
   list reads as a one-item list.
 - A notice under the toolbar (`role="status"`, dismissible) says what the
   edited language does not show or keep: the host file's comments (an XML
   file's processing instructions too) and formatting are not shown there and
   a save keeps them; comments typed there are never saved (the data a
-  conversion carries has none), whatever the pair of languages. It shows only
+  conversion carries has none), whatever the pair of languages. That holds for
+  an XML element whose children and comments share one line too; a save no
+  patch can make, which would write the host anew without its comments,
+  waits instead. It shows only
   when the host's text has comments or the edited text does; its texts are
   `editAsHostComments` (`editAsHostInstructions` when it names processing
   instructions), `editAsTypedComments` and `editAsTypedCommentsNone` of the

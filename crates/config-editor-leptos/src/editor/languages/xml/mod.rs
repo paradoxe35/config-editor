@@ -31,6 +31,7 @@ mod tag_spelling;
 mod names;
 mod attribute_values;
 mod entities;
+mod namespaces;
 mod markup;
 // The fold ranges (the `folding` feature).
 #[cfg(feature = "folding")]
@@ -242,7 +243,9 @@ impl ConfigLanguage for XmlBehavior {
     }
 
     fn unconvertible(&self, source: &str) -> Option<String> {
-        namespace_clash(source).or_else(|| entities::declared_entity(source))
+        namespace_clash(source)
+            .or_else(|| namespaces::unbound_prefix(source))
+            .or_else(|| entities::declared_entity(source))
     }
 
     fn merged_keys(&self, source: &str) -> Option<String> {
@@ -398,12 +401,28 @@ impl ConfigLanguage for XmlBehavior {
     }
 
     /// An XML name (`a.b`, `café`): a letter or `_` first, then letters,
-    /// digits, `_`, `-` and `.`.
-    fn written_key(&self, _source: &str, _pointer: &str, key: &str) -> Option<String> {
-        let mut characters = key.chars();
-        let name = characters.next().is_some_and(|first| first.is_alphabetic() || first == '_')
-            && characters.all(|character| character.is_alphanumeric() || matches!(character, '_' | '-' | '.'));
-        name.then(|| key.to_string())
+    /// digits, `_`, `-` and `.`; for an attribute, one with a prefix too
+    /// (`x:attr`; the model keys elements by their local name, so an
+    /// element's is never renamed to one).
+    fn written_key(&self, source: &str, pointer: &str, key: &str) -> Option<String> {
+        let name = |part: &str| {
+            let mut characters = part.chars();
+            characters.next().is_some_and(|first| first.is_alphabetic() || first == '_')
+                && characters.all(|character| character.is_alphanumeric() || matches!(character, '_' | '-' | '.'))
+        };
+        let written = match key.split_once(':') {
+            Some((prefix, local)) => name(prefix) && name(local) && is_attribute(source, pointer),
+            None => name(key),
+        };
+        written.then(|| key.to_string())
+    }
+
+    fn entries_apart(&self, source: &str) -> Option<String> {
+        one_line::children_apart(source)
+    }
+
+    fn entries_together(&self, patched: &str, previous: &str) -> String {
+        one_line::with_one_line_elements_of(patched, previous)
     }
 
     fn one_line_body(&self, value: &Value, _indent: &str, _unit: &str) -> Option<String> {

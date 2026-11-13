@@ -120,7 +120,7 @@ impl ConfigLanguage for TomlBehavior {
     }
 
     fn item_lines(&self, source: &str, pointer: &str) -> Option<std::ops::Range<usize>> {
-        array_table_lines(source, pointer)
+        table_lines(source, pointer)
     }
 
     /// An assignment aligned as formatters write it (`p    = 1`) is the

@@ -117,6 +117,20 @@ pub(super) fn attribute_paths(source: &str) -> AttributePaths {
     found
 }
 
+/// Whether `pointer` names a value `source` writes as an attribute, its
+/// attributes read once per batch over it.
+pub(super) fn is_attribute(source: &str, pointer: &str) -> bool {
+    struct Attributes(AttributePaths);
+    let attributes = crate::editor::paths::batch_cached_as(crate::editor::work_count::Work::KeyScan, source, || {
+        Attributes(attribute_paths(source))
+    });
+    let path: Vec<String> = pointer_segments(pointer)
+        .into_iter()
+        .filter(|segment| crate::editor::language::pointer_index(segment).is_none())
+        .collect();
+    attributes.0.contains(&path)
+}
+
 /// `value` (the element at `path`) with the scalars the host wrote as
 /// attributes renamed `@name`, the key `quick-xml` writes as an attribute,
 /// and placed before the children.
@@ -134,9 +148,14 @@ pub(super) fn with_attributes(value: &Value, attributes: &AttributePaths, path: 
                 // An attribute keyed `@name` (a child element has its name).
                 // A plain key beside `@` its name is the child element.
                 let child_of_attribute = map.contains_key(&format!("@{key}"));
+                // A namespace declaration, or a name with a prefix (the
+                // model keys elements by their local name, so only an
+                // attribute reads with one), is an attribute wherever it
+                // is added.
+                let attribute_name = key == "xmlns" || key.contains(':');
                 if scalar && key.starts_with('@') {
                     attrs.insert(key.clone(), child.clone());
-                } else if scalar && !child_of_attribute && (attributes_only || attributes.contains(path.as_slice())) {
+                } else if scalar && !child_of_attribute && (attribute_name || attributes_only || attributes.contains(path.as_slice())) {
                     attrs.insert(format!("@{key}"), child.clone());
                 } else {
                     children.insert(key.clone(), with_attributes(child, attributes, path));
@@ -224,7 +243,10 @@ pub(super) fn element_from(source: &str, tokens: &[Token], index: usize) -> Opti
 
 /// The range between the tags of the element at `pointer` when it has child
 /// elements and is written on one line
-/// (`<heartbeat><interval_secs>15</interval_secs></heartbeat>`).
+/// (`<heartbeat><interval_secs>15</interval_secs></heartbeat>`), and no
+/// comment, processing instruction or CDATA section, which a body written
+/// anew would drop (a structural save spreads those, see
+/// `one_line::children_apart`).
 pub(super) fn one_line_element(source: &str, pointer: &str) -> Option<std::ops::Range<usize>> {
     let wanted = pointer_segments(pointer);
     let tokens = tokenize(source);
@@ -247,7 +269,8 @@ pub(super) fn one_line_element(source: &str, pointer: &str) -> Option<std::ops::
             Kind::EndTag if depth == 0 => {
                 let inner = open.end..token.start;
                 let one_line = !source[open.start..token.end].contains('\n');
-                return (children && one_line && token_name(source, token) == name).then_some(inner);
+                let markup = ["<!--", "<?", "<![CDATA["].iter().any(|opener| source[inner.clone()].contains(opener));
+                return (children && one_line && !markup && token_name(source, token) == name).then_some(inner);
             }
             Kind::EndTag => depth -= 1,
             _ => {}

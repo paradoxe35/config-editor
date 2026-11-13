@@ -25,7 +25,7 @@ fn renamed(value: &mut Value, from: &str, to: &str) {
 fn an_attribute_beside_a_child_of_its_name_stays_an_attribute() {
     let mut failures = Vec::new();
     let host = "<r a=\"1\">\n  <a>2</a> <!-- c -->\n  <z>0</z> <!-- z -->\n</r>\n";
-    let cases: [(&str, Change, &str); 7] = [
+    let cases: [(&str, Change, &str); 6] = [
         (
             "the child removed",
             |value| {
@@ -51,15 +51,6 @@ fn an_attribute_beside_a_child_of_its_name_stays_an_attribute() {
             "<r a=\"5\">\n  <a>2</a> <!-- c -->\n  <z>0</z> <!-- z -->\n</r>\n",
         ),
         (
-            "the attribute moved after the children",
-            |value| {
-                let object = element(value);
-                let held = object.shift_remove("@a").unwrap();
-                object.insert("@a".into(), held);
-            },
-            host,
-        ),
-        (
             "an attribute added",
             |value| {
                 element(value).insert("@q".into(), json!(5));
@@ -77,6 +68,26 @@ fn an_attribute_beside_a_child_of_its_name_stays_an_attribute() {
     ];
     for (label, change, expected) in cases {
         from_every_view(&mut failures, label, Language::XML, host, &change, expected);
+    }
+    // Moved after the children, where XML writes no attribute: the save
+    // waits (it was saved as the host was, the move dropped).
+    for view in [
+        Language::YAML,
+        Language::JSON,
+        Language::TOML,
+        Language::HCL,
+    ] {
+        let moved = save_value(Language::XML, view, host, &|value| {
+            let object = element(value);
+            let held = object.shift_remove("@a").unwrap();
+            object.insert("@a".into(), held);
+        });
+        match moved {
+            Err(error) if error.contains("another place than the view moved it to") => {}
+            other => failures.push(format!(
+                "the attribute moved after the children: via {view}: {other:?}"
+            )),
+        }
     }
     report(failures);
 }
@@ -201,6 +212,15 @@ fn every_edit_of_attributes_and_children_sharing_names_keeps_them_apart() {
                         *edited.borrow_mut() = Some(value.clone());
                     }
                 });
+                // A move XML cannot write (an attribute after the
+                // children) waits.
+                if saved
+                    .as_ref()
+                    .is_err_and(|error| error.contains("another place than the view moved it to"))
+                {
+                    tried += 1;
+                    continue;
+                }
                 let (Some(mut edited), Ok(saved)) = (edited.into_inner(), saved) else {
                     continue;
                 };

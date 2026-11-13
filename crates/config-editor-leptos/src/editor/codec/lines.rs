@@ -27,6 +27,17 @@ pub(in super::super) fn patch_structure(
         return None;
     }
     let reads_as_new = |text: &str| reads_as(language, text, schema, new);
+    // The entries of containers the host writes on one line (XML children,
+    // the comments between them) on lines of their own, patched there and
+    // joined back: the line patch keeps what it does not touch.
+    if let Some(apart) = language.entries_apart(previous)
+        && let Some(patched) = patch_kept_lines(language, &apart, old, new, schema)
+    {
+        let together = language.entries_together(&patched, previous);
+        if reads_as_new(&together) {
+            return Some(together);
+        }
+    }
     // Empty containers over lines (`block {` then `}`) as the serializer
     // writes them, on one line.
     if let Some(joined) = empty_containers::join(language, previous)

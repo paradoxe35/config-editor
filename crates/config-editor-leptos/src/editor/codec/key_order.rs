@@ -203,6 +203,11 @@ fn entry_lines(
     {
         last = last.max(paths::line_column(text, value.end).0 - 1);
     }
+    // An entry the language writes as lines of its own (a TOML table)
+    // ends where it says.
+    if let Some(own) = language.item_lines(text, pointer) {
+        last = last.max(paths::line_column(text, own.end).0 - 1);
+    }
     // A container opened on its lines runs to where it closes.
     while last + 1 < lines.len() && language.unclosed_containers(&lines[line..=last].join("\n")) > 0
     {
