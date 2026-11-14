@@ -294,17 +294,10 @@ fn an_element_moved_keeps_its_namespace() {
                 pause(state);
                 let saved = state.sync().host_text.get_value();
                 let problems = crate::check_syntax(Language::XML, &saved);
-                // A copy is a new element: in its siblings' namespace, as
-                // any element added there (QA `E34-3`), declaring no default
-                // one (only a prefix its keys show, `d:a`, as bound).
-                let kept = match step {
-                    Between::Copied => {
-                        saved != case.host
-                            && saved.matches("xmlns=").count()
-                                == case.host.matches("xmlns=").count()
-                    }
-                    _ => saved.contains(case.expected),
-                };
+                // A copy keeps its source's namespace like a moved element
+                // (QA 37, E37-5: a copy of an existing item keeps its form);
+                // only a brand-new element takes its siblings' (E34-3).
+                let kept = saved != case.host && saved.contains(case.expected);
                 if !kept || !problems.is_empty() {
                     let waits: Vec<String> = state
                         .sync()

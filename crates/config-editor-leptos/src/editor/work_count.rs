@@ -213,6 +213,11 @@ pub(crate) enum Work {
         allow(dead_code, reason = "only schema validation notes it")
     )]
     OptionTried,
+    /// A step following the items of an Edit-as view through its edits
+    /// (`bridge::item_trail`): a place of an insert weighed for a cut
+    /// item's lines (or against a place taken), or an item of the view
+    /// looked for among the ones followed or cut.
+    TrailStep,
 }
 
 impl Work {
@@ -263,6 +268,7 @@ impl Work {
             Self::MovedLeaf => 41,
             Self::ErrorVisit => 42,
             Self::OptionTried => 43,
+            Self::TrailStep => 44,
         }
     }
 
@@ -313,12 +319,13 @@ impl Work {
         Self::MovedLeaf,
         Self::ErrorVisit,
         Self::OptionTried,
+        Self::TrailStep,
     ];
 }
 
 /// How many kinds of work there are.
 #[cfg(test)]
-const KINDS: usize = 44;
+const KINDS: usize = 45;
 
 #[cfg(test)]
 thread_local! {

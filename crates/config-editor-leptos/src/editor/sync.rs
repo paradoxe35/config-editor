@@ -555,7 +555,19 @@ pub(super) fn convert_now(state: EditorState, text: String, language: Language) 
             // Its items are the session's first view's only when it is
             // that view's host text.
             Some(host) if host == origin => (Ok(host), trail.at_origin(&text)),
-            Some(host) => (Ok(host), trail.unknown_from(&text)),
+            // What the edits tell still holds: an item cut back to a text
+            // saved before (a key pasted this session cut again) is the
+            // item it was where a paste brings it (QA `E37-1`).
+            Some(host) => {
+                let traced = (follows && trail.wants_trace())
+                    .then(|| trail.trace(language.behavior(), &text))
+                    .flatten();
+                let next = match traced {
+                    Some(trace) => trace.saved,
+                    None => trail.unknown_from(&text),
+                };
+                (Ok(host), next)
+            }
             None if follows && followed.is_some() => bridge.to_host_traced(
                 &text,
                 &previous,

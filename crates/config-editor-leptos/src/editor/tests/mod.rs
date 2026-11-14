@@ -100,6 +100,15 @@ mod keystroke_work;
     feature = "xml"
 ))]
 mod line_breaks;
+// It uses the helpers of `moved_forms`, gated the same.
+#[cfg(all(
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod large_edit_work;
 #[cfg(all(
     feature = "yaml",
     feature = "json",
@@ -116,6 +125,24 @@ mod moved_form_checks;
     feature = "xml"
 ))]
 mod moved_forms;
+#[cfg(all(
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod moved_forms_again;
+#[cfg(all(feature = "yaml", feature = "toml"))]
+mod moved_into_items;
+#[cfg(all(
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod moved_maps_nested;
 // Observes what every setting switches, so it needs every optional feature.
 #[cfg(all(feature = "yaml", feature = "toml", feature = "schema-validation"))]
 mod hover_look_back;
