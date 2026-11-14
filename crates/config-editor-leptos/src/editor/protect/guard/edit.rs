@@ -2,7 +2,8 @@
 //! they share at their ends, the region the edit replaced, and the edited
 //! text parsed (at most once, when a check asks for it).
 
-use std::cell::OnceCell;
+use std::cell::{OnceCell, RefCell};
+use std::collections::HashMap;
 use std::ops::Range;
 
 use serde_json::Value;
@@ -10,6 +11,7 @@ use serde_json::Value;
 use super::super::super::codec;
 use super::super::super::diff::{DiffEdit, myers_edits};
 use super::super::super::language::ConfigLanguage;
+use super::super::super::work_count::{Work, note};
 use super::super::locate::LineIndex;
 use super::super::locks::{Lock, Protected};
 use super::content::{content_areas, in_locked_content};
@@ -45,7 +47,13 @@ pub(super) struct Edited<'a> {
     spacing: OnceCell<bool>,
     content: OnceCell<Vec<Range<usize>>>,
     pinned: OnceCell<Pinned<'a>>,
+    /// The lines of each text by their last bytes (`copies_kept`).
+    line_ends: LineEnds<'a>,
 }
+
+/// For each length, how many lines of each text end with each run of that
+/// many bytes.
+type LineEnds<'a> = RefCell<HashMap<usize, std::rc::Rc<[HashMap<&'a str, usize>; 2]>>>;
 
 impl<'a> Edited<'a> {
     pub(super) fn new(
@@ -100,6 +108,7 @@ impl<'a> Edited<'a> {
             spacing: OnceCell::new(),
             content: OnceCell::new(),
             pinned: OnceCell::new(),
+            line_ends: RefCell::default(),
         }
     }
 
@@ -144,13 +153,32 @@ impl<'a> Edited<'a> {
         let Some(tail) = text.get(from - line_start..) else {
             return true;
         };
-        let copies = |source: &str| {
-            source
-                .lines()
-                .filter(|other| other.trim_end_matches('\r').ends_with(tail))
-                .count()
+        let [before, after] = &*self.line_ends(tail.len());
+        let copies = |ends: &HashMap<&str, usize>| ends.get(tail).copied().unwrap_or(0);
+        copies(before) <= copies(after)
+    }
+
+    /// For each of the two texts, how many of its lines end with each
+    /// `length` bytes (read once per length: a check of every copy of
+    /// every field is a pass over the texts, not one for each).
+    fn line_ends(&self, length: usize) -> std::rc::Rc<[HashMap<&'a str, usize>; 2]> {
+        if let Some(ends) = self.line_ends.borrow().get(&length) {
+            return ends.clone();
+        }
+        let ends = |source: &'a str| {
+            note(Work::LineSplit);
+            let mut ends: HashMap<&'a str, usize> = HashMap::new();
+            for line in source.lines() {
+                let line = line.trim_end_matches('\r');
+                if let Some(end) = line.len().checked_sub(length).and_then(|at| line.get(at..)) {
+                    *ends.entry(end).or_default() += 1;
+                }
+            }
+            ends
         };
-        copies(self.before) <= copies(self.after)
+        let made = std::rc::Rc::new([ends(self.before), ends(self.after)]);
+        self.line_ends.borrow_mut().insert(length, made.clone());
+        made
     }
 
     /// Whether the lines of `range` of `before` are kept whole by a line

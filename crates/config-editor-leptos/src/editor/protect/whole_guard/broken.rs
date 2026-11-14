@@ -21,7 +21,7 @@ use super::super::glued::written_alone;
 use super::super::guard::check_values;
 use super::super::locate::LineIndex;
 use super::super::locks::{Lock, Protected, Sources, protect};
-use super::super::own_value::own_value;
+use super::super::own_value::{own_value, with_own_values};
 use super::super::texts::Reason;
 use super::super::tokens::Known;
 use super::Placeholders;
@@ -130,14 +130,33 @@ impl Placeholders<'_> {
         lines: &LineIndex<'_>,
         ranges: &[&Range<usize>],
     ) -> (Vec<Live<'_>>, Vec<bool>) {
+        // Each one's field, then the values of those fields (every copy of
+        // their keys) found at once.
+        let pointers: Vec<Option<String>> = ranges
+            .iter()
+            .map(|range| path_at(self.behavior, before, range.start).map(|path| path.to_pointer()))
+            .collect();
+        let fields: Vec<String> = pointers.iter().flatten().cloned().collect();
+        with_own_values(self.behavior, before, &fields, || {
+            self.placed_in(before, lines, ranges, pointers)
+        })
+    }
+
+    /// [`Self::placed`], each of `ranges` with the field it is written in.
+    fn placed_in(
+        &self,
+        before: &str,
+        lines: &LineIndex<'_>,
+        ranges: &[&Range<usize>],
+        pointers: Vec<Option<String>>,
+    ) -> (Vec<Live<'_>>, Vec<bool>) {
         let mut near = Vec::new();
         let mut placed = Vec::new();
-        for range in ranges {
+        for (range, pointer) in ranges.iter().zip(pointers) {
             let token = &before[lines.byte_of(range.start)..lines.byte_of(range.end)];
             let Some(first) = self.index.first_of(token) else {
                 continue;
             };
-            let pointer = path_at(self.behavior, before, range.start).map(|path| path.to_pointer());
             let at = pointer
                 .as_deref()
                 .and_then(|pointer| self.index.in_field(token, pointer));
@@ -167,6 +186,19 @@ impl Placeholders<'_> {
         near: &[&Live<'_>],
         pointers: &[String],
     ) -> Protected {
+        with_own_values(self.behavior, before, pointers, || {
+            self.value_locks_found(before, lines, near, pointers)
+        })
+    }
+
+    /// [`Self::value_locks`], the values of `pointers` found at once.
+    fn value_locks_found(
+        &self,
+        before: &str,
+        lines: &LineIndex<'_>,
+        near: &[&Live<'_>],
+        pointers: &[String],
+    ) -> Protected {
         let mut found = Vec::new();
         let mut unfound = Vec::new();
         for pointer in pointers {
@@ -179,7 +211,7 @@ impl Placeholders<'_> {
                 .filter(|(_, known)| known.field.as_deref() == Some(pointer.as_str()))
             {
                 let bytes = lines.byte_of(token.start)..lines.byte_of(token.end);
-                if let Some((_, value)) = own_value(self.behavior, before, pointer, &bytes)
+                if let Some(value) = own_value(self.behavior, before, pointer, &bytes)
                     && !values.contains(&value)
                 {
                     values.push(value);

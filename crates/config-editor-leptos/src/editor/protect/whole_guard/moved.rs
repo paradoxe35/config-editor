@@ -17,6 +17,7 @@ use serde_json::Value;
 use super::super::super::paths::{path_at, with_spans};
 use super::super::super::text_change::utf16_len;
 use super::super::glued::written_alone;
+use super::super::own_value::with_own_values;
 use super::super::tokens::{Known, field_value};
 use super::Placeholders;
 
@@ -194,25 +195,36 @@ impl Placeholders<'_> {
         before: &str,
         moved: Vec<Written>,
     ) -> Vec<(Range<usize>, Known)> {
-        moved
+        // Each one's field, then the values of those fields (every copy of
+        // their keys) found at once.
+        let placed: Vec<(Written, String)> = moved
             .into_iter()
             .filter_map(|(range, units)| {
-                let token = &before[range.clone()];
                 let pointer = path_at(self.behavior, before, units)?.to_pointer();
-                let whole = written_alone(self.behavior, before, &pointer, range)?;
-                let ranges = units..units + utf16_len(token);
-                Some((
-                    ranges,
-                    Known {
-                        token: token.to_string(),
-                        field: Some(pointer),
-                        count: 1,
-                        whole: Some(whole),
-                        items: Vec::new(),
-                        placed: true,
-                    },
-                ))
+                Some(((range, units), pointer))
             })
-            .collect()
+            .collect();
+        let pointers: Vec<String> = placed.iter().map(|(_, pointer)| pointer.clone()).collect();
+        with_own_values(self.behavior, before, &pointers, || {
+            placed
+                .into_iter()
+                .filter_map(|((range, units), pointer)| {
+                    let token = &before[range.clone()];
+                    let whole = written_alone(self.behavior, before, &pointer, range)?;
+                    let ranges = units..units + utf16_len(token);
+                    Some((
+                        ranges,
+                        Known {
+                            token: token.to_string(),
+                            field: Some(pointer),
+                            count: 1,
+                            whole: Some(whole),
+                            items: Vec::new(),
+                            placed: true,
+                        },
+                    ))
+                })
+                .collect()
+        })
     }
 }

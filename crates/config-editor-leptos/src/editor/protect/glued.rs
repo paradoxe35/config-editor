@@ -36,8 +36,8 @@ pub(crate) fn written_alone(
 ) -> Option<String> {
     // The value the token is written in, also where the field's key is
     // written twice (a line moved into a block holding it).
-    let (read, range) = own_value(behavior, text, pointer, &token)?;
-    let written = &read[range.clone()];
+    let range = own_value(behavior, text, pointer, &token)?;
+    let written = &text[range.clone()];
     let token_text = &text[token.clone()];
     // The whitespace written right before the token inside the value's
     // written form; after it, a line break however written (an escape in
