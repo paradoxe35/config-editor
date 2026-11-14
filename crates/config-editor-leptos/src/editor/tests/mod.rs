@@ -92,6 +92,22 @@ mod keystroke_work;
     feature = "xml"
 ))]
 mod line_breaks;
+#[cfg(all(
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod moved_form_checks;
+#[cfg(all(
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod moved_forms;
 // Observes what every setting switches, so it needs every optional feature.
 #[cfg(all(feature = "yaml", feature = "toml", feature = "schema-validation"))]
 mod hover_look_back;

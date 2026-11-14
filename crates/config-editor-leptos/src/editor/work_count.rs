@@ -195,6 +195,9 @@ pub(crate) enum Work {
     /// each element (`moved_declarations`).
     #[cfg_attr(not(feature = "xml"), allow(dead_code, reason = "only XML notes it"))]
     NamespaceScan,
+    /// A scalar of a key or item an Edit-as edit moved, compared with
+    /// where it was cut from (`bridge::moved_forms`).
+    MovedLeaf,
 }
 
 impl Work {
@@ -242,6 +245,7 @@ impl Work {
             Self::AroundParse => 38,
             Self::WalkUp => 39,
             Self::NamespaceScan => 40,
+            Self::MovedLeaf => 41,
         }
     }
 
@@ -289,12 +293,13 @@ impl Work {
         Self::AroundParse,
         Self::WalkUp,
         Self::NamespaceScan,
+        Self::MovedLeaf,
     ];
 }
 
 /// How many kinds of work there are.
 #[cfg(test)]
-const KINDS: usize = 41;
+const KINDS: usize = 42;
 
 #[cfg(test)]
 thread_local! {

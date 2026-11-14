@@ -32,7 +32,12 @@ pub(super) struct HostForms {
 
 /// The maps `source` writes as object attributes (`udp = { … }`) and as
 /// unlabelled blocks.
-type MapForms = (std::collections::HashSet<Vec<String>>, std::collections::HashSet<Vec<String>>);
+pub(super) type MapForms = (std::collections::HashSet<Vec<String>>, std::collections::HashSet<Vec<String>>);
+
+/// [`map_forms`] of `source`, read on its own.
+pub(super) fn forms_of(source: &str) -> MapForms {
+    map_forms(source, &analyze(source, 0))
+}
 
 fn map_forms(source: &str, scan: &Scan) -> MapForms {
     let attributes = scan
@@ -85,10 +90,11 @@ pub(super) fn host_forms(source: &str) -> HostForms {
 }
 
 /// The first map `patched` writes as a block that `previous` writes as an
-/// attribute (`name = { … }`), or the other way round.
+/// attribute (`name = { … }`), or the other way round: where it is, or
+/// where a save moved it to (`moved_maps`).
 pub(super) fn changed_form(previous: &str, patched: &str) -> Option<String> {
-    let forms = |source: &str| map_forms(source, &analyze(source, 0));
-    let ((attributes_before, blocks_before), (attributes_after, blocks_after)) = (forms(previous), forms(patched));
+    let before = super::moved_maps::with_moved(forms_of(previous), previous, forms_of);
+    let ((attributes_before, blocks_before), (attributes_after, blocks_after)) = (before, forms_of(patched));
     let unnumbered = |paths: std::collections::HashSet<Vec<String>>| -> std::collections::HashSet<Vec<String>> {
         paths.into_iter().map(|path| path.into_iter().filter(|segment| crate::editor::language::pointer_index(segment).is_none()).collect()).collect()
     };

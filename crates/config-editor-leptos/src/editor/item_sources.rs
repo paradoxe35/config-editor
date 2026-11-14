@@ -18,7 +18,8 @@ use std::rc::Rc;
 /// Where an item of the saved value comes from, by its pointer.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum ItemSource {
-    /// The item at this pointer of the host's last text.
+    /// The item at this pointer of the host's last text (of
+    /// [`ItemSources::followed`]).
     Previous(String),
     /// The item at this pointer of the host text the edit session began
     /// on: cut in an earlier save, pasted back in this one.
@@ -29,6 +30,11 @@ pub(crate) enum ItemSource {
 pub(crate) struct ItemSources {
     /// The host's last text, which the save patches.
     pub(crate) previous: String,
+    /// The host text whose items [`ItemSource::Previous`] names: the
+    /// host's last text, or one saved before it when the saves since were
+    /// told nothing (see `item_trail::Trail::wants_trace`; never so for a
+    /// host whose items hold what no view shows).
+    pub(crate) followed: String,
     /// The host text the edit session began on.
     pub(crate) origin: String,
     /// The values the save writes for the view's (as edited, and as the
@@ -40,6 +46,15 @@ pub(crate) struct ItemSources {
     /// lone item at `/l/0` or `/l`. Items not listed are not told by the
     /// edit.
     pub(crate) items: HashMap<String, ItemSource>,
+}
+
+impl ItemSource {
+    /// Its pointer in the host text it is in.
+    pub(crate) fn pointer(&self) -> &str {
+        match self {
+            ItemSource::Previous(pointer) | ItemSource::Origin(pointer) => pointer,
+        }
+    }
 }
 
 impl ItemSources {
@@ -90,6 +105,7 @@ pub(crate) fn also_for(value: &Value) {
         {
             let mut changed = ItemSources {
                 previous: sources.previous.clone(),
+                followed: sources.followed.clone(),
                 origin: sources.origin.clone(),
                 values: sources.values.clone(),
                 items: sources.items.clone(),

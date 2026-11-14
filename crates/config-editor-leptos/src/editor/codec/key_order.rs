@@ -203,11 +203,14 @@ fn entry_lines(
         return None;
     }
     let mut last = line;
-    // A value over lines (a block scalar, a heredoc) ends where it ends.
+    // A value over lines (a block scalar, a heredoc) ends where it ends,
+    // the line break after it no line of its (a heredoc's span runs
+    // through its terminator line).
     if let Some(value) =
         paths::memo_value_span(language, text, pointer).and_then(|span| byte_range(text, span))
     {
-        last = last.max(paths::line_column(text, value.end).0 - 1);
+        let end = value.start + text[value.clone()].trim_end_matches('\n').len();
+        last = last.max(paths::line_column(text, end).0 - 1);
     }
     // An entry the language writes as lines of its own (a TOML table)
     // ends where it says.
