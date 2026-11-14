@@ -186,9 +186,11 @@ fn the_editor_root_rules_reach_an_editor_in_a_documents_view() {
 #[test]
 fn the_roots_set_every_inherited_text_property() {
     let css = without_comments(PRESET_CSS);
+    // The roots' text properties come at the shield's weight, so a page
+    // rule naming an id cannot reach them.
     let start = css
-        .find(".config-editor,\n.config-editor-documents,\n")
-        .expect("the roots' rule");
+        .find(":not(#\\#):not(#\\#) .config-editor,\n:not(#\\#):not(#\\#) .config-editor-documents")
+        .expect("the roots' shielded text rule");
     let rule = &css[start..start + css[start..].find('}').unwrap()];
     for property in [
         "text-align:",
