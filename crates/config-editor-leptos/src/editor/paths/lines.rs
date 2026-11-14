@@ -194,10 +194,6 @@ pub(crate) fn split_line(source: &str, index: usize) -> Option<&str> {
     source.split('\n').nth(index)
 }
 
-#[cfg_attr(
-    not(any(feature = "yaml", feature = "toml")),
-    allow(dead_code, reason = "the YAML and TOML readers use it (and the tests)")
-)]
 /// Line `index` (from 0) of `source` as `source.lines().nth(index)` gives
 /// it: without a `\r` before its `\n`, and no empty line after a final
 /// line break.

@@ -63,23 +63,33 @@ fn tag_close(tag: &str) -> Option<usize> {
 
 /// Elements started and not ended in `text`.
 pub(super) fn open_elements(text: &str) -> usize {
-    let mut depth = 0usize;
+    open_element_names(text).len()
+}
+
+/// The names of the elements `text` starts and does not end, outermost
+/// first.
+pub(super) fn open_element_names(text: &str) -> Vec<&str> {
+    let mut open = Vec::new();
     let mut rest = text;
     while let Some(at) = rest.find('<') {
         let tag = &rest[at..];
         let end = tag.find('>').map_or(tag.len(), |end| end + 1);
         let body = &tag[..end];
         if body.starts_with("</") {
-            depth = depth.saturating_sub(1);
+            open.pop();
         } else if body.starts_with("<!") || body.starts_with("<?") || body.ends_with("/>") {
         } else if body[1..]
             .starts_with(|character: char| character.is_alphabetic() || character == '_')
         {
-            depth += 1;
+            let name = &body[1..];
+            let name_end = name
+                .find(|character: char| character.is_whitespace() || character == '>' || character == '/')
+                .unwrap_or(name.len());
+            open.push(&name[..name_end]);
         }
         rest = &tag[end.max(1)..];
     }
-    depth
+    open
 }
 
 /// The length of what closes an element at the start of `text`: its text

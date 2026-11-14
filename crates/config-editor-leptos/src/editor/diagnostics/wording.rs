@@ -94,6 +94,20 @@ impl Wording<'_> {
                 super::super::false_schema::message(&error.instance().to_string())
             }
             ValidationErrorKind::Contains => self.contains(error),
+            // Counts, not the whole list or object printed.
+            ValidationErrorKind::MinItems { limit } => {
+                self.counted(error, &strings.too_few_items, *limit)
+            }
+            ValidationErrorKind::MaxItems { limit } => {
+                self.counted(error, &strings.too_many_items, *limit)
+            }
+            ValidationErrorKind::MinProperties { limit } => {
+                self.counted(error, &strings.too_few_keys, *limit)
+            }
+            ValidationErrorKind::MaxProperties { limit } => {
+                self.counted(error, &strings.too_many_keys, *limit)
+            }
+            ValidationErrorKind::UniqueItems => self.repeated(error),
             ValidationErrorKind::Not { schema } => match self.kept_apart(error, schema) {
                 Some(keys) => {
                     let quoted: Vec<String> = keys
@@ -171,24 +185,24 @@ impl Wording<'_> {
                     )
                 })
             }
-            Some((keyword, refused)) if keyword == "const" => Some(fill(
-                &strings.must_not_be,
-                &[("value", &value), ("values", &refused.to_string())],
-            )),
-            Some((keyword, Value::Array(refused))) if keyword == "enum" => Some(fill(
-                &strings.must_not_be,
-                &[
-                    ("value", &value),
-                    (
-                        "values",
-                        &refused
-                            .iter()
-                            .map(Value::to_string)
-                            .collect::<Vec<_>>()
-                            .join(" or "),
-                    ),
-                ],
-            )),
+            // The value is the one refused: not said twice (`3 must not be 3`).
+            Some((keyword, _)) if keyword == "const" => None,
+            Some((keyword, Value::Array(refused))) if keyword == "enum" && refused.len() > 1 => {
+                Some(fill(
+                    &strings.must_not_be,
+                    &[
+                        ("value", &value),
+                        (
+                            "values",
+                            &refused
+                                .iter()
+                                .map(Value::to_string)
+                                .collect::<Vec<_>>()
+                                .join(", "),
+                        ),
+                    ],
+                ))
+            }
             Some((keyword, Value::Array(options))) if keyword == "anyOf" => {
                 let keys: Option<Vec<&str>> = options
                     .iter()
@@ -259,18 +273,49 @@ impl Wording<'_> {
             .root
             .pointer(parent)
             .and_then(|schema| schema.get(keyword));
-        let value = error.instance();
         match (keyword, limit) {
-            ("minContains", Some(limit)) => fill(
-                &self.strings.too_few_contained,
-                &[("value", &value), ("limit", limit)],
-            ),
-            ("maxContains", Some(limit)) => fill(
-                &self.strings.too_many_contained,
-                &[("value", &value), ("limit", limit)],
-            ),
-            _ => fill(&self.strings.no_item_contained, &[("value", &value)]),
+            ("minContains", Some(limit)) => {
+                fill(&self.strings.too_few_contained, &[("limit", limit)])
+            }
+            ("maxContains", Some(limit)) => {
+                fill(&self.strings.too_many_contained, &[("limit", limit)])
+            }
+            _ => fill(&self.strings.no_item_contained, &[]),
         }
+    }
+
+    /// A list or object with too few or too many items or keys: `text`
+    /// with its count and the `limit`.
+    fn counted(&self, error: &ValidationError<'_>, text: &str, limit: u64) -> String {
+        let count = match &**error.instance() {
+            Value::Array(items) => items.len(),
+            Value::Object(members) => members.len(),
+            _ => 0,
+        };
+        fill(
+            text,
+            &[
+                ("limit", &Value::from(limit)),
+                ("count", &Value::from(count)),
+            ],
+        )
+    }
+
+    /// A list holding an item more than once: the first item repeated,
+    /// hidden when the list is a secret field's and cut when long.
+    fn repeated(&self, error: &ValidationError<'_>) -> String {
+        let instance = error.instance();
+        let items = instance.as_array().map(Vec::as_slice).unwrap_or_default();
+        let item = items
+            .iter()
+            .enumerate()
+            .find_map(|(index, item)| items[..index].contains(item).then_some(item));
+        let shown = match item {
+            _ if (self.secret)(error.instance_path().as_str()) => self.strings.secret_value.clone(),
+            Some(item) => cut(&item.to_string()),
+            None => String::new(),
+        };
+        fill(&self.strings.repeated_item, &[("item", &shown)])
     }
 
     /// `message` about `error` with its value hidden when it is a secret
@@ -547,4 +592,15 @@ pub(super) fn listed_types(message: &str) -> Option<Vec<String>> {
             .filter(|name| !name.is_empty())
             .collect(),
     )
+}
+
+/// `text` (a value as JSON), cut with `…` past [`MAX_QUOTED_VALUE`]
+/// characters.
+pub(super) fn cut(text: &str) -> String {
+    if text.chars().count() > MAX_QUOTED_VALUE {
+        let short: String = text.chars().take(MAX_QUOTED_VALUE).collect();
+        format!("{short}…")
+    } else {
+        text.to_string()
+    }
 }

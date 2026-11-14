@@ -25,11 +25,12 @@ use super::tokens::SecretMatcher;
 
 const MASK: &str = "«secret 0b1c»";
 
-const LANGUAGES: [Language; 4] = [
+const LANGUAGES: [Language; 5] = [
     Language::YAML,
     Language::JSON,
     Language::TOML,
     Language::HCL,
+    Language::XML,
 ];
 
 /// Block `b` holding the mask under `key`, then `x`.
@@ -38,21 +39,22 @@ fn block(language: Language, key: &str) -> String {
         "YAML" => format!("b:\n  {key}: {MASK}\n  x: 1\n"),
         "JSON" => format!("{{\n  \"b\": {{\n    \"{key}\": \"{MASK}\",\n    \"x\": 1\n  }}\n}}\n"),
         "TOML" => format!("[b]\n{key} = \"{MASK}\"\nx = 1\n"),
+        "XML" => format!("<b>\n  <{key}>{MASK}</{key}>\n  <x>1</x>\n</b>\n"),
         _ => format!("b {{\n  {key} = \"{MASK}\"\n  x = 1\n}}\n"),
     }
 }
 
-fn shown(state: EditorState) -> String {
+pub(super) fn shown(state: EditorState) -> String {
     state.doc().text.get_untracked()
 }
 
 /// The byte where line `index` of `text` starts.
-fn line_start(text: &str, index: usize) -> usize {
+pub(super) fn line_start(text: &str, index: usize) -> usize {
     text.split_inclusive('\n').take(index).map(str::len).sum()
 }
 
 /// The index of the line holding the `nth` mask of the text on screen.
-fn mask_line(state: EditorState, nth: usize) -> usize {
+pub(super) fn mask_line(state: EditorState, nth: usize) -> usize {
     shown(state)
         .lines()
         .enumerate()
@@ -63,7 +65,7 @@ fn mask_line(state: EditorState, nth: usize) -> usize {
 }
 
 /// `command` run with the caret at the start of line `index`.
-fn on_line(state: EditorState, index: usize, command: LineCommand) {
+pub(super) fn on_line(state: EditorState, index: usize, command: LineCommand) {
     let text = shown(state);
     let units = text[..line_start(&text, index)].encode_utf16().count();
     run(state, Command::Lines(command), (units, units), false);

@@ -24,6 +24,14 @@ mod bom_edits;
     feature = "hcl",
     feature = "xml"
 ))]
+mod broken_document_suggestions;
+#[cfg(all(
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
 mod convert_messages;
 #[cfg(feature = "yaml")]
 mod empty_schema;
@@ -55,6 +63,14 @@ mod item_trail_switches;
     feature = "xml"
 ))]
 mod key_trail_switches;
+#[cfg(all(
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod xml_moved_prefixes;
 // Reads what the view reads (folds, suggestions) on every language's sample.
 #[cfg(all(
     feature = "yaml",
@@ -76,6 +92,22 @@ mod keystroke_work;
     feature = "xml"
 ))]
 mod line_breaks;
+#[cfg(all(
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod moved_form_checks;
+#[cfg(all(
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod moved_forms;
 // Observes what every setting switches, so it needs every optional feature.
 #[cfg(all(feature = "yaml", feature = "toml", feature = "schema-validation"))]
 mod hover_look_back;
@@ -174,6 +206,14 @@ mod one_line_item_work;
     feature = "json",
     feature = "toml",
     feature = "hcl",
+    feature = "xml"
+))]
+mod option_document_reads;
+#[cfg(all(
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
     feature = "xml",
     feature = "schema-validation"
 ))]
@@ -205,3 +245,12 @@ mod utf16_offsets;
     feature = "xml"
 ))]
 mod xml_numeric_strings;
+#[cfg(all(
+    feature = "schema-validation",
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod xml_union_types;

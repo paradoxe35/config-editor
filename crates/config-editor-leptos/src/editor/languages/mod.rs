@@ -49,6 +49,15 @@ mod array_hover_matrix;
 mod at_least_one_matrix;
 #[cfg(all(
     test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod broken_elsewhere_matrix;
+#[cfg(all(
+    test,
     feature = "schema-validation",
     feature = "yaml",
     feature = "json",
@@ -191,6 +200,16 @@ mod item_start_tests;
     feature = "xml"
 ))]
 mod key_writing_matrix;
+#[cfg(all(
+    test,
+    feature = "schema-validation",
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod least_list_matrix;
 #[cfg(all(
     test,
     feature = "schema-validation",

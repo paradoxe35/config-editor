@@ -19,6 +19,7 @@ use std::sync::Arc;
 type ItemMap = HashMap<String, ItemSource>;
 
 mod collapsed;
+mod emptied_maps;
 mod emptied_quotes;
 mod host_strings;
 pub(super) mod item_trail;
@@ -41,6 +42,7 @@ mod many_renames_tests;
 ))]
 mod many_values_tests;
 mod merge;
+mod moved_forms;
 mod read_back;
 mod shared;
 mod tags;
@@ -156,28 +158,37 @@ impl Bridge {
     }
 
     /// [`Self::to_host_since`], which item of the host each of the view's
-    /// is read from `trail`, the edits made to the view since its last
-    /// save (see `item_sources`); with the trail once the save is made.
+    /// is read from `trail`, the edits made to the view since a save (see
+    /// `item_sources`), with the host text that save wrote; with the trail
+    /// once the save is made. A save no item may have moved in is told
+    /// nothing, unless the host's items hold what no view shows (see
+    /// [`item_trail::Trail::wants_trace`]).
     pub(super) fn to_host_traced(
         &self,
         edit_text: &str,
         previous_host: &str,
         origin: &str,
-        trail: Option<&item_trail::Trail>,
+        trail: Option<(&item_trail::Trail, &str)>,
     ) -> (Result<String, SaveError>, item_trail::Trail) {
         let (bare_origin, _) = byte_order_mark::split(origin);
-        let trace = trail
-            .filter(|_| self.host.behavior().items_hold_unshown(bare_origin))
-            .and_then(|trail| trail.trace(self.edit.behavior(), edit_text));
+        let traced = trail.filter(|(trail, _)| {
+            trail.wants_trace() || self.host.behavior().items_hold_unshown(bare_origin)
+        });
+        let trace = traced.and_then(|(trail, _)| trail.trace(self.edit.behavior(), edit_text));
+        let followed = traced.map(|(_, host)| byte_order_mark::split(host).0);
         let saved = self.to_host_told(
             edit_text,
             previous_host,
             origin,
-            trace.as_ref().map(|trace| &trace.items),
+            trace
+                .as_ref()
+                .zip(followed)
+                .map(|(trace, host)| (&trace.items, host)),
         );
         let next = match (trace, trail) {
             (Some(trace), _) => trace.saved,
-            (None, Some(trail)) => trail.unknown_from(edit_text),
+            (None, Some((trail, _))) if traced.is_none() => trail.untraced_to(edit_text),
+            (None, Some((trail, _))) => trail.unknown_from(edit_text),
             (None, None) => item_trail::Trail::unknown_since(edit_text),
         };
         (saved, next)
@@ -188,7 +199,7 @@ impl Bridge {
         edit_text: &str,
         previous_host: &str,
         origin: &str,
-        items: Option<&ItemMap>,
+        items: Option<(&ItemMap, &str)>,
     ) -> Result<String, SaveError> {
         let (previous, _) = byte_order_mark::split(previous_host);
         let (origin, _) = byte_order_mark::split(origin);
@@ -203,12 +214,14 @@ impl Bridge {
         Ok(byte_order_mark::restore(previous_host, conversion.text))
     }
 
+    /// `items`: each item's source, with the host text whose items
+    /// `ItemSource::Previous` names.
     fn to_unmarked_host(
         &self,
         edit_text: &str,
         previous_host: &str,
         origin: &str,
-        items: Option<&ItemMap>,
+        items: Option<(&ItemMap, &str)>,
     ) -> Result<Conversion, SaveError> {
         if edit_text.trim().is_empty() {
             return Ok(Conversion {
@@ -337,13 +350,17 @@ impl Bridge {
             ),
             None => value,
         };
+        // A map whose last entry the view deleted (`deps:` left alone) is
+        // the empty map, not a null.
+        let value = emptied_maps::kept(self.edit.behavior(), edit_text, &old, value);
         // Each changed value in the host's own form (a TOML datetime read
         // back normalized), or the reason the save waits.
         let value = host_scalars(host, previous_host, &old, value)?;
         // Which host item each item is, as the edit made it, told to the
         // writes and checks that follow.
-        let _told = item_sources::tell(items.map(|items| ItemSources {
+        let _told = item_sources::tell(items.map(|(items, followed)| ItemSources {
             previous: previous_host.to_string(),
+            followed: followed.to_string(),
             origin: origin.to_string(),
             values: vec![value.clone()],
             items: items.clone(),
@@ -576,9 +593,24 @@ impl Bridge {
                 pointer: pointer.clone(),
             });
         }
+        let intended = moved_to.as_ref().unwrap_or(&target);
+        // A key or item the edit moved is written as where it was cut
+        // from (see `moved_forms`), else the save waits.
+        let conversion = match items {
+            Some((items, followed)) => {
+                let text = self.moved_kept(
+                    conversion.text,
+                    intended,
+                    items,
+                    (followed, (followed == previous_host).then_some(&old)),
+                    origin,
+                )?;
+                Conversion { text, ..conversion }
+            }
+            None => conversion,
+        };
         // Nor does what is written read back otherwise, or keys in another
         // order than the user moved them to.
-        let intended = moved_to.as_ref().unwrap_or(&target);
         let saved = read_back::Saved {
             text: &conversion.text,
             as_text: &as_text,
@@ -612,6 +644,51 @@ impl Bridge {
             .into());
         }
         Ok(conversion)
+    }
+
+    /// `saved` with the scalars of each item `items` tells the edit moved
+    /// written as the host wrote them where they were cut from (in
+    /// `followed`, the host text `ItemSource::Previous` names, reading
+    /// `old` when known, or the session's first text `origin`).
+    fn moved_kept(
+        &self,
+        saved: String,
+        intended: &serde_json::Value,
+        items: &ItemMap,
+        (followed, old): (&str, Option<&serde_json::Value>),
+        origin: &str,
+    ) -> Result<String, SaveError> {
+        let host = self.host.behavior();
+        let read = |text: &str| codec::read(host, text, self.shape()).ok();
+        let pasted_back = items
+            .values()
+            .any(|source| matches!(source, ItemSource::Origin(_)));
+        let origin_value = pasted_back.then(|| read(origin)).flatten();
+        let followed_value = match old {
+            Some(_) => None,
+            None => read(followed),
+        };
+        let Some(old) = old.or(followed_value.as_ref()) else {
+            return Ok(saved);
+        };
+        let sources = (
+            moved_forms::Source {
+                text: followed,
+                value: old,
+            },
+            origin_value.as_ref().map(|value| moved_forms::Source {
+                text: origin,
+                value,
+            }),
+        );
+        moved_forms::kept(host, saved, intended, items, sources, self.shape()).map_err(|pointer| {
+            ConvertError::Unsupported(format!(
+                "this edit would write the value at {pointer} in another form than {} writes it, though it reads the same: edit it as {} (at {pointer})",
+                self.host.label(),
+                self.host.label()
+            ))
+            .into()
+        })
     }
 
     /// Every tag of the host's `previous` text (YAML `!Sub`) on a value the

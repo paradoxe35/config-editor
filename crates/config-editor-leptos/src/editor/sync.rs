@@ -540,12 +540,31 @@ pub(super) fn convert_now(state: EditorState, text: String, language: Language) 
                 .synced_edit
                 .with_value(|synced| trail.begins_on(synced))
         });
+        // The host text saved for the view's text the trail starts on.
+        let followed = state.sync().trail.with_value(|trail| {
+            let start = trail.start()?;
+            state.sync().synced_hosts.with_value(|saved| {
+                saved
+                    .iter()
+                    .rev()
+                    .find(|(known, edit, _)| *known == language && edit == start)
+                    .map(|(_, _, host)| host.clone())
+            })
+        });
         let (result, trail) = state.sync().trail.with_value(|trail| match known {
             // Its items are the session's first view's only when it is
             // that view's host text.
             Some(host) if host == origin => (Ok(host), trail.at_origin(&text)),
             Some(host) => (Ok(host), trail.unknown_from(&text)),
-            None if follows => bridge.to_host_traced(&text, &previous, &origin, Some(trail)),
+            None if follows && followed.is_some() => bridge.to_host_traced(
+                &text,
+                &previous,
+                &origin,
+                trail
+                    .start()
+                    .zip(followed.as_deref())
+                    .map(|(_, host)| (trail, host)),
+            ),
             // Edits followed from another text than the one saved tell
             // nothing of this save's items: their values do.
             None => {

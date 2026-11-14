@@ -58,17 +58,48 @@ fn problems_of_every_kind_read_plainly_in_every_language() {
         (
             "l: [1, 2]\n",
             r#"{"properties":{"l":{"contains":{"type":"string"}}}}"#,
-            r#"/l: [1,2] has no item its "contains" schema allows"#,
+            r#"/l: no item of the list is one its "contains" schema allows"#,
         ),
         (
             "l: [a, 2]\n",
             r#"{"properties":{"l":{"contains":{"type":"string"},"minContains":2}}}"#,
-            r#"/l: ["a",2] has fewer than 2 items its "contains" schema allows"#,
+            r#"/l: fewer than 2 items of the list are ones its "contains" schema allows"#,
         ),
         (
             "l: [a, b, c]\n",
             r#"{"properties":{"l":{"contains":{"type":"string"},"maxContains":2}}}"#,
-            r#"/l: ["a","b","c"] has more than 2 items its "contains" schema allows"#,
+            r#"/l: more than 2 items of the list are ones its "contains" schema allows"#,
+        ),
+        // QA 36: counts, not the whole list or object printed.
+        (
+            "l: [1, 2]\n",
+            r#"{"properties":{"l":{"minItems":10}}}"#,
+            "/l: the number of items must be at least 10, and is 2",
+        ),
+        (
+            "l: [1, 2, 3]\n",
+            r#"{"properties":{"l":{"maxItems":2}}}"#,
+            "/l: the number of items must be at most 2, and is 3",
+        ),
+        (
+            "o:\n  a: 1\n",
+            r#"{"properties":{"o":{"minProperties":2}}}"#,
+            "/o: the number of keys must be at least 2, and is 1",
+        ),
+        (
+            "o:\n  a: 1\n  b: 2\n",
+            r#"{"properties":{"o":{"maxProperties":1}}}"#,
+            "/o: the number of keys must be at most 1, and is 2",
+        ),
+        (
+            "l: [r, w, r]\n",
+            r#"{"properties":{"l":{"uniqueItems":true}}}"#,
+            r#"/l: the list holds "r" more than once: each item must differ"#,
+        ),
+        (
+            "s: 3\n",
+            r#"{"properties":{"s":{"not":{"const":3}}}}"#,
+            "/s: 3 is not allowed here",
         ),
         (
             "s: x\n",

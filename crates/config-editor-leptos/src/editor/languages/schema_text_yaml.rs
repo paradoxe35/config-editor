@@ -131,6 +131,8 @@ fn hinted(message: &str, line: &str) -> Option<String> {
         "a list opened with [ is not closed: a , or ] is missing".to_string()
     } else if message.starts_with("expected ',' or '}'") {
         "a map opened with { is not closed: a , or } is missing".to_string()
+    } else if message.starts_with("expected a node but found") {
+        "a value is missing here".to_string()
     } else if message.starts_with("unterminated double-quoted") {
         "a text opened with \" is not closed: a closing \" is missing".to_string()
     } else if message.starts_with("unterminated single-quoted") {

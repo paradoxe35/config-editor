@@ -86,6 +86,8 @@ fn session(
         .text;
     let mut trail = Trail::starting(&view);
     let mut saved = host.to_string();
+    // The host text saved for the view's text the trail starts on.
+    let mut followed = saved.clone();
     let mut steps = steps(&view);
     steps.push(Step::Pause);
     for step in steps {
@@ -95,8 +97,12 @@ fn session(
                 view = next;
             }
             Step::Pause => {
-                let (result, next) = bridge.to_host_traced(&view, &saved, host, Some(&trail));
+                let (result, next) =
+                    bridge.to_host_traced(&view, &saved, host, Some((&trail, &followed)));
                 saved = result.map_err(|error| format!("{error:?}"))?;
+                if next.start() == Some(view.as_str()) {
+                    followed = saved.clone();
+                }
                 trail = next;
             }
         }

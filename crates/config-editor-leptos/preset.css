@@ -1580,7 +1580,16 @@
   font-size: 11px;
 }
 
+:not(#\#):not(#\#) .config-editor__hover-meta > span {
+  flex: 0 1 auto;
+  min-width: min-content;
+  overflow-wrap: normal;
+  word-break: normal;
+}
+
 :not(#\#):not(#\#) .config-editor__hover-meta code {
+  flex: 1 1 0;
+  min-width: 0;
   font: 11px var(--config-editor-mono);
   color: var(--config-editor-raised-text);
   overflow-wrap: anywhere;

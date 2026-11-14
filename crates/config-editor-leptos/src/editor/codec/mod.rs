@@ -875,6 +875,18 @@ pub(super) fn scalar_range(
     source: &str,
     span: Span,
 ) -> Option<std::ops::Range<usize>> {
+    let mut range = written_range(language, source, span)?;
+    range.start += language.value_properties_len(&source[range.clone()]);
+    Some(range)
+}
+
+/// [`scalar_range`] with the scalar's anchor and tag (`!Ref x`): all the
+/// host writes of it.
+pub(super) fn written_range(
+    language: &dyn ConfigLanguage,
+    source: &str,
+    span: Span,
+) -> Option<std::ops::Range<usize>> {
     // A value never takes the line break after it (a heredoc's span runs
     // through its terminator line).
     let mut range = byte_range(source, span)?;
@@ -885,9 +897,7 @@ pub(super) fn scalar_range(
     // delimiter.
     range.end = through_long_quote(language, source, range.clone());
     // With the whitespace around it that belongs to the value (XML text).
-    range = language.written_value_range(source, range.clone());
-    range.start += language.value_properties_len(&source[range.clone()]);
-    Some(range)
+    Some(language.written_value_range(source, range))
 }
 
 /// The end of `range`, run through the closing delimiter when the value

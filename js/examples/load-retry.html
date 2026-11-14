@@ -2,9 +2,19 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>config-editor-react: load retry</title>
+    <style>
+      body { margin: 0; padding: 8px; font: 13px system-ui, sans-serif; background: #1e1e1e; color: #ddd; }
+      h1 { font-size: inherit; margin: 0; }
+    </style>
   </head>
   <body>
+    <main>
+      <h1>Load retry</h1>
+      <!-- By design there is no editor: the page only loads the wasm twice
+           (the first load fails) and writes the outcome to body[data-result]. -->
+    </main>
     <script type="module" src="./dist/load-retry.js"></script>
   </body>
 </html>

@@ -2,16 +2,20 @@
 //! how accepting writes it, hover docs, and the popup's placement.
 
 mod accept;
+mod around;
 mod candidates;
 mod choices;
 mod conditions;
+mod conform;
 mod docs;
 mod elsewhere;
 mod excluded;
+mod fill;
 mod headless;
 mod hover;
 mod kept;
 mod key_info;
+mod least;
 mod list_items;
 mod live;
 mod matching;
@@ -28,18 +32,23 @@ mod typed_entry;
 mod window;
 
 pub(crate) use accept::*;
+pub(crate) use around::document_around;
 pub(crate) use candidates::*;
 pub(crate) use choices::*;
 pub(crate) use conditions::mentions_conditionals;
+use conform::conform;
+pub(crate) use conform::{conform_arrays, conform_typed_arrays};
 pub(crate) use docs::*;
 pub(crate) use excluded::excluded_by_not;
 #[cfg(feature = "schema-validation")]
 pub(crate) use excluded::{dependent_keys_kept_apart, keys_kept_apart};
+pub use fill::fill_value;
+use fill::least_list;
 pub use headless::{HoverDocs, Suggestion};
 pub(crate) use headless::{schema_hover, schema_suggestions};
 pub(crate) use hover::*;
-pub use kept::{fill_value, kept_const, kept_default, language_keeps};
-use kept::{filled_past_caret, least_list};
+use kept::filled_past_caret;
+pub use kept::{kept_const, kept_default, language_keeps};
 use key_info::{key_info, names_only};
 use list_items::{root_values, separate_from_next_item};
 pub(crate) use live::{CompletionState, Sources, SuggestionPlace};

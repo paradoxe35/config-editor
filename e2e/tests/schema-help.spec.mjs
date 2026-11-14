@@ -143,3 +143,41 @@ test.describe('schema help', () => {
     await expect(warnings).toContainText('/properties/labels/patternProperties');
   });
 });
+
+// A hover card's meta label ("Default", "Examples", "One of") stays whole
+// beside a long value, on a desktop and on a phone, whether the card is
+// the key's own or sits in a problem's tip.
+for (const [name, viewport] of [
+  ['desktop', { width: 1100, height: 600 }],
+  ['320 px', { width: 320, height: 560 }],
+]) {
+  test.describe(`meta labels at ${name}`, () => {
+    test.use({ viewport });
+    setupEditor(test);
+
+    test('no label is broken across lines', async ({ page }) => {
+      const ed = editor(page);
+      await ed.paste('public_address: 12\n');
+      const marker = page.locator('.config-editor__diagnostic-marker').first();
+      await marker.waitFor();
+      const box = await marker.boundingBox();
+      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2, { steps: 4 });
+      const labels = page.locator('.config-editor__hover-meta > span');
+      await expect(labels.first()).toBeVisible();
+      const broken = await page.evaluate(() =>
+        [...document.querySelectorAll('.config-editor__hover-meta > span')]
+          .filter((label) => {
+            const range = document.createRange();
+            range.selectNodeContents(label);
+            // One line per word at most: a word never splits.
+            const words = label.textContent.trim().split(/\s+/).length;
+            const tops = new Set([...range.getClientRects()].map((rect) => Math.round(rect.top)));
+            return tops.size > words;
+          })
+          .map((label) => label.textContent),
+      );
+      expect(broken).toEqual([]);
+      expect(await labels.count()).toBeGreaterThan(0);
+    });
+  });
+}

@@ -34,6 +34,11 @@ const LINES_AFTER: usize = 3;
 /// token it is.
 type Live<'k> = (Range<usize>, &'k Known);
 
+/// Placeholders by where they are written: those with their field (or
+/// none read, `false`: the first field given the token), and those written
+/// at a path no field given their token is, with that first field.
+type Placing<'k> = (Vec<Live<'k>>, Vec<bool>, Vec<Live<'k>>);
+
 impl Placeholders<'_> {
     /// The field of a placeholder near the edit that the edit, leaving the
     /// text unparseable, changes as it would a read-only field's value.
@@ -53,17 +58,33 @@ impl Placeholders<'_> {
             return None;
         }
         // Each placeholder's field from where it is written (the text read
-        // once for all of them); one written where no field given its
-        // token is (a text that reads wrong around it) keeps its line.
-        let ((mut near, mut placed), stand_ins) = with_spans(self.behavior, before, &[], || {
-            (
-                self.placed(before, &lines, &near_ranges),
-                self.moved_alone(before, moved),
-            )
-        });
+        // once for all of them). One written where no field given its
+        // token is (its key renamed while the text does not parse: an XML
+        // start tag renamed before its end tag) is held where it is, as a
+        // moved one is; where the language finds no value of its own for
+        // it there (a text that reads wrong around it), it keeps its line.
+        let ((mut near, mut placed, elsewhere), stand_ins) =
+            with_spans(self.behavior, before, &[], || {
+                let (near, placed, elsewhere) = self.placed(before, &lines, &near_ranges);
+                let mut moved = moved;
+                moved.extend(elsewhere.iter().map(|(range, _)| {
+                    (
+                        lines.byte_of(range.start)..lines.byte_of(range.end),
+                        range.start,
+                    )
+                }));
+                let stand_ins = self.moved_alone(before, moved);
+                ((near, placed, elsewhere), stand_ins)
+            });
         for (range, known) in &stand_ins {
             near.push((range.clone(), known));
             placed.push(true);
+        }
+        for (range, known) in elsewhere {
+            if !stand_ins.iter().any(|(held, _)| held.start == range.start) {
+                near.push((range, known));
+                placed.push(false);
+            }
         }
         if near.is_empty() {
             return None;
@@ -122,14 +143,10 @@ impl Placeholders<'_> {
 
     /// Each of `ranges` (UTF-16, in `before`) whose token is given whole,
     /// with the host's token in the field written there, or, where no
-    /// field given that token is written there (`false`), the first one
-    /// given it (named when its line is refused).
-    fn placed(
-        &self,
-        before: &str,
-        lines: &LineIndex<'_>,
-        ranges: &[&Range<usize>],
-    ) -> (Vec<Live<'_>>, Vec<bool>) {
+    /// field is read there (`false`), the first one given it (named when
+    /// its line is refused); those written at a path no field given their
+    /// token is, apart (see [`Placing`]).
+    fn placed(&self, before: &str, lines: &LineIndex<'_>, ranges: &[&Range<usize>]) -> Placing<'_> {
         // Each one's field, then the values of those fields (every copy of
         // their keys) found at once.
         let pointers: Vec<Option<String>> = ranges
@@ -149,9 +166,10 @@ impl Placeholders<'_> {
         lines: &LineIndex<'_>,
         ranges: &[&Range<usize>],
         pointers: Vec<Option<String>>,
-    ) -> (Vec<Live<'_>>, Vec<bool>) {
+    ) -> Placing<'_> {
         let mut near = Vec::new();
         let mut placed = Vec::new();
+        let mut elsewhere = Vec::new();
         for (range, pointer) in ranges.iter().zip(pointers) {
             let token = &before[lines.byte_of(range.start)..lines.byte_of(range.end)];
             let Some(first) = self.index.first_of(token) else {
@@ -167,10 +185,14 @@ impl Placeholders<'_> {
             {
                 continue;
             }
+            if at.is_none() && pointer.is_some() {
+                elsewhere.push(((*range).clone(), &self.known[first]));
+                continue;
+            }
             near.push(((*range).clone(), &self.known[at.unwrap_or(first)]));
             placed.push(at.is_some());
         }
-        (near, placed)
+        (near, placed, elsewhere)
     }
 
     /// The fields at `pointers` locked for their values alone: each value

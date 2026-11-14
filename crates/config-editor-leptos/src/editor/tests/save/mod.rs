@@ -29,6 +29,14 @@ mod bom;
     feature = "hcl",
     feature = "xml"
 ))]
+mod emptied_maps;
+#[cfg(all(
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
 mod exact;
 #[cfg(all(
     feature = "yaml",
@@ -366,6 +374,14 @@ mod xml_strings;
     feature = "xml"
 ))]
 mod xml_tag_layout;
+#[cfg(all(
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod xml_text_beside_fields;
 #[cfg(all(
     feature = "yaml",
     feature = "json",

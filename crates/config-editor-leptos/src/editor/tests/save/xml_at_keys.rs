@@ -114,25 +114,25 @@ fn the_switch_to_xml_waits_for_what_xml_would_read_otherwise() {
         (
             "text beside a child",
             Language::YAML,
-            "r:\n  \"#text\": t\n  b: 1\n",
+            "r:\n  \"#text\": t\n  b:\n    c: 1\n",
             "/r",
         ),
         (
             "text beside a child",
             Language::JSON,
-            "{\"r\": {\"#text\": \"t\", \"b\": 1}}\n",
+            "{\"r\": {\"#text\": \"t\", \"b\": {\"c\": 1}}}\n",
             "/r",
         ),
         (
             "text beside a child",
             Language::TOML,
-            "[r]\n\"#text\" = \"t\"\nb = 1\n",
+            "[r]\n\"#text\" = \"t\"\n\n[r.b]\nc = 1\n",
             "/r",
         ),
         (
             "text beside a child",
             Language::HCL,
-            "r = {\n  \"#text\" = \"t\"\n  b = 1\n}\n",
+            "r = {\n  \"#text\" = \"t\"\n  b = {\n    c = 1\n  }\n}\n",
             "/r",
         ),
         (
@@ -161,7 +161,8 @@ fn the_switch_to_xml_waits_for_what_xml_would_read_otherwise() {
 
 /// A converted document is read alone: what it reads back otherwise is
 /// listed (`@a` reads back `a`), as are documents that would not convert
-/// back (text beside child elements).
+/// back (text beside child elements; a scalar beside text is an
+/// attribute).
 #[test]
 fn converting_to_xml_lists_an_at_key_and_refuses_text_beside_children() {
     let converted = Language::YAML
@@ -174,6 +175,11 @@ fn converting_to_xml_lists_an_at_key_and_refuses_text_beside_children() {
         .convert("r:\n  \"@a\": 1\n  a: 2\n", Language::XML)
         .unwrap();
     assert_eq!(beside.losses, Vec::<String>::new());
-    let mixed = Language::YAML.convert("r:\n  \"#text\": t\n  b: 1\n", Language::XML);
+    let mixed = Language::YAML.convert("r:\n  \"#text\": t\n  b:\n    c: 1\n", Language::XML);
     assert!(mixed.is_err_and(|error| error.to_string().contains("/r")));
+    // Beside the text, a scalar can only be an attribute.
+    let beside_text = Language::YAML
+        .convert("r:\n  \"#text\": t\n  b: 1\n", Language::XML)
+        .unwrap();
+    assert_eq!(beside_text.text, "<r b=\"1\">t</r>\n");
 }

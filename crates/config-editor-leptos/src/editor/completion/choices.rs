@@ -350,69 +350,6 @@ pub(crate) fn object_at(
     value_at(document, path)?.as_object().cloned()
 }
 
-/// [`object_at`] with the entry typed at `cursor_byte` left out (or its
-/// line, where it is alone on it): a key being typed (`<` in XML) would
-/// keep the rest from parsing (see [`document_around`]). Still `None` where the text
-/// around it does not parse (an error elsewhere): the keys alone then
-/// decide.
-pub(crate) fn object_around(
-    source: &str,
-    cursor_byte: usize,
-    path: &[SchemaPathSegment],
-    behavior: &dyn ConfigLanguage,
-) -> Option<serde_json::Map<String, Value>> {
-    let document = document_around(source, cursor_byte, behavior)?;
-    value_at(&document, path)?.as_object().cloned()
-}
-
-/// The document `source` holds with the entry typed at `cursor_byte` left
-/// out (see [`object_around`]), when that parses.
-pub(crate) fn document_around(
-    source: &str,
-    cursor_byte: usize,
-    behavior: &dyn ConfigLanguage,
-) -> Option<Value> {
-    let line_start = source[..cursor_byte].rfind('\n').map_or(0, |at| at + 1);
-    let line_end = source[cursor_byte..]
-        .find('\n')
-        .map_or(source.len(), |at| cursor_byte + at);
-    let (before, after) = (&source[..line_start], &source[line_end..]);
-    // Read aside: the text with the entry or line left out must not push
-    // the text on screen out of the shared parse. Only the entry typed,
-    // where the line holds more (an item written on one line), so the
-    // item stays in its place.
-    super::typed_entry::typed_entry_left_out(behavior, source, cursor_byte)
-        .and_then(|text| behavior.parse(&text).ok())
-        .or_else(|| {
-            behavior
-                .parse(&behavior.caret_line_left_out(source, line_start, line_end))
-                .ok()
-        })
-        .or_else(|| without_dangling_separator(before, after, behavior))
-}
-
-/// The document `before` and `after` the caret's line make when the
-/// entry before that line ended in the item separator for the entry being
-/// typed (JSON's `"kind": "a",` then a new line): read without it, as the
-/// container closes right after.
-fn without_dangling_separator(
-    before: &str,
-    after: &str,
-    behavior: &dyn ConfigLanguage,
-) -> Option<Value> {
-    let config = behavior.config();
-    let separator = config.item_separator?;
-    let kept = before.trim_end();
-    let closes = after
-        .trim_start()
-        .chars()
-        .next()
-        .is_some_and(|next| config.brackets.iter().any(|(_, close)| *close == next));
-    let kept = kept.strip_suffix(separator).filter(|_| closes)?;
-    let gap = &before[kept.len() + separator.len_utf8()..];
-    behavior.parse(&format!("{kept}{gap}{after}")).ok()
-}
-
 /// The choices of the value at `path`, and the one it is in.
 pub(crate) struct ChoicesAt<'a> {
     pub(crate) choices: Vec<ObjectChoice<'a>>,
@@ -458,6 +395,28 @@ impl<'a> ChoicesAt<'a> {
                 .or_else(|| fitted_choice(&choices, values.as_ref()?, root))
         };
         Self { choices, matched }
+    }
+
+    /// [`Self::in_object`] where `object` is the value the document holds
+    /// there, when there is one: none is matched without it.
+    pub(crate) fn in_read_object(
+        schemas: &[&'a Value],
+        root: &'a Value,
+        object: impl FnOnce() -> Option<serde_json::Map<String, Value>>,
+    ) -> Self {
+        let mut known = false;
+        let choices = Self::in_object(schemas, root, || {
+            let values = object();
+            known = values.is_some();
+            values
+        });
+        if known {
+            return choices;
+        }
+        Self {
+            choices: choices.choices,
+            matched: None,
+        }
     }
 
     /// The choice `branch` belongs to, and whether it is the matched one.

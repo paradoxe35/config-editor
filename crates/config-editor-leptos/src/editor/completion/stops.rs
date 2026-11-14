@@ -82,8 +82,9 @@ fn collect_values(key: &str, value: &Value, fills: &mut Vec<(String, String)>) {
 /// first such line from where the fill before it ended), in order; the
 /// next item of a list (a fill under the key of the fill before) first
 /// right after the item before it, on its line, as a list written on one
-/// line has its key once, and the first fill also on the caret's line
-/// (its key before the caret). A fill not written that way (left empty)
+/// line has its key once, and the first fill at the caret (the caret
+/// moved into a list's first item) or also on the caret's line (its key
+/// before the caret). A fill not written that way (left empty)
 /// is skipped.
 pub(crate) fn stop_ranges(
     insert: &str,
@@ -103,15 +104,28 @@ pub(crate) fn stop_ranges(
             search = key_end;
         }
     };
+    // The value the caret is at, or selected before it.
+    let at_caret = |from: usize, text: &str| {
+        let starts =
+            |start: usize| (find_word(insert, start, text) == Some(start)).then_some(start);
+        starts(from).or_else(|| {
+            from.checked_sub(text.len())
+                .filter(|start| insert.is_char_boundary(*start))
+                .and_then(starts)
+        })
+    };
     let mut previous: Option<&str> = None;
     for (key, text) in fills {
         let on_line = || find_word(&insert[..line_end(from)], from, text);
         let start = match previous {
             Some(before) if before == key => on_line().or_else(|| after_key(from, key, text)),
             Some(_) => after_key(from, key, text),
-            // The first: its key may sit before the caret (a list's items,
-            // the caret in the first).
-            None => after_key(from, key, text).or_else(on_line),
+            // The first: the value the caret is at (a list's first item,
+            // the caret moved into it), not the same key's in the next
+            // item; else after its key, which may sit before the caret.
+            None => at_caret(from, text)
+                .or_else(|| after_key(from, key, text))
+                .or_else(on_line),
         };
         previous = Some(key);
         let Some(start) = start else {
@@ -231,6 +245,23 @@ mod tests {
                 .map(|(start, end)| &insert[*start..*end])
                 .collect();
             assert_eq!(texts, ["8080", "https"], "{insert:?}");
+        }
+        // QA 36: the caret moved into a list's first item is at the first
+        // fill: that one, not the same key's in the next item.
+        let fill = |key: &str| (key.to_string(), "0".to_string());
+        let list_fills = [fill("from"), fill("to"), fill("from"), fill("to")];
+        for insert in [
+            "rules: [{ports: [{from: 0, to: 0}], proto: \"\"}, {ports: [{from: 0, to: 0}], proto: \"\"}]",
+            "\"rules\": [{\"ports\": [{\"from\": 0, \"to\": 0}]}, {\"ports\": [{\"from\": 0, \"to\": 0}]}]",
+        ] {
+            let zero = insert.find('0').unwrap();
+            // The caret before the value, or after it with it selected.
+            for caret in [zero, zero + 1] {
+                let ranges = stop_ranges(insert, caret, &list_fills);
+                let starts: Vec<usize> = ranges.iter().map(|(start, _)| *start).collect();
+                let zeros: Vec<usize> = insert.match_indices('0').map(|(at, _)| at).collect();
+                assert_eq!(starts, zeros, "{insert} {caret}");
+            }
         }
         // A key never written, or a value left empty, is skipped.
         assert_eq!(stop_ranges("server:\n  port: \n", 0, &fills), vec![]);

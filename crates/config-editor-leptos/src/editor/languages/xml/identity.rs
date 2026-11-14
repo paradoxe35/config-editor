@@ -108,14 +108,21 @@ impl<'a> Identity<'a> {
             };
             let told = self.told.filter(|_| side == Host::Previous);
             // Pasted back from the session's first text: that item (or
-            // key, which the host's last text may not hold, QA `E35-1`).
-            if let Some((sources, Some(origin))) = told
-                && let Some(ItemSource::Origin(from)) = sources.of(&item_at(index), !new_child.is_array())
-            {
-                old = origin.pointer(from)?;
+            // key, which the host's last text may not hold, QA `E35-1`);
+            // or moved from another element of the host's last text (QA
+            // `E36-2`): that one.
+            let moved = told.and_then(|(sources, origin)| match sources.of(&item_at(index), !new_child.is_array())? {
+                ItemSource::Origin(from) => Some((origin?.pointer(from)?, from, Host::Origin)),
+                ItemSource::Previous(from) if !from.starts_with(&format!("{old_at}/")) => {
+                    Some((self.old?.pointer(from)?, from, Host::Previous))
+                }
+                ItemSource::Previous(_) => None,
+            });
+            if let Some((held, from, held_in)) = moved {
+                old = held;
                 new = &new_items[index];
                 host = from.split('/').skip(1).map(|segment| segment.replace("~1", "/").replace("~0", "~")).collect();
-                side = Host::Origin;
+                side = held_in;
                 new_at = item_at(index);
                 old_at = from.clone();
                 pointer.push('/');

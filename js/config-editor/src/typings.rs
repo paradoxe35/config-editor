@@ -389,7 +389,7 @@ export interface DocumentSpec {
   schemaOptions?: Record<string, unknown>;
   /** Edit in another language than `language`; switches live. A list with the same `editAs` changes nothing: to ask for it again (after an undo stepped back across the switch), call `editAs(id, language)`. */
   editAs?: LanguageName;
-  /** The text on screen when the document's editor opens, in the `editAs` language, in place of `value` converted: what the user had on screen before the view went away (`editor(id).text`). `value` and `baseline` stay yours; it converts back like an edit, so `onChange` hears it once it converts, and until then `onSyncChange` says `false`. Undo starts at it. Read when the editor mounts (the first time the document is shown); ignored without `editAs`. */
+  /** The text on screen when the document's editor opens, in the `editAs` language, in place of `value` converted: what the user had on screen before the view went away (`editor(id).text`). `value` and `baseline` stay yours; it converts back like an edit, so `onChange` hears it once it converts, and until then `onSyncChange` says `false`. Undo starts at it. The document's editor mounts at once, shown or not: an unsaved edit, so `isDirty`, the tab's dot, `onSyncChange`, `save()` and `saveAll()` answer as if it were shown. Ignored without `editAs`. */
   editAsText?: string;
   /** Settings for this document's editor, over the view's: the keys given replace the view's (which still apply to the rest, and follow its `update`). Switch live. The view's `styled` applies to every editor. */
   settings?: EditorSettings;

@@ -43,6 +43,7 @@ mod kept_markup;
 mod kept_elements;
 mod written_names;
 mod pasted_attributes;
+mod moved_declarations;
 // The fold ranges (the `folding` feature).
 #[cfg(feature = "folding")]
 mod folding;
@@ -474,14 +475,18 @@ impl ConfigLanguage for XmlBehavior {
                 let first = origin.map(|origin| crate::editor::parse_cache::parsed(self, origin));
                 let identity = identity::Identity::of(host.as_ref().as_ref().ok(), value)
                     .told(sources.as_deref(), first.as_ref().and_then(|first| first.as_ref().as_ref().ok()));
-                kept_elements::with_layout_of(
+                let laid_out = kept_elements::with_layout_of(
                     &tag_spelling::with_tag_spelling_of(
                         &one_line::with_one_line_elements_of(&with_end_tags_of(&out, previous), previous),
                         previous,
                     ),
                     (previous, origin),
                     &identity,
-                )
+                );
+                // An element moved out of the element declaring its
+                // prefix declares it itself.
+                let hosts: Vec<&str> = std::iter::once(previous).chain(origin.filter(|origin| *origin != previous)).collect();
+                moved_declarations::declared_where_moved(laid_out, &hosts)
             }
             None => out,
         })
@@ -602,6 +607,14 @@ impl ConfigLanguage for XmlBehavior {
 
     fn unclosed_containers(&self, text: &str) -> usize {
         markup::open_elements(text)
+    }
+
+    fn container_closers(&self, text: &str) -> Vec<String> {
+        markup::open_element_names(text)
+            .into_iter()
+            .rev()
+            .map(|name| format!("</{name}>"))
+            .collect()
     }
 
     fn container_closer_len(&self, text: &str) -> Option<usize> {

@@ -69,8 +69,9 @@ pub struct Document {
     /// back like an edit, so `on_change` hears it once it converts and,
     /// until then, the document is out of sync (`on_sync_change` says
     /// `false`, [`EditorHandle::value`](crate::EditorHandle::value) is
-    /// `None`). Undo starts at it. Read when the editor mounts (the first
-    /// time the document is shown); ignored without `edit_as`.
+    /// `None`). Undo starts at it. Its editor mounts at once, shown or not:
+    /// the text is an unsaved edit, so the document is dirty, in sync or
+    /// not and saved as if it were shown. Ignored without `edit_as`.
     pub edit_as_text: Option<String>,
     /// Settings for this document's editor, in place of the view's; switch
     /// live. Unset, it follows the view's `settings`. The view's `styled`

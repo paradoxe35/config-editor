@@ -1,5 +1,5 @@
-//! Walking a JSON Schema: types, defaults, branches, the schema at a
-//! document path, and reading values to the shapes it expects.
+//! Walking a JSON Schema: types, defaults, branches and the schema at a
+//! document path (reading values to the shapes it expects is `conform`).
 
 use super::*;
 
@@ -358,12 +358,25 @@ pub(crate) fn schema_at_path_in<'a>(
     repeats_arrays: bool,
     document: Option<&Value>,
 ) -> Vec<&'a Value> {
+    schema_at_path_read(root, path, repeats_arrays, &|| document)
+}
+
+/// [`schema_at_path_in`] with the document read (`document`) only at a
+/// step it decides: a conditional, or a key of an object in `oneOf`/`anyOf`
+/// options. Reading it is a parse of the whole text, and most steps of most
+/// paths need none.
+pub(crate) fn schema_at_path_read<'a, 'd>(
+    root: &'a Value,
+    path: &[SchemaPathSegment],
+    repeats_arrays: bool,
+    document: &dyn Fn() -> Option<&'d Value>,
+) -> Vec<&'a Value> {
     let mut schemas = vec![root];
     for (depth, segment) in path.iter().enumerate() {
-        let instance = document.and_then(|document| value_at(document, &path[..depth]));
+        let instance = || document().and_then(|document| value_at(document, &path[..depth]));
         let mut next: Vec<&Value> = schemas
             .iter()
-            .flat_map(|schema| chosen_children(schema, root, segment, instance))
+            .flat_map(|schema| chosen_children(schema, root, segment, &instance))
             .collect();
         // An item of something the schema has as one value (a block or an
         // element written twice): each copy is that value.
@@ -371,11 +384,14 @@ pub(crate) fn schema_at_path_in<'a>(
             next = schemas.clone();
         }
         if repeats_arrays && matches!(segment, SchemaPathSegment::Key(_)) {
-            let instance = document.and_then(|document| value_at(document, &path[..=depth]));
+            let instance = || document().and_then(|document| value_at(document, &path[..=depth]));
             let items: Vec<&Value> = next
                 .iter()
                 .flat_map(|schema| {
-                    child_schemas_in(schema, root, &SchemaPathSegment::ArrayItem(0), instance)
+                    children_of(
+                        &branches_read(schema, root, &instance),
+                        &SchemaPathSegment::ArrayItem(0),
+                    )
                 })
                 .collect();
             next.extend(items);
@@ -388,25 +404,56 @@ pub(crate) fn schema_at_path_in<'a>(
     schemas
 }
 
+/// [`branches_for`] with `instance` read only when a conditional among
+/// the branches is there for it to decide: without one, the branches are
+/// the same whatever the value.
+pub(crate) fn branches_read<'a, 'd>(
+    schema: &'a Value,
+    root: &'a Value,
+    instance: &dyn Fn() -> Option<&'d Value>,
+) -> Vec<&'a Value> {
+    let branches = branches_for(schema, root, None);
+    if !branches.iter().any(|branch| is_conditional(branch)) {
+        return branches;
+    }
+    branches_for(schema, root, instance())
+}
+
+/// Whether the value decides which of `schema`'s own applicators apply:
+/// an `if`, or a dependent schema.
+fn is_conditional(schema: &Value) -> bool {
+    schema.get("if").is_some()
+        || ["dependentSchemas", "dependencies"].iter().any(|keyword| {
+            schema
+                .get(*keyword)
+                .and_then(Value::as_object)
+                .is_some_and(|dependents| {
+                    dependents
+                        .values()
+                        .any(|dependent| dependent.is_object() || dependent.is_boolean())
+                })
+        })
+}
+
 /// [`child_schemas_in`], where `instance` is an object in one of the
-/// `oneOf`/`anyOf` options of `schema` ([`ChoicesAt::in_object`]): the
-/// key's schemas in the other options are left out, so a nested object
-/// offers the keys of the matched option's object only (`kind: b` →
-/// `sub:` offers `sb`, not `sa`).
-fn chosen_children<'a>(
+/// `oneOf`/`anyOf` options of `schema` ([`ChoicesAt::in_read_object`]):
+/// the key's schemas in the other options are left out, so a nested
+/// object offers the keys of the matched option's object only (`kind: b`
+/// → `sub:` offers `sb`, not `sa`). The value is read only where a
+/// conditional or such options are there to decide.
+fn chosen_children<'a, 'd>(
     schema: &'a Value,
     root: &'a Value,
     segment: &SchemaPathSegment,
-    instance: Option<&Value>,
+    instance: &dyn Fn() -> Option<&'d Value>,
 ) -> Vec<&'a Value> {
-    let branches = branches_for(schema, root, instance);
-    let Some(object) = instance
-        .and_then(Value::as_object)
-        .filter(|_| matches!(segment, SchemaPathSegment::Key(_)))
-    else {
+    let branches = branches_read(schema, root, instance);
+    if !matches!(segment, SchemaPathSegment::Key(_)) {
         return children_of(&branches, segment);
-    };
-    let choices = ChoicesAt::in_object(&[schema], root, || Some(object.clone()));
+    }
+    let choices = ChoicesAt::in_read_object(&[schema], root, || {
+        instance().and_then(Value::as_object).cloned()
+    });
     if choices.matched.is_none() {
         return children_of(&branches, segment);
     }
@@ -439,7 +486,10 @@ pub(crate) fn child_schemas_in<'a>(
 /// The schemas of one child (a key or an array item) of a value whose
 /// schema's branches are `branches` (see [`branches_for`]): a walk taking
 /// every child of one value resolves its branches once.
-fn children_of<'a>(branches: &[&'a Value], segment: &SchemaPathSegment) -> Vec<&'a Value> {
+pub(super) fn children_of<'a>(
+    branches: &[&'a Value],
+    segment: &SchemaPathSegment,
+) -> Vec<&'a Value> {
     let mut next = Vec::new();
     for branch in branches {
         let named = named_properties(branch, &segment.as_key());
@@ -517,129 +567,6 @@ pub(crate) fn named_properties<'a>(branch: &'a Value, key: &str) -> Vec<&'a Valu
         .filter(|(pattern, _)| patterns::pattern_matches(pattern, key))
         .map(|(_, property)| property);
     property.into_iter().chain(patterns).collect()
-}
-
-/// Reads `value` the way the schema expects for a language that writes arrays
-/// by repeating their key: each lone value (or, for blocks, lone object)
-/// where only an array is allowed becomes a one-item array (a single XML
-/// `<dns>` element is `dns: [...]`).
-pub(crate) fn conform_arrays(value: &mut Value, schema: &Value, repetition: Repetition) {
-    conform(value, schema, schema, repetition, 0, false);
-}
-
-/// [`conform_arrays`] of a value whose text scalars the schema typed
-/// already (see `text_typing`): they are not guessed again.
-pub(crate) fn conform_typed_arrays(value: &mut Value, schema: &Value, repetition: Repetition) {
-    conform(value, schema, schema, repetition, 0, true);
-}
-
-pub(super) fn conform(
-    value: &mut Value,
-    schema: &Value,
-    root: &Value,
-    repetition: Repetition,
-    depth: usize,
-    typed: bool,
-) {
-    if depth > 64 {
-        return;
-    }
-    let branches = resolve_branches(schema, root);
-    let wants_array = branches.iter().any(|branch| {
-        branch.get("items").is_some()
-            || branch.get("prefixItems").is_some()
-            || type_includes(branch, "array")
-    });
-    // XML text that looks like a number, boolean, or `null` is a string
-    // where only a string is allowed (`<public_address>123</…>`).
-    if repetition == Repetition::Elements
-        && !typed
-        && matches!(value, Value::Number(_) | Value::Bool(_) | Value::Null)
-        && !branches.iter().any(|branch| accepts(branch, value))
-        && branches
-            .iter()
-            .any(|branch| type_includes(branch, "string"))
-    {
-        *value = Value::String(scalar_text(value));
-    }
-    // Likewise where the values allowed are listed (`const`, `enum`) as
-    // strings, untyped: `<v>1.3</v>` is the `"1.3"` listed. (XML reads a
-    // number only from text it writes back unchanged: `1.3`, not `1.30`.)
-    if repetition == Repetition::Elements
-        && !typed
-        && matches!(value, Value::Number(_) | Value::Bool(_) | Value::Null)
-        && listed_as_strings(&branches, value)
-    {
-        *value = Value::String(scalar_text(value));
-    }
-    // An empty XML element reads as `{}`; where the schema wants text it is
-    // the empty string.
-    if repetition == Repetition::Elements
-        && value.as_object().is_some_and(serde_json::Map::is_empty)
-        && !branches.iter().any(|branch| accepts(branch, value))
-        && branches
-            .iter()
-            .any(|branch| type_includes(branch, "string"))
-    {
-        *value = Value::String(String::new());
-    }
-    let repeatable = match repetition {
-        Repetition::Elements => !value.is_array(),
-        Repetition::Blocks => value.is_object(),
-        _ => false,
-    };
-    if wants_array && repeatable && !branches.iter().any(|branch| accepts(branch, value)) {
-        *value = Value::Array(vec![value.take()]);
-    }
-    // Each child's schemas from the branches resolved above.
-    match value {
-        Value::Array(items) => {
-            for (index, item) in items.iter_mut().enumerate() {
-                for item_schema in children_of(&branches, &SchemaPathSegment::ArrayItem(index)) {
-                    conform(item, item_schema, root, repetition, depth + 1, typed);
-                }
-            }
-        }
-        Value::Object(map) => {
-            for (key, child) in map.iter_mut() {
-                let segment = SchemaPathSegment::Key(key.clone());
-                for child_schema in children_of(&branches, &segment) {
-                    conform(child, child_schema, root, repetition, depth + 1, typed);
-                }
-            }
-        }
-        _ => {}
-    }
-}
-
-/// A scalar as XML text writes it.
-fn scalar_text(value: &Value) -> String {
-    match value {
-        Value::Null => "null".to_string(),
-        other => other.to_string(),
-    }
-}
-
-/// Whether `branches` list the values allowed (`const`, `enum`), `value`
-/// is not one of them, and they are strings: its text, or all of them.
-fn listed_as_strings(branches: &[&Value], value: &Value) -> bool {
-    let listed: Vec<&Value> = branches
-        .iter()
-        .flat_map(|branch| {
-            branch.get("const").into_iter().chain(
-                branch
-                    .get("enum")
-                    .and_then(Value::as_array)
-                    .into_iter()
-                    .flatten(),
-            )
-        })
-        .collect();
-    let text = scalar_text(value);
-    !listed.is_empty()
-        && !listed.contains(&value)
-        && (listed.iter().any(|allowed| allowed.as_str() == Some(&text))
-            || listed.iter().all(|allowed| allowed.is_string()))
 }
 
 /// Whether one resolved branch allows `value`'s kind as it is.

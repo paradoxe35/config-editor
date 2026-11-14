@@ -1144,23 +1144,53 @@ export interface EditorStrings {
    */
   notFormat?: string;
   /**
-   * A list (`{value}`) with no item its `contains` schema allows.
+   * A list with no item its `contains` schema allows.
    *
-   * @default "{value} has no item its \"contains\" schema allows"
+   * @default "no item of the list is one its \"contains\" schema allows"
    */
   noItemContained?: string;
   /**
-   * A list (`{value}`) with fewer items its `contains` schema allows than its `minContains` (`{limit}`).
+   * A list with fewer items its `contains` schema allows than its `minContains` (`{limit}`).
    *
-   * @default "{value} has fewer than {limit} items its \"contains\" schema allows"
+   * @default "fewer than {limit} items of the list are ones its \"contains\" schema allows"
    */
   tooFewContained?: string;
   /**
-   * A list (`{value}`) with more items its `contains` schema allows than its `maxContains` (`{limit}`).
+   * A list with more items its `contains` schema allows than its `maxContains` (`{limit}`).
    *
-   * @default "{value} has more than {limit} items its \"contains\" schema allows"
+   * @default "more than {limit} items of the list are ones its \"contains\" schema allows"
    */
   tooManyContained?: string;
+  /**
+   * A list with fewer items (`{count}`) than its `minItems` (`{limit}`).
+   *
+   * @default "the number of items must be at least {limit}, and is {count}"
+   */
+  tooFewItems?: string;
+  /**
+   * A list with more items (`{count}`) than its `maxItems` (`{limit}`).
+   *
+   * @default "the number of items must be at most {limit}, and is {count}"
+   */
+  tooManyItems?: string;
+  /**
+   * An object with fewer keys (`{count}`) than its `minProperties` (`{limit}`).
+   *
+   * @default "the number of keys must be at least {limit}, and is {count}"
+   */
+  tooFewKeys?: string;
+  /**
+   * An object with more keys (`{count}`) than its `maxProperties` (`{limit}`).
+   *
+   * @default "the number of keys must be at most {limit}, and is {count}"
+   */
+  tooManyKeys?: string;
+  /**
+   * A list holding an item (`{item}`, as JSON) more than once where its `uniqueItems` wants each item different.
+   *
+   * @default "the list holds {item} more than once: each item must differ"
+   */
+  repeatedItem?: string;
   /**
    * A value its `not` schema (`{schema}`, as JSON) matches, where no plainer words below say why.
    *
@@ -1180,9 +1210,9 @@ export interface EditorStrings {
    */
   mustNotBeType?: string;
   /**
-   * A value its `not` schema refuses by name (`not: {const: …}` or `not: {enum: […]}`): the refused values (`{values}`), as JSON, joined by the word "or".
+   * A value its `not` schema refuses among others by name (`not: {enum: […]}` of two or more values): the refused values (`{values}`), as JSON, joined by `, `. One refused value (`not: {const: …}`) is told by `must_not_match`.
    *
-   * @default "{value} must not be {values}"
+   * @default "{value} is one of the values not allowed here: {values}"
    */
   mustNotBe?: string;
   /**

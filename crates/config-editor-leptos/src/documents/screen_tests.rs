@@ -122,3 +122,33 @@ fn a_kept_text_and_a_read_only_reason_follow_the_list() {
     );
     assert_eq!(tls.read_only_reason.get_untracked(), None);
 }
+
+/// A document listed with an Edit-as text is an unsaved edit only its
+/// editor reads: it mounts at once, shown or not, in every pair of
+/// languages; one without (or in its own language) waits to be shown.
+#[test]
+fn a_document_listed_with_an_edit_as_text_mounts_at_once() {
+    let owner = Owner::new();
+    owner.set();
+    for &host in Language::ALL {
+        for &view in Language::ALL {
+            let plain = Document::new("plain", "x.conf", "").language(host);
+            let edited = plain.clone().edit_as_text(view, "kept\n");
+            let edited = Document {
+                id: "edited".into(),
+                ..edited
+            };
+            let list = vec![Document::new("main", "main.yaml", "a: 1\n"), plain, edited];
+            let (documents, _) = screen_view(&list);
+            let visited = |id: &str| documents.entry(id).expect("listed").visited.get_untracked();
+            assert!(!visited("plain"), "{host} as {view}");
+            assert_eq!(visited("edited"), view != host, "{host} as {view}");
+            // A later list giving a document never shown its text mounts
+            // it too.
+            let mut relisted = list.clone();
+            relisted[1] = relisted[1].clone().edit_as_text(view, "kept\n");
+            documents.sync(&relisted);
+            assert_eq!(visited("plain"), view != host, "{host} as {view} again");
+        }
+    }
+}

@@ -160,9 +160,13 @@ pub(super) fn with_attributes(value: &Value, old: Option<&Value>, attributes: &A
                 // local name, so only an attribute reads with one) is an
                 // attribute wherever it is added.
                 let attribute_name = key.contains(':');
+                // Beside the element's text a scalar can only be an
+                // attribute: as a child element it would sit beside text,
+                // which no view shows (`<dimen name="pad">4dp</dimen>`).
+                let beside_text = key != "#text" && map.contains_key("#text");
                 if scalar && key.starts_with('@') {
                     attrs.insert(key.clone(), child.clone());
-                } else if scalar && !child_of_attribute && (attribute_name || attributes_only || attributes.contains(path.as_slice())) {
+                } else if scalar && !child_of_attribute && (attribute_name || beside_text || attributes_only || attributes.contains(path.as_slice())) {
                     attrs.insert(format!("@{key}"), child.clone());
                 } else {
                     children.insert(key.clone(), with_attributes(child, old_child, attributes, path));

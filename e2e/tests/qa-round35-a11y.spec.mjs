@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { existsSync } from 'node:fs';
+import { existsSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { setupEditor } from './helpers.mjs';
@@ -80,22 +80,26 @@ test.describe('the settings checkboxes (A35-2)', () => {
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const built = existsSync(join(root, 'js', 'config-editor', 'pkg', 'config_editor_bg.wasm'));
 
-for (const name of ['vanilla.html', 'react.html', 'vue.html', 'svelte.html']) {
-  test.describe(`${name} (A35-3)`, () => {
+// Every example page (found on disk, so a new page is covered by itself): one
+// heading, one main landmark and no control under 24x24 (A35-3, A36-1).
+const examples = join(root, 'js', 'examples');
+for (const name of readdirSync(examples).filter((file) => file.endsWith('.html')).sort()) {
+  test.describe(`${name} (A35-3, A36-1)`, () => {
     test.skip(!built, 'js packages not built: run `npm run build` in js/');
 
     test('has a heading, a main landmark and controls of 24px', async ({ page }) => {
-      await page.goto(pathToFileURL(join(root, 'js', 'examples', name)).href);
-      await page.locator('header button').first().waitFor();
+      await page.goto(pathToFileURL(join(examples, name)).href);
+      // The pages mark themselves done (`data-ready`, or `data-result` for the load test).
+      await page.locator('body[data-ready], body[data-result], header button').first().waitFor({ state: 'attached' });
       await expect(page.locator('h1')).toHaveCount(1);
       await expect(page.locator('main')).toHaveCount(1);
       const small = await page.evaluate(() =>
-        [...document.querySelectorAll('header button, header select, header input, header label')]
-          .map((element) => [element.id || element.tagName, element.getBoundingClientRect()])
-          .filter(([, box]) => box.width > 0 && box.height < 24)
+        [...document.querySelectorAll('button, select, input:not([type="hidden"]), label, summary, [role="button"]')]
+          .map((element) => [element.id || element.className || element.tagName, element.getBoundingClientRect()])
+          .filter(([, box]) => box.width > 0 && (box.height < 24 || box.width < 24))
           .map(([id, box]) => `${id} ${box.width}x${box.height}`),
       );
-      expect(small, 'controls under 24px').toEqual([]);
+      expect(small, 'controls under 24x24').toEqual([]);
     });
   });
 }

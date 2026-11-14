@@ -10,6 +10,7 @@
 mod parse;
 mod suggestions;
 mod hover;
+mod indent_above;
 mod editing;
 mod colors;
 mod style;
@@ -470,3 +471,6 @@ mod tests;
 
 #[cfg(test)]
 mod block_key_tests;
+
+#[cfg(test)]
+mod indent_above_tests;

@@ -29,6 +29,11 @@ pub(crate) use splice::Splice;
 /// values tell the items until the next save.
 const MOST_SPLICES: usize = 4096;
 
+/// Saves in a row a trail is followed through untraced (see
+/// [`Trail::wants_trace`]): the next one traces it, so its edits stay few
+/// and its start's host text known.
+const MOST_UNTRACED: usize = 32;
+
 /// An item of the session's first view no later view holds: what a paste
 /// may bring back.
 #[derive(Clone, Debug, PartialEq)]
@@ -58,6 +63,10 @@ pub(crate) struct Trail {
     /// The view's text at its last save (or the session's start); `None`
     /// while the edits since are not known.
     synced: Option<String>,
+    /// The view's text at its last save, when saves since `synced` went
+    /// untraced (see [`Trail::wants_trace`]), and how many did.
+    reached: Option<String>,
+    untraced: usize,
     splices: Vec<Splice>,
     /// Each item of `synced` that is an item of the session's first view,
     /// by its pointer there; `None` at the session's start, where each is.
@@ -114,6 +123,8 @@ impl Trail {
     /// them (QA `E34-1`: a cut item pasted after a switch lost its markup).
     pub(crate) fn restart(&mut self, text: &str) {
         self.synced = Some(text.to_string());
+        self.reached = None;
+        self.untraced = 0;
         self.splices = Vec::new();
     }
 
@@ -122,6 +133,8 @@ impl Trail {
     /// first view, and the items cut from that view are still out of it.
     pub(crate) fn forget_edits(&mut self) {
         self.synced = None;
+        self.reached = None;
+        self.untraced = 0;
         self.splices = Vec::new();
         self.origin_of = Some(HashMap::new());
     }
@@ -146,11 +159,44 @@ impl Trail {
         }
     }
 
-    /// Whether the trail follows the edits since `text`: a trail begun on
-    /// another text (one a view switch replaced unsaved edits with) does
-    /// not tell the items of a save over the host `text` was saved as.
+    /// Whether the trail follows the edits since `text`, the view's text at
+    /// its last save: a trail begun on another text (one a view switch
+    /// replaced unsaved edits with) does not tell the items of a save over
+    /// the host `text` was saved as.
     pub(crate) fn begins_on(&self, text: &str) -> bool {
-        self.synced.as_deref() == Some(text)
+        self.reached.as_deref().or(self.synced.as_deref()) == Some(text)
+    }
+
+    /// The view's text the trail follows the edits from, a save's (its
+    /// items are the items of the host text saved then).
+    pub(crate) fn start(&self) -> Option<&str> {
+        self.synced.as_deref()
+    }
+
+    /// Whether a save must read the items from the edits: when an item may
+    /// have been moved or removed (a line removed, an item cut and not
+    /// pasted back yet), or after many saves untraced. Otherwise (values
+    /// typed, lines added) the save is told nothing, and the trail goes on
+    /// from where it began ([`Self::untraced_to`]): reading every item of
+    /// the view at every typing pause made a large document's save a
+    /// third slower.
+    pub(crate) fn wants_trace(&self) -> bool {
+        !self.removed.is_empty()
+            || self.untraced >= MOST_UNTRACED
+            || self
+                .splices
+                .iter()
+                .any(|splice| splice.removed.contains('\n'))
+    }
+
+    /// The trail once the view's text `text` is saved untraced: its edits
+    /// still followed from its start.
+    pub(crate) fn untraced_to(&self, text: &str) -> Self {
+        Trail {
+            reached: Some(text.to_string()),
+            untraced: self.untraced + 1,
+            ..self.clone()
+        }
     }
 
     /// The edit `before` → `after` (the caret left at UTF-16 `caret`).
@@ -294,9 +340,9 @@ impl Trail {
             items,
             saved: Trail {
                 synced: Some(text.to_string()),
-                splices: Vec::new(),
                 origin_of: Some(saved_origin),
                 removed,
+                ..Trail::default()
             },
         })
     }

@@ -253,11 +253,20 @@ impl Echoes {
     /// it gave it last, the text it replaced in it (a framework's render
     /// before the host took the new text), keeps the document (QA 30,
     /// F30-2: React's `setValue` was rolled back by the render it caused).
+    /// The host lists the text from then on, maybe late, after what is
+    /// typed next: it is on its way as a text sent is, and its listing is
+    /// its echo (QA 36, FW36-1: listed after the typing, it was taken for
+    /// the host's own and rolled the typing back). A text the host listed
+    /// last is its render again already (see [`Echoes::kind`]).
     pub(crate) fn replaced(&mut self, text: &str) {
         if self.on {
             let print = Print::of(text);
             self.last_given = Some(print);
-            self.document = Some(print);
+            if self.last_listed == Some(print) {
+                self.document = Some(print);
+            } else {
+                self.send(print);
+            }
         }
     }
 
@@ -897,6 +906,99 @@ mod tests {
                     "{text} applied (reversed {reversed})"
                 );
             }
+        }
+    }
+
+    /// QA 36 (FW36-1): a reset through `replaceValue` (one or two, with the
+    /// echoes of what was typed before still on their way or all back),
+    /// then typing, with the host listing every text, the resets' too,
+    /// late and in any order: nothing rolls the document back, and the
+    /// host ends on it. Before, the reset's text listed after the typing
+    /// was taken for the host's own and threw the typing away.
+    #[test]
+    fn a_reset_listed_late_in_any_order_keeps_the_typing() {
+        fn permutations(items: &[String]) -> Vec<Vec<String>> {
+            if items.is_empty() {
+                return vec![vec![]];
+            }
+            (0..items.len())
+                .flat_map(|at| {
+                    let mut rest = items.to_vec();
+                    let first = rest.remove(at);
+                    permutations(&rest).into_iter().map(move |mut tail| {
+                        tail.insert(0, first.clone());
+                        tail
+                    })
+                })
+                .collect()
+        }
+        for resets in [1, 2] {
+            for typed_back in [false, true] {
+                let mut waiting = Vec::new();
+                let mut echoes = Echoes::new(true);
+                echoes.given("[limits]\n");
+                for text in ["[limits]\nx", "[limits]\nx = 1"] {
+                    echoes.sent(text);
+                    waiting.push(text.to_string());
+                }
+                if typed_back {
+                    for text in waiting.drain(..) {
+                        let _ = echoes.received(&text, "[limits]\nx = 1", NONE);
+                    }
+                }
+                let mut document = String::new();
+                for reset in 0..resets {
+                    document = format!("[limits]\nmax_pending = {reset}\n");
+                    echoes.replaced(&document);
+                    waiting.push(document.clone());
+                }
+                for key in ["y", " = 2"] {
+                    document.push_str(key);
+                    echoes.sent(&document);
+                    waiting.push(document.clone());
+                }
+                for order in permutations(&waiting) {
+                    let mut echoes = clone_of(&echoes);
+                    let mut host = String::new();
+                    let mut queue: std::collections::VecDeque<String> = order.into();
+                    let mut rounds = 0;
+                    loop {
+                        while let Some(text) = queue.pop_front() {
+                            host.clone_from(&text);
+                            match echoes.received(&text, &document, NONE) {
+                                Echo::Apply => assert_eq!(
+                                    text, document,
+                                    "{resets} resets, typed back {typed_back}: rolled back"
+                                ),
+                                Echo::Skip | Echo::Settle => {}
+                                Echo::Resend => queue.push_back(document.clone()),
+                            }
+                        }
+                        if !echoes.settle(&document) {
+                            break;
+                        }
+                        queue.push_back(document.clone());
+                        rounds += 1;
+                        assert!(rounds < 4, "settles forever");
+                    }
+                    assert_eq!(host, document, "{resets} resets, typed back {typed_back}");
+                }
+            }
+        }
+    }
+
+    /// A copy of `echoes` (the tests' own: the editor never copies one).
+    fn clone_of(echoes: &Echoes) -> Echoes {
+        Echoes {
+            on: echoes.on,
+            order: echoes.order.clone(),
+            copies: echoes.copies.clone(),
+            came_back: echoes.came_back,
+            returns: echoes.returns.clone(),
+            now: echoes.now,
+            last_given: echoes.last_given,
+            last_listed: echoes.last_listed,
+            document: echoes.document,
         }
     }
 

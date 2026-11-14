@@ -76,7 +76,7 @@
 </script>
 
 <header>
-  <strong>ConfigDocuments (Svelte)</strong>
+  <h1>ConfigDocuments (Svelte)</h1>
   <button id="save-all" type="button" onclick={() => tabs?.saveAll()}>Save all</button>
 </header>
 <ConfigDocuments

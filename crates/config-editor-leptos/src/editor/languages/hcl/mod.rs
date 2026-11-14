@@ -27,6 +27,7 @@ mod read;
 mod big_objects;
 mod big_errors;
 mod splice;
+mod moved_maps;
 // The fold ranges (the `folding` feature).
 #[cfg(feature = "folding")]
 mod folding;
@@ -396,6 +397,9 @@ impl ConfigLanguage for HclBehavior {
         let mut forms = previous.map(host_forms).unwrap_or_default();
         if let Some(previous) = previous {
             renamed_labelled_types(&mut forms, previous, map);
+            // A map the save moves keeps its form (see `moved_maps`).
+            let held = (std::mem::take(&mut forms.attributes), std::mem::take(&mut forms.blocks));
+            (forms.attributes, forms.blocks) = moved_maps::with_moved(held, previous, convert::forms_of);
         }
         let rendered = splice::writing(|| hcl::format::to_string(&hcl_body(map, &forms, &[])?).map_err(|error| error.to_string()))?;
         let rendered = fold_one_line_blocks(&rendered, &forms.one_line);

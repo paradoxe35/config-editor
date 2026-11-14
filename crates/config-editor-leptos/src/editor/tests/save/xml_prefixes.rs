@@ -43,14 +43,15 @@ fn a_prefix_no_declaration_binds_waits_on_the_prefixed_name() {
 
 /// A child element added beside an element's text: XML would write text
 /// beside a child, which no view shows (`/r/s` could not be switched
-/// back to): the save waits.
+/// back to): the save waits. (A scalar added there is an attribute,
+/// `xml_text_beside_fields`.)
 #[test]
 fn a_child_added_beside_an_elements_text_waits() {
     let mut failures = Vec::new();
     for edit in [Language::YAML, Language::JSON, Language::TOML] {
         let saved = save_value(Language::XML, edit, HOST, &|value| {
             if let Some(map) = value.pointer_mut("/r/s").and_then(Value::as_object_mut) {
-                map.insert("d".into(), 4.into());
+                map.insert("d".into(), serde_json::json!({"e": 4}));
             }
         });
         match saved {

@@ -87,6 +87,15 @@ pub(crate) fn unknown_placeholders(
         }
     }
     let is_known = |token: &str| left.contains_key(token) || in_comments.contains_key(token);
+    // How many more of each known token may be real: as many as the host
+    // wrote. A token followed as real while the text does not parse takes
+    // one, so a copy of its line past it is flagged as one, however many
+    // copies there are (QA 36: a line copied once was not flagged, its
+    // copy taking the field's place beside the followed token).
+    let mut real_left: HashMap<&str, usize> = HashMap::new();
+    for known in known {
+        *real_left.entry(known.token.as_str()).or_default() += known.count;
+    }
     // The tokens needing a verdict, with their one-based line, the byte
     // their line starts at and their UTF-16 offset (the tokens come in
     // order: their lines are counted in one pass).
@@ -108,6 +117,9 @@ pub(crate) fn unknown_placeholders(
                 .binary_search_by_key(&at, |real| real.start)
                 .is_ok()
         {
+            if let Some(left) = real_left.get_mut(token) {
+                *left = left.saturating_sub(1);
+            }
             continue;
         }
         open.push((range, line, line_start, at));
@@ -188,16 +200,22 @@ pub(crate) fn unknown_placeholders(
                 Some(_) => {
                     // In its own field (as often as the host wrote it
                     // there): real.
+                    let may_be_real = real_left.get(token).is_some_and(|left| *left > 0);
                     if let Some(slot) = left.get_mut(token).and_then(|fields| {
                         fields.iter_mut().find(|(field, count)| {
-                            *count > 0 && is_own_field(document, field, &pointer)
+                            may_be_real
+                                && *count > 0
+                                && in_own_field(behavior, document, field, &pointer)
                         })
                     }) {
                         slot.1 -= 1;
+                        if let Some(left) = real_left.get_mut(token) {
+                            *left -= 1;
+                        }
                         continue;
                     }
                     let fields = left.get(token).map_or(&[][..], Vec::as_slice);
-                    moved_or_extra(document, fields, &pointer, strings)
+                    moved_or_extra(behavior, document, fields, &pointer, strings)
                 }
                 None if in_comments.contains_key(token) => {
                     texts::comment_placeholder(strings, &pointer)
@@ -229,16 +247,17 @@ pub(crate) fn unknown_placeholders(
 /// beyond those the host wrote in that very field, or one moved from the
 /// fields still missing it (all of them when none is).
 fn moved_or_extra(
+    behavior: &dyn ConfigLanguage,
     document: Option<&Value>,
     fields: &[(&str, usize)],
     pointer: &str,
     strings: &EditorStrings,
 ) -> String {
-    if fields
+    if let Some((field, _)) = fields
         .iter()
-        .any(|(field, _)| is_own_field(document, field, pointer))
+        .find(|(field, _)| in_own_field(behavior, document, field, pointer))
     {
-        return texts::extra_placeholder(strings, pointer);
+        return texts::extra_placeholder(strings, field);
     }
     let missing: Vec<&str> = fields
         .iter()
@@ -252,6 +271,35 @@ fn moved_or_extra(
     };
     owners.dedup();
     texts::moved_placeholder(strings, pointer, &owners.join(", "))
+}
+
+/// Whether the place `pointer` of a token is in the field `field` the host
+/// gave it in (see `is_own_field`), or, in a language that repeats any
+/// element for a list, in a copy of it: the field's element, or one
+/// holding it, written more than once (its line copied), so `pointer` is
+/// `field` with list items on the way (`/b/key/1`, `/b/c/1/key`). The
+/// first copy is the field's, the others copies of it.
+fn in_own_field(
+    behavior: &dyn ConfigLanguage,
+    document: Option<&Value>,
+    field: &str,
+    pointer: &str,
+) -> bool {
+    if is_own_field(document, field, pointer) {
+        return true;
+    }
+    if behavior.repetition() != Repetition::Elements {
+        return false;
+    }
+    let mut wanted = field.split('/').peekable();
+    for segment in pointer.split('/') {
+        if wanted.peek() == Some(&segment) {
+            wanted.next();
+        } else if segment.is_empty() || !segment.bytes().all(|byte| byte.is_ascii_digit()) {
+            return false;
+        }
+    }
+    wanted.peek().is_none()
 }
 
 /// Placeholders looked up by path at most in one check; past that, their

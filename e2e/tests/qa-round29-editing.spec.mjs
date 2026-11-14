@@ -189,7 +189,8 @@ test.describe('QA round 29: editing', () => {
     });
   }
 
-  test('a secret element copied in an XML view is flagged on every copy and the save waits', async ({ page }) => {
+  // QA 36: the copy is flagged, never the original (as in every language).
+  test('a secret element copied in an XML view is flagged as a copy and the save waits', async ({ page }) => {
     const token = '«secret 3f2a»';
     const schema = JSON.stringify({ type: 'object', properties: { db: { type: 'object', properties: { password: { type: 'string', writeOnly: true } } } } });
     await open(page, { language: 'toml', value: `[db]\nhost = "h"\npassword = "${token}"\nname = "app"\n`, schema });
@@ -198,9 +199,10 @@ test.describe('QA round 29: editing', () => {
     await press(page, 'Shift+Alt+ArrowDown');
     await page.waitForTimeout(800);
     const problems = await page.evaluate(() => window.problems.map((problem) => problem.message));
-    for (const item of ['/db/password/0', '/db/password/1']) {
-      expect(problems.some((message) => message.startsWith(`${item}:`))).toBe(true);
-    }
+    // The copy is flagged as a copy (once); the host's own line is not.
+    const copies = problems.filter((message) => message.includes('this placeholder is in this field already'));
+    expect(copies).toEqual(['/db/password: this placeholder is in this field already; another copy of it is plain text']);
+    expect(problems.some((message) => message.startsWith('/db/password/0'))).toBe(false);
     expect(await page.evaluate(() => window.editor.save())).toBe(false);
     expect(await page.evaluate(() => window.saved)).toBe(null);
   });

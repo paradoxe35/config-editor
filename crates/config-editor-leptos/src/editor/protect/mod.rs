@@ -150,6 +150,15 @@ mod copied_tests;
     feature = "hcl",
     feature = "xml"
 ))]
+mod copies_count_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
 mod copies_scale_tests;
 #[cfg(all(
     test,
@@ -258,6 +267,15 @@ mod guard_scale_tests;
     feature = "hcl",
     feature = "xml"
 ))]
+mod holder_prefix_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
 mod indent_tests;
 #[cfg(all(
     test,
@@ -327,7 +345,8 @@ mod lock_scale_tests;
     feature = "yaml",
     feature = "json",
     feature = "toml",
-    feature = "hcl"
+    feature = "hcl",
+    feature = "xml"
 ))]
 mod many_copies_tests;
 #[cfg(all(
@@ -545,4 +564,22 @@ mod whole_scale_tests;
     feature = "hcl",
     feature = "xml"
 ))]
+mod xml_copies_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
 mod xml_list_secret_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod xml_rename_secret_tests;

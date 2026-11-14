@@ -94,12 +94,12 @@ pub(super) fn value_completions(
 /// admitting nothing ([`admits_nothing`]: `{not: {}}`): no value of theirs
 /// is valid, so they are not offered. A `oneOf`/`anyOf` option
 /// counts only once matched; a conditional only where the document
-/// decides it.
-fn forbidden_keys<'a>(
+/// decides it (`instance`, read only when some branch declares a key so).
+fn forbidden_keys<'a, 'i>(
     schemas: &[&'a Value],
     branches: &[&'a Value],
     root: &'a Value,
-    instance: Option<&Value>,
+    instance: &dyn Fn() -> Option<&'i Value>,
     choices: &ChoicesAt<'_>,
 ) -> HashSet<&'a str> {
     let declares_false = |branch: &&Value| {
@@ -112,6 +112,7 @@ fn forbidden_keys<'a>(
     if !branches.iter().any(declares_false) {
         return HashSet::new();
     }
+    let instance = instance();
     schemas
         .iter()
         .flat_map(|schema| certain_branches(schema, root, instance))
@@ -165,8 +166,11 @@ pub(super) fn default_selection(
     unselected
 }
 
+/// The keys offered for the object described by `schemas`; `instance`
+/// reads its value off the document, only where a conditional is there for
+/// it to decide.
 #[allow(clippy::too_many_arguments)]
-pub(super) fn property_completions(
+pub(super) fn property_completions<'i>(
     schemas: &[&Value],
     typed: &str,
     start: usize,
@@ -177,22 +181,22 @@ pub(super) fn property_completions(
     insert_context: &InsertContext<'_>,
     behavior: &dyn ConfigLanguage,
     choices: &ChoicesAt<'_>,
-    instance: Option<&Value>,
+    instance: &dyn Fn() -> Option<&'i Value>,
     read_repeated: &dyn Fn() -> HashSet<String>,
 ) -> Vec<Completion> {
     // Keys are typed into an object: one with nothing in it yet (a new
     // YAML item `- `, which reads as null) is the empty object, so an
     // `if` requiring a key is not taken.
     let empty = Value::Object(serde_json::Map::new());
-    let instance = instance.map(|value| if value.is_null() { &empty } else { value });
+    let instance = || instance().map(|value| if value.is_null() { &empty } else { value });
     let repeated = std::cell::OnceCell::new();
     let repeated_keys = || repeated.get_or_init(read_repeated);
     let mut candidates = Vec::new();
     let branches: Vec<&Value> = schemas
         .iter()
-        .flat_map(|schema| branches_for(schema, root, instance))
+        .flat_map(|schema| branches_read(schema, root, &instance))
         .collect();
-    let forbidden = forbidden_keys(schemas, &branches, root, instance, choices);
+    let forbidden = forbidden_keys(schemas, &branches, root, &instance, choices);
     for branch in &branches {
         let Some(properties) = branch.get("properties").and_then(Value::as_object) else {
             continue;
@@ -846,17 +850,59 @@ pub(super) fn completions_for_context(
     bundle: &SchemaBundle,
     behavior: &dyn ConfigLanguage,
 ) -> Vec<Completion> {
-    // A conditional schema follows the document: read it only then.
-    let document = bundle
-        .has_conditionals
-        .then(|| document_around(source, cursor_byte, behavior))
-        .flatten();
-    let document = document.as_ref();
-    let schemas = schema_at_path_in(
+    let around = Around {
+        read: std::cell::OnceCell::new(),
+        source,
+        cursor_byte,
+        behavior,
+    };
+    completions_around(&around, context, force, bundle)
+}
+
+/// The document around the caret ([`document_around`]: a parse of the
+/// whole text), read once for a suggestion run and only when something
+/// asks for it.
+struct Around<'s> {
+    read: std::cell::OnceCell<Option<Value>>,
+    source: &'s str,
+    cursor_byte: usize,
+    behavior: &'s dyn ConfigLanguage,
+}
+
+impl Around<'_> {
+    fn document(&self) -> Option<&Value> {
+        self.read
+            .get_or_init(|| document_around(self.source, self.cursor_byte, self.behavior))
+            .as_ref()
+    }
+
+    /// The object at `path` in it.
+    fn object(&self, path: &[SchemaPathSegment]) -> Option<serde_json::Map<String, Value>> {
+        value_at(self.document()?, path)?.as_object().cloned()
+    }
+}
+
+fn completions_around(
+    around: &Around<'_>,
+    context: &CompletionContext,
+    force: bool,
+    bundle: &SchemaBundle,
+) -> Vec<Completion> {
+    let (source, cursor_byte, behavior) = (around.source, around.cursor_byte, around.behavior);
+    // A schema the document decides (a conditional, `oneOf`/`anyOf`
+    // options) reads it, where a step of the path is decided by it.
+    let document = || {
+        if bundle.has_conditionals {
+            around.document()
+        } else {
+            None
+        }
+    };
+    let schemas = schema_at_path_read(
         &bundle.schema,
         &context.path,
         behavior.repetition() != Repetition::None,
-        document,
+        &document,
     );
 
     // An empty document under a schema whose root is a list: its first
@@ -880,7 +926,7 @@ pub(super) fn completions_for_context(
             root_item: None,
             ..context.clone()
         };
-        return completions_for_context(source, cursor_byte, &item, force, bundle, behavior);
+        return completions_around(around, &item, force, bundle);
     }
     if let Some(key) = context.value_key.as_deref() {
         // A number being typed is the user's own value: suggesting a longer
@@ -889,11 +935,11 @@ pub(super) fn completions_for_context(
         if !force && !typed_value.is_empty() && typed_value.parse::<f64>().is_ok() {
             return Vec::new();
         }
-        let value_schemas = schema_at_path_in(
+        let value_schemas = schema_at_path_read(
             &bundle.schema,
             &path_with_key(&context.path, key),
             behavior.repetition() != Repetition::None,
-            document,
+            &document,
         );
         let leading = if context.value_needs_space { " " } else { "" };
         let mut options = value_completions(
@@ -920,14 +966,7 @@ pub(super) fn completions_for_context(
                 explicit_entry_start: true,
                 ..context.clone()
             };
-            return completions_for_context(
-                source,
-                cursor_byte,
-                &children,
-                force,
-                bundle,
-                behavior,
-            );
+            return completions_around(around, &children, force, bundle);
         }
         return options;
     }
@@ -981,7 +1020,7 @@ pub(super) fn completions_for_context(
         &schemas,
         &bundle.schema,
         existing_keys.as_ref().unwrap_or(&HashSet::new()),
-        || object_around(source, cursor_byte, &context.path, behavior),
+        || around.object(&context.path),
     );
     let unit = indent_unit(source);
     let base_indent = context
@@ -1006,7 +1045,7 @@ pub(super) fn completions_for_context(
         },
         behavior,
         &choices,
-        document.and_then(|document| value_at(document, &context.path)),
+        &|| document().and_then(|document| value_at(document, &context.path)),
         &|| behavior.repeated_keys(source, cursor_byte, &context.path),
     );
     // A key typed directly in an array starts a new object item, which needs

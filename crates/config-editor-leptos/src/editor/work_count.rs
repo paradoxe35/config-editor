@@ -179,6 +179,25 @@ pub(crate) enum Work {
         allow(dead_code, reason = "only the lock check notes it")
     )]
     StandIn,
+    /// A text parsed with the caret's entry (or line) left out, to read
+    /// the document around what is being typed
+    /// (`completion::document_around`).
+    AroundParse,
+    /// A step walking up from a place to the line holding it while a
+    /// batch asks many places' paths (a YAML hover: the block an explicit
+    /// key's value holds).
+    #[cfg_attr(
+        not(feature = "yaml"),
+        allow(dead_code, reason = "only the YAML hover notes it")
+    )]
+    WalkUp,
+    /// A whole XML text read for the namespace declarations in scope at
+    /// each element (`moved_declarations`).
+    #[cfg_attr(not(feature = "xml"), allow(dead_code, reason = "only XML notes it"))]
+    NamespaceScan,
+    /// A scalar of a key or item an Edit-as edit moved, compared with
+    /// where it was cut from (`bridge::moved_forms`).
+    MovedLeaf,
     /// A schema format's extra check run on a document
     /// (`SchemaCheck::check`): once per check and validation.
     SchemaCheck,
@@ -226,7 +245,11 @@ impl Work {
             Self::RangesFollowed => 35,
             Self::LockLine => 36,
             Self::StandIn => 37,
-            Self::SchemaCheck => 38,
+            Self::AroundParse => 38,
+            Self::WalkUp => 39,
+            Self::NamespaceScan => 40,
+            Self::MovedLeaf => 41,
+            Self::SchemaCheck => 42,
         }
     }
 
@@ -271,13 +294,17 @@ impl Work {
         Self::RangesFollowed,
         Self::LockLine,
         Self::StandIn,
+        Self::AroundParse,
+        Self::WalkUp,
+        Self::NamespaceScan,
+        Self::MovedLeaf,
         Self::SchemaCheck,
     ];
 }
 
 /// How many kinds of work there are.
 #[cfg(test)]
-const KINDS: usize = 39;
+const KINDS: usize = 43;
 
 #[cfg(test)]
 thread_local! {

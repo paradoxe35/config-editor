@@ -11,7 +11,8 @@
 use serde_json::{Number, Value};
 
 use super::super::language::{ConfigLanguage, SchemaPathSegment};
-use super::schema::{accepts, child_schemas, resolve_branches, type_includes};
+use super::conform::{discriminated, read_as_text};
+use super::schema::{accepts, branches_for, child_schemas, children_of, type_includes};
 
 /// Deepest nesting typed, as `conform` limits it.
 const MAX_DEPTH: usize = 64;
@@ -41,10 +42,17 @@ fn walk(
         guess_all(value, language);
         return;
     }
-    let branches: Vec<&Value> = schemas
-        .iter()
-        .flat_map(|schema| resolve_branches(schema, root))
-        .collect();
+    // An object decides the conditionals it is under, as `conform` reads
+    // them (`if kind is a`).
+    let mut branches: Vec<&Value> = Vec::new();
+    for schema in schemas {
+        let instance = value.is_object().then_some(&*value);
+        for branch in branches_for(schema, root, instance) {
+            if !branches.iter().any(|known| std::ptr::eq(*known, branch)) {
+                branches.push(branch);
+            }
+        }
+    }
     // Only a list is described here: a lone value (an element written
     // once) is its first item, and typed as one.
     let describes_one = |branch: &&Value| {
@@ -73,26 +81,30 @@ fn walk(
                 .filter(|branch| !wants_array(branch))
                 .collect();
             let text = std::mem::take(text);
-            *value = typed(text, &scalar, language, beside_children);
+            let read = typed(text.clone(), &scalar, language, beside_children);
+            // As `conform` decides between a union's options: the text where
+            // the typed value fits no option and the text does (`4` for
+            // `oneOf [integer >= 10, string]`), kept exactly as written.
+            *value = if !read.is_string() && read_as_text(&read, schemas, &scalar, root) {
+                Value::String(text)
+            } else {
+                read
+            };
         }
         Value::Array(items) => {
             for (index, item) in items.iter_mut().enumerate() {
-                let segment = SchemaPathSegment::ArrayItem(index);
-                let item_schemas: Vec<&Value> = schemas
-                    .iter()
-                    .flat_map(|schema| child_schemas(schema, root, &segment))
-                    .collect();
+                let item_schemas = children_of(&branches, &SchemaPathSegment::ArrayItem(index));
                 walk(item, &item_schemas, root, language, false, depth + 1);
             }
         }
         Value::Object(map) => {
+            // The options the object is not (a property's listed value it
+            // does not have) give its children no type.
+            let branches = discriminated(branches.clone(), map, root);
             let text_key = language.text_key();
             for (key, child) in map.iter_mut() {
                 let segment = SchemaPathSegment::Key(key.clone());
-                let child_schemas: Vec<&Value> = schemas
-                    .iter()
-                    .flat_map(|schema| child_schemas(schema, root, &segment))
-                    .collect();
+                let child_schemas = children_of(&branches, &segment);
                 let beside = text_key == Some(key.as_str());
                 walk(child, &child_schemas, root, language, beside, depth + 1);
             }
