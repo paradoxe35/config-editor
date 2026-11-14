@@ -1882,7 +1882,11 @@ letter spacing, a tab size): the roots set each to its initial value. A
 bare element rule's padding or margin (`div { padding: 1rem }`) does not
 reach the roots' own box either. Restyle the editor through these tokens and its roots
 (`.config-editor`, `.config-editor-documents`, the `class` given): a rule
-naming a class wins over bare element rules wherever it sits.
+naming a class wins over bare element rules wherever it sits. The roots'
+text properties (`letter-spacing`, `text-transform`, `text-align`,
+`word-spacing`, `tab-size` and the like) are fixed by the editor, so the
+drawn text stays over the text area's: a rule setting them on a root has no
+effect; the font size and line height go through their tokens.
 
 </details>
 

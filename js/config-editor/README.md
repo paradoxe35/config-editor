@@ -578,7 +578,9 @@ bring it back may never be seen: if the store is still on an older text
 `onChange` gave that may still be on its way (a discard to what you saved, a
 revert), or to reset while the echoes of what was typed are still to come,
 call `replaceValue(text)`: it always applies, and the echoes on their way
-are still told apart. The promise is
+are still told apart. Your store then takes that text, late if it likes:
+given back after what is typed next, it is the reset's echo and keeps the
+typing. The promise is
 yours to keep: a host that hands back only some texts (the latest of
 several) leaves the others counted as echoes (every text sent is
 remembered until its echo comes, a text of your own replaces the
@@ -1730,7 +1732,11 @@ roots set each to its initial value, nor a bare element rule's padding or
 margin (`div { padding: 1rem }`) to the roots' own box. Style the editor
 through its roots (`.config-editor`, `.config-editor-documents`; a rule of
 yours later in the page wins over the preset's at equal specificity) and its
-color variables. Every theme color is a CSS variable on the `.config-editor` root, and the
+color variables. The roots' text properties (`letter-spacing`,
+`text-transform`, `text-align`, `word-spacing`, `tab-size` and the like) are
+fixed by the editor, so the drawn text stays over the text area's: a rule of
+yours setting them on a root has no effect; the font size and line height
+go through their variables. Every theme color is a CSS variable on the `.config-editor` root, and the
 bundled themes set them with zero specificity, so a plain rule in your
 stylesheet overrides any theme, wherever it sits. Set the `--config-editor-*`
 variables (colors, `--config-editor-font-size`, `--config-editor-line-height`)
