@@ -96,7 +96,7 @@ function App({ schema }: { schema: string }) {
   return (
     <>
       <header>
-        <strong>config-editor-react</strong>
+        <h1>config-editor-react</h1>
         <label>
           Edit as{" "}
           <select id="edit-as" value={editAs ?? ""} onChange={(event) => setEditAs(event.target.value || null)}>

@@ -7,11 +7,15 @@
     <style>
       body { margin: 0; font: 13px system-ui, sans-serif; background: #1e1e1e; color: #ddd; }
       header { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; padding: 8px 12px; }
+      header button, header select { min-height: 24px; }
+      header label { display: inline-flex; align-items: center; gap: 4px; min-height: 24px; }
+      header input[type="checkbox"] { width: 24px; height: 24px; margin: 0; }
+      h1 { font-size: inherit; margin: 0; }
       pre { margin: 0; padding: 8px 12px; white-space: pre-wrap; max-height: 25vh; overflow: auto; }
     </style>
   </head>
   <body>
-    <div id="root"></div>
+    <main><div id="root"></div></main>
     <script type="module" src="dist/svelte.js"></script>
   </body>
 </html>

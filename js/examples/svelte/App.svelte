@@ -144,7 +144,7 @@
 </script>
 
 <header>
-  <strong>config-editor-svelte</strong>
+  <h1>config-editor-svelte</h1>
   <label>Edit as
     <select id="edit-as" value={editAs ?? ""} onchange={pickEditAs}>
       <option value="">Same</option><option>json</option><option>toml</option><option>hcl</option><option>xml</option>
