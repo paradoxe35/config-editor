@@ -178,6 +178,14 @@ mod one_line_item_work;
     feature = "json",
     feature = "toml",
     feature = "hcl",
+    feature = "xml"
+))]
+mod option_document_reads;
+#[cfg(all(
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
     feature = "xml",
     feature = "schema-validation"
 ))]

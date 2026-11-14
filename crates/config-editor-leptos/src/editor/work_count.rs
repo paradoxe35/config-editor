@@ -179,6 +179,10 @@ pub(crate) enum Work {
         allow(dead_code, reason = "only the lock check notes it")
     )]
     StandIn,
+    /// A text parsed with the caret's entry (or line) left out, to read
+    /// the document around what is being typed
+    /// (`completion::document_around`).
+    AroundParse,
 }
 
 impl Work {
@@ -223,6 +227,7 @@ impl Work {
             Self::RangesFollowed => 35,
             Self::LockLine => 36,
             Self::StandIn => 37,
+            Self::AroundParse => 38,
         }
     }
 
@@ -267,12 +272,13 @@ impl Work {
         Self::RangesFollowed,
         Self::LockLine,
         Self::StandIn,
+        Self::AroundParse,
     ];
 }
 
 /// How many kinds of work there are.
 #[cfg(test)]
-const KINDS: usize = 38;
+const KINDS: usize = 39;
 
 #[cfg(test)]
 thread_local! {

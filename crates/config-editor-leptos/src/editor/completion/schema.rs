@@ -358,12 +358,25 @@ pub(crate) fn schema_at_path_in<'a>(
     repeats_arrays: bool,
     document: Option<&Value>,
 ) -> Vec<&'a Value> {
+    schema_at_path_read(root, path, repeats_arrays, &|| document)
+}
+
+/// [`schema_at_path_in`] with the document read (`document`) only at a
+/// step it decides: a conditional, or a key of an object in `oneOf`/`anyOf`
+/// options. Reading it is a parse of the whole text, and most steps of most
+/// paths need none.
+pub(crate) fn schema_at_path_read<'a, 'd>(
+    root: &'a Value,
+    path: &[SchemaPathSegment],
+    repeats_arrays: bool,
+    document: &dyn Fn() -> Option<&'d Value>,
+) -> Vec<&'a Value> {
     let mut schemas = vec![root];
     for (depth, segment) in path.iter().enumerate() {
-        let instance = document.and_then(|document| value_at(document, &path[..depth]));
+        let instance = || document().and_then(|document| value_at(document, &path[..depth]));
         let mut next: Vec<&Value> = schemas
             .iter()
-            .flat_map(|schema| chosen_children(schema, root, segment, instance))
+            .flat_map(|schema| chosen_children(schema, root, segment, &instance))
             .collect();
         // An item of something the schema has as one value (a block or an
         // element written twice): each copy is that value.
@@ -371,11 +384,14 @@ pub(crate) fn schema_at_path_in<'a>(
             next = schemas.clone();
         }
         if repeats_arrays && matches!(segment, SchemaPathSegment::Key(_)) {
-            let instance = document.and_then(|document| value_at(document, &path[..=depth]));
+            let instance = || document().and_then(|document| value_at(document, &path[..=depth]));
             let items: Vec<&Value> = next
                 .iter()
                 .flat_map(|schema| {
-                    child_schemas_in(schema, root, &SchemaPathSegment::ArrayItem(0), instance)
+                    children_of(
+                        &branches_read(schema, root, &instance),
+                        &SchemaPathSegment::ArrayItem(0),
+                    )
                 })
                 .collect();
             next.extend(items);
@@ -388,25 +404,56 @@ pub(crate) fn schema_at_path_in<'a>(
     schemas
 }
 
+/// [`branches_for`] with `instance` read only when a conditional among
+/// the branches is there for it to decide: without one, the branches are
+/// the same whatever the value.
+pub(crate) fn branches_read<'a, 'd>(
+    schema: &'a Value,
+    root: &'a Value,
+    instance: &dyn Fn() -> Option<&'d Value>,
+) -> Vec<&'a Value> {
+    let branches = branches_for(schema, root, None);
+    if !branches.iter().any(|branch| is_conditional(branch)) {
+        return branches;
+    }
+    branches_for(schema, root, instance())
+}
+
+/// Whether the value decides which of `schema`'s own applicators apply:
+/// an `if`, or a dependent schema.
+fn is_conditional(schema: &Value) -> bool {
+    schema.get("if").is_some()
+        || ["dependentSchemas", "dependencies"].iter().any(|keyword| {
+            schema
+                .get(*keyword)
+                .and_then(Value::as_object)
+                .is_some_and(|dependents| {
+                    dependents
+                        .values()
+                        .any(|dependent| dependent.is_object() || dependent.is_boolean())
+                })
+        })
+}
+
 /// [`child_schemas_in`], where `instance` is an object in one of the
-/// `oneOf`/`anyOf` options of `schema` ([`ChoicesAt::in_object`]): the
-/// key's schemas in the other options are left out, so a nested object
-/// offers the keys of the matched option's object only (`kind: b` →
-/// `sub:` offers `sb`, not `sa`).
-fn chosen_children<'a>(
+/// `oneOf`/`anyOf` options of `schema` ([`ChoicesAt::in_read_object`]):
+/// the key's schemas in the other options are left out, so a nested
+/// object offers the keys of the matched option's object only (`kind: b`
+/// → `sub:` offers `sb`, not `sa`). The value is read only where a
+/// conditional or such options are there to decide.
+fn chosen_children<'a, 'd>(
     schema: &'a Value,
     root: &'a Value,
     segment: &SchemaPathSegment,
-    instance: Option<&Value>,
+    instance: &dyn Fn() -> Option<&'d Value>,
 ) -> Vec<&'a Value> {
-    let branches = branches_for(schema, root, instance);
-    let Some(object) = instance
-        .and_then(Value::as_object)
-        .filter(|_| matches!(segment, SchemaPathSegment::Key(_)))
-    else {
+    let branches = branches_read(schema, root, instance);
+    if !matches!(segment, SchemaPathSegment::Key(_)) {
         return children_of(&branches, segment);
-    };
-    let choices = ChoicesAt::in_object(&[schema], root, || Some(object.clone()));
+    }
+    let choices = ChoicesAt::in_read_object(&[schema], root, || {
+        instance().and_then(Value::as_object).cloned()
+    });
     if choices.matched.is_none() {
         return children_of(&branches, segment);
     }

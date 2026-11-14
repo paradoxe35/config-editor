@@ -350,20 +350,6 @@ pub(crate) fn object_at(
     value_at(document, path)?.as_object().cloned()
 }
 
-/// [`object_at`] with the entry typed at `cursor_byte` left out (or its
-/// line, where it is alone on it): a key being typed (`<` in XML) would
-/// keep the rest from parsing (see [`document_around`]). Still `None` where nothing around it
-/// parses: the keys alone then decide.
-pub(crate) fn object_around(
-    source: &str,
-    cursor_byte: usize,
-    path: &[SchemaPathSegment],
-    behavior: &dyn ConfigLanguage,
-) -> Option<serde_json::Map<String, Value>> {
-    let document = document_around(source, cursor_byte, behavior)?;
-    value_at(&document, path)?.as_object().cloned()
-}
-
 /// The choices of the value at `path`, and the one it is in.
 pub(crate) struct ChoicesAt<'a> {
     pub(crate) choices: Vec<ObjectChoice<'a>>,
@@ -409,6 +395,28 @@ impl<'a> ChoicesAt<'a> {
                 .or_else(|| fitted_choice(&choices, values.as_ref()?, root))
         };
         Self { choices, matched }
+    }
+
+    /// [`Self::in_object`] where `object` is the value the document holds
+    /// there, when there is one: none is matched without it.
+    pub(crate) fn in_read_object(
+        schemas: &[&'a Value],
+        root: &'a Value,
+        object: impl FnOnce() -> Option<serde_json::Map<String, Value>>,
+    ) -> Self {
+        let mut known = false;
+        let choices = Self::in_object(schemas, root, || {
+            let values = object();
+            known = values.is_some();
+            values
+        });
+        if known {
+            return choices;
+        }
+        Self {
+            choices: choices.choices,
+            matched: None,
+        }
     }
 
     /// The choice `branch` belongs to, and whether it is the matched one.

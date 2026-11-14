@@ -26,15 +26,17 @@ pub(crate) fn document_around(
     let left_out = super::typed_entry::typed_entry_left_out(behavior, source, cursor_byte);
     if let Some(read) = left_out
         .as_ref()
-        .and_then(|(text, _)| behavior.parse(text).ok())
+        .and_then(|(text, _)| counted_parse(behavior, text).ok())
     {
         return Some(read);
     }
     let line_left_out = || {
-        behavior
-            .parse(&behavior.caret_line_left_out(source, line_start, line_end))
-            .ok()
-            .or_else(|| without_dangling_separator(before, after, behavior))
+        counted_parse(
+            behavior,
+            &behavior.caret_line_left_out(source, line_start, line_end),
+        )
+        .ok()
+        .or_else(|| without_dangling_separator(before, after, behavior))
     };
     match left_out {
         // The line holds more than the entry (an object on one line):
@@ -63,7 +65,7 @@ fn without_dangling_separator(
         .is_some_and(|next| config.brackets.iter().any(|(_, close)| *close == next));
     let kept = kept.strip_suffix(separator).filter(|_| closes)?;
     let gap = &before[kept.len() + separator.len_utf8()..];
-    behavior.parse(&format!("{kept}{gap}{after}")).ok()
+    counted_parse(behavior, &format!("{kept}{gap}{after}")).ok()
 }
 
 /// The document `start` (the text before the entry at the caret) holds,
@@ -95,5 +97,12 @@ fn start_closed(start: &str, behavior: &dyn ConfigLanguage) -> Option<Value> {
 /// `text` parsed on the side (not the shared parse of the text on screen).
 fn read_aside(behavior: &dyn ConfigLanguage, text: &str) -> Option<Value> {
     crate::editor::work_count::note_many(crate::editor::work_count::Work::ParsedBytes, text.len());
-    behavior.parse(text).ok()
+    counted_parse(behavior, text).ok()
+}
+
+/// `text` (the document with what is typed left out) parsed, counted
+/// ([`crate::editor::work_count::Work::AroundParse`]).
+fn counted_parse(behavior: &dyn ConfigLanguage, text: &str) -> Result<Value, crate::ParseError> {
+    crate::editor::work_count::note(crate::editor::work_count::Work::AroundParse);
+    behavior.parse(text)
 }
