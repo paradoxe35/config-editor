@@ -20,6 +20,8 @@ use super::tokens::{
     Known, SecretMatcher, follow, held_in_fields, in_comment, locate_written, snap, snap_selection,
     widen,
 };
+use super::unplaced::placed_where_written;
+use super::whole_guard::WholeIndex;
 
 /// Known tokens one edit may write and still have found by path (a
 /// paste); more (an undo restoring a whole text) are found by text.
@@ -35,6 +37,9 @@ pub(crate) struct SecretState {
     pub(crate) matcher: StoredValue<Arc<SecretMatcher>>,
     /// The tokens the host's text holds, each with its field and how often.
     pub(crate) known: RwSignal<Vec<Known>>,
+    /// The tokens of `known` given as a field's whole value, looked up by
+    /// token and by field (built again only when `known` changes).
+    pub(crate) whole: Memo<Arc<WholeIndex>>,
     /// UTF-16 ranges of the real tokens in the text on screen.
     pub(crate) tokens: RwSignal<Vec<Range<usize>>>,
     /// The last text an edit's check found to parse, or made of one by an
@@ -54,10 +59,12 @@ impl SecretState {
         } else {
             matcher.locate(shown.0, shown.1, &known)
         };
+        let known = RwSignal::new(known);
         SecretState {
             options: StoredValue::new(options),
             matcher: StoredValue::new(Arc::new(matcher)),
-            known: RwSignal::new(known),
+            known,
+            whole: Memo::new(move |_| Arc::new(known.with(|known| WholeIndex::new(known)))),
             tokens: RwSignal::new(tokens),
             parsing: StoredValue::new(None),
         }
@@ -320,6 +327,9 @@ impl EditorState {
         if secrets.tokens.with_untracked(|current| *current != tokens) {
             secrets.tokens.set(tokens);
         }
+        // An edit repairing a broken host text places its tokens at once:
+        // the next key beside one is held as in its field.
+        self.place_unplaced(after);
         // Checked in the text the edit writes: the document still holds
         // the one it replaces.
         if by_text {
@@ -344,6 +354,7 @@ impl EditorState {
             return;
         }
         let behavior = self.behavior();
+        self.place_unplaced(text);
         let in_place = |known: &[Known]| {
             secrets
                 .tokens
@@ -388,6 +399,29 @@ impl EditorState {
         });
         if secrets.tokens.with_untracked(|current| *current != tokens) {
             secrets.tokens.set(tokens);
+        }
+    }
+
+    /// Tokens whose fields the host's broken text could not tell (see
+    /// `Known::placed`): placed where they are once `text` (on screen,
+    /// where the placeholders are) parses.
+    fn place_unplaced(&self, text: &str) {
+        let secrets = self.protect().secrets;
+        if !secrets.whole.with_untracked(|index| index.has_unplaced()) {
+            return;
+        }
+        let behavior = self.behavior();
+        let parsed = parse_cache::parsed(behavior, text);
+        let Ok(document) = parsed.as_ref() else {
+            return;
+        };
+        let placed = secrets.known.with_untracked(|known| {
+            secrets.tokens.with_untracked(|tokens| {
+                placed_where_written(behavior, text, document, known, tokens)
+            })
+        });
+        if let Some(placed) = placed {
+            secrets.known.set(placed);
         }
     }
 

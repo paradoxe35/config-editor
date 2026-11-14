@@ -414,12 +414,14 @@ impl EditorState {
             .with_value(|known| known.as_deref() == Some(before))
             || parse_cache::known_to_parse(behavior, before) == Some(true);
         let verdict = self.config().schema.with_value(|schema| {
+            let index = secrets.whole.get_untracked();
             secrets.known.with_untracked(|known| {
                 secrets.tokens.with_untracked(|tokens| {
                     Placeholders {
                         behavior,
                         reading_schema: schema.as_deref().map(|bundle| &bundle.schema),
                         known,
+                        index: &index,
                         tokens,
                     }
                     .check(before, after, before_parses)
@@ -596,7 +598,7 @@ impl EditorState {
             .with_untracked(|text| parse_cache::parsed(self.behavior(), text));
         let document = parsed.as_ref().as_ref().ok()?;
         let pointer = secrets.known.with_untracked(|known| {
-            first_glued(document, known).and_then(|known| known.field.clone())
+            first_glued(self.behavior(), document, known).and_then(|known| known.field.clone())
         })?;
         Some(self.strings_untracked(|strings| glued_message(strings, &pointer)))
     }

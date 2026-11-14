@@ -115,6 +115,75 @@ fn hosts() -> Vec<Broken> {
     ]
 }
 
+/// Host texts broken by an opener left unclosed before the token (a list,
+/// a comment, a character data section), which a reading of the text
+/// carries over the token; repaired by taking the opener out.
+fn openers_before() -> Vec<Broken> {
+    let case = |name, language, host: String, from, to| Broken {
+        name,
+        language,
+        host,
+        from,
+        to,
+    };
+    vec![
+        case(
+            "YAML, a list open before it",
+            Language::YAML,
+            format!(
+                "id: srv-42\nname: [edge\ntls:\n  cert: /etc/edge.pem\n  key: {TOKEN}\n  pin: 5\n"
+            ),
+            "[edge",
+            "edge",
+        ),
+        case(
+            "JSON, a list open before it",
+            Language::JSON,
+            format!(
+                "{{\n  \"id\": \"srv-42\",\n  \"name\": [\"edge\",\n  \"tls\": {{\n    \"cert\": \"/etc/edge.pem\",\n    \"key\": \"{TOKEN}\",\n    \"pin\": 5\n  }}\n}}\n"
+            ),
+            "[\"edge\"",
+            "\"edge\"",
+        ),
+        case(
+            "TOML, a list open before it",
+            Language::TOML,
+            format!(
+                "id = \"srv-42\"\nname = [\"edge\"\n\n[tls]\ncert = \"/etc/edge.pem\"\nkey = \"{TOKEN}\"\npin = 5\n"
+            ),
+            "[\"edge\"",
+            "\"edge\"",
+        ),
+        case(
+            "HCL, a comment open before it",
+            Language::HCL,
+            format!(
+                "id = \"srv-42\"\nname = /*\"edge\"\n\ntls {{\n  cert = \"/etc/edge.pem\"\n  key = \"{TOKEN}\"\n  pin = 5\n}}\n"
+            ),
+            "/*\"edge\"",
+            "\"edge\"",
+        ),
+        case(
+            "XML, a comment open before it",
+            Language::XML,
+            format!(
+                "<r>\n<id>srv-42</id>\n<name><!--edge</name>\n<tls>\n  <cert>/etc/edge.pem</cert>\n  <key>{TOKEN}</key>\n  <pin>5</pin>\n</tls>\n</r>\n"
+            ),
+            "<!--edge",
+            "edge",
+        ),
+        case(
+            "XML, character data open before it",
+            Language::XML,
+            format!(
+                "<r>\n<id>srv-42</id>\n<name><![CDATA[edge</name>\n<tls>\n  <cert>/etc/edge.pem</cert>\n  <key>{TOKEN}</key>\n  <pin>5</pin>\n</tls>\n</r>\n"
+            ),
+            "<![CDATA[edge",
+            "edge",
+        ),
+    ]
+}
+
 /// A live editor on `host`, with the texts it saved.
 fn mount(case: &Broken, host: &str) -> (Owner, EditorState, RwSignal<Vec<String>>) {
     let saves = RwSignal::new(Vec::<String>::new());
@@ -213,6 +282,34 @@ fn text_typed_beside_a_whole_placeholder_of_a_broken_host_is_refused() {
             let (_owner, state, saves) = mount(&case, &case.host);
             failures.extend(refused_beside(&case, state, "while broken"));
             repair(state, &case, pasted);
+            failures.extend(check_whole(&case, state, saves, step));
+        }
+    }
+    report(failures);
+}
+
+/// A token after an opener the host left unclosed is tied to no other
+/// field: while broken a key beside it is refused (its line is kept),
+/// and once repaired it is its own field's whole value, nothing flagged
+/// (neither text beside it nor a placeholder out of its field), and it
+/// saves.
+#[test]
+fn a_whole_placeholder_after_an_unclosed_opener_of_a_broken_host_stays_whole() {
+    let mut failures = Vec::new();
+    for case in openers_before() {
+        for pasted in [false, true] {
+            let step = if pasted {
+                "pasted repair"
+            } else {
+                "typed repair"
+            };
+            let (_owner, state, saves) = mount(&case, &case.host);
+            failures.extend(refused_beside(&case, state, "while broken"));
+            repair(state, &case, pasted);
+            let found = problems(state, case.language, None);
+            if let Some(problem) = found.iter().find(|problem| problem.contains("placeholder")) {
+                failures.push(format!("{}, {step}: flagged {problem:?}", case.name));
+            }
             failures.extend(check_whole(&case, state, saves, step));
         }
     }

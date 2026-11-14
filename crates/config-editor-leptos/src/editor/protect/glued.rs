@@ -12,9 +12,10 @@ use serde_json::Value;
 
 use super::super::codec::scalar_range;
 use super::super::diagnostics::{Diagnostic, Severity};
-use super::super::language::ConfigLanguage;
+use super::super::language::{ConfigLanguage, Repetition};
 use super::super::parse_cache;
 use super::super::paths::{field_range, written_value_span};
+use super::super::work_count::{Work, note};
 use super::tokens::{Known, field_value};
 use crate::EditorStrings;
 use crate::strings::fill;
@@ -59,32 +60,87 @@ pub(crate) fn written_alone(
         .find(|value| behavior.format_value_like(&Value::String(value.clone()), written) == written)
 }
 
-/// The first of `known`'s tokens the host gave as its field's whole value
-/// that `document` holds in that field with other text beside it.
-pub(crate) fn first_glued<'a>(document: &Value, known: &'a [Known]) -> Option<&'a Known> {
-    known.iter().find(|known| {
-        known.whole.is_some()
-            && known.field.as_deref().is_some_and(|field| {
-                field_value(document, field)
-                    .and_then(Value::as_str)
-                    .is_some_and(|value| !known.alone_in(value) && value.contains(&known.token))
-            })
-    })
+/// What the field of a token the host gave whole holds of it.
+#[derive(Debug, PartialEq)]
+pub(super) enum Holding<'a> {
+    /// Not the token (the field is gone, holds something else, or is made
+    /// a list of copies of its element, see `moved_off`).
+    Not,
+    /// The token alone: as the host wrote it, or bare.
+    Alone(&'a str),
+    /// A string holding the token with other text beside it.
+    Beside(&'a str),
+    /// A list or map holding the token in one of its strings (an XML
+    /// element given a child or an attribute, a value put in brackets).
+    Within(&'a Value),
 }
 
-/// Whether `known` (a token given whole) has text beside it in `document`.
-pub(super) fn glued_in(document: &Value, known: &Known) -> bool {
-    first_glued(document, std::slice::from_ref(known)).is_some()
-}
-
-/// The string `known`'s field holds in `document`.
-pub(super) fn value_of<'a>(document: &'a Value, known: &Known) -> &'a str {
-    known
+/// What `known`'s field (a token given whole) holds of it in `document`,
+/// read in `behavior`.
+pub(super) fn holding<'a>(
+    behavior: &dyn ConfigLanguage,
+    document: &'a Value,
+    known: &Known,
+) -> Holding<'a> {
+    note(Work::TokenScan);
+    let value = known
         .field
         .as_deref()
-        .and_then(|field| field_value(document, field))
-        .and_then(Value::as_str)
-        .unwrap_or_default()
+        .and_then(|field| field_value(document, field));
+    match value {
+        Some(Value::String(value)) if known.alone_in(value) => Holding::Alone(value),
+        Some(Value::String(value)) if value.contains(&known.token) => Holding::Beside(value),
+        Some(Value::Array(items)) if copies(behavior, items, known) => Holding::Not,
+        Some(value @ (Value::Array(_) | Value::Object(_))) if holds(value, &known.token) => {
+            Holding::Within(value)
+        }
+        _ => Holding::Not,
+    }
+}
+
+/// Whether `items`, a field's value in a language that repeats an element
+/// for a list, are copies of the field's element, each holding `known`'s
+/// token alone (flagged and held by `moved_off`).
+fn copies(behavior: &dyn ConfigLanguage, items: &[Value], known: &Known) -> bool {
+    behavior.repetition() != Repetition::None
+        && items.len() > 1
+        && items
+            .iter()
+            .all(|item| item.as_str().is_some_and(|text| known.alone_in(text)))
+}
+
+/// Whether one of the strings `value` holds holds `token`.
+fn holds(value: &Value, token: &str) -> bool {
+    match value {
+        Value::String(text) => text.contains(token),
+        Value::Array(items) => items.iter().any(|item| holds(item, token)),
+        Value::Object(map) => map.values().any(|item| holds(item, token)),
+        _ => false,
+    }
+}
+
+/// The first of `known`'s tokens the host gave as its field's whole value
+/// that `document` (read in `behavior`) holds in that field with something
+/// else beside it.
+pub(crate) fn first_glued<'a>(
+    behavior: &dyn ConfigLanguage,
+    document: &Value,
+    known: &'a [Known],
+) -> Option<&'a Known> {
+    known
+        .iter()
+        .find(|known| glued_in(behavior, document, known))
+}
+
+/// Whether `known` (a token given whole) has something beside it in its
+/// field in `document` (read in `behavior`): text, or the list or map the
+/// field became.
+pub(super) fn glued_in(behavior: &dyn ConfigLanguage, document: &Value, known: &Known) -> bool {
+    known.whole.is_some()
+        && matches!(
+            holding(behavior, document, known),
+            Holding::Beside(_) | Holding::Within(_)
+        )
 }
 
 /// Whether `after` is `before` with characters taken out, or the same.
@@ -111,11 +167,11 @@ pub(crate) fn glued_in_save(
     let before = super::super::codec::read(behavior, old, reading).ok();
     known
         .iter()
-        .filter(|known| glued_in(&after, known))
+        .filter(|known| glued_in(behavior, &after, known))
         .find(|known| {
             before
                 .as_ref()
-                .is_none_or(|before| !glued_in(before, known))
+                .is_none_or(|before| !glued_in(behavior, before, known))
         })
         .and_then(|known| known.field.clone())
 }
@@ -137,7 +193,7 @@ pub(crate) fn glued_placeholders(
     };
     known
         .iter()
-        .filter(|known| glued_in(document, known))
+        .filter(|known| glued_in(behavior, document, known))
         .filter_map(|known| {
             let field = known.field.as_deref()?;
             let message = glued_message(strings, field);

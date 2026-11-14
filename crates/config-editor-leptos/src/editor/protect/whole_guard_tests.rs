@@ -14,7 +14,7 @@ use super::super::test_state::TestEditor;
 use super::super::work_count::{Work, counted, counted_all};
 use super::glued_tests::breaking;
 use super::reach_tests::{services, type_in_middle};
-use super::whole_guard::Placeholders;
+use super::whole_guard::{Placeholders, WholeIndex};
 
 const TOKEN: &str = "«secret 3f2a91c0»";
 
@@ -137,6 +137,7 @@ fn a_whole_document_edit_checks_placeholders_in_linear_work() {
             behavior: Language::YAML.behavior(),
             reading_schema: None,
             known: &[],
+            index: &WholeIndex::new(&[]),
             tokens: &[],
         }
         .check("a: 1\nb: [\n", "  a: 1\n  b: [\n", false);

@@ -14,7 +14,7 @@ use std::ops::Range;
 use serde_json::Value;
 
 use super::super::super::codec::scalar_range;
-use super::super::super::paths::{FieldPath, with_spans, written_value_span};
+use super::super::super::paths::{FieldPath, path_at, with_spans, written_value_span};
 use super::super::super::text_change::{changed_bytes, utf16_len};
 use super::super::guard::check_values;
 use super::super::locate::LineIndex;
@@ -34,27 +34,35 @@ type Live<'k> = (Range<usize>, &'k Known);
 impl Placeholders<'_> {
     /// The field of a placeholder near the edit that the edit, leaving the
     /// text unparseable, changes as it would a read-only field's value.
-    pub(super) fn held_while_broken(
-        &self,
-        live: &[Live<'_>],
-        before: &str,
-        after: &str,
-    ) -> Option<String> {
+    pub(super) fn held_while_broken(&self, before: &str, after: &str) -> Option<String> {
         let (start, old_end, new_end) = changed_bytes(before, after);
         let lines = LineIndex::new(before);
-        let near: Vec<&Live<'_>> = live
+        let near_ranges: Vec<&Range<usize>> = self
+            .tokens
             .iter()
-            .filter(|(range, _)| near(&lines, range, start, old_end))
+            .filter(|range| near(&lines, range, start, old_end))
             .collect();
+        if near_ranges.is_empty() {
+            return None;
+        }
+        // Each placeholder's field from where it is written (the text read
+        // once for all of them); one written where no field given its
+        // token is (a text that reads wrong around it) keeps its line.
+        let (near, placed) = with_spans(self.behavior, before, &[], || {
+            self.placed(before, &lines, &near_ranges)
+        });
         if near.is_empty() {
             return None;
         }
         let mut seen = HashSet::new();
         let pointers: Vec<String> = near
             .iter()
-            .map(|(_, known)| known.field.clone().unwrap_or_default())
+            .zip(&placed)
+            .filter(|(_, placed)| **placed)
+            .map(|((_, known), _)| known.field.clone().unwrap_or_default())
             .filter(|pointer| seen.insert(pointer.clone()))
             .collect();
+        let near: Vec<&Live<'_>> = near.iter().collect();
         // The fields' spans are read once for the placing and the check.
         with_spans(self.behavior, before, &pointers, || {
             let mut protected = self.value_locks(before, &lines, &near, &pointers);
@@ -64,7 +72,8 @@ impl Placeholders<'_> {
             let removed = removed_by(before, after, (start, old_end, new_end));
             let holders = holders(&protected.locks, &near);
             // A placeholder whose field the language cannot find in the
-            // text (it gives no spans) keeps its line as it is.
+            // text (it gives no spans, or it is not where its token is)
+            // keeps its line as it is.
             let unfound = near.iter().zip(&holders).find(|((range, _), holder)| {
                 holder.is_none() && !removed(range) && on_line(&lines, range, start, old_end)
             });
@@ -95,6 +104,31 @@ impl Placeholders<'_> {
             .err()
             .map(|blocked| blocked.pointer.or(pointer).unwrap_or_default())
         })
+    }
+
+    /// Each of `ranges` (UTF-16, in `before`) whose token is given whole,
+    /// with the host's token in the field written there, or, where no
+    /// field given that token is written there (`false`), the first one
+    /// given it (named when its line is refused).
+    fn placed(
+        &self,
+        before: &str,
+        lines: &LineIndex<'_>,
+        ranges: &[&Range<usize>],
+    ) -> (Vec<Live<'_>>, Vec<bool>) {
+        let mut near = Vec::new();
+        let mut placed = Vec::new();
+        for range in ranges {
+            let token = &before[lines.byte_of(range.start)..lines.byte_of(range.end)];
+            let Some(first) = self.index.first_of(token) else {
+                continue;
+            };
+            let at = path_at(self.behavior, before, range.start)
+                .and_then(|path| self.index.in_field(token, &path.to_pointer()));
+            near.push(((*range).clone(), &self.known[at.unwrap_or(first)]));
+            placed.push(at.is_some());
+        }
+        (near, placed)
     }
 
     /// The fields at `pointers` locked for their values alone: each value
