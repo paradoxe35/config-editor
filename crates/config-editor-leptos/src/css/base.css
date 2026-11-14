@@ -1191,15 +1191,6 @@
   container-type: inline-size;
 }
 
-/* In a right-to-left page the widgets sit at the start side, like VS Code.
-   The editor's own `dir` is always `ltr` (code reads left to right), so the
-   page's direction is read from an ancestor. */
-:not(#\#)[dir="rtl"] .config-editor .config-editor__find,
-:not(#\#)[dir="rtl"] .config-editor .config-editor__goto {
-  right: auto;
-  left: 14px;
-}
-
 :not(#\#) .config-editor__find[hidden],
 :not(#\#) .config-editor__find [hidden] { display: none; }
 
