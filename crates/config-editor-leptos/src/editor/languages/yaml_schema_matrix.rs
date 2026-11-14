@@ -84,7 +84,10 @@ fn a_yaml_schema_helps_every_language_as_its_json_does() {
         let caret = typing.find('|').expect("a | caret marker");
         let typing = typing.replacen('|', "", 1);
         let problems = from_json.validate(language, document);
-        if from_yaml.validate(language, document) != problems || problems.is_empty() {
+        // Without the validator no document has schema problems; the two
+        // schemas must still agree.
+        let expected = cfg!(feature = "schema-validation");
+        if from_yaml.validate(language, document) != problems || problems.is_empty() == expected {
             failures.push(format!("{language:?} problems: {problems:?}"));
         }
         let offered = from_json.suggestions(language, &typing, caret);
