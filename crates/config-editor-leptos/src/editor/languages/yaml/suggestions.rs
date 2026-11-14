@@ -709,9 +709,9 @@ pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionConte
             path,
             typed,
             replace_start: crate::editor::paths::units_at(source, current_line_start),
-            replace_end: source[..if splits || entry_after_space { cursor + gap } else { replace_end_byte.min(source.len()) }]
-                .encode_utf16()
-                .count(),
+            // A lookup while a batch asks many places (a count of the text
+            // before it for each was quadratic, QA 36).
+            replace_end: crate::editor::paths::units_at(source, if splits || entry_after_space { cursor + gap } else { replace_end_byte.min(source.len()) }),
             entry_prefix: siblings.clone(),
             entry_suffix: if splits || entry_after_space { format!("\n{siblings}") } else { String::new() },
             entry_after: (splits && gap == 0).then_some(word_after),
@@ -730,9 +730,7 @@ pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionConte
         path,
         typed,
         replace_start: crate::editor::paths::units_at(source, typed_start_byte),
-        replace_end: source[..replace_end_byte.min(source.len())]
-            .encode_utf16()
-            .count(),
+        replace_end: crate::editor::paths::units_at(source, replace_end_byte.min(source.len())),
         root_item,
         root_value: root_item.map(|_| ("- ", "")),
         value_key,

@@ -16,7 +16,10 @@
 //! read the text thousands of times and hung the page). The copies past
 //! the one the language finds are read only when a lookup needs one: a
 //! token in that copy (most are) costs no stand-in (QA 35: one line moved
-//! read every copy of every field near it, 1.5 times slower).
+//! read every copy of every field near it, 1.5 times slower). What a
+//! search finds is kept for the text (`parse_cache::every_copy`): each
+//! check of one keystroke looks for the same copies of the same text (QA
+//! 36: six searches of it for each keystroke beside a copy).
 
 mod copies;
 
@@ -27,6 +30,7 @@ use std::rc::Rc;
 
 use super::super::codec::scalar_range;
 use super::super::language::ConfigLanguage;
+use super::super::parse_cache::every_copy;
 use super::super::paths::{in_batch, with_spans, written_value_span};
 
 /// The value ranges written for each field, one per copy of its key.
@@ -160,7 +164,13 @@ impl Search {
                     self.read = Read::Found;
                 }
                 Read::Found => {
-                    self.found = copies::every_copy(behavior, text, &self.pointers);
+                    // The same text's copies are looked for by each check
+                    // of an edit: found once.
+                    let pointers = &self.pointers;
+                    self.found = (*every_copy(behavior, text, pointers, || {
+                        copies::every_copy(behavior, text, pointers)
+                    }))
+                    .clone();
                     self.read = Read::Every;
                 }
                 Read::Every => return None,

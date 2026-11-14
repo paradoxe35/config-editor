@@ -1,6 +1,7 @@
 //! Which key the pointer is over.
 
 use super::*;
+use super::indent_above::{self, Counting, indent};
 
 /// On an explicit key's line (`? k`) past its `?`, on its value's line
 /// (`: v`) right below its key's lines, or on a line of the block that
@@ -55,6 +56,13 @@ impl<'a> Text<'a> {
         self.lines.line(self.source, index)
     }
 
+    /// The `counting` line nearest above line `index` indented less than
+    /// `column` (see `indent_above`).
+    fn above_less(&self, counting: Counting, index: usize, column: usize) -> Option<usize> {
+        let line = |at: usize| self.at(at);
+        indent_above::above_less(self.source, &line, self.lines.count(), counting, index, column)
+    }
+
     /// Line `index`, which must exist.
     fn at(&self, index: usize) -> &'a str {
         self.get(index).unwrap_or_default()
@@ -78,23 +86,22 @@ fn explicit_key_above(lines: &Text<'_>, line_index: usize, start: usize) -> Opti
 /// text's own lines indented more than its first), the key whose `?` every
 /// one of them is indented past.
 fn explicit_block_key_above(lines: &Text<'_>, line_index: usize) -> Option<usize> {
-    let indent = |line: &str| line.len() - line.trim_start_matches([' ', '\t']).len();
+    // Only a line indented less than every one below it can hold the key.
     let mut least = indent(lines.at(line_index));
-    for above in (0..line_index).rev() {
+    let mut from = line_index;
+    loop {
+        let above = lines.above_less(Counting::NonBlank, from, least)?;
         let line = lines.at(above);
-        if line.trim().is_empty() {
-            continue;
-        }
         let (at, text) = entry_body(line);
         if at < least && explicit_block_key(text).is_some() {
             return Some(above);
         }
-        least = least.min(indent(line));
+        least = indent(line);
         if least == 0 {
             return None;
         }
+        from = above;
     }
-    None
 }
 
 /// Whether line `line_index` (its body at byte `start`) is inside the block
@@ -105,28 +112,29 @@ fn under_explicit_value(lines: &Text<'_>, line_index: usize, start: usize) -> bo
     if start == 0 {
         return false;
     }
+    // Only a line indented less than every entry below it can hold it.
     let mut inside = start;
-    for above in (0..line_index).rev() {
+    let mut from = line_index;
+    loop {
+        let Some(above) = lines.above_less(Counting::Entries, from, inside) else {
+            return false;
+        };
         let line = lines.at(above);
-        let indent = line.len() - line.trim_start_matches([' ', '\t']).len();
         let (at, text) = entry_body(line);
-        if text.is_empty() || text.starts_with('#') || indent >= inside {
-            continue;
-        }
         if text == ":" || text.starts_with(": ") {
             return explicit_key_above(lines, above, at).is_some();
         }
-        if indent == 0 {
+        inside = indent(line);
+        if inside == 0 {
             return false;
         }
-        inside = indent;
+        from = above;
     }
-    false
 }
 
 /// The text of `line` after its indentation and item dashes, and the byte
 /// it starts at.
-fn entry_body(line: &str) -> (usize, &str) {
+pub(super) fn entry_body(line: &str) -> (usize, &str) {
     let mut body = line.trim_start_matches([' ', '\t']);
     while let Some(rest) = body.strip_prefix("- ") {
         body = rest.trim_start_matches([' ', '\t']);

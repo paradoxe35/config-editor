@@ -183,6 +183,14 @@ pub(crate) enum Work {
     /// the document around what is being typed
     /// (`completion::document_around`).
     AroundParse,
+    /// A step walking up from a place to the line holding it while a
+    /// batch asks many places' paths (a YAML hover: the block an explicit
+    /// key's value holds).
+    #[cfg_attr(
+        not(feature = "yaml"),
+        allow(dead_code, reason = "only the YAML hover notes it")
+    )]
+    WalkUp,
 }
 
 impl Work {
@@ -228,6 +236,7 @@ impl Work {
             Self::LockLine => 36,
             Self::StandIn => 37,
             Self::AroundParse => 38,
+            Self::WalkUp => 39,
         }
     }
 
@@ -273,12 +282,13 @@ impl Work {
         Self::LockLine,
         Self::StandIn,
         Self::AroundParse,
+        Self::WalkUp,
     ];
 }
 
 /// How many kinds of work there are.
 #[cfg(test)]
-const KINDS: usize = 39;
+const KINDS: usize = 40;
 
 #[cfg(test)]
 thread_local! {

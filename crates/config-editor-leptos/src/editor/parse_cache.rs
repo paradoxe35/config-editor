@@ -10,7 +10,9 @@
 //! which a keystroke's check and its locks both ask, and the next keystroke
 //! on the line too (typing in a scalar leaves the line's path as it was).
 //! And the documents read the way a schema expects (see [`conformed`]),
-//! which an Edit-as save reads in several of its steps.
+//! which an Edit-as save reads in several of its steps, and the copies of
+//! fields' keys written more than once (see `copies`), which a keystroke's
+//! checks each look for.
 //!
 //! Two parses (an Edit-as view's text and the host's, which each pause
 //! reads in turn), three documents read as a schema expects and one entry
@@ -29,6 +31,10 @@ use super::work_count::{Work, note, note_many};
 
 mod conformed;
 pub(crate) use conformed::conformed;
+#[cfg(feature = "protect")]
+mod copies;
+#[cfg(feature = "protect")]
+pub(crate) use copies::every_copy;
 
 /// How many parses are kept.
 const PARSES_KEPT: usize = 2;
@@ -271,4 +277,6 @@ pub(crate) fn release() {
     let _ = LEXICAL.try_with(|last| last.borrow_mut().take());
     let _ = LINE_PATHS.try_with(|kept| kept.borrow_mut().clear());
     conformed::forget();
+    #[cfg(feature = "protect")]
+    copies::forget();
 }
