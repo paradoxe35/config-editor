@@ -42,15 +42,26 @@ impl Placeholders<'_> {
             .iter()
             .filter(|range| near(&lines, range, start, old_end))
             .collect();
-        if near_ranges.is_empty() {
+        // Tokens given whole near the edit in none of their fields (a
+        // parent key renamed, a line moved) are held as in a field of
+        // their own where they are written (see `moved`).
+        let moved = self.moved_near(before, start, old_end);
+        if near_ranges.is_empty() && moved.is_empty() {
             return None;
         }
         // Each placeholder's field from where it is written (the text read
         // once for all of them); one written where no field given its
         // token is (a text that reads wrong around it) keeps its line.
-        let (near, placed) = with_spans(self.behavior, before, &[], || {
-            self.placed(before, &lines, &near_ranges)
+        let ((mut near, mut placed), stand_ins) = with_spans(self.behavior, before, &[], || {
+            (
+                self.placed(before, &lines, &near_ranges),
+                self.moved_alone(before, moved),
+            )
         });
+        for (range, known) in &stand_ins {
+            near.push((range.clone(), known));
+            placed.push(true);
+        }
         if near.is_empty() {
             return None;
         }

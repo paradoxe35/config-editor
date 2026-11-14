@@ -1003,20 +1003,23 @@ impl Fields {
 }
 
 /// Pointers of the values of `document` that are one of `accepted`: each
-/// string looked up among the tokens (a pass over them all for each string
-/// took seconds with thousands of placeholders).
+/// string looked up among the tokens, then its field among the token's (a
+/// pass over them all for each string took seconds with thousands of
+/// placeholders; over a token's fields, with one fixed mask in thousands
+/// of fields, the typing pause grew with their square).
 #[cfg(feature = "schema-validation")]
 fn accepted_pointers(document: &Value, accepted: &[(String, String)]) -> Vec<String> {
     if accepted.is_empty() {
         return Vec::new();
     }
     super::work_count::note(super::work_count::Work::TokenScan);
-    let mut fields: std::collections::HashMap<&str, Vec<&str>> = std::collections::HashMap::new();
+    let mut fields: std::collections::HashMap<&str, std::collections::HashSet<String>> =
+        std::collections::HashMap::new();
     for (token, field) in accepted {
         fields
             .entry(token.as_str())
             .or_default()
-            .push(field.as_str());
+            .insert(super::paths::field_key(field));
     }
     let mut found = Vec::new();
     let mut stack = vec![(String::new(), document)];
@@ -1024,9 +1027,8 @@ fn accepted_pointers(document: &Value, accepted: &[(String, String)]) -> Vec<Str
         match value {
             Value::String(text)
                 if fields.get(text.as_str()).is_some_and(|fields| {
-                    fields
-                        .iter()
-                        .any(|field| super::paths::same_field(field, &pointer))
+                    super::work_count::note(super::work_count::Work::PlaceLookup);
+                    fields.contains(&super::paths::field_key(&pointer))
                 }) =>
             {
                 found.push(pointer)

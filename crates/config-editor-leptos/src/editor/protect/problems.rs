@@ -10,6 +10,7 @@ use super::super::diagnostics::{Diagnostic, Severity};
 use super::super::language::{ConfigLanguage, Repetition};
 use super::super::parse_cache;
 use super::super::paths::{FieldPath, path_at};
+use super::copied::copied_placeholders;
 use super::marks::marks_at;
 use super::moved_off::is_own_field;
 use super::texts;
@@ -63,6 +64,13 @@ pub(crate) fn unknown_placeholders(
         .as_ref()
         .map(|document| matcher.holders(document))
         .unwrap_or_default();
+    // Fields given a token by a reference to another (an alias), where it
+    // is not written.
+    let copied = document
+        .map(|document| {
+            copied_placeholders(behavior, text, document, known, &written, &holders, strings)
+        })
+        .unwrap_or_default();
     let mut checked: HashMap<&str, bool> = HashMap::new();
     // Each known token's fields, with how often the host wrote it in each
     // (the first is the one a moved token is said to come from), and how
@@ -105,7 +113,7 @@ pub(crate) fn unknown_placeholders(
         open.push((range, line, line_start, at));
     }
     if open.is_empty() {
-        return Vec::new();
+        return copied;
     }
     // Which are written in a comment: there only a token the host wrote in
     // a comment is real, and no field is looked up.
@@ -211,6 +219,7 @@ pub(crate) fn unknown_placeholders(
             ..Diagnostic::default()
         });
     }
+    problems.extend(copied);
     problems
 }
 

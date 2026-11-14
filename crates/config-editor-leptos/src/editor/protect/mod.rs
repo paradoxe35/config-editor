@@ -25,6 +25,7 @@
 mod around_written_tests;
 mod carry;
 mod components;
+mod copied;
 mod follow;
 mod follow_items;
 mod glued;
@@ -138,6 +139,8 @@ mod browse_tests;
     feature = "xml"
 ))]
 mod copied_field_tests;
+#[cfg(all(test, feature = "yaml"))]
+mod copied_tests;
 #[cfg(all(
     test,
     feature = "yaml",
@@ -300,6 +303,15 @@ mod lock_scale_tests;
     feature = "xml"
 ))]
 mod moved_token_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod moved_whole_tests;
 #[cfg(all(
     test,
     feature = "yaml",

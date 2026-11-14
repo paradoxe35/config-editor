@@ -27,6 +27,11 @@
 //!   its field by where it is written, never paired with every field
 //!   holding the same token (one fixed mask in thousands of fields).
 //!
+//! A token given whole written near the edit in none of its fields (its
+//! field's parent key renamed, its line moved into another block) is held
+//! the same way at the path it is at now (`moved`): plain text there, yet
+//! still a whole secret's token.
+//!
 //! With no placeholder given whole, an edit costs the check nothing; with
 //! some, an edit out of their reach costs lookups among them (`index`),
 //! one in reach a read of the text and work for each field given one,
@@ -34,6 +39,7 @@
 
 mod broken;
 mod index;
+mod moved;
 
 pub(crate) use index::WholeIndex;
 
@@ -43,9 +49,10 @@ use serde_json::Value;
 
 use super::super::language::ConfigLanguage;
 use super::super::parse_cache;
+use super::super::text_change::changed_bytes;
 use super::glued::{Holding, holding, only_taken_from};
 use super::reach::reaches_none_by;
-use super::tokens::Known;
+use super::tokens::{Known, SecretMatcher};
 
 /// The host's placeholders in the text before an edit.
 pub(crate) struct Placeholders<'a> {
@@ -56,6 +63,9 @@ pub(crate) struct Placeholders<'a> {
     pub(crate) index: &'a WholeIndex,
     /// UTF-16 ranges of the real placeholders in the text before, in order.
     pub(crate) tokens: &'a [Range<usize>],
+    /// The host's pattern, to find tokens near an edit that are in none of
+    /// their fields (see `moved`).
+    pub(crate) matcher: &'a SecretMatcher,
 }
 
 /// What the check found: the field of a placeholder the edit writes text
@@ -75,11 +85,14 @@ impl Placeholders<'_> {
                 parses: None,
             };
         }
-        // Out of reach: no placeholder on the edited line, and its path is
+        let changed = changed_bytes(before, after);
+        // Out of reach: no placeholder on the edited line, nor one given
+        // whole written near it in none of its fields, and its path is
         // no field given one, nor inside or holding one; a lookup among
         // them, never a pass over them. (Such an edit keeps its line's
         // keys, so it makes no placeholder real again either.)
         if before_parses
+            && self.moved_near(before, changed.0, changed.1).is_empty()
             && reaches_none_by(
                 self.behavior,
                 before,
@@ -97,7 +110,9 @@ impl Placeholders<'_> {
         let parsed = parse_cache::parsed(self.behavior, after);
         match parsed.as_ref() {
             Ok(document) => Verdict {
-                glued: self.glued_in_parsed(before, document),
+                glued: self
+                    .glued_in_parsed(before, document)
+                    .or_else(|| self.glued_where_moved(before, after, document, changed)),
                 parses: Some(true),
             },
             Err(_) => Verdict {

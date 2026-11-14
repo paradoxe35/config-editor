@@ -141,7 +141,7 @@ impl SecretMatcher {
 
     /// [`Self::find`] in a piece of text (a string of the parsed document),
     /// not remembered.
-    fn find_in(&self, text: &str) -> Vec<Range<usize>> {
+    pub(crate) fn find_in(&self, text: &str) -> Vec<Range<usize>> {
         let Some(pattern) = &self.pattern else {
             return Vec::new();
         };

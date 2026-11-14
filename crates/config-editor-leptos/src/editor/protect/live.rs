@@ -413,14 +413,17 @@ impl EditorState {
             let index = secrets.whole.get_untracked();
             secrets.known.with_untracked(|known| {
                 secrets.tokens.with_untracked(|tokens| {
-                    Placeholders {
-                        behavior,
-                        reading_schema: schema.as_deref().map(|bundle| &bundle.schema),
-                        known,
-                        index: &index,
-                        tokens,
-                    }
-                    .check(before, after, before_parses)
+                    secrets.matcher.with_value(|matcher| {
+                        Placeholders {
+                            behavior,
+                            reading_schema: schema.as_deref().map(|bundle| &bundle.schema),
+                            known,
+                            index: &index,
+                            tokens,
+                            matcher,
+                        }
+                        .check(before, after, before_parses)
+                    })
                 })
             })
         });

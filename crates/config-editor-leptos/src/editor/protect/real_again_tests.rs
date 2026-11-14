@@ -2,9 +2,10 @@
 //! value whatever way it gets back into its field, and its field stays a
 //! string:
 //! - made plain for a moment (its key renamed, its line commented out or
-//!   moved out of its block), written beside, then made real again (the
-//!   key renamed back, the line uncommented or moved back): the edit
-//!   making it real with text beside it is refused, in every language;
+//!   moved out of its block), then made real again (the key renamed back,
+//!   the line uncommented or moved back): text written beside it in a
+//!   field meanwhile is refused there; written beside it in a comment, the
+//!   edit making it real with that text is refused, in every language;
 //! - its field made a list or map holding it (an XML element given a child
 //!   or an attribute, a sibling moved in, the token put in brackets) is
 //!   refused as text beside it is.
@@ -176,6 +177,16 @@ fn rename(state: EditorState, language: Language, back: bool) {
     }
 }
 
+/// Whether a string of `value` is the token alone.
+fn alone_somewhere(value: &Value) -> bool {
+    match value {
+        Value::String(text) => text.trim() == TOKEN,
+        Value::Array(items) => items.iter().any(alone_somewhere),
+        Value::Object(map) => map.values().any(alone_somewhere),
+        _ => false,
+    }
+}
+
 /// A way to make the token plain (`false`) and real again (`true`).
 type Route = Box<dyn Fn(EditorState, bool)>;
 
@@ -216,14 +227,22 @@ fn a_placeholder_made_real_again_with_text_beside_it_is_refused() {
             };
             type_at(state, at + TOKEN.len(), "MY");
             pause(state);
-            if !state
+            // Some field's whole value (its key renamed, its line moved into
+            // another block), it is still the host's token, held whole (see
+            // `whole_guard::moved`); in a comment, or read into another
+            // value with text beside it (a YAML line moved under a scalar),
+            // it is that text's, free to write beside.
+            let alone = language
+                .parse(&plain)
+                .is_ok_and(|document| alone_somewhere(&document));
+            let typed = state
                 .doc()
                 .text
                 .get_untracked()
-                .contains(&format!("{TOKEN}MY"))
-            {
+                .contains(&format!("{TOKEN}MY"));
+            if typed == alone {
                 failures.push(format!(
-                    "{case}: typing beside the plain token refused: {:?}",
+                    "{case}: typing beside the plain token let through {typed}: {:?}",
                     state.doc().text.get_untracked()
                 ));
                 continue;

@@ -4,9 +4,12 @@
 //! host would read each copy as plain text and the secret would be gone,
 //! so the save waits, as the copies are flagged.
 
+use std::collections::HashMap;
+
 use serde_json::Value;
 
 use super::super::language::ConfigLanguage;
+use super::super::paths::field_key;
 use super::tokens::{Known, SecretMatcher, field_value};
 
 /// Whether `document` holds `token` in `field` itself (a lone element read
@@ -50,6 +53,19 @@ pub(crate) fn moved_off_in_save(
     }
     let document = super::super::codec::read(behavior, new, reading).ok()?;
     let holders = matcher.holders(&document);
+    // Each token's fields by what names them alike: a lookup per holder,
+    // never a pass over them (one mask in thousands of fields).
+    let mut fields: HashMap<&str, HashMap<String, Vec<&str>>> = HashMap::new();
+    for known in known {
+        if let Some(field) = known.field.as_deref() {
+            fields
+                .entry(known.token.as_str())
+                .or_default()
+                .entry(field_key(field))
+                .or_default()
+                .push(field);
+        }
+    }
     known.iter().find_map(|secret| {
         let field = secret.field.as_deref()?;
         if held_in_own_field(&document, field, &secret.token) {
@@ -57,8 +73,14 @@ pub(crate) fn moved_off_in_save(
         }
         // Not a field the host gave the same token in too.
         let own = |pointer: &str| {
-            known_fields(known, &secret.token)
-                .any(|other| is_own_field(Some(&document), other, pointer))
+            fields
+                .get(secret.token.as_str())
+                .and_then(|fields| fields.get(&field_key(pointer)))
+                .is_some_and(|others| {
+                    others
+                        .iter()
+                        .any(|other| is_own_field(Some(&document), other, pointer))
+                })
         };
         let elsewhere = holders
             .get(&secret.token)?
@@ -66,12 +88,4 @@ pub(crate) fn moved_off_in_save(
             .find(|pointer| !own(pointer))?;
         Some((elsewhere.clone(), field.to_string()))
     })
-}
-
-/// The fields the host gave `token` in.
-fn known_fields<'a>(known: &'a [Known], token: &'a str) -> impl Iterator<Item = &'a str> {
-    known
-        .iter()
-        .filter(move |known| known.token == token)
-        .filter_map(|known| known.field.as_deref())
 }
