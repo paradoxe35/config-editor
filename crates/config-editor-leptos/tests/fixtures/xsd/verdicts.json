@@ -114,6 +114,53 @@
       "libxml2": [
         "Element 'httpRuntime', attribute 'maxRequestLength': '-1' is not a valid value of the atomic type 'xs:unsignedInt'."
       ]
+    },
+    "inventory-valid.xml": {
+      "schema": "inventory.xsd",
+      "valid": true,
+      "libxml2": []
+    },
+    "inventory-dangling-ref.xml": {
+      "schema": "inventory.xsd",
+      "valid": false,
+      "libxml2": [
+        "Element '{urn:example:inventory}item': No match found for key-sequence ['lux'] of keyref '{urn:example:inventory}itemWarehouse'."
+      ]
+    },
+    "inventory-duplicate-code.xml": {
+      "schema": "inventory.xsd",
+      "valid": false,
+      "libxml2": [
+        "Element '{urn:example:inventory}warehouse': Duplicate key-sequence ['ams'] in key identity-constraint '{urn:example:inventory}warehouseCode'."
+      ]
+    },
+    "inventory-duplicate-sku.xml": {
+      "schema": "inventory.xsd",
+      "valid": false,
+      "libxml2": [
+        "Element '{urn:example:inventory}item': Duplicate key-sequence ['A-1'] in unique identity-constraint '{urn:example:inventory}sku'."
+      ]
+    },
+    "inventory-out-of-order.xml": {
+      "schema": "inventory.xsd",
+      "valid": false,
+      "libxml2": [
+        "Element '{urn:example:inventory}warehouse': This element is not expected. Expected is ( {urn:example:inventory}item )."
+      ]
+    },
+    "beans-two-values.xml": {
+      "schema": "spring-beans.xsd",
+      "valid": false,
+      "libxml2": [
+        "Element '{http://www.springframework.org/schema/beans}value': This element is not expected."
+      ]
+    },
+    "inventory-stock-out-of-order.xml": {
+      "schema": "inventory.xsd",
+      "valid": false,
+      "libxml2": [
+        "Element '{urn:example:inventory}stock': This element is not expected. Expected is ( {urn:example:inventory}sku )."
+      ]
     }
   }
 }

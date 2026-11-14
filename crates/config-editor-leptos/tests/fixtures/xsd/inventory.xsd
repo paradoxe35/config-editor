@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:i="urn:example:inventory"
+    targetNamespace="urn:example:inventory" elementFormDefault="qualified">
+  <xs:element name="inventory">
+    <xs:annotation><xs:documentation>Warehouses and the items they stock.</xs:documentation></xs:annotation>
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element name="warehouse" maxOccurs="unbounded">
+          <xs:complexType>
+            <xs:attribute name="code" type="xs:string" use="required"/>
+            <xs:attribute name="city" type="xs:string"/>
+          </xs:complexType>
+        </xs:element>
+        <xs:element name="item" minOccurs="0" maxOccurs="unbounded">
+          <xs:complexType>
+            <xs:sequence>
+              <xs:element name="sku" type="xs:string"/>
+              <xs:element name="stock" type="xs:nonNegativeInteger"/>
+            </xs:sequence>
+            <xs:attribute name="warehouse" type="xs:string" use="required"/>
+          </xs:complexType>
+        </xs:element>
+      </xs:sequence>
+    </xs:complexType>
+    <xs:key name="warehouseCode">
+      <xs:selector xpath="i:warehouse"/>
+      <xs:field xpath="@code"/>
+    </xs:key>
+    <xs:keyref name="itemWarehouse" refer="i:warehouseCode">
+      <xs:selector xpath="i:item"/>
+      <xs:field xpath="@warehouse"/>
+    </xs:keyref>
+    <xs:unique name="sku">
+      <xs:selector xpath="i:item"/>
+      <xs:field xpath="i:sku"/>
+    </xs:unique>
+  </xs:element>
+</xs:schema>

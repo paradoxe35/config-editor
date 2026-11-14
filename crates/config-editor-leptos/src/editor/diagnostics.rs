@@ -71,6 +71,8 @@ pub(super) struct SchemaBundle {
     pub(super) warnings: Vec<String>,
     /// What the schema's format said that the JSON Schema does not check.
     losses: Vec<SchemaLoss>,
+    /// The format's checks of what the JSON Schema cannot hold.
+    pub(super) checks: Vec<std::sync::Arc<dyn super::schema_formats::SchemaCheck>>,
     /// Whether the warnings went to the console already: the editors that
     /// share this compiled schema (a documents view's, of one schema text)
     /// say them there once.
@@ -114,7 +116,7 @@ impl SchemaFailure {
 /// the `invalidSchema` text where it is shown).
 pub(super) fn build_schema(schema_text: &str) -> Result<SchemaBundle, String> {
     let schema = super::schema_formats::json::parse(schema_text).map_err(|error| error.0)?;
-    build_compiled(schema, Vec::new())
+    build_compiled(schema, Vec::new(), Vec::new())
 }
 
 /// The bundle of `input` in `format`.
@@ -128,12 +130,17 @@ fn build_formatted(
             format: format.label(),
             error: error.0,
         })?;
-    build_compiled(compiled.schema, compiled.losses).map_err(SchemaFailure::JsonSchema)
+    build_compiled(compiled.schema, compiled.losses, compiled.checks)
+        .map_err(SchemaFailure::JsonSchema)
 }
 
 /// The bundle of a compiled JSON Schema and the losses of its format, or why
 /// it is no JSON Schema.
-fn build_compiled(mut schema: Value, losses: Vec<SchemaLoss>) -> Result<SchemaBundle, String> {
+fn build_compiled(
+    mut schema: Value,
+    losses: Vec<SchemaLoss>,
+    checks: Vec<std::sync::Arc<dyn super::schema_formats::SchemaCheck>>,
+) -> Result<SchemaBundle, String> {
     super::empty_refs::to_root(&mut schema);
     #[cfg(feature = "schema-validation")]
     let validator = jsonschema::validator_for(
@@ -168,6 +175,7 @@ fn build_compiled(mut schema: Value, losses: Vec<SchemaLoss>) -> Result<SchemaBu
         emitted,
         warnings,
         losses,
+        checks,
         warned_console: std::sync::atomic::AtomicBool::new(false),
         has_deprecated,
         has_marks,
@@ -1060,10 +1068,19 @@ pub(super) fn validate_with(
                 diagnostic.message.clone(),
             ))
         });
+        diagnostics.extend(super::schema_checks::problems(
+            schema, behavior, source, &document,
+        ));
         diagnostics.extend(deprecated);
         return capped(diagnostics, strings);
     }
-    deprecated
+    let mut found = deprecated;
+    if let Some(schema) = schema {
+        found.extend(super::schema_checks::problems(
+            schema, behavior, source, &document,
+        ));
+    }
+    capped(found, strings)
 }
 
 /// Some fields of a document, by pointer: whether a path is one of them

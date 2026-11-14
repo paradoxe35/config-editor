@@ -9,6 +9,7 @@
 //! JSON Schema cannot check (identity constraints, element order, …) is a
 //! [`SchemaLoss`](super::SchemaLoss).
 
+mod checks;
 mod compile;
 mod files;
 mod regex;
@@ -18,8 +19,11 @@ mod tree;
 use serde_json::{Map, Value, json};
 
 use super::super::diagnostics::SchemaError;
-use super::{CompiledSchema, LossEffect, SchemaCompiler, SchemaFormatInfo, SchemaInput};
+use super::{
+    CompiledSchema, LossEffect, SchemaCheck, SchemaCompiler, SchemaFormatInfo, SchemaInput,
+};
 use compile::{Compiler, Settings, error};
+use std::sync::Arc;
 use tree::Node;
 
 /// The XSD format.
@@ -183,7 +187,16 @@ impl SchemaCompiler for Xsd {
                 Value::Object(std::mem::take(&mut compiler.defs)),
             );
         }
-        Ok(CompiledSchema::new(Value::Object(document)).with_losses(compiler.losses))
+        let mut checks: Vec<Arc<dyn SchemaCheck>> = Vec::new();
+        if compiler.content_checked {
+            checks.push(Arc::new(checks::ContentCheck));
+        }
+        if compiler.identity_checked {
+            checks.push(Arc::new(checks::IdentityCheck));
+        }
+        Ok(CompiledSchema::new(Value::Object(document))
+            .with_losses(compiler.losses)
+            .with_checks(checks))
     }
 
     /// The `schemaLocation`s of its `xs:include`, `xs:import` and

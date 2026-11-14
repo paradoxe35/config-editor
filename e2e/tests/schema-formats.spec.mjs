@@ -95,6 +95,45 @@ test.describe('schema formats in the tools', () => {
     expect(await attempt(page, (core, tools) => tools.schemaImports('{}'))).toEqual([]);
   });
 
+  test('a format\'s checks run where the editor validates, in every view', async ({ page }) => {
+    const result = await attempt(page, (core, tools) => {
+      const seen = [];
+      core.registerSchemaFormat({
+        name: 'echoes',
+        compile: () => ({
+          schema: { type: 'object' },
+          checks: [
+            {
+              name: 'no echoes',
+              check: ({ text, language, value, schema }) => {
+                seen.push([language, typeof text, schema.type]);
+                return Object.entries(value)
+                  .filter(([key, item]) => key === item)
+                  .map(([key]) => ({ pointer: `/${key}`, message: 'echoes its key', atKey: true, severity: 'warning' }));
+              },
+            },
+          ],
+        }),
+      });
+      core.registerSchemaFormat({ name: 'throws', compile: () => ({ schema: {}, checks: [{ name: 'boom', check: () => { throw new Error('no'); } }] }) });
+      const problems = (language, text, format) =>
+        tools.validate(language, text, '', { schemaFormat: format }).map(({ message, line, severity }) => ({ message, line, severity }));
+      return {
+        yaml: problems('yaml', 'a: b\nc: c\n', 'echoes'),
+        json: problems('json', '{\n  "c": "c"\n}', 'echoes'),
+        seen,
+        threw: problems('yaml', 'a: 1\n', 'throws'),
+      };
+    });
+    expect(result.yaml).toEqual([{ message: '/c: echoes its key', line: 2, severity: 'warning' }]);
+    expect(result.json).toEqual([{ message: '/c: echoes its key', line: 2, severity: 'warning' }]);
+    expect(result.seen).toEqual([
+      ['YAML', 'string', 'object'],
+      ['JSON', 'string', 'object'],
+    ]);
+    expect(result.threw).toEqual([{ message: 'throws\'s check "boom" did not run: no', line: 1, severity: 'warning' }]);
+  });
+
   test('validate, convert and schemaWarnings take the format, resources and options', async ({ page }) => {
     const result = await attempt(page, (core, tools) => {
       const source = { schemaFormat: 'fields', schemaResources: { 'common.fields': 'port: integer\n' }, schemaOptions: { required: ['name'] } };
@@ -152,7 +191,7 @@ test.describe('schema formats in the tools', () => {
     expect(errors[2]).toBe('unknown schema format "jtd" (expected json-schema, json-schema-yaml, openapi, xsd); registered: fields');
     expect(errors[3]).toBe('"json-schema" is a built-in schema format');
     expect(errors[4]).toBe('a schema format needs compile(text, resources, options)');
-    expect(errors[5]).toBe("Invalid bad: bad's compile() must return { schema, losses? }");
+    expect(errors[5]).toBe("Invalid bad: bad's compile() must return { schema, losses?, checks? }");
     expect(errors[6]).toMatch(/^Invalid JSON Schema: /);
   });
 
@@ -196,16 +235,16 @@ test.describe('XML Schema', () => {
         losses: losses.map(({ construct, effect, line }) => ({ construct, effect, line })),
         xml: problems('xml', '<server port="80"><host>h</host><price>1.50</price></server>'),
         badXml: problems('xml', '<server port="99999"><hots>h</hots></server>'),
+        // Only the checks beside the JSON Schema catch these.
+        order: problems('xml', '<server port="80"><price>1.50</price><host>h</host></server>'),
         yaml: problems('yaml', 'server:\n  port: 80\n  host: h\n  price: x\n'),
         converted: window.tools.convert('yaml', 'server:\n  port: 80\n  host: h\n', 'xml', xsd, source).text,
       };
     }, XSD);
     expect(result.description).toBe('The server.');
-    expect(result.losses).toEqual([
-      { construct: 'xs:key', effect: 'not-checked', line: 11 },
-      { construct: 'xs:sequence order', effect: 'not-checked', line: 5 },
-    ]);
+    expect(result.losses).toEqual([{ construct: 'xs:sequence order', effect: 'not-checked', line: 5 }]);
     expect(result.xml).toEqual([]);
+    expect(result.order).toEqual(['/server/price: <price> is not expected here; expected <host>']);
     expect(result.badXml.sort()).toEqual([
       '/server/port: 99999 is greater than the maximum of 65535',
       '/server: "host" is a required property',

@@ -94,6 +94,8 @@ mod schema_option_messages;
 ))]
 mod kept_defaults;
 mod save;
+#[cfg(feature = "yaml")]
+mod schema_checks;
 #[cfg(all(feature = "yaml", feature = "schema-validation"))]
 mod schema_options;
 #[cfg(all(feature = "yaml", feature = "schema-validation"))]

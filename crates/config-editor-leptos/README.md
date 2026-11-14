@@ -1384,17 +1384,28 @@ pass the [`Schema`].
   (`#/$defs/common.json/…`), so completion and hover follow them too.
   `SchemaFormat::imports(text)` lists the locations a text refers to, so a
   host fetches them first (and calls it again on each fetched text).
-- **Losses.** What a format says that JSON Schema cannot (an identity
-  constraint, an element order) is a [`SchemaLoss`]: its construct, where it
-  is, and its effect (`NotChecked`, `Loosened` or `Approximated`).
-  `Schema::losses()` lists them, and each is also one of
-  `Schema::warnings()`, so `on_schema_warning` reports it.
+- **Extra checks.** A rule JSON Schema cannot hold (XSD's element order,
+  its `xs:key`) can still be checked: `CompiledSchema::with_checks` adds a
+  [`SchemaCheck`] beside the JSON Schema. The editor runs each one where it
+  validates (at the same pause in typing), giving it a [`CheckedDocument`]:
+  the text, its language, the value as the schema reads it and the
+  compiled JSON Schema (where a format leaves the annotations its checks
+  read). Each [`CheckProblem`] names the JSON pointer of the value it is
+  about; the editor places it there in any view, words it with the pointer
+  first and caps it with the schema's problems. Each check runs once per
+  validation; the editor knows nothing of what it checks.
+- **Losses.** What a format says that neither its JSON Schema nor its
+  checks check is a [`SchemaLoss`]: its construct, where it is, and its
+  effect (`NotChecked`, `Loosened` or `Approximated`). `Schema::losses()`
+  lists them, and each is also one of `Schema::warnings()`, so
+  `on_schema_warning` reports it.
 - **Build time.** `Schema::json()` is the JSON Schema a compiler gave:
   compile once (in a build step, or with `compileSchema` in JavaScript) and
   ship plain JSON Schema instead.
 - **Your own format.** Implement [`SchemaCompiler`]: `info` (name, label,
   extensions), `compile` (the text, its location, resources and options in,
-  the JSON Schema and its losses out), and optionally `imports`. Emit what
+  the JSON Schema, its losses and its checks out), and optionally
+  `imports`. Emit what
   [completion and hover read](#schema-help); other keywords are validated
   but give no help. DTD, RELAX NG, Protobuf, Avro or CUE are left to
   compilers a host registers this way (or to their own tools, which emit
@@ -1476,18 +1487,42 @@ for loss in pom.losses() { log::info!("{loss}"); } // what is not checked
   (`additionalProperties: false`), catching typos; the option `lax: true`
   opens them for hand-extended configs. `xs:any` opens them too, and
   `xs:anyAttribute namespace="##other"` allows prefixed attributes.
-- **Not checked.** These XSD rules have no JSON Schema form, so a
+- **Checked beside the JSON Schema** ([extra checks](#schema-formats)):
+  - each element's children against its **content model**, as an XSD
+    validator runs them: the order of an `xs:sequence`, an `xs:choice`
+    (one option, nested or repeated), substitution groups (one member),
+    every `minOccurs` and `maxOccurs` (counts above 64 as unbounded),
+    `xs:all`, and the children of mixed content. A problem names what was
+    expected (`<b> is not expected here; expected <a>`) on the element;
+  - **wildcards**: the namespaces an `xs:any` allows, and, where a
+    wildcard leaves the model open, each attribute against its
+    declarations and the `xs:anyAttribute` namespaces;
+  - **identity constraints**: `xs:key` (unique, and present), `xs:unique`
+    and `xs:keyref` (a value of its key), for selectors and fields of
+    child steps, `*`, `.//`, `|` and a field's final `@attribute`.
+
+  In an XML text the order and namespaces are read from the text itself
+  (repeated elements apart, as written). In another language's view the
+  children are taken in the model's order (TOML and HCL write tables after
+  values), so there the order is not checked, nor the namespaces (an
+  element written without a prefix is in the target namespace).
+
+- **Not checked.** These XSD rules have no form the editor checks, so a
   document breaking only them shows no problem. Each one the schema uses
   is reported as a schema warning (`Schema::losses()`, `on_schema_warning`)
   with its file and line:
-  - the order of the elements of an `xs:sequence`;
-  - mixed content (`mixed="true"`): the text between child elements;
-  - identity constraints: `xs:key`, `xs:keyref`, `xs:unique`;
-  - `xs:any` and `xs:anyAttribute`: any key is allowed there, whatever
-    its namespace (namespaces in general: elements are keyed by local
-    name);
-  - a repeated or nested `xs:choice`, and substitution groups: each
-    option or member is allowed, several at once too;
+  - the order of the elements of an `xs:sequence` in another language's
+    view (above), and there a value named as both an attribute and a
+    child element (Spring's `value`), which may be either: it is taken as
+    whichever the content model allows;
+  - an identity constraint whose XPath is beyond the subset above;
+  - `xs:any` with `processContents` `strict` or `lax`: the elements it
+    allows are not checked against their declarations; the namespaces of
+    the attributes an `xs:anyAttribute` allows, in another language's
+    view;
+  - a content model too large to check (over 20,000 states once its
+    counts are unrolled), and an `xs:all` extended by (or extending)
+    another model: checked without its counts;
   - `totalDigits`, `fractionDigits`, the items of an `xs:list`, and
     patterns using Unicode blocks (`\p{IsBasicLatin}`);
   - `float` and `double`'s `INF`, `-INF` and `NaN`; `nillable` and
@@ -1505,8 +1540,9 @@ for loss in pom.losses() { log::info!("{loss}"); } // what is not checked
   fetch (call it again on each fetched file).
 
 Checked against `xmllint --schema` on real schemas (Maven POM 4.0.0, Log4j
-2, Spring beans, JUnit XML, a .NET-style config): the verdicts agree,
-except where a listed loss says why.
+2, Spring beans, JUnit XML, a .NET-style config), with instances that only
+the checks catch (elements out of order, a key used twice, a `keyref` to
+no key, an unknown attribute beside a wildcard): the verdicts agree.
 
 ## Keyboard
 
@@ -2160,5 +2196,8 @@ MIT. See [LICENSE](LICENSE).
 [`SchemaCompiler`]: https://docs.rs/config-editor-leptos/latest/config_editor_leptos/trait.SchemaCompiler.html
 [`SchemaFormat`]: https://docs.rs/config-editor-leptos/latest/config_editor_leptos/struct.SchemaFormat.html
 [`SchemaLoss`]: https://docs.rs/config-editor-leptos/latest/config_editor_leptos/struct.SchemaLoss.html
+[`SchemaCheck`]: https://docs.rs/config-editor-leptos/latest/config_editor_leptos/trait.SchemaCheck.html
+[`CheckedDocument`]: https://docs.rs/config-editor-leptos/latest/config_editor_leptos/struct.CheckedDocument.html
+[`CheckProblem`]: https://docs.rs/config-editor-leptos/latest/config_editor_leptos/struct.CheckProblem.html
 [`@pngwasi/config-editor`]: https://www.npmjs.com/package/@pngwasi/config-editor
 [`@pngwasi/config-editor-react`]: https://www.npmjs.com/package/@pngwasi/config-editor-react

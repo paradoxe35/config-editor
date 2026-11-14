@@ -16,7 +16,11 @@ versions move together.
   (`json-schema-yaml`).
 - The files a schema refers to come from the host (`SchemaResources`,
   `schemaResources`; `schemaImports` lists them): nothing is fetched.
-- What a format cannot express in JSON Schema is a loss (`Schema::losses`,
+- A format may check what JSON Schema cannot hold beside it: a
+  `SchemaCheck` (Rust) or a `checks` entry of `compile()`'s result
+  (JavaScript) runs each time the editor validates, its problems placed by
+  JSON pointer in every view with the schema's.
+- What a format checks neither way is a loss (`Schema::losses`,
   `compileSchema`'s `losses`), reported like a schema warning.
 - `compileSchema` (and `Schema::json`) gives the JSON Schema, to compile at
   build time and ship plain JSON Schema.
@@ -26,9 +30,11 @@ versions move together.
 - XSD 1.0 as a schema format (`SchemaFormat::XSD`, cargo feature `xsd`;
   `schemaFormat: "xsd"` in JavaScript): compiled into JSON Schema in the XML
   mapping, it validates and completes every view of the document. Options
-  `root`, `configRoot` and `lax`; what JSON Schema cannot check is a
-  reported loss with its line. `xs:include`, `xs:import` and `xs:redefine`
-  read their files from the host's resources.
+  `root`, `configRoot` and `lax`. Content models (element order, choices,
+  substitution groups, occurrences, wildcards' namespaces) and `xs:key`,
+  `xs:keyref` and `xs:unique` are checked beside the JSON Schema; what is
+  not checked is a reported loss with its line. `xs:include`, `xs:import`
+  and `xs:redefine` read their files from the host's resources.
 - A JSON Schema's `$ref`s to other files are followed when the host passes
   those files as resources: they are bundled into the schema.
 

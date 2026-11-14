@@ -1,0 +1,8 @@
+<inventory xmlns="urn:example:inventory">
+  <warehouse code="ams"/>
+  <item warehouse="ams">
+    <sku>A-1</sku>
+    <stock>3</stock>
+  </item>
+  <warehouse code="kin"/>
+</inventory>

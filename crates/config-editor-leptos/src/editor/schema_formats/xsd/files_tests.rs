@@ -144,7 +144,7 @@ fn a_loss_in_another_file_says_which() {
     let main = schema(r#"<xs:include schemaLocation="keys.xsd"/>"#);
     let keys = schema(
         r#"<xs:element name="r"><xs:complexType><xs:sequence><xs:element name="a" type="xs:string"/></xs:sequence></xs:complexType>
-<xs:key name="k"><xs:selector xpath="a"/><xs:field xpath="."/></xs:key></xs:element>"#,
+<xs:key name="k"><xs:selector xpath="a[1]"/><xs:field xpath="."/></xs:key></xs:element>"#,
     );
     let resources = SchemaResources::new().with("keys.xsd", keys);
     let compiled = compile(&main, None, &resources).unwrap();
@@ -157,7 +157,7 @@ fn a_loss_in_another_file_says_which() {
     assert_eq!((loss.line, loss.effect), (Some(3), LossEffect::NotChecked));
     assert_eq!(
         loss.to_string(),
-        "keys.xsd:3:1: xs:key \"k\" is not checked"
+        "keys.xsd:3:1: xs:key \"k\" is not checked: its XPath is beyond the subset read (child steps, *, .//, |, a field's final @attribute)"
     );
 }
 

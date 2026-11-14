@@ -51,6 +51,7 @@ mod hover_path;
 mod hover_problems;
 mod input;
 mod kept_focus;
+mod schema_checks;
 mod schema_formats;
 #[cfg(feature = "schema-validation")]
 mod schema_refs;
@@ -114,8 +115,8 @@ pub use language::ParseError;
 pub use languages::{Language, UnknownLanguage};
 pub use paths::{FieldPath, TextPosition, TextRange};
 pub use schema_formats::{
-    CompiledSchema, LossEffect, SchemaCompiler, SchemaFormat, SchemaFormatInfo, SchemaInput,
-    SchemaLoss, SchemaResources, UnknownSchemaFormat,
+    CheckProblem, CheckedDocument, CompiledSchema, LossEffect, SchemaCheck, SchemaCompiler,
+    SchemaFormat, SchemaFormatInfo, SchemaInput, SchemaLoss, SchemaResources, UnknownSchemaFormat,
 };
 pub use secret_options::SecretOptions;
 pub use theme::{EditorTheme, ThemeColor, ThemeColors, UnknownTheme};

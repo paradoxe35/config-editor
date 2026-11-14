@@ -869,13 +869,13 @@ compiled into JSON Schema first; the format is given with `schemaFormat`,
 never guessed from the text (`schemaFormatForFile` names a file's format by
 its extension).
 
-| `schemaFormat`       | The schema is                                                                                                                                                                                                                                                       |
-| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `"json-schema"`      | JSON Schema as JSON text (the default).                                                                                                                                                                                                                             |
-| `"json-schema-yaml"` | JSON Schema written in YAML (Kubernetes CRDs, many repos).                                                                                                                                                                                                          |
-| `"openapi"`          | An OpenAPI 3.x or Swagger 2.0 document (JSON or YAML): `schemaOptions: { schema: "Name" }` names the schema of `components.schemas` (or `definitions`) the document follows, the others its references.                                                             |
-| `"xsd"`              | XML Schema (XSD 1.0) in the [XML mapping](#xml-mapping): options `root` (the one top element), `configRoot` (an element whose content is the document) and `lax` (open content models). What it cannot check (element order, `xs:key`, …) is a loss, with its line. |
-| your own             | compiled by a format you register with `registerSchemaFormat`                                                                                                                                                                                                       |
+| `schemaFormat`       | The schema is                                                                                                                                                                                                                                                                                                                                                 |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `"json-schema"`      | JSON Schema as JSON text (the default).                                                                                                                                                                                                                                                                                                                       |
+| `"json-schema-yaml"` | JSON Schema written in YAML (Kubernetes CRDs, many repos).                                                                                                                                                                                                                                                                                                    |
+| `"openapi"`          | An OpenAPI 3.x or Swagger 2.0 document (JSON or YAML): `schemaOptions: { schema: "Name" }` names the schema of `components.schemas` (or `definitions`) the document follows, the others its references.                                                                                                                                                       |
+| `"xsd"`              | XML Schema (XSD 1.0) in the [XML mapping](#xml-mapping): options `root` (the one top element), `configRoot` (an element whose content is the document) and `lax` (open content models). Element order, choices, wildcards' namespaces and `xs:key`/`xs:keyref`/`xs:unique` are checked beside the JSON Schema; what it cannot check is a loss, with its line. |
+| your own             | compiled by a format you register with `registerSchemaFormat`                                                                                                                                                                                                                                                                                                 |
 
 ```js
 new ConfigEditor(element, {
@@ -901,8 +901,9 @@ new ConfigEditor(element, {
 The editor fetches nothing: a schema that refers to other files (an
 include, an import, an external `$ref`) gets them from `schemaResources`, by
 location, and a missing one is a compile error naming it. `schemaImports`
-lists what a text refers to, so you can fetch it first. What a format cannot
-express in JSON Schema (an identity constraint, an element order) is a loss,
+lists what a text refers to, so you can fetch it first. A rule a format's
+JSON Schema cannot hold may be checked beside it (XSD's element order and
+`xs:key` are); what is checked by neither is a loss,
 reported through `onSchemaWarning` like a schema warning; `compileSchema`
 gives the losses structured (`{ message, construct, effect, location?, line?,
 column? }`, `effect` being `"not-checked"`, `"loosened"` or
@@ -910,8 +911,13 @@ column? }`, `effect` being `"not-checked"`, `"loosened"` or
 
 A format of your own is a compiler written in JavaScript. It runs
 synchronously when an editor mounts and in the tools; it returns the JSON
-Schema (an object, or JSON text) and its losses, and throws to refuse a text
-(the message is shown as the schema's error). Emit the keywords completion
+Schema (an object, or JSON text), its losses and its checks, and throws to
+refuse a text (the message is shown as the schema's error). A check
+(`{ name, check(document) }`) runs each time the editor validates, given
+`{ text, language, value, schema }`, and returns problems
+`{ pointer, message, atKey?, severity? }`: each is shown on the value at
+its JSON pointer, in every view, with the schema's problems (a check that
+throws is a warning at the top). Emit the keywords completion
 and hover read (`properties`, `items`, `anyOf`/`oneOf`/`allOf`, `enum`,
 `default`, `description`, `$ref` to `#/…`). DTD, RELAX NG, Protobuf, Avro or
 CUE are left to formats you register this way, or to their own tools, which
@@ -933,7 +939,20 @@ registerSchemaFormat({
     const losses = [
       { message: "field order is not checked", construct: "order" },
     ];
-    return { schema: { properties }, losses };
+    // A rule JSON Schema cannot hold: no key named like its value.
+    const checks = [
+      {
+        name: "no echoes",
+        check: ({ value }) =>
+          Object.entries(value ?? {})
+            .filter(([key, item]) => key === item)
+            .map(([key]) => ({
+              pointer: `/${key}`,
+              message: "echoes its key",
+            })),
+      },
+    ];
+    return { schema: { properties }, losses, checks };
   },
   imports: (text) => [], // locations to fetch into `schemaResources`
 });

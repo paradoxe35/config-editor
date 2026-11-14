@@ -11,11 +11,12 @@
 
 use std::borrow::Cow;
 use std::collections::BTreeMap;
-use std::sync::LazyLock;
+use std::sync::{Arc, LazyLock};
 
 use serde_json::{Map, Value};
 
-use super::diagnostics::SchemaError;
+use super::diagnostics::{SchemaError, Severity};
+use super::language::ConfigLanguage;
 
 mod bundle;
 pub(super) mod json;
@@ -206,13 +207,32 @@ impl<'a> SchemaInput<'a> {
 
 /// What a [`SchemaCompiler`] gives: the JSON Schema, and what the source
 /// said that it does not.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone)]
 #[non_exhaustive]
 pub struct CompiledSchema {
     /// The JSON Schema.
     pub schema: Value,
     /// What it does not check as the source did.
     pub losses: Vec<SchemaLoss>,
+    /// The rules of the format the JSON Schema cannot hold, checked beside
+    /// it (see [`SchemaCheck`]).
+    pub checks: Vec<Arc<dyn SchemaCheck>>,
+}
+
+impl std::fmt::Debug for CompiledSchema {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let checks: Vec<String> = self
+            .checks
+            .iter()
+            .map(|check| check.name().into_owned())
+            .collect();
+        formatter
+            .debug_struct("CompiledSchema")
+            .field("schema", &self.schema)
+            .field("losses", &self.losses)
+            .field("checks", &checks)
+            .finish()
+    }
 }
 
 impl CompiledSchema {
@@ -221,6 +241,7 @@ impl CompiledSchema {
         CompiledSchema {
             schema,
             losses: Vec::new(),
+            checks: Vec::new(),
         }
     }
 
@@ -228,6 +249,110 @@ impl CompiledSchema {
     #[must_use]
     pub fn with_losses(mut self, losses: Vec<SchemaLoss>) -> Self {
         self.losses = losses;
+        self
+    }
+
+    /// `self` with `checks`.
+    #[must_use]
+    pub fn with_checks(mut self, checks: Vec<Arc<dyn SchemaCheck>>) -> Self {
+        self.checks = checks;
+        self
+    }
+}
+
+/// A rule of a schema's format that its JSON Schema cannot hold (XSD's
+/// element order, its `xs:key`), checked beside it: the editor runs each
+/// check where it validates (at the same pause in typing, on the same text
+/// and value) and shows its problems with the schema's, placed by pointer
+/// as theirs are. It knows nothing of what a check checks. A case a check
+/// cannot cover is the format's [`SchemaLoss`], reported when it compiles.
+///
+/// ```
+/// use std::borrow::Cow;
+/// use std::sync::Arc;
+/// use config_editor_leptos::{CheckProblem, CheckedDocument, SchemaCheck};
+///
+/// /// Keys in alphabetical order.
+/// struct Sorted;
+/// impl SchemaCheck for Sorted {
+///     fn name(&self) -> Cow<'static, str> {
+///         Cow::Borrowed("keys in order")
+///     }
+///     fn check(&self, document: &CheckedDocument<'_>) -> Vec<CheckProblem> {
+///         let Some(map) = document.value.as_object() else { return Vec::new() };
+///         let keys: Vec<&String> = map.keys().collect();
+///         keys.windows(2)
+///             .filter(|pair| pair[0] > pair[1])
+///             .map(|pair| CheckProblem::new(format!("/{}", pair[1]), "out of order").at_key())
+///             .collect()
+///     }
+/// }
+/// let checks: Vec<Arc<dyn SchemaCheck>> = vec![Arc::new(Sorted)];
+/// # let _ = checks;
+/// ```
+pub trait SchemaCheck: Send + Sync + 'static {
+    /// What it checks, in words (`"element order"`).
+    fn name(&self) -> Cow<'static, str>;
+
+    /// The problems of `document`, each at the pointer of the value (or
+    /// key) it is about.
+    fn check(&self, document: &CheckedDocument<'_>) -> Vec<CheckProblem>;
+}
+
+/// The document a [`SchemaCheck`] checks.
+#[derive(Clone, Copy)]
+#[non_exhaustive]
+pub struct CheckedDocument<'a> {
+    /// Its text, in `language`: the text being validated (a view's, while
+    /// editing as another language).
+    pub text: &'a str,
+    /// The language of `text`.
+    pub language: &'a dyn ConfigLanguage,
+    /// Its value, as read by the schema.
+    pub value: &'a Value,
+    /// The compiled JSON Schema (what the format wrote, `$ref`s as
+    /// pointers), with any annotations the format added for its checks.
+    pub schema: &'a Value,
+}
+
+/// A problem a [`SchemaCheck`] found.
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct CheckProblem {
+    /// The JSON pointer of the value it is about.
+    pub pointer: String,
+    /// What is wrong (the pointer goes before it, as before a schema
+    /// problem).
+    pub message: String,
+    /// Marked on the key rather than the value (an element out of place, a
+    /// missing child: its parent's key).
+    pub at_key: bool,
+    /// How serious it is (default: an error).
+    pub severity: Severity,
+}
+
+impl CheckProblem {
+    /// An error at `pointer`.
+    pub fn new(pointer: impl Into<String>, message: impl Into<String>) -> Self {
+        CheckProblem {
+            pointer: pointer.into(),
+            message: message.into(),
+            at_key: false,
+            severity: Severity::Error,
+        }
+    }
+
+    /// `self` marked on the key.
+    #[must_use]
+    pub fn at_key(mut self) -> Self {
+        self.at_key = true;
+        self
+    }
+
+    /// `self` with `severity`.
+    #[must_use]
+    pub fn severity(mut self, severity: Severity) -> Self {
+        self.severity = severity;
         self
     }
 }

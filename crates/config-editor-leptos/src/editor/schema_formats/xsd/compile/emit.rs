@@ -43,6 +43,17 @@ impl Compiler<'_> {
             }
             properties.insert(key, schema);
         }
+        // An attribute sharing its name with a child element reads as
+        // `@name` only beside that element; without it, as `name`.
+        for (key, prop) in &model.props {
+            if prop.attribute
+                && element_names.contains(key.as_str())
+                && let Some(element) = properties.get_mut(key)
+            {
+                let either = json!({"anyOf": [element.clone(), prop.schema]});
+                *element = either;
+            }
+        }
         let mut object = Map::new();
         object.insert("type".to_string(), Value::String("object".to_string()));
         if let Some(text) = &model.text {

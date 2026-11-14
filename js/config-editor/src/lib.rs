@@ -47,6 +47,7 @@ mod protect;
 mod reentry;
 mod remap;
 mod schema_cache;
+mod schema_checks;
 mod schema_formats;
 mod schema_spec;
 mod settings;

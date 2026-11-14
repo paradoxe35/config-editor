@@ -10,10 +10,14 @@ use serde_json::{Map, Value, json};
 
 use super::super::super::diagnostics::SchemaError;
 use super::super::{LossEffect, SchemaLoss};
+use super::checks::IDENTITY;
+use super::checks::automaton::Namespaces;
+use super::checks::identity::{Constraint, supported};
 use super::simple::Simple;
 use super::tree::{Node, XSD_NS};
 
 mod content;
+mod content_model;
 mod emit;
 mod simple_types;
 
@@ -62,6 +66,16 @@ pub(super) struct Compiler<'a> {
     originals: HashMap<(String, String), &'a Node>,
     /// The groups being read, innermost last.
     grouping: Vec<String>,
+    /// The complex types whose content model (for the content check) is
+    /// being read, innermost last.
+    modeling_content: Vec<String>,
+    /// The target namespace of each file read (by location; the schema's
+    /// own text under `None`).
+    target_namespaces: HashMap<Option<String>, Option<String>>,
+    /// Whether a content model was written (the content check runs).
+    pub(super) content_checked: bool,
+    /// Whether an identity constraint was written (its check runs).
+    pub(super) identity_checked: bool,
 }
 
 /// One child element or attribute of a content model.
@@ -92,6 +106,8 @@ struct Model {
     /// `xs:anyAttribute namespace="##other"`: attributes of other
     /// namespaces (prefixed, as the reader keys them) are allowed.
     other_attributes: bool,
+    /// The namespaces an `xs:anyAttribute` allows.
+    any_attribute: Option<Namespaces>,
     mixed: bool,
     /// Simple content: the text's type.
     text: Option<Simple>,
@@ -173,6 +189,10 @@ impl<'a> Compiler<'a> {
             origins: HashMap::new(),
             originals: HashMap::new(),
             grouping: Vec::new(),
+            modeling_content: Vec::new(),
+            target_namespaces: HashMap::new(),
+            content_checked: false,
+            identity_checked: false,
         };
         compiler.index(schema);
         compiler
@@ -184,6 +204,9 @@ impl<'a> Compiler<'a> {
     /// the first one read is used.
     pub(super) fn index(&mut self, schema: &'a Node) {
         let namespace = schema.attribute("targetNamespace").map(str::to_string);
+        self.target_namespaces
+            .entry(schema.location.as_deref().map(str::to_string))
+            .or_insert_with(|| namespace.clone());
         for child in schema.xsd_children() {
             let Some(name) = child.attribute("name").map(str::to_string) else {
                 continue;
@@ -279,6 +302,16 @@ impl<'a> Compiler<'a> {
         }
     }
 
+    /// The target namespace of the file `node` is in (an included file
+    /// without one takes the schema's).
+    pub(super) fn target_namespace(&self, node: &Node) -> Option<String> {
+        self.target_namespaces
+            .get(&node.location.as_deref().map(str::to_string))
+            .cloned()
+            .flatten()
+            .or_else(|| self.target_namespaces.get(&None).cloned().flatten())
+    }
+
     /// The global elements a document may start with: every one of
     /// `schemas` (the schema's own text first) that is not abstract, each
     /// name once.
@@ -320,22 +353,7 @@ impl<'a> Compiler<'a> {
     /// The schema of element declaration `node` (global or local; not a
     /// reference).
     pub(super) fn element(&mut self, node: &'a Node) -> Result<Value, SchemaError> {
-        for constraint in ["key", "keyref", "unique"] {
-            for found in node.xsd_children().filter(|child| child.name == constraint) {
-                let name = found.attribute("name").unwrap_or_default();
-                let construct = match constraint {
-                    "key" => "xs:key",
-                    "keyref" => "xs:keyref",
-                    _ => "xs:unique",
-                };
-                self.lose(
-                    found,
-                    construct,
-                    LossEffect::NotChecked,
-                    format!("{construct} \"{name}\" is not checked"),
-                );
-            }
-        }
+        let constraints = self.identity_constraints(node);
         if node.attribute("nillable") == Some("true") {
             self.lose_once(
                 node,
@@ -377,8 +395,62 @@ impl<'a> Compiler<'a> {
                 map.entry("description")
                     .or_insert(Value::String(description));
             }
+            if !constraints.is_empty() {
+                map.insert(IDENTITY.to_string(), Value::Array(constraints));
+            }
         }
         Ok(schema)
+    }
+
+    /// The `xs:key`, `xs:keyref` and `xs:unique` of element declaration
+    /// `node`, for the identity check; one whose XPath is beyond the
+    /// subset it reads is a loss.
+    fn identity_constraints(&mut self, node: &Node) -> Vec<Value> {
+        let mut found = Vec::new();
+        for child in node.xsd_children() {
+            let construct = match child.name.as_str() {
+                "key" => "xs:key",
+                "keyref" => "xs:keyref",
+                "unique" => "xs:unique",
+                _ => continue,
+            };
+            let name = child.attribute("name").unwrap_or_default().to_string();
+            let selector = child
+                .child("selector")
+                .and_then(|selector| selector.attribute("xpath"))
+                .unwrap_or_default()
+                .to_string();
+            let fields: Vec<String> = child
+                .xsd_children()
+                .filter(|field| field.name == "field")
+                .filter_map(|field| field.attribute("xpath"))
+                .map(str::to_string)
+                .collect();
+            if fields.is_empty() || !supported(&selector, &fields) {
+                self.lose(
+                    child,
+                    construct,
+                    LossEffect::NotChecked,
+                    format!("{construct} \"{name}\" is not checked: its XPath is beyond the subset read (child steps, *, .//, |, a field's final @attribute)"),
+                );
+                continue;
+            }
+            let refer = child
+                .attribute("refer")
+                .map(|refer| refer.rsplit(':').next().unwrap_or_default().to_string());
+            self.identity_checked = true;
+            found.push(
+                Constraint {
+                    kind: child.name.clone(),
+                    name,
+                    selector,
+                    fields,
+                    refer,
+                }
+                .to_json(),
+            );
+        }
+        found
     }
 
     /// The schema a `type="…"` names, and the simple type when it is one.

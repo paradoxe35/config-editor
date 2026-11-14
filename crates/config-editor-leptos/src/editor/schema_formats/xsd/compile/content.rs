@@ -13,7 +13,8 @@ impl<'a> Compiler<'a> {
     /// An `xs:complexType`.
     pub(super) fn complex_type(&mut self, node: &'a Node) -> Result<Value, SchemaError> {
         let model = self.model(node, 0)?;
-        let mut schema = self.model_schema(model);
+        let mut schema = self.model_schema(model.clone());
+        self.annotate_content(node, &model, &mut schema);
         if let (Some(description), Value::Object(map)) = (node.documentation(), &mut schema) {
             map.entry("description")
                 .or_insert(Value::String(description));
@@ -49,14 +50,8 @@ impl<'a> Compiler<'a> {
             .into_iter()
             .flatten()
             .find(|at| at.attribute("mixed") == Some("true"));
-        if let Some(at) = mixed_at {
+        if mixed_at.is_some() {
             model.mixed = true;
-            self.lose(
-                at,
-                "mixed content",
-                LossEffect::Loosened,
-                "mixed content: the text between the child elements is not checked (and such a document converts to no other language)".to_string(),
-            );
         }
         if let Some(content) = node.child("complexContent") {
             if let Some(derivation) = content
@@ -75,6 +70,7 @@ impl<'a> Compiler<'a> {
                     model.choices = base_model.choices;
                     model.open = base_model.open;
                     model.other_attributes = base_model.other_attributes;
+                    model.any_attribute = base_model.any_attribute;
                     model.mixed |= base_model.mixed;
                 } else {
                     // A restriction restates the content; the attributes
@@ -153,7 +149,9 @@ impl<'a> Compiler<'a> {
     /// Writes named complex type `name` into `$defs`.
     pub(super) fn write_type(&mut self, name: &str, at: &'a Node) -> Result<(), SchemaError> {
         let model = self.named_model(name, at, 0)?;
-        let mut schema = self.model_schema(model);
+        let mut schema = self.model_schema(model.clone());
+        let node = self.complex_types[name];
+        self.annotate_content(node, &model, &mut schema);
         if let (Some(description), Value::Object(map)) =
             (self.complex_types[name].documentation(), &mut schema)
         {
@@ -225,20 +223,6 @@ impl<'a> Compiler<'a> {
         match node.name.as_str() {
             "element" => self.element_particle(node, (min, max), model)?,
             "sequence" | "all" => {
-                if node.name == "sequence"
-                    && node
-                        .xsd_children()
-                        .filter(|child| child.name == "element")
-                        .count()
-                        > 1
-                {
-                    self.lose_once(
-                        node,
-                        "xs:sequence order",
-                        LossEffect::NotChecked,
-                        "the order of the elements of an xs:sequence is not checked".to_string(),
-                    );
-                }
                 for child in node.xsd_children() {
                     self.particle(child, (min, max), model, false)?;
                 }
@@ -278,7 +262,10 @@ impl<'a> Compiler<'a> {
             }
             "any" => {
                 model.open = true;
-                self.lose(node, "xs:any", LossEffect::Loosened, "xs:any allows any other element here; its namespace and processContents are not checked".to_string());
+                let process = node.attribute("processContents").unwrap_or("strict").trim();
+                if process != "skip" {
+                    self.lose(node, "xs:any", LossEffect::Loosened, format!("xs:any processContents=\"{process}\": the elements it allows are not checked against their declarations"));
+                }
             }
             _ => {}
         }
@@ -324,8 +311,6 @@ impl<'a> Compiler<'a> {
                 options,
                 required: min > 0,
             });
-        } else if options.len() > 1 {
-            self.lose(node, "xs:choice", LossEffect::Loosened, "this xs:choice is checked as each option allowed: taking several of its options is not refused".to_string());
         }
         Ok(())
     }
@@ -345,9 +330,6 @@ impl<'a> Compiler<'a> {
             let head = self.elements.get(&local).copied();
             let head_usable = head.is_some_and(|head| head.attribute("abstract") != Some("true"));
             let alternatives = members.len() + usize::from(head_usable);
-            if !members.is_empty() {
-                self.lose(node, "substitution group", LossEffect::Loosened, format!("the substitution group of \"{local}\" is checked as each member allowed: taking several is not refused"));
-            }
             let min = if alternatives > 1 { 0 } else { min };
             if head_usable || members.is_empty() {
                 let schema = self.global_element(&local, node)?;
@@ -422,13 +404,14 @@ impl<'a> Compiler<'a> {
                 }
                 "anyAttribute" => {
                     let namespace = child.attribute("namespace").unwrap_or("##any").trim();
+                    model.any_attribute = Some(self.wildcard_namespaces(child));
                     if namespace == "##other" {
                         // Exact: an attribute of another namespace is
                         // written with a prefix.
                         model.other_attributes = true;
                     } else {
                         model.open = true;
-                        self.lose(child, "xs:anyAttribute", LossEffect::Loosened, "xs:anyAttribute allows any other attribute here; its namespace is not checked".to_string());
+                        self.lose_once(child, "xs:anyAttribute", LossEffect::Loosened, "xs:anyAttribute: the namespaces of the attributes it allows are checked in an XML text only (another language does not tell attributes from elements)".to_string());
                     }
                 }
                 _ => {}

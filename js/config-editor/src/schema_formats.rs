@@ -62,8 +62,8 @@ export interface CustomSchemaFormat {
   label?: string;
   /** File extensions, without the dot, for `schemaFormatForFile`. */
   extensions?: string[];
-  /** The JSON Schema `text` says, as an object or JSON text, with what it loses. Called synchronously when an editor mounts, and by the tools. Throw to refuse the text: the message is shown as the schema's error. `resources` are the files it may refer to, by location; `options` the host's `schemaOptions`. */
-  compile(text: string, resources: Record<string, string>, options: Record<string, unknown>): { schema: object | string; losses?: SchemaLossInput[] };
+  /** The JSON Schema `text` says, as an object or JSON text, with what it loses and the checks of what JSON Schema cannot hold (`checks`, run each time the editor validates). Called synchronously when an editor mounts, and by the tools. Throw to refuse the text: the message is shown as the schema's error. `resources` are the files it may refer to, by location; `options` the host's `schemaOptions`. */
+  compile(text: string, resources: Record<string, string>, options: Record<string, unknown>): { schema: object | string; losses?: SchemaLossInput[]; checks?: SchemaFormatCheck[] };
   /** The locations `text` refers to (files it includes), for the host to fetch into `schemaResources`. */
   imports?(text: string): string[];
 }
@@ -282,7 +282,7 @@ impl SchemaCompiler for JsSchemaFormat {
             .map_err(|error| SchemaError(thrown_message(&error)))?;
         let shape = || {
             SchemaError(format!(
-                "{label}'s compile() must return {{ schema, losses? }}"
+                "{label}'s compile() must return {{ schema, losses?, checks? }}"
             ))
         };
         if !result.is_object() {
@@ -299,7 +299,11 @@ impl SchemaCompiler for JsSchemaFormat {
         };
         let losses = losses_from(&field(&result, "losses"))
             .map_err(|error| SchemaError(format!("{label}'s compile() losses: {error}")))?;
-        Ok(CompiledSchema::new(schema).with_losses(losses))
+        let checks = crate::schema_checks::checks_from(&field(&result, "checks"), label)
+            .map_err(|error| SchemaError(format!("{label}'s compile() checks: {error}")))?;
+        Ok(CompiledSchema::new(schema)
+            .with_losses(losses)
+            .with_checks(checks))
     }
 
     fn imports(&self, text: &str) -> Vec<String> {

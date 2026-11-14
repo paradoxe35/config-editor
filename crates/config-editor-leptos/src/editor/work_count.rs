@@ -158,6 +158,9 @@ pub(crate) enum Work {
     /// is (`keyboard::utf16_to_byte_index`, outside a batch that splits
     /// its lines once; one note per byte).
     OffsetSeek,
+    /// A schema format's extra check run on a document
+    /// (`SchemaCheck::check`): once per check and validation.
+    SchemaCheck,
 }
 
 impl Work {
@@ -199,6 +202,7 @@ impl Work {
             Self::ConformedBytes => 32,
             Self::BranchWalk => 33,
             Self::OffsetSeek => 34,
+            Self::SchemaCheck => 35,
         }
     }
 
@@ -240,12 +244,13 @@ impl Work {
         Self::ConformedBytes,
         Self::BranchWalk,
         Self::OffsetSeek,
+        Self::SchemaCheck,
     ];
 }
 
 /// How many kinds of work there are.
 #[cfg(test)]
-const KINDS: usize = 35;
+const KINDS: usize = 36;
 
 #[cfg(test)]
 thread_local! {

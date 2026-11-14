@@ -267,6 +267,13 @@ const SCHEMA_COMPILER = {
   imports: { format: 'imports' },
 };
 
+// `SchemaCheck` (a format's check beside its JSON Schema) → the
+// `SchemaFormatCheck` a JS format's `compile()` returns in `checks`.
+const SCHEMA_CHECK = {
+  name: { type: 'SchemaFormatCheck' },
+  check: { type: 'SchemaFormatCheck' },
+};
+
 const THEME = {
   as_str: { main: 'themes' },
   label: { main: 'themes' },
@@ -356,9 +363,12 @@ const CRATE_EXPORTS = {
   PRESET_CSS: { tool: 'presetCss' },
   ParseError: { exempt: 'thrown as an `Error` with its message and position' },
   SaveRequest: { exempt: 'its fields are `onSave`\'s arguments, `(value, language)`' },
+  CheckProblem: { type: 'CheckProblemInput' },
+  CheckedDocument: { type: 'CheckedDocument' },
   CompiledSchema: { type: 'CompiledSchema' },
   LossEffect: { type: 'SchemaLoss' },
   Schema: { option: 'schema', fixed: 'the schema is compiled once, when the editor is built' },
+  SchemaCheck: { type: 'SchemaFormatCheck' },
   SchemaCompiler: { main: 'registerSchemaFormat' },
   SchemaError: { exempt: 'thrown as an `Error` with its message' },
   SchemaFormat: { type: 'SchemaFormatName' },
@@ -497,6 +507,7 @@ const rust = {
   schema: implMethods(crate('editor/diagnostics.rs'), 'Schema'),
   schemaFormat: implMethods(crate('editor/schema_formats/mod.rs'), 'SchemaFormat'),
   schemaCompiler: traitMethods(crate('editor/schema_formats/mod.rs'), 'SchemaCompiler'),
+  schemaCheck: traitMethods(crate('editor/schema_formats/mod.rs'), 'SchemaCheck'),
   theme: implMethods(crate('editor/theme.rs'), 'EditorTheme'),
   exports: crateExports(),
   documentsProps: componentProps('documents.rs', 'ConfigDocuments'),
@@ -941,6 +952,7 @@ const groups = [
   ['Schema method', SCHEMA, rust.schema, EDITOR_SIDE],
   ['SchemaFormat method', SCHEMA_FORMAT, rust.schemaFormat, EDITOR_SIDE],
   ['SchemaCompiler method', SCHEMA_COMPILER, rust.schemaCompiler, EDITOR_SIDE],
+  ['SchemaCheck method', SCHEMA_CHECK, rust.schemaCheck, EDITOR_SIDE],
   ['EditorTheme method', THEME, rust.theme, EDITOR_SIDE],
   ['crate export', CRATE_EXPORTS, rust.exports, EDITOR_SIDE],
   ['ConfigDocuments prop', DOCUMENTS_PROPS, rust.documentsProps, DOCUMENTS_SIDE],

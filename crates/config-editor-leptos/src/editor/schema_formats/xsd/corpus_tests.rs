@@ -35,22 +35,54 @@ fn compile(name: &str) -> Schema {
     .unwrap_or_else(|error| panic!("{name}: {}", error.0))
 }
 
-const SCHEMAS: [&str; 5] = [
+const SCHEMAS: [&str; 6] = [
     "maven-4.0.0.xsd",
     "log4j-config-2.xsd",
     "spring-beans.xsd",
     "junit.xsd",
     "dotnet-config.xsd",
+    "inventory.xsd",
 ];
+
+/// Invalid instances only the checks beside the JSON Schema catch (its
+/// JSON Schema alone takes them).
+const ONLY_THE_CHECKS_CATCH: [&str; 8] = [
+    "junit-out-of-order.xml",
+    "beans-unknown-attribute.xml",
+    "beans-two-values.xml",
+    "inventory-dangling-ref.xml",
+    "inventory-duplicate-code.xml",
+    "inventory-duplicate-sku.xml",
+    "inventory-out-of-order.xml",
+    "inventory-stock-out-of-order.xml",
+];
+
+#[test]
+fn some_invalid_instances_are_caught_by_the_checks_alone() {
+    let verdicts: Value = serde_json::from_str(&fixture("verdicts.json")).unwrap();
+    for instance in ONLY_THE_CHECKS_CATCH {
+        let verdict = &verdicts["verdicts"][instance];
+        assert_eq!(verdict["valid"], json!(false), "{instance}");
+        let schema = compile(verdict["schema"].as_str().unwrap());
+        let document = fixture(instance);
+        assert!(
+            !schema.validate(Language::XML, &document).is_empty(),
+            "{instance}: the checks find nothing"
+        );
+        let plain = Schema::compile(&schema.json().to_string()).unwrap();
+        let alone = plain.validate(Language::XML, &document);
+        assert!(
+            alone.is_empty(),
+            "{instance}: the JSON Schema alone finds {alone:?}"
+        );
+    }
+}
 
 /// Instances whose verdict differs from libxml2's, and the construct of
 /// the loss that says why: an element order, and an unknown attribute
 /// where `xs:any` allows elements of other namespaces (the data model keys
 /// elements by local name, so it allows any key there).
-const KNOWN_DIFFERENCES: [(&str, &str); 2] = [
-    ("junit-out-of-order.xml", "xs:sequence order"),
-    ("beans-unknown-attribute.xml", "xs:any"),
-];
+const KNOWN_DIFFERENCES: [(&str, &str); 0] = [];
 
 #[test]
 fn every_corpus_instance_gets_the_oracles_verdict_or_a_reported_loss() {
@@ -204,10 +236,18 @@ fn generate_at(
             }
         }
     }
+    // The content model's elements, the first option of each choice: a
+    // maximal instance takes no more than one option.
+    let mut named = HashSet::new();
+    let mut chosen = HashSet::new();
+    if let Some(model) = object.pointer("/x-xsd-content/model") {
+        model_names(model, &mut named, &mut chosen, true);
+    }
     let mut out = Map::new();
     for (key, property) in object["properties"].as_object()? {
+        let in_model = !named.contains(key.as_str()) || chosen.contains(key.as_str());
         let wanted = required.contains(key.as_str())
-            || maximal && depth > 0 && !excluded.contains(key.as_str());
+            || maximal && depth > 0 && !excluded.contains(key.as_str()) && in_model;
         if !wanted || key == "#text" && !required.contains("#text") {
             continue;
         }
@@ -220,6 +260,39 @@ fn generate_at(
         }
     }
     Some(Value::Object(out))
+}
+
+/// The element names of content model `model` (`x-xsd-content`) into
+/// `named`, and those of its first path (each choice's first option) into
+/// `chosen` while `taken`.
+fn model_names<'m>(
+    model: &'m Value,
+    named: &mut HashSet<&'m str>,
+    chosen: &mut HashSet<&'m str>,
+    taken: bool,
+) {
+    if let Some(name) = model.get("element").and_then(Value::as_str) {
+        named.insert(name);
+        if taken {
+            chosen.insert(name);
+        }
+    }
+    for kind in ["sequence", "all", "choice"] {
+        for (index, item) in model
+            .get(kind)
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .enumerate()
+        {
+            model_names(
+                item,
+                named,
+                chosen,
+                taken && (kind != "choice" || index == 0),
+            );
+        }
+    }
 }
 
 #[test]
@@ -291,6 +364,28 @@ fn every_view_of_a_corpus_instance_has_the_same_problems() {
             found
         };
         let expected = messages(Language::XML, &xml);
+        // A value named as both an attribute and a child element: another
+        // language's view may read it as either (the reported loss).
+        if instance == "beans-two-values.xml" {
+            assert!(
+                schema
+                    .losses()
+                    .iter()
+                    .any(|loss| loss.construct == "attribute named as an element")
+            );
+            continue;
+        }
+        // Elements out of order: no other language keeps XML's order (the
+        // reported "xs:sequence order" loss).
+        if instance.ends_with("-out-of-order.xml") && !expected.is_empty() {
+            assert!(
+                schema
+                    .losses()
+                    .iter()
+                    .any(|loss| loss.construct == "xs:sequence order")
+            );
+            continue;
+        }
         for language in [
             Language::YAML,
             Language::JSON,

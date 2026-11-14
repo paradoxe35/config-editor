@@ -1,0 +1,5 @@
+<inventory xmlns="urn:example:inventory">
+  <warehouse code="ams" city="Amsterdam"/>
+  <warehouse code="kin" city="Kinshasa"/>
+  <warehouse code="ams"/>
+</inventory>

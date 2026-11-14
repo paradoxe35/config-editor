@@ -325,7 +325,7 @@ fn each_construct_with_no_json_schema_form_is_its_loss() {
     let cases: &[(&str, &str, LossEffect, usize)] = &[
         (
             r#"<xs:element name="r"><xs:complexType><xs:sequence><xs:element name="a" type="xs:string"/></xs:sequence></xs:complexType>
-<xs:key name="k"><xs:selector xpath="a"/><xs:field xpath="."/></xs:key></xs:element>"#,
+<xs:key name="k"><xs:selector xpath="a[1]"/><xs:field xpath="."/></xs:key></xs:element>"#,
             "xs:key",
             LossEffect::NotChecked,
             3,
@@ -347,13 +347,6 @@ fn each_construct_with_no_json_schema_form_is_its_loss() {
             r#"<xs:element name="r"><xs:complexType>
 <xs:anyAttribute/></xs:complexType></xs:element>"#,
             "xs:anyAttribute",
-            LossEffect::Loosened,
-            3,
-        ),
-        (
-            r#"<xs:element name="r"><xs:complexType><xs:sequence>
-<xs:choice maxOccurs="unbounded"><xs:element name="a" type="xs:string"/><xs:element name="b" type="xs:string"/></xs:choice></xs:sequence></xs:complexType></xs:element>"#,
-            "xs:choice",
             LossEffect::Loosened,
             3,
         ),
@@ -390,22 +383,6 @@ fn each_construct_with_no_json_schema_form_is_its_loss() {
 <xs:element name="v" type="xs:string" nillable="true"/>"#,
             "nillable",
             LossEffect::NotChecked,
-            3,
-        ),
-        (
-            r#"<xs:element name="head" type="xs:string"/>
-<xs:element name="member" type="xs:string" substitutionGroup="head"/>
-<xs:element name="r"><xs:complexType><xs:sequence>
-<xs:element ref="head"/></xs:sequence></xs:complexType></xs:element>"#,
-            "substitution group",
-            LossEffect::Loosened,
-            5,
-        ),
-        (
-            r#"<xs:element name="p">
-<xs:complexType mixed="true"><xs:sequence><xs:element name="b" type="xs:string" minOccurs="0"/></xs:sequence></xs:complexType></xs:element>"#,
-            "mixed content",
-            LossEffect::Loosened,
             3,
         ),
         (
