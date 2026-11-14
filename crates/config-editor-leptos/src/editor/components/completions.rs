@@ -9,6 +9,7 @@ use super::super::completion::{
     ShownOption, completion_list_scrolled, completion_popup_style, most_option_rows,
     scroll_completion_into_view,
 };
+use super::super::popup_pointer::list_wheel;
 use super::super::state::EditorState;
 use crate::cssom::{Declarations, cssom};
 use crate::reactive::{KeyedList, Relay, RowSpacer};
@@ -42,6 +43,7 @@ pub(crate) fn CompletionList(state: EditorState) -> impl IntoView {
             aria-label=state.language_text(|strings| &strings.suggestions_label)
             node_ref=state.view().completion_ref
             on:scroll=move |_| completion_list_scrolled(state)
+            on:wheel=move |event| wheel_list(state, &event)
             style=cssom(move || {
                 state.view().layout_revision.get();
                 state.view().scroll_x.get();
@@ -169,6 +171,14 @@ fn hover_selects(state: EditorState, index: usize, event: &web_sys::MouseEvent) 
     let moved = event.movement_x() != 0 || event.movement_y() != 0;
     if moved && state.completion().active.get_untracked() != index {
         state.completion().active.set(index);
+    }
+}
+
+/// A wheel over the list: it scrolls while it can, else the text (the page
+/// at the text's ends), as over the hover card; the list stays open.
+fn wheel_list(state: EditorState, event: &web_sys::WheelEvent) {
+    if let Some(list) = state.view().completion_ref.get_untracked() {
+        list_wheel(state, &list, event);
     }
 }
 

@@ -105,14 +105,28 @@ pub(super) fn back_on_text(state: EditorState, event: &MouseEvent) -> bool {
 /// way; else the text, or the page at the text's ends, and the popups
 /// close.
 pub(super) fn popup_wheel(state: EditorState, popup: &HtmlElement, event: &WheelEvent) {
+    if wheel_past(state, popup, event) {
+        state.hide_hover();
+        state.hide_problem_tip();
+    }
+}
+
+/// A wheel over `popup` that stays open (the suggestion list): the same,
+/// without closing it.
+pub(super) fn list_wheel(state: EditorState, popup: &HtmlElement, event: &WheelEvent) {
+    wheel_past(state, popup, event);
+}
+
+/// A wheel over `popup`: whether it went on to the text (the popup cannot
+/// scroll that way).
+fn wheel_past(state: EditorState, popup: &HtmlElement, event: &WheelEvent) -> bool {
     let (dx, dy) = wheel_pixels(state, event);
     if scrolls_itself(popup, dy) {
-        return;
+        return false;
     }
     event.prevent_default();
     scroll_past(state, dx, dy);
-    state.hide_hover();
-    state.hide_problem_tip();
+    true
 }
 
 /// Whether `popup` scrolls by `dy` pixels (down when positive) itself.
