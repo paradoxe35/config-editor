@@ -484,7 +484,7 @@ pub struct EditorStrings {
     pub must_not_be_type: String,
     /// A value its `not` schema refuses by name (`not: {const: …}` or
     /// `not: {enum: […]}`): the refused values (`{values}`), as JSON,
-    /// joined by ` or `.
+    /// joined by the word "or".
     pub must_not_be: String,
     /// An object holding keys its `not` schema refuses one by one (`not:
     /// {anyOf: [{required: [a]}, {required: [b]}]}`): the ones it holds

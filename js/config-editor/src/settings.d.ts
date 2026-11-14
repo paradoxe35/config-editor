@@ -1168,7 +1168,7 @@ export interface EditorStrings {
    */
   mustNotBeType?: string;
   /**
-   * A value its `not` schema refuses by name (`not: {const: …}` or `not: {enum: […]}`): the refused values (`{values}`), as JSON, joined by ` or `.
+   * A value its `not` schema refuses by name (`not: {const: …}` or `not: {enum: […]}`): the refused values (`{values}`), as JSON, joined by the word "or".
    *
    * @default "{value} must not be {values}"
    */
