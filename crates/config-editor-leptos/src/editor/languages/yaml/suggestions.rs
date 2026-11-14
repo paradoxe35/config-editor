@@ -139,7 +139,8 @@ pub(super) fn write_children(
                 output.push(' ');
                 output.push_str(&yaml_value(value));
             }
-            Fill::Empty(_) => {}
+            // The value's place, so Tab lands where typing reads `key: x`.
+            Fill::Empty(_) => output.push(' '),
         }
         output.push('\n');
     }
