@@ -105,10 +105,17 @@ jobs:
         run: |
           npm ci
           machines() {
-            local total
-            total=$(npx playwright test --list --project="$1" --no-deps | sed -n 's/^Total: \([0-9]*\) tests.*/\1/p')
+            local list total
+            # A spec that throws while loading lists no test at all: fail
+            # here rather than run zero tests and report success.
+            list=$(npx playwright test --list --project="$1" --no-deps) || { echo "$list" >&2; exit 1; }
+            total=$(sed -n 's/^Total: \([0-9]*\) tests.*/\1/p' <<< "$list")
+            if (( ${total:-0} < 1 )); then
+              echo "$list" >&2
+              echo "::error::no $1 tests listed: a spec fails to load" >&2
+              exit 1
+            fi
             local count=$(( (total + $2 - 1) / $2 ))
-            (( count >= 1 )) || count=1
             echo "$1: $total tests, $count machines of up to $2" >&2
             echo "[$(seq -s, 1 "$count")]"
           }
