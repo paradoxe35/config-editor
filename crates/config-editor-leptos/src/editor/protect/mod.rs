@@ -30,6 +30,7 @@ mod follow_items;
 mod glued;
 mod guard;
 mod hooks;
+mod host_ranges;
 mod live;
 mod locate;
 mod locks;
@@ -443,6 +444,15 @@ mod typing_tests;
     feature = "xml"
 ))]
 mod value_kept_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod view_range_tests;
 #[cfg(all(
     test,
     feature = "yaml",

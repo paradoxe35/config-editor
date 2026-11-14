@@ -164,6 +164,8 @@ impl EditorState {
 
     pub(super) fn find_protected_again(&self, _origin: &Origin) {}
 
+    pub(super) fn leave_ranges(&self, _before: &str) {}
+
     pub(super) fn check_host_save(
         &self,
         _old: &str,

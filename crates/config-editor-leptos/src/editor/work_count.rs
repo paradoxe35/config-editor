@@ -158,6 +158,13 @@ pub(crate) enum Work {
     /// is (`keyboard::utf16_to_byte_index`, outside a batch that splits
     /// its lines once; one note per byte).
     OffsetSeek,
+    /// The host's read-only ranges followed from one host text into
+    /// another (`protect::host_ranges`: a line diff of the two).
+    #[cfg_attr(
+        not(feature = "protect"),
+        allow(dead_code, reason = "only protection notes it")
+    )]
+    RangesFollowed,
 }
 
 impl Work {
@@ -199,6 +206,7 @@ impl Work {
             Self::ConformedBytes => 32,
             Self::BranchWalk => 33,
             Self::OffsetSeek => 34,
+            Self::RangesFollowed => 35,
         }
     }
 
@@ -240,12 +248,13 @@ impl Work {
         Self::ConformedBytes,
         Self::BranchWalk,
         Self::OffsetSeek,
+        Self::RangesFollowed,
     ];
 }
 
 /// How many kinds of work there are.
 #[cfg(test)]
-const KINDS: usize = 35;
+const KINDS: usize = 36;
 
 #[cfg(test)]
 thread_local! {
