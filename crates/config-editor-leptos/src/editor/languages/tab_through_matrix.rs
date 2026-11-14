@@ -185,3 +185,66 @@ fn tab_walks_the_items_a_required_list_is_written_with() {
         failures.join("\n\n")
     );
 }
+
+/// A list's `minItems` is filled at every depth, not only for a list the
+/// block requires itself: a required list inside a list's item, a list of
+/// lists, a list inside a required object, a list of objects with two
+/// fields. Tab walks every value written, in order, and the block reads
+/// back as typed.
+#[test]
+fn tab_walks_the_items_of_lists_filled_at_every_depth() {
+    let cases = [
+        (
+            r#"{"type":"object","required":["rules","name"],"properties":{"name":{"type":"string"},
+                "rules":{"type":"array","minItems":1,"items":{"type":"object","required":["ports","proto"],
+                "properties":{"proto":{"type":"string"},
+                    "ports":{"type":"array","minItems":2,"items":{"type":"integer"}}}}}}}"#,
+            &["80", "443", "tcp", "N"][..],
+            json!({"rules": [{"ports": [80, 443], "proto": "tcp"}], "name": "N"}),
+        ),
+        (
+            r#"{"type":"object","required":["grid"],"properties":{"grid":{"type":"array","minItems":1,
+                "items":{"type":"array","minItems":2,"items":{"type":"integer"}}}}}"#,
+            &["1", "2"][..],
+            json!({"grid": [[1, 2]]}),
+        ),
+        (
+            r#"{"type":"object","required":["inner","last"],"properties":{"last":{"type":"string"},
+                "inner":{"type":"object","required":["ids"],"properties":{
+                    "ids":{"type":"array","minItems":2,"items":{"type":"integer"}}}}}}"#,
+            &["5", "6", "L"][..],
+            json!({"inner": {"ids": [5, 6]}, "last": "L"}),
+        ),
+        (
+            r#"{"type":"object","required":["hosts","name"],"properties":{"name":{"type":"string"},
+                "hosts":{"type":"array","minItems":2,"items":{"type":"object","required":["h","p"],
+                "properties":{"h":{"type":"string"},"p":{"type":"integer"}}}}}}"#,
+            &["a", "1", "b", "2", "N"][..],
+            json!({"hosts": [{"h": "a", "p": 1}, {"h": "b", "p": 2}], "name": "N"}),
+        ),
+    ];
+    let mut failures = Vec::new();
+    for (svc, typed, wanted) in &cases {
+        let schema = format!(r#"{{"type":"object","properties":{{"svc":{svc}}}}}"#);
+        let wanted = json!({ "svc": wanted });
+        for language in LANGUAGES {
+            // XML writes a list as its key's element repeated, one per
+            // item: an item that is a list itself has no element of its
+            // own to repeat, so the block leaves such a list out.
+            if language == Language::XML && svc.contains("grid") {
+                continue;
+            }
+            let text = typed_through(language, &schema, typed);
+            let read = read(language, &schema, &text);
+            if read.as_ref() != Some(&wanted) {
+                failures.push(format!("{language} {typed:?}:\n{text}\nreads {read:?}"));
+            }
+        }
+    }
+    assert!(
+        failures.is_empty(),
+        "{} failures:\n{}",
+        failures.len(),
+        failures.join("\n\n")
+    );
+}

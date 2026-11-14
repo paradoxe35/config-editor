@@ -1156,11 +1156,17 @@ export interface EditorStrings {
    */
   tooManyContained?: string;
   /**
-   * A value its `not` schema (`{schema}`, as JSON) matches.
+   * A value its `not` schema (`{schema}`, as JSON) matches, where no plainer words below say why.
    *
-   * @default "{value} must not match {schema}"
+   * @default "{value} is not allowed here"
    */
   mustNotMatch?: string;
+  /**
+   * A text matching the pattern its `not` schema refuses (`not: {pattern: …}`): the pattern (`{pattern}`), quoted as JSON.
+   *
+   * @default "{value} must not match the pattern {pattern}"
+   */
+  mustNotMatchPattern?: string;
   /**
    * A value of a type its `not` schema refuses (`not: {type: …}`): the types (`{types}`), each quoted, joined by `, `.
    *
@@ -1174,9 +1180,9 @@ export interface EditorStrings {
    */
   mustNotBe?: string;
   /**
-   * An object holding keys its `not` schema refuses one by one (`not: {anyOf: [{required: [a]}, {required: [b]}]}`): the ones it holds (`{keys}`), each quoted, joined by `, `.
+   * An object holding keys its `not` schema refuses one by one (`not: {anyOf: [{required: [a]}, {required: [b]}]}`): the ones it holds (`{keys}`), each quoted, joined by `, `; the object is `{value}`.
    *
-   * @default "{value} must not have {keys}"
+   * @default "{keys} must not be set here"
    */
   mustNotHave?: string;
   /**

@@ -28,7 +28,14 @@ pub(crate) fn read_schema_text(text: &str) -> Result<Value, String> {
         return Err(NO_SCHEMA.to_string());
     }
     let json_error = match serde_json::from_str(text) {
-        Ok(value) => return a_schema(value),
+        // A key written twice is refused, as YAML refuses it: JSON's
+        // reader would keep the last one silently.
+        Ok(value) => {
+            return match serde_json::from_str::<NoKeyTwice>(text) {
+                Ok(NoKeyTwice) => a_schema(value),
+                Err(error) => Err(json_message(&error)),
+            };
+        }
         Err(error) => error,
     };
     let json_message = json_message(&json_error);
@@ -47,6 +54,69 @@ pub(crate) fn read_schema_text(text: &str) -> Result<Value, String> {
         return read_flow_yaml(text).ok_or(json_message).and_then(a_schema);
     }
     read_yaml(text, json_message)
+}
+
+/// A JSON text with no map holding a key twice (read only to tell).
+struct NoKeyTwice;
+
+impl<'de> serde::Deserialize<'de> for NoKeyTwice {
+    fn deserialize<D: serde::Deserializer<'de>>(reader: D) -> Result<Self, D::Error> {
+        reader.deserialize_any(NoKeyTwiceVisitor)
+    }
+}
+
+struct NoKeyTwiceVisitor;
+
+impl<'de> serde::de::Visitor<'de> for NoKeyTwiceVisitor {
+    type Value = NoKeyTwice;
+
+    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("a JSON value")
+    }
+
+    fn visit_bool<E>(self, _: bool) -> Result<NoKeyTwice, E> {
+        Ok(NoKeyTwice)
+    }
+
+    fn visit_i64<E>(self, _: i64) -> Result<NoKeyTwice, E> {
+        Ok(NoKeyTwice)
+    }
+
+    fn visit_u64<E>(self, _: u64) -> Result<NoKeyTwice, E> {
+        Ok(NoKeyTwice)
+    }
+
+    fn visit_f64<E>(self, _: f64) -> Result<NoKeyTwice, E> {
+        Ok(NoKeyTwice)
+    }
+
+    fn visit_str<E>(self, _: &str) -> Result<NoKeyTwice, E> {
+        Ok(NoKeyTwice)
+    }
+
+    fn visit_unit<E>(self) -> Result<NoKeyTwice, E> {
+        Ok(NoKeyTwice)
+    }
+
+    fn visit_seq<A: serde::de::SeqAccess<'de>>(self, mut items: A) -> Result<NoKeyTwice, A::Error> {
+        while items.next_element::<NoKeyTwice>()?.is_some() {}
+        Ok(NoKeyTwice)
+    }
+
+    fn visit_map<A: serde::de::MapAccess<'de>>(self, mut map: A) -> Result<NoKeyTwice, A::Error> {
+        let mut seen = std::collections::HashSet::new();
+        while let Some(key) = map.next_key::<String>()? {
+            if seen.contains(&key) {
+                return Err(serde::de::Error::custom(format!(
+                    "duplicate key {}",
+                    Value::from(key)
+                )));
+            }
+            map.next_value::<NoKeyTwice>()?;
+            seen.insert(key);
+        }
+        Ok(NoKeyTwice)
+    }
 }
 
 /// `value` when a JSON Schema can be it: a map or a boolean.

@@ -706,6 +706,17 @@ impl Statement {
                 self.depth += 1;
             }
             b'}' | b']' if self.depth > 0 => self.depth -= 1,
+            // A node's anchor or tag before its value (YAML `&x {`,
+            // `- !!map [`): the value still opens where the property
+            // stands, so the property leaves `previous` as it was.
+            b'&' | b'!' if matches!(self.previous, b':' | b',' | b'[' | b'{' | b'-' | b'\n') => {
+                self.index = code[index..]
+                    .find(|next: char| {
+                        next.is_whitespace() || matches!(next, ',' | '[' | ']' | '{' | '}')
+                    })
+                    .map_or(code.len(), |end| index + end);
+                return;
+            }
             _ => {}
         }
         if !matches!(byte, b' ' | b'\t') {

@@ -162,6 +162,15 @@ mod one_line_item_work;
     feature = "json",
     feature = "toml",
     feature = "hcl",
+    feature = "xml",
+    feature = "schema-validation"
+))]
+mod option_nested_keys_work;
+#[cfg(all(
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
     feature = "xml"
 ))]
 mod suggestion_scale;

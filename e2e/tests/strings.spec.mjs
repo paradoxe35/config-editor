@@ -26,6 +26,7 @@ const ELSEWHERE = {
   tooFewContained: 'as noItemContained',
   tooManyContained: 'as noItemContained',
   mustNotMatch: 'as noItemContained',
+  mustNotMatchPattern: 'as noItemContained (tests/schema_text_wording.rs)',
   mustNotBeType: 'as noItemContained',
   mustNotBe: 'as noItemContained',
   mustNotHave: 'as noItemContained',

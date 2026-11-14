@@ -154,7 +154,7 @@ fn value_fits(schema: &Value, value: &Value, root: &Value) -> bool {
         Some(reference) => ref_target(reference, root).unwrap_or(schema),
         None => schema,
     };
-    if *schema == Value::Bool(false) {
+    if admits_nothing(schema) {
         return false;
     }
     // A language without number types (XML) reads `9` as text.

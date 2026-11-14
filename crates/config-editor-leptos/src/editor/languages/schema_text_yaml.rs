@@ -102,27 +102,85 @@ fn line_of(text: &str, line: Option<usize>) -> &str {
 }
 
 /// The YAML reader's `message` about `line` in plain words, saying how to
-/// write what YAML reads otherwise than meant; `None` for one worded as
-/// it is.
+/// write what YAML reads otherwise than meant (with the line's own key and
+/// value where it has them); `None` for one worded as it is.
 fn hinted(message: &str, line: &str) -> Option<String> {
     let flow_value = line.contains(": [") || line.contains(": {");
     Some(if message.starts_with("inconsistent indentation") {
         "the indentation does not line up: indent each key of a map as far as its other keys"
             .to_string()
     } else if message.starts_with("reserved indicator") {
-        "a plain key or value cannot start with @ or ` in YAML: quote it, as in \"@name\""
-            .to_string()
+        let example = reserved_token(line).map_or_else(|| "\"@name\"".to_string(), double_quoted);
+        format!("a plain key or value cannot start with @ or ` in YAML: quote it, as in {example}")
     } else if message.starts_with("mapping values are not allowed") {
-        "a colon and a space inside a plain value start a map in YAML: quote the value, as in description: \"note: this\"".to_string()
-    } else if let Some(rest) = message.strip_prefix("unknown escape character ") {
+        let example = quoted_entry(line, '"', "description", "note: this");
         format!(
-            "unknown escape {rest} in a double-quoted string: in double quotes a backslash starts an escape, so write the text in single quotes, as in pattern: '^\\d+$', or double each backslash"
+            "a colon and a space inside a plain value start a map in YAML: quote the value, as in {example}"
+        )
+    } else if let Some(rest) = message.strip_prefix("unknown escape character ") {
+        let example = quoted_entry(line, '\'', "pattern", "^\\d+$");
+        format!(
+            "unknown escape {rest} in a double-quoted string: in double quotes a backslash starts an escape, so write the text in single quotes, as in {example}, or double each backslash"
         )
     } else if message.starts_with("expected block mapping key or end") && flow_value {
-        "a value starting with [ or { is a list or map in YAML, and the text after its closing bracket does not read: quote the value, as in pattern: '[a-z]+'".to_string()
+        let example = quoted_entry(line, '\'', "pattern", "[a-z]+");
+        format!(
+            "a value starting with [ or {{ is a list or map in YAML, and the text after its closing bracket does not read: quote the value, as in {example}"
+        )
+    } else if message.starts_with("expected ',' or ']'") {
+        "a list opened with [ is not closed: a , or ] is missing".to_string()
+    } else if message.starts_with("expected ',' or '}'") {
+        "a map opened with { is not closed: a , or } is missing".to_string()
+    } else if message.starts_with("unterminated double-quoted") {
+        "a text opened with \" is not closed: a closing \" is missing".to_string()
+    } else if message.starts_with("unterminated single-quoted") {
+        "a text opened with ' is not closed: a closing ' is missing".to_string()
     } else {
-        return None;
+        let closer = message
+            .strip_prefix("unexpected '")
+            .and_then(|rest| rest.chars().next())
+            .filter(|closer| matches!(closer, '}' | ']'))?;
+        let opener = if closer == '}' { '{' } else { '[' };
+        format!("this {closer} closes nothing opened with {opener}: remove it")
     })
+}
+
+/// `key: value` of `line` (a list item's dash left out) with its value
+/// in `quote`s, as the user would write it quoted: the value's own
+/// double quotes taken off first; `key: value` of the defaults where the
+/// line holds no such entry.
+fn quoted_entry(line: &str, quote: char, key: &str, value: &str) -> String {
+    let entry = line.trim().trim_start_matches("- ");
+    let (written_key, written_value) = entry
+        .split_once(": ")
+        .map(|(key, value)| (key.trim(), value.trim()))
+        .filter(|(key, value)| !key.is_empty() && !value.is_empty())
+        .unwrap_or((key, value));
+    let bare = written_value
+        .strip_prefix('"')
+        .and_then(|value| value.strip_suffix('"'))
+        .unwrap_or(written_value);
+    let quoted = if quote == '\'' {
+        format!("'{}'", bare.replace('\'', "''"))
+    } else {
+        double_quoted(bare)
+    };
+    format!("{written_key}: {quoted}")
+}
+
+/// `text` in double quotes, its `\` and `"` escaped.
+fn double_quoted(text: &str) -> String {
+    format!("\"{}\"", text.replace('\\', "\\\\").replace('"', "\\\""))
+}
+
+/// The key or value of `line` starting with `@` or a backtick.
+fn reserved_token(line: &str) -> Option<&str> {
+    let entry = line.trim().trim_start_matches("- ");
+    let (key, value) = entry.split_once(": ").unwrap_or((entry, ""));
+    let key = key.trim_end_matches(':');
+    [key, value.trim()]
+        .into_iter()
+        .find(|token| token.starts_with(['@', '`']))
 }
 
 /// `message` starting lower case, as the schema text's other messages

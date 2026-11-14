@@ -193,6 +193,16 @@ mod item_start_tests;
 mod key_writing_matrix;
 #[cfg(all(
     test,
+    feature = "schema-validation",
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod narrowed_keys_matrix;
+#[cfg(all(
+    test,
     feature = "yaml",
     feature = "json",
     feature = "toml",

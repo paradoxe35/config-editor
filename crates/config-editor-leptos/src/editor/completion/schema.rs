@@ -139,6 +139,20 @@ pub fn placeholder(schema: &Value, root: &Value) -> Value {
     Value::Null
 }
 
+/// Whether no value is valid for `schema`: `false`, or a schema whose
+/// `not` admits every value (`{not: {}}`, `{not: true}`).
+pub fn admits_nothing(schema: &Value) -> bool {
+    match schema {
+        Value::Bool(admits) => !admits,
+        Value::Object(keywords) => keywords.get("not").is_some_and(|not| match not {
+            Value::Bool(admits) => *admits,
+            Value::Object(inner) => inner.is_empty(),
+            _ => false,
+        }),
+        _ => false,
+    }
+}
+
 /// The `const` of a property schema, through `$ref` and the combinators.
 pub fn schema_const<'a>(schema: &'a Value, root: &'a Value) -> Option<&'a Value> {
     resolve_branches(schema, root)
@@ -336,7 +350,8 @@ pub(crate) fn schema_at_path<'a>(
 
 /// [`schema_at_path`] through `document`, the parsed document when there is
 /// one: each step's conditionals are decided by the value there (see
-/// [`branches_for`]).
+/// [`branches_for`]), and a key of an object in one of its `oneOf`/`anyOf`
+/// options is that option's alone (see [`chosen_children`]).
 pub(crate) fn schema_at_path_in<'a>(
     root: &'a Value,
     path: &[SchemaPathSegment],
@@ -348,7 +363,7 @@ pub(crate) fn schema_at_path_in<'a>(
         let instance = document.and_then(|document| value_at(document, &path[..depth]));
         let mut next: Vec<&Value> = schemas
             .iter()
-            .flat_map(|schema| child_schemas_in(schema, root, segment, instance))
+            .flat_map(|schema| chosen_children(schema, root, segment, instance))
             .collect();
         // An item of something the schema has as one value (a block or an
         // element written twice): each copy is that value.
@@ -371,6 +386,35 @@ pub(crate) fn schema_at_path_in<'a>(
         }
     }
     schemas
+}
+
+/// [`child_schemas_in`], where `instance` is an object in one of the
+/// `oneOf`/`anyOf` options of `schema` ([`ChoicesAt::in_object`]): the
+/// key's schemas in the other options are left out, so a nested object
+/// offers the keys of the matched option's object only (`kind: b` →
+/// `sub:` offers `sb`, not `sa`).
+fn chosen_children<'a>(
+    schema: &'a Value,
+    root: &'a Value,
+    segment: &SchemaPathSegment,
+    instance: Option<&Value>,
+) -> Vec<&'a Value> {
+    let branches = branches_for(schema, root, instance);
+    let Some(object) = instance
+        .and_then(Value::as_object)
+        .filter(|_| matches!(segment, SchemaPathSegment::Key(_)))
+    else {
+        return children_of(&branches, segment);
+    };
+    let choices = ChoicesAt::in_object(&[schema], root, || Some(object.clone()));
+    if choices.matched.is_none() {
+        return children_of(&branches, segment);
+    }
+    let chosen: Vec<&Value> = branches
+        .into_iter()
+        .filter(|branch| !matches!(choices.of(branch), Some((_, false))))
+        .collect();
+    children_of(&chosen, segment)
 }
 
 /// The schemas of one child (a key or an array item) of a value of `schema`.

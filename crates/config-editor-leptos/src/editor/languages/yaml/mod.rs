@@ -66,7 +66,7 @@ use std::collections::HashSet;
 pub(super) struct YamlBehavior;
 
 /// Why a text of several YAML documents (`---` between them) is not read.
-const MULTI_DOCUMENT: &str = "This text holds more than one YAML document (separated by ---): the editor reads one document per file. Keep one, or split them into files";
+const MULTI_DOCUMENT: &str = "This text holds more than one YAML document (a line --- starts one, a line ... ends one): the editor reads one document per file. Keep one, or split them into files";
 
 
 impl ConfigLanguage for YamlBehavior {
