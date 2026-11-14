@@ -11,6 +11,7 @@
 
 use super::attribute_layout::{Tag, filled, markup_attributes};
 use super::identity::{self, Host, Identity};
+use super::namespace_scopes::{Binding, InScope, binding, declared};
 use super::*;
 
 /// A host element as the check reads it: its markup attributes (name,
@@ -23,6 +24,8 @@ struct HostElement {
     prefix: Option<String>,
     attributes: Vec<String>,
     children: Vec<String>,
+    /// The namespaces its names are in (`namespace_scopes`).
+    namespaces: Vec<Binding>,
 }
 
 impl HostElement {
@@ -80,12 +83,24 @@ impl HostElements {
         let tokens = tokenize(text);
         let plan = plan_paths(text, &tokens);
         let mut read = HostElements { markup, elements: HashMap::new(), names: HashMap::new(), children: written_names::Children::default(), marked: false, attributed: false };
+        let mut scope = InScope::default();
         for token in &tokens {
-            if !matches!(token.kind, Kind::OpenTag { closing: false, .. }) {
-                continue;
+            match token.kind {
+                Kind::EndTag => {
+                    scope.pop();
+                    continue;
+                }
+                Kind::OpenTag { closing: false, .. } => {}
+                _ => continue,
+            }
+            let tag = Tag::of(text, token, &read.markup);
+            scope.push(declared(text, &tag));
+            let namespaces = scope.names_bound(text, token, &tag);
+            if text[..token.end].ends_with("/>") {
+                scope.pop();
             }
             let Some(path) = plan.path_of(token.start) else { continue };
-            let attributes: Vec<String> = Tag::of(text, token, &read.markup)
+            let attributes: Vec<String> = tag
                 .attributes
                 .iter()
                 .filter(|attribute| !attribute.markup)
@@ -97,6 +112,7 @@ impl HostElements {
                 prefix: written_names::prefix(text, token).map(str::to_string),
                 attributes,
                 children: Vec::new(),
+                namespaces,
             };
             read.marked |= !element.markup.is_empty() || element.prefix.is_some();
             read.attributed |= !element.attributes.is_empty();
@@ -176,16 +192,21 @@ pub(super) fn changed_markup(language: &XmlBehavior, previous: &str, patched: &s
     let plan = plan_paths(patched, &tokens);
     // The prefix of each element open, innermost last.
     let mut open: written_names::Open<Option<&str>> = written_names::Open::default();
-    // The prefixes each element open declares, innermost last.
-    let mut scopes = moved_declarations::Scopes::default();
+    // The namespaces each element open binds, innermost last; an element
+    // closed by `/>` is left at the next tag.
+    let mut scope = InScope::default();
+    let mut closed = false;
     let declared_in_hosts = |declaration: &(String, String)| {
         [Some(&host), first.as_ref()].into_iter().flatten().any(|elements| elements.declares(declaration))
     };
     for token in &tokens {
+        if std::mem::take(&mut closed) {
+            scope.pop();
+        }
         match token.kind {
             Kind::EndTag => {
                 open.pop();
-                scopes.leave();
+                scope.pop();
                 continue;
             }
             Kind::OpenTag { closing: false, .. } => {}
@@ -196,10 +217,18 @@ pub(super) fn changed_markup(language: &XmlBehavior, previous: &str, patched: &s
         let written_prefix = written_names::prefix(patched, token);
         let saved = markup_attributes(patched, token, &saved_markup);
         open.child(written_prefix, saved.iter().any(|(name, _)| written_names::binds(written_prefix, name)));
-        // A declaration the save gave an element moved out of its
-        // prefix's scope (`moved_declarations`) is the host's binding.
+        // A declaration the save gave an element the edit added, of a
+        // prefix nothing around it binds (`moved_declarations`), is a
+        // host's binding.
         let opened = !patched[..token.end].ends_with("/>");
-        let added = scopes.enter(&saved, opened, &declared_in_hosts);
+        let added: Vec<(String, String)> = saved
+            .iter()
+            .filter(|declaration| declaration.0.strip_prefix("xmlns:").is_some_and(|prefix| scope.bound(Some(prefix)).is_none()))
+            .filter(|declaration| declared_in_hosts(declaration))
+            .cloned()
+            .collect();
+        scope.push(saved.iter().filter_map(|(name, value)| binding(name, value)).collect());
+        closed = !opened;
         let without_added = || saved.iter().filter(|declaration| !added.contains(declaration)).cloned().collect::<Vec<_>>();
         if opened {
             open.push(written_prefix);
@@ -220,9 +249,20 @@ pub(super) fn changed_markup(language: &XmlBehavior, previous: &str, patched: &s
                 if !own.filled && filled(patched, token) {
                     wanted.retain(|(name, value)| !elements.markup.nil(name, value));
                 }
-                let form_kept = saved_elements.elements.get(&strings(path)).is_none_or(|saved| !own.form_changed(saved));
-                let own_markup = saved == wanted || without_added() == wanted;
-                own_markup && prefix == own.prefix && form_kept
+                let written = saved_elements.elements.get(&strings(path));
+                let form_kept = written.is_none_or(|saved| !own.form_changed(saved));
+                // Besides its own markup, only declarations binding its
+                // names as the host did (`moved_declarations`), and its
+                // names in the namespaces they were in (QA `E37-6`).
+                let restores = |(name, value): &(String, String)| binding(name, value).is_some_and(|binding| own.namespaces.contains(&binding));
+                let own_markup = wanted.iter().all(|declaration| saved.contains(declaration))
+                    && saved.iter().all(|declaration| wanted.contains(declaration) || restores(declaration));
+                let namespaces_kept = written.is_none_or(|written| {
+                    own.namespaces.iter().all(|(prefix, namespace)| {
+                        written.namespaces.iter().all(|(other, bound)| other != prefix || bound == namespace)
+                    })
+                });
+                own_markup && namespaces_kept && prefix == own.prefix && form_kept
             }
             // Added: named as one of its path's host elements, or where
             // the host has none, in its siblings' namespace, else its

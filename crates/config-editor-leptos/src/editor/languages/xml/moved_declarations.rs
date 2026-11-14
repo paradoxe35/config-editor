@@ -1,9 +1,14 @@
-//! An element moved out of the element declaring a prefix it uses (QA
-//! `E36-3`: `<c:scan>` cut from `<p xmlns:c="…">` and pasted under
-//! `<q>`): no view shows the declaration or the prefix, so a save
-//! declares the prefix on the moved element itself, bound as the host
-//! bound it, instead of waiting on a prefix the user cannot see.
+//! An element a view moved keeps its namespaces: no view shows a
+//! declaration or a prefix, so a save declares on the moved element
+//! itself what the host bound its names to (`namespace_scopes`), instead
+//! of waiting on a prefix the user cannot see (QA `E36-3`: `<c:scan>` cut
+//! from `<p xmlns:c="…">` and pasted under `<q>`) or silently moving it
+//! to another namespace (QA `E37-6`: `<t>` pasted under
+//! `<q xmlns="urn:d">`, or `<c:t>` under `<q xmlns:c="urn:other">`).
 
+use super::attribute_layout::Tag;
+use super::identity::{Host, Identity};
+use super::namespace_scopes::{Binding, HostNamespaces, InScope, declaration, declared, used};
 use super::*;
 
 /// What the host texts bind each prefix to: for each qualified name
@@ -102,51 +107,72 @@ fn prefixed_names(element: &BytesStart<'_>) -> Vec<String> {
         .collect()
 }
 
-/// `saved` (a save's text) with each start tag that uses a prefix no
-/// declaration in scope binds declaring it, as `hosts` (the texts the
-/// save is made over) bind it, right after its name. A prefix no host
-/// binds is left for the read-back to refuse.
-pub(super) fn declared_where_moved(saved: String, hosts: &[&str]) -> String {
-    if !hosts.iter().any(|host| host.contains("xmlns:")) {
+/// `saved` (a save's text, written from the value `identity` edits the
+/// host to) with each element keeping the namespaces its names had in the
+/// host (`previous`, or `origin` for an item pasted back from the text the
+/// session began on): one moved into or out of a default namespace, or
+/// where its prefix is bound otherwise or not at all, declares its own
+/// right after its name (QA `E36-3`, `E37-6`). An element the edit added
+/// declares a prefix no declaration in scope binds as the hosts bind it;
+/// a prefix no host binds is left for the read-back to refuse.
+pub(super) fn declared_where_moved(saved: String, (previous, origin): (&str, Option<&str>), identity: &Identity<'_>) -> String {
+    if !previous.contains("xmlns") && !origin.is_some_and(|origin| origin.contains("xmlns")) {
         return saved;
     }
     crate::editor::work_count::note(crate::editor::work_count::Work::NamespaceScan);
-    let mut bindings: Option<Bindings> = None;
+    let hosts: Vec<&str> = std::iter::once(previous).chain(origin.filter(|origin| *origin != previous)).collect();
+    let (mut host, mut first, mut bindings) = (None, None, None);
+    let markup = declarations::Markup::of(&saved);
+    let tokens = tokenize(&saved);
+    let plan = plan_paths(&saved, &tokens);
     let mut inserts: Vec<(usize, String)> = Vec::new();
-    let mut reader = Reader::from_str(&saved);
-    let mut scopes: Vec<Vec<String>> = Vec::new();
-    loop {
-        let event_start = reader.buffer_position() as usize;
-        let (element, empty) = match reader.read_event() {
-            Ok(Event::Start(element)) => (element, false),
-            Ok(Event::Empty(element)) => (element, true),
-            Ok(Event::End(_)) => {
-                scopes.pop();
+    let mut scope = InScope::default();
+    for token in &tokens {
+        match token.kind {
+            Kind::EndTag => {
+                scope.pop();
                 continue;
             }
-            Ok(Event::Eof) | Err(_) => break,
-            Ok(_) => continue,
-        };
-        let mut declared: Vec<String> = declarations_of(&element).into_iter().map(|(prefix, _)| prefix).collect();
-        let mut added = String::new();
-        for qualified in prefixed_names(&element) {
-            let prefix = qualified.split(':').next().unwrap_or_default().to_string();
-            if declared.contains(&prefix) || scopes.iter().flatten().any(|bound| *bound == prefix) {
-                continue;
-            }
-            let bindings = bindings.get_or_insert_with(|| Bindings::of(hosts));
-            if let Some(namespace) = bindings.namespace(&qualified) {
-                added.push_str(&format!(" xmlns:{prefix}=\"{namespace}\""));
-                declared.push(prefix);
+            Kind::OpenTag { closing: false, .. } => {}
+            _ => continue,
+        }
+        let tag = Tag::of(&saved, token, &markup);
+        let own = declared(&saved, &tag);
+        let owns = |prefix: &Option<String>| own.iter().any(|(declared, _)| declared == prefix);
+        let wanted = plan.path_of(token.start).and_then(|path| identity.host_path(path)).and_then(|(path, side)| {
+            let read = match side {
+                Host::Previous => &*host.get_or_insert_with(|| HostNamespaces::of(previous)),
+                Host::Origin => first.get_or_insert_with(|| origin.map(HostNamespaces::of)).as_ref()?,
+            };
+            read.at(&path).map(<[Binding]>::to_vec)
+        });
+        scope.push(own.clone());
+        let mut added: Vec<Binding> = Vec::new();
+        match wanted {
+            // A host element: the namespaces its names had there.
+            Some(wanted) => added.extend(scope.missing(&wanted).filter(|(prefix, _)| !owns(prefix)).cloned()),
+            // Added: a prefix nothing in scope binds, as the hosts bind it.
+            None => {
+                for (prefix, qualified) in used(&saved, token, &tag) {
+                    let Some(prefix) = prefix.filter(|prefix| scope.bound(Some(prefix)).is_none()) else { continue };
+                    if added.iter().any(|(declared, _)| declared.as_deref() == Some(prefix)) {
+                        continue;
+                    }
+                    let known = bindings.get_or_insert_with(|| Bindings::of(&hosts));
+                    if let Some(namespace) = known.namespace(qualified) {
+                        added.push((Some(prefix.to_string()), namespace.to_string()));
+                    }
+                }
             }
         }
         if !added.is_empty() {
-            let at = markup_start(&saved, event_start) + 1 + element.name().as_ref().len();
-            inserts.push((at, added));
+            inserts.push((tag.name_end, added.iter().map(declaration).collect()));
         }
-        scopes.push(declared);
-        if empty {
-            scopes.pop();
+        for binding in added {
+            scope.add(binding);
+        }
+        if saved[..token.end].ends_with("/>") {
+            scope.pop();
         }
     }
     if inserts.is_empty() {
@@ -163,86 +189,79 @@ pub(super) fn declared_where_moved(saved: String, hosts: &[&str]) -> String {
     out
 }
 
-/// The prefixes each open element of a saved text declares, for the
-/// read-back check (`kept_markup`): which declarations of a start tag
-/// are those [`declared_where_moved`] adds.
-#[derive(Default)]
-pub(super) struct Scopes(Vec<Vec<String>>);
-
-impl Scopes {
-    /// Enters a start tag whose markup attributes are `markup` (kept open
-    /// when `opened`, not `<e/>`): its declarations of a prefix no
-    /// element around it declares, to a namespace the host binds it to
-    /// (`hosts_declare`), which a save adds to an element moved out of
-    /// that prefix's scope.
-    pub(super) fn enter(
-        &mut self,
-        markup: &[(String, String)],
-        opened: bool,
-        hosts_declare: &dyn Fn(&(String, String)) -> bool,
-    ) -> Vec<(String, String)> {
-        let mut own = Vec::new();
-        let mut added = Vec::new();
-        for declaration in markup {
-            let Some(prefix) = declaration.0.strip_prefix("xmlns:") else { continue };
-            own.push(prefix.to_string());
-            if !self.0.iter().flatten().any(|bound| bound == prefix) && hosts_declare(declaration) {
-                added.push(declaration.clone());
-            }
-        }
-        if opened {
-            self.0.push(own);
-        }
-        added
-    }
-
-    /// Leaves the innermost open element.
-    pub(super) fn leave(&mut self) {
-        self.0.pop();
-    }
-}
-
 #[cfg(test)]
 mod tests {
+    use super::super::identity::Identity;
     use super::declared_where_moved;
+    use serde_json::Value;
+
+    /// Each element is the host's at its own path (as for a host that does
+    /// not read); one at a path the host has none is added.
+    fn by_path(saved: &str, hosts: (&str, Option<&str>)) -> String {
+        declared_where_moved(saved.to_string(), hosts, &Identity::of(None, &Value::Null))
+    }
 
     #[test]
     fn a_prefix_out_of_its_scope_is_declared_as_the_host_binds_it() {
         let host = "<r>\n  <p xmlns:c=\"urn:c\">\n    <c:s a=\"1\"/>\n  </p>\n  <q xmlns:c=\"urn:other\"/>\n  <t/>\n</r>\n";
         // Moved out: declared, bound as where the host used `c:s`.
         let saved = "<r>\n  <p/>\n  <t>\n    <c:s a=\"1\"/>\n  </t>\n</r>\n";
-        assert_eq!(
-            declared_where_moved(saved.to_string(), &[host]),
-            "<r>\n  <p/>\n  <t>\n    <c:s xmlns:c=\"urn:c\" a=\"1\"/>\n  </t>\n</r>\n"
-        );
+        assert_eq!(by_path(saved, (host, None)), "<r>\n  <p/>\n  <t>\n    <c:s xmlns:c=\"urn:c\" a=\"1\"/>\n  </t>\n</r>\n");
         // A prefixed attribute and a child under it: declared once, on the
         // outermost element needing it.
         let one_binding = "<r><p xmlns:c=\"urn:c\"><c:s/></p></r>";
         let saved = "<r><t c:x=\"1\"><c:y>2</c:y></t></r>";
-        assert_eq!(
-            declared_where_moved(saved.to_string(), &[one_binding]),
-            "<r><t xmlns:c=\"urn:c\" c:x=\"1\"><c:y>2</c:y></t></r>"
-        );
+        assert_eq!(by_path(saved, (one_binding, None)), "<r><t xmlns:c=\"urn:c\" c:x=\"1\"><c:y>2</c:y></t></r>");
         // Still in scope, a prefix no host binds, or one the host binds to
         // several namespaces (where it never writes the name): as it was.
         for saved in ["<r><p xmlns:c=\"urn:c\"><c:s/></p></r>", "<r><e:s/></r>", "<r xml:lang=\"en\"/>", "<r><c:y/></r>"] {
-            assert_eq!(declared_where_moved(saved.to_string(), &[host]), saved);
+            assert_eq!(by_path(saved, (host, None)), saved);
         }
         // A host with no declaration is not read.
-        assert_eq!(declared_where_moved("<r><c:s/></r>".to_string(), &["<r/>"]), "<r><c:s/></r>");
+        assert_eq!(by_path("<r><c:s/></r>", ("<r/>", None)), "<r><c:s/></r>");
+    }
+
+    /// A host element whose names the save would put in another namespace
+    /// (its default one, or a prefix bound otherwise) declares the host's;
+    /// its children then are in theirs again.
+    #[test]
+    fn a_host_element_keeps_its_namespaces() {
+        for (host, saved, expected) in [
+            ("<r><q xmlns=\"urn:d\"><z/></q></r>", "<r><q><z/></q></r>", "<r><q xmlns=\"urn:d\"><z/></q></r>"),
+            (
+                "<r xmlns=\"urn:r\"><q><z/></q></r>",
+                "<r xmlns=\"urn:r\"><q xmlns=\"urn:d\"><z/></q></r>",
+                "<r xmlns=\"urn:r\"><q xmlns=\"urn:d\"><z xmlns=\"urn:r\"/></q></r>",
+            ),
+            (
+                "<r><q><z/></q><s xmlns=\"urn:s\"/></r>",
+                "<r xmlns=\"urn:x\"><q><z/></q><s xmlns=\"urn:s\"/></r>",
+                "<r xmlns=\"urn:x\"><q xmlns=\"\"><z/></q><s xmlns=\"urn:s\"/></r>",
+            ),
+            (
+                "<r xmlns:c=\"urn:c\"><c:q c:a=\"1\"/></r>",
+                "<r xmlns:c=\"urn:o\"><c:q c:a=\"1\"/></r>",
+                "<r xmlns:c=\"urn:o\"><c:q xmlns:c=\"urn:c\" c:a=\"1\"/></r>",
+            ),
+            ("<r xmlns:c=\"urn:c\"><c:q/></r>", "<r xmlns:c=\"urn:c\"><c:q/></r>", "<r xmlns:c=\"urn:c\"><c:q/></r>"),
+            ("<r xmlns:c='a\"b'><c:q/></r>", "<r><c:q/></r>", "<r><c:q xmlns:c='a\"b'/></r>"),
+        ] {
+            assert_eq!(by_path(saved, (host, None)), expected, "{host}");
+        }
     }
 
     /// A save reads the saved text once and each host text at most once,
-    /// however many elements it declares a prefix on.
+    /// however many elements it declares a namespace on.
     #[test]
     fn the_texts_are_read_once_at_any_size() {
         use crate::editor::work_count::{Work, counted};
         let scans = |count: usize| {
             let elements: String = (0..count).map(|at| format!("<c:s{at}/>")).collect();
-            let host = format!("<r><p xmlns:c=\"urn:c\">{elements}</p><q/></r>");
+            let host = format!("<r><p xmlns:c=\"urn:c\">{elements}</p><q xmlns=\"urn:d\"/></r>");
             let saved = format!("<r><p/><q>{elements}</q></r>");
-            let (out, scans) = counted(Work::NamespaceScan, || declared_where_moved(saved, &[&host, &host]));
+            let (out, scans) = counted(Work::NamespaceScan, || by_path(&saved, (&host, Some(&host))));
             assert_eq!(out.matches("xmlns:c=\"urn:c\"").count(), count);
+            assert!(out.contains("<q xmlns=\"urn:d\">"), "{out}");
             scans
         };
         assert_eq!(scans(10), 3);

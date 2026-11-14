@@ -43,6 +43,7 @@ mod kept_elements;
 mod written_names;
 mod pasted_attributes;
 mod moved_declarations;
+mod namespace_scopes;
 // The fold ranges (the `folding` feature).
 #[cfg(feature = "folding")]
 mod folding;
@@ -455,10 +456,9 @@ impl ConfigLanguage for XmlBehavior {
                     (previous, origin),
                     &identity,
                 );
-                // An element moved out of the element declaring its
-                // prefix declares it itself.
-                let hosts: Vec<&str> = std::iter::once(previous).chain(origin.filter(|origin| *origin != previous)).collect();
-                moved_declarations::declared_where_moved(laid_out, &hosts)
+                // An element moved where its names would be in other
+                // namespaces declares its own.
+                moved_declarations::declared_where_moved(laid_out, (previous, origin), &identity)
             }
             None => out,
         })

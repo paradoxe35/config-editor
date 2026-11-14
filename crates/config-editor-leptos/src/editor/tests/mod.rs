@@ -78,7 +78,7 @@ mod sibling_decided_suggestions;
     feature = "hcl",
     feature = "xml"
 ))]
-mod xml_moved_prefixes;
+mod xml_moved_namespaces;
 // Reads what the view reads (folds, suggestions) on every language's sample.
 #[cfg(all(
     feature = "yaml",
