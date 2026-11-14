@@ -1,6 +1,8 @@
 //! Values edited while editing as a language that writes every scalar as
 //! text (XML), saved in the host's types.
 
+use super::super::decimal_text::decimal;
+use super::schema_readings;
 use serde_json::Value;
 
 /// `value` (the host value with the edit merged in) with each scalar the
@@ -10,15 +12,34 @@ use serde_json::Value;
 /// element (read as `{}`) is the empty string there. `Err` names a value
 /// emptied where the host holds a number or a boolean: the save waits until
 /// it holds one again, as when a JSON view's value is half typed.
-pub(super) fn in_host_types(old: &Value, seen: &Value, value: Value) -> Result<Value, String> {
-    in_host_types_at(old, Some(seen), value, "")
+///
+/// Where `schema` allows the view's reading of a value and not the host's
+/// type of it (`8` typed over `"auto"` for "an integer ≥ 1 or `auto`"),
+/// the view's reading is saved: what the view validated.
+pub(super) fn in_host_types(
+    old: &Value,
+    seen: &Value,
+    value: Value,
+    schema: Option<&Value>,
+) -> Result<Value, String> {
+    let mut retyped = Vec::new();
+    let mut value = in_host_types_at(old, Some(seen), value, "", &mut retyped)?;
+    if let Some(schema) = schema {
+        schema_readings::keep(&mut value, retyped, schema);
+    }
+    Ok(value)
 }
+
+/// Values the host's type changed: each one's pointer and the view's
+/// reading.
+type Retyped = Vec<(String, Value)>;
 
 fn in_host_types_at(
     old: &Value,
     seen: Option<&Value>,
     value: Value,
     at: &str,
+    retyped: &mut Retyped,
 ) -> Result<Value, String> {
     let child = |key: &str| format!("{at}/{}", key.replace('~', "~0").replace('/', "~1"));
     match (old, value) {
@@ -32,6 +53,7 @@ fn in_host_types_at(
                         seen.and_then(|seen| seen.get(&key)),
                         item,
                         &child(&key),
+                        retyped,
                     )?,
                     None => item,
                 };
@@ -48,6 +70,7 @@ fn in_host_types_at(
                     seen.and_then(|seen| seen.get(index)),
                     item,
                     &child(&index.to_string()),
+                    retyped,
                 )?);
             }
             Ok(Value::Array(out))
@@ -57,14 +80,34 @@ fn in_host_types_at(
         // keeps the type of the host's value it shows.
         (Value::Array(old), Value::Array(items)) => {
             let seen = seen.and_then(Value::as_array).map(Vec::as_slice);
-            items_in_host_types(old, seen.unwrap_or_default(), items, at)
+            items_in_host_types(old, seen.unwrap_or_default(), items, at, retyped)
         }
         (old, Value::Array(items)) if !old.is_object() && !old.is_null() => {
             let seen = seen.map(std::slice::from_ref).unwrap_or_default();
-            items_in_host_types(std::slice::from_ref(old), seen, items, at)
+            items_in_host_types(std::slice::from_ref(old), seen, items, at, retyped)
         }
         (Value::Object(_) | Value::Array(_) | Value::Null, value) => Ok(value),
         (old, value) if *old == value => Ok(value),
+        (old, value) => {
+            let read = value.clone();
+            let typed = scalar_in_host_type(old, seen, value, at)?;
+            if typed != read {
+                retyped.push((at.to_string(), read));
+            }
+            Ok(typed)
+        }
+    }
+}
+
+/// The scalar `value` the view reads (where the host holds `old`) in the
+/// host's type.
+fn scalar_in_host_type(
+    old: &Value,
+    seen: Option<&Value>,
+    value: Value,
+    at: &str,
+) -> Result<Value, String> {
+    match (old, value) {
         // An element emptied where the view showed a scalar.
         (old, Value::Object(map)) if map.is_empty() && !seen.is_some_and(Value::is_object) => {
             match old {
@@ -117,6 +160,7 @@ fn items_in_host_types(
     seen: &[Value],
     items: Vec<Value>,
     at: &str,
+    retyped: &mut Retyped,
 ) -> Result<Value, String> {
     items
         .into_iter()
@@ -124,48 +168,13 @@ fn items_in_host_types(
         .map(
             |(index, item)| match seen.iter().zip(old).find(|(shown, _)| **shown == item) {
                 Some((shown, before)) => {
-                    in_host_types_at(before, Some(shown), item, &format!("{at}/{index}"))
+                    in_host_types_at(before, Some(shown), item, &format!("{at}/{index}"), retyped)
                 }
                 None => Ok(item),
             },
         )
         .collect::<Result<Vec<_>, _>>()
         .map(Value::Array)
-}
-
-/// The number `text` writes in decimal (`2.50`, `.5`, `2e3`, `007`, `+6`):
-/// an integer when `integer` (the host holds one) and it has no fraction or
-/// exponent, else a finite float.
-fn decimal(text: &str, integer: bool) -> Option<Value> {
-    let digits = text.strip_prefix(['+', '-']).unwrap_or(text);
-    let (mantissa, exponent) = match digits.find(['e', 'E']) {
-        Some(at) => (&digits[..at], Some(&digits[at + 1..])),
-        None => (digits, None),
-    };
-    let (whole, fraction) = mantissa.split_once('.').unwrap_or((mantissa, ""));
-    let all_digits = |part: &str| part.bytes().all(|byte| byte.is_ascii_digit());
-    let exponent_ok = exponent.is_none_or(|exponent| {
-        let exponent = exponent.strip_prefix(['+', '-']).unwrap_or(exponent);
-        !exponent.is_empty() && all_digits(exponent)
-    });
-    if whole.len() + fraction.len() == 0
-        || !all_digits(whole)
-        || !all_digits(fraction)
-        || !exponent_ok
-    {
-        return None;
-    }
-    if integer && exponent.is_none() && !mantissa.contains('.') {
-        let text = text.strip_prefix('+').unwrap_or(text);
-        if let Ok(value) = text.parse::<i64>() {
-            return Some(Value::from(value));
-        }
-        if let Ok(value) = text.parse::<u64>() {
-            return Some(Value::from(value));
-        }
-    }
-    let float: f64 = text.parse().ok()?;
-    serde_json::Number::from_f64(float).map(Value::Number)
 }
 
 /// The integer `text` writes in base 16, 8 or 2 (`0x50`, `-0o17`, `0b11`).

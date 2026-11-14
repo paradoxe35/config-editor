@@ -249,4 +249,13 @@ mod xml_numeric_strings;
     feature = "hcl",
     feature = "xml"
 ))]
+mod xml_text_readings;
+#[cfg(all(
+    feature = "schema-validation",
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
 mod xml_union_types;

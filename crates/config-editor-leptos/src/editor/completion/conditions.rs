@@ -150,6 +150,13 @@ fn decide(schema: &Value, value: &Value, root: &Value, depth: usize) -> Option<b
                 )
             }
             "not" => sub(argument).map(|matched| !matched),
+            // A conditional is its `then` where its `if` holds, else its
+            // `else` (each matching anything when absent).
+            "if" => {
+                let branch = members.get(if sub(argument)? { "then" } else { "else" });
+                branch.map_or(Some(true), sub)
+            }
+            "then" | "else" => Some(true),
             _ => None,
         }
     }))

@@ -250,7 +250,8 @@ keys, `{ showFooter: true }`), and its TypeScript type is generated from it.
   cannot tell types apart (XML text, HCL numbers), the
   host's type decides: text that reads as a number or boolean where the host
   holds one is that (`False`, `007`), and a whole number typed over a float
-  stays a float.
+  stays a float. Where the schema allows only the view's reading, that is
+  saved (`8` typed over `"auto"` for "an integer or `auto`" is the number).
 - Items moved in a list, with others added or removed in the same save, take
   their comment lines along (scalars, one-line tables, YAML block items,
   repeated XML elements over lines); where they cannot, the save waits. The
@@ -273,7 +274,7 @@ keys, `{ showFooter: true }`), and its TypeScript type is generated from it.
   problem at the second `---`, and Edit as is refused with that reason.
 - XML element text is the value exactly as an XML reader reports it, the
   whitespace and line breaks around it included (a number, boolean or `null`
-  reads without them): `<s>  a  </s>` shows as `"  a  "` in other languages,
+  where the schema wants one reads without them): `<s>  a  </s>` shows as `"  a  "` in other languages,
   and a YAML `|` block keeps its final line break through the XML view. A
   string an XML host would read back as another value (`"true"`, `"null"`,
   `"12"`, or `""`, an empty element) is not saved there: the save waits with
@@ -1614,7 +1615,9 @@ let language = Language::from_path("infra/main.tf");   // Some(Language::HCL)
 ## XML mapping
 
 Child elements and attributes are object properties, element text is a typed
-scalar (`<listen>7835</listen>` is the number 7835), and repeated siblings are
+scalar (`<listen>7835</listen>` is the number 7835; where the schema wants a
+number, text in any number spelling is one: `1.50`, `1e3`, `4`, kept as
+written; empty text is `null` where the schema allows it and no string), and repeated siblings are
 an array. An attribute sharing its name with a child element is the property
 `@name` (`<r a="1"><a>2</a></r>` is `{"r": {"@a": 1, "a": 2}}`), so the two
 stay apart. Another host's `@name` key holding a value (an npm `@scope`) is

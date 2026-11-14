@@ -889,7 +889,9 @@ for (const theme of themes())
 ### XML mapping
 
 Child elements and attributes are object properties, element text is a typed
-scalar (`<listen>7835</listen>` is the number 7835), and repeated siblings are
+scalar (`<listen>7835</listen>` is the number 7835; where the schema wants a
+number, text in any number spelling is one: `1.50`, `1e3`, `4`, kept as
+written; empty text is `null` where the schema allows it and no string), and repeated siblings are
 an array. An attribute sharing its name with a child element is the property
 `@name` (`<r a="1"><a>2</a></r>` is `{"r": {"@a": 1, "a": 2}}`), so the two
 stay apart. Another host's `@name` key holding a value (an npm `@scope`) is

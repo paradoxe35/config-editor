@@ -41,22 +41,8 @@ pub(super) fn conform(
             || branch.get("prefixItems").is_some()
             || type_includes(branch, "array")
     });
-    if repetition == Repetition::Elements
-        && matches!(value, Value::Number(_) | Value::Bool(_) | Value::Null)
-        && read_as_text(value, schemas, &branches, root)
-    {
-        *value = Value::String(scalar_text(value));
-    }
-    // An empty XML element reads as `{}`; where the schema wants text it is
-    // the empty string.
-    if repetition == Repetition::Elements
-        && value.as_object().is_some_and(serde_json::Map::is_empty)
-        && !branches.iter().any(|branch| accepts(branch, value))
-        && branches
-            .iter()
-            .any(|branch| type_includes(branch, "string"))
-    {
-        *value = Value::String(String::new());
+    if repetition == Repetition::Elements {
+        read_text(value, schemas, &branches, root);
     }
     let repeatable = match repetition {
         Repetition::Elements => !value.is_array(),
@@ -87,13 +73,95 @@ pub(super) fn conform(
     }
 }
 
+/// XML text (`value`) read as the schema wants it: a number, boolean or
+/// `null` the parser read is the text it is written as where the schema
+/// wants that ([`read_as_text`]); text that is one in another spelling
+/// (`1.50`, `1e3`, ` 4 `) is that value where the schema wants one and not
+/// the text; and empty text (an empty element, read as `{}`, or an empty
+/// attribute) is the empty string where the schema wants text, else
+/// `null` where it allows that.
+fn read_text(value: &mut Value, schemas: &[&Value], branches: &[&Value], root: &Value) {
+    let allowed = |candidate: &Value| {
+        branches.iter().any(|branch| {
+            accepts(branch, candidate)
+                || listed(branch).any(|listed| listed == candidate)
+                || whole(candidate).is_some_and(|whole| accepts(branch, &whole))
+        })
+    };
+    let empty = match value {
+        Value::Number(_) | Value::Bool(_) | Value::Null => {
+            let text = scalar_text(value);
+            if read_as_text(value, &text, schemas, branches, root) {
+                *value = Value::String(text);
+            }
+            return;
+        }
+        Value::String(text) => {
+            // Text the schema takes as it is stays text (`007` for "an
+            // integer or a string").
+            let fits = |candidate: &Value| {
+                schemas
+                    .iter()
+                    .any(|schema| conditions::decides(schema, candidate, root) == Some(true))
+            };
+            if let Some(typed) = text_literal(text)
+                && allowed(&typed)
+                && !fits(&Value::String(text.clone()))
+                && !read_as_text(&typed, text, schemas, branches, root)
+            {
+                *value = typed;
+                return;
+            }
+            text.is_empty()
+        }
+        Value::Object(map) => map.is_empty(),
+        Value::Array(_) => false,
+    };
+    if !empty || allowed(value) {
+        return;
+    }
+    if branches
+        .iter()
+        .any(|branch| type_includes(branch, "string"))
+    {
+        *value = Value::String(String::new());
+    } else if allowed(&Value::Null) {
+        *value = Value::Null;
+    }
+}
+
+/// The number, boolean or `null` XML text writes in any spelling a reader
+/// takes for one (`1.50`, `.5`, `1e3`, `007`, `+4`, ` true `).
+fn text_literal(text: &str) -> Option<Value> {
+    let trimmed = text.trim();
+    match serde_json::from_str::<Value>(trimmed) {
+        Ok(value @ (Value::Bool(_) | Value::Null)) => Some(value),
+        _ => crate::editor::decimal_text::decimal(trimmed, true),
+    }
+}
+
+/// A float with no fraction (`1e3`) as the integer it is, which an
+/// `integer` type allows.
+fn whole(value: &Value) -> Option<Value> {
+    let number = value.as_number().filter(|number| number.is_f64())?;
+    let float = number.as_f64()?;
+    (float.fract() == 0.0 && float.abs() < 9.0e15).then(|| Value::from(float as i64))
+}
+
 /// Whether XML text read as a number, boolean or `null` (`value`) is the
-/// string it is written as: where a string the schema lists is that text
-/// (`const: "1.3"`), else where no option `value` fits but its text does
-/// (`oneOf [integer ≥ 10, string]` for `4`), else where no option allows
-/// its kind and text is allowed (`type: string`, or only strings listed).
-fn read_as_text(value: &Value, schemas: &[&Value], branches: &[&Value], root: &Value) -> bool {
-    let text = Value::String(scalar_text(value));
+/// string it is written as (`text`): where a string the schema lists is
+/// that text (`const: "1.3"`), else where no option `value` fits but its
+/// text does (`oneOf [integer ≥ 10, string]` for `4`), else where no option
+/// allows its kind and text is allowed (`type: string`, or only strings
+/// listed).
+fn read_as_text(
+    value: &Value,
+    text: &str,
+    schemas: &[&Value],
+    branches: &[&Value],
+    root: &Value,
+) -> bool {
+    let text = Value::String(text.to_string());
     let listed: Vec<&Value> = branches.iter().flat_map(|branch| listed(branch)).collect();
     if listed.contains(&&text) && !listed.contains(&value) {
         return true;
