@@ -526,7 +526,7 @@ they come.
 | `reference_type`                | `"reference"`                                                                                                                               | The type column of a reference suggestion.                                                                                                                                                                                                     |
 | `closes_tag`                    | `"Closes <{name}>"`                                                                                                                         | The detail of the end tag XML suggests.                                                                                                                                                                                                        |
 | `end_tag`                       | `"end tag"`                                                                                                                                 | Its type column.                                                                                                                                                                                                                               |
-| `no_suggestions`                | `"No suggestions"`                                                                                                                          | Said when typing empties a list opened with Ctrl+Space or moved in; a list that opened by itself closes silently.                                                                                                                              |
+| `no_suggestions`                | `"No suggestions"`                                                                                                                          | Said when Ctrl+Space finds nothing to offer, and when typing empties a list opened with Ctrl+Space or moved in; a list that opened by itself closes silently.                                                                                  |
 | `key_not_allowed`               | `"\"{key}\" is not allowed here"`                                                                                                           | A key the schema does not allow (`{key}`); its object's pointer goes before it (`/web: `), as before every schema problem but at the root.                                                                                                     |
 | `text_not_allowed`              | `"text is not allowed here, only elements"`                                                                                                 | Text in an element the schema wants elements in (XML); the element's pointer goes before it.                                                                                                                                                   |
 | `key_deprecated`                | `"{pointer}: \"{key}\" is deprecated"`                                                                                                      | A deprecated key.                                                                                                                                                                                                                              |
@@ -1332,6 +1332,9 @@ schema whose regex it cannot compile.
 
 ## Keyboard
 
+<!-- keyboard:start -->
+<!-- Generated from crates/config-editor-leptos/src/editor/a11y/keyboard.rs by its tests; do not edit. Regenerate with `UPDATE_GENERATED=1 cargo test -p config-editor-leptos --lib keyboard`. -->
+
 | Keys                                         | Action                                                                                                                                                                                          |
 | -------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `Ctrl+Space`                                 | Open suggestions (with schema examples)                                                                                                                                                         |
@@ -1371,7 +1374,9 @@ schema whose regex it cannot compile.
 | `Escape`                                     | Close popups and the find widget, then collapse the selection                                                                                                                                   |
 | `Alt+PageDown` / `Alt+PageUp`                | Next / previous document in a `ConfigDocuments` view                                                                                                                                            |
 
-`Cmd` works in place of `Ctrl` on macOS.
+`Cmd` works in place of `Ctrl` on macOS, except in `Ctrl+Space`, `Ctrl+M` and `Ctrl+Y`.
+
+<!-- keyboard:end -->
 
 ### Keyboard and screen-reader access
 
@@ -1401,7 +1406,11 @@ message of each problem there, the editor's or the host's ("Warning from
 validator: port in use"), why a read-only value is read-only, a secret
 placeholder's hint. It follows the caret a moment after it stops. `F8` and
 `Shift+F8` announce the problem they move to through a polite live region
-("Error 2 of 5: …"). The suggestion list is a `listbox`, hover help a
+("Error 2 of 5: …"). `Ctrl+Space` with nothing to suggest says "No
+suggestions". A save the editor refuses (the text does not parse) is
+announced with its reason; a save it sends is not: `on_save` owns the result
+(the write can still fail on the host's side), so the host announces
+"Saved" once it is done. The suggestion list is a `listbox`, hover help a
 `tooltip`, the change preview a `dialog`, and the footer's problem count
 `aria-live` (the change count is a button: `Alt+F5` announces each change).
 The text area names the single keys that work in it, with the settings it has
@@ -1824,6 +1833,13 @@ being styled as an editor: give it the class `config-editor-theme` with
 `data-color-theme` (`EditorTheme::as_str`), and read `var(--config-editor-bg)`
 and the rest inside it (the demo's page does). The `config-editor` class is
 the editor's own: on a wrapper it would also style the wrapper as one.
+
+The page's own rules for bare elements and attributes (a CSS framework's
+`input`, `button`, `[type='text']` or `span` rules, loaded before the
+editor or after) never reach the controls and text the editor draws: those
+start from the browser's own styles, and the preset's rules for them carry
+an id's weight. Restyle the editor through these tokens and its roots
+(`.config-editor`, `.config-editor-documents`).
 
 </details>
 

@@ -49,7 +49,13 @@ pub(in crate::editor) fn connect_suggestions(state: EditorState) {
 /// "No results" likewise). A list that opened by itself closes silently.
 pub(in crate::editor) fn say_no_suggestions_after(state: EditorState, listed: bool) {
     if listed && state.completion().requested.get_untracked() && !state.suggestions_showing() {
-        let said = state.strings_untracked(|strings| strings.no_suggestions.clone());
-        state.a11y().announce(said);
+        say_no_suggestions(state);
     }
+}
+
+/// Says there is nothing to suggest: `Ctrl+Space` found nothing, or typing
+/// emptied a list the user asked for.
+pub(in crate::editor) fn say_no_suggestions(state: EditorState) {
+    let said = state.strings_untracked(|strings| strings.no_suggestions.clone());
+    state.a11y().announce(said);
 }

@@ -129,27 +129,32 @@ test.describe('folds and the change preview', () => {
       element.setSelectionRange(0, 0);
     });
     await page.keyboard.type('x');
+    // The typed key is an error, checked after the typing pause: the
+    // footer's problem count turns into a button then, ahead of the change
+    // count. Wait for it, so the footer's first control stays the first
+    // (on a slow machine the check landed between the two Tabs below, and
+    // Shift+Tab from the change count rightly went to the problem count).
+    await expect(page.locator('.config-editor__diagnostic-status')).toBeEnabled();
     await page.keyboard.press('Escape');
     await page.keyboard.press('Control+Home');
     await page.keyboard.press('Alt+F3');
     const peek = page.locator('.config-editor__diff-peek');
     await expect(peek).toHaveCount(1);
+    await expect(page.locator('.config-editor__diff-peek-revert')).toBeFocused();
     const inPeek = () => page.evaluate(() => !!document.activeElement?.closest('.config-editor__diff-peek'));
-    await expect.poll(inPeek).toBe(true);
     // Forward: Revert, Close, then the footer's first control.
     await page.keyboard.press('Tab');
-    await expect.poll(inPeek).toBe(true);
+    await expect(page.locator('.config-editor__diff-peek-close')).toBeFocused();
     await page.keyboard.press('Tab');
-    await expect.poll(inPeek).toBe(false);
-    const first = await focusedClass(page);
-    expect(first).toMatch(/config-editor__(diagnostic|change)-status/);
+    await expect(page.locator('.config-editor__diagnostic-status')).toBeFocused();
     // Backward from it: the preview's last button, not the text.
     await page.keyboard.press('Shift+Tab');
-    await expect.poll(inPeek).toBe(true);
+    await expect(page.locator('.config-editor__diff-peek-close')).toBeFocused();
     // Forward from the footer's last control leaves the editor, not into the preview.
     await page.locator('.config-editor__change-status').focus();
     await page.keyboard.press('Tab');
-    await expect.poll(inPeek).toBe(false);
+    await expect(page.locator('.config-editor__change-status')).not.toBeFocused();
+    expect(await inPeek()).toBe(false);
     expect(await page.evaluate(() => !!document.activeElement?.closest('.config-editor'))).toBe(false);
   });
 });

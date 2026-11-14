@@ -9,6 +9,8 @@
 //!   points at, updated a moment after the caret stops.
 //! - `announce`: one polite live region for short messages (the Tab mode,
 //!   "Error 2 of 5: …" on F8).
+//! - `keyboard`: the editor's keys, one table for the README and
+//!   `shortcuts`.
 //! - `shortcuts`: the keys that work in the text, as `aria-keyshortcuts`.
 //! - `suggestions`: the suggestion list named on the textarea, with the
 //!   highlighted suggestion as its active descendant.
@@ -16,6 +18,9 @@
 
 mod caret_note;
 mod focus;
+mod keyboard;
+#[cfg(test)]
+mod keyboard_tests;
 mod shortcuts;
 mod suggestions;
 mod texts;
@@ -26,7 +31,7 @@ pub(super) use caret_note::{
 };
 pub(super) use focus::{focus_keys, toggle_tab_focus};
 pub(super) use shortcuts::connect_shortcuts;
-pub(super) use suggestions::{connect_suggestions, say_no_suggestions_after};
+pub(super) use suggestions::{connect_suggestions, say_no_suggestions, say_no_suggestions_after};
 pub(super) use texts::{hover_text, problem_announcement, problem_marker, severity_name};
 
 use leptos::prelude::*;

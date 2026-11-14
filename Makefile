@@ -106,6 +106,7 @@ e2e-only: ## Run the browser tests on the current builds
 docs-generate: ## Rewrite every generated doc: contents lists, settings tables, gallery page
 	node scripts/readme-toc.mjs
 	UPDATE_GENERATED=1 cargo test -p config-editor-js --test settings
+	UPDATE_GENERATED=1 cargo test -p config-editor-leptos --lib keyboard
 	node e2e/screenshots.mjs --gallery
 	git ls-files '*.md' | xargs $(PRETTIER) --log-level warn --write
 
