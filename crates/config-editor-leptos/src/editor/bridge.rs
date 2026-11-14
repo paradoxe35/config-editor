@@ -24,6 +24,15 @@ mod host_strings;
     feature = "hcl",
     feature = "xml"
 ))]
+mod many_renames_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
 mod many_values_tests;
 mod merge;
 mod read_back;

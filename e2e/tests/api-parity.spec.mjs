@@ -223,7 +223,7 @@ const CONFIG_LANGUAGE = {
   entries_apart: { exempt: SAVE_FORMS },
   entries_together: { exempt: SAVE_FORMS },
   aligned_lines: { exempt: SAVE_FORMS },
-  unheld_number: { exempt: RUST_ONLY_REFINEMENT },
+  unheld_numbers: { exempt: RUST_ONLY_REFINEMENT },
   edits_one_scalar: { exempt: 'a speed-up for locks away from an edit; without it (a custom language) every edit reads the document through `parse` while anything is locked' },
 };
 

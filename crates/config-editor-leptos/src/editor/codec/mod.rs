@@ -101,8 +101,9 @@ pub(super) fn read(
 
 /// Whether `source` may be saved in `language`, its own: it reads, or
 /// all that stands in the way are numbers the editor cannot hold exactly
-/// that the language allows (see [`ConfigLanguage::unheld_number`]), each
-/// read as `0` to find the next.
+/// that the language allows (see [`ConfigLanguage::unheld_numbers`]): all
+/// it finds read as `0` at once, then read again (once more for each one
+/// it did not find, should the next error be about it).
 pub(super) fn saves_in_own_language(language: &dyn ConfigLanguage, source: &str) -> bool {
     let mut error = match read(language, source, None) {
         Ok(_) => return true,
@@ -110,14 +111,18 @@ pub(super) fn saves_in_own_language(language: &dyn ConfigLanguage, source: &str)
     };
     let mut text = source.to_string();
     loop {
-        let Some(range) = language.unheld_number(&text, &error) else {
-            return false;
-        };
-        if range.is_empty() || text[range.clone()] == *"0" {
+        let stand_ins: Vec<_> = language
+            .unheld_numbers(&text, &error)
+            .into_iter()
+            .filter(|range| !range.is_empty() && text[range.clone()] != *"0")
+            .map(|range| (range, "0".to_string()))
+            .collect();
+        if stand_ins.is_empty() {
             return false;
         }
-        text.replace_range(range, "0");
+        text = super::language::with_edits(&text, stand_ins);
         // Read aside: the stand-in does not push out the text on screen.
+        super::work_count::note_many(super::work_count::Work::ParsedBytes, text.len());
         match language.parse(&text) {
             Ok(_) => return true,
             Err(next) => error = next,

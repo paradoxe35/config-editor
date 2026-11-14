@@ -725,13 +725,19 @@ pub struct CompletionContext {
 /// An edit of a text: the bytes it replaces, and their new text.
 pub type KeyEdit = (std::ops::Range<usize>, String);
 
-/// `source` with `edits` (apart from each other) made.
+/// `source` with `edits` (apart from each other) made, built in one pass
+/// (not the text moved along once per edit).
 pub(crate) fn with_edits(source: &str, mut edits: Vec<KeyEdit>) -> String {
-    edits.sort_by_key(|(range, _)| std::cmp::Reverse(range.start));
-    let mut edited = source.to_string();
+    edits.sort_by_key(|(range, _)| range.start);
+    let grown: usize = edits.iter().map(|(_, text)| text.len()).sum();
+    let mut edited = String::with_capacity(source.len() + grown);
+    let mut from = 0;
     for (range, text) in edits {
-        edited.replace_range(range, &text);
+        edited.push_str(source.get(from..range.start).unwrap_or_default());
+        edited.push_str(&text);
+        from = from.max(range.end);
     }
+    edited.push_str(&source[from..]);
     edited
 }
 
@@ -1001,15 +1007,17 @@ pub trait ConfigLanguage: Send + Sync + 'static {
     /// two never read as each other.
     fn parse(&self, source: &str) -> Result<Value, ParseError>;
 
-    /// Where the number literal `error` (what [`parse`](Self::parse)
-    /// returned for `source`) is about is written, when the error is only
-    /// that the editor cannot hold the number exactly (an integer past 64
-    /// bits, a float past the largest) and the language allows it: the text
-    /// then saves in this language, the problem still shown. Default:
-    /// `None`, every error holds the save.
-    fn unheld_number(&self, source: &str, error: &ParseError) -> Option<std::ops::Range<usize>> {
+    /// Where the number literals the editor cannot hold exactly (integers
+    /// past 64 bits, floats past the largest) that the language allows are
+    /// written in `source`, when `error` (what [`parse`](Self::parse)
+    /// returned for it) is only about one of them: the text then saves in
+    /// this language, the problem still shown. The places hold the one the
+    /// error is about, and as many others as the language finds in one
+    /// pass (a save reads the text again with all of them stood in for,
+    /// not once per number). Default: none, every error holds the save.
+    fn unheld_numbers(&self, source: &str, error: &ParseError) -> Vec<std::ops::Range<usize>> {
         let _ = (source, error);
-        None
+        Vec::new()
     }
 
     /// The document for `value`, keeping the framing of `previous` (this

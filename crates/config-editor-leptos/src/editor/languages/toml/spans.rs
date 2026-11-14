@@ -155,6 +155,8 @@ fn walk_keys(source: &str, sink: &mut impl Sink) {
     note(Work::DocumentRead);
     let lines: Vec<&str> = source.lines().collect();
     let tables = table_paths(&lines);
+    // The containers written over lines, read once when one is met.
+    let mut statements = None;
     let mut offset = 0;
     for (index, line) in lines.iter().enumerate() {
         if sink.done() {
@@ -187,6 +189,14 @@ fn walk_keys(source: &str, sink: &mut impl Sink) {
                 for entry in inline_entries_on(code, &full) {
                     if sink.wants(&entry.path) {
                         sink.set(&entry.path, || Some(span_between(source, line_offset + entry.key.0, line_offset + entry.key.1)));
+                    }
+                }
+                let end = container_end(source, code, line_offset, &mut statements);
+                for (path, key) in listed_keys(source, line_offset, end) {
+                    let mut entry = full.clone();
+                    entry.extend(path);
+                    if sink.wants(&entry) {
+                        sink.set(&entry, || Some(span_between(source, line_offset + key.start, line_offset + key.end)));
                     }
                 }
             }
@@ -229,6 +239,52 @@ fn walk_keys(source: &str, sink: &mut impl Sink) {
             }
         }
     }
+}
+
+/// Where the container that is the value on the line `code` (at
+/// `line_offset` in `source`) ends: on the line, or past the line that
+/// closes it (`statements`, the text's containers over lines, read the
+/// first time one is asked for). `None` when the value is no container.
+fn container_end(
+    source: &str,
+    code: &str,
+    line_offset: usize,
+    statements: &mut Option<Vec<(usize, usize)>>,
+) -> Option<usize> {
+    let (start, _) = value_span_in_line(code)?;
+    if !code[start..].starts_with(['[', '{']) {
+        return None;
+    }
+    if super::super::inline::unclosed_brackets(code) == 0 {
+        return Some(line_offset + code.len());
+    }
+    let statements = statements.get_or_insert_with(|| super::super::inline::statements(source));
+    let at = statements.partition_point(|(start, _)| *start < line_offset);
+    statements
+        .get(at)
+        .filter(|(start, _)| *start == line_offset)
+        .map(|(_, end)| *end)
+}
+
+/// The keys inside the container from `line_offset` to `end` (a list's
+/// items' keys, `a = [{ b = 1 }]`, and keys on the lines after the one
+/// opening it), each with its path below the line's key and its byte
+/// range from `line_offset`.
+fn listed_keys(
+    source: &str,
+    line_offset: usize,
+    end: Option<usize>,
+) -> Vec<(Vec<String>, super::super::inline::InlineKey)> {
+    let Some(text) = end.and_then(|end| source.get(line_offset..end)) else {
+        return Vec::new();
+    };
+    // Paths from the line's own key (the first), which the caller gives
+    // in full.
+    super::super::inline::inline_key_paths(text, b'=')
+        .into_iter()
+        .filter(|(path, _)| path.len() > 1 && matches!(path[0], SchemaPathSegment::Key(_)))
+        .map(|(path, key)| (path_strings(&path[1..]), key))
+        .collect()
 }
 
 fn walk_values(source: &str, sink: &mut impl Sink) {

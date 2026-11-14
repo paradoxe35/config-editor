@@ -292,11 +292,13 @@ fn inline_keys(source: &str, index: &Indexed, wanted: &[Vec<String>]) -> Vec<Opt
             if !tails.contains(tail.as_slice()) {
                 continue;
             }
+            // From the walk kept for the text while a batch runs for it,
+            // not a walk from the top for each statement.
             let above = outer.get_or_insert_with(|| {
-                let outer = analyze(source, start);
-                let mut full = body_path(&outer, outer.snapshot.body);
-                if outer.snapshot.in_map {
-                    full.extend(outer.snapshot.value_prefix.iter().cloned());
+                let (scan, snapshot) = analyze_at(source, start);
+                let mut full = body_path(&scan, snapshot.body);
+                if snapshot.in_map {
+                    full.extend(snapshot.value_prefix.iter().cloned());
                 }
                 full
             });

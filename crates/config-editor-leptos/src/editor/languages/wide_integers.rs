@@ -85,9 +85,67 @@ pub(super) fn out_of_range(source: &str, line: usize, column: usize) -> Option<S
 /// Where the number literal `error` (a parse of `source`) is about is
 /// written, when the error is only that the number is past what the
 /// editor holds exactly (see [`out_of_range`], [`message`]).
-pub(super) fn unheld(source: &str, error: &ParseError) -> Option<std::ops::Range<usize>> {
+fn unheld(source: &str, error: &ParseError) -> Option<std::ops::Range<usize>> {
     let (range, message) = literal_out_of_range(source, error.line?, error.column?)?;
     (message == error.message).then_some(range)
+}
+
+/// When `error` (a parse of `source`) is only about a number past what
+/// the editor holds exactly, where it is written and every other such
+/// literal written as a value on its own (after a space, a bracket, a
+/// comma or a separator; before a space, a closer or a comma), found in
+/// one pass: a save stands them all in at once. Empty when the error is
+/// about something else.
+pub(super) fn unheld_all(source: &str, error: &ParseError) -> Vec<std::ops::Range<usize>> {
+    let Some(first) = unheld(source, error) else {
+        return Vec::new();
+    };
+    let bytes = source.as_bytes();
+    let mut found = Vec::new();
+    let mut at = 0;
+    while at < bytes.len() {
+        if !is_literal_byte(bytes[at]) {
+            at += 1;
+            continue;
+        }
+        let start = at;
+        while at < bytes.len() && is_literal_byte(bytes[at]) {
+            at += 1;
+        }
+        let alone = (start == 0 || b" \t\r\n[{(,:=".contains(&bytes[start - 1]))
+            && (at == bytes.len() || b" \t\r\n]}),".contains(&bytes[at]));
+        if alone && past_what_is_held(&source[start..at]).is_some() {
+            found.push(start..at);
+        }
+    }
+    if !found.contains(&first) {
+        found.push(first);
+        found.sort_by_key(|range| range.start);
+    }
+    found
+}
+
+/// Whether `byte` may be part of a number literal (as [`out_of_range`]
+/// reads one).
+fn is_literal_byte(byte: u8) -> bool {
+    byte.is_ascii_alphanumeric() || matches!(byte, b'+' | b'-' | b'.' | b'_')
+}
+
+/// The message for `literal` when it is a number past what the editor
+/// holds exactly: an integer past 64 bits, or a float past the largest.
+fn past_what_is_held(literal: &str) -> Option<String> {
+    let plain = literal.replace('_', "");
+    let digits = plain.strip_prefix(['-', '+']).unwrap_or(&plain);
+    if !digits.starts_with(|character: char| character.is_ascii_digit()) {
+        return None;
+    }
+    if digits.bytes().all(|byte| byte.is_ascii_digit()) {
+        return plain.parse::<i64>().is_err().then(|| message(literal));
+    }
+    plain
+        .parse::<f64>()
+        .is_ok_and(f64::is_infinite)
+        .then(|| format!("the number {literal} is past the largest float"))
 }
 
 /// [`out_of_range`], and the literal's byte range.
@@ -102,9 +160,7 @@ fn literal_out_of_range(
         .map(str::len)
         .sum::<usize>();
     let text: Vec<(usize, char)> = source.split('\n').nth(line - 1)?.char_indices().collect();
-    let part = |character: char| {
-        character.is_ascii_alphanumeric() || matches!(character, '+' | '-' | '.' | '_')
-    };
+    let part = |character: char| u8::try_from(character).is_ok_and(is_literal_byte);
     let at = column.checked_sub(1)?.min(text.len());
     // The literal holding the column, or ending just before it.
     let probe = if text.get(at).is_some_and(|(_, character)| part(*character)) {
@@ -131,21 +187,5 @@ fn literal_out_of_range(
         .map(|(_, character)| character)
         .collect();
     let bytes = line_start + text[start].0..line_start + text[end - 1].0 + 1;
-    let plain = literal.replace('_', "");
-    let digits = plain.strip_prefix(['-', '+']).unwrap_or(&plain);
-    if !digits.starts_with(|character: char| character.is_ascii_digit()) {
-        return None;
-    }
-    if digits.bytes().all(|byte| byte.is_ascii_digit()) {
-        return plain
-            .parse::<i64>()
-            .is_err()
-            .then(|| (bytes, message(&literal)));
-    }
-    plain.parse::<f64>().is_ok_and(f64::is_infinite).then(|| {
-        (
-            bytes,
-            format!("the number {literal} is past the largest float"),
-        )
-    })
+    past_what_is_held(&literal).map(|message| (bytes, message))
 }

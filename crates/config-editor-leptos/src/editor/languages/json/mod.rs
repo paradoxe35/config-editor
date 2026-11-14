@@ -60,8 +60,8 @@ impl ConfigLanguage for JsonBehavior {
 
     /// The specification allows any number: one past what the editor
     /// holds saves (see `wide_integers`).
-    fn unheld_number(&self, source: &str, error: &ParseError) -> Option<std::ops::Range<usize>> {
-        super::wide_integers::unheld(source, error)
+    fn unheld_numbers(&self, source: &str, error: &ParseError) -> Vec<std::ops::Range<usize>> {
+        super::wide_integers::unheld_all(source, error)
     }
 
     fn info(&self) -> LanguageInfo {
