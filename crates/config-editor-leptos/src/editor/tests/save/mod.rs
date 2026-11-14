@@ -29,6 +29,14 @@ mod bom;
     feature = "hcl",
     feature = "xml"
 ))]
+mod broken_expressions;
+#[cfg(all(
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
 mod emptied_containers;
 #[cfg(all(
     feature = "yaml",
@@ -110,6 +118,14 @@ mod hcl_templates;
     feature = "xml"
 ))]
 mod key_order;
+#[cfg(all(
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod merge_key_order;
 #[cfg(all(
     feature = "yaml",
     feature = "json",

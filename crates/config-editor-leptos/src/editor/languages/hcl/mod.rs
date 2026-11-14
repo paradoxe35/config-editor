@@ -151,6 +151,12 @@ impl ConfigLanguage for HclBehavior {
         changed_form(previous, patched).or_else(|| expressions::changed_expression(previous, patched))
     }
 
+    fn changed_form_reason(&self, value: &Value) -> Option<String> {
+        expressions::broken_expression(value.as_str()?).then(|| {
+            "this value no longer reads as an HCL expression (`${…}` holding one), so HCL would write it as plain text: correct the expression, or edit it as HCL".to_string()
+        })
+    }
+
     fn one_line_body(&self, value: &Value, indent: &str, unit: &str) -> Option<String> {
         let map = value.as_object()?;
         if let Some((key, child)) = map.iter().next().filter(|_| map.len() == 1)

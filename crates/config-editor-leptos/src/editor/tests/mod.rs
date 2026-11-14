@@ -85,6 +85,14 @@ mod xml_moved_namespaces;
     feature = "json",
     feature = "toml",
     feature = "hcl",
+    feature = "xml"
+))]
+mod anchor_moves;
+#[cfg(all(
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
     feature = "xml",
     feature = "folding",
     feature = "diff",

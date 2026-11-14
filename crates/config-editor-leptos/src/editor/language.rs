@@ -1415,6 +1415,17 @@ pub trait ConfigLanguage: Send + Sync + 'static {
         None
     }
 
+    /// `saved` (an Edit-as save's text) with each value the session's
+    /// first text `origin` wrote as a reference to a value written once
+    /// (a YAML alias `*p`), that `saved` writes out while it writes that
+    /// value again before it (an anchor cut, saved, and pasted back),
+    /// written as that reference again; `None` (the default) when there
+    /// is none. The text must read as `saved` does.
+    fn references_back(&self, saved: &str, origin: &str) -> Option<String> {
+        let _ = (saved, origin);
+        None
+    }
+
     /// `code` (a line without its comment, trimmed) as an Edit-as save
     /// compares it with the serializer's line for the same entry: written
     /// forms that read the same are made equal (YAML's `-   a` and `- a`,
@@ -1931,6 +1942,16 @@ pub trait ConfigLanguage: Send + Sync + 'static {
     /// one waits.
     fn changed_form(&self, previous: &str, patched: &str) -> Option<String> {
         let _ = (previous, patched);
+        None
+    }
+
+    /// Why a save writing `value` (as the view holds it) waits on its form
+    /// ([`Self::changed_form`] named it): what is wrong with it, said to
+    /// the user (an HCL `${…}` text that is no valid expression any more,
+    /// which HCL writes as plain text). `None` (the default) when the form
+    /// alone tells it.
+    fn changed_form_reason(&self, value: &Value) -> Option<String> {
+        let _ = value;
         None
     }
 

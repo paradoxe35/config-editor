@@ -193,8 +193,7 @@ fn entry_lines(
     let span = paths::memo_key_span(language, text, pointer)?;
     let line = span.line.checked_sub(1)?;
     let name = byte_range(text, span)?;
-    let at = paths::units_at(text, name.start);
-    if paths::path_at(language, text, at)?.to_pointer() != pointer {
+    if !written_at_its_place(language, text, pointer, name.start)? {
         return None;
     }
     let line_start = text[..name.start].rfind('\n').map_or(0, |at| at + 1);
@@ -246,4 +245,30 @@ fn entry_lines(
         top -= 1;
     }
     Some(top..last + 1)
+}
+
+/// Whether `text` writes the key at `pointer` in its own map, not in
+/// another one it reads from (a key a YAML merge brings in is written in
+/// the merged map); `true` when the key is not found.
+pub(in super::super) fn written_in_its_map(
+    language: &dyn ConfigLanguage,
+    text: &str,
+    pointer: &str,
+) -> bool {
+    paths::memo_key_span(language, text, pointer)
+        .and_then(|span| byte_range(text, span))
+        .and_then(|name| written_at_its_place(language, text, pointer, name.start))
+        .unwrap_or(true)
+}
+
+/// Whether the key written at byte `start` of `text` is the key at
+/// `pointer`; `None` when no path is there.
+fn written_at_its_place(
+    language: &dyn ConfigLanguage,
+    text: &str,
+    pointer: &str,
+    start: usize,
+) -> Option<bool> {
+    let at = paths::units_at(text, start);
+    Some(paths::path_at(language, text, at)?.to_pointer() == pointer)
 }

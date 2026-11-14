@@ -416,7 +416,7 @@ fn moved_as_edited(
 }
 
 /// The longest run of `left`'s keys that `right` holds in the same order.
-fn longest_common<'a>(left: &[&'a String], right: &[&'a String]) -> Vec<&'a String> {
+pub(super) fn longest_common<'a>(left: &[&'a String], right: &[&'a String]) -> Vec<&'a String> {
     let (rows, columns) = (left.len(), right.len());
     let mut table = vec![vec![0usize; columns + 1]; rows + 1];
     for row in (0..rows).rev() {
