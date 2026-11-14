@@ -10,7 +10,13 @@ use crate::EditorStrings;
 use crate::strings::{default_strings, fill};
 
 #[cfg(feature = "schema-validation")]
+mod fields;
+#[cfg(feature = "schema-validation")]
+use fields::Fields;
+#[cfg(feature = "schema-validation")]
 mod meta_wording;
+#[cfg(feature = "schema-validation")]
+mod placeholders;
 #[cfg(feature = "schema-validation")]
 mod unevaluated;
 #[cfg(feature = "schema-validation")]
@@ -721,7 +727,10 @@ pub(super) fn validate_with(
         } else {
             Vec::new()
         });
-        let inside = |path: &str, pointers: &Fields| pointers.holds(path);
+        // A problem judging a placeholder's unknown value is none.
+        let judged = |error: &ValidationError<'_>| {
+            placeholders::judges_placeholder(error, &placeholders, &schema.schema)
+        };
         // Infinities and NaN are numbers to the schema (see `non_finite`).
         use super::codec::non_finite::{StandIn, for_validation};
         let validated = for_validation(&document, StandIn::Bounds);
@@ -744,7 +753,7 @@ pub(super) fn validate_with(
         for top in schema.validator.iter_errors(&validated) {
             shown += specific_errors(&top)
                 .iter()
-                .filter(|error| !inside(error.instance_path().as_str(), &placeholders))
+                .filter(|error| !judged(error))
                 .count();
             tops.push(top);
             if shown > MAX_DIAGNOSTICS {
@@ -767,7 +776,7 @@ pub(super) fn validate_with(
                 );
                 if shown <= MAX_DIAGNOSTICS
                     && pass.reports(error.instance(), error.kind())
-                    && !inside(&key.0, &placeholders)
+                    && !judged(&error)
                     && found.insert(key)
                 {
                     shown += 1;
@@ -780,7 +789,6 @@ pub(super) fn validate_with(
             .flat_map(|top| specific_errors(top))
             .map(|error| error.instance_path().as_str().to_string())
             .collect();
-        let secret = |path: &str| inside(path, &secrets);
         let repeats_arrays = behavior.repetition() != super::language::Repetition::None;
         let unevaluated = unevaluated::Unevaluated::new(
             &schema.schema,
@@ -791,7 +799,8 @@ pub(super) fn validate_with(
         let wording = wording::Wording {
             root: &schema.schema,
             strings,
-            secret: &secret,
+            secrets: &secrets,
+            placeholders: &placeholders,
         };
         let mut diagnostics = super::paths::with_spans(behavior, source, &pointers, || {
             tops.iter()
@@ -800,7 +809,7 @@ pub(super) fn validate_with(
                         .into_iter()
                         .flat_map(|error| {
                             let path = error.instance_path().as_str().to_string();
-                            if inside(&path, &placeholders) {
+                            if judged(error) {
                                 return Vec::new();
                             }
                             // The schema's docs for the value (`x-docs-url`):
@@ -853,11 +862,7 @@ pub(super) fn validate_with(
                                         let span = super::paths::schema_problem_span(
                                             behavior, source, &pointer, false, block,
                                         );
-                                        let value = if secret(&pointer) {
-                                            strings.secret_value.clone()
-                                        } else {
-                                            item.to_string()
-                                        };
+                                        let value = wording.value_at(&pointer, &item);
                                         let message = format!(
                                             "{pointer}: {}",
                                             super::false_schema::message(&value)
@@ -966,37 +971,6 @@ pub(super) fn validate_with(
         return capped(diagnostics, strings);
     }
     deprecated
-}
-
-/// Some fields of a document, by pointer: whether a path is one of them
-/// or inside one is a lookup of each of its ancestors, not a pass over
-/// them all (thousands of secret placeholders, checked for each problem).
-#[cfg(feature = "schema-validation")]
-struct Fields(std::collections::HashSet<String>);
-
-#[cfg(feature = "schema-validation")]
-impl Fields {
-    fn new(pointers: Vec<String>) -> Self {
-        super::work_count::note(super::work_count::Work::TokenScan);
-        Self(pointers.into_iter().collect())
-    }
-
-    /// Whether `path` is one of the fields or inside one.
-    fn holds(&self, path: &str) -> bool {
-        if self.0.is_empty() {
-            return false;
-        }
-        let mut end = path.len();
-        loop {
-            if self.0.contains(&path[..end]) {
-                return true;
-            }
-            if end == 0 {
-                return false;
-            }
-            end = path[..end].rfind('/').unwrap_or(0);
-        }
-    }
 }
 
 /// Pointers of the values of `document` that are one of `accepted`: each

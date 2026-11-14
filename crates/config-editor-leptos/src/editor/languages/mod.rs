@@ -386,6 +386,8 @@ mod wide_integers;
 ))]
 mod nesting;
 
+// The JSON reader's errors in plain words (documents and schema texts).
+mod json_words;
 // A schema's text, JSON or YAML, read into its JSON value.
 mod schema_text;
 pub(crate) use schema_text::read_schema_text;

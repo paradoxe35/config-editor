@@ -156,6 +156,15 @@ mod schema_message_kinds;
 mod schema_option_messages;
 #[cfg(all(feature = "yaml", feature = "schema-validation"))]
 mod schema_text_wording;
+#[cfg(all(
+    feature = "schema-validation",
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod secret_inside_messages;
 
 #[cfg(all(
     feature = "yaml",

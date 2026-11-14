@@ -1146,19 +1146,19 @@ export interface EditorStrings {
   /**
    * A list with no item its `contains` schema allows.
    *
-   * @default "no item of the list is one its \"contains\" schema allows"
+   * @default "no item of the list matches its \"contains\" schema"
    */
   noItemContained?: string;
   /**
    * A list with fewer items its `contains` schema allows than its `minContains` (`{limit}`).
    *
-   * @default "fewer than {limit} items of the list are ones its \"contains\" schema allows"
+   * @default "fewer than {limit} items of the list match its \"contains\" schema"
    */
   tooFewContained?: string;
   /**
    * A list with more items its `contains` schema allows than its `maxContains` (`{limit}`).
    *
-   * @default "more than {limit} items of the list are ones its \"contains\" schema allows"
+   * @default "more than {limit} items of the list match its \"contains\" schema"
    */
   tooManyContained?: string;
   /**

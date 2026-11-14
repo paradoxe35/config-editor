@@ -58,17 +58,17 @@ fn problems_of_every_kind_read_plainly_in_every_language() {
         (
             "l: [1, 2]\n",
             r#"{"properties":{"l":{"contains":{"type":"string"}}}}"#,
-            r#"/l: no item of the list is one its "contains" schema allows"#,
+            r#"/l: no item of the list matches its "contains" schema"#,
         ),
         (
             "l: [a, 2]\n",
             r#"{"properties":{"l":{"contains":{"type":"string"},"minContains":2}}}"#,
-            r#"/l: fewer than 2 items of the list are ones its "contains" schema allows"#,
+            r#"/l: fewer than 2 items of the list match its "contains" schema"#,
         ),
         (
             "l: [a, b, c]\n",
             r#"{"properties":{"l":{"contains":{"type":"string"},"maxContains":2}}}"#,
-            r#"/l: more than 2 items of the list are ones its "contains" schema allows"#,
+            r#"/l: more than 2 items of the list match its "contains" schema"#,
         ),
         // QA 36: counts, not the whole list or object printed.
         (

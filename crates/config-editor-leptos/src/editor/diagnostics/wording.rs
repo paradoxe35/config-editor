@@ -1,14 +1,21 @@
 //! How a schema problem reads: the validator's error in the editor's words
 //! (the strings tables where a host can translate them), a secret field's
-//! value never quoted and a long value abbreviated. A value that matches
+//! value never quoted (nor one inside the value told, a secret item of a
+//! list or field of an item) and a long value abbreviated. A value that matches
 //! none of a `oneOf`'s or `anyOf`'s options, or more than one of a
 //! `oneOf`'s, names the options (their titles) and says what each misses.
 
 use jsonschema::error::{ValidationError, ValidationErrorKind};
 use serde_json::Value;
 
+use super::Fields;
 use crate::EditorStrings;
 use crate::strings::fill;
+
+/// What stands for a secret inside a value while it is written as JSON,
+/// then replaced by the strings' "the secret value": a private-use
+/// character JSON writes as it is, in no text a document holds.
+const SECRET_MARK: &str = "\u{F8FF}secret\u{F8FF}";
 
 /// Longest value quoted whole in a message; a longer one is cut with `…`.
 const MAX_QUOTED_VALUE: usize = 80;
@@ -24,26 +31,31 @@ pub(in crate::editor) struct Wording<'a> {
     /// The schema the validator was built from (`$ref`s as pointers).
     pub root: &'a Value,
     pub strings: &'a EditorStrings,
-    /// Whether the value at a pointer is a secret field's (or in one).
-    pub secret: &'a dyn Fn(&str) -> bool,
+    /// The secret fields: a value one of them or inside one is never
+    /// quoted, and one holding one is quoted with each hidden.
+    pub secrets: &'a Fields,
+    /// The host's placeholders: an item holding one is told repeated in
+    /// a list by no message (see `placeholders`).
+    pub placeholders: &'a Fields,
 }
 
 impl Wording<'_> {
-    /// `error` worded, its value hidden when secret and cut when long.
+    /// `error` worded, its value hidden when secret (each secret inside
+    /// it hidden) and cut when long.
     pub(in crate::editor) fn message(&self, error: &ValidationError<'_>) -> String {
-        self.shown(error, self.worded(error))
-    }
-
-    fn worded(&self, error: &ValidationError<'_>) -> String {
         let strings = self.strings;
+        // Written as JSON only when the message quotes it.
+        let value = std::cell::LazyCell::new(|| self.value(error));
         match error.kind() {
-            ValidationErrorKind::AnyOf { context } => expected_types(error, context, strings)
-                .or_else(|| self.none_matches(error, context, "anyOf"))
-                .unwrap_or_else(|| error.to_string()),
+            ValidationErrorKind::AnyOf { context } => {
+                expected_types(error, context, &value, strings)
+                    .or_else(|| self.none_matches(error, context, "anyOf"))
+                    .unwrap_or_else(|| self.validators_words(error))
+            }
             ValidationErrorKind::OneOfNotValid { context } => {
-                expected_types(error, context, strings)
+                expected_types(error, context, &value, strings)
                     .or_else(|| self.none_matches(error, context, "oneOf"))
-                    .unwrap_or_else(|| error.to_string())
+                    .unwrap_or_else(|| self.validators_words(error))
             }
             ValidationErrorKind::OneOfMultipleValid { context } => {
                 self.several_match(error, context)
@@ -53,7 +65,7 @@ impl Wording<'_> {
                 Some(options) => fill(
                     &strings.not_one_of,
                     &[
-                        ("value", &error.instance()),
+                        ("value", &*value),
                         (
                             "allowed",
                             &options
@@ -64,7 +76,7 @@ impl Wording<'_> {
                         ),
                     ],
                 ),
-                None => error.to_string(),
+                None => self.validators_words(error),
             },
             ValidationErrorKind::Type { .. } => {
                 let message = error.to_string();
@@ -72,27 +84,25 @@ impl Wording<'_> {
                     .map(|types| {
                         fill(
                             &strings.wrong_type,
-                            &[("value", &error.instance()), ("types", &types.join(", "))],
+                            &[("value", &*value), ("types", &types.join(", "))],
                         )
                     })
-                    .unwrap_or(message)
+                    .unwrap_or_else(|| self.validators_words(error))
             }
             ValidationErrorKind::Format { format } => fill(
                 &strings.not_format,
                 &[
-                    ("value", &error.instance()),
+                    ("value", &*value),
                     ("format", &Value::from(format.as_str())),
                 ],
             ),
             // The pattern as JSON writes it: a line break in it escaped.
             ValidationErrorKind::Pattern { pattern } => format!(
                 "{} does not match {}",
-                error.instance(),
+                *value,
                 Value::from(pattern.as_str())
             ),
-            ValidationErrorKind::FalseSchema => {
-                super::super::false_schema::message(&error.instance().to_string())
-            }
+            ValidationErrorKind::FalseSchema => super::super::false_schema::message(&value),
             ValidationErrorKind::Contains => self.contains(error),
             // Counts, not the whole list or object printed.
             ValidationErrorKind::MinItems { limit } => {
@@ -125,19 +135,70 @@ impl Wording<'_> {
                         ),
                     }
                 }
-                None => self.refused_by_not(error, schema),
+                None => self.refused_by_not(error, schema, &value),
             },
-            _ => error.to_string(),
+            _ => self.validators_words(error),
+        }
+    }
+
+    /// The value of `error` as a message quotes it: "the secret value"
+    /// for a secret field's, each secret inside it hidden, cut when long.
+    fn value(&self, error: &ValidationError<'_>) -> String {
+        self.value_at(error.instance_path().as_str(), error.instance())
+    }
+
+    /// `value` (at `pointer`) as a message quotes it: "the secret value"
+    /// for a secret field's, each secret inside it hidden, cut when long.
+    pub(in crate::editor) fn value_at(&self, pointer: &str, value: &Value) -> String {
+        if self.secrets.holds(pointer) {
+            return self.strings.secret_value.clone();
+        }
+        if !self.secrets.any_within(pointer) {
+            return cut(&value.to_string());
+        }
+        let mut hidden = value.clone();
+        for inner in self.secrets.within(pointer) {
+            if let Some(slot) = hidden.pointer_mut(&inner[pointer.len()..]) {
+                *slot = Value::from(SECRET_MARK);
+            }
+        }
+        cut(&hidden.to_string().replace(
+            &Value::from(SECRET_MARK).to_string(),
+            &self.strings.secret_value,
+        ))
+    }
+
+    /// Whether the value of `error` is a secret or holds one.
+    fn holds_secret(&self, error: &ValidationError<'_>) -> bool {
+        let path = error.instance_path().as_str();
+        self.secrets.holds(path) || self.secrets.any_within(path)
+    }
+
+    /// The validator's own message for `error`, the value it starts with
+    /// quoted as [`Self::value`] quotes it.
+    fn validators_words(&self, error: &ValidationError<'_>) -> String {
+        let message = error.to_string();
+        let instance = error.instance().to_string();
+        let value = if self.holds_secret(error) {
+            self.value(error)
+        } else {
+            cut(&instance)
+        };
+        if value == instance {
+            message
+        } else {
+            message.replacen(&instance, &value, 1)
         }
     }
 
     /// A value a `not` (`schema`) refuses, in plain words where the `not`
     /// is one keyword: a type, a `const` or `enum`, keys refused one by
     /// one (an `anyOf` of single `required` keys); else the schema as
-    /// JSON.
-    fn refused_by_not(&self, error: &ValidationError<'_>, schema: &Value) -> String {
+    /// JSON. A value holding a secret is not told the values or pattern
+    /// it matches: they would tell what the secret is.
+    fn refused_by_not(&self, error: &ValidationError<'_>, schema: &Value, value: &str) -> String {
         let strings = self.strings;
-        let value = error.instance();
+        let instance = error.instance();
         let quoted = |names: Vec<String>| {
             names
                 .iter()
@@ -153,7 +214,7 @@ impl Wording<'_> {
                 .as_object()
                 .is_some_and(|members| members.keys().all(|keyword| annotation(keyword)))
         {
-            return super::super::false_schema::message(&value.to_string());
+            return super::super::false_schema::message(value);
         }
         // A `type` beside a `const` or `enum` adds nothing to their names.
         let only = schema.as_object().and_then(|members| {
@@ -164,7 +225,9 @@ impl Wording<'_> {
             let one = keywords.next()?;
             keywords.next().is_none().then_some(one)
         });
+        let secret = self.holds_secret(error);
         let worded = match only {
+            Some((keyword, _)) if secret && matches!(keyword.as_str(), "pattern" | "enum") => None,
             Some((keyword, pattern @ Value::String(_))) if keyword == "pattern" => Some(fill(
                 &strings.must_not_match_pattern,
                 &[("value", &value), ("pattern", pattern)],
@@ -216,7 +279,7 @@ impl Wording<'_> {
                 let held: Vec<String> = keys
                     .unwrap_or_default()
                     .into_iter()
-                    .filter(|key| value.get(key).is_some())
+                    .filter(|key| instance.get(key).is_some())
                     .map(str::to_string)
                     .collect();
                 (!held.is_empty()).then(|| {
@@ -301,35 +364,16 @@ impl Wording<'_> {
         )
     }
 
-    /// A list holding an item more than once: the first item repeated,
-    /// hidden when the list is a secret field's and cut when long.
+    /// A list holding an item more than once: the first item repeated
+    /// (of those holding no placeholder), hidden when secret and cut when
+    /// long.
     fn repeated(&self, error: &ValidationError<'_>) -> String {
+        let path = error.instance_path().as_str();
         let instance = error.instance();
-        let items = instance.as_array().map(Vec::as_slice).unwrap_or_default();
-        let item = items
-            .iter()
-            .enumerate()
-            .find_map(|(index, item)| items[..index].contains(item).then_some(item));
-        let shown = match item {
-            _ if (self.secret)(error.instance_path().as_str()) => self.strings.secret_value.clone(),
-            Some(item) => cut(&item.to_string()),
-            None => String::new(),
-        };
+        let shown = super::placeholders::repeated_item(instance, path, self.placeholders)
+            .map(|(index, item)| self.value_at(&format!("{path}/{index}"), item))
+            .unwrap_or_default();
         fill(&self.strings.repeated_item, &[("item", &shown)])
-    }
-
-    /// `message` about `error` with its value hidden when it is a secret
-    /// field's, and abbreviated rather than quoted whole when long.
-    fn shown(&self, error: &ValidationError<'_>, message: String) -> String {
-        let instance = error.instance().to_string();
-        if (self.secret)(error.instance_path().as_str()) {
-            message.replace(&instance, &self.strings.secret_value)
-        } else if instance.chars().count() > MAX_QUOTED_VALUE {
-            let short: String = instance.chars().take(MAX_QUOTED_VALUE).collect();
-            message.replacen(&instance, &format!("{short}…"), 1)
-        } else {
-            message
-        }
     }
 
     /// "matches none of the oneOf options: Cloudflare needs "cloudflare";
@@ -529,12 +573,13 @@ fn unexpected(error: &ValidationError<'_>) -> Option<String> {
 fn expected_types(
     error: &ValidationError<'_>,
     branches: &[Vec<ValidationError<'_>>],
+    value: &str,
     strings: &EditorStrings,
 ) -> Option<String> {
     let types = expected_type_names(error, branches)?;
     Some(fill(
         &strings.wrong_type,
-        &[("value", &error.instance()), ("types", &types.join(", "))],
+        &[("value", &value), ("types", &types.join(", "))],
     ))
 }
 

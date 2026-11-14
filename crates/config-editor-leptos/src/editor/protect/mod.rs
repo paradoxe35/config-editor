@@ -405,6 +405,16 @@ mod paste_scale_tests;
 mod paste_tests;
 #[cfg(all(
     test,
+    feature = "schema-validation",
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod placeholder_rule_tests;
+#[cfg(all(
+    test,
     feature = "yaml",
     feature = "json",
     feature = "toml",

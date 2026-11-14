@@ -2,12 +2,13 @@
 //! `yaml`) when it is no JSON.
 //!
 //! YAML holds every JSON text with the same meaning, so a JSON text is read
-//! as JSON first and keeps its exact reading; only a text JSON refuses goes
-//! to YAML. A map whose first key is in double quotes (`{"type"`) was
-//! meant as JSON: JSON's error is the one worth showing, and YAML is not
-//! asked (it would take a trailing comma or single quotes). A flow map
-//! with a plain first key (`{type: object}`) is YAML, told in YAML's words. A place in the text is said as a document's
-//! problem says it: `(line 2, column 1)` after the message.
+//! as JSON first and keeps its exact reading; a text JSON refuses goes to
+//! YAML, and is refused only when YAML refuses it too: told in JSON's
+//! words when it starts as JSON does (`{"type"`, `{'type'`, `[`), in
+//! YAML's when it is YAML (a flow map with a plain first key,
+//! `{type: object}`, or block YAML). A key written twice is refused in
+//! both readings. A place in the text is said as a document's problem
+//! says it: `(line 2, column 1)` after the message.
 
 use serde_json::Value;
 
@@ -34,12 +35,12 @@ pub(crate) fn read_schema_text(text: &str) -> Result<Value, String> {
         Ok(value) => {
             return match serde_json::from_str::<NoKeyTwice>(text) {
                 Ok(NoKeyTwice) => a_schema(value),
-                Err(error) => Err(json_message(&error)),
+                Err(error) => Err(json_message(&error, text)),
             };
         }
         Err(error) => error,
     };
-    let json_message = json_message(&json_error);
+    let json_message = json_message(&json_error, text);
     // A comment where JSON stops (`// my schema`, `/* … */`) was meant as
     // JSONC: said so, not read as YAML.
     if starts_comment(text, json_error.line(), json_error.column()) {
@@ -51,23 +52,9 @@ pub(crate) fn read_schema_text(text: &str) -> Result<Value, String> {
     }
     let start = text.trim_start();
     if start.starts_with('{') || start.starts_with('[') {
-        // A map whose first key is written as JSON writes it (`{"type"`)
-        // is JSON, a trailing comma or a single-quoted value in it no
-        // exception; a flow map YAML reads (`{type: object}`) is YAML, as
-        // it says, and YAML's own words tell what is wrong in it.
-        if json_key_first(start) {
-            return Err(json_message);
-        }
         return read_flow_yaml(text, json_message).and_then(a_schema);
     }
     read_yaml(text, json_message)
-}
-
-/// Whether `text` (starting with `{` or `[`) opens a map whose first key
-/// is in double quotes, as JSON writes every key.
-fn json_key_first(text: &str) -> bool {
-    text.strip_prefix('{')
-        .is_some_and(|rest| rest.trim_start().starts_with('"'))
 }
 
 /// A JSON text with no map holding a key twice (read only to tell).
@@ -149,34 +136,17 @@ fn located(message: &str, line: usize, column: usize) -> String {
     format!("{message} (line {line}, column {column})")
 }
 
-/// The JSON reader's error, its place said as the editor says places.
-fn json_message(error: &serde_json::Error) -> String {
-    let message = error.to_string();
-    if message.starts_with("recursion limit exceeded") {
+/// The JSON reader's error of `text`, in plain words, its place said as
+/// the editor says places.
+fn json_message(error: &serde_json::Error, text: &str) -> String {
+    if error.to_string().starts_with("recursion limit exceeded") {
         return TOO_DEEP.to_string();
     }
-    let (line, column) = (error.line(), error.column());
-    let bare = message
-        .strip_suffix(&format!(" at line {line} column {column}"))
-        .unwrap_or(&message);
-    let bare = plain_json_words(bare);
-    if line == 0 {
-        bare.to_string()
+    let bare = super::json_words::plain_words(error, text, "schema");
+    if error.line() == 0 {
+        bare
     } else {
-        located(bare, line, column.max(1))
-    }
-}
-
-/// The JSON reader's words for a text that ends early or goes on past
-/// its end, in plain words saying what is missing.
-fn plain_json_words(message: &str) -> &str {
-    match message {
-        "EOF while parsing a list" => "the text ends before the list is closed: a ] is missing",
-        "EOF while parsing an object" => "the text ends before the map is closed: a } is missing",
-        "EOF while parsing a string" => "the text ends inside a string: a closing \" is missing",
-        "EOF while parsing a value" => "the text ends where a value should follow",
-        "trailing characters" => "more text follows the end of the schema",
-        other => other,
+        located(&bare, error.line(), error.column().max(1))
     }
 }
 
@@ -203,8 +173,8 @@ fn read_yaml(text: &str, _json_message: String) -> Result<Value, String> {
 }
 
 /// A text starting with `{` or `[` read as YAML: YAML's error for a map
-/// whose first key is plain (`{type: object, type: string}`), else JSON's
-/// (`[1, 2` or `{`, meant as JSON).
+/// whose first key is plain (`{type: object}`) or for a key written
+/// twice, else JSON's (`[1, 2`, `{"type": }`: meant as JSON).
 #[cfg(feature = "yaml")]
 fn read_flow_yaml(text: &str, json_message: String) -> Result<Value, String> {
     let plain_key = text
@@ -213,7 +183,7 @@ fn read_flow_yaml(text: &str, json_message: String) -> Result<Value, String> {
         .and_then(|rest| rest.trim_start().chars().next())
         .is_some_and(|first| first.is_alphanumeric() || first == '_' || first == '$');
     yaml::read(text).map_err(|yaml_message| {
-        if plain_key {
+        if plain_key || yaml_message.starts_with("duplicate key") {
             yaml_message
         } else {
             json_message

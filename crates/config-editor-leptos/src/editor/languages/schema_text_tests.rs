@@ -1,5 +1,5 @@
-//! A schema's text read as JSON, or as YAML when it is no JSON and does
-//! not start as JSON does (`read_schema_text`).
+//! A schema's text read as JSON, or as YAML when it is no JSON
+//! (`read_schema_text`).
 
 use serde_json::json;
 
@@ -24,7 +24,10 @@ fn json_text_keeps_its_json_reading() {
 fn json_errors_word_a_text_that_starts_as_json() {
     // Its place said as a document's problem says it.
     for (text, wanted) in [
-        ("{\"type\": }", "expected value (line 1, column 10)"),
+        (
+            "{\"type\": \"object\"",
+            "the text ends before the map is closed: a } is missing (line 1, column 17)",
+        ),
         (
             "  [1, 2",
             "the text ends before the list is closed: a ] is missing (line 1, column 7)",
@@ -271,6 +274,61 @@ properties:
         );
     }
 
+    /// One rule for a text starting as JSON does, its first key in double
+    /// quotes, single quotes or none: JSON first, then YAML; refused only
+    /// when YAML refuses it too, in JSON's plain words, a key written
+    /// twice refused in both readings.
+    #[test]
+    fn a_text_yaml_reads_is_a_schema_whatever_quotes_it_starts_with() {
+        for text in [
+            "{\"type\":\"object\"} # c",
+            "{\"type\":\"object\"}\n# yaml comment\n",
+            "{\"type\": object}",
+            "{\"type\":\"object\",}",
+            "{\"type\": \"object\", properties: {}}",
+            "{'type': 'object'}",
+            "{\"type\": 'object'}",
+            "{'type': \"object\"}",
+            "{'type': 'object',}",
+            "{ 'type': 'object' }",
+        ] {
+            let value = read_schema_text(text).unwrap_or_else(|error| panic!("{text:?}: {error}"));
+            assert_eq!(value["type"], json!("object"), "{text:?}");
+        }
+        for (text, wanted) in [
+            (
+                "{\"type\": \"object\"} extra",
+                "more text follows the end of the schema (line 1, column 20)",
+            ),
+            (
+                "{'type': 'object'} extra",
+                "JSON writes text and keys in double quotes, not single quotes: write \"…\" (line 1, column 2)",
+            ),
+            (
+                "{\"type\": }",
+                "no JSON value starts here: write text in double quotes, or a number, true, false or null (line 1, column 10)",
+            ),
+            (
+                "{\"type\": \"object\", \"type\": \"string\"}",
+                "duplicate key \"type\" (line 1, column 25)",
+            ),
+            (
+                "{\"type\": \"object\", \"type\": \"string\"} # c",
+                "duplicate key \"type\" (line 1, column 20)",
+            ),
+            (
+                "{'type': 'object', 'type': 'string'}",
+                "duplicate key \"type\" (line 1, column 20)",
+            ),
+            (
+                "{type: object, type: string}",
+                "duplicate key \"type\" (line 1, column 16)",
+            ),
+        ] {
+            assert_eq!(read_schema_text(text).unwrap_err(), wanted, "{text:?}");
+        }
+    }
+
     #[test]
     fn yaml_read_otherwise_than_meant_says_how_to_write_it() {
         for (text, wanted) in [
@@ -356,7 +414,7 @@ properties:
 fn without_yaml_a_yaml_schema_says_it_needs_the_feature() {
     assert_eq!(
         read_schema_text("properties: {}\n").unwrap_err(),
-        "it is no JSON (expected value (line 1, column 1)), and a schema written in YAML needs the editor's `yaml` feature"
+        "it is no JSON (no JSON value starts here: write text in double quotes, or a number, true, false or null (line 1, column 1)), and a schema written in YAML needs the editor's `yaml` feature"
     );
     // JSON still reads.
     assert_eq!(
