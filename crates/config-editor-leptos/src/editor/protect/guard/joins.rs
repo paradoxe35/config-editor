@@ -15,7 +15,7 @@ use super::super::super::paths::FieldPath;
 use super::super::super::work_count::{Work, note};
 use super::super::locate::plain;
 use super::super::scan::names_word;
-use super::joining::{LinePaths, holds_code, names_holder};
+use super::joining::{LinePaths, holds_code, names_holder, typed_part};
 
 /// One locked field, as the count reads it.
 pub(super) struct Joinable<'p> {
@@ -57,11 +57,20 @@ pub(super) fn joining_counts(
         .collect();
     paths.read_all(&candidates);
     let index = LockIndex::new(behavior, locks);
+    // The caret the edit left: its line, and its byte in that line.
+    let caret_line = lines.line_of(region.end);
+    let caret_byte = lines.byte_of(region.end) - lines.byte_of(lines.line_bounds(caret_line).start);
     for line in candidates {
         let Some(path) = paths.path(line) else {
             continue;
         };
-        let content = lines.line_text(line);
+        // The line as typed so far: a closer the editor wrote ahead of the
+        // caret is not typed yet.
+        let content = typed_part(
+            behavior,
+            lines.line_text(line),
+            (line == caret_line).then_some(caret_byte),
+        );
         let reaches = |lock: usize| {
             note(Work::LockLine);
             locks[lock].near.contains(&line) || names_word(&keys[lock], content)

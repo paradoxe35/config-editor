@@ -258,6 +258,15 @@ mod guard_scale_tests;
     feature = "hcl",
     feature = "xml"
 ))]
+mod holder_prefix_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
 mod indent_tests;
 #[cfg(all(
     test,

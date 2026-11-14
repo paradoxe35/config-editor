@@ -5,11 +5,10 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::ops::Range;
 
-use super::super::super::language::{ConfigLanguage, SchemaPathSegment};
+use super::super::super::language::{ConfigLanguage, LanguageConfig, SchemaPathSegment};
 use super::super::super::paths::{FieldPath, path_at, paths_at};
 use super::super::locate::{LineIndex, plain};
 use super::super::locks::Lock;
-use super::super::scan::names_word;
 
 /// The paths of the lines of one text, each read once however many locks
 /// ask for it (a read is a path read from the top of the text).
@@ -91,16 +90,90 @@ impl<'a> LinePaths<'a> {
 /// Whether `line`, read at `path` (a block holding a locked field), names
 /// that block's key: a second key holding the field (`limits:` again). A
 /// line half typed inside the block reads at the block too (`c` on its way
-/// to `ca: 1`, a sibling's separator deleted), but it names another key: a
-/// sibling, which joins nothing locked.
+/// to `ca: 1`, `db` on its way to `dbname: x`, a sibling's separator
+/// deleted), but it names no key yet (see [`writes_key`]): a sibling on
+/// its way, which joins nothing locked.
 pub(super) fn names_holder(behavior: &dyn ConfigLanguage, path: &str, line: &str) -> bool {
     match FieldPath::from(plain(behavior, path).as_str())
         .segments()
         .last()
     {
-        Some(SchemaPathSegment::Key(key)) => names_word(std::slice::from_ref(key), line),
+        Some(SchemaPathSegment::Key(key)) => writes_key(behavior, line, key),
         _ => false,
     }
+}
+
+/// Whether `line` writes `key` as a key: the name as a word (as
+/// `scan::names_word` finds it), not run on into a longer name
+/// (`db.host`), with more than closing quotes after it (its separator, a
+/// bracket, markup). A name alone (`db`, `"db"`) is still being typed: the
+/// key it starts may be longer (`dbname`).
+fn writes_key(behavior: &dyn ConfigLanguage, line: &str, key: &str) -> bool {
+    let config = behavior.config();
+    let line = &line[..behavior.comment_start(line).unwrap_or(line.len())];
+    let quote = |character: char| is_quote(&config, character);
+    let markup = behavior.markup_delimiters();
+    let ends_name = |character: char| {
+        character.is_whitespace()
+            || quote(character)
+            || config
+                .brackets
+                .iter()
+                .any(|(open, close)| character == *open || character == *close)
+            || config
+                .separators
+                .iter()
+                .any(|separator| separator.starts_with(character))
+            || markup.is_some_and(|(open, close)| character == open || character == close)
+    };
+    let word = |character: char| character.is_alphanumeric() || matches!(character, '_' | '-');
+    !key.is_empty()
+        && line.match_indices(key).any(|(at, _)| {
+            let rest = &line[at + key.len()..];
+            !line[..at].chars().next_back().is_some_and(word)
+                && rest.chars().next().is_some_and(ends_name)
+                && !rest
+                    .trim_start_matches(|character: char| {
+                        character.is_whitespace() || quote(character)
+                    })
+                    .is_empty()
+        })
+}
+
+/// The part of `line` typed so far when the caret is at its byte `caret`:
+/// what is before the caret when only closers follow it (a `]` or a quote
+/// the editor wrote ahead of the caret: `[tls|]` is `[tls` being typed,
+/// not a `[tls]` header written whole); otherwise the whole line.
+pub(super) fn typed_part<'l>(
+    behavior: &dyn ConfigLanguage,
+    line: &'l str,
+    caret: Option<usize>,
+) -> &'l str {
+    let config = behavior.config();
+    let closer = |character: char| {
+        character.is_whitespace()
+            || is_quote(&config, character)
+            || config.brackets.iter().any(|(_, close)| character == *close)
+    };
+    match caret {
+        Some(caret)
+            if caret < line.len()
+                && line.is_char_boundary(caret)
+                && line[caret..].chars().all(closer) =>
+        {
+            &line[..caret]
+        }
+        _ => line,
+    }
+}
+
+/// Whether `character` is one of the language's quotes (or a quote run of
+/// it: `"""`).
+fn is_quote(config: &LanguageConfig, character: char) -> bool {
+    config
+        .quotes
+        .iter()
+        .any(|quote| quote.chars().all(|unit| unit == character))
 }
 
 /// The lines near the field covering UTF-16 `low..high` of a text: its
