@@ -39,6 +39,8 @@ mod declarations;
 mod attribute_layout;
 mod identity;
 mod kept_markup;
+mod kept_elements;
+mod written_names;
 // The fold ranges (the `folding` feature).
 #[cfg(feature = "folding")]
 mod folding;
@@ -417,16 +419,23 @@ impl ConfigLanguage for XmlBehavior {
         // spelled as the host spells it (`<x a='1' />`), its attributes
         // laid out as the host's (a line each, aligned), each element's
         // markup back on that element, wherever the edit moved it.
+        // Which host element each element is, as the edit tells it (the
+        // lines the user kept, moved, cut and pasted), else by values.
         Ok(match previous {
             Some(previous) => {
                 let host = crate::editor::parse_cache::parsed(self, previous);
-                attribute_layout::with_layout_of(
+                let sources = crate::editor::item_sources::told(previous, |held| held == value);
+                let origin = sources.as_ref().filter(|sources| sources.holds_origin_items()).map(|sources| sources.origin.as_str());
+                let first = origin.map(|origin| crate::editor::parse_cache::parsed(self, origin));
+                let identity = identity::Identity::of(host.as_ref().as_ref().ok(), value)
+                    .told(sources.as_deref(), first.as_ref().and_then(|first| first.as_ref().as_ref().ok()));
+                kept_elements::with_layout_of(
                     &tag_spelling::with_tag_spelling_of(
                         &one_line::with_one_line_elements_of(&with_end_tags_of(&out, previous), previous),
                         previous,
                     ),
-                    previous,
-                    &identity::Identity::of(host.as_ref().as_ref().ok(), value),
+                    (previous, origin),
+                    &identity,
                 )
             }
             None => out,
@@ -490,6 +499,17 @@ impl ConfigLanguage for XmlBehavior {
     /// A start tag's attribute lines, aligned as the host aligns them.
     fn aligned_lines(&self, text: &str) -> Vec<usize> {
         attribute_layout::attribute_lines(text)
+    }
+
+    /// Markup no view shows (`xsi:type`, namespace declarations) or a
+    /// prefixed name on an element.
+    fn items_hold_unshown(&self, source: &str) -> bool {
+        kept_markup::holds_markup(source)
+    }
+
+    /// Numbers are text: an integer of any length reads as written.
+    fn holds_wide_integers(&self) -> bool {
+        true
     }
 
     fn one_line_body(&self, value: &Value, _indent: &str, _unit: &str) -> Option<String> {

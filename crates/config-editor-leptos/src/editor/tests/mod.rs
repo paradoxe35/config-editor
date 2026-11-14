@@ -29,6 +29,14 @@ mod convert_messages;
 mod handle;
 #[cfg(feature = "yaml")]
 mod hidden_suggestions;
+#[cfg(all(
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod item_trail;
 // Reads what the view reads (folds, suggestions) on every language's sample.
 #[cfg(all(
     feature = "yaml",

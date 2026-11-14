@@ -10,12 +10,18 @@ use super::byte_order_mark;
 use super::codec::{self, Conversion, ConvertError};
 use super::diagnostics::{Diagnostic, SchemaBundle, Severity};
 use super::edit_as::{EditAsProblem, EditAsText, SaveError};
+use super::item_sources::{self, ItemSource, ItemSources};
 use super::language::ConfigLanguage;
+use std::collections::HashMap;
 use std::sync::Arc;
+
+/// Each item's source, by its pointer in the view's value.
+type ItemMap = HashMap<String, ItemSource>;
 
 mod collapsed;
 mod emptied_quotes;
 mod host_strings;
+pub(super) mod item_trail;
 #[cfg(all(
     test,
     feature = "yaml",
@@ -50,6 +56,7 @@ mod typed_spellings;
 ))]
 mod typed_spellings_tests;
 mod whole_floats;
+mod wide_numbers;
 mod written_anew;
 use merge::{View, merge_changes};
 
@@ -144,9 +151,47 @@ impl Bridge {
         previous_host: &str,
         origin: &str,
     ) -> Result<String, SaveError> {
+        self.to_host_traced(edit_text, previous_host, origin, None)
+            .0
+    }
+
+    /// [`Self::to_host_since`], which item of the host each of the view's
+    /// is read from `trail`, the edits made to the view since its last
+    /// save (see `item_sources`); with the trail once the save is made.
+    pub(super) fn to_host_traced(
+        &self,
+        edit_text: &str,
+        previous_host: &str,
+        origin: &str,
+        trail: Option<&item_trail::Trail>,
+    ) -> (Result<String, SaveError>, item_trail::Trail) {
+        let (bare_origin, _) = byte_order_mark::split(origin);
+        let trace = trail
+            .filter(|_| self.host.behavior().items_hold_unshown(bare_origin))
+            .and_then(|trail| trail.trace(self.edit.behavior(), edit_text));
+        let saved = self.to_host_told(
+            edit_text,
+            previous_host,
+            origin,
+            trace.as_ref().map(|trace| &trace.items),
+        );
+        let next = match trace {
+            Some(trace) => trace.saved,
+            None => item_trail::Trail::unknown_since(edit_text),
+        };
+        (saved, next)
+    }
+
+    fn to_host_told(
+        &self,
+        edit_text: &str,
+        previous_host: &str,
+        origin: &str,
+        items: Option<&ItemMap>,
+    ) -> Result<String, SaveError> {
         let (previous, _) = byte_order_mark::split(previous_host);
         let (origin, _) = byte_order_mark::split(origin);
-        let conversion = self.to_unmarked_host(edit_text, previous, origin)?;
+        let conversion = self.to_unmarked_host(edit_text, previous, origin, items)?;
         // A value the host would read back otherwise waits (a save written
         // whole is checked here, a patched one before it is read back).
         if let Some(pointer) = conversion.losses.first() {
@@ -162,6 +207,7 @@ impl Bridge {
         edit_text: &str,
         previous_host: &str,
         origin: &str,
+        items: Option<&ItemMap>,
     ) -> Result<Conversion, SaveError> {
         if edit_text.trim().is_empty() {
             return Ok(Conversion {
@@ -169,8 +215,26 @@ impl Bridge {
                 losses: Vec::new(),
             });
         }
-        let edited = codec::read(self.edit.behavior(), edit_text, self.shape())
-            .map_err(ConvertError::Parse)?;
+        // Integers past 64 bits a host holds as written (XML text) are
+        // saved as typed, as the view's own language saves them.
+        let stood_in;
+        let (edit_text, edited) = match codec::read(self.edit.behavior(), edit_text, self.shape()) {
+            Ok(edited) => (edit_text, edited),
+            Err(error) => {
+                let Some(text) = wide_numbers::as_text(
+                    self.edit.behavior(),
+                    self.host.behavior(),
+                    edit_text,
+                    &error,
+                ) else {
+                    return Err(ConvertError::Parse(error).into());
+                };
+                stood_in = text;
+                let edited = codec::read(self.edit.behavior(), &stood_in, self.shape())
+                    .map_err(ConvertError::Parse)?;
+                (stood_in.as_str(), edited)
+            }
+        };
         codec::convertible(self.edit.behavior(), edit_text)?;
         let host = self.host.behavior();
         let Ok(old) = codec::read(host, previous_host, self.shape()) else {
@@ -275,6 +339,14 @@ impl Bridge {
         // Each changed value in the host's own form (a TOML datetime read
         // back normalized), or the reason the save waits.
         let value = host_scalars(host, previous_host, &old, value)?;
+        // Which host item each item is, as the edit made it, told to the
+        // writes and checks that follow.
+        let _told = item_sources::tell(items.map(|items| ItemSources {
+            previous: previous_host.to_string(),
+            origin: origin.to_string(),
+            values: vec![value.clone()],
+            items: items.clone(),
+        }));
         let rendered = codec::render(&value, host, Some(previous_host), self.shape())?;
         // The host's text is patched to read back exactly as a full render
         // would (losses included), so its comments and formatting survive: a
@@ -336,6 +408,10 @@ impl Bridge {
             Some(_) => merge::keys_ordered_like(target, &old),
             None => target,
         };
+        item_sources::also_for(&target);
+        if let Some(order) = &moved_to {
+            item_sources::also_for(order);
+        }
         // A list the host held left with one item or none reads back as
         // the host spells it (see `collapsed`): no loss.
         let lost = |losses: &[String]| -> Vec<String> {
@@ -447,7 +523,12 @@ impl Bridge {
                 Some(next) => text = next,
                 None => done = false,
             }
-            (done && current != old).then_some(text)
+            // Each stage reads which item is which in its own step (an
+            // item changed in place is one removed and one added there):
+            // the whole save must keep each item's form as the save made at
+            // once does (QA `E32-4`), else it is made at once.
+            (done && current != old && host.changed_form(previous_host, &text).is_none())
+                .then_some(text)
         };
         let patched = match staged {
             Some(text) => Some(text),

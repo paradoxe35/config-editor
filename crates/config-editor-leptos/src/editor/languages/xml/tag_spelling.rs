@@ -60,10 +60,6 @@ fn spaced_close(tag: &str) -> bool {
     tag.strip_suffix("/>").is_some_and(|before| before.ends_with(char::is_whitespace))
 }
 
-fn unindexed(path: &[Seg]) -> Vec<String> {
-    strings(path).into_iter().filter(|segment| crate::editor::language::pointer_index(segment).is_none()).collect()
-}
-
 /// Each element path's spelling in `source`, and its most common one.
 fn spellings(source: &str) -> (HashMap<Vec<String>, Spelling>, Spelling) {
     let tokens = tokenize(source);

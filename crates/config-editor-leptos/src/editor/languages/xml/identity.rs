@@ -1,21 +1,39 @@
 //! Which element of a host an element of a value written over it is: the
-//! same key's element, and of repeated elements the item the edit kept
-//! there, wherever it moved (items equal in both, in order, then those
-//! moved, then the changed ones left in the same place between them). An
-//! item the edit added, or one of two now where it had one copy, is no
-//! host element. A rewrite takes each element's markup and layout from its
-//! own host element (`attribute_layout`), and a save checks that it did
-//! (`markup`).
+//! same key's element, and of repeated elements the item the edit made it
+//! (`item_sources`: the lines the user kept, moved, cut and pasted), else
+//! the item its values say (`places`). An item the edit added, or one of
+//! two now where it had one copy, is no host element. A rewrite takes each
+//! element's name, markup and layout from its own host element
+//! (`attribute_layout`, `written_names`), and a save checks that it did
+//! (`kept_markup`).
 
 use super::Seg;
+use crate::editor::item_sources::{ItemSource, ItemSources};
 use serde_json::{Map, Value};
 use std::cell::RefCell;
 use std::collections::HashMap;
+
+mod places;
+
+pub(super) use places::alike;
+use places::{Told, told_places};
+
+/// Which host text an element is in.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Host {
+    /// The host's last text.
+    Previous,
+    /// The text the edit session began on: an item cut in an earlier save
+    /// and pasted back.
+    Origin,
+}
 
 /// An edit of `old` (the host's value) to `new`.
 pub(super) struct Identity<'a> {
     old: Option<&'a Value>,
     new: &'a Value,
+    /// What the edit tells, and the value of the session's first text.
+    told: Option<(&'a ItemSources, Option<&'a Value>)>,
     /// Each list's items' places in the host's, by the list's pointer in
     /// `new`.
     lists: RefCell<HashMap<String, Vec<Option<usize>>>>,
@@ -25,18 +43,46 @@ impl<'a> Identity<'a> {
     /// `old` is `None` when the host does not read: each element is the
     /// host's at its own path.
     pub(super) fn of(old: Option<&'a Value>, new: &'a Value) -> Self {
-        Identity { old, new, lists: RefCell::default() }
+        Identity { old, new, told: None, lists: RefCell::default() }
+    }
+
+    /// The identity the edit tells (`sources`, with `origin` the value of
+    /// the text the session began on), values telling the rest.
+    pub(super) fn told(mut self, sources: Option<&'a ItemSources>, origin: Option<&'a Value>) -> Self {
+        self.told = sources.map(|sources| (sources, origin));
+        self
     }
 
     /// The host path (as the host's text writes it: an index only for a
     /// repeated element) of the element at `path` in a text written from
-    /// `new`, or `None` for an element the edit added.
-    pub(super) fn host_path(&self, path: &[Seg]) -> Option<Vec<String>> {
+    /// `new`, and the text it is in, or `None` for an element the edit
+    /// added.
+    pub(super) fn host_path(&self, path: &[Seg]) -> Option<(Vec<String>, Host)> {
+        self.resolve(path, false)
+    }
+
+    /// For an element the edit added as an item of a list, the host path
+    /// of the item it copies: one of that list's host items holding the
+    /// same data.
+    pub(super) fn copied(&self, path: &[Seg]) -> Option<Vec<String>> {
+        if !matches!(path.last(), Some(Seg::Index(_))) || self.host_path(path).is_some() {
+            return None;
+        }
+        self.resolve(path, true).filter(|(_, host)| *host == Host::Previous).map(|(path, _)| path)
+    }
+
+    /// [`Self::host_path`], or with `copy` the host item a last item the
+    /// edit added holds the same data as.
+    fn resolve(&self, path: &[Seg], copy: bool) -> Option<(Vec<String>, Host)> {
         let Some(mut old) = self.old else {
-            return Some(super::strings(path));
+            return Some((super::strings(path), Host::Previous));
         };
         let mut new = self.new;
+        let mut side = Host::Previous;
+        // The list's pointer in `new` (an index for every item), and each
+        // value's pointer as written (an index only in a list).
         let mut pointer = String::new();
+        let (mut old_at, mut new_at) = (String::new(), String::new());
         let mut host = Vec::with_capacity(path.len());
         let mut at = 0;
         while at < path.len() {
@@ -47,6 +93,10 @@ impl<'a> Identity<'a> {
             let old_child = &old_map[old_key];
             pointer.push('/');
             pointer.push_str(key);
+            old_at.push('/');
+            old_at.push_str(&escaped(old_key));
+            new_at.push('/');
+            new_at.push_str(&escaped(key));
             let new_items = items(new_child);
             let index = match path.get(at + 1) {
                 Some(Seg::Index(index)) => {
@@ -56,15 +106,60 @@ impl<'a> Identity<'a> {
                 _ if new_items.len() == 1 => 0,
                 _ => return None,
             };
+            let item_at = |index: usize| match new_child {
+                Value::Array(_) => format!("{new_at}/{index}"),
+                _ => new_at.clone(),
+            };
+            let told = self.told.filter(|_| side == Host::Previous);
+            // Pasted back from the session's first text: that item.
+            if let Some((sources, Some(origin))) = told
+                && let Some(ItemSource::Origin(from)) = sources.of(&item_at(index), !new_child.is_array())
+            {
+                old = origin.pointer(from)?;
+                new = &new_items[index];
+                host = from.split('/').skip(1).map(|segment| segment.replace("~1", "/").replace("~0", "~")).collect();
+                side = Host::Origin;
+                new_at = item_at(index);
+                old_at = from.clone();
+                pointer.push('/');
+                pointer.push_str(&index.to_string());
+                at += 1;
+                continue;
+            }
             let old_items = items(old_child);
             let place = {
                 let mut lists = self.lists.borrow_mut();
-                let places = lists.entry(pointer.clone()).or_insert_with(|| places(old_items, new_items));
-                (*places.get(index)?)?
+                let places = lists.entry(pointer.clone()).or_insert_with(|| {
+                    let told: Vec<Told> = match told {
+                        Some((sources, _)) => (0..new_items.len())
+                            .map(|index| match sources.of(&item_at(index), !new_child.is_array()) {
+                                None => Told::Nothing,
+                                Some(ItemSource::Previous(from)) => {
+                                    place_in(from, &old_at, old_child.is_array()).map_or(Told::Elsewhere, Told::At)
+                                }
+                                Some(ItemSource::Origin(_)) => Told::Elsewhere,
+                            })
+                            .collect(),
+                        None => vec![Told::Nothing; new_items.len()],
+                    };
+                    told_places(old_items, new_items, &told)
+                });
+                *places.get(index)?
+            };
+            let place = match place {
+                Some(place) => place,
+                None if copy && at + 1 == path.len() => old_items.iter().position(|held| alike(held, &new_items[index]))?,
+                None => return None,
             };
             host.push(old_key.clone());
             if old_child.is_array() {
                 host.push(place.to_string());
+                old_at.push('/');
+                old_at.push_str(&place.to_string());
+            }
+            if new_child.is_array() {
+                new_at.push('/');
+                new_at.push_str(&index.to_string());
             }
             pointer.push('/');
             pointer.push_str(&index.to_string());
@@ -72,8 +167,21 @@ impl<'a> Identity<'a> {
             new = &new_items[index];
             at += 1;
         }
-        Some(host)
+        Some((host, side))
     }
+}
+
+/// The place in the host list at `list` (holding a list when `repeated`,
+/// else a lone item) of the host item at `pointer`, when it is one of its.
+fn place_in(pointer: &str, list: &str, repeated: bool) -> Option<usize> {
+    if !repeated {
+        return (pointer == list || pointer.strip_prefix(list) == Some("/0")).then_some(0);
+    }
+    pointer.strip_prefix(list)?.strip_prefix('/')?.parse().ok()
+}
+
+fn escaped(key: &str) -> String {
+    key.replace('~', "~0").replace('/', "~1")
 }
 
 /// The key of `old` that `new`'s `key` is: itself, or the one key `new`
@@ -95,160 +203,5 @@ fn items(value: &Value) -> &[Value] {
     match value {
         Value::Array(items) => items,
         lone => std::slice::from_ref(lone),
-    }
-}
-
-/// Lists longer than this (once their equal ends are set aside) are
-/// matched item by item in order rather than by their longest common run.
-const MATCHED_WHOLE: usize = 512 * 512;
-
-/// For each item of `new`, the place of the item of `old` it is: the
-/// longest run of items equal in both, in order; then an item equal to one
-/// not taken (moved); then, between two of those, the items changed in
-/// place (as many as there were, in order, or each the one sharing the most
-/// with it). `None` for an item added.
-fn places(old: &[Value], new: &[Value]) -> Vec<Option<usize>> {
-    let mut places = vec![None; new.len()];
-    let mut taken = vec![false; old.len()];
-    let head = old.iter().zip(new).take_while(|(a, b)| a == b).count();
-    let tail = old[head..].iter().rev().zip(new[head..].iter().rev()).take_while(|(a, b)| a == b).count();
-    for index in (0..head).chain(new.len() - tail..new.len()) {
-        let place = if index < head { index } else { old.len() - (new.len() - index) };
-        places[index] = Some(place);
-        taken[place] = true;
-    }
-    let (old_middle, new_middle) = (head..old.len() - tail, head..new.len() - tail);
-    for (from, to) in common_run(&old[old_middle.clone()], &new[new_middle.clone()]) {
-        places[new_middle.start + to] = Some(old_middle.start + from);
-        taken[old_middle.start + from] = true;
-    }
-    // Between two items kept in order, the rest: those changed in place.
-    let anchors: Vec<usize> = (0..new.len()).filter(|index| places[*index].is_some()).collect();
-    // Moved: equal to an item not taken.
-    for index in new_middle.clone() {
-        if places[index].is_none()
-            && let Some(place) = (0..old.len()).find(|place| !taken[*place] && old[*place] == new[index])
-        {
-            places[index] = Some(place);
-            taken[place] = true;
-        }
-    }
-    let mut bounds = vec![(None, None)];
-    for anchor in anchors {
-        bounds.last_mut().expect("a gap").1 = Some(anchor);
-        bounds.push((Some(anchor), None));
-    }
-    for (after, before) in bounds {
-        let new_gap = after.map_or(0, |at| at + 1)..before.unwrap_or(new.len());
-        let old_gap = after.and_then(|at| places[at]).map_or(0, |at| at + 1)
-            ..before.and_then(|at| places[at]).unwrap_or(old.len());
-        let unmatched_new: Vec<usize> = new_gap.filter(|index| places[*index].is_none()).collect();
-        let unmatched_old: Vec<usize> = old_gap.filter(|place| !taken[*place]).collect();
-        if unmatched_new.len() == unmatched_old.len() {
-            for (index, place) in unmatched_new.into_iter().zip(unmatched_old) {
-                places[index] = Some(place);
-                taken[place] = true;
-            }
-            continue;
-        }
-        for index in unmatched_new {
-            let best = unmatched_old
-                .iter()
-                .filter(|place| !taken[**place])
-                .map(|place| (shared(&old[*place], &new[index]), *place))
-                .filter(|(shared, _)| *shared > 0)
-                .max_by_key(|(shared, place)| (*shared, std::cmp::Reverse(*place)));
-            if let Some((_, place)) = best {
-                places[index] = Some(place);
-                taken[place] = true;
-            }
-        }
-    }
-    places
-}
-
-/// The pairs (place in `old`, place in `new`) of a longest run of items
-/// equal in both, in order.
-fn common_run(old: &[Value], new: &[Value]) -> Vec<(usize, usize)> {
-    if old.is_empty() || new.is_empty() {
-        return Vec::new();
-    }
-    if old.len() * new.len() > MATCHED_WHOLE {
-        // In order, each with the next equal item.
-        let mut pairs = Vec::new();
-        let mut from = 0;
-        for (to, item) in new.iter().enumerate() {
-            if let Some(offset) = old[from..].iter().position(|held| held == item) {
-                pairs.push((from + offset, to));
-                from += offset + 1;
-            }
-        }
-        return pairs;
-    }
-    let width = new.len() + 1;
-    let mut lengths = vec![0u32; (old.len() + 1) * width];
-    for from in (0..old.len()).rev() {
-        for to in (0..new.len()).rev() {
-            lengths[from * width + to] = if old[from] == new[to] {
-                lengths[(from + 1) * width + to + 1] + 1
-            } else {
-                lengths[(from + 1) * width + to].max(lengths[from * width + to + 1])
-            };
-        }
-    }
-    let (mut from, mut to, mut pairs) = (0, 0, Vec::new());
-    while from < old.len() && to < new.len() {
-        if old[from] == new[to] {
-            pairs.push((from, to));
-            from += 1;
-            to += 1;
-        } else if lengths[(from + 1) * width + to] >= lengths[from * width + to + 1] {
-            from += 1;
-        } else {
-            to += 1;
-        }
-    }
-    pairs
-}
-
-/// How many of their keys two items hold alike.
-fn shared(old: &Value, new: &Value) -> usize {
-    match (old, new) {
-        (Value::Object(old), Value::Object(new)) => {
-            new.iter().filter(|(key, value)| old.get(*key) == Some(*value)).count()
-        }
-        _ => 0,
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::places;
-    use serde_json::{Value, json};
-
-    fn items(values: &[i64]) -> Vec<Value> {
-        values.iter().map(|value| json!({"v": value, "k": value % 10})).collect()
-    }
-
-    #[test]
-    fn items_keep_their_places_wherever_the_edit_moves_them() {
-        let old = items(&[1, 2, 3]);
-        let cases: [(&[i64], &[Option<usize>]); 9] = [
-            (&[2, 3], &[Some(1), Some(2)]),
-            (&[1, 3], &[Some(0), Some(2)]),
-            (&[0, 1, 2, 3], &[None, Some(0), Some(1), Some(2)]),
-            (&[1, 2, 2, 3], &[Some(0), Some(1), None, Some(2)]),
-            (&[2, 1, 3], &[Some(1), Some(0), Some(2)]),
-            (&[3, 1, 2], &[Some(2), Some(0), Some(1)]),
-            // Changed in place, all of them.
-            (&[11, 12, 13], &[Some(0), Some(1), Some(2)]),
-            // One removed, one added elsewhere: no pair.
-            (&[1, 3, 9], &[Some(0), Some(2), None]),
-            // One removed beside one changed: the one sharing a key.
-            (&[1, 13], &[Some(0), Some(2)]),
-        ];
-        for (new, wanted) in cases {
-            assert_eq!(places(&old, &items(new)), wanted, "{new:?}");
-        }
     }
 }

@@ -1937,6 +1937,24 @@ pub trait ConfigLanguage: Send + Sync + 'static {
         Vec::new()
     }
 
+    /// Whether the entries of `source` hold what no other language shows
+    /// (an XML element's `xsi:type`, its namespace declaration, its
+    /// name's prefix), so an Edit-as save over it reads which list item
+    /// is which from the user's edits (`item_sources`), not only from
+    /// values that read alike. Default: no, values tell.
+    fn items_hold_unshown(&self, source: &str) -> bool {
+        let _ = source;
+        false
+    }
+
+    /// Whether the language holds an integer past 64 bits as written (XML,
+    /// whose numbers are text): an Edit-as view saves one typed there as
+    /// its digits, as the view's own language saves it. Default: no, the
+    /// save waits.
+    fn holds_wide_integers(&self) -> bool {
+        false
+    }
+
     /// The text for the `value` range of a [`OneLine`] now holding `value`
     /// (`{ nodelay = true }`), so a save edits the container where it is.
     /// When one line cannot hold it, the text may span lines, indented by

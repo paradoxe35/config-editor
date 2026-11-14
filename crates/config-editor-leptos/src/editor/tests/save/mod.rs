@@ -125,6 +125,14 @@ mod moves;
     feature = "hcl",
     feature = "xml"
 ))]
+mod nested_renames;
+#[cfg(all(
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
 mod newline_strings;
 #[cfg(all(
     feature = "yaml",
@@ -205,6 +213,14 @@ mod typed;
     feature = "hcl",
     feature = "xml"
 ))]
+mod wide_integers;
+#[cfg(all(
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
 mod xml;
 #[cfg(all(
     feature = "yaml",
@@ -261,6 +277,14 @@ mod xml_declarations;
     feature = "hcl",
     feature = "xml"
 ))]
+mod xml_item_edits;
+#[cfg(all(
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
 mod xml_item_markup;
 #[cfg(all(
     feature = "yaml",
@@ -278,6 +302,14 @@ mod xml_names;
     feature = "xml"
 ))]
 mod xml_one_line_trivia;
+#[cfg(all(
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod xml_prefix_items;
 #[cfg(all(
     feature = "yaml",
     feature = "json",

@@ -7,7 +7,7 @@ use leptos::prelude::*;
 
 use std::sync::Arc;
 
-use super::bridge::{self, Bridge};
+use super::bridge::{self, Bridge, item_trail};
 use super::codec;
 use super::diagnostics::{DIAGNOSTICS_DEBOUNCE_MS, SchemaBundle};
 use super::edit::{Edit, Origin};
@@ -71,6 +71,9 @@ pub(super) struct SyncState {
     /// Edit-as problems of the last save (values the host cannot keep, a
     /// save refused).
     pub(super) conversion_problems: RwSignal<Vec<EditAsProblem>>,
+    /// The edits made to the text on screen since its last Edit-as save,
+    /// which tell the save which item of the host each item is.
+    pub(super) trail: StoredValue<item_trail::Trail>,
     /// The host's line endings, kept for what it hears (see `line_endings`).
     pub(super) line_endings: LineEndings,
     /// Whether the text on screen is written back to the host's text: false
@@ -154,6 +157,7 @@ impl SyncState {
             ))),
             session_host: StoredValue::new(host_text.clone()),
             host_text: StoredValue::new(host_text),
+            trail: StoredValue::new(item_trail::Trail::starting(&synced)),
             synced_edit: StoredValue::new(synced),
             synced: Trigger::new(),
             synced_hosts: StoredValue::new(Vec::new()),
@@ -246,6 +250,29 @@ impl EditorState {
         }
         self.sync().edit_language.set(language);
         self.problems().diagnosed_text.set(edit.text.clone());
+    }
+
+    /// Keeps `edit` in the trail of edits since the last Edit-as save: an
+    /// edit of the user's (typed, a command, undo, redo) as the edit it
+    /// is; a text the host or a switch replaced the document with as the
+    /// trail's new start.
+    pub(super) fn note_view_edit(&self, edit: &Edit, origin: &Origin) {
+        if edit.before == edit.text {
+            return;
+        }
+        let shown_as_host =
+            self.sync().edit_language.get_untracked() == self.config().host_language;
+        self.sync().trail.update_value(|trail| {
+            let users = matches!(
+                origin,
+                Origin::Command | Origin::Input { .. } | Origin::Undo | Origin::Redo
+            );
+            if users && !shown_as_host {
+                trail.note(&edit.before, &edit.text, edit.caret());
+            } else {
+                *trail = item_trail::Trail::starting(&edit.text);
+            }
+        });
     }
 
     /// Records whether the text on screen is written back to the host's
@@ -472,24 +499,26 @@ pub(super) fn convert_now(state: EditorState, text: String, language: Language) 
         let previous = state.sync().host_text.get_value();
         let mut hosts_own = false;
         let origin = state.sync().session_host.get_value();
-        let result = bridge
-            .to_host_since(&text, &previous, &origin)
-            .map(|saved| {
-                // Back to a text saved before (an undo), or the host's own (a
-                // reloaded baseline): its host text exactly.
-                match state.sync().synced_hosts.with_value(|saved| {
-                    saved
-                        .iter()
-                        .find(|(known, edit, _)| *known == language && *edit == text)
-                        .map(|(_, _, host)| host.clone())
-                }) {
-                    Some(host) => {
-                        hosts_own = true;
-                        host
-                    }
-                    None => saved,
+        let (result, trail) = state
+            .sync()
+            .trail
+            .with_value(|trail| bridge.to_host_traced(&text, &previous, &origin, Some(trail)));
+        let result = result.map(|saved| {
+            // Back to a text saved before (an undo), or the host's own (a
+            // reloaded baseline): its host text exactly.
+            match state.sync().synced_hosts.with_value(|saved| {
+                saved
+                    .iter()
+                    .find(|(known, edit, _)| *known == language && *edit == text)
+                    .map(|(_, _, host)| host.clone())
+            }) {
+                Some(host) => {
+                    hosts_own = true;
+                    host
                 }
-            });
+                None => saved,
+            }
+        });
         // However the edit got there, a save never changes a read-only
         // value: it is refused like any other unsafe save. A text the host
         // itself had is its own to restore.
@@ -502,6 +531,7 @@ pub(super) fn convert_now(state: EditorState, text: String, language: Language) 
         note_conversion_problems(state, bridge.problems(&text, &result));
         state.note_in_sync(result.is_ok());
         if let Ok(saved) = result {
+            state.sync().trail.set_value(trail);
             state.sync().synced_edit.set_value(text);
             state.sync().synced.notify();
             if saved != state.sync().host_text.get_value() {
