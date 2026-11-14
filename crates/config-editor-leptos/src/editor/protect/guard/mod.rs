@@ -42,6 +42,7 @@ mod content;
 mod edit;
 mod hiding;
 mod joining;
+mod joins;
 mod moved;
 mod pins;
 mod repair;
@@ -62,7 +63,8 @@ use crate::EditorStrings;
 use content::{glued_to_content, written_string_changed};
 use edit::Edited;
 use hiding::hidden;
-use joining::{LinePaths, is_near, joining_lines, near_lines, span};
+use joining::{LinePaths, is_near, near_lines, span};
+use joins::{Joinable, joining_counts};
 use moved::Place;
 use pins::pins_hold;
 use stretch::indent_kept;
@@ -104,13 +106,27 @@ impl Blocked {
 }
 
 /// Checks the edit turning `before` (whose locks are `protected`) into
-/// `after`: each step below in turn, the first to refuse it saying why.
+/// `after`, read off the two texts alone (see [`check_at`]).
+#[cfg(test)]
 pub(crate) fn check(
     behavior: &dyn ConfigLanguage,
     reading_schema: Option<&Value>,
     protected: &Protected,
     before: &str,
     after: &str,
+) -> Result<(), Blocked> {
+    check_at(behavior, reading_schema, protected, (before, after), None)
+}
+
+/// Checks the edit turning `before` (whose locks are `protected`) into
+/// `after`, the caret it left at `caret` (UTF-16) when known: each step
+/// below in turn, the first to refuse it saying why.
+pub(crate) fn check_at(
+    behavior: &dyn ConfigLanguage,
+    reading_schema: Option<&Value>,
+    protected: &Protected,
+    (before, after): (&str, &str),
+    caret: Option<usize>,
 ) -> Result<(), Blocked> {
     if (protected.is_empty() && !protected.watches()) || before == after {
         return Ok(());
@@ -119,7 +135,7 @@ pub(crate) fn check(
     if out_of_reach(behavior, protected, before, after).is_some() {
         return Ok(());
     }
-    let edit = Edited::new(behavior, reading_schema, protected, before, after);
+    let edit = Edited::new(behavior, reading_schema, protected, before, after, caret);
     // The edit making the text parse is decided by the repair rule alone,
     // which names the field: a closer added to a locked line completes it.
     let repairing = protected.document.is_none() && edit.parsed().is_some();
@@ -162,7 +178,7 @@ pub(crate) fn check_values(
     if protected.locks.is_empty() || before == after {
         return Ok(());
     }
-    let edit = Edited::new(behavior, reading_schema, protected, before, after);
+    let edit = Edited::new(behavior, reading_schema, protected, before, after, None);
     if edit.parsed().is_some() {
         return Ok(());
     }
@@ -259,20 +275,14 @@ fn nothing_joins(edit: &Edited<'_>, pointed: &[&Lock], paths_kept: bool) -> Resu
         new: &new_paths,
         new_lines: &new_lines,
     };
+    // The lines near each lock before and after the edit: before or after
+    // the region it keeps its text; over it, it is anywhere in it.
+    let (mut before, mut after) = (Vec::new(), Vec::new());
     for lock in pointed {
-        let pointer = lock.pointer.as_deref().unwrap_or_default();
-        if is_near(lock, &edit.region, &edit.lines) && !place.kept(lock, paths_kept) {
-            return Err(refused(&lock.reason));
-        }
-        let count = |paths: &LinePaths<'_>, region: &Range<usize>, near| {
-            joining_lines(paths, region, near, pointer, !paths_kept)
-        };
         let Some((low, high)) = span(lock) else {
             continue;
         };
-        let near_before = near_lines(edit.behavior, &edit.lines, low, high);
-        // Where the lock is after the edit: before or after the region it
-        // keeps its text; over it, anywhere in it.
+        let pointer = lock.pointer.as_deref().unwrap_or_default();
         let near_after = if high <= edit.region.start {
             near_lines(edit.behavior, &new_lines, low, high)
         } else if low >= edit.region.end {
@@ -281,13 +291,26 @@ fn nothing_joins(edit: &Edited<'_>, pointed: &[&Lock], paths_kept: bool) -> Resu
         } else {
             0..new_lines.line_count()
         };
-        let (Some(was), Some(now)) = (
-            count(&old_paths, &edit.region, near_before),
-            count(&new_paths, &edit.new_region, near_after),
-        ) else {
+        before.push(Joinable {
+            pointer,
+            near: near_lines(edit.behavior, &edit.lines, low, high),
+        });
+        after.push(Joinable {
+            pointer,
+            near: near_after,
+        });
+    }
+    let was = joining_counts(&old_paths, &edit.region, &before, !paths_kept);
+    let now = joining_counts(&new_paths, &edit.new_region, &after, !paths_kept);
+    let mut counts = was.into_iter().zip(now);
+    for lock in pointed {
+        if is_near(lock, &edit.region, &edit.lines) && !place.kept(lock, paths_kept) {
             return Err(refused(&lock.reason));
-        };
-        if now > was {
+        }
+        if span(lock).is_some()
+            && let Some((was, now)) = counts.next()
+            && now > was
+        {
             return Err(refused(&lock.reason));
         }
     }

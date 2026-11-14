@@ -165,6 +165,13 @@ pub(crate) enum Work {
         allow(dead_code, reason = "only protection notes it")
     )]
     RangesFollowed,
+    /// A line of an edited region weighed against one lock (whether it
+    /// would join it), in the lock check of a text that does not parse.
+    #[cfg_attr(
+        not(feature = "protect"),
+        allow(dead_code, reason = "only the lock check notes it")
+    )]
+    LockLine,
 }
 
 impl Work {
@@ -207,6 +214,7 @@ impl Work {
             Self::BranchWalk => 33,
             Self::OffsetSeek => 34,
             Self::RangesFollowed => 35,
+            Self::LockLine => 36,
         }
     }
 
@@ -249,12 +257,13 @@ impl Work {
         Self::BranchWalk,
         Self::OffsetSeek,
         Self::RangesFollowed,
+        Self::LockLine,
     ];
 }
 
 /// How many kinds of work there are.
 #[cfg(test)]
-const KINDS: usize = 36;
+const KINDS: usize = 37;
 
 #[cfg(test)]
 thread_local! {

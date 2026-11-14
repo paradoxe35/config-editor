@@ -20,7 +20,7 @@ use super::super::secret_options::SecretOptions;
 use super::super::state::EditorState;
 use super::follow::follow_ranges;
 use super::glued::{first_glued, glued_in_save, glued_message};
-use super::guard::{Blocked, check};
+use super::guard::{Blocked, check_at};
 use super::host_ranges::{HostRanges, offsets};
 use super::locate::LineIndex;
 use super::locks::{Protected, Sources, protect};
@@ -378,12 +378,12 @@ impl EditorState {
             .protected
             .with_untracked(|protected| {
                 self.config().schema.with_value(|schema| {
-                    check(
+                    check_at(
                         self.behavior(),
                         schema.as_deref().map(|bundle| &bundle.schema),
                         protected,
-                        &edit.before,
-                        &edit.text,
+                        (&edit.before, &edit.text),
+                        Some(edit.caret()),
                     )
                 })
             })
@@ -483,12 +483,12 @@ impl EditorState {
         let without = format!("{}{}", &edit.text[..from], &edit.text[to..]);
         self.protect().protected.with_untracked(|protected| {
             self.config().schema.with_value(|schema| {
-                check(
+                check_at(
                     self.behavior(),
                     schema.as_deref().map(|bundle| &bundle.schema),
                     protected,
-                    &edit.before,
-                    &without,
+                    (&edit.before, &without),
+                    Some(start),
                 )
                 .is_ok()
             })

@@ -293,6 +293,15 @@ mod line_swap_tests;
     feature = "hcl",
     feature = "xml"
 ))]
+mod lock_copy_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
 mod lock_scale_tests;
 #[cfg(all(
     test,
@@ -330,6 +339,15 @@ mod odd_syntax_tests;
     feature = "xml"
 ))]
 mod opaque_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod paste_scale_tests;
 #[cfg(all(
     test,
     feature = "yaml",
