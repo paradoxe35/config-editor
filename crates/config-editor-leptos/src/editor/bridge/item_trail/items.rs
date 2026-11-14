@@ -4,7 +4,6 @@
 //! not tell such items apart.
 
 use super::super::super::language::ConfigLanguage;
-use super::super::super::parse_cache;
 use super::super::super::paths;
 use serde_json::Value;
 use std::collections::HashMap;
@@ -19,10 +18,8 @@ pub(super) struct Item {
 }
 
 /// The list items of `text` in `language` with lines of their own, in
-/// document order; `None` when the text does not read.
-pub(super) fn items(language: &dyn ConfigLanguage, text: &str) -> Option<Vec<Item>> {
-    let parsed = parse_cache::parsed(language, text);
-    let value = parsed.as_ref().as_ref().ok()?;
+/// document order, from its value `value`.
+pub(super) fn items(language: &dyn ConfigLanguage, text: &str, value: &Value) -> Vec<Item> {
     // Every value's pointer, each item's marked, in document order.
     let mut pointers = Vec::new();
     walk(value, &mut String::new(), false, &mut pointers);
@@ -91,7 +88,7 @@ pub(super) fn items(language: &dyn ConfigLanguage, text: &str) -> Option<Vec<Ite
         *per_line.entry(item.lines.start).or_default() += 1;
     }
     found.retain(|item| per_line[&item.lines.start] == 1);
-    Some(found)
+    found
 }
 
 fn walk(value: &Value, pointer: &mut String, item: bool, out: &mut Vec<(String, bool)>) {

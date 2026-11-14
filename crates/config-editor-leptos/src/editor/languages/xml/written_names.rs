@@ -47,13 +47,67 @@ impl Children {
     }
 
     /// The prefix of an element with a name new among its siblings (QA
-    /// `E33-3`): its host siblings' (the first's in scope), in the
-    /// namespace the parent's children are in, else the parent's own
-    /// (`parent_prefix`) when it has none in scope.
-    pub(super) fn new_name_prefix<'a>(&'a self, parent_host: Option<&[String]>, parent_prefix: Option<&'a str>) -> Option<&'a str> {
-        match parent_host.and_then(|parent| self.0.get(parent)).and_then(|children| children.first()) {
-            Some(sibling) => sibling.as_deref(),
-            None => parent_prefix,
+    /// `E33-3`): its nearest sibling's in scope, as an item added takes
+    /// its neighbour's (QA `E34-3`): the one written before it
+    /// (`before`), else the host's first (the one after it), else the
+    /// parent's own (`parent_prefix`) when it has none in scope.
+    pub(super) fn new_name_prefix(
+        &self,
+        parent_host: Option<&[String]>,
+        before: Option<Option<&str>>,
+        parent_prefix: Option<&str>,
+    ) -> Option<String> {
+        let prefix = match before {
+            Some(before) => before,
+            None => match parent_host.and_then(|parent| self.0.get(parent)).and_then(|children| children.first()) {
+                Some(sibling) => sibling.as_deref(),
+                None => parent_prefix,
+            },
+        };
+        prefix.map(str::to_string)
+    }
+}
+
+/// The elements open while a text is walked: each one's own entry, and
+/// the prefix of the last of its children whose prefix is in scope for a
+/// child after it (one not declaring its own) — what an element added
+/// after it is named with.
+pub(super) struct Open<T> {
+    stack: Vec<(T, Option<Option<String>>)>,
+}
+
+impl<T> Default for Open<T> {
+    fn default() -> Self {
+        Open { stack: Vec::new() }
+    }
+}
+
+impl<T> Open<T> {
+    pub(super) fn push(&mut self, entry: T) {
+        self.stack.push((entry, None));
+    }
+
+    pub(super) fn pop(&mut self) -> Option<T> {
+        self.stack.pop().map(|(entry, _)| entry)
+    }
+
+    pub(super) fn last(&self) -> Option<&T> {
+        self.stack.last().map(|(entry, _)| entry)
+    }
+
+    /// The prefix of the last child of the innermost element in scope for
+    /// one after it; `None` before any.
+    pub(super) fn before(&self) -> Option<Option<&str>> {
+        self.stack.last().and_then(|(_, last)| last.as_ref()).map(Option::as_deref)
+    }
+
+    /// Notes a child of the innermost element, named with `prefix`, which
+    /// `declares_own` when its start tag binds that prefix itself.
+    pub(super) fn child(&mut self, prefix: Option<&str>, declares_own: bool) {
+        if let Some((_, last)) = self.stack.last_mut()
+            && !declares_own
+        {
+            *last = Some(prefix.map(str::to_string));
         }
     }
 }

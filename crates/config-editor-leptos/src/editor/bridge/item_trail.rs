@@ -3,11 +3,16 @@
 //! `item_sources`): an item whose lines the edits kept is the item it was
 //! (the first of two equal items deleted leaves the second, QA `E32-3`),
 //! and an item whose lines were removed and pasted back, in this save or
-//! an earlier one of the session, is the item moved (QA `E32-2`). Values
+//! an earlier one of the session, is the item moved (QA `E32-2`), and so
+//! is an item pasted where its lines read otherwise (another indent, a
+//! JSON item's comma) or after a switch, by its data (QA `E34-1`). Values
 //! tell the rest.
 
 use super::super::item_sources::ItemSource;
 use super::super::language::ConfigLanguage;
+use super::super::parse_cache;
+use super::super::work_count::{Work, note};
+use serde_json::Value;
 use std::collections::HashMap;
 
 mod items;
@@ -30,6 +35,9 @@ struct Removed {
     origin: String,
     /// Its lines.
     lines: String,
+    /// Its data, as a view holds it: an item pasted in any view, its lines
+    /// written otherwise, is it when it holds the same.
+    value: Value,
 }
 
 /// The edits made to a view's text since it was last saved.
@@ -86,6 +94,45 @@ impl Trail {
         }
     }
 
+    /// The trail on `text`, the text a switch (to another view, or the
+    /// host's language and back) or a save put on screen for the host's
+    /// text the trail last followed: no edits since, and what it knows of
+    /// the session's items kept, the items cut and not pasted back with
+    /// them (QA `E34-1`: a cut item pasted after a switch lost its markup).
+    pub(crate) fn restart(&mut self, text: &str) {
+        self.synced = Some(text.to_string());
+        self.splices = Vec::new();
+    }
+
+    /// The edits made to the view no longer known (a text not saved
+    /// replaced it): no item of it is known to be one of the session's
+    /// first view, and the items cut from that view are still out of it.
+    pub(crate) fn forget_edits(&mut self) {
+        self.synced = None;
+        self.splices = Vec::new();
+        self.origin_of = Some(HashMap::new());
+    }
+
+    /// The view's text `text` saved without this trail's edits telling
+    /// its items (see [`Self::unknown_since`]): the items cut from the
+    /// session's first view are still out of it.
+    pub(crate) fn unknown_from(&self, text: &str) -> Self {
+        Trail {
+            removed: self.removed.clone(),
+            ..Trail::unknown_since(text)
+        }
+    }
+
+    /// The view's text `text` saved as the session's first host text, by
+    /// its own: each of its items is the item of the session's first view
+    /// at its pointer, and the items cut from it before are still out.
+    pub(crate) fn at_origin(&self, text: &str) -> Self {
+        Trail {
+            removed: self.removed.clone(),
+            ..Trail::starting(text)
+        }
+    }
+
     /// Whether the trail follows the edits since `text`: a trail begun on
     /// another text (one a view switch replaced unsaved edits with) does
     /// not tell the items of a save over the host `text` was saved as.
@@ -119,8 +166,16 @@ impl Trail {
         if synced.len() as isize + grown != text.len() as isize {
             return None;
         }
-        let before = items(language, synced)?;
-        let after = items(language, text)?;
+        let (synced_parsed, parsed) = (
+            parse_cache::parsed(language, synced),
+            parse_cache::parsed(language, text),
+        );
+        let (synced_value, now) = (
+            synced_parsed.as_ref().as_ref().ok()?,
+            parsed.as_ref().as_ref().ok()?,
+        );
+        let before = items(language, synced, synced_value);
+        let after = items(language, text, now);
         let origin_of = |pointer: &str| match &self.origin_of {
             None => Some(pointer.to_string()),
             Some(known) => known.get(pointer).cloned(),
@@ -149,24 +204,51 @@ impl Trail {
         }
         let mut items = HashMap::new();
         let mut saved_origin = HashMap::new();
+        let mut record = |pointer: &str, source: &Source| {
+            let (source, origin) = match source {
+                Source::Synced(from) => (ItemSource::Previous(from.clone()), origin_of(from)),
+                Source::Origin(from) => (ItemSource::Origin(from.clone()), Some(from.clone())),
+            };
+            items.insert(pointer.to_string(), source);
+            if let Some(origin) = origin {
+                saved_origin.insert(pointer.to_string(), origin);
+            }
+        };
+        let mut unmatched = Vec::new();
         for item in &after {
-            let Some(found) = followed
+            match followed
                 .iter()
                 .find(|found| found.alive && found.lines.start == item.lines.start)
-            else {
-                continue;
-            };
-            let (source, origin) = match &found.source {
-                Source::Synced(pointer) => {
-                    (ItemSource::Previous(pointer.clone()), origin_of(pointer))
+            {
+                Some(found) => record(&item.pointer, &found.source),
+                None => unmatched.push(&item.pointer),
+            }
+        }
+        // The data of the items cut: an item of the last saved view's, or
+        // one cut from the session's first view before.
+        let value_of = |source: &Source| match source {
+            Source::Synced(pointer) => synced_value.pointer(pointer),
+            Source::Origin(pointer) => self
+                .removed
+                .iter()
+                .find(|removed| removed.origin == *pointer)
+                .map(|removed| &removed.value),
+        };
+        // Pasted where its lines read otherwise, or after a switch: the
+        // item cut holding the same data.
+        if !cut.is_empty() && !unmatched.is_empty() {
+            for pointer in unmatched {
+                let Some(value) = now.pointer(pointer) else {
+                    continue;
+                };
+                let same = cut.iter().position(|(_, source)| {
+                    note(Work::ItemComparison);
+                    value_of(source) == Some(value)
+                });
+                if let Some(at) = same {
+                    let (_, source) = cut.remove(at);
+                    record(pointer, &source);
                 }
-                Source::Origin(pointer) => {
-                    (ItemSource::Origin(pointer.clone()), Some(pointer.clone()))
-                }
-            };
-            items.insert(item.pointer.clone(), source);
-            if let Some(origin) = origin {
-                saved_origin.insert(item.pointer.clone(), origin);
             }
         }
         // Still out of the view: the first view's items removed whole, now
@@ -174,12 +256,16 @@ impl Trail {
         let removed = cut
             .into_iter()
             .filter_map(|(lines, source)| {
+                let value = value_of(&source)?.clone();
                 let origin = match source {
                     Source::Synced(pointer) => origin_of(&pointer)?,
                     Source::Origin(pointer) => pointer,
                 };
-                (!saved_origin.values().any(|kept| *kept == origin))
-                    .then_some(Removed { origin, lines })
+                (!saved_origin.values().any(|kept| *kept == origin)).then_some(Removed {
+                    origin,
+                    lines,
+                    value,
+                })
             })
             .collect();
         Some(Trace {

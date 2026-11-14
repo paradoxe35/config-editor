@@ -39,6 +39,14 @@ mod hidden_suggestions;
     feature = "xml"
 ))]
 mod item_trail;
+#[cfg(all(
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod item_trail_switches;
 // Reads what the view reads (folds, suggestions) on every language's sample.
 #[cfg(all(
     feature = "yaml",

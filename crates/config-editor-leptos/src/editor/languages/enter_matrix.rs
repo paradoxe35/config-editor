@@ -188,3 +188,38 @@ fn enter_after_a_comment_over_lines_indents_from_its_first_line() {
         ),
     ]);
 }
+
+/// After an element on the line where markup written over lines ends
+/// (`b --> <y/>`): the new line indents from the line that markup starts
+/// on, not its continuation (QA `E34-2`), with spaces or tabs, after a
+/// comment, a processing instruction or a tag, two such in a row.
+#[test]
+fn enter_after_an_element_ending_a_comment_line_indents_from_the_comment() {
+    check(&[
+        (
+            Language::XML,
+            "<r>\n  <!-- a\n       b --> <y/>‸\n  <x/>\n</r>\n",
+            "<r>\n  <!-- a\n       b --> <y/>\n  ‸\n  <x/>\n</r>\n",
+        ),
+        (
+            Language::XML,
+            "<r>\n\t<!-- a\n\t     b --> <y>1</y>‸\n\t<x/>\n</r>\n",
+            "<r>\n\t<!-- a\n\t     b --> <y>1</y>\n\t‸\n\t<x/>\n</r>\n",
+        ),
+        (
+            Language::XML,
+            "<r>\n  <?pi a\n       b?> <y/>‸\n  <x/>\n</r>\n",
+            "<r>\n  <?pi a\n       b?> <y/>\n  ‸\n  <x/>\n</r>\n",
+        ),
+        (
+            Language::XML,
+            "<r>\n  <!-- a\n     b --> <!-- c\n         d --> <y/>‸\n  <x/>\n</r>\n",
+            "<r>\n  <!-- a\n     b --> <!-- c\n         d --> <y/>\n  ‸\n  <x/>\n</r>\n",
+        ),
+        (
+            Language::XML,
+            "<r>\n  <a x=\"1\"\n     y=\"2\"/> <b/>‸\n</r>\n",
+            "<r>\n  <a x=\"1\"\n     y=\"2\"/> <b/>\n  ‸\n</r>\n",
+        ),
+    ]);
+}

@@ -175,9 +175,10 @@ impl Bridge {
             origin,
             trace.as_ref().map(|trace| &trace.items),
         );
-        let next = match trace {
-            Some(trace) => trace.saved,
-            None => item_trail::Trail::unknown_since(edit_text),
+        let next = match (trace, trail) {
+            (Some(trace), _) => trace.saved,
+            (None, Some(trail)) => trail.unknown_from(edit_text),
+            (None, None) => item_trail::Trail::unknown_since(edit_text),
         };
         (saved, next)
     }
