@@ -38,6 +38,21 @@ pub(crate) fn stay(again: bool, replaces: bool) -> bool {
     again && !replaces
 }
 
+/// What became of a document's ranges listed again as given last.
+pub(crate) enum Again {
+    /// Its text does not replace the one its editor holds (that text, an
+    /// echo): they are the ones its editor was given, which it moved with
+    /// each edit since. Not in the listed text's places, they are not moved
+    /// from it to the document (QA 34: moved as if they were, a lock whose
+    /// line ended past the end of the line that took its place above it
+    /// was given again on that line).
+    Stayed,
+    /// Its text replaces the one its editor holds: they were read in it.
+    /// These are the ones its editor was given, which stay if that text
+    /// turns out not to replace its own after all.
+    Read(Vec<TextRange>),
+}
+
 /// The ranges a `ConfigEditor` was given last.
 pub(crate) struct Given(std::cell::RefCell<Option<String>>);
 

@@ -28,6 +28,7 @@ use crate::typings::{DocumentEditorResult, DocumentsOptions, DocumentsUpdate, Se
 use crate::update::{Fixed, callback_change, given, plain_object, refuse_remount, settings_change};
 use crate::values::{diagnostics_to_js, field, text_arg, to_js};
 
+mod echo_ranges;
 mod echoing;
 
 /// The options `new ConfigDocuments` takes apart from the settings.
