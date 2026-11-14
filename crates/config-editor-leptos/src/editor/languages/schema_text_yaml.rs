@@ -20,8 +20,8 @@ pub(super) fn read(text: &str) -> Result<Value, String> {
         Err(error) => match as_floats(&normalized, &error) {
             Some(widened) => YamlBehavior
                 .parse(&widened)
-                .map_err(|error| worded(&error))?,
-            None => return Err(worded(&error)),
+                .map_err(|error| worded(&normalized, &error))?,
+            None => return Err(worded(&normalized, &error)),
         },
     };
     let value = super::a_schema(value)?;
@@ -57,7 +57,7 @@ fn as_floats(text: &str, error: &ParseError) -> Option<String> {
 /// A YAML reading's error in the editor's words, its place after it as a
 /// document's problem says it, with a hint where YAML reads a schema's
 /// text otherwise than meant.
-fn worded(error: &ParseError) -> String {
+fn worded(text: &str, error: &ParseError) -> String {
     if error.message.contains("nest too deeply") {
         return super::TOO_DEEP.to_string();
     }
@@ -87,11 +87,55 @@ fn worded(error: &ParseError) -> String {
         Some(name) => format!(
             "no anchor &{name} for the alias *{name}: a plain * starts an alias in YAML, so quote a key or value that starts with *"
         ),
-        None => message.to_string(),
+        None => hinted(message, line_of(text, error.line)).unwrap_or_else(|| lower_first(message)),
     };
     match (error.line, error.column) {
         (Some(line), Some(column)) => super::located(&message, line, column),
         _ => message,
+    }
+}
+
+/// The one-based `line` of `text`, if it has it.
+fn line_of(text: &str, line: Option<usize>) -> &str {
+    line.and_then(|line| text.lines().nth(line.checked_sub(1)?))
+        .unwrap_or_default()
+}
+
+/// The YAML reader's `message` about `line` in plain words, saying how to
+/// write what YAML reads otherwise than meant; `None` for one worded as
+/// it is.
+fn hinted(message: &str, line: &str) -> Option<String> {
+    let flow_value = line.contains(": [") || line.contains(": {");
+    Some(if message.starts_with("inconsistent indentation") {
+        "the indentation does not line up: indent each key of a map as far as its other keys"
+            .to_string()
+    } else if message.starts_with("reserved indicator") {
+        "a plain key or value cannot start with @ or ` in YAML: quote it, as in \"@name\""
+            .to_string()
+    } else if message.starts_with("mapping values are not allowed") {
+        "a colon and a space inside a plain value start a map in YAML: quote the value, as in description: \"note: this\"".to_string()
+    } else if let Some(rest) = message.strip_prefix("unknown escape character ") {
+        format!(
+            "unknown escape {rest} in a double-quoted string: in double quotes a backslash starts an escape, so write the text in single quotes, as in pattern: '^\\d+$', or double each backslash"
+        )
+    } else if message.starts_with("expected block mapping key or end") && flow_value {
+        "a value starting with [ or { is a list or map in YAML, and the text after its closing bracket does not read: quote the value, as in pattern: '[a-z]+'".to_string()
+    } else {
+        return None;
+    })
+}
+
+/// `message` starting lower case, as the schema text's other messages
+/// do after "Invalid JSON Schema:" (a document's own problem says "This
+/// text holds …"); a name in capitals (`YAML`) is kept.
+fn lower_first(message: &str) -> String {
+    let mut characters = message.chars();
+    match (characters.next(), characters.next()) {
+        (Some(first), Some(second)) if first.is_uppercase() && second.is_lowercase() => first
+            .to_lowercase()
+            .chain(message[first.len_utf8()..].chars())
+            .collect(),
+        _ => message.to_string(),
     }
 }
 

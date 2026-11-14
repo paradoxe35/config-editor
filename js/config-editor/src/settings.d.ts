@@ -1162,6 +1162,24 @@ export interface EditorStrings {
    */
   mustNotMatch?: string;
   /**
+   * A value of a type its `not` schema refuses (`not: {type: …}`): the types (`{types}`), each quoted, joined by `, `.
+   *
+   * @default "{value} must not be of type {types}"
+   */
+  mustNotBeType?: string;
+  /**
+   * A value its `not` schema refuses by name (`not: {const: …}` or `not: {enum: […]}`): the refused values (`{values}`), as JSON, joined by ` or `.
+   *
+   * @default "{value} must not be {values}"
+   */
+  mustNotBe?: string;
+  /**
+   * An object holding keys its `not` schema refuses one by one (`not: {anyOf: [{required: [a]}, {required: [b]}]}`): the ones it holds (`{keys}`), each quoted, joined by `, `.
+   *
+   * @default "{value} must not have {keys}"
+   */
+  mustNotHave?: string;
+  /**
    * An object holding both keys its `not` schema keeps apart (`not: {required: [a, b]}`, or a key's dependent schema's `not`): the first (`{key}`) and the other (`{other}`), each quoted.
    *
    * @default "{key} can't be used together with {other}"

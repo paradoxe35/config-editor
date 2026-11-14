@@ -479,6 +479,17 @@ pub struct EditorStrings {
     pub too_many_contained: String,
     /// A value its `not` schema (`{schema}`, as JSON) matches.
     pub must_not_match: String,
+    /// A value of a type its `not` schema refuses (`not: {type: …}`):
+    /// the types (`{types}`), each quoted, joined by `, `.
+    pub must_not_be_type: String,
+    /// A value its `not` schema refuses by name (`not: {const: …}` or
+    /// `not: {enum: […]}`): the refused values (`{values}`), as JSON,
+    /// joined by ` or `.
+    pub must_not_be: String,
+    /// An object holding keys its `not` schema refuses one by one (`not:
+    /// {anyOf: [{required: [a]}, {required: [b]}]}`): the ones it holds
+    /// (`{keys}`), each quoted, joined by `, `.
+    pub must_not_have: String,
     /// An object holding both keys its `not` schema keeps apart (`not:
     /// {required: [a, b]}`, or a key's dependent schema's `not`): the
     /// first (`{key}`) and the other (`{other}`), each quoted.
@@ -777,6 +788,9 @@ impl Default for EditorStrings {
                 "{value} has more than {limit} items its \"contains\" schema allows",
             ),
             must_not_match: text("{value} must not match {schema}"),
+            must_not_be_type: text("{value} must not be of type {types}"),
+            must_not_be: text("{value} must not be {values}"),
+            must_not_have: text("{value} must not have {keys}"),
             keys_used_together: text("{key} can't be used together with {other}"),
             keys_all_used_together: text("{keys} can't all be used together"),
             no_option_matches: text("matches none of the {keyword} options: {reasons}"),

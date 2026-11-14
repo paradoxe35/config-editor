@@ -1,5 +1,6 @@
 //! Where suggestions apply and how accepted keys and values are written.
 
+use std::borrow::Cow;
 use super::*;
 
 /// The default a suggestion writes for `property`: one XML reads back as
@@ -540,9 +541,23 @@ fn written_elements(key: &str, value: &Value, base_indent: &str, unit: &str) -> 
             written.push_str(base_indent);
         }
         written.push_str(&unit.repeat(indent / step - 1));
-        written.push_str(trimmed);
+        written.push_str(&with_end_tag(trimmed));
     }
     Some(written)
+}
+
+/// An empty element written with its end tag (`<tag></tag>`, not
+/// `<tag/>`): the value left to type between them is a place Tab stops
+/// at, and typed there reads as its text.
+fn with_end_tag(line: &str) -> Cow<'_, str> {
+    match line
+        .strip_prefix('<')
+        .and_then(|rest| rest.strip_suffix("/>"))
+        .filter(|name| !name.is_empty() && !name.contains(char::is_whitespace))
+    {
+        Some(name) => Cow::Owned(format!("<{name}></{name}>")),
+        None => Cow::Borrowed(line),
+    }
 }
 
 /// The object schema of an array's items: each repeated element is one item,

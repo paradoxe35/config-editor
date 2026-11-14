@@ -114,6 +114,8 @@ mod schema_message_kinds;
     feature = "xml"
 ))]
 mod schema_option_messages;
+#[cfg(all(feature = "yaml", feature = "schema-validation"))]
+mod schema_text_wording;
 
 #[cfg(all(
     feature = "yaml",
@@ -147,6 +149,14 @@ mod fold_line_below;
     feature = "xml"
 ))]
 mod list_item_problems;
+#[cfg(all(
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "schema-validation"
+))]
+mod one_line_item_work;
 #[cfg(all(
     feature = "yaml",
     feature = "json",

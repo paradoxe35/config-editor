@@ -73,7 +73,13 @@ fn problems_of_every_kind_read_plainly_in_every_language() {
         (
             "s: x\n",
             r#"{"properties":{"s":{"not":{"type":"string"}}}}"#,
-            r#"/s: "x" must not match {"type":"string"}"#,
+            r#"/s: "x" must not be of type "string""#,
+        ),
+        // A `not` of more than one keyword: the `not` as JSON.
+        (
+            "s: x\n",
+            r#"{"properties":{"s":{"not":{"type":"string","minLength":1}}}}"#,
+            r#"/s: "x" must not match {"type":"string","minLength":1}"#,
         ),
         // A `not` of required keys: the keys can't be used together.
         (

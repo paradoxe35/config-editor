@@ -21,6 +21,7 @@ mod popup;
 mod required;
 mod schema;
 mod stops;
+mod typed_entry;
 mod window;
 
 pub(crate) use accept::*;
@@ -42,6 +43,7 @@ pub(crate) use live::{CompletionState, Sources, SuggestionPlace};
 pub(crate) use matching::*;
 pub(crate) use patterns::unsupported_patterns;
 pub(crate) use popup::*;
+use required::caret_at_list;
 pub use required::{Fill, RequiredChild, required_children, writes_key};
 pub(crate) use schema::*;
 pub(crate) use stops::*;

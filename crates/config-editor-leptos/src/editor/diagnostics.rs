@@ -10,6 +10,8 @@ use crate::EditorStrings;
 use crate::strings::{default_strings, fill};
 
 #[cfg(feature = "schema-validation")]
+mod meta_wording;
+#[cfg(feature = "schema-validation")]
 mod unevaluated;
 #[cfg(feature = "schema-validation")]
 mod wording;
@@ -105,13 +107,7 @@ pub(super) fn build_schema(schema_text: &str) -> Result<SchemaBundle, String> {
         if let Some(message) = super::schema_refs::message(error.kind(), &schema) {
             return message;
         }
-        // Where in the schema: a value is worded, its place is not.
-        let at = error.instance_path().to_string();
-        if at.is_empty() {
-            error.to_string()
-        } else {
-            format!("{error} (at {at})")
-        }
+        meta_wording::message(&error)
     })?;
     // The validator resolves `$id` and `$anchor` references itself;
     // completion and hover read them as pointers.

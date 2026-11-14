@@ -186,6 +186,27 @@ pub(crate) fn branches_for<'a>(
     root: &'a Value,
     instance: Option<&Value>,
 ) -> Vec<&'a Value> {
+    walk_branches(schema, root, instance, true)
+}
+
+/// [`branches_for`] without the branches a conditional only may take: a
+/// `then`/`else` only where its `if` decides for `instance`. What these
+/// say holds for the value whatever is written next (a key one declares
+/// `false` cannot be written).
+pub(crate) fn certain_branches<'a>(
+    schema: &'a Value,
+    root: &'a Value,
+    instance: Option<&Value>,
+) -> Vec<&'a Value> {
+    walk_branches(schema, root, instance, false)
+}
+
+fn walk_branches<'a>(
+    schema: &'a Value,
+    root: &'a Value,
+    instance: Option<&Value>,
+    undecided: bool,
+) -> Vec<&'a Value> {
     enum Step<'a> {
         Visit(&'a Value),
         Emit(&'a Value),
@@ -228,7 +249,7 @@ pub(crate) fn branches_for<'a>(
                     next.push(Step::Visit(option));
                 }
             }
-            next.extend(conditional_branches(schema, root, instance).map(Step::Visit));
+            next.extend(conditional_branches(schema, root, instance, undecided).map(Step::Visit));
             next.extend(dependent_schemas(schema, instance).map(Step::Visit));
         }
         steps.extend(next.into_iter().rev());
@@ -258,22 +279,27 @@ fn refs_stand_alone(root: &Value) -> bool {
 }
 
 /// The `then`/`else` of `schema`'s `if` that apply to `instance`: the one
-/// the `if` decides, or both while it does not.
+/// the `if` decides, or (`undecided`) both while it does not.
 fn conditional_branches<'a>(
     schema: &'a Value,
     root: &'a Value,
     instance: Option<&Value>,
+    undecided: bool,
 ) -> impl Iterator<Item = &'a Value> {
     let condition = schema.get("if");
     let decided = condition.and_then(|condition| {
         instance.and_then(|instance| super::conditions::decides(condition, instance, root))
     });
+    let takes = |branch: bool| match decided {
+        Some(decided) => decided == branch,
+        None => undecided,
+    };
     let then = schema
         .get("then")
-        .filter(|_| condition.is_some() && decided != Some(false));
+        .filter(|_| condition.is_some() && takes(true));
     let otherwise = schema
         .get("else")
-        .filter(|_| condition.is_some() && decided != Some(true));
+        .filter(|_| condition.is_some() && takes(false));
     then.into_iter().chain(otherwise)
 }
 

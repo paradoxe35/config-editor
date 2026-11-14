@@ -75,10 +75,24 @@ fn json_message(error: &serde_json::Error) -> String {
     let bare = message
         .strip_suffix(&format!(" at line {line} column {column}"))
         .unwrap_or(&message);
+    let bare = plain_json_words(bare);
     if line == 0 {
         bare.to_string()
     } else {
         located(bare, line, column.max(1))
+    }
+}
+
+/// The JSON reader's words for a text that ends early or goes on past
+/// its end, in plain words saying what is missing.
+fn plain_json_words(message: &str) -> &str {
+    match message {
+        "EOF while parsing a list" => "the text ends before the list is closed: a ] is missing",
+        "EOF while parsing an object" => "the text ends before the map is closed: a } is missing",
+        "EOF while parsing a string" => "the text ends inside a string: a closing \" is missing",
+        "EOF while parsing a value" => "the text ends where a value should follow",
+        "trailing characters" => "more text follows the end of the schema",
+        other => other,
     }
 }
 

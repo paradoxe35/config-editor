@@ -89,6 +89,46 @@ pub(super) fn value_completions(
     sorted_completions(candidates)
 }
 
+/// The keys a branch certain to apply declares `false` (`properties: {b:
+/// false}`, the `else` an `if` takes saying `url: false`): no value of
+/// theirs is valid, so they are not offered. A `oneOf`/`anyOf` option
+/// counts only once matched; a conditional only where the document
+/// decides it.
+fn forbidden_keys<'a>(
+    schemas: &[&'a Value],
+    branches: &[&'a Value],
+    root: &'a Value,
+    instance: Option<&Value>,
+    choices: &ChoicesAt<'_>,
+) -> HashSet<&'a str> {
+    let declares_false = |branch: &&Value| {
+        branch
+            .get("properties")
+            .and_then(Value::as_object)
+            .is_some_and(|properties| {
+                properties
+                    .values()
+                    .any(|schema| *schema == Value::Bool(false))
+            })
+    };
+    // Most schemas have none: no second walk then.
+    if !branches.iter().any(declares_false) {
+        return HashSet::new();
+    }
+    schemas
+        .iter()
+        .flat_map(|schema| certain_branches(schema, root, instance))
+        .filter(|branch| choices.of(branch).is_none_or(|(_, matched)| matched))
+        .filter_map(|branch| branch.get("properties").and_then(Value::as_object))
+        .flat_map(|properties| {
+            properties
+                .iter()
+                .filter(|(_, schema)| **schema == Value::Bool(false))
+                .map(|(key, _)| key.as_str())
+        })
+        .collect()
+}
+
 /// `(cursor_offset, selected)` for an inserted key: a scalar default the
 /// insert wrote just before the caret (`max_pending: 512|`, `mode = "fail|"`)
 /// is selected, so typing replaces it instead of appending to it.
@@ -143,6 +183,11 @@ pub(super) fn property_completions(
     instance: Option<&Value>,
     read_repeated: &dyn Fn() -> HashSet<String>,
 ) -> Vec<Completion> {
+    // Keys are typed into an object: one with nothing in it yet (a new
+    // YAML item `- `, which reads as null) is the empty object, so an
+    // `if` requiring a key is not taken.
+    let empty = Value::Object(serde_json::Map::new());
+    let instance = instance.map(|value| if value.is_null() { &empty } else { value });
     let repeated = std::cell::OnceCell::new();
     let repeated_keys = || repeated.get_or_init(read_repeated);
     let mut candidates = Vec::new();
@@ -150,6 +195,7 @@ pub(super) fn property_completions(
         .iter()
         .flat_map(|schema| branches_for(schema, root, instance))
         .collect();
+    let forbidden = forbidden_keys(schemas, &branches, root, instance, choices);
     for branch in &branches {
         let Some(properties) = branch.get("properties").and_then(Value::as_object) else {
             continue;
@@ -197,7 +243,7 @@ pub(super) fn property_completions(
                 }
                 _ => false,
             };
-            if !repeatable && present {
+            if !repeatable && present || forbidden.contains(key.as_str()) {
                 continue;
             }
             // A key a `not` keeps apart from keys written (`git` beside
@@ -224,8 +270,17 @@ pub(super) fn property_completions(
             else {
                 continue;
             };
+            let children = required_children(behavior, property, root);
+            let fills = fills_of(&children);
             let (cursor_offset, selected) =
                 default_selection(&insert, cursor_offset, property, root, behavior);
+            // A list written with items to type: the caret in the first.
+            let (cursor_offset, selected) = if selected == 0 && caret_at_list(&children) {
+                caret_in_list(&insert, cursor_offset, &fills, behavior)
+                    .unwrap_or((cursor_offset, selected))
+            } else {
+                (cursor_offset, selected)
+            };
             let title = choices.titles_holding(key);
             let type_label = info.type_label;
             candidates.push((
@@ -253,7 +308,7 @@ pub(super) fn property_completions(
                     renames: false,
                     matched: match_ranges(key, typed),
                     deprecated: is_deprecated(property, root),
-                    fills: required_fills(behavior, property, root),
+                    fills,
                     closes_tag: false,
                     read_only: false,
                 },
