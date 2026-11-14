@@ -20,13 +20,15 @@ pub(super) fn newline_with_indent(source: &str, cursor: usize) -> String {
 /// the tag starts on, not the attribute line it ends on (QA `E32-6`). A
 /// line that begins inside markup written over lines (`b --> <y/>`, the
 /// end of a comment begun above) indents from the line that markup starts
-/// on (QA `E34-2`).
+/// on (QA `E34-2`), and one that begins inside an element's text and ends
+/// it before `byte` from the line that text starts on (QA `E35-2`).
 fn line_indent(source: &str, byte: usize) -> String {
     let before = source[..byte].trim_end_matches([' ', '\t']);
     let mut from = markup_start(before).unwrap_or(byte);
     let line_start = loop {
         let line_start = source[..from].rfind('\n').map_or(0, |index| index + 1);
-        match open_markup_start(&source[..line_start]) {
+        let text_start = || text_start(source, line_start).filter(|_| source[line_start..byte].contains('<'));
+        match open_markup_start(&source[..line_start]).or_else(text_start) {
             Some(start) => from = start,
             None => break line_start,
         }
@@ -61,6 +63,15 @@ fn open_markup_start(before: &str) -> Option<usize> {
         .or_else(|| unclosed("<![CDATA[", "]]>"))
         .or_else(|| unclosed("<?", "?>"))
         .or_else(|| unclosed("<", ">"))
+}
+
+/// Where the text run that the line starting at `line_start` begins inside
+/// starts: just past the markup before it, when text comes between.
+fn text_start(source: &str, line_start: usize) -> Option<usize> {
+    let before = &source[..line_start];
+    let markup_end = before.rfind('>')?;
+    let text = &before[markup_end + 1..];
+    (!text.trim().is_empty()).then_some(markup_end)
 }
 
 /// `</name>` when a `>` typed at `cursor` would finish the start tag `<name …`,

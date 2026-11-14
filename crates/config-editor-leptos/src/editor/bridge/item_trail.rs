@@ -5,7 +5,9 @@
 //! and an item whose lines were removed and pasted back, in this save or
 //! an earlier one of the session, is the item moved (QA `E32-2`), and so
 //! is an item pasted where its lines read otherwise (another indent, a
-//! JSON item's comma) or after a switch, by its data (QA `E34-1`). Values
+//! JSON item's comma) or after a switch, by its data (QA `E34-1`). A map
+//! entry is followed the same way: one cut and pasted back holding the
+//! same data under the same key is the entry moved (QA `E35-1`). Values
 //! tell the rest.
 
 use super::super::item_sources::ItemSource;
@@ -38,6 +40,16 @@ struct Removed {
     /// Its data, as a view holds it: an item pasted in any view, its lines
     /// written otherwise, is it when it holds the same.
     value: Value,
+    /// A map entry's key; `None` for a list item.
+    key: Option<String>,
+}
+
+/// Lines removed, which a later insert may bring back: what they held,
+/// and its key when it is a map entry.
+struct Cut {
+    lines: String,
+    source: Source,
+    key: Option<String>,
 }
 
 /// The edits made to a view's text since it was last saved.
@@ -64,6 +76,7 @@ pub(crate) struct Trace {
 struct Followed {
     lines: std::ops::Range<usize>,
     source: Source,
+    key: Option<String>,
     alive: bool,
 }
 
@@ -182,21 +195,27 @@ impl Trail {
         };
         let mut followed: Vec<Followed> = before
             .iter()
-            .map(|Item { pointer, lines }| Followed {
-                lines: lines.clone(),
-                source: Source::Synced(pointer.clone()),
-                alive: true,
-            })
+            .map(
+                |Item {
+                     pointer,
+                     key,
+                     lines,
+                 }| Followed {
+                    lines: lines.clone(),
+                    source: Source::Synced(pointer.clone()),
+                    key: key.clone(),
+                    alive: true,
+                },
+            )
             .collect();
         // Lines removed, which a later insert may bring back.
-        let mut cut: Vec<(String, Source)> = self
+        let mut cut: Vec<Cut> = self
             .removed
             .iter()
-            .map(|removed| {
-                (
-                    removed.lines.clone(),
-                    Source::Origin(removed.origin.clone()),
-                )
+            .map(|removed| Cut {
+                lines: removed.lines.clone(),
+                source: Source::Origin(removed.origin.clone()),
+                key: removed.key.clone(),
             })
             .collect();
         for splice in &self.splices {
@@ -221,7 +240,7 @@ impl Trail {
                 .find(|found| found.alive && found.lines.start == item.lines.start)
             {
                 Some(found) => record(&item.pointer, &found.source),
-                None => unmatched.push(&item.pointer),
+                None => unmatched.push(item),
             }
         }
         // The data of the items cut: an item of the last saved view's, or
@@ -235,19 +254,21 @@ impl Trail {
                 .map(|removed| &removed.value),
         };
         // Pasted where its lines read otherwise, or after a switch: the
-        // item cut holding the same data.
+        // item cut holding the same data (a map entry: under the same key).
         if !cut.is_empty() && !unmatched.is_empty() {
-            for pointer in unmatched {
-                let Some(value) = now.pointer(pointer) else {
+            for item in unmatched {
+                let Some(value) = now.pointer(&item.pointer) else {
                     continue;
                 };
-                let same = cut.iter().position(|(_, source)| {
-                    note(Work::ItemComparison);
-                    value_of(source) == Some(value)
+                let same = cut.iter().position(|cut| {
+                    cut.key == item.key && {
+                        note(Work::ItemComparison);
+                        value_of(&cut.source) == Some(value)
+                    }
                 });
                 if let Some(at) = same {
-                    let (_, source) = cut.remove(at);
-                    record(pointer, &source);
+                    let cut = cut.remove(at);
+                    record(&item.pointer, &cut.source);
                 }
             }
         }
@@ -255,7 +276,7 @@ impl Trail {
         // or before.
         let removed = cut
             .into_iter()
-            .filter_map(|(lines, source)| {
+            .filter_map(|Cut { lines, source, key }| {
                 let value = value_of(&source)?.clone();
                 let origin = match source {
                     Source::Synced(pointer) => origin_of(&pointer)?,
@@ -265,6 +286,7 @@ impl Trail {
                     origin,
                     lines,
                     value,
+                    key,
                 })
             })
             .collect();
@@ -284,7 +306,7 @@ impl Trail {
 /// whose first line it removes is removed, kept in `cut` when it removes
 /// all its lines; an item whose lines it inserts again, from `cut`, is
 /// that item, where it is inserted.
-fn follow(followed: &mut Vec<Followed>, cut: &mut Vec<(String, Source)>, splice: &Splice) {
+fn follow(followed: &mut Vec<Followed>, cut: &mut Vec<Cut>, splice: &Splice) {
     let (at, end) = (splice.at, splice.at + splice.removed.len());
     let grown = splice.inserted.len() as isize - splice.removed.len() as isize;
     let shift = |offset: usize| (offset as isize + grown) as usize;
@@ -293,10 +315,11 @@ fn follow(followed: &mut Vec<Followed>, cut: &mut Vec<(String, Source)>, splice:
         if at <= lines.start && lines.start < end {
             item.alive = false;
             if lines.end <= end {
-                cut.push((
-                    splice.removed[lines.start - at..lines.end - at].to_string(),
-                    item.source.clone(),
-                ));
+                cut.push(Cut {
+                    lines: splice.removed[lines.start - at..lines.end - at].to_string(),
+                    source: item.source.clone(),
+                    key: item.key.clone(),
+                });
             }
         } else if lines.start >= end {
             item.lines = shift(lines.start)..shift(lines.end);
@@ -311,7 +334,7 @@ fn follow(followed: &mut Vec<Followed>, cut: &mut Vec<(String, Source)>, splice:
     let mut taken: Vec<std::ops::Range<usize>> = Vec::new();
     let mut index = 0;
     while index < cut.len() {
-        let lines = &cut[index].0;
+        let lines = &cut[index].lines;
         let place = splice
             .inserted
             .match_indices(lines.as_str())
@@ -326,12 +349,13 @@ fn follow(followed: &mut Vec<Followed>, cut: &mut Vec<(String, Source)>, splice:
             });
         match place {
             Some(offset) => {
-                let (lines, source) = cut.remove(index);
+                let Cut { lines, source, key } = cut.remove(index);
                 let range = at + offset..at + offset + lines.len();
                 taken.push(offset..offset + lines.len());
                 followed.push(Followed {
                     lines: range,
                     source,
+                    key,
                     alive: true,
                 });
             }

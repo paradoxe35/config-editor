@@ -223,3 +223,205 @@ fn enter_after_an_element_ending_a_comment_line_indents_from_the_comment() {
         ),
     ]);
 }
+
+/// At the end of a line that closes a construct written over lines (a
+/// block comment, a heredoc, a multi-line string or list, an element's
+/// text): the new line indents from the line the construct starts on, as
+/// after XML markup over lines (QA `E35-2`). A line inside the construct
+/// keeps its own indentation.
+#[test]
+fn enter_after_a_construct_over_lines_indents_from_its_first_line() {
+    check(&[
+        (
+            Language::HCL,
+            "a {\n  /* a\n     b */‸\n}\n",
+            "a {\n  /* a\n     b */\n  ‸\n}\n",
+        ),
+        (
+            Language::HCL,
+            "a {\n  x = 1 /* a\n     b */‸\n}\n",
+            "a {\n  x = 1 /* a\n     b */\n  ‸\n}\n",
+        ),
+        (
+            Language::HCL,
+            "a {\n  x = <<EOT\nhello\nEOT‸\n}\n",
+            "a {\n  x = <<EOT\nhello\nEOT\n  ‸\n}\n",
+        ),
+        (
+            Language::HCL,
+            "a {\n  x = <<-EOT\n    hello\n    EOT‸\n}\n",
+            "a {\n  x = <<-EOT\n    hello\n    EOT\n  ‸\n}\n",
+        ),
+        (
+            Language::HCL,
+            "a {\n  x = [\n    1,\n    2]‸\n}\n",
+            "a {\n  x = [\n    1,\n    2]\n  ‸\n}\n",
+        ),
+        (
+            Language::HCL,
+            "a {\n\tx = [\n\t\t1,\n\t\t2]‸\n}\n",
+            "a {\n\tx = [\n\t\t1,\n\t\t2]\n\t‸\n}\n",
+        ),
+        (
+            Language::TOML,
+            "[t]\nx = [\n  1,\n  2]‸\n",
+            "[t]\nx = [\n  1,\n  2]\n‸\n",
+        ),
+        (
+            Language::TOML,
+            "[t]\nx = [\n  [1,\n   2]]‸\n",
+            "[t]\nx = [\n  [1,\n   2]]\n‸\n",
+        ),
+        (
+            Language::TOML,
+            "[t]\nx = \"\"\"\n  a\n  \"\"\"‸\n",
+            "[t]\nx = \"\"\"\n  a\n  \"\"\"\n‸\n",
+        ),
+        (
+            Language::JSON,
+            "{\n  \"a\": [\n    1,\n    2],‸\n  \"b\": 1\n}\n",
+            "{\n  \"a\": [\n    1,\n    2],\n  ‸\n  \"b\": 1\n}\n",
+        ),
+        (
+            Language::JSON,
+            "{\n  \"a\": {\n    \"b\": 1},‸\n  \"c\": 1\n}\n",
+            "{\n  \"a\": {\n    \"b\": 1},\n  ‸\n  \"c\": 1\n}\n",
+        ),
+        (
+            Language::YAML,
+            "a:\n  l: [1,\n    2]‸\n",
+            "a:\n  l: [1,\n    2]\n  ‸\n",
+        ),
+        (
+            Language::XML,
+            "<r>\n  <x>text\n   more</x> <y/>‸\n</r>\n",
+            "<r>\n  <x>text\n   more</x> <y/>\n  ‸\n</r>\n",
+        ),
+        (
+            Language::XML,
+            "<r>\n  <x>text\n   more</x>‸\n</r>\n",
+            "<r>\n  <x>text\n   more</x>\n  ‸\n</r>\n",
+        ),
+        (
+            Language::XML,
+            "<r>\n  <x>a\n   b\n     c</x>‸\n</r>\n",
+            "<r>\n  <x>a\n   b\n     c</x>\n  ‸\n</r>\n",
+        ),
+        // Inside the construct the line keeps its indentation.
+        (
+            Language::HCL,
+            "x = [\n    1,‸\n    2]\n",
+            "x = [\n    1,\n    ‸\n    2]\n",
+        ),
+        (
+            Language::JSON,
+            "[\n    1,‸\n    2]\n",
+            "[\n    1,\n    ‸\n    2]\n",
+        ),
+        (
+            Language::HCL,
+            "a {\n  /* a\n     b‸\n  */\n}\n",
+            "a {\n  /* a\n     b\n     ‸\n  */\n}\n",
+        ),
+        (
+            Language::XML,
+            "<r>\n  <x>text\n   more‸\n  </x>\n</r>\n",
+            "<r>\n  <x>text\n   more\n   ‸\n  </x>\n</r>\n",
+        ),
+        // Closed on its own line: its own indentation.
+        (
+            Language::HCL,
+            "a {\n  x = [1, 2]‸\n}\n",
+            "a {\n  x = [1, 2]\n  ‸\n}\n",
+        ),
+    ]);
+}
+
+/// Finding where a construct closed by the caret's line starts reads the
+/// text's constructs a fixed number of times per Enter, at any size.
+#[test]
+fn enter_after_a_construct_reads_the_constructs_a_fixed_number_of_times() {
+    use super::super::work_count::{Work, counted};
+    let scans = |items: usize| {
+        let list: Vec<String> = (0..items).map(|item| format!("    {item}")).collect();
+        let marked = format!("{{\n  \"a\": [\n{}],‸\n  \"b\": 1\n}}\n", list.join(",\n"));
+        let (found, scans) = counted(Work::ConstructScan, || entered(Language::JSON, &marked));
+        assert!(found.contains("],\n  ‸\n"), "{found}");
+        scans
+    };
+    let (small, large) = (scans(10), scans(1000));
+    assert_eq!(small, large);
+    assert!(small <= 4, "{small} scans");
+}
+
+/// Enter in the middle of a line, right after a complete value, before
+/// what is a key or an item of its own (`port: 1‸host: x`): the rest goes
+/// on at the line's indentation (its item's content column in an item),
+/// not as a continued value (QA `E35-1b`). After a key with no value, or
+/// before more of a plain value, it goes deeper as before.
+#[test]
+fn enter_between_a_value_and_a_key_keeps_the_lines_indent() {
+    check(&[
+        (Language::YAML, "port: 1‸host: x\n", "port: 1\n‸host: x\n"),
+        (
+            Language::YAML,
+            "server:\n  port: 1‸listen: 7835\n  host: x\n",
+            "server:\n  port: 1\n  ‸listen: 7835\n  host: x\n",
+        ),
+        (
+            Language::YAML,
+            "server:\n  port: 1 ‸listen: 7835\n",
+            "server:\n  port: 1 \n  ‸listen: 7835\n",
+        ),
+        (
+            Language::YAML,
+            "a:\n  b:\n    port: \"1\"‸c: 2\n",
+            "a:\n  b:\n    port: \"1\"\n    ‸c: 2\n",
+        ),
+        (
+            Language::YAML,
+            "items:\n  - a: 1‸b: 2\n",
+            "items:\n  - a: 1\n    ‸b: 2\n",
+        ),
+        (
+            Language::YAML,
+            "items:\n  - a‸- b\n",
+            "items:\n  - a\n  ‸- b\n",
+        ),
+        (
+            Language::YAML,
+            "items:\n  - a: 1‸- b\n",
+            "items:\n  - a: 1\n  ‸- b\n",
+        ),
+        (Language::YAML, "- a‸- b\n", "- a\n‸- b\n"),
+        // After a key with no value: its children.
+        (
+            Language::YAML,
+            "port:‸listen: 7835\n",
+            "port:\n  ‸listen: 7835\n",
+        ),
+        // Inside a plain value: its continuation.
+        (Language::YAML, "a: hello ‸world\n", "a: hello \n  ‸world\n"),
+        // Other languages keep the line's indentation already.
+        (
+            Language::TOML,
+            "[t]\n  port = 1‸host = \"x\"\n",
+            "[t]\n  port = 1\n  ‸host = \"x\"\n",
+        ),
+        (
+            Language::HCL,
+            "a {\n  port = 1‸host = \"x\"\n}\n",
+            "a {\n  port = 1\n  ‸host = \"x\"\n}\n",
+        ),
+        (
+            Language::JSON,
+            "{\n  \"port\": 1,‸\"host\": \"x\"\n}\n",
+            "{\n  \"port\": 1,\n  ‸\"host\": \"x\"\n}\n",
+        ),
+        (
+            Language::XML,
+            "<r>\n  <port>1</port>‸<host>x</host>\n</r>\n",
+            "<r>\n  <port>1</port>\n  ‸<host>x</host>\n</r>\n",
+        ),
+    ]);
+}

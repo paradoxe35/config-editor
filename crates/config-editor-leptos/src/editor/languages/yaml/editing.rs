@@ -84,7 +84,7 @@ pub(super) fn is_block_scalar(value: &str) -> bool {
 /// lines below: nothing yet, a block scalar (`|`, `>-`), node properties
 /// alone or before a block scalar (`&anchor`, `!!map`, `&run |`), or an
 /// unclosed flow collection.
-fn opens_children(value: &str) -> bool {
+pub(super) fn opens_children(value: &str) -> bool {
     let tokens: Vec<&str> = value.split_whitespace().collect();
     let Some((last, properties)) = tokens.split_last() else {
         return true;
@@ -212,7 +212,7 @@ fn scalar_continuation(source: &str, line_start: usize, caret: usize, unit: &str
 
 /// The byte column of a line's content past its indentation and any item
 /// dashes (`  - - key: x` gives the column of `key`).
-fn item_content_column(line: &str) -> usize {
+pub(super) fn item_content_column(line: &str) -> usize {
     let mut rest = line.trim_start_matches([' ', '\t']);
     while let Some(after) = rest.strip_prefix('-').filter(|after| after.starts_with([' ', '\t'])) {
         rest = after.trim_start_matches([' ', '\t']);

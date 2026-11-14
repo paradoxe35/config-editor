@@ -5,6 +5,8 @@
 use super::super::keyboard::utf16_to_byte_index;
 use super::super::language::{ConfigLanguage, Newline};
 
+mod construct_start;
+
 /// What Enter writes at `cursor` (UTF-16) in `text`; `in_body` says whether
 /// a line (by index) is inside a multi-line string's body.
 pub(in crate::editor) fn newline_at(
@@ -33,6 +35,24 @@ pub(in crate::editor) fn newline_at(
         && !after_trailing_comment(behavior, line, &text[byte..line_end])
     {
         return Newline::new(format!("\n{}", indent_of(line)));
+    }
+    // At the end of a construct written over lines (`2]`, `b */`, a
+    // heredoc's `EOT`), the line it starts on sets the indentation, as if
+    // the caret's line were indented as that one (QA `E35-2`).
+    let own = indent_of(line);
+    if byte > line_start + own.len()
+        && let Some(from) = construct_start::line_of_start(behavior, text, line_start, byte)
+    {
+        let base = indent_of(&text[from..]);
+        if base != own {
+            let rebased = format!(
+                "{}{base}{}",
+                &text[..line_start],
+                &text[line_start + own.len()..]
+            );
+            // Indentation is ASCII: as many UTF-16 units as bytes.
+            return behavior.newline(&rebased, cursor - own.len() + base.len());
+        }
     }
     behavior.newline(text, cursor)
 }

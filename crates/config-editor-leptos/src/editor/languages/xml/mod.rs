@@ -41,6 +41,7 @@ mod identity;
 mod kept_markup;
 mod kept_elements;
 mod written_names;
+mod pasted_attributes;
 // The fold ranges (the `folding` feature).
 #[cfg(feature = "folding")]
 mod folding;
@@ -386,7 +387,9 @@ impl ConfigLanguage for XmlBehavior {
             return Err(reason);
         }
         let framing = previous.map(xml_framing).unwrap_or_default();
-        let attributes = previous.map(attribute_paths).unwrap_or_default();
+        let attributes = previous
+            .map(|previous| pasted_attributes::with_pasted_back(attribute_paths(previous), previous, value))
+            .unwrap_or_default();
         let old = previous.filter(|_| !attributes.is_empty()).and_then(|previous| xml_parse(previous).ok());
         if let Some(reason) = attribute_values::first_container_attribute(value, old.as_ref(), &attributes) {
             return Err(reason);
