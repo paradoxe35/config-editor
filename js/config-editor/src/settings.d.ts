@@ -1126,6 +1126,30 @@ export interface EditorStrings {
    */
   notFormat?: string;
   /**
+   * A list (`{value}`) with no item its `contains` schema allows.
+   *
+   * @default "{value} has no item its \"contains\" schema allows"
+   */
+  noItemContained?: string;
+  /**
+   * A list (`{value}`) with fewer items its `contains` schema allows than its `minContains` (`{limit}`).
+   *
+   * @default "{value} has fewer than {limit} items its \"contains\" schema allows"
+   */
+  tooFewContained?: string;
+  /**
+   * A list (`{value}`) with more items its `contains` schema allows than its `maxContains` (`{limit}`).
+   *
+   * @default "{value} has more than {limit} items its \"contains\" schema allows"
+   */
+  tooManyContained?: string;
+  /**
+   * A value its `not` schema (`{schema}`, as JSON) matches.
+   *
+   * @default "{value} must not match {schema}"
+   */
+  mustNotMatch?: string;
+  /**
    * A value that matches none of a schema's options (`{keyword}`: `oneOf` or `anyOf`), with why each fails (`{reasons}`, each worded by `option_needs`, `option_refuses` or `option_problem`, joined by `; `).
    *
    * @default "matches none of the {keyword} options: {reasons}"

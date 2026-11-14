@@ -93,7 +93,36 @@ impl Wording<'_> {
             ValidationErrorKind::FalseSchema => {
                 super::super::false_schema::message(&error.instance().to_string())
             }
+            ValidationErrorKind::Contains => self.contains(error),
+            ValidationErrorKind::Not { schema } => fill(
+                &strings.must_not_match,
+                &[("value", &error.instance()), ("schema", schema)],
+            ),
             _ => error.to_string(),
+        }
+    }
+
+    /// A list `contains` (with its `minContains` or `maxContains`, the
+    /// keyword the validator names) refuses: how many of its items the
+    /// `contains` schema allows, against how many it wants.
+    fn contains(&self, error: &ValidationError<'_>) -> String {
+        let schema_path = error.schema_path().as_str();
+        let (parent, keyword) = schema_path.rsplit_once('/').unwrap_or(("", schema_path));
+        let limit = self
+            .root
+            .pointer(parent)
+            .and_then(|schema| schema.get(keyword));
+        let value = error.instance();
+        match (keyword, limit) {
+            ("minContains", Some(limit)) => fill(
+                &self.strings.too_few_contained,
+                &[("value", &value), ("limit", limit)],
+            ),
+            ("maxContains", Some(limit)) => fill(
+                &self.strings.too_many_contained,
+                &[("value", &value), ("limit", limit)],
+            ),
+            _ => fill(&self.strings.no_item_contained, &[("value", &value)]),
         }
     }
 
@@ -223,17 +252,30 @@ impl Wording<'_> {
 
     /// The names of the `count` options of the combinator `error` is about:
     /// each one's title, else the start of its description, else "option
-    /// 2" (through a `$ref` when the option is one).
+    /// 2" (through a `$ref` when the option is one); "option 2" too for a
+    /// name several options share, which tells none of them apart.
     fn option_names(&self, error: &ValidationError<'_>, count: usize) -> Vec<String> {
         let options = self
             .root
             .pointer(error.schema_path().as_str())
             .and_then(Value::as_array)
             .filter(|options| options.len() == count);
-        (0..count)
-            .map(|index| {
-                options
-                    .and_then(|options| self.named(&options[index]))
+        let named: Vec<Option<String>> = (0..count)
+            .map(|index| options.and_then(|options| self.named(&options[index])))
+            .collect();
+        named
+            .iter()
+            .enumerate()
+            .map(|(index, name)| {
+                name.clone()
+                    .filter(|name| {
+                        named
+                            .iter()
+                            .flatten()
+                            .filter(|other| *other == name)
+                            .count()
+                            == 1
+                    })
                     .unwrap_or_else(|| {
                         fill(&self.strings.option_number, &[("number", &(index + 1))])
                     })
@@ -288,23 +330,32 @@ fn unexpected(error: &ValidationError<'_>) -> Option<String> {
     }
 }
 
-/// For an `anyOf` whose every branch wants another type: `true is not of
-/// type "integer", "string", "null"`, instead of "not valid under any of the
-/// schemas".
+/// For an `anyOf` whose every branch wants another type for the value:
+/// `true is not of type "integer", "string", "null"`, instead of "not
+/// valid under any of the schemas" (or the problems of the one option of
+/// text, `1.5` for `integer` or `"auto"`).
 fn expected_types(
     error: &ValidationError<'_>,
     branches: &[Vec<ValidationError<'_>>],
     strings: &EditorStrings,
 ) -> Option<String> {
+    let path = error.instance_path().as_str();
     let mut types: Vec<String> = Vec::new();
-    for nested in branches.iter().flatten() {
-        if !matches!(nested.kind(), ValidationErrorKind::Type { .. }) {
-            return None;
-        }
-        for name in listed_types(&nested.to_string())? {
-            if !types.contains(&name) {
-                types.push(name);
+    for branch in branches {
+        let mut typed = false;
+        for nested in branch.iter().filter(|nested| {
+            matches!(nested.kind(), ValidationErrorKind::Type { .. })
+                && nested.instance_path().as_str() == path
+        }) {
+            typed = true;
+            for name in listed_types(&nested.to_string())? {
+                if !types.contains(&name) {
+                    types.push(name);
+                }
             }
+        }
+        if !typed {
+            return None;
         }
     }
     (!types.is_empty()).then(|| {

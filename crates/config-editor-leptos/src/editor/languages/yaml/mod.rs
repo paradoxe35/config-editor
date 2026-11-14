@@ -53,7 +53,7 @@ use super::inline::{caret_value_end,
     InlineEntry as CaretEntry, inline_caret, inline_key_at, inline_sibling_keys,
     statement_start_at, entry_follows, in_front_of_inline_entry,
 };
-use super::super::completion::{child_fill, kept_const, kept_default, array_branch, object_branch};
+use super::super::completion::{kept_const, kept_default, array_branch, object_branch, required_children, Fill, RequiredChild};
 use super::super::keyboard::utf16_to_byte_index;
 use super::super::language::{LanguageConfig, CompletionContext, Newline, EntryPosition, InsertContext, ConfigLanguage, LanguageInfo, Lexical, Span, ParseError,
     SchemaPathSegment,

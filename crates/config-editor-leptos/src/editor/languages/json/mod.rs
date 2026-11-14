@@ -23,7 +23,7 @@ use suggestions::*;
 use editing::*;
 
 use super::super::commands::indent_unit;
-use super::super::completion::{kept_const, kept_default, array_branch, object_branch, fill_value, placeholder};
+use super::super::completion::{kept_const, kept_default, array_branch, object_branch, placeholder, required_children, Fill, RequiredChild};
 use super::super::highlight::{self, TokenKind, Tokens};
 use super::super::keyboard::utf16_to_byte_index;
 use super::super::language::pointer_segments;

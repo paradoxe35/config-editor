@@ -471,7 +471,7 @@ fn object_expression(map: &serde_json::Map<String, Value>, entry: impl Fn(&Value
 /// An object's key: an identifier unquoted, anything else a string.
 fn object_key(key: &str) -> hcl::expr::ObjectKey {
     match hcl::Identifier::new(key) {
-        Ok(identifier) if is_ident(key) && !key.contains('-') => hcl::expr::ObjectKey::Identifier(identifier),
+        Ok(identifier) if bare_object_key(key) => hcl::expr::ObjectKey::Identifier(identifier),
         _ => hcl::expr::ObjectKey::Expression(hcl::Expression::String(key.to_string())),
     }
 }

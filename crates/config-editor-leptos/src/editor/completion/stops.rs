@@ -24,53 +24,44 @@ pub fn schema_example(schema: &Value, root: &Value) -> Option<Value> {
 }
 
 /// `(key, value text)` of each scalar a block insert for `property` writes
-/// for its required children, depth first in schema order: what the
-/// language helpers write ([`fill_value`]), as found later by
+/// for its required children, depth first in schema order: what
+/// [`required_children`] has the language write, as found later by
 /// [`stop_ranges`]. The child the caret goes to is written empty, and so
-/// not found.
+/// is none.
 pub(crate) fn required_fills(
     behavior: &dyn ConfigLanguage,
     property: &Value,
     root: &Value,
 ) -> Vec<(String, String)> {
     let mut fills = Vec::new();
-    collect_fills(behavior, property, root, &mut fills, 0);
+    collect_fills(&required_children(behavior, property, root), &mut fills);
     fills
 }
 
-fn collect_fills(
-    behavior: &dyn ConfigLanguage,
-    property: &Value,
-    root: &Value,
-    fills: &mut Vec<(String, String)>,
-    depth: usize,
-) {
-    if depth > 8 {
-        return;
-    }
-    let item = || {
-        array_branch(property, root)
-            .and_then(|array| array.get("items"))
-            .and_then(|items| object_branch(items, root))
-    };
-    let Some(branch) = object_branch(property, root).or_else(item) else {
-        return;
-    };
-    let properties = branch.get("properties").and_then(Value::as_object);
-    let required = branch.get("required").and_then(Value::as_array);
-    for name in required.into_iter().flatten().filter_map(Value::as_str) {
-        let key = behavior.required_property(name);
-        let Some(child) = properties.and_then(|properties| properties.get(key)) else {
-            continue;
-        };
-        match fill_value(behavior, child, root) {
-            Some(Value::Object(_) | Value::Array(_)) => {
-                collect_fills(behavior, child, root, fills, depth + 1);
+fn collect_fills(children: &[RequiredChild<'_>], fills: &mut Vec<(String, String)>) {
+    for child in children {
+        match &child.fill {
+            Fill::Children(nested) => collect_fills(nested, fills),
+            Fill::Value(value) | Fill::CaretAt(value) | Fill::Empty(Some(value)) => {
+                collect_values(child.key, value, fills);
             }
-            Some(Value::String(text)) if text.is_empty() => {}
-            Some(value) => fills.push((key.to_string(), value_label(&value))),
-            None => {}
+            Fill::Caret { .. } | Fill::Empty(None) => {}
         }
+    }
+}
+
+/// The scalars of `value` written for `key`: itself, or an object's
+/// members under their own keys.
+fn collect_values(key: &str, value: &Value, fills: &mut Vec<(String, String)>) {
+    match value {
+        Value::Object(members) => {
+            for (key, member) in members {
+                collect_values(key, member, fills);
+            }
+        }
+        Value::Array(_) | Value::Null => {}
+        Value::String(text) if text.is_empty() => {}
+        value => fills.push((key.to_string(), value_label(value))),
     }
 }
 

@@ -362,29 +362,25 @@ fn property_hover(
         }
     }
     examples.truncate(5);
-    let required = parents
-        .iter()
-        .flat_map(|schema| branches_for(schema, root, at(parent)))
-        .any(|branch| {
-            branch
-                .get("required")
-                .and_then(Value::as_array)
-                .is_some_and(|required| required.iter().any(|name| name.as_str() == Some(&key)))
-        });
     // A key of `oneOf`/`anyOf` options of the object holding it: the
-    // option it is in (or those offering it), and its schema there.
+    // option it is in (or those offering it), and its schema there. What
+    // is said of it is what its suggestion says (see `key_info`).
     let parent_choices =
         ChoicesAt::in_object(&parents, root, || object_at(source, parent, behavior));
-    let holding = parent_choices.holding(&key);
+    let parent_branches: Vec<&Value> = parents
+        .iter()
+        .flat_map(|schema| branches_for(schema, root, at(parent)))
+        .collect();
+    let info = key_info(&key, &parent_branches, &parent_choices, root);
+    let required = info.as_ref().is_some_and(|info| info.required);
     let type_label = if let Some(list) = owners.first() {
         schema_type_label(list, root, "property")
     } else if named.len() > 1 {
         type_label_of_all(&named, root, "property")
-    } else if holding.is_empty() {
-        schema_type_label(schemas[0], root, "property")
+    } else if let Some(info) = info {
+        info.type_label
     } else {
-        let schemas: Vec<&Value> = holding.iter().map(|(_, schema)| *schema).collect();
-        type_label_of_all(&schemas, root, "property")
+        schema_type_label(schemas[0], root, "property")
     };
     let choice = options
         .hover()

@@ -13,12 +13,6 @@ fn written_const<'a>(property: &'a Value, root: &'a Value) -> Option<&'a Value> 
     kept_const(&HclBehavior, property, root)
 }
 
-/// The text a block writes for a required child past the caret's: its
-/// [`fill_value`], or nothing when HCL keeps none.
-fn written_fill(child: &Value, root: &Value) -> String {
-    fill_value(&HclBehavior, child, root).map(|value| hcl_text(&value)).unwrap_or_default()
-}
-
 /// A key typed in a block written on one line (`websocket { ho|path = "/x" }`,
 /// `websocket { path = "/x" ho| }`): a block on one line holds a single
 /// attribute, so a new one opens it over lines, its attribute on a line of
@@ -628,7 +622,10 @@ pub(super) fn current_line_key(line: &str) -> Option<String> {
 }
 
 /// Scalars render `key = value`; objects expand to a block over their
-/// required children.
+/// required children (an attribute holding an object where a key is no
+/// identifier, as the converter writes it). Keys are written as the
+/// converter writes them: an identifier in a body, else (in an object)
+/// [`object_key_text`]; a key that cannot be written is not offered.
 pub(super) fn property_insert(
     key: &str,
     property: &Value,
@@ -637,10 +634,12 @@ pub(super) fn property_insert(
     unit: &str,
     in_body: bool,
 ) -> Option<(String, usize)> {
-    if key.is_empty() || !is_ident(key) {
-        return None;
-    }
-    let mut insert = format!("{key} = ");
+    let written_key = if in_body {
+        hcl::Identifier::new(key).ok()?.to_string()
+    } else {
+        object_key_text(key)
+    };
+    let mut insert = format!("{written_key} = ");
     if let Some(value) = written_const(property, root) {
         insert.push_str(&hcl_text(value));
         let caret = utf16(&insert);
@@ -668,51 +667,19 @@ pub(super) fn property_insert(
             let caret = utf16(&insert);
             return Some((insert, caret));
         }
-        let child_indent = format!("{base_indent}{unit}");
+        let children = required_children(&HclBehavior, property, root);
         // In a body an object is a block (`heartbeat {`), as documents and
         // the converter write it; in an object expression, an attribute.
         // Maps too (`clients`, `services`): the converter writes every
         // object with identifier keys as a block.
-        if in_body {
-            insert = format!("{key} ");
+        let block = in_body && children.iter().all(|child| is_ident(child.key));
+        if block {
+            insert = format!("{written_key} ");
         }
-        insert.push_str("{\n");
         let mut caret = None;
-        if let Some(branch) = object_branch(property, root)
-            && let Some(required) = required_children(branch)
-        {
-            for (name, child) in required {
-                insert.push_str(&child_indent);
-                insert.push_str(&name);
-                insert.push_str(" = ");
-                // The first child takes the caret; the others get a valid
-                // placeholder so the document stays parseable.
-                let takes_caret = caret.is_none();
-                if takes_caret {
-                    caret = Some(utf16(&insert));
-                }
-                match written_default(child, root) {
-                    Some(default) => insert.push_str(&hcl_text(default)),
-                    None if !takes_caret => insert.push_str(&written_fill(child, root)),
-                    // The caret's own child: a string starts quoted, caret inside.
-                    None if placeholder(child, root).is_string() => {
-                        insert.push_str("\"\"");
-                        caret = caret.map(|position| position + 1);
-                    }
-                    None => {}
-                }
-                insert.push('\n');
-            }
-        }
-        if caret.is_none() {
-            // No required children: the caret waits on an indented line inside.
-            insert.push_str(&child_indent);
-            caret = Some(utf16(&insert));
-            insert.push('\n');
-        }
-        insert.push_str(base_indent);
-        insert.push('}');
-        return Some((insert, caret.unwrap_or_default()));
+        write_object(&children, block, base_indent, unit, &mut insert, &mut caret);
+        let caret = caret.map_or_else(|| utf16(&insert), |at| utf16(&insert[..at]));
+        return Some((insert, caret));
     }
     if let Some(default) = written_default(property, root) {
         insert.push_str(&hcl_text(default));
@@ -726,17 +693,65 @@ pub(super) fn property_insert(
     Some((insert, caret))
 }
 
-/// The required properties of an object schema that have their own schema, in
-/// the order the schema lists them.
-pub(super) fn required_children(branch: &Value) -> Option<Vec<(String, &Value)>> {
-    let properties = branch.get("properties").and_then(Value::as_object)?;
-    let required = branch.get("required").and_then(Value::as_array)?;
-    let children: Vec<(String, &Value)> = required
-        .iter()
-        .filter_map(Value::as_str)
-        .filter_map(|name| properties.get(name).map(|child| (name.to_string(), child)))
-        .collect();
-    (!children.is_empty()).then_some(children)
+/// `children` as the body of a block (`block`) or an object expression,
+/// `{` … `}` over lines under `base_indent`; `caret` is set to the byte
+/// offset in `insert` of the value the caret goes to (else the line
+/// inside, when there are no children).
+fn write_object(
+    children: &[RequiredChild<'_>],
+    block: bool,
+    base_indent: &str,
+    unit: &str,
+    insert: &mut String,
+    caret: &mut Option<usize>,
+) {
+    let child_indent = format!("{base_indent}{unit}");
+    insert.push_str("{\n");
+    let mut written = false;
+    for child in children {
+        // HCL has no empty value: a child with none to write is left out.
+        if matches!(child.fill, Fill::Empty(None)) {
+            continue;
+        }
+        written = true;
+        insert.push_str(&child_indent);
+        insert.push_str(&if block { child.key.to_string() } else { object_key_text(child.key) });
+        match &child.fill {
+            Fill::Children(nested) => {
+                let nested_block = block && nested.iter().all(|nested| is_ident(nested.key));
+                insert.push_str(if nested_block { " " } else { " = " });
+                write_object(nested, nested_block, &child_indent, unit, insert, caret);
+            }
+            fill => {
+                insert.push_str(" = ");
+                match fill {
+                    Fill::Value(value) | Fill::Empty(Some(value)) => insert.push_str(&hcl_text(value)),
+                    // A string starts quoted, the caret inside.
+                    Fill::Caret { string: true } => {
+                        insert.push_str("\"\"");
+                        *caret = Some(insert.len() - 1);
+                    }
+                    Fill::Caret { string: false } => *caret = Some(insert.len()),
+                    // Before the value, inside an empty list.
+                    Fill::CaretAt(value) => {
+                        let text = hcl_text(value);
+                        *caret = Some(insert.len() + usize::from(text == "[]"));
+                        insert.push_str(&text);
+                    }
+                    Fill::Children(_) | Fill::Empty(None) => {}
+                }
+            }
+        }
+        insert.push('\n');
+    }
+    if !written && caret.is_none() {
+        // No required children: the caret waits on an indented line inside.
+        insert.push_str(&child_indent);
+        *caret = Some(insert.len());
+        insert.push('\n');
+    }
+    insert.push_str(base_indent);
+    insert.push('}');
 }
 
 /// Renders a schema value as HCL text. Strings always quote: HCL has no bare
@@ -757,12 +772,25 @@ pub(super) fn hcl_text(value: &Value) -> String {
         Value::Object(map) => {
             let pairs: Vec<String> = map
                 .iter()
-                .filter(|(key, _)| is_ident(key))
-                .map(|(key, child)| format!("{key} = {}", hcl_text(child)))
+                .map(|(key, child)| format!("{} = {}", object_key_text(key), hcl_text(child)))
                 .collect();
             format!("{{ {} }}", pairs.join(", "))
         }
     }
+}
+
+/// A key of an object expression as the converter writes it (see
+/// `convert::object_key`): an identifier bare, anything else (a dot, a
+/// dash, a space, a keyword like `true`) a quoted string.
+pub(super) fn object_key_text(key: &str) -> String {
+    if bare_object_key(key) { key.to_string() } else { hcl_text(&Value::String(key.to_string())) }
+}
+
+/// Whether an object expression's key is written bare: an identifier with
+/// no dash (`a-b` would read as a subtraction) that is no keyword (`true`
+/// is the value, not the key).
+pub(super) fn bare_object_key(key: &str) -> bool {
+    is_ident(key) && !key.contains('-') && !matches!(key, "null" | "true" | "false")
 }
 
 /// Whether the caret ends `before_caret` at a label of a block header: a

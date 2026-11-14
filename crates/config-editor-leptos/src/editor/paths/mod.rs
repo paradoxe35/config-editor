@@ -304,6 +304,42 @@ pub(crate) fn problem_span(
         .iter()
         .find_map(|pointer| locate(pointer))
         .or_else(|| first_repeated(behavior, source, pointer))
+        .or_else(|| {
+            through_shared(behavior, source, pointer, |written| {
+                problem_span(behavior, source, written, required, written_as_block)
+            })
+        })
+}
+
+/// Where the key `pointer` names is written (a key a problem is about), in
+/// an inline container or not, or where the text writes it once and reads
+/// it there (see [`through_shared`]).
+pub(crate) fn problem_key_span(
+    behavior: &dyn ConfigLanguage,
+    source: &str,
+    pointer: &str,
+) -> Option<Span> {
+    inline_location(behavior, source, pointer, true)
+        .or_else(|| memo_key_span(behavior, source, pointer))
+        .or_else(|| {
+            through_shared(behavior, source, pointer, |written| {
+                problem_key_span(behavior, source, written)
+            })
+        })
+}
+
+/// `locate` of the pointer the field at `pointer` is written at when the
+/// text writes it once and reads it in several places (a YAML anchor read
+/// through an alias or a merge, `ConfigLanguage::written_at`); `None` when
+/// it reads through nothing.
+fn through_shared(
+    behavior: &dyn ConfigLanguage,
+    source: &str,
+    pointer: &str,
+    locate: impl FnOnce(&str) -> Option<Span>,
+) -> Option<Span> {
+    let written = behavior.written_at(source, pointer)?;
+    (written != pointer).then(|| locate(&written))?
 }
 
 #[cfg(any(feature = "protect", feature = "schema-validation"))]

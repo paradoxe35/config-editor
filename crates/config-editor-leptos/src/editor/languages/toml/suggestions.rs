@@ -13,12 +13,6 @@ fn written_const<'a>(property: &'a Value, root: &'a Value) -> Option<&'a Value> 
     kept_const(&TomlBehavior, property, root)
 }
 
-/// The text a block writes for a required child past the caret's: its
-/// [`fill_value`], or nothing when TOML keeps none.
-fn written_fill(child: &Value, root: &Value) -> String {
-    fill_value(&TomlBehavior, child, root).map(|value| toml_text(&value)).unwrap_or_default()
-}
-
 pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionContext {
     let cursor = utf16_to_byte_index(source, cursor);
     let lines = super::lines::TextLines::new(source, false);
@@ -392,7 +386,7 @@ pub(super) fn property_insert(
     root: &Value,
     context: &InsertContext<'_>,
 ) -> Option<(String, usize)> {
-    let toml_key = toml_key_for_completion(key)?;
+    let toml_key = toml_key(key);
     if context.position == EntryPosition::Name {
         // `[[…]]` names an array of tables; `[…]` a table, or a parent on the
         // way to a deeper header.
@@ -411,7 +405,7 @@ pub(super) fn property_insert(
     }
     // Inside an inline table a nested object stays inline; a header is invalid there.
     if context.position == EntryPosition::Inline
-        && let Some(branch) = object_branch(property, root)
+        && object_branch(property, root).is_some()
         && schema_const(property, root).is_none()
         && array_branch(property, root).is_none()
     {
@@ -422,40 +416,11 @@ pub(super) fn property_insert(
             let cursor = insert.encode_utf16().count();
             return Some((insert, cursor));
         }
-        let mut insert = format!("{toml_key} = {{");
+        let mut insert = format!("{toml_key} = ");
         let mut cursor = None;
-        let mut first = true;
-        for (name, child) in required_properties(branch) {
-            let Some(child_key) = toml_key_for_completion(name) else {
-                continue;
-            };
-            insert.push_str(if first { " " } else { ", " });
-            first = false;
-            insert.push_str(&child_key);
-            insert.push_str(" = ");
-            // The first child takes the caret; the others get a valid
-            // placeholder so the document stays parseable.
-            let takes_caret = cursor.is_none();
-            if takes_caret {
-                cursor = Some(insert.encode_utf16().count());
-            }
-            match written_default(child, root) {
-                Some(default) => insert.push_str(&toml_text(default)),
-                None if !takes_caret => insert.push_str(&written_fill(child, root)),
-                // The caret's own child: a string starts quoted, caret inside.
-                None if placeholder(child, root).is_string() => {
-                    insert.push_str("\"\"");
-                    cursor = cursor.map(|position| position + 1);
-                }
-                None => {}
-            }
-        }
-        // No required children: the caret lands between padded braces.
-        if first {
-            insert.push(' ');
-        }
-        let cursor = cursor.unwrap_or_else(|| insert.encode_utf16().count());
-        insert.push_str(" }");
+        let children = required_children(&TomlBehavior, property, root);
+        write_inline(&children, &mut insert, &mut cursor);
+        let cursor = cursor.map_or_else(|| insert.encode_utf16().count(), |at| insert[..at].encode_utf16().count());
         return Some((insert, cursor));
     }
     if let Some(value) = written_const(property, root) {
@@ -469,35 +434,13 @@ pub(super) fn property_insert(
         // with the item's required keys; a default is the list itself.
         if default.is_none()
             && context.position == EntryPosition::Block
-            && let Some(item) = array
-                .get("items")
-                .and_then(|items| object_branch(items, root))
+            && array.get("items").and_then(|items| object_branch(items, root)).is_some()
             && let Some(header) = table_header(context.path, &toml_key)
         {
             let mut insert = format!("[[{header}]]\n");
             let mut cursor = None;
-            for (name, child) in required_properties(item) {
-                if cursor.is_some() {
-                    // Later children get a valid placeholder.
-                    let Some(child_key) = toml_key_for_completion(name) else {
-                        continue;
-                    };
-                    insert.push_str(&format!("{child_key} = {}\n", written_fill(child, root)));
-                    continue;
-                }
-                let inline = InsertContext {
-                    position: EntryPosition::Inline,
-                    path: &[],
-                    ..*context
-                };
-                let Some((line, caret)) = property_insert(name, child, root, &inline) else {
-                    continue;
-                };
-                cursor = Some(insert.encode_utf16().count() + caret);
-                insert.push_str(&line);
-                insert.push('\n');
-            }
-            let cursor = cursor.unwrap_or_else(|| insert.encode_utf16().count());
+            write_lines(&required_children(&TomlBehavior, property, root), &mut insert, &mut cursor);
+            let cursor = cursor.map_or_else(|| insert.encode_utf16().count(), |at| insert[..at].encode_utf16().count());
             return Some((insert, cursor));
         }
         match default {
@@ -513,7 +456,7 @@ pub(super) fn property_insert(
             }
         }
     }
-    if let Some(branch) = object_branch(property, root) {
+    if object_branch(property, root).is_some() {
         if let Some(default) = written_default(property, root)
             .filter(|value| !value.as_object().is_some_and(|map| map.is_empty()))
         {
@@ -532,31 +475,8 @@ pub(super) fn property_insert(
         };
         let mut insert = format!("[{header}]\n");
         let mut cursor = None;
-        for (name, child) in required_properties(branch) {
-            let Some(child_key) = toml_key_for_completion(name) else {
-                continue;
-            };
-            insert.push_str(&child_key);
-            insert.push_str(" = ");
-            // The first child takes the caret; the others get a valid
-            // placeholder so the document stays parseable.
-            let takes_caret = cursor.is_none();
-            if takes_caret {
-                cursor = Some(insert.encode_utf16().count());
-            }
-            match written_default(child, root) {
-                Some(default) => insert.push_str(&toml_text(default)),
-                None if !takes_caret => insert.push_str(&written_fill(child, root)),
-                // The caret's own child: a string starts quoted, caret inside.
-                None if placeholder(child, root).is_string() => {
-                    insert.push_str("\"\"");
-                    cursor = cursor.map(|position| position + 1);
-                }
-                None => {}
-            }
-            insert.push('\n');
-        }
-        let cursor = cursor.unwrap_or_else(|| insert.encode_utf16().count());
+        write_lines(&required_children(&TomlBehavior, property, root), &mut insert, &mut cursor);
+        let cursor = cursor.map_or_else(|| insert.encode_utf16().count(), |at| insert[..at].encode_utf16().count());
         return Some((insert, cursor));
     }
     if let Some(default) = written_default(property, root) {
@@ -575,34 +495,78 @@ pub(super) fn property_insert(
     Some((insert, cursor))
 }
 
-/// The dotted header naming `key` under `path` (`web.certificates`), or
+/// `children` as the lines of a table (`key = value`), a nested object as
+/// an inline table; `caret` is set to the byte offset in `insert` of the
+/// value the caret goes to.
+fn write_lines(children: &[RequiredChild<'_>], insert: &mut String, caret: &mut Option<usize>) {
+    for child in children {
+        if write_child(child, insert, caret) {
+            insert.push('\n');
+        }
+    }
+}
+
+/// `children` as an inline table (`{ cpu = 2, mem = "1G" }`).
+fn write_inline(children: &[RequiredChild<'_>], insert: &mut String, caret: &mut Option<usize>) {
+    insert.push('{');
+    let mut first = true;
+    for child in children {
+        let at = insert.len();
+        insert.push_str(if first { " " } else { ", " });
+        if write_child(child, insert, caret) {
+            first = false;
+        } else {
+            insert.truncate(at);
+        }
+    }
+    // No children: the caret lands between padded braces.
+    if first {
+        insert.push(' ');
+        caret.get_or_insert(insert.len());
+    }
+    insert.push_str(" }");
+}
+
+/// `key = value` for one required child; `false` (and nothing written)
+/// when TOML has nothing to write for it (it has no empty value).
+fn write_child(child: &RequiredChild<'_>, insert: &mut String, caret: &mut Option<usize>) -> bool {
+    if matches!(child.fill, Fill::Empty(None)) {
+        return false;
+    }
+    insert.push_str(&toml_key(child.key));
+    insert.push_str(" = ");
+    match &child.fill {
+        Fill::Value(value) | Fill::Empty(Some(value)) => insert.push_str(&toml_text(value)),
+        Fill::Children(nested) => write_inline(nested, insert, caret),
+        // A string starts quoted, the caret inside.
+        Fill::Caret { string: true } => {
+            insert.push_str("\"\"");
+            *caret = Some(insert.len() - 1);
+        }
+        Fill::Caret { string: false } => *caret = Some(insert.len()),
+        // Before the value, inside an empty list.
+        Fill::CaretAt(value) => {
+            let text = toml_text(value);
+            *caret = Some(insert.len() + usize::from(text == "[]"));
+            insert.push_str(&text);
+        }
+        Fill::Empty(None) => {}
+    }
+    true
+}
+
+/// The dotted header naming `key` (as written) under `path` (`web.certificates`), or
 /// `None` when the path crosses an array item, which headers cannot address.
 pub(super) fn table_header(path: &[SchemaPathSegment], key: &str) -> Option<String> {
     let mut segments = Vec::with_capacity(path.len() + 1);
     for segment in path {
         match segment {
-            SchemaPathSegment::Key(parent) => segments.push(toml_key_for_completion(parent)?),
+            SchemaPathSegment::Key(parent) => segments.push(toml_key(parent)),
             SchemaPathSegment::ArrayItem(_) => return None,
         }
     }
     segments.push(key.to_string());
     Some(segments.join("."))
-}
-
-/// The required properties of an object schema that have a schema of their
-/// own, in the order the schema lists them.
-pub(super) fn required_properties(branch: &Value) -> Vec<(&str, &Value)> {
-    let Some(properties) = branch.get("properties").and_then(Value::as_object) else {
-        return Vec::new();
-    };
-    branch
-        .get("required")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(Value::as_str)
-        .filter_map(|name| properties.get(name).map(|child| (name, child)))
-        .collect()
 }
 
 /// Non-string scalars render as JSON, which TOML also accepts.
@@ -637,37 +601,20 @@ pub(super) fn toml_inline_table(value: &Value) -> String {
     };
     let pairs: Vec<String> = map
         .iter()
-        .filter_map(|(key, child)| {
-            toml_key_for_completion(key)
-                .map(|toml_key| format!("{toml_key} = {}", toml_text(child)))
-        })
+        .map(|(key, child)| format!("{} = {}", toml_key(key), toml_text(child)))
         .collect();
     format!("{{ {} }}", pairs.join(", "))
 }
 
-/// Bare when the key matches TOML's bare-key grammar, quoted otherwise.
-/// Dotted keys quote per segment.
-pub(super) fn toml_key_for_completion(key: &str) -> Option<String> {
-    if key.is_empty() {
-        return None;
-    }
-    let rendered: Vec<String> = key
-        .split('.')
-        .map(|segment| {
-            if !segment.is_empty()
-                && segment.chars().all(|character| {
-                    character.is_ascii_alphanumeric() || matches!(character, '_' | '-')
-                })
-            {
-                segment.to_string()
-            } else if segment.is_empty() {
-                format!("\"{segment}\"")
-            } else {
-                basic_string(segment)
-            }
-        })
-        .collect();
-    Some(rendered.join("."))
+/// `key` as TOML's writer writes one key: bare when it matches the bare-key
+/// grammar, else a basic string (`"editor.fontSize"`, `""`): a dot in a
+/// key is part of it, never a dotted path.
+pub(super) fn toml_key(key: &str) -> String {
+    let bare = !key.is_empty()
+        && key
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric() || matches!(character, '_' | '-'));
+    if bare { key.to_string() } else { basic_string(key) }
 }
 
 /// Key under `column` (a character index) on a single line: the key before

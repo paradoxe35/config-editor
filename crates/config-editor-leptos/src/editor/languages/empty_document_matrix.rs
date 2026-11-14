@@ -65,3 +65,61 @@ fn the_first_key_of_a_blank_document_reads_back_in_every_language() {
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
+
+/// A schema whose root is a list of objects: the first key of an empty
+/// document opens the list's first item, in the languages whose root can
+/// be a list.
+#[test]
+fn the_first_key_under_a_list_root_opens_its_first_item() {
+    let schema = build_schema(
+        r#"{"type":"array","items":{"type":"object","properties":{
+            "id":{"type":"integer","default":7},
+            "limits":{"type":"object","required":["max"],"properties":{"max":{"type":"integer","default":5}}}
+        }}}"#,
+    )
+    .unwrap();
+    let mut failures = Vec::new();
+    for language in [Language::YAML, Language::JSON] {
+        for marked in BLANK
+            .iter()
+            .filter(|marked| !marked.contains('"') || language == Language::JSON)
+        {
+            for (key, wanted) in [
+                ("id", json!([{"id": 7}])),
+                ("limits", json!([{"limits": {"max": 5}}])),
+            ] {
+                let marked = marked.replace("po", &key[..1]);
+                let accepted = accept_marked(&marked, key, &schema, language.behavior());
+                let read = language.parse(&accepted.replace('|', ""));
+                if read.as_ref().ok() != Some(&wanted) {
+                    failures.push(format!(
+                        "{language} {marked:?}: {accepted:?} reads {read:?}"
+                    ));
+                }
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+/// The caret before a closer on its own line (`{\n|}`): the entry goes on a
+/// line of its own inside, indented, the closer after it.
+#[test]
+fn a_json_key_before_a_closer_on_its_line_is_written_on_its_own_line() {
+    let cases = [
+        ("{\n|}", "port", "{\n  \"port\": 8080|\n}"),
+        (
+            "{\n  \"limits\": {\n  |}\n}",
+            "max",
+            "{\n  \"limits\": {\n    \"max\": 5|\n  }\n}",
+        ),
+    ];
+    let mut failures = Vec::new();
+    for (marked, key, wanted) in cases {
+        let accepted = accept_marked(marked, key, &schema(), Language::JSON.behavior());
+        if accepted != wanted {
+            failures.push(format!("{marked:?}: {accepted:?}"));
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}

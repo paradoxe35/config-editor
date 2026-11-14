@@ -123,24 +123,14 @@ fn required_filled(
     (!members.is_empty()).then_some(Value::Object(members))
 }
 
-/// What a required child gets in a block where an empty value reads as
-/// none (a YAML `key:`, an XML `<key></key>`): its kept default, and past
-/// the child the caret goes to, its [`fill_value`] unless that is an empty
-/// value (`""`, `null`, `{}`), which the empty value stands for. An empty
-/// list is written where the language keeps one (YAML's `[]`: its `key:`
-/// would be null).
-pub fn child_fill(
+/// What a required child past the one the caret goes to gets: its
+/// [`fill_value`] unless that is an empty value (`""`, `null`, `{}`),
+/// which an empty value stands for (see `required::Fill::Empty`).
+pub(super) fn filled_past_caret(
     language: &dyn ConfigLanguage,
     schema: &Value,
     root: &Value,
-    takes_caret: bool,
 ) -> Option<Value> {
-    if let Some(default) = kept_default(language, schema, root) {
-        return Some(default.clone());
-    }
-    if takes_caret {
-        return None;
-    }
     fill_value(language, schema, root).filter(|value| match value {
         Value::Null => false,
         Value::String(text) => !text.is_empty(),

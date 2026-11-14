@@ -13,12 +13,6 @@ fn written_const<'a>(property: &'a Value, root: &'a Value) -> Option<&'a Value> 
     kept_const(&JsonBehavior, property, root)
 }
 
-/// The text a block writes for a required child past the caret's: its
-/// [`fill_value`], or nothing when JSON keeps none.
-fn written_fill(child: &Value, root: &Value) -> String {
-    fill_value(&JsonBehavior, child, root).map(|value| json_text(&value)).unwrap_or_default()
-}
-
 /// The indentation of the root object's entries a blank document's first
 /// key opens (as its `entry_wrap` writes it).
 const ROOT_INDENT: &str = "  ";
@@ -176,12 +170,28 @@ pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionConte
     } else {
         (replace_start, replace_end, base_indent)
     };
+    // Before a closer starting its line (`{\n|}`): the entry goes on a line
+    // of its own inside, indented, and the closer on the next.
+    let closer_line = !empty_document
+        && !needs_separator
+        && key_after.is_none()
+        && value_key.is_none()
+        && source[entry_line..replace_start].trim().is_empty()
+        && following.trim_start_matches([' ', '\t']).starts_with(['}', ']']);
+    let (replace_start, replace_end, base_indent, entry_prefix, entry_suffix) = if closer_line {
+        let closer = replace_end + following.len() - following.trim_start_matches([' ', '\t']).len();
+        let indent = format!("{base_indent}{}", indent_unit(source));
+        (entry_line, closer, indent.clone(), indent, format!("\n{base_indent}"))
+    } else {
+        (replace_start, replace_end, base_indent, entry_prefix, entry_suffix)
+    };
     CompletionContext {
         entry_wrap: if empty_document {
             Some(("{\n  ", "\n}\n"))
         } else {
             is_array_item.then_some(("{", "}"))
         },
+        root_item: empty_document.then_some(("[\n  {\n    ", "\n  }\n]\n", "  ")),
         block: block.flatten(),
         path,
         typed: source[typed_start..cursor].to_string(),
@@ -215,20 +225,50 @@ pub(super) fn existing_keys(source: &str, cursor_byte: usize) -> Option<HashSet<
     )
 }
 
-/// The required properties of an object schema that have a schema of their
-/// own, in the order the schema lists them.
-pub(super) fn required_children(branch: &Value) -> Vec<(String, &Value)> {
-    let Some(properties) = branch.get("properties").and_then(Value::as_object) else {
-        return Vec::new();
-    };
-    branch
-        .get("required")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(Value::as_str)
-        .filter_map(|name| properties.get(name).map(|child| (name.to_string(), child)))
-        .collect()
+/// `children` as the members of an object block (`{` … `}`) under
+/// `base_indent`, each nested object a block of its own; `caret` is set
+/// to the byte offset in `insert` of the value the caret goes to.
+fn write_children(
+    children: &[RequiredChild<'_>],
+    base_indent: &str,
+    unit: &str,
+    insert: &mut String,
+    caret: &mut Option<usize>,
+) {
+    let child_indent = format!("{base_indent}{unit}");
+    // JSON has no empty value: a child with none to write is left out.
+    let written = children
+        .iter()
+        .filter(|child| !matches!(child.fill, Fill::Empty(None)));
+    insert.push_str("{\n");
+    for (index, child) in written.enumerate() {
+        if index > 0 {
+            insert.push_str(",\n");
+        }
+        insert.push_str(&child_indent);
+        insert.push_str(&serde_json::to_string(child.key).unwrap_or_default());
+        insert.push_str(": ");
+        match &child.fill {
+            Fill::Value(value) | Fill::Empty(Some(value)) => insert.push_str(&json_text(value)),
+            Fill::Children(nested) => write_children(nested, &child_indent, unit, insert, caret),
+            // A string starts quoted, the caret inside.
+            Fill::Caret { string: true } => {
+                insert.push_str("\"\"");
+                *caret = Some(insert.len() - 1);
+            }
+            Fill::Caret { string: false } => *caret = Some(insert.len()),
+            // Before the value, inside an empty list.
+            Fill::CaretAt(value) => {
+                let text = json_text(value);
+                *caret = Some(insert.len() + usize::from(text == "[]"));
+                insert.push_str(&text);
+            }
+            Fill::Empty(None) => {}
+        }
+    }
+    insert.push('\n');
+    insert.push_str(base_indent);
+    insert.push('}');
 }
 
 /// Insert text for a property suggestion, with the caret placed where the user
@@ -269,40 +309,12 @@ pub(super) fn property_insert(
         {
             Some(default) => insert.push_str(&json_text(default)),
             None => {
-                let children = required_children(branch);
+                let children = required_children(&JsonBehavior, branch, root);
                 if children.is_empty() {
                     insert.push_str("{}");
                     caret = Some(insert.len() - 1);
                 } else {
-                    let child_indent = format!("{base_indent}{unit}");
-                    insert.push_str("{\n");
-                    for (index, (name, child)) in children.iter().enumerate() {
-                        if index > 0 {
-                            insert.push_str(",\n");
-                        }
-                        insert.push_str(&child_indent);
-                        insert.push_str(&serde_json::to_string(name).ok()?);
-                        insert.push_str(": ");
-                        // The first child takes the caret; the others get a valid
-                        // placeholder so the document stays parseable.
-                        let takes_caret = caret.is_none();
-                        if takes_caret {
-                            caret = Some(insert.len());
-                        }
-                        match written_default(child, root) {
-                            Some(default) => insert.push_str(&json_text(default)),
-                            None if !takes_caret => insert.push_str(&written_fill(child, root)),
-                            // The caret's own child: a string starts quoted, caret inside.
-                            None if placeholder(child, root).is_string() => {
-                                insert.push_str("\"\"");
-                                caret = caret.map(|position| position + 1);
-                            }
-                            None => {}
-                        }
-                    }
-                    insert.push('\n');
-                    insert.push_str(base_indent);
-                    insert.push('}');
+                    write_children(&children, base_indent, unit, &mut insert, &mut caret);
                 }
             }
         }

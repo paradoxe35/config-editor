@@ -58,8 +58,9 @@
 pub use super::codec::first_pointer;
 pub use super::commands::indent_unit;
 pub use super::completion::{
-    array_branch, child_fill, fill_value, kept_const, kept_default, language_keeps, object_branch,
-    placeholder, schema_const, schema_default, schema_example,
+    Fill, RequiredChild, array_branch, fill_value, kept_const, kept_default, language_keeps,
+    object_branch, placeholder, required_children, schema_const, schema_default, schema_example,
+    writes_key,
 };
 pub use super::fold_ranges::{
     FoldRange, IndentLine, bracket_fold_ranges, comment_fold_ranges, default_fold_ranges,
@@ -679,6 +680,13 @@ pub struct CompletionContext {
     /// and the first key of an empty JSON document opens its root object.
     /// `None` where properties can follow directly (YAML `- `).
     pub entry_wrap: Option<(&'static str, &'static str)>,
+    /// In an empty document, how its first entry opens the first item of a
+    /// root list, for a schema whose root is a list of objects: the
+    /// delimiters the entry is written between (JSON's `[\n  {\n    ` and
+    /// `\n  }\n]\n`, YAML's `- `) and the indentation the item's entries
+    /// add to [`base_indent`](Self::base_indent). `None` (the default)
+    /// offers nothing there.
+    pub root_item: Option<(&'static str, &'static str, &'static str)>,
     /// An existing entry starts right after the caret (`lim|listen = 1`),
     /// and this is the word its key begins with. A suggestion ending in that
     /// word completes it (`inse|cure_plaintext`) and renames the key; any

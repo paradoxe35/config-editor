@@ -44,7 +44,7 @@ use super::super::parse_cache::string_bodies;
 use super::super::commands::indent_unit;
 use super::super::highlight::{MultilineConstruct, Token as HighlightToken, TokenKind, Tokens};
 use super::inline::{InlineEntry as CaretEntry, inline_caret, inline_key_at, inline_key_paths, inline_sibling_keys, caret_value_end, statement_start_at, statements, entry_follows, in_front_of_inline_entry, matching_close};
-use super::super::completion::{kept_const, kept_default, array_branch, object_branch, fill_value, placeholder};
+use super::super::completion::{kept_const, kept_default, array_branch, object_branch, placeholder, required_children, Fill, RequiredChild};
 use super::super::keyboard::utf16_to_byte_index;
 use super::super::language::pointer_segments;
 use super::super::language::{EntryPosition, OneLine, LanguageConfig, bracket_newline, CompletionContext, Newline, Repetition, InlineBlock, InsertContext, ConfigLanguage, LanguageInfo, Lexical, Span, ParseError, SchemaPathSegment,
