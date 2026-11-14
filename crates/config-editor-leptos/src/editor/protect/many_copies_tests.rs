@@ -255,7 +255,7 @@ fn flagged(language: Language, host: &str, text: &str) -> Vec<(Option<usize>, St
     let behavior = language.behavior();
     let matcher =
         SecretMatcher::new(&SecretOptions::default().with_placeholder("«secret [0-9a-f]{4}»"));
-    let known = matcher.known(behavior, host);
+    let known = matcher.known(behavior, host, None);
     let strings = crate::strings::default_strings();
     unknown_placeholders(behavior, text, &matcher, &known, &[], None, strings)
         .into_iter()
