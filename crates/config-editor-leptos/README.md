@@ -112,7 +112,12 @@ The editor injects its stylesheet ([`PRESET_CSS`]) by default: one
 editor is in), shared by every editor and documents view there and removed
 with the last. Host stylesheets later in `<head>` or in `<body>` win over its
 rules at equal specificity; the theme variables have zero specificity, so
-any rule overrides them. Under a strict Content-Security-Policy, serve it as
+any rule overrides them. Set the `--config-editor-*` variables (colors,
+`--config-editor-font-size`, `--config-editor-line-height`, the height
+ones) on `.config-editor` or the editor's own element or `class`: on `body`
+or `html` they have no effect. The page's rules for bare elements never
+reach the editor, but rules marked `!important` and rules that target its
+inner `config-editor__*` classes do: those are the host's choice. Under a strict Content-Security-Policy, serve it as
 a file instead (see
 [Strict Content-Security-Policy](#strict-content-security-policy)).
 

@@ -58,12 +58,12 @@ test.describe('suggestions', () => {
     for (const key of ['Meta+F', 'Meta+G', 'Meta+S']) expect(list, key).toContain(key);
   });
 
-  // D5.a11y-2: a first query with no matches says so (the count already read it).
+  // D5.a11y-2: a first query with no matches says so (an empty query has no count).
   test('a find query that matches nothing is announced (D5.a11y-2)', async ({ page }) => {
     await input(page).click();
     await page.keyboard.press('Control+f');
-    await expect(page.locator('.config-editor__find-count')).toHaveText('No results');
     await page.keyboard.type('zzzz');
+    await expect(page.locator('.config-editor__find-count')).toHaveText('No results');
     await expect(said(page)).toHaveText(/No results/);
   });
 

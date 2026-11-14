@@ -128,7 +128,7 @@ body { margin: 0; }
 }
 .demo__output-text[hidden] { display: none; }
 .demo__host { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-.demo__host-status { min-width: 1ch; color: var(--config-editor-modified); }
+.demo__host-status { min-width: 1ch; color: var(--config-editor-tab-dirty); }
 
 /* `?schema=help`: the schema's warnings, under the editor. */
 .demo__schema-warnings {
