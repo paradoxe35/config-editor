@@ -258,6 +258,30 @@ impl Flow {
         depth
     }
 
+    /// The closers of the `pairs` `text` opens and leaves open, outside
+    /// quotes and line comments, innermost first.
+    pub(crate) fn closers(&self, text: &str, pairs: &[(char, char)]) -> Vec<char> {
+        let (mut open, mut at) = (Vec::new(), 0);
+        while let Some(character) = text[at..].chars().next() {
+            if self.quote(character).is_some() {
+                at = self.quote_end(text, at);
+                continue;
+            }
+            if self.comment_at(text, at) {
+                at = text[at..].find('\n').map_or(text.len(), |end| at + end);
+                continue;
+            }
+            if let Some((_, close)) = pairs.iter().find(|(opener, _)| *opener == character) {
+                open.push(*close);
+            } else if pairs.iter().any(|(_, close)| *close == character) {
+                open.pop();
+            }
+            at += character.len_utf8();
+        }
+        open.reverse();
+        open
+    }
+
     /// Whether `code` closes every bracket it opens.
     pub(crate) fn balanced(&self, code: &str) -> bool {
         let (mut depth, mut at) = (0i32, 0);

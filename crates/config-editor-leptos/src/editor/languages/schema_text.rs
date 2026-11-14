@@ -3,9 +3,10 @@
 //!
 //! YAML holds every JSON text with the same meaning, so a JSON text is read
 //! as JSON first and keeps its exact reading; only a text JSON refuses goes
-//! to YAML. A text that starts with `{` or `[` was meant as JSON: when YAML
-//! refuses it too (or reads it as a flow map otherwise), its JSON error is
-//! the one worth showing. A place in the text is said as a document's
+//! to YAML. A map whose first key is in double quotes (`{"type"`) was
+//! meant as JSON: JSON's error is the one worth showing, and YAML is not
+//! asked (it would take a trailing comma or single quotes). A flow map
+//! with a plain first key (`{type: object}`) is YAML, told in YAML's words. A place in the text is said as a document's
 //! problem says it: `(line 2, column 1)` after the message.
 
 use serde_json::Value;
@@ -50,10 +51,23 @@ pub(crate) fn read_schema_text(text: &str) -> Result<Value, String> {
     }
     let start = text.trim_start();
     if start.starts_with('{') || start.starts_with('[') {
-        // A flow map YAML reads (`{type: object}`) is YAML, as it says.
-        return read_flow_yaml(text).ok_or(json_message).and_then(a_schema);
+        // A map whose first key is written as JSON writes it (`{"type"`)
+        // is JSON, a trailing comma or a single-quoted value in it no
+        // exception; a flow map YAML reads (`{type: object}`) is YAML, as
+        // it says, and YAML's own words tell what is wrong in it.
+        if json_key_first(start) {
+            return Err(json_message);
+        }
+        return read_flow_yaml(text, json_message).and_then(a_schema);
     }
     read_yaml(text, json_message)
+}
+
+/// Whether `text` (starting with `{` or `[`) opens a map whose first key
+/// is in double quotes, as JSON writes every key.
+fn json_key_first(text: &str) -> bool {
+    text.strip_prefix('{')
+        .is_some_and(|rest| rest.trim_start().starts_with('"'))
 }
 
 /// A JSON text with no map holding a key twice (read only to tell).
@@ -188,9 +202,23 @@ fn read_yaml(text: &str, _json_message: String) -> Result<Value, String> {
     yaml::read(text)
 }
 
+/// A text starting with `{` or `[` read as YAML: YAML's error for a map
+/// whose first key is plain (`{type: object, type: string}`), else JSON's
+/// (`[1, 2` or `{`, meant as JSON).
 #[cfg(feature = "yaml")]
-fn read_flow_yaml(text: &str) -> Option<Value> {
-    yaml::read(text).ok()
+fn read_flow_yaml(text: &str, json_message: String) -> Result<Value, String> {
+    let plain_key = text
+        .trim_start()
+        .strip_prefix('{')
+        .and_then(|rest| rest.trim_start().chars().next())
+        .is_some_and(|first| first.is_alphanumeric() || first == '_' || first == '$');
+    yaml::read(text).map_err(|yaml_message| {
+        if plain_key {
+            yaml_message
+        } else {
+            json_message
+        }
+    })
 }
 
 #[cfg(not(feature = "yaml"))]
@@ -201,8 +229,8 @@ fn read_yaml(_text: &str, json_message: String) -> Result<Value, String> {
 }
 
 #[cfg(not(feature = "yaml"))]
-fn read_flow_yaml(_text: &str) -> Option<Value> {
-    None
+fn read_flow_yaml(_text: &str, json_message: String) -> Result<Value, String> {
+    Err(json_message)
 }
 
 #[cfg(feature = "yaml")]

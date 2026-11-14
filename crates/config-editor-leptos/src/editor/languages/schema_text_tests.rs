@@ -253,7 +253,6 @@ properties:
             "  {type: object}",
             "\n{type: object}",
             "# c\n{type: object}\n",
-            "{\"type\": \"object\",}",
         ] {
             assert_eq!(
                 read_schema_text(text),
@@ -265,10 +264,10 @@ properties:
             read_schema_text("{type: object, properties: {port: {type: integer}}}"),
             Ok(json!({"type": "object", "properties": {"port": {"type": "integer"}}}))
         );
-        // Refused by YAML too: JSON's error.
+        // A YAML flow map YAML refuses: YAML's error.
         assert_eq!(
             read_schema_text("{type: object, a: [1,}").unwrap_err(),
-            "key must be a string (line 1, column 2)"
+            "a value is missing here (line 1, column 22)"
         );
     }
 

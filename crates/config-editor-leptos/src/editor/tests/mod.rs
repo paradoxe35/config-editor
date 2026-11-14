@@ -24,6 +24,14 @@ mod bom_edits;
     feature = "hcl",
     feature = "xml"
 ))]
+mod broken_document_suggestions;
+#[cfg(all(
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
 mod convert_messages;
 #[cfg(feature = "yaml")]
 mod empty_schema;

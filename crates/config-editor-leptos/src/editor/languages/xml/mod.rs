@@ -576,6 +576,14 @@ impl ConfigLanguage for XmlBehavior {
         markup::open_elements(text)
     }
 
+    fn container_closers(&self, text: &str) -> Vec<String> {
+        markup::open_element_names(text)
+            .into_iter()
+            .rev()
+            .map(|name| format!("</{name}>"))
+            .collect()
+    }
+
     fn container_closer_len(&self, text: &str) -> Option<usize> {
         markup::closer_len(text)
     }

@@ -222,6 +222,20 @@ fn tab_walks_the_items_of_lists_filled_at_every_depth() {
             &["a", "1", "b", "2", "N"][..],
             json!({"hosts": [{"h": "a", "p": 1}, {"h": "b", "p": 2}], "name": "N"}),
         ),
+        // QA 36: a list of objects holding a required list of objects of
+        // two fields: Tab goes from `from` to `to`, then to `proto`.
+        (
+            r#"{"type":"object","required":["rules","name"],"properties":{"name":{"type":"string"},
+                "rules":{"type":"array","minItems":2,"items":{"type":"object","required":["ports","proto"],
+                "properties":{"proto":{"type":"string"},
+                    "ports":{"type":"array","minItems":1,"items":{"type":"object","required":["from","to"],
+                    "properties":{"from":{"type":"integer"},"to":{"type":"integer"}}}}}}}}}"#,
+            &["1", "2", "t", "3", "4", "u", "N"][..],
+            json!({"rules": [
+                {"ports": [{"from": 1, "to": 2}], "proto": "t"},
+                {"ports": [{"from": 3, "to": 4}], "proto": "u"}
+            ], "name": "N"}),
+        ),
     ];
     let mut failures = Vec::new();
     for (svc, typed, wanted) in &cases {

@@ -207,6 +207,7 @@ const CONFIG_LANGUAGE = {
   element_end: { exempt: SAVE_FORMS },
   unclosed_containers: { custom: 'brackets' },
   container_closer_len: { custom: 'brackets' },
+  container_closers: { custom: 'brackets' },
   content_texts: { exempt: RUST_ONLY_REFINEMENT },
   space_is_content: { exempt: RUST_ONLY_REFINEMENT },
   writes_container_on_line: { exempt: SAVE_FORMS },

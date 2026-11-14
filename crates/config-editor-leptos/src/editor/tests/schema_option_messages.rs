@@ -136,7 +136,7 @@ fn a_value_matching_no_option_names_each_option_and_what_it_misses() {
             r#"{"title":"Short","maxProperties":1},{"title":"Named","required":["name"]}"#,
         ),
         &[(
-            r#"/dns: matches none of the anyOf options: Short: {"a":"x","b":"y"} has more than 1 property; Named needs "name""#,
+            r#"/dns: matches none of the anyOf options: Short: the number of keys must be at most 1, and is 2; Named needs "name""#,
             "dns",
         )],
         &mut failures,

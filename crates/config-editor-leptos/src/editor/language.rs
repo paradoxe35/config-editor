@@ -1746,6 +1746,20 @@ pub trait ConfigLanguage: Send + Sync + 'static {
         super::flow_syntax::Flow::of(self).unclosed(text, self.config().brackets)
     }
 
+    /// What closes each container `text` opens and leaves open, innermost
+    /// first: by default the closing brackets of its
+    /// [`LanguageConfig::brackets`] outside its quotes and comments; XML
+    /// the end tags of the elements it starts and does not end. Closes the
+    /// start of a document cut before the caret, to read what it holds
+    /// while the rest does not parse.
+    fn container_closers(&self, text: &str) -> Vec<String> {
+        super::flow_syntax::Flow::of(self)
+            .closers(text, self.config().brackets)
+            .into_iter()
+            .map(String::from)
+            .collect()
+    }
+
     /// The length of what closes a container at the start of `text` (a
     /// closing bracket; XML's element text then its end tag), or `None`.
     fn container_closer_len(&self, text: &str) -> Option<usize> {

@@ -472,14 +472,27 @@ pub struct EditorStrings {
     /// A value out of its `format` (checked up to draft-07): `{format}` is
     /// its name, quoted.
     pub not_format: String,
-    /// A list (`{value}`) with no item its `contains` schema allows.
+    /// A list with no item its `contains` schema allows.
     pub no_item_contained: String,
-    /// A list (`{value}`) with fewer items its `contains` schema allows
-    /// than its `minContains` (`{limit}`).
+    /// A list with fewer items its `contains` schema allows than its
+    /// `minContains` (`{limit}`).
     pub too_few_contained: String,
-    /// A list (`{value}`) with more items its `contains` schema allows
-    /// than its `maxContains` (`{limit}`).
+    /// A list with more items its `contains` schema allows than its
+    /// `maxContains` (`{limit}`).
     pub too_many_contained: String,
+    /// A list with fewer items (`{count}`) than its `minItems` (`{limit}`).
+    pub too_few_items: String,
+    /// A list with more items (`{count}`) than its `maxItems` (`{limit}`).
+    pub too_many_items: String,
+    /// An object with fewer keys (`{count}`) than its `minProperties`
+    /// (`{limit}`).
+    pub too_few_keys: String,
+    /// An object with more keys (`{count}`) than its `maxProperties`
+    /// (`{limit}`).
+    pub too_many_keys: String,
+    /// A list holding an item (`{item}`, as JSON) more than once where its
+    /// `uniqueItems` wants each item different.
+    pub repeated_item: String,
     /// A value its `not` schema (`{schema}`, as JSON) matches, where no
     /// plainer words below say why.
     pub must_not_match: String,
@@ -489,9 +502,10 @@ pub struct EditorStrings {
     /// A value of a type its `not` schema refuses (`not: {type: …}`):
     /// the types (`{types}`), each quoted, joined by `, `.
     pub must_not_be_type: String,
-    /// A value its `not` schema refuses by name (`not: {const: …}` or
-    /// `not: {enum: […]}`): the refused values (`{values}`), as JSON,
-    /// joined by the word "or".
+    /// A value its `not` schema refuses among others by name (`not: {enum:
+    /// […]}` of two or more values): the refused values (`{values}`), as
+    /// JSON, joined by `, `. One refused value (`not: {const: …}`) is
+    /// told by `must_not_match`.
     pub must_not_be: String,
     /// An object holding keys its `not` schema refuses one by one (`not:
     /// {anyOf: [{required: [a]}, {required: [b]}]}`): the ones it holds
@@ -790,17 +804,22 @@ impl Default for EditorStrings {
             not_one_of: text("{value} is not one of {allowed}"),
             wrong_type: text("{value} is not of type {types}"),
             not_format: text("{value} is not a valid {format}"),
-            no_item_contained: text("{value} has no item its \"contains\" schema allows"),
+            no_item_contained: text("no item of the list is one its \"contains\" schema allows"),
             too_few_contained: text(
-                "{value} has fewer than {limit} items its \"contains\" schema allows",
+                "fewer than {limit} items of the list are ones its \"contains\" schema allows",
             ),
             too_many_contained: text(
-                "{value} has more than {limit} items its \"contains\" schema allows",
+                "more than {limit} items of the list are ones its \"contains\" schema allows",
             ),
+            too_few_items: text("the number of items must be at least {limit}, and is {count}"),
+            too_many_items: text("the number of items must be at most {limit}, and is {count}"),
+            too_few_keys: text("the number of keys must be at least {limit}, and is {count}"),
+            too_many_keys: text("the number of keys must be at most {limit}, and is {count}"),
+            repeated_item: text("the list holds {item} more than once: each item must differ"),
             must_not_match: text("{value} is not allowed here"),
             must_not_match_pattern: text("{value} must not match the pattern {pattern}"),
             must_not_be_type: text("{value} must not be of type {types}"),
-            must_not_be: text("{value} must not be {values}"),
+            must_not_be: text("{value} is one of the values not allowed here: {values}"),
             must_not_have: text("{keys} must not be set here"),
             keys_used_together: text("{key} can't be used together with {other}"),
             keys_all_used_together: text("{keys} can't all be used together"),

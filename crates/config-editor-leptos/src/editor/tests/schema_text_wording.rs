@@ -118,6 +118,49 @@ fn schema_text_problems_read_plainly() {
             "type: objekt\n",
             "\"objekt\" is no type JSON Schema knows: use \"array\", \"boolean\", \"integer\", \"null\", \"number\", \"object\" or \"string\" (at /type)",
         ),
+        // QA 36: the rules for schemas in plain words, JSON's own rules
+        // for a text written as JSON, YAML's for a YAML flow map.
+        (
+            "type: object\nproperties:\n  a: !!binary x\n",
+            "a schema must be a map of keywords, or true or false, and this one reads as \"x\" (at /properties/a)",
+        ),
+        (
+            "type: object\nproperties:\n  - a\n",
+            "properties must be a map, and reads as [\"a\"] (at /properties)",
+        ),
+        (
+            "type: object\nrequired: name\n",
+            "required must be a list, and reads as \"name\" (at /required)",
+        ),
+        (
+            "type: object\nadditionalProperties: \"false\"\n",
+            "additionalProperties must be true or false, and \"false\" in quotes reads as text: write false without quotes (at /additionalProperties)",
+        ),
+        (
+            "type: object\nproperties:\n  a: {type: [string, objekt, arr]}\n",
+            "\"objekt\" and \"arr\" are no types JSON Schema knows: use \"array\", \"boolean\", \"integer\", \"null\", \"number\", \"object\" or \"string\" (at /properties/a/type)",
+        ),
+        (
+            "{\"type\": \"object\", \"properties\": {\"a\": {\"oneOf\": []}}}",
+            "the number of items in oneOf must be at least 1, and is 0 (at /properties/a/oneOf)",
+        ),
+        (
+            "{\"type\": \"object\", \"required\": [\"a\", \"a\"]}",
+            "required lists \"a\" more than once (at /required)",
+        ),
+        (
+            "type: object\nproperties:\n  a: {minLength: -1}\n",
+            "minLength must be 0 or more, and is -1 (at /properties/a/minLength)",
+        ),
+        (
+            "{\"type\": \"object\",}",
+            "trailing comma (line 1, column 19)",
+        ),
+        ("{\"type\": 'object'}", "expected value (line 1, column 10)"),
+        (
+            "{type: object, type: string}",
+            "duplicate key \"type\" (line 1, column 16)",
+        ),
         (
             "type: object\n---\ntype: string\n",
             "this text holds more than one YAML document (a line --- starts one, a line ... ends one): the editor reads one document per file. Keep one, or split them into files (line 2, column 1)",
@@ -149,12 +192,12 @@ fn a_one_keyword_not_says_what_it_refuses() {
         (
             r#"{"properties":{"a":{"not":{"enum":["x","y"]}}}}"#,
             "a: x\n",
-            r#"/a: "x" must not be "x" or "y""#,
+            r#"/a: "x" is one of the values not allowed here: "x", "y""#,
         ),
         (
             r#"{"properties":{"a":{"not":{"const":"x"}}}}"#,
             "a: x\n",
-            r#"/a: "x" must not be "x""#,
+            r#"/a: "x" is not allowed here"#,
         ),
         (
             r#"{"properties":{"a":{},"b":{},"c":{}},
@@ -183,7 +226,7 @@ fn a_one_keyword_not_says_what_it_refuses() {
         (
             r#"{"properties":{"a":{"type":"string","not":{"type":"string","enum":["root","admin"]}}}}"#,
             "a: root\n",
-            r#"/a: "root" must not be "root" or "admin""#,
+            r#"/a: "root" is one of the values not allowed here: "root", "admin""#,
         ),
         (
             r##"{"$defs":{"s":{"type":"string"}},"properties":{"a":{"not":{"$ref":"#/$defs/s"}}}}"##,

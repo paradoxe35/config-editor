@@ -11,13 +11,14 @@ use super::ConfigLanguage;
 /// separator next to it, when the caret's line holds structure around it
 /// (a bracket opened or a separator before it, a bracket closed or a
 /// separator after it, on the same line), or a markup tag left open
-/// before it (`<na|`). `None` when the line is only the entry: leaving
+/// before it (`<na|`), with the byte where the entry was (what is before
+/// it is as in `source`). `None` when the line is only the entry: leaving
 /// the line out reads the rest then.
 pub(crate) fn typed_entry_left_out(
     behavior: &dyn ConfigLanguage,
     source: &str,
     cursor: usize,
-) -> Option<String> {
+) -> Option<(String, usize)> {
     let line_start = source[..cursor].rfind('\n').map_or(0, |at| at + 1);
     let line_end = source[cursor..]
         .find('\n')
@@ -112,7 +113,7 @@ pub(crate) fn typed_entry_left_out(
     } else if right_separator {
         end += separator.map_or(0, char::len_utf8);
     }
-    Some(format!("{}{}", &source[..start], &source[end..]))
+    Some((format!("{}{}", &source[..start], &source[end..]), start))
 }
 
 /// A markup tag the caret's line opens before the caret and leaves open
@@ -125,13 +126,13 @@ fn open_tag_left_out(
     line_end: usize,
     open: char,
     close: char,
-) -> Option<String> {
+) -> Option<(String, usize)> {
     let before = &source[line_start..cursor];
     let Some(opened) = before.rfind(open) else {
-        return (!before.trim().is_empty()).then(|| source.to_string());
+        return (!before.trim().is_empty()).then(|| (source.to_string(), cursor));
     };
     if before[opened..].contains(close) {
-        return Some(source.to_string());
+        return Some((source.to_string(), cursor));
     }
     let end = source[cursor..line_end]
         .find(|character: char| {
@@ -143,11 +144,8 @@ fn open_tag_left_out(
     if source[line_start + opened..cursor].contains(char::is_whitespace) {
         return None;
     }
-    Some(format!(
-        "{}{}",
-        &source[..line_start + opened],
-        &source[end..]
-    ))
+    let start = line_start + opened;
+    Some((format!("{}{}", &source[..start], &source[end..]), start))
 }
 
 fn single_char(text: &str) -> Option<char> {
