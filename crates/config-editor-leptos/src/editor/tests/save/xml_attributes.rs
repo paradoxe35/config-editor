@@ -334,7 +334,8 @@ fn a_value_over_lines_is_ranged_through_its_last_line() {
 }
 
 /// L24-2: an element added beside prefixed siblings (`<k:a>`, read `a`)
-/// goes where the view puts it, as beside unprefixed ones.
+/// goes where the view puts it, as beside unprefixed ones, in their
+/// namespace (QA `E33-3`).
 #[test]
 fn an_element_added_beside_prefixed_siblings_keeps_the_views_order() {
     let mut failures = Vec::new();
@@ -353,14 +354,14 @@ fn an_element_added_beside_prefixed_siblings_keeps_the_views_order() {
                     }
                 }
             },
-            "<r xmlns:k=\"urn:k\">\n  <k:a>1</k:a> <!-- a -->\n  <b>2</b>\n  <k:c>3</k:c>\n</r>\n",
+            "<r xmlns:k=\"urn:k\">\n  <k:a>1</k:a> <!-- a -->\n  <k:b>2</k:b>\n  <k:c>3</k:c>\n</r>\n",
         ),
         (
             "at the end",
             |value| {
                 element(value).insert("d".into(), json!(4));
             },
-            "<r xmlns:k=\"urn:k\">\n  <k:a>1</k:a> <!-- a -->\n  <k:c>3</k:c>\n  <d>4</d>\n</r>\n",
+            "<r xmlns:k=\"urn:k\">\n  <k:a>1</k:a> <!-- a -->\n  <k:c>3</k:c>\n  <k:d>4</k:d>\n</r>\n",
         ),
     ];
     for (label, change, expected) in cases {

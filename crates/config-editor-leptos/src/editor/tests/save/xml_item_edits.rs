@@ -152,11 +152,22 @@ fn units(text: &str, byte: usize) -> usize {
 
 /// The view without item `item`'s lines, the caret left where they were.
 fn deleted(edit: Language, view: &str, item: usize) -> Step {
+    let (next, caret) = without_item(edit, view, item);
+    Step::Edit(next, caret)
+}
+
+/// The view (YAML or JSON) without item `item`'s lines, and the caret
+/// left where they were.
+pub(in crate::editor::tests) fn without_item(
+    edit: Language,
+    view: &str,
+    item: usize,
+) -> (String, usize) {
     let (start, end) = item_lines(edit, view)[item];
     let (from, to) = (line_offset(view, start), line_offset(view, end));
     let next = format!("{}{}", &view[..from], &view[to..]);
     let caret = units(&next, from);
-    Step::Edit(next, caret)
+    (next, caret)
 }
 
 /// Item `item`'s lines cut and pasted before item `before`'s: the cut, and

@@ -163,3 +163,28 @@ fn enter_after_a_tag_over_lines_indents_from_its_first_line() {
         ),
     ]);
 }
+
+/// After a comment or processing instruction written over lines, the new
+/// line indents from the line it starts on (QA `E33-5`), a `<` inside it
+/// or not. (After CDATA text over lines the element's text may go on: the
+/// line's indentation stays, as inside it.)
+#[test]
+fn enter_after_a_comment_over_lines_indents_from_its_first_line() {
+    check(&[
+        (
+            Language::XML,
+            "<r>\n  <!-- a\n       b -->‸\n  <x/>\n</r>\n",
+            "<r>\n  <!-- a\n       b -->\n  ‸\n  <x/>\n</r>\n",
+        ),
+        (
+            Language::XML,
+            "<r>\n\t<!-- a\n\t     <b> -->‸\n\t<x/>\n</r>\n",
+            "<r>\n\t<!-- a\n\t     <b> -->\n\t‸\n\t<x/>\n</r>\n",
+        ),
+        (
+            Language::XML,
+            "<r>\n  <?pi a\n        b?>‸\n  <x/>\n</r>\n",
+            "<r>\n  <?pi a\n        b?>\n  ‸\n  <x/>\n</r>\n",
+        ),
+    ]);
+}

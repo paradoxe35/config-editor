@@ -25,6 +25,7 @@ struct HostTags<'t> {
     by_path: HashMap<Vec<String>, usize>,
     /// Each element path's tags, by the path without places, in order.
     by_name: HashMap<Vec<String>, Vec<usize>>,
+    children: written_names::Children,
 }
 
 impl<'t> HostTags<'t> {
@@ -38,6 +39,7 @@ impl<'t> HostTags<'t> {
             tags: Vec::new(),
             by_path: HashMap::new(),
             by_name: HashMap::new(),
+            children: written_names::Children::default(),
         };
         for token in &tokens {
             if !matches!(token.kind, Kind::OpenTag { closing: false, .. }) {
@@ -49,6 +51,11 @@ impl<'t> HostTags<'t> {
             read.by_path.insert(strings(path), read.tags.len());
             read.by_name.entry(unindexed(path)).or_default().push(read.tags.len());
             let prefix = written_names::prefix(text, token).map(str::to_string);
+            let declares_own = tag
+                .attributes
+                .iter()
+                .any(|attribute| attribute.markup && written_names::binds(prefix.as_deref(), &text[attribute.name.clone()]));
+            read.children.note(path, prefix.as_deref(), declares_own);
             read.tags.push(HostTag { tag, pairs, filled: filled(text, token), prefix });
         }
         read
@@ -89,12 +96,13 @@ pub(super) fn with_layout_of(written: &str, (previous, origin): (&str, Option<&s
     let mut seen: HashMap<Vec<String>, usize> = HashMap::new();
     let mut out = String::with_capacity(written.len() + previous.len() / 8);
     let mut copied = 0;
-    // The prefix given to each element open in `written`, innermost last.
-    let mut open: Vec<Option<&str>> = Vec::new();
+    // The prefix given to each element open in `written`, and the prefix
+    // it is named with, innermost last.
+    let mut open: Vec<(Option<&str>, Option<&str>)> = Vec::new();
     for token in &tokens {
         match token.kind {
             Kind::EndTag => {
-                if let Some(prefix) = open.pop().flatten() {
+                if let Some((Some(prefix), _)) = open.pop() {
                     out.push_str(&written[copied..token.start + 2]);
                     out.push_str(prefix);
                     out.push(':');
@@ -108,7 +116,7 @@ pub(super) fn with_layout_of(written: &str, (previous, origin): (&str, Option<&s
         let closes = written[..token.end].ends_with("/>");
         let Some(path) = plan.path_of(token.start) else {
             if !closes {
-                open.push(None);
+                open.push((None, written_names::prefix(written, token)));
             }
             continue;
         };
@@ -123,6 +131,9 @@ pub(super) fn with_layout_of(written: &str, (previous, origin): (&str, Option<&s
             Host::Previous => Some((&host, host.at(&path)?)),
             Host::Origin => first.as_ref().and_then(|first| Some((first, first.at(&path)?))),
         });
+        // A name new among its siblings: in their namespace, else its
+        // parent's (QA `E33-3`).
+        let mut new_name = None;
         let (like, named, from) = match own {
             // An empty element given content is no longer nil.
             Some((from, own)) if !own.filled && filled(written, token) => (
@@ -140,6 +151,11 @@ pub(super) fn with_layout_of(written: &str, (previous, origin): (&str, Option<&s
             None => {
                 let nearest = host.nearest(&name, ordinal, &tag.pairs(written));
                 let source = identity.copied(path).and_then(|path| host.at(&path)).or(nearest);
+                if source.is_none() {
+                    let parent = identity.host_path(written_names::parent(path)).filter(|(_, side)| *side == Host::Previous);
+                    let in_parent = open.last().and_then(|(_, named)| *named);
+                    new_name = host.children.new_name_prefix(parent.as_ref().map(|(path, _)| path.as_slice()), in_parent);
+                }
                 let like = nearest.map(|nearest| {
                     let mut like = nearest.tag.keeping(|attribute| !attribute.markup);
                     if let Some(source) = source {
@@ -153,9 +169,10 @@ pub(super) fn with_layout_of(written: &str, (previous, origin): (&str, Option<&s
                 (like, source, previous)
             }
         };
-        let prefix = named.and_then(|named| named.prefix.as_deref()).filter(|_| written_names::prefix(written, token).is_none());
+        let written_prefix = written_names::prefix(written, token);
+        let prefix = named.and_then(|named| named.prefix.as_deref()).or(new_name).filter(|_| written_prefix.is_none());
         if !closes {
-            open.push(prefix);
+            open.push((prefix, prefix.or(written_prefix)));
         }
         out.push_str(&written[copied..token.start + 1]);
         if let Some(prefix) = prefix {

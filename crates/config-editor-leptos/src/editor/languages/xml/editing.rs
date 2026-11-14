@@ -20,15 +20,28 @@ pub(super) fn newline_with_indent(source: &str, cursor: usize) -> String {
 /// the tag starts on, not the attribute line it ends on (QA `E32-6`).
 fn line_indent(source: &str, byte: usize) -> String {
     let before = source[..byte].trim_end_matches([' ', '\t']);
-    let from = match before.ends_with('>').then(|| before.rfind('<')).flatten() {
-        Some(tag_start) => tag_start,
-        None => byte,
-    };
+    let from = markup_start(before).unwrap_or(byte);
     let line_start = source[..from].rfind('\n').map_or(0, |index| index + 1);
     source[line_start..]
         .chars()
         .take_while(|character| matches!(character, ' ' | '\t'))
         .collect()
+}
+
+/// Where the markup `before` ends with starts: a tag, or a comment, CDATA
+/// section or processing instruction, whatever `<` it holds (QA `E33-5`).
+fn markup_start(before: &str) -> Option<usize> {
+    if before.ends_with("-->") {
+        before.rfind("<!--")
+    } else if before.ends_with("]]>") {
+        before.rfind("<![CDATA[")
+    } else if before.ends_with("?>") {
+        before.rfind("<?")
+    } else if before.ends_with('>') {
+        before.rfind('<')
+    } else {
+        None
+    }
 }
 
 /// `</name>` when a `>` typed at `cursor` would finish the start tag `<name …`,
@@ -93,8 +106,8 @@ pub(super) fn opens_on_line(line: &str, after: &str) -> bool {
 /// Whether the `>` before the caret closes an opening tag (not a closing,
 /// self-closing, or declaration tag, and not a comment).
 pub(super) fn is_open_tag_tail(source: &str, byte: usize) -> bool {
-    let before = &source[..byte];
-    let Some(tag_start) = before.rfind('<') else {
+    let before = source[..byte].trim_end_matches([' ', '\t']);
+    let Some(tag_start) = markup_start(before) else {
         return false;
     };
     let tag = &before[tag_start..];
@@ -482,7 +495,10 @@ pub(super) fn xml_lexical_state(source: &str, cursor: usize) -> (Option<char>, b
     let byte = utf16_to_byte_index(source, cursor);
     let tokens = tokenize(source);
     for token in &tokens {
-        if matches!(token.kind, Kind::Comment) && token.start < byte && byte <= token.end {
+        // Just past a closed comment's `-->` is outside it.
+        let closed = source[token.start..token.end].ends_with("-->");
+        let inside = byte < token.end || (byte == token.end && !closed);
+        if matches!(token.kind, Kind::Comment) && token.start < byte && inside {
             return (None, true);
         }
     }
