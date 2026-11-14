@@ -140,7 +140,10 @@ fn every_rule_inside_the_editor_carries_the_shield() {
     for list in selector_lists(PRESET_CSS) {
         let selectors = selectors(&list);
         for selector in &selectors {
-            if selector.starts_with(SHIELD) || exempt(selector) {
+            // The id weight on an ancestor (`:not(#\#) .x`) or joined to
+            // the first compound (`:not(#\#)[dir="rtl"] .x`, which also
+            // matches `<html dir="rtl">`, an element with no ancestor).
+            if selector.starts_with(SHIELD.trim_end()) || exempt(selector) {
                 continue;
             }
             // A host's toolbar or footer: fine with its shielded twin for
