@@ -3,7 +3,7 @@
 A fast, schema-aware config editor for the browser: YAML, JSON, TOML, HCL and XML, or a language of your own,
 with completion from a JSON Schema, hover docs, validation, a diff gutter,
 editing one language as another, and eleven themes. It is written in Rust
-([`config-editor-leptos`](https://crates.io/crates/config-editor-leptos))
+([`config-editor-leptos`](https://github.com/paradoxe35/config-editor/tree/main/crates/config-editor-leptos))
 and ships as WebAssembly; this package is its framework-free JavaScript API.
 
 It has three entries:
@@ -14,9 +14,9 @@ It has three entries:
 | `@pngwasi/config-editor/tools`   | Text without an editor (servers, build steps, review screens): validation, conversion, parsing, diffs, paths, folds; see [Tools](#pngwasiconfig-editortools).      |
 | `@pngwasi/config-editor/binding` | Writing a package for another framework; see [Binding](#pngwasiconfig-editorbinding).                                                                              |
 
-For React, Vue and Svelte, use [`@pngwasi/config-editor-react`](https://www.npmjs.com/package/@pngwasi/config-editor-react),
-[`@pngwasi/config-editor-vue`](https://www.npmjs.com/package/@pngwasi/config-editor-vue)
-or [`@pngwasi/config-editor-svelte`](https://www.npmjs.com/package/@pngwasi/config-editor-svelte),
+For React, Vue and Svelte, use [`@pngwasi/config-editor-react`](https://github.com/paradoxe35/config-editor/tree/main/js/config-editor-react),
+[`@pngwasi/config-editor-vue`](https://github.com/paradoxe35/config-editor/tree/main/js/config-editor-vue)
+or [`@pngwasi/config-editor-svelte`](https://github.com/paradoxe35/config-editor/tree/main/js/config-editor-svelte),
 which build on this package.
 
 <!-- toc -->
@@ -66,7 +66,7 @@ Browsers only (ES modules + WebAssembly). The `.wasm` file is about 2.3 MB
 gzipped (1.5 MB with brotli) and loads once per page. It is built with every Cargo feature of
 the Rust crate (all five languages, schema validation, find and replace,
 the diff, folding, read-only fields and secrets); a Rust app can leave out
-what it does not use ([Cargo features](https://crates.io/crates/config-editor-leptos#cargo-features)).
+what it does not use ([Cargo features](https://github.com/paradoxe35/config-editor/tree/main/crates/config-editor-leptos#cargo-features)).
 
 ## Quick start
 
@@ -985,11 +985,11 @@ rangesOf("yaml", "web:\n  http: 80\n", ["/web/http", "/web/https"]);
 React, Vue and Svelte have packages of their own, built on what this
 entry exports (`EditorBinding`, `DocumentsBinding`, `SETTING_TYPES`):
 
-| Package                                                                                        | Component                                                     |
-| ---------------------------------------------------------------------------------------------- | ------------------------------------------------------------- |
-| [`@pngwasi/config-editor-react`](https://www.npmjs.com/package/@pngwasi/config-editor-react)   | `<ConfigEditor value onChange />`, a ref for the instance API |
-| [`@pngwasi/config-editor-vue`](https://www.npmjs.com/package/@pngwasi/config-editor-vue)       | `<ConfigEditor v-model @save />`, a template ref              |
-| [`@pngwasi/config-editor-svelte`](https://www.npmjs.com/package/@pngwasi/config-editor-svelte) | `<ConfigEditor bind:value onSave />`, exported functions      |
+| Package                                                                                                          | Component                                                     |
+| ---------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------- |
+| [`@pngwasi/config-editor-react`](https://github.com/paradoxe35/config-editor/tree/main/js/config-editor-react)   | `<ConfigEditor value onChange />`, a ref for the instance API |
+| [`@pngwasi/config-editor-vue`](https://github.com/paradoxe35/config-editor/tree/main/js/config-editor-vue)       | `<ConfigEditor v-model @save />`, a template ref              |
+| [`@pngwasi/config-editor-svelte`](https://github.com/paradoxe35/config-editor/tree/main/js/config-editor-svelte) | `<ConfigEditor bind:value onSave />`, exported functions      |
 
 For another framework (Angular, Solid, Lit, …), `EditorBinding` is what
 those components do, written once: feed it the component's props and it
@@ -1185,7 +1185,7 @@ out the typing pause is converted first; when it cannot be written in
 The document is dirty while it differs from `baseline` (the document at
 mount when no `baseline` is given). Embedding notes (what is fixed at mount,
 which text to send, flushing before your own Save button) are in the crate's
-[Embedding](https://crates.io/crates/config-editor-leptos#embedding)
+[Embedding](https://github.com/paradoxe35/config-editor/tree/main/crates/config-editor-leptos#embedding)
 section: `editor.value` is the document in `language`, `editor.text` the
 text on screen.
 

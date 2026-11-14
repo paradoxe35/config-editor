@@ -2016,5 +2016,5 @@ MIT. See [LICENSE](LICENSE).
 [Leptos]: https://leptos.dev
 [`Schema::warnings`]: https://docs.rs/config-editor-leptos/latest/config_editor_leptos/struct.Schema.html#method.warnings
 [`PRESET_CSS`]: https://docs.rs/config-editor-leptos/latest/config_editor_leptos/constant.PRESET_CSS.html
-[`@pngwasi/config-editor`]: https://www.npmjs.com/package/@pngwasi/config-editor
-[`@pngwasi/config-editor-react`]: https://www.npmjs.com/package/@pngwasi/config-editor-react
+[`@pngwasi/config-editor`]: https://github.com/paradoxe35/config-editor/tree/main/js/config-editor
+[`@pngwasi/config-editor-react`]: https://github.com/paradoxe35/config-editor/tree/main/js/config-editor-react

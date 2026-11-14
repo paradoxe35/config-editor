@@ -1,6 +1,6 @@
 # Config Editor for Vue
 
-Vue 3 components for [`@pngwasi/config-editor`](https://www.npmjs.com/package/@pngwasi/config-editor):
+Vue 3 components for [`@pngwasi/config-editor`](https://github.com/paradoxe35/config-editor/tree/main/js/config-editor):
 a fast, schema-aware YAML, JSON, TOML, HCL and XML (or your own language) editor running as WebAssembly,
 with completion from a JSON Schema, hover docs, validation, a diff gutter,
 editing one language as another, and eleven themes.
@@ -554,17 +554,17 @@ selected),
 document's id and its editor's own problems), `@error`. The template ref is a `ConfigDocumentsHandle`:
 `select(id)`, `isDirty(id)`, `save(id)`, `saveAll()`, `editAs(id, language)`, `focus()`, `setValue(id, text)` (replaces a document's text, always, and reports it through `@change`), `activeId`,
 `instance`, and `editor(id)`, the editor of a document, an `EditorView`
-(`value`, `reveal`, `rangeOf`, `fold`, `unifiedDiff`, …). See the [`@pngwasi/config-editor` README](https://www.npmjs.com/package/@pngwasi/config-editor#several-documents).
+(`value`, `reveal`, `rangeOf`, `fold`, `unifiedDiff`, …). See the [`@pngwasi/config-editor` README](https://github.com/paradoxe35/config-editor/tree/main/js/config-editor#several-documents).
 Per document, `@edit-as-change` (`id, language`) says the language on screen (once when its editor mounts, then on each change: a switch made, one that waited, undo or redo across a switch) and `@sync-change` (`id, inSync`) whether the text on screen is written back to its `value`. A prop that did not change is not sent again, so after an undo stepped back across a switch, `editAs(id, language)` on the template ref asks for it again. A document's `editAsText` (with `editAs`) opens its editor with the text the user had on screen (kept from `editor(id).text`), converted back once it is valid; `readOnlyReason` shows why a read-only document is read-only (its tab's tooltip, the notice when the user types, the accessible descriptions).
 To fill a set height (the component's element, styled through its class), give
 the view `height: 100%`
 (`.config-editor-documents { height: 100%; }`): the tab strip keeps its height
 and the shown editor takes the rest; see
-[Size](https://www.npmjs.com/package/@pngwasi/config-editor#size).
+[Size](https://github.com/paradoxe35/config-editor/tree/main/js/config-editor#size).
 
 ## Keyboard and screen readers
 
-The keys are those of [`@pngwasi/config-editor`](https://www.npmjs.com/package/@pngwasi/config-editor#keyboard).
+The keys are those of [`@pngwasi/config-editor`](https://github.com/paradoxe35/config-editor/tree/main/js/config-editor#keyboard).
 `Tab` indents while editing; `Ctrl+M` switches `Tab` to moving the focus,
 and right after an `Escape` that had nothing to close one `Tab` leaves.
 
@@ -587,7 +587,7 @@ The helpers come from `@pngwasi/config-editor`, a peer dependency:
 `convert`, `parse`, `serialize`, `unifiedDiff`, `changeSummary`, `rangeOf`, `rangesOf`,
 `pathAt`, `schemaWarnings`, `presetCss`) from
 `@pngwasi/config-editor/tools`, called after `loadConfigEditor()` has
-resolved; see the [`@pngwasi/config-editor` README](https://www.npmjs.com/package/@pngwasi/config-editor#pngwasiconfig-editortools).
+resolved; see the [`@pngwasi/config-editor` README](https://github.com/paradoxe35/config-editor/tree/main/js/config-editor#pngwasiconfig-editortools).
 
 ```ts
 import { loadConfigEditor, themes } from "@pngwasi/config-editor";
