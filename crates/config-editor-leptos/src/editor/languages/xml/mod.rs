@@ -412,7 +412,7 @@ impl ConfigLanguage for XmlBehavior {
                 return Err(reason);
             }
         }
-        let Value::Object(map) = &with_attributes(value, &attributes, &mut Vec::new()) else {
+        let Value::Object(map) = &with_attributes(value, old.as_ref(), &attributes, &mut Vec::new()) else {
             return Err("the XML document model is an object of elements".to_string());
         };
         let mut out = String::new();

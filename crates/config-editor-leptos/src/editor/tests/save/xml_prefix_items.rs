@@ -196,7 +196,7 @@ const OPERATIONS: [Operation; 10] = [
 
 /// Each element's expanded name, as a namespace-aware reader reads it, by
 /// the local names of its path, in document order.
-fn expanded_names(text: &str) -> Result<Vec<(Vec<String>, String)>, String> {
+pub(super) fn expanded_names(text: &str) -> Result<Vec<(Vec<String>, String)>, String> {
     let mut reader = NsReader::from_str(text);
     let mut path: Vec<String> = Vec::new();
     let mut names = Vec::new();

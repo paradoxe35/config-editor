@@ -20,7 +20,8 @@ use super::super::secret_options::SecretOptions;
 use super::super::state::EditorState;
 use super::follow::follow_ranges;
 use super::glued::{first_glued, glued_in_save, glued_message};
-use super::guard::{Blocked, check};
+use super::guard::{Blocked, check_at};
+use super::host_ranges::{HostRanges, offsets};
 use super::locate::LineIndex;
 use super::locks::{Protected, Sources, protect};
 use super::save::{ReadOnlyChange, check_save, locked_pointers, range_pointers};
@@ -78,6 +79,9 @@ pub(crate) struct ProtectState {
     /// through edits; empty while editing as another language (there the
     /// fields they cover are locked by path).
     pub(crate) ranges: RwSignal<Vec<Range<usize>>>,
+    /// The host's ranges in its own text while editing as another
+    /// language, followed through each conversion back.
+    in_host: HostRanges,
     /// The host's ranges `ranges` was first placed from, until the effect
     /// placing them again first runs: ranges the host changed before then
     /// (an update in the task that mounts the editor) are placed then.
@@ -126,7 +130,12 @@ impl ProtectState {
             })
         });
         let mounted_with = ranges.get_untracked();
-        let local = RwSignal::new(source.with_untracked(|text| offsets(text, &mounted_with)));
+        let in_host = host_text.with_value(|host| HostRanges::new(host, &mounted_with));
+        let local = RwSignal::new(if edit_language.get_untracked() == host_language {
+            source.with_untracked(|text| offsets(text, &mounted_with))
+        } else {
+            Vec::new()
+        });
         let marks = StoredValue::new(Marks::default());
         let covered = Covered(StoredValue::new(None));
         let protected = Memo::new_with_compare(
@@ -148,15 +157,10 @@ impl ProtectState {
                     local.get()
                 } else {
                     // Edit-as: the host's ranges lock the fields they cover.
-                    let host_ranges = ranges.get();
-                    if !host_ranges.is_empty() {
+                    if !ranges.with(Vec::is_empty) {
                         host_text.with_value(|host| {
-                            fields.extend(covered.found(
-                                host_language,
-                                host,
-                                &host_ranges,
-                                reading,
-                            ));
+                            let placed = in_host.in_text(host);
+                            fields.extend(covered.found(host_language, host, &placed, reading));
                         });
                     }
                     Vec::new()
@@ -183,6 +187,7 @@ impl ProtectState {
             host_paths: paths,
             host_ranges: ranges,
             ranges: local,
+            in_host,
             placed_at_mount: StoredValue::new(Some(mounted_with)),
             protected,
             tip: RwSignal::new(None),
@@ -242,8 +247,9 @@ impl ProtectState {
 #[derive(Clone, Copy)]
 struct Covered(StoredValue<Option<CoveredFields>>);
 
-/// A host text, its read-only ranges and the fields they cover.
-type CoveredFields = (String, Vec<TextRange>, Vec<FieldPath>);
+/// A host text, its read-only ranges (UTF-16 offsets) and the fields they
+/// cover.
+type CoveredFields = (String, Vec<Range<usize>>, Vec<FieldPath>);
 
 impl Covered {
     /// [`covered_fields`], from the last ones found when they were of the
@@ -252,7 +258,7 @@ impl Covered {
         self,
         language: Language,
         host: &str,
-        ranges: &[TextRange],
+        ranges: &[Range<usize>],
         reading: Option<&serde_json::Value>,
     ) -> Vec<FieldPath> {
         let kept = self.0.with_value(|kept| {
@@ -269,21 +275,20 @@ impl Covered {
     }
 }
 
-/// The fields the host's `ranges` cover in its own `host` text, written in
-/// `language` (none when it does not parse): what they lock while editing
-/// as another language.
+/// The fields the host's `ranges` (UTF-16 offsets) cover in its own `host`
+/// text, written in `language` (none when it does not parse): what they
+/// lock while editing as another language.
 fn covered_fields(
     language: Language,
     host: &str,
-    ranges: &[TextRange],
+    ranges: &[Range<usize>],
     reading: Option<&serde_json::Value>,
 ) -> Vec<FieldPath> {
     let behavior = language.behavior();
     let Ok(document) = codec::read(behavior, host, reading) else {
         return Vec::new();
     };
-    let covered = offsets(host, ranges);
-    range_pointers(behavior, host, &document, &covered)
+    range_pointers(behavior, host, &document, ranges)
         .into_iter()
         .map(FieldPath::from)
         .collect()
@@ -303,15 +308,6 @@ fn locks_changed(old: Option<&Arc<Protected>>, new: Option<&Arc<Protected>>) -> 
         }
         _ => true,
     }
-}
-
-/// `ranges` (positions in `text`) as UTF-16 offsets.
-fn offsets(text: &str, ranges: &[TextRange]) -> Vec<Range<usize>> {
-    if ranges.is_empty() {
-        return Vec::new();
-    }
-    let lines = LineIndex::new(text);
-    ranges.iter().map(|range| lines.range(*range)).collect()
 }
 
 impl EditorState {
@@ -382,12 +378,12 @@ impl EditorState {
             .protected
             .with_untracked(|protected| {
                 self.config().schema.with_value(|schema| {
-                    check(
+                    check_at(
                         self.behavior(),
                         schema.as_deref().map(|bundle| &bundle.schema),
                         protected,
-                        &edit.before,
-                        &edit.text,
+                        (&edit.before, &edit.text),
+                        Some(edit.caret()),
                     )
                 })
             })
@@ -417,14 +413,17 @@ impl EditorState {
             let index = secrets.whole.get_untracked();
             secrets.known.with_untracked(|known| {
                 secrets.tokens.with_untracked(|tokens| {
-                    Placeholders {
-                        behavior,
-                        reading_schema: schema.as_deref().map(|bundle| &bundle.schema),
-                        known,
-                        index: &index,
-                        tokens,
-                    }
-                    .check(before, after, before_parses)
+                    secrets.matcher.with_value(|matcher| {
+                        Placeholders {
+                            behavior,
+                            reading_schema: schema.as_deref().map(|bundle| &bundle.schema),
+                            known,
+                            index: &index,
+                            tokens,
+                            matcher,
+                        }
+                        .check(before, after, before_parses)
+                    })
                 })
             })
         });
@@ -484,12 +483,12 @@ impl EditorState {
         let without = format!("{}{}", &edit.text[..from], &edit.text[to..]);
         self.protect().protected.with_untracked(|protected| {
             self.config().schema.with_value(|schema| {
-                check(
+                check_at(
                     self.behavior(),
                     schema.as_deref().map(|bundle| &bundle.schema),
                     protected,
-                    &edit.before,
-                    &without,
+                    (&edit.before, &without),
+                    Some(start),
                 )
                 .is_ok()
             })
@@ -542,7 +541,7 @@ impl EditorState {
                 self.rescan_tokens(true);
             }
             Origin::Switch => {
-                self.place_ranges();
+                self.follow_ranges_across_switch();
                 self.rescan_tokens(false);
             }
             Origin::Command | Origin::Input { .. } => {}
@@ -561,14 +560,41 @@ impl EditorState {
         });
     }
 
-    /// Places the host's ranges on the text on screen again (they changed,
-    /// or the host replaced the text).
+    /// Places the host's ranges again (they changed, or the host replaced
+    /// the text): on the text on screen in the host's language, else in the
+    /// host's text, where each conversion back follows them.
     pub(crate) fn place_ranges(&self) {
         let host = self.config().host_language == self.sync().edit_language.get_untracked();
-        let placed = if host {
-            self.protect().host_ranges.with_untracked(|ranges| {
+        let placed = self.protect().host_ranges.with_untracked(|ranges| {
+            if host {
                 self.doc().text.with_untracked(|text| offsets(text, ranges))
-            })
+            } else {
+                self.sync()
+                    .host_text
+                    .with_value(|text| self.protect().in_host.place(text, ranges));
+                Vec::new()
+            }
+        });
+        self.protect().ranges.set(placed);
+    }
+
+    /// Before a switch away from the host's language, whose text was
+    /// `before`: its ranges, as followed on screen, are kept in that text,
+    /// where the host's next texts follow them from.
+    pub(crate) fn leave_ranges(&self, before: &str) {
+        let ranges = self.protect().ranges.get_untracked();
+        self.protect().in_host.keep(before, ranges);
+    }
+
+    /// After a switch: back in the host's language its ranges are where
+    /// the conversions back followed them; in another, the fields they
+    /// cover are locked by path.
+    fn follow_ranges_across_switch(&self) {
+        let host = self.config().host_language == self.sync().edit_language.get_untracked();
+        let placed = if host {
+            self.doc()
+                .text
+                .with_untracked(|text| self.protect().in_host.in_text(text))
         } else {
             Vec::new()
         };
@@ -660,10 +686,11 @@ impl EditorState {
                 .map(|bundle| &bundle.schema);
             let behavior = self.config().host_language.behavior();
             let paths = self.protect().host_paths.get_untracked();
-            let ranges = self
-                .protect()
-                .host_ranges
-                .with_untracked(|ranges| offsets(old, ranges));
+            let ranges = if self.protect().host_ranges.with_untracked(Vec::is_empty) {
+                Vec::new()
+            } else {
+                self.protect().in_host.in_text(old)
+            };
             if marking.is_none() && paths.is_empty() && ranges.is_empty() {
                 return Ok(());
             }

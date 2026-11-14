@@ -32,8 +32,11 @@ pub(super) struct Edited<'a> {
     pub(super) suffix: usize,
     /// The lines of `before`.
     pub(super) lines: LineIndex<'a>,
-    /// The region the edit replaced, read as narrowly as the texts allow,
-    /// in `before` and in `after`.
+    /// The region the edit replaced, in `before` and in `after`: where the
+    /// caret it left places it (inserted text ends there), else as narrowly
+    /// as the texts allow. Text inserted beside a copy of itself (a locked
+    /// line pasted above the lock) could be read anywhere along the copy,
+    /// into the lock; the caret tells where it went.
     pub(super) region: Range<usize>,
     pub(super) new_region: Range<usize>,
     parsed: OnceCell<Option<Value>>,
@@ -51,6 +54,7 @@ impl<'a> Edited<'a> {
         protected: &'a Protected,
         before: &'a str,
         after: &'a str,
+        caret: Option<usize>,
     ) -> Self {
         let old: Vec<u16> = before.encode_utf16().collect();
         let new: Vec<u16> = after.encode_utf16().collect();
@@ -65,8 +69,18 @@ impl<'a> Edited<'a> {
         let tail = suffix
             .min(old.len() - prefix.min(old.len()))
             .min(new.len() - prefix.min(new.len()));
-        let region = prefix.min(old.len())..old.len() - tail;
-        let new_region = prefix.min(new.len())..new.len() - tail;
+        let mut region = prefix.min(old.len())..old.len() - tail;
+        let mut new_region = prefix.min(new.len())..new.len() - tail;
+        // Placed by the caret: the texts agree before the inserted text
+        // starts and after it ends.
+        if let Some(from) = caret.and_then(|caret| caret.checked_sub(new_region.len()))
+            && from <= prefix
+            && from + region.len() <= old.len()
+            && old.len() - (from + region.len()) <= suffix
+        {
+            region = from..from + region.len();
+            new_region = from..from + new_region.len();
+        }
         Edited {
             behavior,
             reading_schema,

@@ -139,6 +139,7 @@ fn a_whole_document_edit_checks_placeholders_in_linear_work() {
             known: &[],
             index: &WholeIndex::new(&[]),
             tokens: &[],
+            matcher: &super::tokens::SecretMatcher::new(&SecretOptions::default()),
         }
         .check("a: 1\nb: [\n", "  a: 1\n  b: [\n", false);
         assert!(verdict.glued.is_none());

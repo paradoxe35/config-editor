@@ -6,15 +6,10 @@ use std::collections::HashMap;
 use std::ops::Range;
 
 use super::super::super::language::{ConfigLanguage, SchemaPathSegment};
-use super::super::super::paths::{FieldPath, path_at};
-use super::super::locate::{LineIndex, plain, within};
+use super::super::super::paths::{FieldPath, path_at, paths_at};
+use super::super::locate::{LineIndex, plain};
 use super::super::locks::Lock;
 use super::super::scan::names_word;
-
-/// Lines of an edited region read for their paths at most (each a read
-/// from the top of the text); an edit needing more, leaving the text
-/// unreadable next to a lock, is refused.
-const MAX_REGION_LINES: usize = 2000;
 
 /// The paths of the lines of one text, each read once however many locks
 /// ask for it (a read is a path read from the top of the text).
@@ -44,71 +39,53 @@ impl<'a> LinePaths<'a> {
         if let Some(known) = self.read.borrow().get(&line) {
             return known.clone();
         }
-        let content = self.lines.line_text(line);
-        let indent = content.len() - content.trim_start().len();
-        let at = self.lines.line_bounds(line).start + content[..indent].encode_utf16().count();
-        let path = path_at(self.behavior, self.text, at).map(|path| path.to_pointer());
+        let path = path_at(self.behavior, self.text, self.first_character(line))
+            .map(|path| path.to_pointer());
         self.read.borrow_mut().insert(line, path.clone());
         path
     }
-}
 
-/// How many lines touching `region` of the text `paths` reads would join the field at
-/// `pointer`: lines whose path is inside it, and lines naming a key that
-/// holds it (a second `web:` above a locked `web/port`). Blank and comment
-/// lines join nothing. Only lines that could are read: those `near` the
-/// field (its lines, and the next line holding code on each side, where a
-/// line joins a block) and those naming one of its keys (a duplicate, a
-/// TOML table or dotted key anywhere). `None` when they are too many to
-/// read. With `own_key_free`, a line naming the field's own key (a copy of
-/// its line, a duplicate the parser may read last) is not counted.
-pub(super) fn joining_lines(
-    paths: &LinePaths<'_>,
-    region: &Range<usize>,
-    near: Range<usize>,
-    pointer: &str,
-    own_key_free: bool,
-) -> Option<usize> {
-    let (behavior, lines) = (paths.behavior, paths.lines);
-    let first = lines.line_of(region.start);
-    let last = lines.line_of(region.end);
-    let keys: Vec<String> = FieldPath::from(pointer)
-        .segments()
-        .iter()
-        .filter_map(|segment| match segment {
-            SchemaPathSegment::Key(key) => Some(key.clone()),
-            _ => None,
-        })
-        .collect();
-    let mut read = 0;
-    let mut count = 0;
-    for line in first..=last {
-        let content = lines.line_text(line);
-        if !holds_code(behavior, content) || !(near.contains(&line) || names_word(&keys, content)) {
-            continue;
-        }
-        read += 1;
-        if read > MAX_REGION_LINES {
-            return None;
-        }
-        let Some(path) = paths.path(line) else {
-            continue;
+    /// Reads the paths of `lines` in one pass of the text (see
+    /// `paths::paths_at`), where each read alone walks it from the top.
+    pub(super) fn read_all(&self, lines: &[usize]) {
+        let unread: Vec<usize> = {
+            let read = self.read.borrow();
+            lines
+                .iter()
+                .copied()
+                .filter(|line| !read.contains_key(line))
+                .collect()
         };
-        let holds = !path.is_empty()
-            && within(behavior, pointer, &path)
-            && !within(behavior, &path, pointer)
-            && names_holder(behavior, &path, content);
-        let own_key = || {
-            own_key_free
-                && keys
-                    .last()
-                    .is_some_and(|key| names_word(std::slice::from_ref(key), content))
-        };
-        if holds || (within(behavior, &path, pointer) && !own_key()) {
-            count += 1;
+        if unread.is_empty() {
+            return;
+        }
+        let cursors: Vec<usize> = unread
+            .iter()
+            .map(|line| self.first_character(*line))
+            .collect();
+        let found = paths_at(self.behavior, self.text, &cursors);
+        let mut read = self.read.borrow_mut();
+        for (line, path) in unread.into_iter().zip(found) {
+            read.insert(line, path.map(|path| path.to_pointer()));
         }
     }
-    Some(count)
+
+    /// The UTF-16 offset of line `line`'s first character past its indent.
+    fn first_character(&self, line: usize) -> usize {
+        let content = self.lines.line_text(line);
+        let indent = content.len() - content.trim_start().len();
+        self.lines.line_bounds(line).start + content[..indent].encode_utf16().count()
+    }
+
+    /// The text's lines.
+    pub(super) fn lines(&self) -> &LineIndex<'a> {
+        self.lines
+    }
+
+    /// The language the text is written in.
+    pub(super) fn behavior(&self) -> &'a dyn ConfigLanguage {
+        self.behavior
+    }
 }
 
 /// Whether `line`, read at `path` (a block holding a locked field), names
@@ -116,7 +93,7 @@ pub(super) fn joining_lines(
 /// line half typed inside the block reads at the block too (`c` on its way
 /// to `ca: 1`, a sibling's separator deleted), but it names another key: a
 /// sibling, which joins nothing locked.
-fn names_holder(behavior: &dyn ConfigLanguage, path: &str, line: &str) -> bool {
+pub(super) fn names_holder(behavior: &dyn ConfigLanguage, path: &str, line: &str) -> bool {
     match FieldPath::from(plain(behavior, path).as_str())
         .segments()
         .last()

@@ -479,10 +479,14 @@ pub struct EditorStrings {
     pub too_many_contained: String,
     /// A value its `not` schema (`{schema}`, as JSON) matches.
     pub must_not_match: String,
-    /// An object holding all of the keys its `not` schema keeps apart
-    /// (`not: {required: [...]}`): the first (`{key}`) and the others
-    /// (`{others}`), each quoted, joined by `, `.
+    /// An object holding both keys its `not` schema keeps apart (`not:
+    /// {required: [a, b]}`, or a key's dependent schema's `not`): the
+    /// first (`{key}`) and the other (`{other}`), each quoted.
     pub keys_used_together: String,
+    /// An object holding all of three or more keys its `not` schema keeps
+    /// apart (`not: {required: [a, b, c]}`): the keys (`{keys}`), each
+    /// quoted, joined by `, `.
+    pub keys_all_used_together: String,
     /// A value that matches none of a schema's options (`{keyword}`:
     /// `oneOf` or `anyOf`), with why each fails (`{reasons}`, each worded
     /// by `option_needs`, `option_refuses` or `option_problem`, joined by
@@ -505,6 +509,8 @@ pub struct EditorStrings {
     /// A schema its format cannot read (`{format}`: the format's label, such
     /// as `XSD`).
     pub invalid_schema_source: String,
+    /// A schema whose text is empty, or only spaces and line breaks.
+    pub empty_schema: String,
     /// A secret placeholder pattern the editor cannot use (it does not
     /// compile, or matches empty text): no token is taken for a placeholder.
     pub invalid_placeholder: String,
@@ -774,7 +780,8 @@ impl Default for EditorStrings {
                 "{value} has more than {limit} items its \"contains\" schema allows",
             ),
             must_not_match: text("{value} must not match {schema}"),
-            keys_used_together: text("{key} can't be used together with {others}"),
+            keys_used_together: text("{key} can't be used together with {other}"),
+            keys_all_used_together: text("{keys} can't all be used together"),
             no_option_matches: text("matches none of the {keyword} options: {reasons}"),
             several_options_match: text(
                 "matches more than one of the oneOf options ({options}); only one may match",
@@ -785,6 +792,7 @@ impl Default for EditorStrings {
             option_number: text("option {number}"),
             invalid_schema: text("Invalid JSON Schema: {error}"),
             invalid_schema_source: text("Invalid {format}: {error}"),
+            empty_schema: text("Invalid JSON Schema: the schema text is empty"),
             invalid_placeholder: text("secrets.placeholder: {error}"),
             problem_at_path: text("{path}: {message}"),
             host_cannot_keep: text(

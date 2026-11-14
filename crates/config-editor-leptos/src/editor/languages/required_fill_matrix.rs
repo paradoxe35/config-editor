@@ -123,3 +123,46 @@ fn required_children_are_filled_alike_in_any_order() {
     }
     assert!(failures.is_empty(), "{}", failures.join("\n\n"));
 }
+
+/// A required list with `minItems` is written with that many items (each
+/// filled as a required value is), not as `[]`, an error the moment it is
+/// written: a list of text, of numbers with a default, of objects with
+/// required children, in every language.
+#[test]
+fn a_required_list_with_min_items_is_written_with_its_items() {
+    let schema = json!({"type": "object", "properties": {"svc": {
+        "type": "object",
+        "required": ["name", "env", "ports", "containers"],
+        "properties": {
+            "name": {"type": "string"},
+            "env": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+            "ports": {"type": "array", "minItems": 2, "items": {"type": "integer", "default": 80}},
+            "containers": {"type": "array", "minItems": 1, "items": {
+                "type": "object", "required": ["image"],
+                "properties": {"image": {"type": "string", "default": "app"}}}}
+        }
+    }}});
+    let bundle = build_schema(&schema.to_string()).unwrap();
+    let mut failures = Vec::new();
+    for language in LANGUAGES {
+        let accepted = accept_marked("sv|", "svc", &bundle, language.behavior());
+        let text = accepted.replace('|', "");
+        let read = super::super::codec::read(language.behavior(), &text, Some(&bundle.schema));
+        let field = |key: &str| {
+            read.as_ref()
+                .ok()
+                .and_then(|read| read.pointer(&format!("/svc/{key}")))
+                .cloned()
+        };
+        let found = (field("env"), field("ports"), field("containers"));
+        let wanted = (
+            Some(json!([""])),
+            Some(json!([80, 80])),
+            Some(json!([{"image": "app"}])),
+        );
+        if found != wanted {
+            failures.push(format!("{language}\n{accepted}\nreads {read:?}"));
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n\n"));
+}

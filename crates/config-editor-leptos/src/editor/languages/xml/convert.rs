@@ -136,17 +136,22 @@ pub(super) fn is_attribute(source: &str, pointer: &str) -> bool {
 
 /// `value` (the element at `path`) with the scalars the host wrote as
 /// attributes renamed `@name`, the key `quick-xml` writes as an attribute,
-/// and placed before the children.
-pub(super) fn with_attributes(value: &Value, attributes: &AttributePaths, path: &mut Vec<String>) -> Value {
+/// and placed before the children. `old` is the host's value at `path`: a
+/// key renamed from one of its is at that key's path (QA `E33-2`: an
+/// element renamed while its values changed kept no attribute).
+pub(super) fn with_attributes(value: &Value, old: Option<&Value>, attributes: &AttributePaths, path: &mut Vec<String>) -> Value {
     match value {
         Value::Object(map) => {
             path.push(ATTRIBUTES_ONLY.to_string());
             let attributes_only = attributes.contains(path.as_slice());
             path.pop();
+            let old = old.and_then(Value::as_object);
             let mut attrs = serde_json::Map::new();
             let mut children = serde_json::Map::new();
             for (key, child) in map {
-                path.push(key.clone());
+                let host_key = old.and_then(|old| super::identity::host_key(old, map, key));
+                let old_child = host_key.and_then(|host_key| old?.get(host_key));
+                path.push(host_key.unwrap_or(key).clone());
                 let scalar = matches!(child, Value::String(_) | Value::Number(_) | Value::Bool(_));
                 // An attribute keyed `@name` (a child element has its name).
                 // A plain key beside `@` its name is the child element.
@@ -160,15 +165,26 @@ pub(super) fn with_attributes(value: &Value, attributes: &AttributePaths, path: 
                 } else if scalar && !child_of_attribute && (attribute_name || attributes_only || attributes.contains(path.as_slice())) {
                     attrs.insert(format!("@{key}"), child.clone());
                 } else {
-                    children.insert(key.clone(), with_attributes(child, attributes, path));
+                    children.insert(key.clone(), with_attributes(child, old_child, attributes, path));
                 }
                 path.pop();
             }
             attrs.extend(children);
             Value::Object(attrs)
         }
+        // An item is read against the host's at its place, or its lone one.
         Value::Array(items) => Value::Array(
-            items.iter().map(|item| with_attributes(item, attributes, path)).collect(),
+            items
+                .iter()
+                .enumerate()
+                .map(|(index, item)| {
+                    let old_item = match old {
+                        Some(Value::Array(olds)) => olds.get(index),
+                        lone => lone,
+                    };
+                    with_attributes(item, old_item, attributes, path)
+                })
+                .collect(),
         ),
         other => other.clone(),
     }

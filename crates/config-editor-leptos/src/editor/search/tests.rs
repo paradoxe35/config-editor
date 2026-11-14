@@ -252,7 +252,7 @@ fn the_count_reads_like_vs_code() {
     );
     assert_eq!(
         count_label(&strings, &SearchResults::default(), None, true),
-        "No results"
+        ""
     );
     let invalid = SearchResults {
         error: Some("unclosed group".into()),

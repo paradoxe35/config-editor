@@ -115,7 +115,12 @@ The editor injects its stylesheet ([`PRESET_CSS`]) by default: one
 editor is in), shared by every editor and documents view there and removed
 with the last. Host stylesheets later in `<head>` or in `<body>` win over its
 rules at equal specificity; the theme variables have zero specificity, so
-any rule overrides them. Under a strict Content-Security-Policy, serve it as
+any rule overrides them. Set the `--config-editor-*` variables (colors,
+`--config-editor-font-size`, `--config-editor-line-height`, the height
+ones) on `.config-editor` or the editor's own element or `class`: on `body`
+or `html` they have no effect. The page's rules for bare elements never
+reach the editor, but rules marked `!important` and rules that target its
+inner `config-editor__*` classes do: those are the host's choice. Under a strict Content-Security-Policy, serve it as
 a file instead (see
 [Strict Content-Security-Policy](#strict-content-security-policy)).
 
@@ -365,7 +370,7 @@ they come.
 <!-- Generated from crates/config-editor-leptos/src/strings.rs by js/config-editor/tests/settings.rs; do not edit. Regenerate with `UPDATE_GENERATED=1 cargo test -p config-editor-js --test settings`. -->
 
 <details>
-<summary>Every text and its default (201 texts)</summary>
+<summary>Every text and its default (203 texts)</summary>
 
 | Field                           | Default                                                                                                                                     |                                                                                                                                                                                                                                                |
 | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -543,7 +548,8 @@ they come.
 | `too_few_contained`             | `"{value} has fewer than {limit} items its \"contains\" schema allows"`                                                                     | A list (`{value}`) with fewer items its `contains` schema allows than its `minContains` (`{limit}`).                                                                                                                                           |
 | `too_many_contained`            | `"{value} has more than {limit} items its \"contains\" schema allows"`                                                                      | A list (`{value}`) with more items its `contains` schema allows than its `maxContains` (`{limit}`).                                                                                                                                            |
 | `must_not_match`                | `"{value} must not match {schema}"`                                                                                                         | A value its `not` schema (`{schema}`, as JSON) matches.                                                                                                                                                                                        |
-| `keys_used_together`            | `"{key} can't be used together with {others}"`                                                                                              | An object holding all of the keys its `not` schema keeps apart (`not: {required: [...]}`): the first (`{key}`) and the others (`{others}`), each quoted, joined by `, `.                                                                       |
+| `keys_used_together`            | `"{key} can't be used together with {other}"`                                                                                               | An object holding both keys its `not` schema keeps apart (`not: {required: [a, b]}`, or a key's dependent schema's `not`): the first (`{key}`) and the other (`{other}`), each quoted.                                                         |
+| `keys_all_used_together`        | `"{keys} can't all be used together"`                                                                                                       | An object holding all of three or more keys its `not` schema keeps apart (`not: {required: [a, b, c]}`): the keys (`{keys}`), each quoted, joined by `, `.                                                                                     |
 | `no_option_matches`             | `"matches none of the {keyword} options: {reasons}"`                                                                                        | A value that matches none of a schema's options (`{keyword}`: `oneOf` or `anyOf`), with why each fails (`{reasons}`, each worded by `option_needs`, `option_refuses` or `option_problem`, joined by `; `).                                     |
 | `several_options_match`         | `"matches more than one of the oneOf options ({options}); only one may match"`                                                              | A value that matches more than one of a `oneOf`'s options (`{options}`, their names joined by `, `).                                                                                                                                           |
 | `option_needs`                  | `"{option} needs \"{key}\""`                                                                                                                | An option (`{option}`) that needs a key the value does not have.                                                                                                                                                                               |
@@ -552,6 +558,7 @@ they come.
 | `option_number`                 | `"option {number}"`                                                                                                                         | The name of an option with no title or description (`{number}`, from 1).                                                                                                                                                                       |
 | `invalid_schema`                | `"Invalid JSON Schema: {error}"`                                                                                                            | A schema that does not compile.                                                                                                                                                                                                                |
 | `invalid_schema_source`         | `"Invalid {format}: {error}"`                                                                                                               | A schema its format cannot read (`{format}`: the format's label, such as `XSD`).                                                                                                                                                               |
+| `empty_schema`                  | `"Invalid JSON Schema: the schema text is empty"`                                                                                           | A schema whose text is empty, or only spaces and line breaks.                                                                                                                                                                                  |
 | `invalid_placeholder`           | `"secrets.placeholder: {error}"`                                                                                                            | A secret placeholder pattern the editor cannot use (it does not compile, or matches empty text): no token is taken for a placeholder.                                                                                                          |
 | `problem_at_path`               | `"{path}: {message}"`                                                                                                                       | A host's problem with a field the editor cannot find in the text, listed with the field's path.                                                                                                                                                |
 | `host_cannot_keep`              | `"{pointer}: {host} cannot keep this value exactly; it reads back differently"`                                                             | A value the host's language reads back differently (Edit-as).                                                                                                                                                                                  |
@@ -2092,8 +2099,11 @@ the editor or after) never reach what the editor draws: each element
 inside starts from the browser's own styles, and the preset's rules for
 them carry an id's weight. Nor do the text properties the page sets on
 `body` or on the editor's element (`text-align: center`, an underline,
-letter spacing, a tab size): the roots set each to its initial value. Restyle the editor through these tokens and its roots
-(`.config-editor`, `.config-editor-documents`).
+letter spacing, a tab size): the roots set each to its initial value. A
+bare element rule's padding or margin (`div { padding: 1rem }`) does not
+reach the roots' own box either. Restyle the editor through these tokens and its roots
+(`.config-editor`, `.config-editor-documents`, the `class` given): a rule
+naming a class wins over bare element rules wherever it sits.
 
 </details>
 

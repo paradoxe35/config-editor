@@ -7,8 +7,11 @@
 //! locked value, or throw (a `rangeOf` result's index and line forms no
 //! longer agree there). So ranges equal to the last ones given (the same
 //! JSON) keep where the editor has them while the text stays the one it
-//! holds; ranges that differ, or come with a new text from the host, or
-//! with `rangesFor`, are read in the text they are given for, as always.
+//! holds: the text it already holds, an echo of one it sent, or one older
+//! than the typing (see [`stay`]: one rule for a `ConfigEditor` and each
+//! document of a `ConfigDocuments`); ranges that differ, or come with a
+//! new text that replaces the document, or with `rangesFor`, are read in
+//! the text they are given for, as always.
 
 use std::collections::HashMap;
 
@@ -21,6 +24,15 @@ fn print(list: &JsValue) -> Option<String> {
     js_sys::JSON::stringify(list)
         .ok()
         .and_then(|text| text.as_string())
+}
+
+/// Whether ranges given again (`again`: equal to the last ones given, no
+/// `rangesFor`) stay where the editor moved them: unless the text they
+/// come with replaces the document (`replaces`). A text the document
+/// holds, an echo of one it sent or one older than the typing keeps them,
+/// whatever order the echoes come back in.
+pub(crate) fn stay(again: bool, replaces: bool) -> bool {
+    again && !replaces
 }
 
 /// The ranges a `ConfigEditor` was given last.
@@ -53,26 +65,12 @@ pub(crate) struct Listed {
 }
 
 impl Listed {
-    /// Document `id`'s ranges, given as `list`: those its editor was given
-    /// last when they are the ones given last and it is listed with the
-    /// text it holds (`holds`); `None` when they are to be read.
-    pub(crate) fn again(
-        &mut self,
-        id: &str,
-        list: &JsValue,
-        holds: bool,
-    ) -> Option<Vec<TextRange>> {
-        if !holds {
-            return None;
-        }
+    /// Document `id`'s ranges, given as `list`, when they are the ones
+    /// given last: as its editor was given them (it has moved them since).
+    pub(crate) fn again(&self, id: &str, list: &JsValue) -> Option<Vec<TextRange>> {
         let print = print(list)?;
         let (known, ranges) = self.last.get(id)?;
-        if *known != print {
-            return None;
-        }
-        let ranges = ranges.clone();
-        self.read.insert(id.to_string(), (print, ranges.clone()));
-        Some(ranges)
+        (*known == print).then(|| ranges.clone())
     }
 
     /// Document `id`'s ranges, given as `list`, read as `ranges`.
@@ -84,6 +82,14 @@ impl Listed {
             None => {
                 self.read.remove(id);
             }
+        }
+    }
+
+    /// Document `id` keeps `ranges`, those its editor was given before: the
+    /// text the list gave it did not replace its own (see [`stay`]).
+    pub(crate) fn kept(&mut self, id: &str, ranges: Vec<TextRange>) {
+        if let Some((_, last)) = self.last.get_mut(id) {
+            *last = ranges;
         }
     }
 

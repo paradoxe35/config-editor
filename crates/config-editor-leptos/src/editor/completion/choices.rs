@@ -278,7 +278,7 @@ pub(crate) fn document_around(
     // Read aside: the text with the line left out must not push the text
     // on screen out of the shared parse.
     behavior
-        .parse(&format!("{before}{after}"))
+        .parse(&behavior.caret_line_left_out(source, line_start, line_end))
         .ok()
         .or_else(|| without_dangling_separator(before, after, behavior))
 }

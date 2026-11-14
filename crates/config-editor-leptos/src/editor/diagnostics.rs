@@ -108,18 +108,22 @@ impl SchemaFailure {
                 &strings.invalid_schema_source,
                 &[("format", format), ("error", error)],
             ),
-            SchemaFailure::JsonSchema(error) => fill(&strings.invalid_schema, &[("error", error)]),
+            SchemaFailure::JsonSchema(error) => schema_message(strings, error),
         }
     }
 }
 
 /// The compiled schema, or why `schema_text` (JSON, or YAML with the
 /// `yaml` feature) is no JSON Schema (worded by the `invalidSchema` text
-/// where it is shown).
+/// where it is shown, see [`schema_message`]): empty for a text that is
+/// empty or only white space.
 pub(super) fn build_schema(schema_text: &str) -> Result<SchemaBundle, String> {
     // A byte order mark (a file saved by an editor that writes one) is no
     // part of the schema.
     let schema_text = schema_text.strip_prefix('\u{feff}').unwrap_or(schema_text);
+    if schema_text.trim().is_empty() {
+        return Err(String::new());
+    }
     let schema = super::languages::read_schema_text(schema_text)?;
     build_compiled(schema, Vec::new(), Vec::new())
 }
@@ -299,6 +303,16 @@ impl std::str::FromStr for Severity {
                 "unknown severity \"{name}\" (expected error, warning, info or hint)"
             )),
         }
+    }
+}
+
+/// The message for a schema that does not compile, `error` as
+/// [`build_schema`] gives it (empty: the text is).
+pub(super) fn schema_message(strings: &EditorStrings, error: &str) -> String {
+    if error.is_empty() {
+        strings.empty_schema.clone()
+    } else {
+        fill(&strings.invalid_schema, &[("error", &error)])
     }
 }
 
@@ -505,12 +519,7 @@ impl Schema {
             .map(|bundle| Schema {
                 bundle: std::sync::Arc::new(bundle),
             })
-            .map_err(|error| {
-                SchemaError(fill(
-                    &default_strings().invalid_schema,
-                    &[("error", &error)],
-                ))
-            })
+            .map_err(|error| SchemaError(schema_message(default_strings(), &error)))
     }
 
     /// Compiles a schema written in `format`.
@@ -1196,20 +1205,23 @@ impl Fields {
 }
 
 /// Pointers of the values of `document` that are one of `accepted`: each
-/// string looked up among the tokens (a pass over them all for each string
-/// took seconds with thousands of placeholders).
+/// string looked up among the tokens, then its field among the token's (a
+/// pass over them all for each string took seconds with thousands of
+/// placeholders; over a token's fields, with one fixed mask in thousands
+/// of fields, the typing pause grew with their square).
 #[cfg(feature = "schema-validation")]
 fn accepted_pointers(document: &Value, accepted: &[(String, String)]) -> Vec<String> {
     if accepted.is_empty() {
         return Vec::new();
     }
     super::work_count::note(super::work_count::Work::TokenScan);
-    let mut fields: std::collections::HashMap<&str, Vec<&str>> = std::collections::HashMap::new();
+    let mut fields: std::collections::HashMap<&str, std::collections::HashSet<String>> =
+        std::collections::HashMap::new();
     for (token, field) in accepted {
         fields
             .entry(token.as_str())
             .or_default()
-            .push(field.as_str());
+            .insert(super::paths::field_key(field));
     }
     let mut found = Vec::new();
     let mut stack = vec![(String::new(), document)];
@@ -1217,9 +1229,8 @@ fn accepted_pointers(document: &Value, accepted: &[(String, String)]) -> Vec<Str
         match value {
             Value::String(text)
                 if fields.get(text.as_str()).is_some_and(|fields| {
-                    fields
-                        .iter()
-                        .any(|field| super::paths::same_field(field, &pointer))
+                    super::work_count::note(super::work_count::Work::PlaceLookup);
+                    fields.contains(&super::paths::field_key(&pointer))
                 }) =>
             {
                 found.push(pointer)

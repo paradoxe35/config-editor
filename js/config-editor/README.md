@@ -256,7 +256,7 @@ with that reason.
 <!-- Generated from crates/config-editor-leptos/src/strings.rs by js/config-editor/tests/settings.rs; do not edit. Regenerate with `UPDATE_GENERATED=1 cargo test -p config-editor-js --test settings`. -->
 
 <details>
-<summary>Every text and its default (201 texts)</summary>
+<summary>Every text and its default (203 texts)</summary>
 
 | Key                         | Default                                                                                                                                     |                                                                                                                                                                                                                                                |
 | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -434,7 +434,8 @@ with that reason.
 | `tooFewContained`           | `"{value} has fewer than {limit} items its \"contains\" schema allows"`                                                                     | A list (`{value}`) with fewer items its `contains` schema allows than its `minContains` (`{limit}`).                                                                                                                                           |
 | `tooManyContained`          | `"{value} has more than {limit} items its \"contains\" schema allows"`                                                                      | A list (`{value}`) with more items its `contains` schema allows than its `maxContains` (`{limit}`).                                                                                                                                            |
 | `mustNotMatch`              | `"{value} must not match {schema}"`                                                                                                         | A value its `not` schema (`{schema}`, as JSON) matches.                                                                                                                                                                                        |
-| `keysUsedTogether`          | `"{key} can't be used together with {others}"`                                                                                              | An object holding all of the keys its `not` schema keeps apart (`not: {required: [...]}`): the first (`{key}`) and the others (`{others}`), each quoted, joined by `, `.                                                                       |
+| `keysUsedTogether`          | `"{key} can't be used together with {other}"`                                                                                               | An object holding both keys its `not` schema keeps apart (`not: {required: [a, b]}`, or a key's dependent schema's `not`): the first (`{key}`) and the other (`{other}`), each quoted.                                                         |
+| `keysAllUsedTogether`       | `"{keys} can't all be used together"`                                                                                                       | An object holding all of three or more keys its `not` schema keeps apart (`not: {required: [a, b, c]}`): the keys (`{keys}`), each quoted, joined by `, `.                                                                                     |
 | `noOptionMatches`           | `"matches none of the {keyword} options: {reasons}"`                                                                                        | A value that matches none of a schema's options (`{keyword}`: `oneOf` or `anyOf`), with why each fails (`{reasons}`, each worded by `optionNeeds`, `optionRefuses` or `optionProblem`, joined by `; `).                                        |
 | `severalOptionsMatch`       | `"matches more than one of the oneOf options ({options}); only one may match"`                                                              | A value that matches more than one of a `oneOf`'s options (`{options}`, their names joined by `, `).                                                                                                                                           |
 | `optionNeeds`               | `"{option} needs \"{key}\""`                                                                                                                | An option (`{option}`) that needs a key the value does not have.                                                                                                                                                                               |
@@ -443,6 +444,7 @@ with that reason.
 | `optionNumber`              | `"option {number}"`                                                                                                                         | The name of an option with no title or description (`{number}`, from 1).                                                                                                                                                                       |
 | `invalidSchema`             | `"Invalid JSON Schema: {error}"`                                                                                                            | A schema that does not compile.                                                                                                                                                                                                                |
 | `invalidSchemaSource`       | `"Invalid {format}: {error}"`                                                                                                               | A schema its format cannot read (`{format}`: the format's label, such as `XSD`).                                                                                                                                                               |
+| `emptySchema`               | `"Invalid JSON Schema: the schema text is empty"`                                                                                           | A schema whose text is empty, or only spaces and line breaks.                                                                                                                                                                                  |
 | `invalidPlaceholder`        | `"secrets.placeholder: {error}"`                                                                                                            | A secret placeholder pattern the editor cannot use (it does not compile, or matches empty text): no token is taken for a placeholder.                                                                                                          |
 | `problemAtPath`             | `"{path}: {message}"`                                                                                                                       | A host's problem with a field the editor cannot find in the text, listed with the field's path.                                                                                                                                                |
 | `hostCannotKeep`            | `"{pointer}: {host} cannot keep this value exactly; it reads back differently"`                                                             | A value the host's language reads back differently (Edit-as).                                                                                                                                                                                  |
@@ -1844,12 +1846,19 @@ after) never reach what it draws: each element inside starts from the
 browser's own styles, and its rules for them carry an id's weight. Nor do
 the text properties your page sets on `body` or on the editor's element
 (`text-align: center`, an underline, letter spacing, a tab size): its
-roots set each to its initial value. Style the editor
+roots set each to its initial value, nor a bare element rule's padding or
+margin (`div { padding: 1rem }`) to the roots' own box. Style the editor
 through its roots (`.config-editor`, `.config-editor-documents`; a rule of
 yours later in the page wins over the preset's at equal specificity) and its
 color variables. Every theme color is a CSS variable on the `.config-editor` root, and the
 bundled themes set them with zero specificity, so a plain rule in your
-stylesheet overrides any theme, wherever it sits:
+stylesheet overrides any theme, wherever it sits. Set the `--config-editor-*`
+variables (colors, `--config-editor-font-size`, `--config-editor-line-height`,
+the height ones) on `.config-editor`, or on the editor's own element or
+`className`: on `body` or `html` they have no effect, as the root sets each
+itself. The shield covers your page's bare-element rules, not rules marked
+`!important` and not rules that target the editor's inner `config-editor__*`
+classes: those are your choice.
 
 ```css
 .config-editor {

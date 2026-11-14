@@ -16,11 +16,17 @@ pub(super) fn tab(state: EditorState, event: &KeyboardEvent) {
     };
     let (start, end) = textarea_selection(&element);
     let text = state.doc().text.get_untracked();
-    if !event.shift_key()
-        && start == end
-        && (next_placeholder_slot(state, &text, start) || step_out_of_value(state, &text, start))
-    {
-        return;
+    if !event.shift_key() && start == end {
+        let in_block = in_slot_region(state, &text, start);
+        if next_placeholder_slot(state, &text, start) || step_out_of_value(state, &text, start) {
+            return;
+        }
+        // Past the last value of a block a suggestion wrote: the block is
+        // done, as at the end of a snippet, and Tab writes nothing.
+        if in_block {
+            state.close_suggestions();
+            return;
+        }
     }
     if event.shift_key() || spans_lines(&text, start, end) {
         indent_block(
@@ -41,6 +47,19 @@ pub(super) fn tab(state: EditorState, event: &KeyboardEvent) {
     );
     state.commit(Edit::new(text, (start, end), updated, caret));
     state.close_suggestions();
+}
+
+/// Whether `caret` is in the block a suggestion just wrote (whose values
+/// Tab walks).
+fn in_slot_region(state: EditorState, text: &str, caret: usize) -> bool {
+    state
+        .completion()
+        .slot_region
+        .get_value()
+        .is_some_and(|(region_start, from_end)| {
+            let region_end = text.encode_utf16().count().saturating_sub(from_end);
+            caret >= region_start && caret <= region_end
+        })
 }
 
 /// In a block a suggestion just wrote, Tab goes to its next empty value or

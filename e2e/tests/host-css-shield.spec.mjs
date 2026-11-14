@@ -164,8 +164,8 @@ function fieldContrast(page) {
   });
 }
 
-async function mount(page, kind) {
-  await page.evaluate(async ([kind, value]) => {
+async function mount(page, kind, extra = {}) {
+  await page.evaluate(async ([kind, value, extra]) => {
     const CE = await import(new URL('../config-editor/index.js', location.href).href);
     const host = document.createElement('div');
     host.id = 'host';
@@ -179,9 +179,10 @@ async function mount(page, kind) {
               { id: 'a', fileName: 'a.yaml', value, schema, baseline: value.replace('fast', 'slow') },
               { id: 'b', fileName: 'conf.d/b.toml', value: 'a = 1\n' },
             ],
+            ...extra,
           })
-        : new CE.ConfigEditor(host, { language: 'yaml', value, schema, baseline: value.replace('fast', 'slow'), fileName: 'x.yaml', showToolbar: true, showFooter: true });
-  }, [kind, LONG]);
+        : new CE.ConfigEditor(host, { language: 'yaml', value, schema, baseline: value.replace('fast', 'slow'), fileName: 'x.yaml', showToolbar: true, showFooter: true, ...extra });
+  }, [kind, LONG, extra]);
   await expect(page.locator('#host .config-editor__input:visible')).toBeVisible();
 }
 
@@ -376,6 +377,75 @@ test.describe('the editor under inherited text properties', () => {
           expect(changed, 'inherited properties that change the editor').toEqual([]);
         });
       }
+    }
+  }
+});
+
+// --- The roots' own box (QA 33, CSS33-1). -------------------------------------
+
+// A page's rules for bare elements (`div { padding; margin }`, here `div
+// div` and `div > div`, which leave out the page's own element the editor
+// is in) leave the `.config-editor` and `.config-editor-documents` roots
+// where and as large as they are without them, while the documented root styling
+// still applies, from a sheet before the editor's or after it: a rule
+// naming the `className` given (padding, margin, border, radius) and the
+// size variables on the root's class.
+const BARE_BOXES = `
+  div div { padding: 1rem; margin: 8px; }
+  div > div { padding: 12px 20px; margin: 6px 10px; }`;
+
+/** The root's box against the element it is in, and the frame (or the view's column) against the root. */
+function rootBox(page) {
+  return page.evaluate(() => {
+    const host = document.getElementById('host');
+    const root = host.firstElementChild;
+    const inner = root.querySelector('.config-editor__frame, .config-editor-documents__view').getBoundingClientRect();
+    const [outer, box] = [host.getBoundingClientRect(), root.getBoundingClientRect()];
+    const style = getComputedStyle(root);
+    return {
+      root: [box.left - outer.left, box.top - outer.top, box.width, box.height],
+      inner: [inner.left - box.left, inner.top - box.top],
+      style: ['padding', 'margin', 'border-top-width', 'border-top-color', 'border-top-left-radius'].map((key) => style.getPropertyValue(key)),
+      fontSize: getComputedStyle(root.querySelector('.config-editor__input')).fontSize,
+    };
+  });
+}
+
+test.describe('the roots under a page\'s box rules', () => {
+  test.skip(!built, 'the npm package is not built: cd js && npm run build');
+
+  for (const kind of ['editor', 'documents']) {
+    for (const when of ['before', 'after']) {
+      test(`${kind}: bare element rules leave the root's box, class rules restyle it (sheets ${when} the editor's)`, async ({ page }) => {
+        await page.goto(VANILLA);
+        await page.waitForFunction(() => document.body.dataset.ready === 'true');
+        await page.evaluate(() => window.editor.destroy());
+        const extra = { className: 'host-view' };
+        await mount(page, kind, extra);
+        const plain = await rootBox(page);
+        await unmount(page);
+        if (when === 'before') await addSheet(page, BARE_BOXES);
+        await mount(page, kind, extra);
+        if (when === 'after') await addSheet(page, BARE_BOXES);
+        expect(await rootBox(page), 'bare element rules').toEqual(plain);
+        await unmount(page);
+        // The documented styling: the root's class, the className given and
+        // the size variables (a sheet with a class rule outweighs the bare
+        // ones wherever it sits).
+        const styling = `
+          .host-view { padding: 6px; margin: 5px; border: 3px solid rgb(255, 0, 0); border-radius: 7px; }
+          .config-editor { --config-editor-font-size: 15px; }`;
+        if (when === 'before') await addSheet(page, styling);
+        await mount(page, kind, extra);
+        if (when === 'after') await addSheet(page, styling);
+        const styled = await rootBox(page);
+        expect(styled.style).toEqual(['6px', '5px', '3px', 'rgb(255, 0, 0)', '7px']);
+        // The top margin collapses into the page's element.
+        expect(styled.root[0]).toBe(5);
+        expect(styled.inner).toEqual([9, 9]);
+        expect(styled.fontSize).toBe('15px');
+        await unmount(page);
+      });
     }
   }
 });

@@ -775,7 +775,7 @@ pub(super) fn existing_mapping_keys(
     {
         return Some(keys.into_iter().collect());
     }
-    let sanitized = format!("{}{}", &source[..line_start], &source[line_end..]);
+    let sanitized = caret_line_left_out(source, line_start, line_end);
     let Ok(parser_config) = super::limits::parser_config(&sanitized) else {
         return Some(sibling_block_keys(source, line_start, line_end));
     };
@@ -809,27 +809,67 @@ pub(super) fn existing_mapping_keys(
     )
 }
 
+/// The text with the caret's line left out, but for the list items it
+/// starts (`- na|` keeps `-`): the item stays where it is, holding what is
+/// written below it, so the items after it keep their places.
+pub(super) fn caret_line_left_out(source: &str, line_start: usize, line_end: usize) -> String {
+    let line = &source[line_start..line_end];
+    let mut content = line.trim_start_matches([' ', '\t']);
+    while let Some(after_dash) = dash_item(content) {
+        content = after_dash;
+    }
+    let dashes = line[..line.len() - content.len()].trim_end();
+    format!("{}{dashes}{}", &source[..line_start], &source[line_end..])
+}
+
 /// Keys of the block mapping holding the caret's line, by indentation: the
-/// run of lines at the caret's indent, bounded by shallower lines. Used when
+/// lines whose keys sit at the caret's key column, bounded by shallower
+/// lines and by the list item holding the mapping (its dash line starts
+/// it: the keys of the items before and after are not its own). Used when
 /// the rest of the document does not parse.
 pub(super) fn sibling_block_keys(source: &str, line_start: usize, line_end: usize) -> HashSet<String> {
-    let indent_of = |line: &str| line.len() - line.trim_start_matches(' ').len();
-    let caret_line = &source[line_start..line_end];
-    let indent = indent_of(caret_line);
-    let key_of = |line: &str| -> Option<String> {
-        let body = line.trim_start();
-        let body = body.strip_prefix("- ").unwrap_or(body);
-        let colon = mapping_colon_anywhere(body)?;
-        Some(without_node_properties(body[..colon].trim()).trim_matches(['\'', '"']).to_string())
+    let key_of = |content: &str| -> Option<String> {
+        let colon = mapping_colon_anywhere(content)?;
+        Some(without_node_properties(content[..colon].trim()).trim_matches(['\'', '"']).to_string())
     };
-    let is_sibling = |line: &&str| line.trim().is_empty() || line.trim_start().starts_with('#') || indent_of(line) >= indent;
-    let before = source[..line_start.saturating_sub(1)].lines().rev().take_while(is_sibling);
-    let after = source[line_end..].lines().skip(1).take_while(is_sibling);
-    before
-        .chain(after)
-        .filter(|line| indent_of(line) == indent && !line.trim().is_empty())
-        .filter_map(key_of)
-        .collect()
+    let written = |line: &&str| !line.trim().is_empty() && !line.trim_start().starts_with('#');
+    let (indent, column, _) = columns(&source[line_start..line_end]);
+    let mut keys = HashSet::new();
+    // Above, unless the caret's line starts the item: up to the item's dash
+    // line or a shallower one.
+    if column == indent {
+        for line in source[..line_start.saturating_sub(1)].lines().rev().filter(written) {
+            let (line_indent, line_column, content) = columns(line);
+            if line_column == column {
+                keys.extend(key_of(content));
+            }
+            if line_indent < column {
+                break;
+            }
+        }
+    }
+    // Below: while the lines sit at least as deep as the keys.
+    for line in source[line_end..].lines().skip(1).filter(written) {
+        let (line_indent, line_column, content) = columns(line);
+        if line_indent < column {
+            break;
+        }
+        if line_column == column {
+            keys.extend(key_of(content));
+        }
+    }
+    keys
+}
+
+/// A line's indentation, the column its key sits at (past its dashes),
+/// and its text from there.
+fn columns(line: &str) -> (usize, usize, &str) {
+    let mut content = line.trim_start_matches(' ');
+    let indent = line.len() - content.len();
+    while let Some(after_dash) = dash_item(content) {
+        content = after_dash;
+    }
+    (indent, line.len() - content.len(), content)
 }
 
 /// The text after a leading `- ` (a block sequence item), or `None`.

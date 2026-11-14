@@ -25,11 +25,13 @@
 mod around_written_tests;
 mod carry;
 mod components;
+mod copied;
 mod follow;
 mod follow_items;
 mod glued;
 mod guard;
 mod hooks;
+mod host_ranges;
 mod live;
 mod locate;
 mod locks;
@@ -137,6 +139,8 @@ mod browse_tests;
     feature = "xml"
 ))]
 mod copied_field_tests;
+#[cfg(all(test, feature = "yaml"))]
+mod copied_tests;
 #[cfg(all(
     test,
     feature = "yaml",
@@ -289,6 +293,15 @@ mod line_swap_tests;
     feature = "hcl",
     feature = "xml"
 ))]
+mod lock_copy_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
 mod lock_scale_tests;
 #[cfg(all(
     test,
@@ -307,6 +320,15 @@ mod moved_token_tests;
     feature = "hcl",
     feature = "xml"
 ))]
+mod moved_whole_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
 mod odd_syntax_tests;
 #[cfg(all(
     test,
@@ -317,6 +339,15 @@ mod odd_syntax_tests;
     feature = "xml"
 ))]
 mod opaque_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod paste_scale_tests;
 #[cfg(all(
     test,
     feature = "yaml",
@@ -443,6 +474,15 @@ mod typing_tests;
     feature = "xml"
 ))]
 mod value_kept_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod view_range_tests;
 #[cfg(all(
     test,
     feature = "yaml",

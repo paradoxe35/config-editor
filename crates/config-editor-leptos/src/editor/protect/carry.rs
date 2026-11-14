@@ -77,7 +77,7 @@ impl<'a> Moves<'a> {
 
     /// Where `range` of the text before is in the text after, when the edit
     /// kept its text.
-    fn range(&self, range: &Range<usize>) -> Option<Range<usize>> {
+    pub(super) fn range(&self, range: &Range<usize>) -> Option<Range<usize>> {
         if range.end <= self.prefix {
             return Some(range.clone());
         }

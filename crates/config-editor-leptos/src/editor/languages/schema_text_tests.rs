@@ -22,17 +22,49 @@ fn json_text_keeps_its_json_reading() {
 
 #[test]
 fn json_errors_word_a_text_that_starts_as_json() {
-    for text in ["{\"type\": }", "  [1, 2", "\n{type: object}", "{"] {
-        let error = read_schema_text(text).unwrap_err();
-        let json_error = serde_json::from_str::<serde_json::Value>(text)
-            .unwrap_err()
-            .to_string();
-        assert_eq!(error, json_error, "{text:?}");
+    // Its place said as a document's problem says it.
+    for (text, wanted) in [
+        ("{\"type\": }", "expected value (line 1, column 10)"),
+        ("  [1, 2", "EOF while parsing a list (line 1, column 7)"),
+        ("{", "EOF while parsing an object (line 1, column 1)"),
+        (
+            "{\"type\": \"object\"} extra",
+            "trailing characters (line 1, column 20)",
+        ),
+    ] {
+        assert_eq!(read_schema_text(text).unwrap_err(), wanted, "{text:?}");
     }
-    assert_eq!(
-        read_schema_text("").unwrap_err(),
-        "EOF while parsing a value at line 1 column 0"
-    );
+    // A JSONC comment, first or after a value: JSON's error, not YAML's.
+    for (text, wanted) in [
+        ("// my schema\n{\"type\": \"object\"}", "(line 1, column 1)"),
+        ("/* c */ {\"type\": \"object\"}", "(line 1, column 1)"),
+        ("{\"type\": \"object\" // c\n}", "(line 1, column 19)"),
+    ] {
+        assert_eq!(
+            read_schema_text(text).unwrap_err(),
+            format!("comments aren't allowed in JSON {wanted}"),
+            "{text:?}"
+        );
+    }
+    // Of any type but a map or a boolean, in JSON as in YAML.
+    for (text, value) in [
+        ("5", "5"),
+        ("null", "null"),
+        ("\"type\"", "\"type\""),
+        ("[1]", "[1]"),
+    ] {
+        assert_eq!(
+            read_schema_text(text).unwrap_err(),
+            format!("the text reads as {value}, and a JSON Schema is a map or true/false"),
+            "{text:?}"
+        );
+    }
+    for text in ["", "  \n "] {
+        assert_eq!(
+            read_schema_text(text).unwrap_err(),
+            "the text holds no schema"
+        );
+    }
 }
 
 #[test]
@@ -185,26 +217,121 @@ properties:
         for (text, expected) in [
             (
                 "properties:\n  a: b: c\n",
-                "YAML parse error at line 2, column 7: mapping values are not allowed in this context",
+                "mapping values are not allowed in this context (line 2, column 7)",
             ),
             (
                 "type: object\ntype: array\n",
-                "type: duplicate key \"type\" at line 2, column 1",
+                "duplicate key \"type\" (line 2, column 1)",
             ),
             (
                 "# only a comment\n",
-                "the YAML text holds no schema, only comments",
+                "the text holds no schema, only comments",
             ),
             (
                 "not-json",
-                "the YAML text reads as \"not-json\", and a JSON Schema is a map or a boolean",
+                "the text reads as \"not-json\", and a JSON Schema is a map or true/false",
             ),
             (
                 "- type: string\n",
-                "the YAML text reads as [{\"type\":\"string\"}], and a JSON Schema is a map or a boolean",
+                "the text reads as [{\"type\":\"string\"}], and a JSON Schema is a map or true/false",
             ),
         ] {
             assert_eq!(read_schema_text(text).unwrap_err(), expected, "{text:?}");
+        }
+    }
+
+    #[test]
+    fn a_flow_map_yaml_reads_is_yaml() {
+        for text in [
+            "{type: object}",
+            "  {type: object}",
+            "\n{type: object}",
+            "# c\n{type: object}\n",
+            "{\"type\": \"object\",}",
+        ] {
+            assert_eq!(
+                read_schema_text(text),
+                Ok(json!({"type": "object"})),
+                "{text:?}"
+            );
+        }
+        assert_eq!(
+            read_schema_text("{type: object, properties: {port: {type: integer}}}"),
+            Ok(json!({"type": "object", "properties": {"port": {"type": "integer"}}}))
+        );
+        // Refused by YAML too: JSON's error.
+        assert_eq!(
+            read_schema_text("{type: object, a: [1,}").unwrap_err(),
+            "key must be a string (line 1, column 2)"
+        );
+    }
+
+    #[test]
+    fn yaml_read_otherwise_than_meant_says_how_to_write_it() {
+        for (text, wanted) in [
+            (
+                "properties:\n  a:\n    $ref: #/$defs/x\n$defs:\n  x: {type: string}\n",
+                "the $ref at /properties/a/$ref is empty: in YAML an unquoted # starts a comment, so quote the reference, as in $ref: \"#/$defs/name\"",
+            ),
+            (
+                "properties:\n  a: {type: null}\n",
+                "the type at /properties/a/type reads as YAML's null: name the null type in quotes, as \"null\"",
+            ),
+            (
+                "properties:\n  a: {type: [string, ~]}\n",
+                "the type at /properties/a/type reads as YAML's null: name the null type in quotes, as \"null\"",
+            ),
+            (
+                "properties:\n  *: {type: string}\n",
+                "a plain * starts an alias in YAML: quote a key or value that starts with * (line 2, column 3)",
+            ),
+            (
+                "properties:\n  a: *nope\n",
+                "no anchor &nope for the alias *nope: a plain * starts an alias in YAML, so quote a key or value that starts with * (line 2, column 6)",
+            ),
+            (
+                "properties:\n\ta: {}\n",
+                "tabs are not allowed in YAML indentation; use spaces (line 2, column 1)",
+            ),
+            (
+                "type: object\n---\ntype: string\n",
+                "This text holds more than one YAML document (separated by ---): the editor reads one document per file. Keep one, or split them into files (line 2, column 1)",
+            ),
+            (
+                "~",
+                "the text reads as null, and a JSON Schema is a map or true/false",
+            ),
+            (
+                "5",
+                "the text reads as 5, and a JSON Schema is a map or true/false",
+            ),
+        ] {
+            assert_eq!(read_schema_text(text).unwrap_err(), wanted, "{text:?}");
+        }
+        // Null as data, and the null type quoted, read.
+        assert_eq!(
+            read_schema_text("properties:\n  a: {type: \"null\", const: ~, default: {type: ~}}\n"),
+            Ok(
+                json!({"properties": {"a": {"type": "null", "const": null, "default": {"type": null}}}})
+            )
+        );
+    }
+
+    #[test]
+    fn an_integer_past_64_bits_reads_as_in_json() {
+        for literal in [
+            "100000000000000000000",
+            "-100000000000000000000",
+            "123456789012345678901234",
+        ] {
+            let yaml = format!("properties:\n  a:\n    const: {literal}\n    maximum: {literal}\n");
+            let json_text =
+                format!(r#"{{"properties":{{"a":{{"const":{literal},"maximum":{literal}}}}}}}"#);
+            assert_eq!(
+                read_schema_text(&yaml),
+                Ok(serde_json::from_str::<serde_json::Value>(&json_text).unwrap()),
+                "{literal}"
+            );
         }
     }
 
@@ -224,7 +351,7 @@ properties:
 fn without_yaml_a_yaml_schema_says_it_needs_the_feature() {
     assert_eq!(
         read_schema_text("properties: {}\n").unwrap_err(),
-        "it is no JSON (expected value at line 1 column 1), and a schema written in YAML needs the editor's `yaml` feature"
+        "it is no JSON (expected value (line 1, column 1)), and a schema written in YAML needs the editor's `yaml` feature"
     );
     // JSON still reads.
     assert_eq!(

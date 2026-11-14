@@ -164,6 +164,24 @@ fn merge_at(
                     renamed_keys.insert(key);
                 }
             }
+            // A key gone and a new one in its place, its value changed
+            // too (a Replace All over a key and the values inside it): the
+            // same entry renamed, its values merged as the host holds them
+            // (QA `E33-2`).
+            if seen.len() == edited.len() && !gone.is_empty() {
+                for ((old, _), (key, _)) in seen.iter().zip(edited) {
+                    note(Work::MergeKeyVisit);
+                    let renames = host.contains_key(old)
+                        && !edited.contains_key(old)
+                        && !host.contains_key(key)
+                        && !renamed_to.contains_key(old)
+                        && !renamed_keys.contains(key);
+                    if renames {
+                        renamed_to.insert(old, key);
+                        renamed_keys.insert(key);
+                    }
+                }
+            }
             let mut entries: Vec<(String, Value)> = Vec::new();
             for (key, host_value) in host {
                 note(Work::MergeKeyVisit);
@@ -173,8 +191,14 @@ fn merge_at(
                         entries.push((key.clone(), merged));
                     }
                     // Renamed by the user.
-                    (Some(_), None) if let Some(to) = renamed_to.get(key) => {
-                        entries.push(((*to).clone(), host_value.clone()));
+                    (Some(seen_value), None) if let Some(to) = renamed_to.get(key) => {
+                        let value = &edited[*to];
+                        let merged = if canonical(value) == canonical(seen_value) {
+                            host_value.clone()
+                        } else {
+                            merge_at(host_value, seen_value, value, &child(to), view)?
+                        };
+                        entries.push(((*to).clone(), merged));
                     }
                     // Removed by the user.
                     (Some(_), None) => {}

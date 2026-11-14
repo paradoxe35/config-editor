@@ -33,7 +33,7 @@ pub(crate) use conditions::mentions_conditionals;
 pub(crate) use docs::*;
 pub(crate) use excluded::excluded_by_not;
 #[cfg(feature = "schema-validation")]
-pub(crate) use excluded::keys_kept_apart;
+pub(crate) use excluded::{dependent_keys_kept_apart, keys_kept_apart};
 pub use headless::{HoverDocs, Suggestion};
 pub(crate) use headless::{schema_hover, schema_suggestions};
 pub(crate) use hover::*;

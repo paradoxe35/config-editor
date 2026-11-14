@@ -186,7 +186,7 @@ fn escaped(key: &str) -> String {
 
 /// The key of `old` that `new`'s `key` is: itself, or the one key `new`
 /// renamed when it renames one.
-fn host_key<'m>(old: &'m Map<String, Value>, new: &Map<String, Value>, key: &str) -> Option<&'m String> {
+pub(super) fn host_key<'m>(old: &'m Map<String, Value>, new: &Map<String, Value>, key: &str) -> Option<&'m String> {
     if let Some((held, _)) = old.get_key_value(key) {
         return Some(held);
     }

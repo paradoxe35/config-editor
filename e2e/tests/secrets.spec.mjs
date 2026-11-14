@@ -317,7 +317,9 @@ for (const name of ['vanilla.html', ...FRAMEWORK_PAGES]) {
         },
         [at - 1, at + 5, KEY],
       );
-      await expect(input).toHaveValue(original.slice(0, at - 1) + KEY + original.slice(at + KEY.length));
+      // Taking the space too would glue `secret:` to the token (one plain
+      // scalar in YAML): refused, the text stays as it was.
+      await expect(input).toHaveValue(original);
     });
   });
 }

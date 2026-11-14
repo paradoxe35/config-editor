@@ -23,7 +23,7 @@ use crate::options::{
     warn_unknown_options,
 };
 use crate::protect::{paths_from, ranges_from, secrets_from};
-use crate::remap::moved_between;
+use crate::remap::{moved_between, reads_as};
 use crate::settings::{settings_from, settings_result};
 use crate::settle;
 use crate::told::{self, Told};
@@ -417,7 +417,9 @@ impl ConfigEditor {
         // document once it is known, below).
         let (mut host_diagnostics, mut read_only_ranges) = {
             let latest = self.latest.lock().unwrap_or_else(PoisonError::into_inner);
-            let held = value.as_deref().is_none_or(|value| *value == *latest);
+            let held = value
+                .as_deref()
+                .is_none_or(|value| reads_as(value, &latest));
             let host_text = ranges_for
                 .as_deref()
                 .or(value.as_deref())
@@ -433,7 +435,7 @@ impl ConfigEditor {
                 .transpose()?;
             let read_only_ranges = ranges_given
                 .as_ref()
-                .filter(|_| !(ranges_again && held))
+                .filter(|_| !crate::given_ranges::stay(ranges_again, !held))
                 .map(|list| ranges_from(list, host_text, "readOnlyRanges"))
                 .transpose()?;
             (host_diagnostics, read_only_ranges)
@@ -480,7 +482,7 @@ impl ConfigEditor {
         let shown = value.as_ref().filter(|_| echo == Some(Echo::Apply));
         // The ranges given last, with a text that does not apply (an echo
         // skipped, a text older than the typing), stay where they are too.
-        if ranges_again && shown.is_none() {
+        if crate::given_ranges::stay(ranges_again, shown.is_some()) {
             read_only_ranges = None;
         }
         if let Some(list) = &ranges_given {

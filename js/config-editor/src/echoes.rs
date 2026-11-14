@@ -194,6 +194,11 @@ pub(crate) struct Echoes {
     now: f64,
     /// The text the host gave last.
     last_given: Option<Print>,
+    /// When (see [`clock`]) the host gave it, and when the editor last sent
+    /// a text of the user's: the same text given again in an update with
+    /// nothing typed in between is the host's render again, no news.
+    given_at: u64,
+    typed_at: Option<u64>,
     /// The text the host gave last in a list or an update, which
     /// `replaceValue` leaves as it was.
     last_listed: Option<Print>,
@@ -232,6 +237,7 @@ impl Echoes {
             let print = Print::of(text);
             self.last_listed = Some(print);
             self.last_given = Some(print);
+            self.given_at = clock();
             self.document = Some(print);
         }
     }
@@ -245,6 +251,7 @@ impl Echoes {
         if self.on {
             let print = Print::of(text);
             self.last_given = Some(print);
+            self.given_at = clock();
             self.document = Some(print);
         }
     }
@@ -252,7 +259,7 @@ impl Echoes {
     /// The editor sent `text`, the document, to the host (its `onChange`).
     pub(crate) fn sent(&mut self, text: &str) {
         if self.on {
-            self.send(Print::of(text));
+            self.typed_at = Some(self.send(Print::of(text)));
         }
     }
 
@@ -261,7 +268,7 @@ impl Echoes {
         self.document = None;
     }
 
-    fn send(&mut self, print: Print) {
+    fn send(&mut self, print: Print) -> u64 {
         let serial = tick();
         self.order.insert(serial, print);
         self.copies.entry(print).or_default().push_back(Sent {
@@ -270,6 +277,7 @@ impl Echoes {
             doubted: false,
         });
         self.document = Some(print);
+        serial
     }
 
     /// The document `current`'s print: the one known (the text sent,
@@ -371,10 +379,20 @@ impl Echoes {
             return Echo::Apply;
         }
         let print = Print::of(value);
+        // The text given last, given again in an update with nothing typed
+        // since (the texts sent from `flushed` on were typed while this
+        // update was handled): the host's render again (a framework
+        // rendering twice, a store writing the text another way).
+        let rendered_again = !listed
+            && self.last_given == Some(print)
+            && self
+                .typed_at
+                .is_none_or(|typed| typed < self.given_at || typed >= flushed);
         self.last_given = Some(print);
+        self.given_at = clock();
         let again = self.last_listed.replace(print) == Some(print);
         let same = self.same(value, print, current);
-        let news = if listed && again {
+        let news = if (listed && again) || rendered_again {
             // Listed again: a render, or the echo of a copy sent since (and
             // a text sent after it may have come and gone in the same
             // render of the host's). That copy stays an echo, but is not
@@ -873,6 +891,60 @@ mod tests {
         assert_eq!(echoes.received("aR", "aR", NONE), Echo::Apply);
         echoes.sent("aRS");
         assert_eq!(echoes.received("aR", "aRS", NONE), Echo::Apply);
+    }
+
+    /// QA 33 (HO33-3): the text given last, given again in an update with
+    /// nothing typed in between (a framework rendering twice), is no news,
+    /// written as the editor wrote it or another way (a store writing LF or
+    /// dropping the byte order mark), whether the typing ran ahead or not;
+    /// typed in between, it is the host's own again (a discard).
+    #[test]
+    fn the_same_update_twice_with_nothing_typed_between_is_no_news() {
+        type Store = fn(&str) -> String;
+        let stores: [(&str, Store); 3] = [
+            ("as sent", str::to_string),
+            ("LF", |text| text.replace("\r\n", "\n")),
+            ("no BOM", |text| {
+                text.trim_start_matches('\u{feff}').to_string()
+            }),
+        ];
+        let texts = [
+            "\u{feff}a: 1\r\n",
+            "\u{feff}a: 1\r\nb: 2\r\n",
+            "\u{feff}a: 1\r\nb: 23\r\n",
+        ];
+        for (name, store) in stores {
+            for ahead in [0, 1] {
+                let mut echoes = Echoes::new(true);
+                echoes.given(texts[0]);
+                echoes.sent(texts[1]);
+                for typed in &texts[2..=1 + ahead] {
+                    echoes.sent(typed);
+                }
+                let current = texts[1 + ahead];
+                let given = store(texts[1]);
+                for render in 0..3 {
+                    let echo = echoes.received(&given, current, NONE);
+                    let applies = echo == Echo::Apply;
+                    assert!(
+                        !applies || given == current,
+                        "{name}, ahead {ahead}, render {render}: {echo:?}"
+                    );
+                }
+            }
+            // Typed in between: the host's own text, as before.
+            let mut echoes = Echoes::new(true);
+            echoes.given(texts[0]);
+            echoes.sent(texts[1]);
+            let given = store(texts[1]);
+            assert_ne!(echoes.received(&given, texts[1], NONE), Echo::Resend);
+            echoes.sent(texts[2]);
+            assert_eq!(
+                echoes.received(&given, texts[2], NONE),
+                Echo::Apply,
+                "{name}"
+            );
+        }
     }
 
     /// An edit still held when the host's text came, sent while that

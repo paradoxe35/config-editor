@@ -39,6 +39,7 @@ struct HostElements {
     markup: declarations::Markup,
     elements: HashMap<Vec<String>, HostElement>,
     names: HashMap<Vec<String>, Vec<Name>>,
+    children: written_names::Children,
     marked: bool,
 }
 
@@ -47,7 +48,7 @@ impl HostElements {
         let markup = declarations::Markup::of(text);
         let tokens = tokenize(text);
         let plan = plan_paths(text, &tokens);
-        let mut read = HostElements { markup, elements: HashMap::new(), names: HashMap::new(), marked: false };
+        let mut read = HostElements { markup, elements: HashMap::new(), names: HashMap::new(), children: written_names::Children::default(), marked: false };
         for token in &tokens {
             if !matches!(token.kind, Kind::OpenTag { closing: false, .. }) {
                 continue;
@@ -59,6 +60,7 @@ impl HostElements {
                 prefix: written_names::prefix(text, token).map(str::to_string),
             };
             read.marked |= !element.markup.is_empty() || element.prefix.is_some();
+            read.children.note(path, element.prefix.as_deref(), !element.name().1.is_empty());
             read.names.entry(unindexed(path)).or_default().push(element.name());
             read.elements.insert(strings(path), element);
         }
@@ -98,9 +100,20 @@ pub(super) fn changed_markup(language: &XmlBehavior, previous: &str, patched: &s
     let saved_markup = declarations::Markup::of(patched);
     let tokens = tokenize(patched);
     let plan = plan_paths(patched, &tokens);
+    // The prefix of each element open, innermost last.
+    let mut open: Vec<Option<&str>> = Vec::new();
     for token in &tokens {
-        if !matches!(token.kind, Kind::OpenTag { closing: false, .. }) {
-            continue;
+        match token.kind {
+            Kind::EndTag => {
+                open.pop();
+                continue;
+            }
+            Kind::OpenTag { closing: false, .. } => {}
+            _ => continue,
+        }
+        let in_parent = open.last().copied().flatten();
+        if !patched[..token.end].ends_with("/>") {
+            open.push(written_names::prefix(patched, token));
         }
         let Some(path) = plan.path_of(token.start) else { continue };
         let saved = markup_attributes(patched, token, &saved_markup);
@@ -121,13 +134,18 @@ pub(super) fn changed_markup(language: &XmlBehavior, previous: &str, patched: &s
                 }
                 saved == wanted && prefix == own.prefix
             }
-            // Added: named as one of its path's host elements, or plainly
-            // where the host has none; no other markup.
+            // Added: named as one of its path's host elements, or where
+            // the host has none, in its siblings' namespace, else its
+            // parent's; no other markup.
             None => {
                 let name = (prefix, saved);
                 match host.names.get(&unindexed(path)) {
                     Some(allowed) => allowed.contains(&name),
-                    None => name == (None, Vec::new()),
+                    None => {
+                        let parent = identity.host_path(written_names::parent(path)).filter(|(_, side)| *side == Host::Previous);
+                        let wanted = host.children.new_name_prefix(parent.as_ref().map(|(path, _)| path.as_slice()), in_parent);
+                        name == (wanted.map(str::to_string), Vec::new())
+                    }
                 }
             }
         };

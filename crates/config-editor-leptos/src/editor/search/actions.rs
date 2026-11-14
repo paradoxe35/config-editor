@@ -257,8 +257,8 @@ pub(in crate::editor) fn replace_all(state: EditorState) {
     }));
 }
 
-/// The match count for the widget: "3 of 12", "No results", or the
-/// pattern's error.
+/// The match count for the widget: "3 of 12", "No results", the pattern's
+/// error, or nothing for an empty query.
 pub(in crate::editor) fn count_label(
     strings: &EditorStrings,
     results: &SearchResults,
@@ -268,7 +268,10 @@ pub(in crate::editor) fn count_label(
     if results.error.is_some() {
         return strings.invalid_pattern.clone();
     }
-    if query_empty || results.matches.is_empty() {
+    if query_empty {
+        return String::new();
+    }
+    if results.matches.is_empty() {
         return strings.no_results.clone();
     }
     let total = if results.capped {

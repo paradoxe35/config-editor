@@ -404,7 +404,19 @@ fn through_shared(
     (written != pointer).then(|| locate(&written))?
 }
 
-#[cfg(any(feature = "protect", feature = "schema-validation"))]
+// Used by the secret placeholders, and by the addressable matrix test.
+#[cfg(any(
+    feature = "protect",
+    all(
+        test,
+        feature = "schema-validation",
+        feature = "yaml",
+        feature = "json",
+        feature = "toml",
+        feature = "hcl",
+        feature = "xml"
+    )
+))]
 /// Whether two pointers name the same field, in languages that write a
 /// lone list item without its `/0` (XML, HCL blocks) or with it.
 pub(crate) fn same_field(one: &str, other: &str) -> bool {

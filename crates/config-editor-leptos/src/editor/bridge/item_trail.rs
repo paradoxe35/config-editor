@@ -86,6 +86,13 @@ impl Trail {
         }
     }
 
+    /// Whether the trail follows the edits since `text`: a trail begun on
+    /// another text (one a view switch replaced unsaved edits with) does
+    /// not tell the items of a save over the host `text` was saved as.
+    pub(crate) fn begins_on(&self, text: &str) -> bool {
+        self.synced.as_deref() == Some(text)
+    }
+
     /// The edit `before` → `after` (the caret left at UTF-16 `caret`).
     pub(crate) fn note(&mut self, before: &str, after: &str, caret: usize) {
         if self.synced.is_none() {

@@ -26,6 +26,8 @@ mod bom_edits;
 ))]
 mod convert_messages;
 #[cfg(feature = "yaml")]
+mod empty_schema;
+#[cfg(feature = "yaml")]
 mod handle;
 #[cfg(feature = "yaml")]
 mod hidden_suggestions;

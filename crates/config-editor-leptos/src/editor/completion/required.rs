@@ -137,9 +137,14 @@ fn fill<'a>(
     if let Some(default) = kept_default(language, child, root) {
         return Some(Fill::Value(default.clone()));
     }
-    if array_branch(child, root).is_some() && object_branch(child, root).is_none() {
+    if let Some(array) = array_branch(child, root)
+        && object_branch(child, root).is_none()
+    {
         let empty = Value::Array(Vec::new());
-        return language_keeps(language, &empty, child, root).then_some(Fill::Value(empty));
+        return [least_list(language, array, root), empty]
+            .into_iter()
+            .find(|list| language_keeps(language, list, child, root))
+            .map(Fill::Value);
     }
     if object_branch(child, root).is_some() {
         let nested = children(language, child, root, caret, depth + 1);
@@ -157,6 +162,28 @@ fn fill<'a>(
         Some(value) => Fill::Value(value),
         None => Fill::Empty(fill_value(language, child, root)),
     })
+}
+
+/// Most items a required list's `minItems` has written for it.
+const MAX_LEAST_ITEMS: usize = 8;
+
+/// The list a required list (`array`, its schema's array branch) is
+/// written as: empty, or as many items as its `minItems` asks (each its
+/// items' [`fill_value`]), so it is no error the moment it is written.
+fn least_list(language: &dyn ConfigLanguage, array: &Value, root: &Value) -> Value {
+    let least = array
+        .get("minItems")
+        .and_then(Value::as_u64)
+        .map_or(0, |least| usize::try_from(least).unwrap_or(usize::MAX));
+    let item = |index: usize| {
+        let schema = array
+            .get("prefixItems")
+            .and_then(|prefix| prefix.get(index))
+            .or_else(|| array.get("items").filter(|items| !items.is_array()))?;
+        fill_value(language, schema, root)
+    };
+    let items: Option<Vec<Value>> = (0..least.min(MAX_LEAST_ITEMS)).map(item).collect();
+    Value::Array(items.unwrap_or_default())
 }
 
 /// Whether `language` writes `key` (of an object) as text that reads back

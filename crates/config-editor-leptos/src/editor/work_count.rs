@@ -158,6 +158,20 @@ pub(crate) enum Work {
     /// is (`keyboard::utf16_to_byte_index`, outside a batch that splits
     /// its lines once; one note per byte).
     OffsetSeek,
+    /// The host's read-only ranges followed from one host text into
+    /// another (`protect::host_ranges`: a line diff of the two).
+    #[cfg_attr(
+        not(feature = "protect"),
+        allow(dead_code, reason = "only protection notes it")
+    )]
+    RangesFollowed,
+    /// A line of an edited region weighed against one lock (whether it
+    /// would join it), in the lock check of a text that does not parse.
+    #[cfg_attr(
+        not(feature = "protect"),
+        allow(dead_code, reason = "only the lock check notes it")
+    )]
+    LockLine,
     /// A schema format's extra check run on a document
     /// (`SchemaCheck::check`): once per check and validation.
     SchemaCheck,
@@ -202,7 +216,9 @@ impl Work {
             Self::ConformedBytes => 32,
             Self::BranchWalk => 33,
             Self::OffsetSeek => 34,
-            Self::SchemaCheck => 35,
+            Self::RangesFollowed => 35,
+            Self::LockLine => 36,
+            Self::SchemaCheck => 37,
         }
     }
 
@@ -244,13 +260,15 @@ impl Work {
         Self::ConformedBytes,
         Self::BranchWalk,
         Self::OffsetSeek,
+        Self::RangesFollowed,
+        Self::LockLine,
         Self::SchemaCheck,
     ];
 }
 
 /// How many kinds of work there are.
 #[cfg(test)]
-const KINDS: usize = 36;
+const KINDS: usize = 38;
 
 #[cfg(test)]
 thread_local! {

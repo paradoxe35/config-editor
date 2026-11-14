@@ -262,6 +262,7 @@ impl EditorState {
         }
         let shown_as_host =
             self.sync().edit_language.get_untracked() == self.config().host_language;
+        let synced_edit = self.sync().synced_edit;
         self.sync().trail.update_value(|trail| {
             let users = matches!(
                 origin,
@@ -269,8 +270,12 @@ impl EditorState {
             );
             if users && !shown_as_host {
                 trail.note(&edit.before, &edit.text, edit.caret());
-            } else {
+            } else if synced_edit.with_value(|synced| *synced == edit.text) {
                 *trail = item_trail::Trail::starting(&edit.text);
+            } else {
+                // Unsaved edits converted (a switch whose save waits):
+                // what they did to the items is not known.
+                *trail = item_trail::Trail::default();
             }
         });
     }
@@ -497,28 +502,31 @@ pub(super) fn convert_now(state: EditorState, text: String, language: Language) 
             state.sync().host_text.get_value(),
         );
         let previous = state.sync().host_text.get_value();
-        let mut hosts_own = false;
         let origin = state.sync().session_host.get_value();
-        let (result, trail) = state
-            .sync()
-            .trail
-            .with_value(|trail| bridge.to_host_traced(&text, &previous, &origin, Some(trail)));
-        let result = result.map(|saved| {
-            // Back to a text saved before (an undo), or the host's own (a
-            // reloaded baseline): its host text exactly.
-            match state.sync().synced_hosts.with_value(|saved| {
-                saved
-                    .iter()
-                    .find(|(known, edit, _)| *known == language && *edit == text)
-                    .map(|(_, _, host)| host.clone())
-            }) {
-                Some(host) => {
-                    hosts_own = true;
-                    host
-                }
-                None => saved,
-            }
+        // Back to a text saved before (an undo, across a switch too), or
+        // the host's own (a reloaded baseline): its host text exactly, not
+        // converted again (QA `E33-4`: a list of one undone back to failed
+        // to read back as the lone element the host holds).
+        let known = state.sync().synced_hosts.with_value(|saved| {
+            saved
+                .iter()
+                .find(|(known, edit, _)| *known == language && *edit == text)
+                .map(|(_, _, host)| host.clone())
         });
+        let hosts_own = known.is_some();
+        let (result, trail) = match known {
+            Some(host) => (Ok(host), item_trail::Trail::starting(&text)),
+            // Edits followed from another text than the one saved tell
+            // nothing of this save's items: their values do.
+            None => {
+                let synced = state.sync().synced_edit;
+                state.sync().trail.with_value(|trail| {
+                    let trail =
+                        Some(trail).filter(|trail| synced.with_value(|text| trail.begins_on(text)));
+                    bridge.to_host_traced(&text, &previous, &origin, trail)
+                })
+            }
+        };
         // However the edit got there, a save never changes a read-only
         // value: it is refused like any other unsafe save. A text the host
         // itself had is its own to restore.
@@ -720,6 +728,13 @@ pub(super) fn switch_to(state: EditorState, next: Language) {
         return;
     }
     let text = state.doc().text.get_untracked();
+    // An edit of a view still waiting out the typing pause is saved first,
+    // with the edits that tell its items apart (QA `E33-1`: converted
+    // straight into the next view, they were lost, and the save paired
+    // the items by place).
+    if text != state.sync().synced_edit.get_value() && state.bridge_to(current).is_some() {
+        convert_now(state, text.clone(), current);
+    }
     let host_text = state.sync().host_text.get_value();
     let host_text_before = host_text.clone();
     let unsaved = text != state.sync().synced_edit.get_value();

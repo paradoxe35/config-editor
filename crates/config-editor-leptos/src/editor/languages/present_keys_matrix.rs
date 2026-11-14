@@ -163,14 +163,33 @@ fn a_written_key_of_any_other_kind_is_not_offered_again() {
     assert!(failures.is_empty(), "{failures:#?}");
 }
 
-/// A key a `not` keeps apart from the keys written (`not: {required: [git,
-/// path]}`, `path` written) is not offered; the others still are.
+/// A key a `not` keeps apart from the keys written (`path` written) is
+/// not offered; the others still are. Each shape of such a `not`: a
+/// `required` pair, with properties only naming the keys (as Cargo's
+/// schema writes it), a key's dependent schema (`dependentSchemas`, draft
+/// 7's `dependencies`) and an `anyOf` of pairs.
 #[test]
 fn a_key_a_not_keeps_apart_from_written_keys_is_not_offered() {
-    let schema = r#"{"type":"object","properties":{"dep":{"type":"object",
-        "properties":{"version":{"type":"string"},"git":{"type":"string"},"path":{"type":"string"}},
-        "allOf":[{"not":{"required":["git","path"]}}]}}}"#;
-    let bundle = build_schema(schema).unwrap();
+    let object = |kept_apart: &str| {
+        format!(
+            r#"{{"type":"object","properties":{{"dep":{{"type":"object",
+            "properties":{{"version":{{"type":"string"}},"git":{{"type":"string"}},"path":{{"type":"string"}}}},
+            {kept_apart}}}}}}}"#
+        )
+    };
+    let schemas = [
+        object(r#""allOf":[{"not":{"required":["git","path"]}}]"#),
+        object(
+            r#""allOf":[{"not":{"properties":{"git":true,"path":true},"required":["git","path"]}}]"#,
+        ),
+        object(r#""dependentSchemas":{"git":{"not":{"required":["path"]}}}"#),
+        object(r#""dependencies":{"git":{"not":{"required":["path"]}}}"#).replacen(
+            '{',
+            r#"{"$schema":"http://json-schema.org/draft-07/schema#","#,
+            1,
+        ),
+        object(r#""not":{"anyOf":[{"required":["version","path"]},{"required":["git","path"]}]}"#),
+    ];
     let documents: [(Language, &str); 5] = [
         (Language::YAML, "dep:\n  path: p\n  |\n"),
         (Language::JSON, "{\"dep\": {\n  \"path\": \"p\",\n  |\n}}\n"),
@@ -179,16 +198,21 @@ fn a_key_a_not_keeps_apart_from_written_keys_is_not_offered() {
         (Language::XML, "<dep>\n  <path>p</path>\n  <|\n</dep>\n"),
     ];
     let mut failures = Vec::new();
-    for (language, marked) in documents {
-        let at = marked.find('|').unwrap();
-        let source = marked.replacen('|', "", 1);
-        let labels: Vec<String> =
-            completions(&source, at, true, Some(&bundle), true, language.behavior())
-                .into_iter()
-                .map(|option| option.label)
-                .collect();
-        if labels != ["version"] {
-            failures.push(format!("{language}: offered {labels:?}"));
+    for (shape, schema) in schemas.iter().enumerate() {
+        let bundle = build_schema(schema).unwrap();
+        // The `anyOf` keeps `version` from `path` too.
+        let wanted: &[&str] = if shape == 4 { &[] } else { &["version"] };
+        for (language, marked) in documents {
+            let at = marked.find('|').unwrap();
+            let source = marked.replacen('|', "", 1);
+            let labels: Vec<String> =
+                completions(&source, at, true, Some(&bundle), true, language.behavior())
+                    .into_iter()
+                    .map(|option| option.label)
+                    .collect();
+            if labels != wanted {
+                failures.push(format!("shape {shape}, {language}: offered {labels:?}"));
+            }
         }
     }
     assert!(failures.is_empty(), "{failures:#?}");

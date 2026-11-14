@@ -88,6 +88,6 @@ test.describe('a schema written in YAML', () => {
     }, YAML_SCHEMA);
     expect(result.problems).toEqual([expect.stringContaining('/listen')]);
     expect(result.warnings).toHaveLength(1);
-    expect(result.broken).toContain('expected value at line 1 column 10');
+    expect(result.broken).toContain('expected value (line 1, column 10)');
   });
 });

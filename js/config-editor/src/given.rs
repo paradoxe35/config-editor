@@ -69,14 +69,6 @@ impl<T: Clone> Given<T> {
         Some(read)
     }
 
-    /// Document `id`'s `key` as the last list read it, or the view handed
-    /// it since (what its editor holds, unless the host gave another).
-    pub(crate) fn held(&self, id: &str, key: &'static str) -> Option<&T> {
-        self.last
-            .get(&(id.to_string(), key))
-            .map(|(_, value)| value)
-    }
-
     /// The list is read whole: what it read is kept for the next one.
     pub(crate) fn finish(&mut self) {
         self.last = std::mem::take(&mut self.read);

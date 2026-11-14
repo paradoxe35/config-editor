@@ -174,7 +174,18 @@ impl State {
             .kept
             .try_update_value(std::mem::take)
             .unwrap_or_default();
-        let listed = documents_from(list, view, &mut kept);
+        // Whether a document's editor holds the text listed for it.
+        let texts = self.texts;
+        let holds = |id: &str, value: &str| {
+            texts
+                .try_with_value(|texts| {
+                    texts
+                        .get(id)
+                        .is_some_and(|known| crate::remap::reads_as(&known.value, value))
+                })
+                .unwrap_or(false)
+        };
+        let listed = documents_from(list, view, &mut kept, &holds);
         if listed.is_err() {
             kept.abandon();
         }
@@ -449,7 +460,7 @@ impl ConfigDocuments {
         let mut kept = Kept::default();
         let listed = match field(&options, "documents") {
             list if list.is_undefined() || list.is_null() => Listed::default(),
-            list => owner.with(|| documents_from(&list, &settings, &mut kept))?,
+            list => owner.with(|| documents_from(&list, &settings, &mut kept, &|_, _| false))?,
         };
         let on_select = function_option(&options, "onSelect")?;
         let on_close = function_option(&options, "onClose")?;

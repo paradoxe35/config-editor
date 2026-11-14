@@ -90,6 +90,9 @@ impl EditorState {
         let hosts_own = switching == Some(self.config().host_language)
             && self.sync().host_text.with_value(|host| *host == edit.text);
         if let Some(language) = switching {
+            if language_before == self.config().host_language {
+                self.leave_ranges(&edit.before);
+            }
             self.show_language(language, &edit);
         }
         if changed && origin.follows() {

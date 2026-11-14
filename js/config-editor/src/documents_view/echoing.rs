@@ -13,23 +13,27 @@ use super::State;
 use crate::documents_list::Listed;
 use crate::echoes::{Echo, Echoes};
 use crate::mount::call_host_with;
-use crate::remap::moved_between;
+use crate::remap::{moved_between, reads_as};
 use crate::settle;
 
 /// The listed `document`'s text is an echo: it keeps `current`, and the
-/// ranges listed with it (in the echoed text) move to `current`.
-fn keep(document: &mut Document, current: &str) {
+/// ranges listed with it (in the echoed text) move to `current`, but for
+/// ranges that stay where the editor has them (`ranges_stay`).
+fn keep(document: &mut Document, current: &str, ranges_stay: bool) {
     if document.value == current {
         return;
     }
-    if !document.read_only_ranges.is_empty() || !document.host_diagnostics.is_empty() {
+    let ranges = !ranges_stay && !document.read_only_ranges.is_empty();
+    if ranges || !document.host_diagnostics.is_empty() {
         let (ranges, diagnostics) = moved_between(
             &document.value,
             current,
-            Some(std::mem::take(&mut document.read_only_ranges)),
+            ranges.then(|| std::mem::take(&mut document.read_only_ranges)),
             Some(std::mem::take(&mut document.host_diagnostics)),
         );
-        document.read_only_ranges = ranges.unwrap_or_default();
+        if let Some(ranges) = ranges {
+            document.read_only_ranges = ranges;
+        }
         document.host_diagnostics = diagnostics.unwrap_or_default();
     }
     current.clone_into(&mut document.value);
@@ -52,6 +56,7 @@ impl State {
         if !self.echoing {
             return (resend, settles);
         }
+        let mut ranges_kept = Vec::new();
         let _ = self.echoes.try_update_value(|echoes| {
             {
                 // The documents no longer listed: one lookup each.
@@ -76,17 +81,39 @@ impl State {
                     };
                     echo.at(now);
                     let echo = echo.listed(&document.value, current, flushed);
+                    // The ranges given last, with a text that does not
+                    // replace the document's (an echo, or that text as the
+                    // editor reads it), stay where its editor moved them
+                    // (see `given_ranges`).
+                    let replaces = echo == Echo::Apply && !reads_as(&document.value, current);
+                    let stays = listed
+                        .ranges_again
+                        .remove(&document.id)
+                        .filter(|_| crate::given_ranges::stay(true, replaces));
+                    let ranges_stay = stays.is_some();
+                    if let Some(ranges) = stays {
+                        document.read_only_ranges = ranges.clone();
+                        ranges_kept.push((document.id.clone(), ranges));
+                    }
                     if echo == Echo::Apply {
                         continue;
                     }
                     settles |= echo != Echo::Skip;
-                    keep(document, current);
+                    keep(document, current, ranges_stay);
                     if echo == Echo::Resend {
                         resend.push((document.id.clone(), current.clone()));
                     }
                 }
             })
         });
+        // The next list compares with the ranges the editors kept.
+        if !ranges_kept.is_empty() {
+            let _ = self.kept.try_update_value(|kept| {
+                for (id, ranges) in ranges_kept {
+                    kept.ranges.kept(&id, ranges);
+                }
+            });
+        }
         (resend, settles)
     }
 
