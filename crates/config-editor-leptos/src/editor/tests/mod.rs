@@ -201,3 +201,12 @@ mod utf16_offsets;
     feature = "xml"
 ))]
 mod xml_numeric_strings;
+#[cfg(all(
+    feature = "schema-validation",
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod xml_union_types;

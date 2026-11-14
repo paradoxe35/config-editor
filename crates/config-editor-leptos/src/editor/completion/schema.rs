@@ -1,5 +1,5 @@
-//! Walking a JSON Schema: types, defaults, branches, the schema at a
-//! document path, and reading values to the shapes it expects.
+//! Walking a JSON Schema: types, defaults, branches and the schema at a
+//! document path (reading values to the shapes it expects is `conform`).
 
 use super::*;
 
@@ -439,7 +439,10 @@ pub(crate) fn child_schemas_in<'a>(
 /// The schemas of one child (a key or an array item) of a value whose
 /// schema's branches are `branches` (see [`branches_for`]): a walk taking
 /// every child of one value resolves its branches once.
-fn children_of<'a>(branches: &[&'a Value], segment: &SchemaPathSegment) -> Vec<&'a Value> {
+pub(super) fn children_of<'a>(
+    branches: &[&'a Value],
+    segment: &SchemaPathSegment,
+) -> Vec<&'a Value> {
     let mut next = Vec::new();
     for branch in branches {
         let named = named_properties(branch, &segment.as_key());
@@ -517,120 +520,6 @@ pub(crate) fn named_properties<'a>(branch: &'a Value, key: &str) -> Vec<&'a Valu
         .filter(|(pattern, _)| patterns::pattern_matches(pattern, key))
         .map(|(_, property)| property);
     property.into_iter().chain(patterns).collect()
-}
-
-/// Reads `value` the way the schema expects for a language that writes arrays
-/// by repeating their key: each lone value (or, for blocks, lone object)
-/// where only an array is allowed becomes a one-item array (a single XML
-/// `<dns>` element is `dns: [...]`).
-pub(crate) fn conform_arrays(value: &mut Value, schema: &Value, repetition: Repetition) {
-    conform(value, schema, schema, repetition, 0);
-}
-
-pub(super) fn conform(
-    value: &mut Value,
-    schema: &Value,
-    root: &Value,
-    repetition: Repetition,
-    depth: usize,
-) {
-    if depth > 64 {
-        return;
-    }
-    let branches = resolve_branches(schema, root);
-    let wants_array = branches.iter().any(|branch| {
-        branch.get("items").is_some()
-            || branch.get("prefixItems").is_some()
-            || type_includes(branch, "array")
-    });
-    // XML text that looks like a number, boolean, or `null` is a string
-    // where only a string is allowed (`<public_address>123</…>`).
-    if repetition == Repetition::Elements
-        && matches!(value, Value::Number(_) | Value::Bool(_) | Value::Null)
-        && !branches.iter().any(|branch| accepts(branch, value))
-        && branches
-            .iter()
-            .any(|branch| type_includes(branch, "string"))
-    {
-        *value = Value::String(scalar_text(value));
-    }
-    // Likewise where the values allowed are listed (`const`, `enum`) as
-    // strings, untyped: `<v>1.3</v>` is the `"1.3"` listed. (XML reads a
-    // number only from text it writes back unchanged: `1.3`, not `1.30`.)
-    if repetition == Repetition::Elements
-        && matches!(value, Value::Number(_) | Value::Bool(_) | Value::Null)
-        && listed_as_strings(&branches, value)
-    {
-        *value = Value::String(scalar_text(value));
-    }
-    // An empty XML element reads as `{}`; where the schema wants text it is
-    // the empty string.
-    if repetition == Repetition::Elements
-        && value.as_object().is_some_and(serde_json::Map::is_empty)
-        && !branches.iter().any(|branch| accepts(branch, value))
-        && branches
-            .iter()
-            .any(|branch| type_includes(branch, "string"))
-    {
-        *value = Value::String(String::new());
-    }
-    let repeatable = match repetition {
-        Repetition::Elements => !value.is_array(),
-        Repetition::Blocks => value.is_object(),
-        _ => false,
-    };
-    if wants_array && repeatable && !branches.iter().any(|branch| accepts(branch, value)) {
-        *value = Value::Array(vec![value.take()]);
-    }
-    // Each child's schemas from the branches resolved above.
-    match value {
-        Value::Array(items) => {
-            for (index, item) in items.iter_mut().enumerate() {
-                for item_schema in children_of(&branches, &SchemaPathSegment::ArrayItem(index)) {
-                    conform(item, item_schema, root, repetition, depth + 1);
-                }
-            }
-        }
-        Value::Object(map) => {
-            for (key, child) in map.iter_mut() {
-                let segment = SchemaPathSegment::Key(key.clone());
-                for child_schema in children_of(&branches, &segment) {
-                    conform(child, child_schema, root, repetition, depth + 1);
-                }
-            }
-        }
-        _ => {}
-    }
-}
-
-/// A scalar as XML text writes it.
-fn scalar_text(value: &Value) -> String {
-    match value {
-        Value::Null => "null".to_string(),
-        other => other.to_string(),
-    }
-}
-
-/// Whether `branches` list the values allowed (`const`, `enum`), `value`
-/// is not one of them, and they are strings: its text, or all of them.
-fn listed_as_strings(branches: &[&Value], value: &Value) -> bool {
-    let listed: Vec<&Value> = branches
-        .iter()
-        .flat_map(|branch| {
-            branch.get("const").into_iter().chain(
-                branch
-                    .get("enum")
-                    .and_then(Value::as_array)
-                    .into_iter()
-                    .flatten(),
-            )
-        })
-        .collect();
-    let text = scalar_text(value);
-    !listed.is_empty()
-        && !listed.contains(&value)
-        && (listed.iter().any(|allowed| allowed.as_str() == Some(&text))
-            || listed.iter().all(|allowed| allowed.is_string()))
 }
 
 /// Whether one resolved branch allows `value`'s kind as it is.

@@ -5,6 +5,7 @@ mod accept;
 mod candidates;
 mod choices;
 mod conditions;
+mod conform;
 mod docs;
 mod elsewhere;
 mod excluded;
@@ -28,6 +29,8 @@ pub(crate) use accept::*;
 pub(crate) use candidates::*;
 pub(crate) use choices::*;
 pub(crate) use conditions::mentions_conditionals;
+use conform::conform;
+pub(crate) use conform::conform_arrays;
 pub(crate) use docs::*;
 pub(crate) use excluded::excluded_by_not;
 #[cfg(feature = "schema-validation")]
