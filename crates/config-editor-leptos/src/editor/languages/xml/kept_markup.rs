@@ -69,6 +69,12 @@ struct HostElements {
 }
 
 impl HostElements {
+    /// Whether an element of the text writes `declaration` (`xmlns:c`
+    /// with its namespace).
+    fn declares(&self, declaration: &(String, String)) -> bool {
+        self.elements.values().any(|element| element.markup.contains(declaration))
+    }
+
     fn of(text: &str) -> Self {
         let markup = declarations::Markup::of(text);
         let tokens = tokenize(text);
@@ -170,10 +176,16 @@ pub(super) fn changed_markup(language: &XmlBehavior, previous: &str, patched: &s
     let plan = plan_paths(patched, &tokens);
     // The prefix of each element open, innermost last.
     let mut open: written_names::Open<Option<&str>> = written_names::Open::default();
+    // The prefixes each element open declares, innermost last.
+    let mut scopes = moved_declarations::Scopes::default();
+    let declared_in_hosts = |declaration: &(String, String)| {
+        [Some(&host), first.as_ref()].into_iter().flatten().any(|elements| elements.declares(declaration))
+    };
     for token in &tokens {
         match token.kind {
             Kind::EndTag => {
                 open.pop();
+                scopes.leave();
                 continue;
             }
             Kind::OpenTag { closing: false, .. } => {}
@@ -184,7 +196,12 @@ pub(super) fn changed_markup(language: &XmlBehavior, previous: &str, patched: &s
         let written_prefix = written_names::prefix(patched, token);
         let saved = markup_attributes(patched, token, &saved_markup);
         open.child(written_prefix, saved.iter().any(|(name, _)| written_names::binds(written_prefix, name)));
-        if !patched[..token.end].ends_with("/>") {
+        // A declaration the save gave an element moved out of its
+        // prefix's scope (`moved_declarations`) is the host's binding.
+        let opened = !patched[..token.end].ends_with("/>");
+        let added = scopes.enter(&saved, opened, &declared_in_hosts);
+        let without_added = || saved.iter().filter(|declaration| !added.contains(declaration)).cloned().collect::<Vec<_>>();
+        if opened {
             open.push(written_prefix);
         }
         let Some(path) = plan.path_of(token.start) else { continue };
@@ -204,19 +221,20 @@ pub(super) fn changed_markup(language: &XmlBehavior, previous: &str, patched: &s
                     wanted.retain(|(name, value)| !elements.markup.nil(name, value));
                 }
                 let form_kept = saved_elements.elements.get(&strings(path)).is_none_or(|saved| !own.form_changed(saved));
-                saved == wanted && prefix == own.prefix && form_kept
+                let own_markup = saved == wanted || without_added() == wanted;
+                own_markup && prefix == own.prefix && form_kept
             }
             // Added: named as one of its path's host elements, or where
             // the host has none, in its siblings' namespace, else its
             // parent's; no other markup.
             None => {
-                let name = (prefix, saved);
+                let names = [(prefix.clone(), saved.clone()), (prefix, without_added())];
                 match host.names.get(&unindexed(path)) {
-                    Some(allowed) => allowed.contains(&name),
+                    Some(allowed) => names.iter().any(|name| allowed.contains(name)),
                     None => {
                         let parent = identity.host_path(written_names::parent(path)).filter(|(_, side)| *side == Host::Previous);
                         let wanted = host.children.new_name_prefix(parent.as_ref().map(|(path, _)| path.as_slice()), before.as_ref().map(Option::as_deref), in_parent);
-                        name == (wanted, Vec::new())
+                        names.contains(&(wanted, Vec::new()))
                     }
                 }
             }

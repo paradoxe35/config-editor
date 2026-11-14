@@ -22,8 +22,10 @@ pub(in crate::editor) fn newline_at(
     let index = text[..line_start].matches('\n').count();
     // In a string's body the line break is text: the line's indentation
     // and nothing more, and on a blank line the body's (a column-0 line
-    // would end a YAML block scalar).
-    if in_body(index) {
+    // would end a YAML block scalar). Past the end of a string closed on
+    // the line (`  y"` of a quoted string begun above), the text goes on
+    // as after any construct over lines (below).
+    if in_body(index) && !closed_before(behavior, text, line_start, byte) {
         let indent = if line.trim().is_empty() {
             body_indent(text, index, in_body).unwrap_or_else(|| indent_of(line))
         } else {
@@ -55,6 +57,19 @@ pub(in crate::editor) fn newline_at(
         }
     }
     behavior.newline(text, cursor)
+}
+
+/// Whether a construct begun above the line at `line_start` ends on it
+/// at or before `byte` (a quoted string's closing quote).
+fn closed_before(
+    behavior: &dyn ConfigLanguage,
+    text: &str,
+    line_start: usize,
+    byte: usize,
+) -> bool {
+    behavior.multiline_constructs(text).iter().any(|construct| {
+        construct.range.start < line_start && (line_start + 1..=byte).contains(&construct.range.end)
+    })
 }
 
 /// Whether the caret ends `line` (`rest` is what follows it there) after a

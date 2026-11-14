@@ -19,6 +19,7 @@ use std::sync::Arc;
 type ItemMap = HashMap<String, ItemSource>;
 
 mod collapsed;
+mod emptied_maps;
 mod emptied_quotes;
 mod host_strings;
 pub(super) mod item_trail;
@@ -337,6 +338,9 @@ impl Bridge {
             ),
             None => value,
         };
+        // A map whose last entry the view deleted (`deps:` left alone) is
+        // the empty map, not a null.
+        let value = emptied_maps::kept(self.edit.behavior(), edit_text, &old, value);
         // Each changed value in the host's own form (a TOML datetime read
         // back normalized), or the reason the save waits.
         let value = host_scalars(host, previous_host, &old, value)?;

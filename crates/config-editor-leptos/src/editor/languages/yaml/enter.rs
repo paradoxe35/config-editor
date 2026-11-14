@@ -61,11 +61,25 @@ fn entry_after_caret(source: &str, line_start: usize, byte: usize) -> Option<Str
         return None;
     }
     let indent = &line[..line.len() - line.trim_start_matches([' ', '\t']).len()];
+    // An item: of the innermost list the line's item opens (`- - 1‸- 2`
+    // gives the second dash's column).
     if rest == "-" || rest.starts_with("- ") || rest.starts_with("-\t") {
-        return Some(indent.to_string());
+        return Some(format!("{indent}{}", " ".repeat(innermost_dash_column(code) - indent.len())));
     }
     mapping_colon(rest).filter(|colon| *colon > 0)?;
     Some(format!("{indent}{}", " ".repeat(content_column - indent.len())))
+}
+
+/// The byte column of the last item dash a line opens with (`  - - 1`
+/// gives 4), else of its text.
+fn innermost_dash_column(line: &str) -> usize {
+    let mut rest = line.trim_start_matches([' ', '\t']);
+    let mut column = line.len() - rest.len();
+    while let Some(after) = rest.strip_prefix('-').filter(|after| after.starts_with([' ', '\t'])) {
+        column = line.len() - rest.len();
+        rest = after.trim_start_matches([' ', '\t']);
+    }
+    column
 }
 
 /// Whether a flow collection opened in `code` (a line's text before the

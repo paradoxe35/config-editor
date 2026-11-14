@@ -191,6 +191,10 @@ pub(crate) enum Work {
         allow(dead_code, reason = "only the YAML hover notes it")
     )]
     WalkUp,
+    /// A whole XML text read for the namespace declarations in scope at
+    /// each element (`moved_declarations`).
+    #[cfg_attr(not(feature = "xml"), allow(dead_code, reason = "only XML notes it"))]
+    NamespaceScan,
 }
 
 impl Work {
@@ -237,6 +241,7 @@ impl Work {
             Self::StandIn => 37,
             Self::AroundParse => 38,
             Self::WalkUp => 39,
+            Self::NamespaceScan => 40,
         }
     }
 
@@ -283,12 +288,13 @@ impl Work {
         Self::StandIn,
         Self::AroundParse,
         Self::WalkUp,
+        Self::NamespaceScan,
     ];
 }
 
 /// How many kinds of work there are.
 #[cfg(test)]
-const KINDS: usize = 40;
+const KINDS: usize = 41;
 
 #[cfg(test)]
 thread_local! {

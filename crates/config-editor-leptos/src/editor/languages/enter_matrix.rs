@@ -307,7 +307,39 @@ fn enter_after_a_construct_over_lines_indents_from_its_first_line() {
             "<r>\n  <x>a\n   b\n     c</x>‸\n</r>\n",
             "<r>\n  <x>a\n   b\n     c</x>\n  ‸\n</r>\n",
         ),
+        // A YAML quoted scalar closed on a later line (QA `E36`): the
+        // entry it is the value of sets the indentation.
+        (
+            Language::YAML,
+            "a:\n  b: \"x\n    y\"‸\n  c: 1\n",
+            "a:\n  b: \"x\n    y\"\n  ‸\n  c: 1\n",
+        ),
+        (
+            Language::YAML,
+            "a:\n  b: 'x\n    y'‸\n",
+            "a:\n  b: 'x\n    y'\n  ‸\n",
+        ),
+        (
+            Language::YAML,
+            "a:\n  b: 'it''s\n    y' # c‸\n",
+            "a:\n  b: 'it''s\n    y' # c\n  ‸\n",
+        ),
+        (
+            Language::YAML,
+            "a:\n  - \"x\n    y\"‸\n",
+            "a:\n  - \"x\n    y\"\n  ‸\n",
+        ),
         // Inside the construct the line keeps its indentation.
+        (
+            Language::YAML,
+            "a:\n  b: \"x\n    y‸\"\n",
+            "a:\n  b: \"x\n    y\n    ‸\"\n",
+        ),
+        (
+            Language::YAML,
+            "a:\n  b: |\n    x\n    y‸\n",
+            "a:\n  b: |\n    x\n    y\n    ‸\n",
+        ),
         (
             Language::HCL,
             "x = [\n    1,‸\n    2]\n",
@@ -394,6 +426,22 @@ fn enter_between_a_value_and_a_key_keeps_the_lines_indent() {
             "items:\n  - a: 1\n  ‸- b\n",
         ),
         (Language::YAML, "- a‸- b\n", "- a\n‸- b\n"),
+        // An item of a list nested in an item: at its own dash.
+        (
+            Language::YAML,
+            "a:\n  - - 1‸- 2\n",
+            "a:\n  - - 1\n    ‸- 2\n",
+        ),
+        (
+            Language::YAML,
+            "a:\n  - - - x‸- y\n",
+            "a:\n  - - - x\n      ‸- y\n",
+        ),
+        (
+            Language::YAML,
+            "a:\n  - - k: 1‸- 2\n",
+            "a:\n  - - k: 1\n    ‸- 2\n",
+        ),
         // After a key with no value: its children.
         (
             Language::YAML,
