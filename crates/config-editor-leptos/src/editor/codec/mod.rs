@@ -150,6 +150,7 @@ pub(super) fn read_aside(
     source: &str,
     schema: Option<&Value>,
 ) -> Result<Value, ParseError> {
+    super::work_count::note_many(super::work_count::Work::ParsedBytes, source.len());
     let mut value = language.parse(source)?;
     if let Some(schema) = schema.filter(|_| language.repetition() != Repetition::None) {
         conform_arrays(&mut value, schema, language.repetition());

@@ -231,6 +231,8 @@ pub(super) fn analyze(source: &str, cursor: usize) -> std::rc::Rc<Scan> {
 /// parser state at `cursor` (a byte offset). Block headers and attributes are
 /// recognized by token shape, so a half-typed document still yields structure.
 pub(super) fn scan_text(source: &str, cursor: usize) -> Scan {
+    // A walk from the top: counted where it starts while a batch runs for
+    // the text (outside one, the lookup asking for it counts it).
     crate::editor::paths::walked_from_top(source);
     let tokens = tokenize(source);
     let partial_index = tokens.iter().position(|token| {

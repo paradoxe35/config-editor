@@ -342,6 +342,15 @@ mod point_problem_tests;
     feature = "hcl",
     feature = "xml"
 ))]
+mod range_scale_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
 mod reach_tests;
 #[cfg(all(
     test,
