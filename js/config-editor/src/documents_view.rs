@@ -663,7 +663,8 @@ impl ConfigDocuments {
 
     /// The editor of the document `id`: paths, folds, focus and saving for
     /// that document (`null` when no document has that id). Until the
-    /// document has been shown once, which mounts its editor, its `value`,
+    /// document has been shown once (or listed with `editAsText`), which
+    /// mounts its editor, its `value`,
     /// `text`, `unifiedDiff`, `settings`, `isDirty` and `save` answer for
     /// the document as listed and its paths, folds and `reveal` answer
     /// `null` (or `false`); once the document is removed all of them do

@@ -20,7 +20,10 @@ use std::sync::Arc;
 /// One open document: what its tab and editor read. The editor mounts the
 /// first time the document is shown (`visited`) and then stays mounted, so
 /// switching back finds its caret, undo history, scroll and folds as they
-/// were.
+/// were. A document listed with an Edit-as text (see
+/// [`Document::edit_as_text`]) mounts at once, shown or not: that text is
+/// an unsaved edit, which only its editor reads as one (dirty, in sync or
+/// not, saved through its gates).
 #[derive(Clone)]
 pub(super) struct Entry {
     pub(super) id: String,
@@ -74,6 +77,7 @@ impl Entry {
             .clone()
             .unwrap_or_else(|| document.value.clone());
         let dirty = differs(&document.value, &baseline);
+        let edited = opens_edited(document, &setup);
         owner.with(|| Entry {
             id: document.id.clone(),
             serial,
@@ -94,12 +98,23 @@ impl Entry {
             secrets: document.secrets.clone().unwrap_or_default(),
             dirty: RwSignal::new(dirty),
             conflicted: RwSignal::new(false),
-            visited: RwSignal::new(false),
+            visited: RwSignal::new(edited),
             mount_now: StoredValue::new(None),
             editor: StoredValue::new_local(None),
             handle: EditorHandle::new(),
             owner: owner.clone(),
         })
+    }
+
+    /// Mounts its editor (hidden when not shown) once the list gives it an
+    /// Edit-as text to open with, as [`Entry::create`] does.
+    fn mount_if_edited(&self, document: &Document) {
+        if !self.visited.get_untracked() && opens_edited(document, &self.setup) {
+            self.visited.set(true);
+            if let Some(mount) = self.mount_now.get_value() {
+                untrack(|| mount.run(()));
+            }
+        }
     }
 
     /// Its editor's `reveal`, `reveal_range` and `focus` select it first
@@ -141,6 +156,7 @@ impl Entry {
         }
         if !untrack(|| self.handle.is_mounted()) {
             self.edit_as_text.set_value(document.edit_as_text.clone());
+            self.mount_if_edited(document);
         }
         set_if_changed(self.settings, &document.settings);
         set_if_changed(self.host_diagnostics, &document.host_diagnostics);
@@ -192,6 +208,15 @@ impl Entry {
             documents.prefix, self.serial
         )
     }
+}
+
+/// Whether `document` opens with an Edit-as text its editor reads: one in
+/// a language other than its own (in its own, the text is ignored).
+fn opens_edited(document: &Document, setup: &Setup) -> bool {
+    document.edit_as_text.is_some()
+        && document
+            .edit_as
+            .is_some_and(|language| language != setup.language)
 }
 
 /// Whether two texts differ, line endings aside.
