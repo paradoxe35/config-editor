@@ -75,7 +75,7 @@ const App = defineComponent({
   },
   template: `
     <header>
-      <strong>ConfigDocuments (Vue)</strong>
+      <h1>ConfigDocuments (Vue)</h1>
       <button id="save-all" type="button" @click="tabs?.saveAll()">Save all</button>
     </header>
     <ConfigDocuments

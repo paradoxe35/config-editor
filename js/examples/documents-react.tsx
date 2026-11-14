@@ -53,7 +53,7 @@ function App() {
   return (
     <>
       <header>
-        <strong>ConfigDocuments (React)</strong>
+        <h1>ConfigDocuments (React)</h1>
         <button id="save-all" type="button" onClick={() => tabs.current?.saveAll()}>
           Save all
         </button>
