@@ -80,7 +80,7 @@ impl State {
                         continue;
                     };
                     echo.at(now);
-                    let echo = echo.listed(&document.value, current, flushed);
+                    let echo = echo.received(&document.value, current, flushed);
                     // The ranges given last, with a text that does not
                     // replace the document's (an echo, or that text as the
                     // editor reads it), stay where its editor moved them

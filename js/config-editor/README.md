@@ -549,9 +549,11 @@ coming back after that is taken as yours. Within that, nothing typed is
 lost. An echo the store wrote another way (without the byte order mark,
 with LF line breaks) is still the echo, and the document keeps its own.
 Ranges given with an echo (`readOnlyRanges`, host `range`s) are in
-the echoed text: they are moved to the document. Any other `value` is yours
-and applies, the text you gave last included (a reset to the text the
-editor was created with). The texts `onChange` gave before it belong to the
+the echoed text: they are moved to the document. The text you gave last,
+given again, is no news either: a render for another prop passes your
+store's text again while it is still behind the typing (reset to it with
+`replaceValue`). Any other `value` is yours and applies (a discard to the
+text the editor was created with, once your store took a later one). The texts `onChange` gave before it belong to the
 text it replaced (another file, a discarded draft): they are yours from
 then on, so going back to one (a file switched back to) applies. So once
 you give a text of your own, drop the answers still to come for the texts

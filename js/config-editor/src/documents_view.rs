@@ -174,18 +174,30 @@ impl State {
             .kept
             .try_update_value(std::mem::take)
             .unwrap_or_default();
-        // Whether a document's editor holds the text listed for it.
-        let texts = self.texts;
-        let holds = |id: &str, value: &str| {
+        // Whether the text listed for a document will replace what its
+        // editor holds (see `Echoes::replaces`; a document listed for the
+        // first time has nothing to keep).
+        let (texts, echoes, echoing) = (self.texts, self.echoes, self.echoing);
+        let replaces = |id: &str, value: &str| {
             texts
                 .try_with_value(|texts| {
-                    texts
-                        .get(id)
-                        .is_some_and(|known| crate::remap::reads_as(&known.value, value))
+                    texts.get(id).is_none_or(|known| {
+                        if !echoing {
+                            return !crate::remap::reads_as(&known.value, value);
+                        }
+                        echoes
+                            .try_update_value(|echoes| {
+                                echoes
+                                    .entry(id.to_string())
+                                    .or_insert_with(|| Echoes::new(true))
+                                    .replaces(value, &known.value)
+                            })
+                            .unwrap_or(true)
+                    })
                 })
-                .unwrap_or(false)
+                .unwrap_or(true)
         };
-        let listed = documents_from(list, view, &mut kept, &holds);
+        let listed = documents_from(list, view, &mut kept, &replaces);
         if listed.is_err() {
             kept.abandon();
         }

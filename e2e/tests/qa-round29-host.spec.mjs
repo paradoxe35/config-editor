@@ -344,7 +344,8 @@ test.describe('QA round 29: ranges given with a skipped echo', () => {
   });
 });
 
-// --- M29-3: an update's value is the host's word. ----------------------------
+// --- M29-3: a reset while echoes are on their way (replaceValue; QA 34: the text --
+// given last, given again in an update, is a render, no news). ------------------
 
 test.describe('QA round 29: a reset to the text the host gave last', () => {
   test.skip(!built, 'js packages not built: run `npm run build` in js/');
@@ -390,7 +391,7 @@ test.describe('QA round 29: a reset to the text the host gave last', () => {
             window.reset = () => {
               version += 1;
               window.store = original;
-              editor.update({ value: original });
+              editor.replaceValue(original);
               return editor.value;
             };
           },

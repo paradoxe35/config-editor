@@ -30,7 +30,10 @@ fn print(list: &JsValue) -> Option<String> {
 /// `rangesFor`) stay where the editor moved them: unless the text they
 /// come with replaces the document (`replaces`). A text the document
 /// holds, an echo of one it sent or one older than the typing keeps them,
-/// whatever order the echoes come back in.
+/// whatever order the echoes come back in. Whether it replaces is known
+/// before the text is taken (`Echoes::replaces`), so ranges that stay are
+/// not read in it at all: not checked against a text they were not given
+/// for (QA 34, HO34-1: an echo warned of columns past a line's end).
 pub(crate) fn stay(again: bool, replaces: bool) -> bool {
     again && !replaces
 }

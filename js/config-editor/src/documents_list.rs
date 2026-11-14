@@ -105,14 +105,16 @@ fn warn_unclaimed(file_name: &str, fallback: Language) {
 ///
 /// A document's `settings` go over `view`; its `secrets` are built once per
 /// id, and its `schema` compiled once per text (a schema that does not
-/// compile throws, as a `ConfigEditor`'s does), see [`Kept`]. `holds(id, value)`
-/// says whether the editor of document `id` holds the text `value` (its
-/// ranges given again then stay, see `given_ranges`).
+/// compile throws, as a `ConfigEditor`'s does), see [`Kept`]. `replaces(id,
+/// value)` says whether the text `value` will replace what the editor of
+/// document `id` holds: not that text, an echo, nor the text the host
+/// listed last (its ranges given again are read in it only then, see
+/// `given_ranges`).
 pub(crate) fn documents_from(
     list: &JsValue,
     view: &EditorSettings,
     kept: &mut Kept,
-    holds: &dyn Fn(&str, &str) -> bool,
+    replaces: &dyn Fn(&str, &str) -> bool,
 ) -> Result<Listed, JsError> {
     if !Array::is_array(list) {
         return Err(JsError::new(
@@ -181,7 +183,7 @@ pub(crate) fn documents_from(
             document.edit_as_text = None;
         }
         let again;
-        (document, again) = with_protection(document, &item, index, kept, holds)?;
+        (document, again) = with_protection(document, &item, index, kept, replaces)?;
         if let Some(ranges) = again {
             ranges_again.insert(document.id.clone(), ranges);
         }
@@ -218,16 +220,18 @@ pub(crate) fn documents_from(
 }
 
 /// A document's host problems, read-only fields and secrets. Its ranges
-/// as given last, listed again with the text it holds, keep where its
-/// editor moved them (see `given_ranges`): they are not read again. Listed
-/// with another text, they are read in it, and the ones its editor was
-/// given are returned too: they stay if that text is an echo.
+/// as given last, listed again with a text that does not replace the one
+/// it holds (that text, an echo), keep where its editor moved them (see
+/// `given_ranges`): they are not read again, nor checked, in a text they
+/// were not given for (QA 34, HO34-1). Listed with a text that replaces
+/// it, they are read in it, and the ones its editor was given are
+/// returned too.
 fn with_protection(
     mut document: Document,
     item: &JsValue,
     index: usize,
     kept: &mut Kept,
-    holds: &dyn Fn(&str, &str) -> bool,
+    replaces: &dyn Fn(&str, &str) -> bool,
 ) -> Result<(Document, Option<Vec<TextRange>>), JsError> {
     let name = |key: &str| format!("documents[{index}].{key}");
     let diagnostics = field(item, "hostDiagnostics");
@@ -238,10 +242,13 @@ fn with_protection(
     }
     let paths = paths_from(&field(item, "readOnlyPaths"), &name("readOnlyPaths"))?;
     let given = field(item, "readOnlyRanges");
-    let holds = holds(&document.id, &document.value);
     let mut again = kept.ranges.again(&document.id, &given);
     let ranges = match again.take() {
-        Some(ranges) if crate::given_ranges::stay(true, !holds) => ranges,
+        Some(ranges)
+            if crate::given_ranges::stay(true, replaces(&document.id, &document.value)) =>
+        {
+            ranges
+        }
         last => {
             again = last;
             ranges_from(&given, &document.value, &name("readOnlyRanges"))?
