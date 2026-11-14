@@ -72,6 +72,13 @@ mod yaml {
                 _ => error.message,
             }
         })?;
+        // A word or a list is YAML too, but no schema: said here, as a
+        // build without schema validation would not check it.
+        if !value.is_object() && !value.is_boolean() {
+            return Err(format!(
+                "the YAML text reads as {value}, and a JSON Schema is a map or a boolean"
+            ));
+        }
         plain(value, "")
     }
 

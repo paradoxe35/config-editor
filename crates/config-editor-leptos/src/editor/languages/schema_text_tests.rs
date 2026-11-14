@@ -195,6 +195,14 @@ properties:
                 "# only a comment\n",
                 "the YAML text holds no schema, only comments",
             ),
+            (
+                "not-json",
+                "the YAML text reads as \"not-json\", and a JSON Schema is a map or a boolean",
+            ),
+            (
+                "- type: string\n",
+                "the YAML text reads as [{\"type\":\"string\"}], and a JSON Schema is a map or a boolean",
+            ),
         ] {
             assert_eq!(read_schema_text(text).unwrap_err(), expected, "{text:?}");
         }
