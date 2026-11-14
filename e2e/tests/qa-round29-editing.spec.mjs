@@ -199,9 +199,10 @@ test.describe('QA round 29: editing', () => {
     await press(page, 'Shift+Alt+ArrowDown');
     await page.waitForTimeout(800);
     const problems = await page.evaluate(() => window.problems.map((problem) => problem.message));
-    // One problem, on the copy: the host's own line is not flagged.
-    const flagged = problems.filter((message) => message.startsWith('/db/password'));
-    expect(flagged).toEqual(['/db/password: this placeholder is in this field already; another copy of it is plain text']);
+    // The copy is flagged as a copy (once); the host's own line is not.
+    const copies = problems.filter((message) => message.includes('this placeholder is in this field already'));
+    expect(copies).toEqual(['/db/password: this placeholder is in this field already; another copy of it is plain text']);
+    expect(problems.some((message) => message.startsWith('/db/password/0'))).toBe(false);
     expect(await page.evaluate(() => window.editor.save())).toBe(false);
     expect(await page.evaluate(() => window.saved)).toBe(null);
   });
