@@ -81,6 +81,7 @@ mod projection;
 #[cfg_attr(not(feature = "protect"), path = "editor/off/protect.rs")]
 mod protect;
 mod readings;
+mod scroll_through;
 #[cfg_attr(not(feature = "search"), path = "editor/off/search.rs")]
 mod search;
 mod secret_options;

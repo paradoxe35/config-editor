@@ -346,3 +346,35 @@ fn regex_replacements_follow_vs_code_rules() {
         .collect();
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
+
+/// QA 34, UX34-5: a query cleared takes back the "No results" the live
+/// region said of it; anything else said since stays.
+#[cfg(feature = "yaml")]
+#[test]
+fn clearing_the_query_takes_back_no_results() {
+    use leptos::prelude::*;
+
+    use crate::editor::languages::Language;
+    use crate::editor::test_state::TestEditor;
+
+    let (_owner, state) = TestEditor::new(Language::YAML, "a: 1\n").mount();
+    let said = || state.a11y().announcement.get_untracked();
+    let query = |text: &str, was_empty: bool| {
+        state.search().query.set(text.to_string());
+        super::say_query_results(state, was_empty);
+    };
+    query("zzz", true);
+    assert_eq!(said(), "No results");
+    query("", false);
+    assert_eq!(said(), "", "cleared, the stale message goes");
+    // Said twice (a no-break space tells the two apart), it still goes.
+    query("zzz", true);
+    state.a11y().announce("No results".to_string());
+    query("", false);
+    assert_eq!(said(), "");
+    // Something else said since stays.
+    query("zzz", true);
+    state.a11y().announce("Folded lines 1–2".to_string());
+    query("", false);
+    assert_eq!(said(), "Folded lines 1–2");
+}

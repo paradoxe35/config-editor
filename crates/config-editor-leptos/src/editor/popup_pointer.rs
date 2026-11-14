@@ -13,7 +13,7 @@ use leptos::prelude::*;
 use wasm_bindgen::JsCast;
 use web_sys::{Element, HtmlElement, MouseEvent, WheelEvent};
 
-use super::metrics::read_editor_metrics;
+use super::scroll_through::{scroll_past, wheel_pixels};
 use super::state::EditorState;
 
 /// The attribute of a popup letting the pointer through (see the
@@ -120,82 +120,6 @@ fn scrolls_itself(popup: &HtmlElement, dy: f64) -> bool {
     let top = popup.scroll_top();
     let most = popup.scroll_height() - popup.client_height();
     (dy > 0.0 && top < most) || (dy < 0.0 && top > 0)
-}
-
-/// The wheel's move in pixels: lines and pages count as the text's.
-fn wheel_pixels(state: EditorState, event: &WheelEvent) -> (f64, f64) {
-    let unit = match event.delta_mode() {
-        WheelEvent::DOM_DELTA_LINE => state
-            .view()
-            .textarea_ref
-            .get_untracked()
-            .map_or(16.0, |text| read_editor_metrics(&text).line_height),
-        WheelEvent::DOM_DELTA_PAGE => state
-            .view()
-            .textarea_ref
-            .get_untracked()
-            .map_or(400.0, |text| f64::from(text.client_height())),
-        _ => 1.0,
-    };
-    (event.delta_x() * unit, event.delta_y() * unit)
-}
-
-/// Scrolls the text by `(dx, dy)`; what it cannot take (at its ends), the
-/// nearest scrolling container of the editor, else the page.
-fn scroll_past(state: EditorState, dx: f64, dy: f64) {
-    let Some(text) = state.view().textarea_ref.get_untracked() else {
-        return;
-    };
-    let (left, top) = (text.scroll_left(), text.scroll_top());
-    text.set_scroll_left(left + dx.round() as i32);
-    text.set_scroll_top(top + dy.round() as i32);
-    let moved_x = text.scroll_left() != left;
-    let moved_y = text.scroll_top() != top;
-    let (rest_x, rest_y) = (
-        if moved_x { 0.0 } else { dx },
-        if moved_y { 0.0 } else { dy },
-    );
-    if rest_x == 0.0 && rest_y == 0.0 {
-        return;
-    }
-    let root: Option<Element> = state.view().root_ref.get_untracked().map(Into::into);
-    match root.and_then(|root| scrolling_ancestor(&root, rest_x, rest_y)) {
-        Some(container) => container.scroll_by_with_x_and_y(rest_x, rest_y),
-        None => {
-            if let Some(window) = web_sys::window() {
-                window.scroll_by_with_x_and_y(rest_x, rest_y);
-            }
-        }
-    }
-}
-
-/// The nearest container of `element` that scrolls by `(dx, dy)`, short of
-/// the page itself.
-fn scrolling_ancestor(element: &Element, dx: f64, dy: f64) -> Option<Element> {
-    let window = web_sys::window()?;
-    let page = window.document()?.scrolling_element();
-    let mut at = element.parent_element();
-    while let Some(container) = at {
-        if page.as_ref() == Some(&container) {
-            return None;
-        }
-        let style = window.get_computed_style(&container).ok().flatten();
-        let scrolls = |axis: &str, delta: f64, room: i32| {
-            delta != 0.0
-                && room > 0
-                && style
-                    .as_ref()
-                    .and_then(|style| style.get_property_value(axis).ok())
-                    .is_some_and(|value| matches!(value.as_str(), "auto" | "scroll" | "overlay"))
-        };
-        let room_y = container.scroll_height() - container.client_height();
-        let room_x = container.scroll_width() - container.client_width();
-        if scrolls("overflow-y", dy, room_y) || scrolls("overflow-x", dx, room_x) {
-            return Some(container);
-        }
-        at = container.parent_element();
-    }
-    None
 }
 
 /// Whether Escape is free to close the popup under the pointer: the focus

@@ -71,6 +71,9 @@ pub(in crate::editor) fn unfold_before_edit(state: EditorState, event: &Keyboard
     let (start, end) = textarea_selection(&element);
     let collapsed = usize::from(start == end);
     let reach = match event.key().as_str() {
+        // Ctrl+Enter and Ctrl+Shift+Enter open a line beside the caret's
+        // line, a folded one taken whole: they edit no fold.
+        "Enter" if event.ctrl_key() || event.meta_key() => return,
         "Backspace" => (start.saturating_sub(collapsed), end),
         "Delete" => (start, end + collapsed),
         "Enter" | "Tab" => (start, end),

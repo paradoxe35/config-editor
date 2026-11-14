@@ -56,6 +56,13 @@ const HOSTILE = {
   'universal rules': `
     * { letter-spacing: 1px; word-spacing: 4px; line-height: 2; font-family: Georgia, serif; font-size: 15px;
       text-transform: uppercase; font-weight: 700; tab-size: 8; font-variant-ligatures: none; margin: 0; padding: 0; }`,
+  // QA 34, FW34-1: rules scoped by an id around the editor (`#app div`,
+  // one id's weight) reach nothing inside it either.
+  'id-scoped rules': `
+    #host div:where(:not(.config-editor, .config-editor-documents)), #host span, #host textarea, #host button {
+      margin: 3px; padding: 6px; border: 1px solid #f00; letter-spacing: 2px; word-spacing: 4px; font-size: 17px;
+      line-height: 2.2; font-family: serif; background: #ff0; color: #f00; text-transform: uppercase; }
+    #host div:where(:not(.config-editor, .config-editor-documents))::before { content: "x"; margin: 2px; }`,
   'attribute rules': `
     [aria-hidden=true] { opacity: .3; }
     [role=listbox], [data-line], [role=status], [role=search], [role=tab], [type=button] { padding: 6px; margin: 3px; }

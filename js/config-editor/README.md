@@ -1718,10 +1718,13 @@ yours later in the page wins over the preset's at equal specificity) and its
 color variables. Every theme color is a CSS variable on the `.config-editor` root, and the
 bundled themes set them with zero specificity, so a plain rule in your
 stylesheet overrides any theme, wherever it sits. Set the `--config-editor-*`
-variables (colors, `--config-editor-font-size`, `--config-editor-line-height`,
-the height ones) on `.config-editor`, or on the editor's own element or
-`className`: on `body` or `html` they have no effect, as the root sets each
-itself. The shield covers your page's bare-element rules, not rules marked
+variables (colors, `--config-editor-font-size`, `--config-editor-line-height`)
+on the editor's root: `.config-editor`, or your `className`, which goes on
+it. On `body`, `html` or the element you mount the editor in they have no
+effect, as the root sets each itself. The height ones
+(`--config-editor-height`, `--config-editor-min-height`,
+`--config-editor-max-height`) the root does not set, so they inherit: on the
+root or on any element above it. The shield covers your page's bare-element rules, not rules marked
 `!important` and not rules that target the editor's inner `config-editor__*`
 classes: those are your choice.
 
