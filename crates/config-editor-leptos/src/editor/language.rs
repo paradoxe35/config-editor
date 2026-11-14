@@ -1148,6 +1148,15 @@ pub trait ConfigLanguage: Send + Sync + 'static {
         None
     }
 
+    /// The text with the caret's line (`line_start..line_end`, the line
+    /// break kept) left out, to read the rest of the document while a
+    /// half-typed entry would not parse. A language whose line also opens
+    /// a container (a list item started on it) keeps that opening, so the
+    /// containers after it keep their places. Default: the line dropped.
+    fn caret_line_left_out(&self, source: &str, line_start: usize, line_end: usize) -> String {
+        format!("{}{}", &source[..line_start], &source[line_end..])
+    }
+
     /// The keys of [`existing_keys`](Self::existing_keys) written as the
     /// items of a list the language writes by repeating them (HCL blocks:
     /// `rule { … }` once or more), so another item may follow, written the

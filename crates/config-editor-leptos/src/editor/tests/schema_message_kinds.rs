@@ -84,7 +84,63 @@ fn problems_of_every_kind_read_plainly_in_every_language() {
         (
             "d:\n  a: 1\n  b: 2\n  c: 3\n",
             r##"{"definitions":{"abc":{"required":["a","b","c"]}},"properties":{"d":{"allOf":[{"not":{"$ref":"#/definitions/abc"}}]}}}"##,
-            r#"/d: "a" can't be used together with "b", "c""#,
+            r#"/d: "a", "b", "c" can't all be used together"#,
+        ),
+    ];
+    let mut failures = Vec::new();
+    for (yaml, schema, wanted) in cases {
+        for language in LANGUAGES {
+            let Some((text, found)) = problems(language, yaml, schema) else {
+                continue;
+            };
+            let messages: Vec<&str> = found
+                .iter()
+                .map(|problem| problem.message.as_str())
+                .collect();
+            if messages != [*wanted] {
+                failures.push(format!("{language} {text:?}: {messages:?}"));
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+/// Every shape of `not` that only keeps keys apart says which keys, in
+/// every language: properties only naming them (as Cargo's schema writes
+/// it), a key's dependent schema (`dependentSchemas`, draft 7's
+/// `dependencies`), an `anyOf` of sets (the set written is named), and
+/// three keys or more said all together, not as a pair.
+#[test]
+fn a_not_keeping_keys_apart_names_them_in_every_shape() {
+    let cases: &[(&str, &str, &str)] = &[
+        (
+            "d:\n  git: g\n  path: p\n",
+            r#"{"properties":{"d":{"allOf":[{"not":{"properties":{"git":true,"path":true},"required":["git","path"]}}]}}}"#,
+            r#"/d: "git" can't be used together with "path""#,
+        ),
+        (
+            "d:\n  a: x\n  b: y\n",
+            r#"{"properties":{"d":{"dependentSchemas":{"a":{"not":{"required":["b"]}}}}}}"#,
+            r#"/d: "a" can't be used together with "b""#,
+        ),
+        (
+            "d:\n  a: x\n  b: y\n",
+            r#"{"$schema":"http://json-schema.org/draft-07/schema#","properties":{"d":{"dependencies":{"a":{"not":{"required":["b"]}}}}}}"#,
+            r#"/d: "a" can't be used together with "b""#,
+        ),
+        (
+            "d:\n  git: g\n  rev: r\n",
+            r#"{"properties":{"d":{"not":{"anyOf":[
+                {"properties":{"branch":true,"tag":true},"required":["branch","tag"]},
+                {"properties":{"branch":true,"rev":true},"required":["branch","rev"]},
+                {"properties":{"tag":true,"rev":true},"required":["tag","rev"]},
+                {"properties":{"git":true,"rev":true},"required":["git","rev"]}]}}}}"#,
+            r#"/d: "git" can't be used together with "rev""#,
+        ),
+        (
+            "d:\n  a: x\n  b: y\n  c: z\n",
+            r#"{"properties":{"d":{"not":{"required":["a","b","c"]}}}}"#,
+            r#"/d: "a", "b", "c" can't all be used together"#,
         ),
     ];
     let mut failures = Vec::new();

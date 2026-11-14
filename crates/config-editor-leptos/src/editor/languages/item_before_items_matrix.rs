@@ -73,6 +73,27 @@ const VALUES: &[(Language, &str)] = &[
     (Language::YAML, "spec:\n  tags: [| x]\n"),
     // A block list takes no separator.
     (Language::YAML, "spec:\n  tags:\n    - |\n    - x\n"),
+    // A comment line above the caret, or between it and the next value.
+    (
+        Language::HCL,
+        "spec {\n  tags = [\n    # first\n    |\n    \"x\"\n  ]\n}\n",
+    ),
+    (
+        Language::HCL,
+        "spec {\n  tags = [\n    // first\n    |\n    \"x\"\n  ]\n}\n",
+    ),
+    (
+        Language::HCL,
+        "spec {\n  tags = [\n    |\n    # c\n    \"x\"\n  ]\n}\n",
+    ),
+    (
+        Language::TOML,
+        "[spec]\ntags = [\n  # first\n  |\n  \"x\",\n]\n",
+    ),
+    (
+        Language::YAML,
+        "spec:\n  tags: [\n    # first\n    |\n    x\n  ]\n",
+    ),
 ];
 
 #[test]

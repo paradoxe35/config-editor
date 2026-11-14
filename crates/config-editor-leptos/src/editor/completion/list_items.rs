@@ -46,7 +46,21 @@ fn before_item(
             .list()
             .is_some_and(|(open, _)| open == character)
     };
-    let before = source[..start].trim_end().chars().next_back()?;
+    // What comes before, past the comment lines between (`[\n  # first\n  |`).
+    let is_comment = |line: &str| {
+        let line = line.trim_start();
+        config
+            .line_comments
+            .iter()
+            .any(|marker| !marker.is_empty() && line.starts_with(*marker))
+    };
+    let mut head = source[..start].trim_end();
+    while let Some(newline) = head.rfind('\n')
+        && is_comment(&head[newline + 1..])
+    {
+        head = head[..newline].trim_end();
+    }
+    let before = head.chars().next_back()?;
     if before != separator && !opens_list(before) {
         return None;
     }

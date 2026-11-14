@@ -49,6 +49,16 @@ mod array_hover_matrix;
 mod at_least_one_matrix;
 #[cfg(all(
     test,
+    feature = "schema-validation",
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod choice_hover_matrix;
+#[cfg(all(
+    test,
     feature = "yaml",
     feature = "json",
     feature = "toml",
@@ -150,6 +160,16 @@ mod highlight_matrix;
     feature = "xml"
 ))]
 mod item_before_items_matrix;
+#[cfg(all(
+    test,
+    feature = "schema-validation",
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod item_keys_matrix;
 #[cfg(all(test, feature = "yaml", feature = "schema-validation"))]
 mod item_start_tests;
 #[cfg(all(

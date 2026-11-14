@@ -725,11 +725,20 @@ fn line_end(code: &str, from: usize) -> usize {
         .map_or(code.len(), |offset| from + offset)
 }
 
-/// Past the whitespace at `from`, line breaks included: an entry or value
-/// in a multi-line container starts on its own line.
+/// Past the whitespace at `from`, line breaks included, and the comment
+/// lines ended before the caret: an entry or value in a multi-line
+/// container starts on its own line, under any comment above it.
 fn skip_blanks(code: &str, from: usize) -> usize {
-    let from = from.min(code.len());
-    from + (code[from..].len() - code[from..].trim_start().len())
+    let mut from = from.min(code.len());
+    loop {
+        from += code[from..].len() - code[from..].trim_start().len();
+        let comment = code[from..].starts_with('#') || code[from..].starts_with("//");
+        let end = line_end(code, from);
+        if !comment || !is_comment_start(code, from) || end == code.len() {
+            return from;
+        }
+        from = end;
+    }
 }
 
 fn unquote(key: &str) -> String {

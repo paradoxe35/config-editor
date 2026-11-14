@@ -271,15 +271,36 @@ fn property_hover(
     let parsed = conditional_document(source, bundle, behavior);
     let document = parsed.as_deref().and_then(|parsed| parsed.as_ref().ok());
     let at = |path: &[SchemaPathSegment]| document.and_then(|document| value_at(document, path));
-    let schemas = schema_at_path_in(root, path, repeats, document);
-    if schemas.is_empty() {
-        return None;
-    }
+    // A key of `oneOf`/`anyOf` options of the object holding it: the
+    // option it is in (or those offering it), and its schema there. What
+    // is said of it is what its suggestion says (see `key_info`).
+    let parents = schema_at_path_in(root, parent, repeats, document);
+    let parent_choices =
+        ChoicesAt::in_object(&parents, root, || object_at(source, parent, behavior));
+    let parent_branches: Vec<&Value> = parents
+        .iter()
+        .flat_map(|schema| branches_for(schema, root, at(parent)))
+        .collect();
+    let in_matched = |schemas| match &property[property.len() - 1] {
+        SchemaPathSegment::Key(name) => {
+            in_matched_option(schemas, name, &parent_branches, &parent_choices)
+        }
+        SchemaPathSegment::ArrayItem(_) => schemas,
+    };
     let owners = if property.len() < path.len() {
-        schema_at_path_in(root, property, repeats, document)
+        in_matched(schema_at_path_in(root, property, repeats, document))
     } else {
         Vec::new()
     };
+    let schemas = schema_at_path_in(root, path, repeats, document);
+    let schemas = if owners.is_empty() {
+        in_matched(schemas)
+    } else {
+        schemas
+    };
+    if schemas.is_empty() {
+        return None;
+    }
     let documented: Vec<&Value> = owners.iter().chain(&schemas).copied().collect();
     // The `oneOf`/`anyOf` options of the field's object: an option other
     // than the matched one documents nothing here, and the matched one's
@@ -290,7 +311,6 @@ fn property_hover(
         .into_iter()
         .filter(not_other_option)
         .collect();
-    let parents = schema_at_path_in(root, parent, repeats, document);
     // The schemas one object schema gives the key when it names it more
     // than once (its property and each pattern matching it), as validation
     // applies them all.
@@ -362,15 +382,6 @@ fn property_hover(
         }
     }
     examples.truncate(5);
-    // A key of `oneOf`/`anyOf` options of the object holding it: the
-    // option it is in (or those offering it), and its schema there. What
-    // is said of it is what its suggestion says (see `key_info`).
-    let parent_choices =
-        ChoicesAt::in_object(&parents, root, || object_at(source, parent, behavior));
-    let parent_branches: Vec<&Value> = parents
-        .iter()
-        .flat_map(|schema| branches_for(schema, root, at(parent)))
-        .collect();
     let info = key_info(&key, &parent_branches, &parent_choices, root);
     let required = info.as_ref().is_some_and(|info| info.required);
     let type_label = if let Some(list) = owners.first() {
@@ -413,6 +424,29 @@ fn property_hover(
         value: None,
         item,
     })
+}
+
+/// Of the schemas of a key `name` more than one `oneOf`/`anyOf` option
+/// of its object (`branches`, `choices`) names, the matched option's (all
+/// of them when that leaves none): it documents the key, as its
+/// suggestion does.
+fn in_matched_option<'a>(
+    schemas: Vec<&'a Value>,
+    name: &str,
+    branches: &[&Value],
+    choices: &ChoicesAt<'_>,
+) -> Vec<&'a Value> {
+    let others: Vec<&Value> = branches
+        .iter()
+        .filter(|branch| matches!(choices.of(branch), Some((_, false))))
+        .flat_map(|branch| named_properties(branch, name))
+        .collect();
+    let kept: Vec<&'a Value> = schemas
+        .iter()
+        .filter(|schema| !others.iter().any(|other| std::ptr::eq(*other, **schema)))
+        .copied()
+        .collect();
+    if kept.is_empty() { schemas } else { kept }
 }
 
 /// The branches outside every option of `options`: the field's own.

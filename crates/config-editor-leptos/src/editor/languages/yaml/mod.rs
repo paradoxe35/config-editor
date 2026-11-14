@@ -212,6 +212,10 @@ impl ConfigLanguage for YamlBehavior {
         existing_mapping_keys(source, cursor_byte, path)
     }
 
+    fn caret_line_left_out(&self, source: &str, line_start: usize, line_end: usize) -> String {
+        suggestions::caret_line_left_out(source, line_start, line_end)
+    }
+
     fn property_insert(
         &self,
         key: &str,

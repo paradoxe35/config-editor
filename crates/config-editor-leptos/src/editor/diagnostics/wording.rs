@@ -94,26 +94,57 @@ impl Wording<'_> {
                 super::super::false_schema::message(&error.instance().to_string())
             }
             ValidationErrorKind::Contains => self.contains(error),
-            ValidationErrorKind::Not { schema } => {
-                match crate::editor::completion::keys_kept_apart(schema, self.root) {
-                    Some(keys) => {
-                        let quoted: Vec<String> = keys
-                            .iter()
-                            .map(|key| Value::from(*key).to_string())
-                            .collect();
-                        fill(
+            ValidationErrorKind::Not { schema } => match self.kept_apart(error, schema) {
+                Some(keys) => {
+                    let quoted: Vec<String> = keys
+                        .into_iter()
+                        .map(|key| Value::from(key).to_string())
+                        .collect();
+                    match &quoted[..] {
+                        [key, other] => fill(
                             &strings.keys_used_together,
-                            &[("key", &quoted[0]), ("others", &quoted[1..].join(", "))],
-                        )
+                            &[("key", key), ("other", other)],
+                        ),
+                        _ => fill(
+                            &strings.keys_all_used_together,
+                            &[("keys", &quoted.join(", "))],
+                        ),
                     }
-                    None => fill(
-                        &strings.must_not_match,
-                        &[("value", &error.instance()), ("schema", schema)],
-                    ),
                 }
-            }
+                None => fill(
+                    &strings.must_not_match,
+                    &[("value", &error.instance()), ("schema", schema)],
+                ),
+            },
             _ => error.to_string(),
         }
+    }
+
+    /// The keys a `not` (`schema`) refuses written together, when that is
+    /// all it refuses: the set the object holds whole, of the `not`'s own
+    /// or, under a key's dependent schema, of that key and the ones the
+    /// `not` keeps apart from it.
+    fn kept_apart(&self, error: &ValidationError<'_>, schema: &Value) -> Option<Vec<String>> {
+        use crate::editor::completion::{dependent_keys_kept_apart, keys_kept_apart};
+        let schema_path = error.schema_path().as_str();
+        let mut segments = schema_path.rsplit('/');
+        let trigger = match (segments.next(), segments.next(), segments.next()) {
+            (Some("not"), Some(trigger), Some("dependentSchemas" | "dependencies")) => {
+                Some(trigger.replace("~1", "/").replace("~0", "~"))
+            }
+            _ => None,
+        };
+        let sets = match &trigger {
+            Some(trigger) => dependent_keys_kept_apart(trigger, schema, self.root)?,
+            None => keys_kept_apart(schema, self.root)?,
+        };
+        let written = error.instance();
+        let written = written.as_object();
+        let whole = |set: &&Vec<&str>| {
+            written.is_some_and(|object| set.iter().all(|key| object.contains_key(*key)))
+        };
+        let set = sets.iter().find(whole).or(sets.first())?;
+        Some(set.iter().map(|key| key.to_string()).collect())
     }
 
     /// A list `contains` (with its `minContains` or `maxContains`, the

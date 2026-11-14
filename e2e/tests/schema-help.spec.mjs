@@ -95,6 +95,13 @@ test.describe('schema help', () => {
     await expect
       .poll(ed.value)
       .toBe('server:\n  host: a.example\n  port: 9090\n  scheme: http\n');
+    // Past the last value, Tab ends the block: nothing written, the caret
+    // after the value.
+    await page.keyboard.press('Tab');
+    await page.keyboard.type('s');
+    await expect
+      .poll(ed.value)
+      .toBe('server:\n  host: a.example\n  port: 9090\n  scheme: https\n');
   });
 
   test('hovering an object with oneOf options names the one it is in', async ({ page }) => {
