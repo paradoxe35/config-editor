@@ -13,6 +13,7 @@ use crate::strings::{default_strings, fill};
 mod fields;
 #[cfg(feature = "schema-validation")]
 use fields::Fields;
+#[cfg(feature = "schema-validation")]
 mod explanation;
 #[cfg(feature = "schema-validation")]
 mod meta_wording;
