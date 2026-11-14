@@ -5,17 +5,21 @@
    its own and the shown editor fills the rest; without one, the view is
    as tall as the strip and the editor, which sizes itself. */
 .config-editor-documents {
-  display: flex;
-  flex-direction: column;
   min-width: 0;
   max-width: 100%;
   color: var(--config-editor-text);
-  /* As in the editor: the page's text spacing is not inherited. */
-  letter-spacing: normal;
-  word-spacing: normal;
-  text-indent: 0;
-  text-transform: none;
-  text-shadow: none;
+  font: 13px/1.4 ui-sans-serif, system-ui, sans-serif;
+}
+
+/* The view's column, inline-level as the editor's frame is (see
+   `.config-editor__frame`): the page's text decoration stays off the tabs. */
+:not(#\#) .config-editor-documents__view {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  vertical-align: top;
+  display: inline-flex;
+  flex-direction: column;
 }
 
 /* The strip: the tab list, then the "+" (with `on_add`), which stays at
@@ -194,7 +198,7 @@
 
 /* The shown editor fills its panel when the view has a height, as an
    editor with `height: 100%` fills its element. */
-.config-editor-documents__panel > .config-editor {
+:not(#\#) .config-editor-documents__panel > .config-editor {
   flex: 1 1 auto;
   min-height: 0;
 }

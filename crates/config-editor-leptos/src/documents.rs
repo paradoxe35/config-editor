@@ -245,6 +245,7 @@ pub fn ConfigDocuments(
             on:focusout=focusout
         >
             {crate::preset_style::preset_style(documents_view.root, styled)}
+            <div class="config-editor-documents__view">
             <TabStrip documents=documents_view label=label />
             // Says what an inert panel cannot (see `conflicts`).
             <div
@@ -260,6 +261,7 @@ pub fn ConfigDocuments(
                 <Show when=empty>
                     <p class="config-editor-documents__empty" tabindex="-1" node_ref=documents_view.empty>{documents_view.text(|strings| &strings.no_documents)}</p>
                 </Show>
+            </div>
             </div>
         </div>
     }

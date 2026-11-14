@@ -63,6 +63,8 @@ mod hover_look_back;
 mod live_settings;
 #[cfg(feature = "yaml")]
 mod nesting_limits;
+#[cfg(all(feature = "yaml", feature = "folding"))]
+mod nothing_to_fold;
 #[cfg(all(feature = "yaml", feature = "schema-validation"))]
 mod own_problems;
 #[cfg(all(feature = "yaml", feature = "protect"))]

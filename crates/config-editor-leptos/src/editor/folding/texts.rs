@@ -23,6 +23,23 @@ impl EditorState {
         }
         done
     }
+
+    /// A fold key's command: as `fold_command`, and when it changed
+    /// nothing (no range at the caret, the range already folded, nothing
+    /// to open) it says `nothing` ("Nothing to fold") instead of staying
+    /// silent.
+    pub(crate) fn fold_key_command(
+        &self,
+        nothing: fn(&crate::EditorStrings) -> &String,
+        command: impl FnOnce(),
+    ) {
+        let before = self.fold().folded.get_untracked();
+        self.fold_command(command);
+        if self.fold().folded.with_untracked(|after| *after == before) {
+            let said = self.strings_untracked(|strings| nothing(strings).clone());
+            self.a11y().announce(said);
+        }
+    }
 }
 
 /// What changing the closed folds from `before` to `after` did: "Folded

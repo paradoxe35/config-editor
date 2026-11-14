@@ -766,6 +766,18 @@ export interface EditorStrings {
    */
   unfoldedRanges?: string;
   /**
+   * Announced when a fold key (`Ctrl+Shift+[`, `Ctrl+K Ctrl+0`) finds nothing to fold.
+   *
+   * @default "Nothing to fold"
+   */
+  nothingToFold?: string;
+  /**
+   * Announced when an unfold key (`Ctrl+Shift+]`, `Ctrl+K Ctrl+J`) finds nothing to open.
+   *
+   * @default "Nothing to unfold"
+   */
+  nothingToUnfold?: string;
+  /**
    * The hover card's mark of a required key.
    *
    * @default "required"

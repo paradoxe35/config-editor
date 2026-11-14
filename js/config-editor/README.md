@@ -251,7 +251,7 @@ with that reason.
 <!-- Generated from crates/config-editor-leptos/src/strings.rs by js/config-editor/tests/settings.rs; do not edit. Regenerate with `UPDATE_GENERATED=1 cargo test -p config-editor-js --test settings`. -->
 
 <details>
-<summary>Every text and its default (197 texts)</summary>
+<summary>Every text and its default (199 texts)</summary>
 
 | Key                         | Default                                                                                                                                     |                                                                                                                                                                                                                                                |
 | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -363,6 +363,8 @@ with that reason.
 | `unfoldedLines`             | `"Unfolded lines {first}–{last}"`                                                                                                           | Announced when the fold of lines `{first}` to `{last}` opens.                                                                                                                                                                                  |
 | `foldedRanges`              | `"Folded {count} ranges"`                                                                                                                   | Announced when `{count}` ranges (two or more) fold at once.                                                                                                                                                                                    |
 | `unfoldedRanges`            | `"Unfolded {count} ranges"`                                                                                                                 | Announced when `{count}` folds (two or more) open at once.                                                                                                                                                                                     |
+| `nothingToFold`             | `"Nothing to fold"`                                                                                                                         | Announced when a fold key (`Ctrl+Shift+[`, `Ctrl+K Ctrl+0`) finds nothing to fold.                                                                                                                                                             |
+| `nothingToUnfold`           | `"Nothing to unfold"`                                                                                                                       | Announced when an unfold key (`Ctrl+Shift+]`, `Ctrl+K Ctrl+J`) finds nothing to open.                                                                                                                                                          |
 | `required`                  | `"required"`                                                                                                                                | The hover card's mark of a required key.                                                                                                                                                                                                       |
 | `deprecated`                | `"deprecated"`                                                                                                                              | The hover card's mark of a deprecated key.                                                                                                                                                                                                     |
 | `defaultValue`              | `"Default"`                                                                                                                                 | The hover card's default row.                                                                                                                                                                                                                  |
@@ -1686,10 +1688,13 @@ its display name and whether it is dark.
 The editor injects its own stylesheet: one `<style>` at the end of the
 page's `<head>` (or in the shadow root the editor is in), shared by every
 editor and documents view there and removed with the last. Your page's
-rules for bare elements and attributes (a CSS framework's `input`, `button`,
-`[type='text']` or `span` rules, loaded before the editor or after) never
-reach the controls and text it draws: those start from the browser's own
-styles, and its rules for them carry an id's weight. Style the editor
+rules for bare elements, attributes or every element (a CSS framework's
+`input`, `div`, `[type='text']` or `*` rules, loaded before the editor or
+after) never reach what it draws: each element inside starts from the
+browser's own styles, and its rules for them carry an id's weight. Nor do
+the text properties your page sets on `body` or on the editor's element
+(`text-align: center`, an underline, letter spacing, a tab size): its
+roots set each to its initial value. Style the editor
 through its roots (`.config-editor`, `.config-editor-documents`; a rule of
 yours later in the page wins over the preset's at equal specificity) and its
 color variables. Every theme color is a CSS variable on the `.config-editor` root, and the

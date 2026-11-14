@@ -77,6 +77,8 @@ const ELSEWHERE = {
   unfoldedLines: 'as foldedLines',
   foldedRanges: 'as foldedLines',
   unfoldedRanges: 'as foldedLines',
+  nothingToFold: 'a fold key with nothing to fold: the qa-round32-a11y-ux spec and editor/tests/nothing_to_fold.rs',
+  nothingToUnfold: 'as nothingToFold',
   readOnlyEditor: 'typing in a read-only editor: the qa-round25-a11y spec',
   readOnlyEditorReason: 'typing in a read-only editor with a `readOnlyReason`: the documents-screen spec, framework-cases and a11y tests',
   readOnlyTabTitle: 'the tooltip of a read-only document with a `readOnlyReason`: the documents-screen spec',

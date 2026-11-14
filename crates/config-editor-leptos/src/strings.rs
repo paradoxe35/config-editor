@@ -311,6 +311,12 @@ pub struct EditorStrings {
     pub folded_ranges: String,
     /// Announced when `{count}` folds (two or more) open at once.
     pub unfolded_ranges: String,
+    /// Announced when a fold key (`Ctrl+Shift+[`, `Ctrl+K Ctrl+0`) finds
+    /// nothing to fold.
+    pub nothing_to_fold: String,
+    /// Announced when an unfold key (`Ctrl+Shift+]`, `Ctrl+K Ctrl+J`)
+    /// finds nothing to open.
+    pub nothing_to_unfold: String,
 
     // Hover and problems.
     /// The hover card's mark of a required key.
@@ -673,6 +679,8 @@ impl Default for EditorStrings {
             unfolded_lines: text("Unfolded lines {first}–{last}"),
             folded_ranges: text("Folded {count} ranges"),
             unfolded_ranges: text("Unfolded {count} ranges"),
+            nothing_to_fold: text("Nothing to fold"),
+            nothing_to_unfold: text("Nothing to unfold"),
             required: text("required"),
             deprecated: text("deprecated"),
             default_value: text("Default"),
