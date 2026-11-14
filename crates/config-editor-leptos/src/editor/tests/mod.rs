@@ -133,6 +133,8 @@ mod schema_text_wording;
     feature = "xml"
 ))]
 mod kept_defaults;
+#[cfg(feature = "xml")]
+mod one_reading;
 mod save;
 #[cfg(feature = "yaml")]
 mod schema_checks;

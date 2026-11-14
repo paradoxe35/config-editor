@@ -410,10 +410,12 @@ impl ConfigLanguage for XmlBehavior {
         let old = previous.filter(|_| !attributes.is_empty()).and_then(|previous| xml_parse(previous).ok());
         if let Some(schema) = schema {
             // What the text writes keeps its form: elements of the
-            // previous text stay elements.
+            // previous text stay elements. Only its keys matter: the
+            // reading the schema's own read of it left (text scalars), not
+            // another parse.
             let written = match (&old, previous) {
                 (Some(_), _) | (_, None) => None,
-                (None, Some(previous)) => super::super::parse_cache::parse(self, previous).ok(),
+                (None, Some(previous)) => super::super::parse_cache::parse_text(self, previous).ok(),
             };
             attributes.extend(hints::schema_attribute_paths(value, schema, old.as_ref().or(written.as_ref())));
         }

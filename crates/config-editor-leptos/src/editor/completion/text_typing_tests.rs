@@ -357,8 +357,8 @@ mod xml {
     }
 
     /// Count: a text read by a schema again and again (each reader at a
-    /// pause in typing) is parsed once while an editor is mounted, its
-    /// text-scalar reading kept beside the guessed one.
+    /// pause in typing) is parsed once while an editor is mounted: the
+    /// guessed reading is taken from the text-scalar one, not parsed again.
     #[test]
     fn a_text_read_by_the_schema_again_is_parsed_once() {
         use crate::editor::parse_cache;
@@ -376,7 +376,7 @@ mod xml {
             }
         });
         parse_cache::release();
-        assert_eq!(bytes, 2 * text.len(), "one parse each way");
+        assert_eq!(bytes, text.len(), "one parse for both readings");
     }
 
     /// The `$ref`-reached schema of a key, and a schema whose root is the

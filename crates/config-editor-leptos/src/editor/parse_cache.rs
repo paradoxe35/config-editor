@@ -24,7 +24,7 @@ use std::rc::Rc;
 
 use serde_json::Value;
 
-use super::language::{CompletionContext, ConfigLanguage, Lexical, ParseError};
+use super::language::{CompletionContext, ConfigLanguage, Lexical, ParseError, Scalars};
 use super::work_count::{Work, note, note_many};
 
 mod conformed;
@@ -92,12 +92,23 @@ fn parsed_as(
     if let Some(result) = cached {
         return result;
     }
-    note_many(Work::ParsedBytes, text.len());
-    let result = Rc::new(if as_text {
-        language.parse_text(text)
+    // A language whose scalars are text reads a document as its text
+    // reading with each scalar guessed (`ConfigLanguage::parse_text`): one
+    // parse serves both readings.
+    let result = if !as_text && language.scalars() == Scalars::Text {
+        let read = parsed_as(language, text, true);
+        Rc::new(match read.as_ref() {
+            Ok(value) => Ok(guessed(language, value, None)),
+            Err(error) => Err(error.clone()),
+        })
     } else {
-        language.parse(text)
-    });
+        note_many(Work::ParsedBytes, text.len());
+        Rc::new(if as_text {
+            language.parse_text(text)
+        } else {
+            language.parse(text)
+        })
+    };
     if HOLDERS.with(Cell::get) == 0 {
         return result;
     }
@@ -256,6 +267,33 @@ fn at_place<T: Clone + 'static>(
         });
     }
     made
+}
+
+/// `read` (a text reading) with each text scalar as `language` guesses it
+/// where no schema says (strings it guesses as strings stay as read);
+/// the text written beside child entries (`text_key`) stays text. `key`:
+/// the key `read` is under.
+fn guessed(language: &dyn ConfigLanguage, read: &Value, key: Option<&str>) -> Value {
+    match read {
+        Value::Object(map) => Value::Object(
+            map.iter()
+                .map(|(name, item)| (name.clone(), guessed(language, item, Some(name))))
+                .collect(),
+        ),
+        Value::Array(items) => Value::Array(
+            items
+                .iter()
+                .map(|item| guessed(language, item, key))
+                .collect(),
+        ),
+        Value::String(text) if key.is_none() || key != language.text_key() => {
+            match language.guess_scalar(super::codec::non_finite::written(text)) {
+                Value::String(_) => read.clone(),
+                other => other,
+            }
+        }
+        other => other.clone(),
+    }
 }
 
 /// [`parsed`], as an owned document.
