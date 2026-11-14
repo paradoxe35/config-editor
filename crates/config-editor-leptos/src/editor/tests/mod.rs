@@ -70,6 +70,14 @@ mod key_trail_switches;
     feature = "hcl",
     feature = "xml"
 ))]
+mod sibling_decided_suggestions;
+#[cfg(all(
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
 mod xml_moved_prefixes;
 // Reads what the view reads (folds, suggestions) on every language's sample.
 #[cfg(all(

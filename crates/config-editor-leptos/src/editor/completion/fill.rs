@@ -25,15 +25,21 @@ pub(super) const MAX_FILL_DEPTH: usize = 8;
 
 /// Most list items one fill writes in all: a schema asking a million
 /// items (or lists of lists of a hundred) would otherwise write a document
-/// too large to edit. A list asking more than is left is written empty.
+/// too large to edit. A list asking more than is left gets what is left.
 const MAX_FILLED_ITEMS: usize = 256;
+
+/// List items kept past [`MAX_FILLED_ITEMS`], one for each list asking
+/// items after it is spent, so a list written as repeated keys (XML) is
+/// still written.
+pub(super) const RESERVED_ITEMS: usize = 64;
 
 /// One fill: the language, the schema root, and the list items it may
 /// still write.
 pub(super) struct Filler<'a> {
     pub(super) language: &'a dyn ConfigLanguage,
     pub(super) root: &'a Value,
-    /// List items still to be written at most ([`MAX_FILLED_ITEMS`]).
+    /// List items still to be written at most ([`MAX_FILLED_ITEMS`] and
+    /// [`RESERVED_ITEMS`]).
     pub(super) items_left: usize,
 }
 
@@ -42,7 +48,7 @@ impl<'a> Filler<'a> {
         Self {
             language,
             root,
-            items_left: MAX_FILLED_ITEMS,
+            items_left: MAX_FILLED_ITEMS + RESERVED_ITEMS,
         }
     }
 

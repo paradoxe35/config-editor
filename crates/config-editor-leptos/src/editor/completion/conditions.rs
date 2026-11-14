@@ -110,6 +110,14 @@ fn decide(schema: &Value, value: &Value, root: &Value, depth: usize) -> Option<b
                     _ => number < bound,
                 })
             }
+            "multipleOf" => {
+                let (Some(number), Some(step)) = (value.as_f64(), argument.as_f64()) else {
+                    return (!value.is_number()).then_some(true);
+                };
+                let times = number / step;
+                (step > 0.0 && times.is_finite())
+                    .then(|| (times - times.round()).abs() < 1e-9 * times.abs().max(1.0))
+            }
             "minLength" | "maxLength" | "minItems" | "maxItems" | "minProperties"
             | "maxProperties" => {
                 let bound = argument.as_u64()? as usize;
@@ -235,6 +243,13 @@ mod tests {
             decides(&json!({"const": 1, "uniqueItems": true}), &json!(2), &root),
             Some(false),
             "a failed keyword decides"
+        );
+        let thousands = json!({"multipleOf": 1000});
+        assert_eq!(decides(&thousands, &json!(3000), &root), Some(true));
+        assert_eq!(decides(&thousands, &json!(3), &root), Some(false));
+        assert_eq!(
+            decides(&json!({"multipleOf": 0.1}), &json!(0.3), &root),
+            Some(true)
         );
         let cycle = json!({"$defs": {"c": {"$ref": "#/$defs/c"}}});
         assert_eq!(
