@@ -1,9 +1,10 @@
 //! A secret field's element copied in an XML view (`Shift+Alt+Down`, or
 //! the element typed again below it): the field becomes a list of copies
-//! of the placeholder, none of them the field the host gave it in. Every
-//! copy is flagged alike, and the save waits, since the host would read
-//! each as plain text and the secret would be gone (round 29 flagged the
-//! second copy only, the first counted as the field, and saved).
+//! of the placeholder. The copy is flagged as a copy, as a copied line is
+//! in every language (QA 36: the host's own line was flagged as standing
+//! for another field's secret), and the save waits, since the host would
+//! read a list of copies as plain text and the secret would be gone
+//! (round 29 saved).
 
 use leptos::prelude::*;
 
@@ -14,6 +15,8 @@ use super::super::save_matrix::report;
 use super::super::sync::convert_now;
 use super::super::test_state::TestEditor;
 use super::guarantee_tests::{HOSTS, problems, utf16};
+use super::texts;
+use crate::strings::default_strings;
 
 /// A host in `language` whose `/db/password` holds `token`.
 fn host(language: Language, token: &str) -> String {
@@ -29,7 +32,7 @@ fn host(language: Language, token: &str) -> String {
 }
 
 #[test]
-fn a_secret_element_copied_in_an_xml_view_is_flagged_on_every_copy_and_waits() {
+fn a_secret_element_copied_in_an_xml_view_is_flagged_as_a_copy_and_waits() {
     let mut failures = Vec::new();
     for tokens in &HOSTS {
         for language in [
@@ -60,18 +63,23 @@ fn a_secret_element_copied_in_an_xml_view_is_flagged_on_every_copy_and_waits() {
             let at = utf16(&before, line_end);
             state.commit(Edit::new(before, (at, at), after.clone(), at));
             state.recheck_tokens();
-            convert_now(state, after, Language::XML);
+            convert_now(state, after.clone(), Language::XML);
             let flagged: Vec<String> = problems(state, Language::XML, None)
                 .into_iter()
                 .filter(|problem| problem.contains("/db/password"))
                 .collect();
-            for item in ["/db/password/0", "/db/password/1"] {
-                if !flagged
-                    .iter()
-                    .any(|problem| problem.contains(&format!(" {item}:")))
-                {
-                    failures.push(format!("{case}: {item} not flagged: {flagged:?}"));
-                }
+            // The copy, on the line below the host's: flagged as a copy,
+            // as in the other languages; the host's line is not.
+            let extra = texts::extra_placeholder(default_strings(), "/db/password");
+            let copy_line = after[..after.rfind("<password>").unwrap_or(0)]
+                .matches('\n')
+                .count()
+                + 1;
+            if flagged.len() != 1
+                || !flagged[0].starts_with(&format!("{copy_line}:"))
+                || !flagged[0].ends_with(&extra)
+            {
+                failures.push(format!("{case}: not the copy alone flagged: {flagged:?}"));
             }
             let waits = state
                 .sync()

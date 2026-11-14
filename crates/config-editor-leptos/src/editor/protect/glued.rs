@@ -81,53 +81,102 @@ pub(super) fn holding<'a>(
     known: &Known,
 ) -> Holding<'a> {
     note(Work::TokenScan);
-    let value = known
-        .field
-        .as_deref()
-        .and_then(|field| field_value(document, field));
-    match value {
+    let Some(field) = known.field.as_deref() else {
+        return Holding::Not;
+    };
+    match field_value(document, field) {
         Some(Value::String(value)) if known.alone_in(value) => Holding::Alone(value),
         Some(Value::String(value)) if value.contains(&known.token) => Holding::Beside(value),
-        Some(Value::Array(items)) if copies(behavior, items, known) => Holding::Not,
-        // A second element of the field's name written beside its own (in
-        // a language that repeats an element for a list): a new item, the
-        // token still an item's whole value.
-        Some(Value::Array(items)) if alone_item(behavior, items, known).is_some() => {
-            alone_item(behavior, items, known).map_or(Holding::Not, Holding::Alone)
+        Some(value @ Value::Array(items)) => {
+            let items: Vec<&Value> = items.iter().collect();
+            copied(behavior, &items, known).unwrap_or_else(|| {
+                if holds(value, &known.token) {
+                    Holding::Within(value)
+                } else {
+                    Holding::Not
+                }
+            })
         }
-        Some(value @ (Value::Array(_) | Value::Object(_))) if holds(value, &known.token) => {
-            Holding::Within(value)
-        }
-        _ => Holding::Not,
+        Some(value @ Value::Object(_)) if holds(value, &known.token) => Holding::Within(value),
+        Some(_) => Holding::Not,
+        // The element holding the field written more than once (an
+        // attribute's element copied, in a language that repeats an
+        // element for a list): the field's value in each copy.
+        None => through_copies(behavior, document, field)
+            .and_then(|items| copied(behavior, &items, known))
+            .unwrap_or(Holding::Not),
     }
 }
 
-/// Whether `items`, a field's value in a language that repeats an element
-/// for a list, are copies of the field's element, each holding `known`'s
-/// token alone (flagged and held by `moved_off`).
-fn copies(behavior: &dyn ConfigLanguage, items: &[Value], known: &Known) -> bool {
-    behavior.repetition() != Repetition::None
+/// What `items`, the field's value in each copy of an element (in a
+/// language that repeats an element for a list), hold of `known`'s token;
+/// none when they are no such copies.
+fn copied<'a>(
+    behavior: &dyn ConfigLanguage,
+    items: &[&'a Value],
+    known: &Known,
+) -> Option<Holding<'a>> {
+    // Copies each holding the token alone: flagged and held by `moved_off`.
+    if behavior.repetition() != Repetition::None
         && items.len() > 1
         && items
             .iter()
             .all(|item| item.as_str().is_some_and(|text| known.alone_in(text)))
-}
-
-/// The item of `items`, a field's value in a language that repeats any
-/// element for a list (a string item is one written as an element of its
-/// own, never one written in a list), holding `known`'s token alone.
-fn alone_item<'a>(
-    behavior: &dyn ConfigLanguage,
-    items: &'a [Value],
-    known: &Known,
-) -> Option<&'a str> {
+    {
+        return Some(Holding::Not);
+    }
+    // In a language that repeats any element for a list, a string item is
+    // one written as an element of its own, never one written in a list.
     if behavior.repetition() != Repetition::Elements {
         return None;
     }
-    items
-        .iter()
-        .filter_map(Value::as_str)
+    let strings = || items.iter().filter_map(|item| item.as_str());
+    // One with text beside the token: glued, whichever copy it is.
+    if let Some(beside) =
+        strings().find(|text| text.contains(&known.token) && !known.alone_in(text))
+    {
+        return Some(Holding::Beside(beside));
+    }
+    // A second element of the field's name written beside its own: a new
+    // item, the token still an item's whole value.
+    strings()
         .find(|text| known.alone_in(text))
+        .map(Holding::Alone)
+}
+
+/// In a language that repeats any element for a list, the values at
+/// `pointer` in `document` read through each list on the way whose item
+/// the pointer does not name (an element holding the field written more
+/// than once); none when no such list is on the way.
+fn through_copies<'a>(
+    behavior: &dyn ConfigLanguage,
+    document: &'a Value,
+    pointer: &str,
+) -> Option<Vec<&'a Value>> {
+    if behavior.repetition() != Repetition::Elements {
+        return None;
+    }
+    let mut at = vec![document];
+    let mut fanned = false;
+    for segment in pointer.split('/').skip(1) {
+        let key = segment.replace("~1", "/").replace("~0", "~");
+        let mut next = Vec::with_capacity(at.len());
+        for value in at {
+            match value {
+                Value::Object(map) => next.extend(map.get(&key)),
+                Value::Array(items) => match key.parse::<usize>() {
+                    Ok(index) => next.extend(items.get(index)),
+                    Err(_) => {
+                        fanned = true;
+                        next.extend(items.iter().filter_map(|item| item.get(&key)));
+                    }
+                },
+                _ => {}
+            }
+        }
+        at = next;
+    }
+    (fanned && !at.is_empty()).then_some(at)
 }
 
 /// Whether one of the strings `value` holds holds `token`.

@@ -46,7 +46,12 @@ fn shown(state: EditorState) -> String {
 
 /// Replaces bytes `range` of the text on screen with `with`, a key at a
 /// time when `typed`; whether every key was taken.
-fn write(state: EditorState, range: std::ops::Range<usize>, with: &str, typed: bool) -> bool {
+pub(super) fn write(
+    state: EditorState,
+    range: std::ops::Range<usize>,
+    with: &str,
+    typed: bool,
+) -> bool {
     let pieces: Vec<String> = if typed {
         with.chars().map(String::from).collect()
     } else {
@@ -183,7 +188,12 @@ fn mount_tls(schema: Option<&str>) -> (Owner, EditorState) {
 /// Replaces the `nth` `needle` of the text on screen (from `skip` bytes
 /// into it) with `with`, a key at a time, as typing over a selection does;
 /// whether every key was taken.
-fn retype(state: EditorState, (needle, skip): (&str, usize), nth: usize, with: &str) -> bool {
+pub(super) fn retype(
+    state: EditorState,
+    (needle, skip): (&str, usize),
+    nth: usize,
+    with: &str,
+) -> bool {
     let text = shown(state);
     let Some((at, _)) = text.match_indices(needle).nth(nth) else {
         return false;
