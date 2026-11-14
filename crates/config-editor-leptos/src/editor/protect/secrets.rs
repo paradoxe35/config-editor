@@ -37,6 +37,9 @@ pub(crate) struct SecretState {
     pub(crate) known: RwSignal<Vec<Known>>,
     /// UTF-16 ranges of the real tokens in the text on screen.
     pub(crate) tokens: RwSignal<Vec<Range<usize>>>,
+    /// The last text an edit's check found to parse, or made of one by an
+    /// edit to one scalar (see `whole_guard`).
+    pub(crate) parsing: StoredValue<Option<String>>,
 }
 
 impl SecretState {
@@ -56,6 +59,7 @@ impl SecretState {
             matcher: StoredValue::new(Arc::new(matcher)),
             known: RwSignal::new(known),
             tokens: RwSignal::new(tokens),
+            parsing: StoredValue::new(None),
         }
     }
 

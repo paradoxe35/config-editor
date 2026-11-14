@@ -1,3 +1,5 @@
+#[cfg(all(feature = "yaml", feature = "schema-validation"))]
+mod anchor_problems;
 #[cfg(all(
     feature = "yaml",
     feature = "json",
@@ -75,6 +77,14 @@ mod reveal_range;
     feature = "hcl"
 ))]
 mod schema_message;
+#[cfg(all(
+    feature = "schema-validation",
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl"
+))]
+mod schema_message_kinds;
 #[cfg(all(
     feature = "schema-validation",
     feature = "yaml",

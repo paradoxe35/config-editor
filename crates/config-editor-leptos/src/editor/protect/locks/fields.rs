@@ -7,6 +7,7 @@ use std::ops::Range;
 
 use serde_json::Value;
 
+use super::super::super::codec::read_aside;
 use super::super::super::language::ConfigLanguage;
 use super::super::super::paths::lone_spelling;
 use super::super::locate::{lookup, plain};
@@ -41,20 +42,63 @@ pub(super) fn marked(
 /// as an Edit-as view locks them): locked by path as well, so a range keeps
 /// its field's value and place, not only its text (`Ctrl+/` or a line moved
 /// under another key would take the field with the text kept). Carried,
-/// with the schema's marks, through texts that do not parse.
-pub(super) fn covered(reading: &Reading<'_>, ranges: &[Lock]) -> Vec<(String, Reason)> {
-    let Some(document) = &reading.document else {
-        return Vec::new();
-    };
+/// with the schema's marks, through texts that do not parse; in one the
+/// host gave so, read off its stand-in (the same places, its breaking
+/// lines blanked), with the values there to pin.
+pub(super) fn covered(reading: &Reading<'_>, ranges: &[Lock]) -> Covered {
     let stretches: Vec<Range<usize>> = ranges
         .iter()
         .filter(|lock| lock.pointer.is_none())
         .flat_map(|lock| lock.ranges.iter().cloned())
         .collect();
-    range_pointers(reading.behavior, reading.text, document, &stretches)
-        .into_iter()
-        .map(|pointer| (pointer, Reason::Range))
-        .collect()
+    if stretches.is_empty() {
+        return Covered::default();
+    }
+    let fields = |pointers: Vec<String>| {
+        pointers
+            .into_iter()
+            .map(|pointer| (pointer, Reason::Range))
+            .collect()
+    };
+    if let Some(document) = &reading.document {
+        let pointers = range_pointers(reading.behavior, reading.text, document, &stretches);
+        return Covered {
+            fields: fields(pointers),
+            pins: Vec::new(),
+        };
+    }
+    let Some(stand) = reading.stand_in() else {
+        return Covered::default();
+    };
+    let document = match &stand.protected.document {
+        Some(document) => Some(document.as_ref().clone()),
+        None => read_aside(
+            reading.behavior,
+            &stand.text,
+            reading.sources.reading_schema,
+        )
+        .ok(),
+    };
+    let Some(document) = document else {
+        return Covered::default();
+    };
+    let pointers = range_pointers(reading.behavior, &stand.text, &document, &stretches);
+    let pins = pointers
+        .iter()
+        .filter_map(|pointer| Some((pointer.clone(), lookup(&document, pointer)?.clone())))
+        .collect();
+    Covered {
+        fields: fields(pointers),
+        pins,
+    }
+}
+
+/// The fields the host's ranges cover, and, read off a stand-in, their
+/// values to pin.
+#[derive(Default)]
+pub(super) struct Covered {
+    pub(super) fields: Vec<(String, Reason)>,
+    pub(super) pins: Vec<(String, Value)>,
 }
 
 /// The fields `schema` marks in a text that does not parse: the stand-in's

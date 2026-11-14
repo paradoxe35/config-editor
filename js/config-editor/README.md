@@ -256,7 +256,7 @@ with that reason.
 <!-- Generated from crates/config-editor-leptos/src/strings.rs by js/config-editor/tests/settings.rs; do not edit. Regenerate with `UPDATE_GENERATED=1 cargo test -p config-editor-js --test settings`. -->
 
 <details>
-<summary>Every text and its default (194 texts)</summary>
+<summary>Every text and its default (198 texts)</summary>
 
 | Key                         | Default                                                                                                                                     |                                                                                                                                                                                                                                                |
 | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -420,7 +420,7 @@ with that reason.
 | `referenceType`             | `"reference"`                                                                                                                               | The type column of a reference suggestion.                                                                                                                                                                                                     |
 | `closesTag`                 | `"Closes <{name}>"`                                                                                                                         | The detail of the end tag XML suggests.                                                                                                                                                                                                        |
 | `endTag`                    | `"end tag"`                                                                                                                                 | Its type column.                                                                                                                                                                                                                               |
-| `noSuggestions`             | `"No suggestions"`                                                                                                                          | Said when typing empties a list opened with Ctrl+Space or moved in; a list that opened by itself closes silently.                                                                                                                              |
+| `noSuggestions`             | `"No suggestions"`                                                                                                                          | Said when Ctrl+Space finds nothing to offer, and when typing empties a list opened with Ctrl+Space or moved in; a list that opened by itself closes silently.                                                                                  |
 | `keyNotAllowed`             | `"\"{key}\" is not allowed here"`                                                                                                           | A key the schema does not allow (`{key}`); its object's pointer goes before it (`/web: `), as before every schema problem but at the root.                                                                                                     |
 | `textNotAllowed`            | `"text is not allowed here, only elements"`                                                                                                 | Text in an element the schema wants elements in (XML); the element's pointer goes before it.                                                                                                                                                   |
 | `keyDeprecated`             | `"{pointer}: \"{key}\" is deprecated"`                                                                                                      | A deprecated key.                                                                                                                                                                                                                              |
@@ -428,6 +428,10 @@ with that reason.
 | `notOneOf`                  | `"{value} is not one of {allowed}"`                                                                                                         | A value not among the allowed ones.                                                                                                                                                                                                            |
 | `wrongType`                 | `"{value} is not of type {types}"`                                                                                                          | A value of none of the accepted types.                                                                                                                                                                                                         |
 | `notFormat`                 | `"{value} is not a valid {format}"`                                                                                                         | A value out of its `format` (checked up to draft-07): `{format}` is its name, quoted.                                                                                                                                                          |
+| `noItemContained`           | `"{value} has no item its \"contains\" schema allows"`                                                                                      | A list (`{value}`) with no item its `contains` schema allows.                                                                                                                                                                                  |
+| `tooFewContained`           | `"{value} has fewer than {limit} items its \"contains\" schema allows"`                                                                     | A list (`{value}`) with fewer items its `contains` schema allows than its `minContains` (`{limit}`).                                                                                                                                           |
+| `tooManyContained`          | `"{value} has more than {limit} items its \"contains\" schema allows"`                                                                      | A list (`{value}`) with more items its `contains` schema allows than its `maxContains` (`{limit}`).                                                                                                                                            |
+| `mustNotMatch`              | `"{value} must not match {schema}"`                                                                                                         | A value its `not` schema (`{schema}`, as JSON) matches.                                                                                                                                                                                        |
 | `noOptionMatches`           | `"matches none of the {keyword} options: {reasons}"`                                                                                        | A value that matches none of a schema's options (`{keyword}`: `oneOf` or `anyOf`), with why each fails (`{reasons}`, each worded by `optionNeeds`, `optionRefuses` or `optionProblem`, joined by `; `).                                        |
 | `severalOptionsMatch`       | `"matches more than one of the oneOf options ({options}); only one may match"`                                                              | A value that matches more than one of a `oneOf`'s options (`{options}`, their names joined by `, `).                                                                                                                                           |
 | `optionNeeds`               | `"{option} needs \"{key}\""`                                                                                                                | An option (`{option}`) that needs a key the value does not have.                                                                                                                                                                               |
@@ -1166,13 +1170,14 @@ ConfigEditor` and `update()`.
 - `Ctrl+]` / `Ctrl+[`: indent / outdent the line or selected lines
 - `Ctrl+C` / `Ctrl+X` with nothing selected: copy / cut the whole line
   (pasting it inserts above)
-- `Ctrl+Z` / `Ctrl+Y`: undo / redo (the last 500 steps, fewer in a large text: they keep up to 64 MB of earlier texts)
+- `Ctrl+Z`, `Ctrl+Shift+Z` / `Ctrl+Y`: undo, redo (the last 500 steps, fewer in a large text: they keep up to 64 MB of earlier texts)
 - `Ctrl+S`: save (with `onSave`)
 - `Escape`: close what is open (suggestions, a preview, a widget)
 
 **Finding your way**
 
 - `Ctrl+F` / `Ctrl+H`: find / find and replace; `Enter` and `Shift+Enter` (or `F3` / `Shift+F3`) next / previous match; in the replace field `Enter` replaces the match and `Ctrl+Alt+Enter` all of them (one undo step)
+- `Alt+C` / `Alt+W` / `Alt+R` in find: match case / whole word / regular expression
 - `Ctrl+G`: go to a line (`line` or `line:column`)
 - `F8` / `Shift+F8`: next / previous problem
 - `Alt+Enter`: open the documentation of the problem at the caret (a problem with a docs link), else the hover card's Documentation link
@@ -1224,7 +1229,10 @@ moving the focus out of the editor (announced, and shown in the footer as
 still accepts an open suggestion. The text area's `aria-describedby` holds
 what is at the caret: each problem's message (host ones with their source),
 a read-only value's reason, a secret placeholder's hint; `F8` announces
-"Error 2 of 5: …". On a touch screen a tap on underlined or read-only text
+"Error 2 of 5: …". A save the editor refuses (the text does not parse) is
+announced with its reason; a save it sends is not: your `onSave` owns the
+result (the write can still fail on your side), so announce "Saved" from
+your page once it is done. On a touch screen a tap on underlined or read-only text
 shows its message, and selections made with a long press or the handles are
 followed. Nothing to configure:
 
@@ -1815,9 +1823,14 @@ its display name and whether it is dark.
 
 The editor injects its own stylesheet: one `<style>` at the end of the
 page's `<head>` (or in the shadow root the editor is in), shared by every
-editor and documents view there and removed with the last. Your stylesheets
-later in `<head>` or in `<body>` win over its rules at equal specificity.
-Every theme color is a CSS variable on the `.config-editor` root, and the
+editor and documents view there and removed with the last. Your page's
+rules for bare elements and attributes (a CSS framework's `input`, `button`,
+`[type='text']` or `span` rules, loaded before the editor or after) never
+reach the controls and text it draws: those start from the browser's own
+styles, and its rules for them carry an id's weight. Style the editor
+through its roots (`.config-editor`, `.config-editor-documents`; a rule of
+yours later in the page wins over the preset's at equal specificity) and its
+color variables. Every theme color is a CSS variable on the `.config-editor` root, and the
 bundled themes set them with zero specificity, so a plain rule in your
 stylesheet overrides any theme, wherever it sits:
 

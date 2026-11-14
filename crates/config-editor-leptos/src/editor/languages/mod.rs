@@ -13,6 +13,7 @@
 
 use std::borrow::Cow;
 
+use super::byte_order_mark;
 use super::codec::{self, Conversion, ConvertError};
 use super::language::{ConfigLanguage, LanguageInfo, ParseError};
 use super::line_breaks;
@@ -140,6 +141,15 @@ mod fold_matrix;
 mod highlight_matrix;
 #[cfg(all(test, feature = "yaml", feature = "schema-validation"))]
 mod item_start_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod key_writing_matrix;
 #[cfg(all(
     test,
     feature = "yaml",
@@ -419,6 +429,11 @@ impl Language {
     /// # }
     /// ```
     pub fn parse(self, source: &str) -> Result<Value, ParseError> {
+        byte_order_mark::read(source, |source, _| self.parse_document(source))
+    }
+
+    /// [`parse`](Self::parse) of a document without a byte order mark.
+    fn parse_document(self, source: &str) -> Result<Value, ParseError> {
         let value = self.parse_syntax(source)?;
         match self.0.merged_keys(&line_breaks::as_lf(source)) {
             Some(message) => Err(ParseError {
@@ -493,7 +508,9 @@ impl Language {
     /// # }
     /// ```
     pub fn convert(self, source: &str, target: Language) -> Result<Conversion, ConvertError> {
-        codec::convert_away(source, self.0, target.0, None)
+        byte_order_mark::read(source, |source, _| {
+            codec::convert_away(source, self.0, target.0, None)
+        })
     }
 
     /// Where the field at `path` is written in `source`: its key and value
@@ -517,8 +534,10 @@ impl Language {
     /// # }
     /// ```
     pub fn range_of(self, source: &str, path: impl Into<FieldPath>) -> Option<TextRange> {
-        let source = line_breaks::as_lf(source);
-        paths::field_range(self.0, &source, &path.into().to_pointer())
+        let pointer = path.into().to_pointer();
+        byte_order_mark::read(source, |source, _| {
+            paths::field_range(self.0, &line_breaks::as_lf(source), &pointer)
+        })
     }
 
     /// [`range_of`](Self::range_of) for each of `paths`, reading `source`
@@ -542,12 +561,14 @@ impl Language {
             .into_iter()
             .map(|path| path.into().to_pointer())
             .collect();
-        let source = &*line_breaks::as_lf(source);
-        paths::with_spans(self.0, source, &pointers, || {
-            pointers
-                .iter()
-                .map(|pointer| paths::field_range(self.0, source, pointer))
-                .collect()
+        byte_order_mark::read(source, |source, _| {
+            let source = &*line_breaks::as_lf(source);
+            paths::with_spans(self.0, source, &pointers, || {
+                pointers
+                    .iter()
+                    .map(|pointer| paths::field_range(self.0, source, pointer))
+                    .collect()
+            })
         })
     }
 
@@ -567,7 +588,9 @@ impl Language {
     /// ```
     #[cfg(feature = "folding")]
     pub fn fold_ranges(self, source: &str) -> Vec<super::language::FoldRange> {
-        self.0.fold_ranges(&line_breaks::as_lf(source))
+        byte_order_mark::read(source, |source, _| {
+            self.0.fold_ranges(&line_breaks::as_lf(source))
+        })
     }
 
     /// The path of what `position` is on in `source`: the key under or just
@@ -583,12 +606,15 @@ impl Language {
     /// # }
     /// ```
     pub fn path_at(self, source: &str, position: TextPosition) -> Option<FieldPath> {
-        let source = line_breaks::as_lf(source);
-        let lines = source.split('\n').count();
-        if position.line > lines {
-            return None;
-        }
-        paths::path_at(self.0, &source, position.to_offset(&source))
+        byte_order_mark::read(source, |source, to| {
+            let position = to.document(position);
+            let source = line_breaks::as_lf(source);
+            let lines = source.split('\n').count();
+            if position.line > lines {
+                return None;
+            }
+            paths::path_at(self.0, &source, position.to_offset(&source))
+        })
     }
 
     pub(super) fn behavior(self) -> &'static dyn ConfigLanguage {

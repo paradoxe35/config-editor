@@ -58,8 +58,9 @@
 pub use super::codec::first_pointer;
 pub use super::commands::indent_unit;
 pub use super::completion::{
-    array_branch, child_fill, fill_value, kept_const, kept_default, language_keeps, object_branch,
-    placeholder, schema_const, schema_default, schema_example,
+    Fill, RequiredChild, array_branch, fill_value, kept_const, kept_default, language_keeps,
+    object_branch, placeholder, required_children, schema_const, schema_default, schema_example,
+    writes_key,
 };
 pub use super::fold_ranges::{
     FoldRange, IndentLine, bracket_fold_ranges, comment_fold_ranges, default_fold_ranges,
@@ -679,6 +680,13 @@ pub struct CompletionContext {
     /// and the first key of an empty JSON document opens its root object.
     /// `None` where properties can follow directly (YAML `- `).
     pub entry_wrap: Option<(&'static str, &'static str)>,
+    /// In an empty document, how its first entry opens the first item of a
+    /// root list, for a schema whose root is a list of objects: the
+    /// delimiters the entry is written between (JSON's `[\n  {\n    ` and
+    /// `\n  }\n]\n`, YAML's `- `) and the indentation the item's entries
+    /// add to [`base_indent`](Self::base_indent). `None` (the default)
+    /// offers nothing there.
+    pub root_item: Option<(&'static str, &'static str, &'static str)>,
     /// An existing entry starts right after the caret (`lim|listen = 1`),
     /// and this is the word its key begins with. A suggestion ending in that
     /// word completes it (`inse|cure_plaintext`) and renames the key; any
@@ -717,13 +725,19 @@ pub struct CompletionContext {
 /// An edit of a text: the bytes it replaces, and their new text.
 pub type KeyEdit = (std::ops::Range<usize>, String);
 
-/// `source` with `edits` (apart from each other) made.
+/// `source` with `edits` (apart from each other) made, built in one pass
+/// (not the text moved along once per edit).
 pub(crate) fn with_edits(source: &str, mut edits: Vec<KeyEdit>) -> String {
-    edits.sort_by_key(|(range, _)| std::cmp::Reverse(range.start));
-    let mut edited = source.to_string();
+    edits.sort_by_key(|(range, _)| range.start);
+    let grown: usize = edits.iter().map(|(_, text)| text.len()).sum();
+    let mut edited = String::with_capacity(source.len() + grown);
+    let mut from = 0;
     for (range, text) in edits {
-        edited.replace_range(range, &text);
+        edited.push_str(source.get(from..range.start).unwrap_or_default());
+        edited.push_str(&text);
+        from = from.max(range.end);
     }
+    edited.push_str(&source[from..]);
     edited
 }
 
@@ -1005,15 +1019,17 @@ pub trait ConfigLanguage: Send + Sync + 'static {
     /// two never read as each other.
     fn parse(&self, source: &str) -> Result<Value, ParseError>;
 
-    /// Where the number literal `error` (what [`parse`](Self::parse)
-    /// returned for `source`) is about is written, when the error is only
-    /// that the editor cannot hold the number exactly (an integer past 64
-    /// bits, a float past the largest) and the language allows it: the text
-    /// then saves in this language, the problem still shown. Default:
-    /// `None`, every error holds the save.
-    fn unheld_number(&self, source: &str, error: &ParseError) -> Option<std::ops::Range<usize>> {
+    /// Where the number literals the editor cannot hold exactly (integers
+    /// past 64 bits, floats past the largest) that the language allows are
+    /// written in `source`, when `error` (what [`parse`](Self::parse)
+    /// returned for it) is only about one of them: the text then saves in
+    /// this language, the problem still shown. The places hold the one the
+    /// error is about, and as many others as the language finds in one
+    /// pass (a save reads the text again with all of them stood in for,
+    /// not once per number). Default: none, every error holds the save.
+    fn unheld_numbers(&self, source: &str, error: &ParseError) -> Vec<std::ops::Range<usize>> {
         let _ = (source, error);
-        None
+        Vec::new()
     }
 
     /// The document for `value`, keeping the framing of `previous` (this
@@ -1932,6 +1948,17 @@ pub trait ConfigLanguage: Send + Sync + 'static {
     fn entries_together(&self, patched: &str, previous: &str) -> String {
         let _ = previous;
         patched.to_string()
+    }
+
+    /// The lines (0-based) of `text`, written by
+    /// [`serialize`](Self::serialize) over a host, that continue a
+    /// construct begun on an earlier line and are indented as the host
+    /// aligns them, not by depth (an XML start tag's attribute lines). A
+    /// structural Edit-as save indents no line it adds from them, and
+    /// writes such a line it adds as it is. Default: none.
+    fn aligned_lines(&self, text: &str) -> Vec<usize> {
+        let _ = text;
+        Vec::new()
     }
 
     /// The text for the `value` range of a [`OneLine`] now holding `value`

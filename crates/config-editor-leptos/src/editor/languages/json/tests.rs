@@ -116,7 +116,7 @@ fn a_comment_is_reported_as_one_json_does_not_have() {
         ("\u{FEFF}/* bom */ {}\n", 1, 2),
     ];
     for (text, line, column) in cases {
-        let error = JsonBehavior.parse(text).unwrap_err();
+        let error = super::super::Language::JSON.parse(text).unwrap_err();
         assert_eq!(error.message, "JSON has no comments: remove this one", "{text:?}");
         assert_eq!((error.line, error.column), (Some(line), Some(column)), "{text:?}");
     }

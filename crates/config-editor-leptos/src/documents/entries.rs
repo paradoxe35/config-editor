@@ -668,7 +668,8 @@ impl Documents {
     }
 
     /// Saves `id` as `Ctrl+S` in its editor does; a document never shown
-    /// sends the host's text as it is. Returns whether it was sent.
+    /// sends the host's text as it is, when it reads in its language (a
+    /// shown editor's gate). Returns whether it was sent.
     pub(super) fn save(&self, id: &str) -> bool {
         let Some(entry) = self.entry(id) else {
             return false;
@@ -679,10 +680,16 @@ impl Documents {
         let Some(callback) = self.callbacks.on_save else {
             return false;
         };
+        // The gate a shown editor's save applies: text that does not read
+        // in its language is never sent.
+        let text = entry.value.get_untracked();
+        if !entry.setup.language.saves(&text) {
+            return false;
+        }
         callback.run((
             id.to_string(),
             SaveRequest {
-                text: entry.value.get_untracked(),
+                text,
                 language: entry.setup.language,
             },
         ));

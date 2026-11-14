@@ -13,21 +13,11 @@ fn written_const<'a>(property: &'a Value, root: &'a Value) -> Option<&'a Value> 
     kept_const(&YamlBehavior, property, root)
 }
 
-pub(super) fn yaml_key_for_completion(key: &str) -> Option<String> {
-    let plain_key = !key.is_empty()
-        && key
-            .chars()
-            .next()
-            .is_some_and(|character| character.is_ascii_alphabetic() || character == '_')
-        && key.chars().all(|character| {
-            character.is_ascii_alphanumeric() || matches!(character, '_' | '-' | '.')
-        })
-        && super::plain::can_be_plain(key);
-    if plain_key {
-        Some(key.to_string())
-    } else {
-        Some(yaml_quoted(key))
-    }
+/// A key as a suggestion, a flow mapping and a merge's written-out keys
+/// write it: plain where every reader takes it as that text, else
+/// quoted (`"on"`, `"a b"`, `""`).
+pub(super) fn yaml_key(key: &str) -> String {
+    if is_plain_identifier(key) { key.to_string() } else { yaml_quoted(key) }
 }
 
 use super::super::super::codec::non_finite;
@@ -48,8 +38,7 @@ pub(super) fn yaml_value(value: &Value) -> String {
             let pairs: Vec<String> = map
                 .iter()
                 .map(|(key, child)| {
-                    let key = if is_plain_identifier(key) { key.clone() } else { yaml_quoted(key) };
-                    format!("{key}: {}", yaml_value(child))
+                    format!("{}: {}", yaml_key(key), yaml_value(child))
                 })
                 .collect();
             format!("{{{}}}", pairs.join(", "))
@@ -106,78 +95,98 @@ pub(super) fn is_plain_identifier(text: &str) -> bool {
         && super::plain::can_be_plain(text)
 }
 
-#[allow(clippy::too_many_arguments)]
-pub(super) fn append_required_properties(
-    schema: &Value,
-    root: &Value,
+/// `children` as the lines of a block mapping at `child_indent`, a nested
+/// object a block of its own below its key; `cursor_offset` is set to the
+/// UTF-16 offset of the value the caret goes to, `output` starting at
+/// `base_offset` of the insert.
+pub(super) fn write_children(
+    children: &[RequiredChild<'_>],
     child_indent: &str,
     unit: &str,
     base_offset: usize,
     output: &mut String,
     cursor_offset: &mut Option<usize>,
-) -> bool {
-    let Some(branch) = object_branch(schema, root) else {
-        return false;
-    };
-    let required = branch.get("required").and_then(Value::as_array);
-    let properties = branch.get("properties").and_then(Value::as_object);
-    let Some(required) = required else {
-        return false;
-    };
-    let nested_indent = format!("{child_indent}{unit}");
-    let mut appended = false;
-    for required_key in required.iter().filter_map(Value::as_str) {
-        let Some(property) = properties.and_then(|properties| properties.get(required_key)) else {
-            continue;
-        };
-        let Some(yaml_key) = yaml_key_for_completion(required_key) else {
-            continue;
-        };
+) {
+    for child in children {
         output.push_str(child_indent);
-        output.push_str(&yaml_key);
+        output.push_str(&yaml_key(child.key));
         output.push(':');
-        // A default, else (once the caret has its child) an example: a
-        // value Tab selects (see `stops`).
-        // Required children of its own are written as a block below it.
-        let fill = child_fill(&YamlBehavior, property, root, cursor_offset.is_none())
-            .filter(|fill| !fill.is_object() || kept_default(&YamlBehavior, property, root).is_some());
-        if let Some(default) = fill {
-            output.push(' ');
-            output.push_str(&yaml_value(&default));
-            output.push('\n');
-        } else if object_branch(property, root).is_some() {
-            let mut children = String::new();
-            if append_required_properties(
-                property,
-                root,
-                &nested_indent,
-                unit,
-                base_offset + output.encode_utf16().count() + 1,
-                &mut children,
-                cursor_offset,
-            ) {
-                output.push('\n');
-                output.push_str(&children);
-            } else {
-                output.push_str(" {}\n");
+        match &child.fill {
+            Fill::Value(value) => {
+                output.push(' ');
+                output.push_str(&yaml_value(value));
             }
-        } else {
-            output.push(' ');
-            if cursor_offset.is_none() {
+            Fill::Children(nested) => {
+                output.push('\n');
+                let nested_indent = format!("{child_indent}{unit}");
+                write_children(nested, &nested_indent, unit, base_offset, output, cursor_offset);
+                continue;
+            }
+            Fill::Caret { .. } => {
+                output.push(' ');
                 *cursor_offset = Some(base_offset + output.encode_utf16().count());
             }
-            output.push('\n');
+            // Before the value, inside an empty list.
+            Fill::CaretAt(value) => {
+                output.push(' ');
+                let text = yaml_value(value);
+                let inside = usize::from(text == "[]");
+                *cursor_offset = Some(base_offset + output.encode_utf16().count() + inside);
+                output.push_str(&text);
+            }
+            // An empty value is null: an empty object or list is written.
+            Fill::Empty(Some(value @ (Value::Object(_) | Value::Array(_)))) => {
+                output.push(' ');
+                output.push_str(&yaml_value(value));
+            }
+            // The value's place, so Tab lands where typing reads `key: x`.
+            Fill::Empty(_) => output.push(' '),
         }
-        appended = true;
+        output.push('\n');
     }
-    appended
+}
+
+/// `children` as a flow mapping (`{ cpu: 2, mem: | }`); `cursor` is set
+/// to the byte offset in `insert` of the value the caret goes to.
+fn write_flow(children: &[RequiredChild<'_>], insert: &mut String, cursor: &mut Option<usize>) {
+    let flow = |value: &Value| match value {
+        Value::Array(_) | Value::Object(_) => serde_json::to_string(value).unwrap_or_default(),
+        _ => yaml_value(value),
+    };
+    insert.push('{');
+    for (index, child) in children.iter().enumerate() {
+        insert.push_str(if index == 0 { " " } else { ", " });
+        insert.push_str(&yaml_key(child.key));
+        insert.push_str(": ");
+        match &child.fill {
+            Fill::Value(value) | Fill::Empty(Some(value @ (Value::Object(_) | Value::Array(_)))) => {
+                insert.push_str(&flow(value));
+            }
+            Fill::Children(nested) => write_flow(nested, insert, cursor),
+            Fill::Caret { .. } => *cursor = Some(insert.len()),
+            // Before the value, inside an empty list.
+            Fill::CaretAt(value) => {
+                let text = flow(value);
+                *cursor = Some(insert.len() + usize::from(text == "[]"));
+                insert.push_str(&text);
+            }
+            Fill::Empty(_) => {}
+        }
+    }
+    insert.push(' ');
+    // No children: the caret between the braces.
+    if children.is_empty() {
+        cursor.get_or_insert(insert.len());
+        insert.push(' ');
+    }
+    insert.push('}');
 }
 
 /// Insert text for a property inside a flow mapping (`key: { a: 1, | }`):
 /// everything stays in flow style on one line, since a block mapping is
 /// invalid there. Nested objects open `{ child: | }`, arrays open `[|]`.
 pub(super) fn flow_property_insert(key: &str, property: &Value, root: &Value) -> Option<(String, usize)> {
-    let yaml_key = yaml_key_for_completion(key)?;
+    let yaml_key = yaml_key(key);
     let flow = |value: &Value| match value {
         Value::Array(_) | Value::Object(_) => serde_json::to_string(value).unwrap_or_default(),
         _ => yaml_value(value),
@@ -195,38 +204,10 @@ pub(super) fn flow_property_insert(key: &str, property: &Value, root: &Value) ->
         insert.push('[');
         cursor = Some(insert.len());
         insert.push(']');
-    } else if let Some(branch) = object_branch(property, root) {
-        insert.push('{');
-        let properties = branch.get("properties").and_then(Value::as_object);
-        let required = branch
-            .get("required")
-            .and_then(Value::as_array)
-            .into_iter()
-            .flatten()
-            .filter_map(Value::as_str)
-            .filter_map(|name| Some((name, properties?.get(name)?)));
-        let mut first = true;
-        for (name, child) in required {
-            let Some(child_key) = yaml_key_for_completion(name) else {
-                continue;
-            };
-            insert.push_str(if first { " " } else { ", " });
-            first = false;
-            insert.push_str(&child_key);
-            insert.push_str(": ");
-            let takes_caret = cursor.is_none();
-            if takes_caret {
-                cursor = Some(insert.len());
-            }
-            if let Some(default) = child_fill(&YamlBehavior, child, root, takes_caret) {
-                insert.push_str(&flow(&default));
-            }
-        }
-        insert.push(' ');
-        if cursor.is_none() {
-            cursor = Some(insert.len());
-        }
-        insert.push_str(if first { " }" } else { "}" });
+    } else if object_branch(property, root).is_some() {
+        write_flow(&required_children(&YamlBehavior, property, root), &mut insert, &mut cursor);
+        // Past the children: the caret before the closing brace.
+        cursor.get_or_insert(insert.len() - 1);
     }
     let cursor = insert[..cursor.unwrap_or(insert.len())]
         .encode_utf16()
@@ -241,7 +222,7 @@ pub(super) fn property_completion_insert(
     base_indent: &str,
     unit: &str,
 ) -> Option<(String, usize)> {
-    let yaml_key = yaml_key_for_completion(key)?;
+    let yaml_key = yaml_key(key);
     let child_indent = format!("{base_indent}{unit}");
     let mut insert = format!("{yaml_key}:");
     if let Some(value) = written_const(property, root) {
@@ -275,18 +256,13 @@ pub(super) fn property_completion_insert(
             return Some((insert, cursor));
         }
         let mut cursor_offset = None;
-        let mut children = String::new();
-        if append_required_properties(
-            branch,
-            root,
-            &child_indent,
-            unit,
-            insert.encode_utf16().count() + 1,
-            &mut children,
-            &mut cursor_offset,
-        ) {
+        let children = required_children(&YamlBehavior, property, root);
+        if !children.is_empty() {
             insert.push('\n');
-            insert.push_str(&children);
+            let base_offset = insert.encode_utf16().count();
+            let mut written = String::new();
+            write_children(&children, &child_indent, unit, base_offset, &mut written, &mut cursor_offset);
+            insert.push_str(&written);
         } else if branch.get("properties").is_some()
             || branch.get("patternProperties").is_some()
             || branch.get("additionalProperties").is_some()
@@ -700,6 +676,13 @@ pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionConte
             ..Default::default()
         };
     }
+    // A blank document but for the key typed: its first entry may open a
+    // root list's first item.
+    let root_item = (value_key.is_none()
+        && path.is_empty()
+        && source[..typed_start_byte].trim().is_empty()
+        && source[replace_end_byte.min(source.len())..].trim().is_empty())
+    .then_some(("- ", "", "  "));
     CompletionContext {
         path,
         typed,
@@ -707,6 +690,7 @@ pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionConte
         replace_end: source[..replace_end_byte.min(source.len())]
             .encode_utf16()
             .count(),
+        root_item,
         value_key,
         value_needs_space,
         is_array_item: current_is_array_item,

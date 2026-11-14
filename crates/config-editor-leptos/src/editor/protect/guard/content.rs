@@ -6,8 +6,10 @@
 
 use std::ops::Range;
 
+use super::super::super::codec::scalar_range;
 use super::super::super::highlight::ConstructKind;
 use super::super::super::language::ConfigLanguage;
+use super::super::super::paths::written_value_span;
 use super::super::locate::LineIndex;
 use super::super::locks::Lock;
 use super::edit::Edited;
@@ -33,6 +35,82 @@ pub(super) fn glued_to_content(edit: &Edited<'_>, lock: &Lock) -> bool {
             .iter()
             .any(|area| area.start <= *at && *at <= area.end && in_lock(area, lock))
     })
+}
+
+/// Whether `edit`, leaving a text that does not parse, changes the inside
+/// of `lock`'s value where it is a string written over lines (a YAML block
+/// scalar, an HCL heredoc, a TOML multi-line string, XML text over lines),
+/// as the language finds it written: its line breaks, blank lines and
+/// indentation are the string's own, so a blank line typed between a block
+/// scalar's header and its text changes it, as does a blank line taken
+/// from after a block keeping its final line breaks (`|+`), even where the
+/// line diff keeps every line of the lock. Text typed right at its edges
+/// is left to the other checks; an edit leaving its written text whole
+/// (Replace All elsewhere) keeps it.
+pub(super) fn written_string_changed(edit: &Edited<'_>, lock: &Lock) -> bool {
+    let Some(pointer) = lock.pointer.as_deref() else {
+        return false;
+    };
+    // Read only for a lock on the lines of the edit, or right above them
+    // (the blank line ending a kept block is past its stretch).
+    let (Some(low), Some(high)) = (
+        lock.ranges.iter().map(|range| range.start).min(),
+        lock.ranges.iter().map(|range| range.end).max(),
+    ) else {
+        return false;
+    };
+    let lines = &edit.lines;
+    if lines.line_of(edit.region.start) > lines.line_of(high) + 2
+        || lines.line_of(edit.region.end) < lines.line_of(low)
+    {
+        return false;
+    }
+    let string = edit
+        .protected
+        .pins
+        .iter()
+        .any(|(known, value)| known == pointer && value.is_string());
+    if !string {
+        return false;
+    }
+    let Some(range) = written_value_span(edit.behavior, edit.before, pointer)
+        .and_then(|span| scalar_range(edit.behavior, edit.before, span))
+    else {
+        return false;
+    };
+    let written = &edit.before[range.clone()];
+    if !written.contains('\n') {
+        return false;
+    }
+    // A value ending in a line break owns the one after it too (the blank
+    // line a kept block's text ends with).
+    let end = range.end
+        + usize::from(written.ends_with('\n') && edit.before[range.end..].starts_with('\n'));
+    let from = edit.lines.byte_of(edit.region.start);
+    let to = edit.lines.byte_of(edit.region.end);
+    // Space typed where a value ending in a line break ends (before XML
+    // text's end tag, on the line after a kept block) is its text too.
+    let spaced = || {
+        edit.new[edit.new_region.clone()]
+            .first()
+            .and_then(|unit| char::from_u32(u32::from(*unit)))
+            .is_some_and(char::is_whitespace)
+    };
+    let inside = if from == to {
+        range.start < from && (from < end || (from == end && written.ends_with('\n') && spaced()))
+    } else {
+        from < end && range.start < to
+    };
+    // Its lines whole, from the first one's start to the last one's end
+    // (the header, the closing line): a line break added at an edge of the
+    // text inside keeps the text itself.
+    let first = edit.before[..range.start]
+        .rfind('\n')
+        .map_or(0, |at| at + 1);
+    let last = edit.before[end..]
+        .find('\n')
+        .map_or(edit.before.len(), |at| end + at);
+    inside && !edit.after.contains(&edit.before[first..last])
 }
 
 /// Whether the whitespace between UTF-16 `start` and `end` of the text

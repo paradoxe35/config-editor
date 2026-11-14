@@ -166,7 +166,7 @@ pub(super) fn labelled_blocks(source: &str) -> LabelledBlocks {
     let mut found = LabelledBlocks::new();
     // Parsed with its objects of many entries in groups (see
     // `big_objects`): blocks are never inside one.
-    if let Ok(parsed) = super::big_objects::parse(source.strip_prefix('\u{FEFF}').unwrap_or(source), true) {
+    if let Ok(parsed) = super::big_objects::parse(source, true) {
         walk(&parsed.body, &mut Vec::new(), &mut found);
     }
     found
@@ -471,7 +471,7 @@ fn object_expression(map: &serde_json::Map<String, Value>, entry: impl Fn(&Value
 /// An object's key: an identifier unquoted, anything else a string.
 fn object_key(key: &str) -> hcl::expr::ObjectKey {
     match hcl::Identifier::new(key) {
-        Ok(identifier) if is_ident(key) && !key.contains('-') => hcl::expr::ObjectKey::Identifier(identifier),
+        Ok(identifier) if bare_object_key(key) => hcl::expr::ObjectKey::Identifier(identifier),
         _ => hcl::expr::ObjectKey::Expression(hcl::Expression::String(key.to_string())),
     }
 }

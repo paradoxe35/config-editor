@@ -131,6 +131,22 @@ fn a_host_compiler_gets_its_resources_and_options_and_reports_its_losses() {
 }
 
 #[test]
+fn a_byte_order_mark_is_no_part_of_a_schema_in_any_format() {
+    let schema = Schema::compile_as(FIELDS_FORMAT, &SchemaInput::new("\u{feff}port: integer\n"))
+        .expect("compiles");
+    assert_eq!(
+        schema.json(),
+        &json!({"properties": {"port": {"type": "integer"}}})
+    );
+    let yaml = Schema::compile_as(
+        SchemaFormat::JSON_SCHEMA,
+        &SchemaInput::new("\u{feff}{\"type\": \"object\"}"),
+    )
+    .expect("compiles");
+    assert_eq!(yaml.json(), &json!({"type": "object"}));
+}
+
+#[test]
 fn a_missing_resource_and_a_refused_text_say_their_format() {
     let error = Schema::compile_as(FIELDS_FORMAT, &SchemaInput::new("use: gone.fields\n"))
         .expect_err("refused");

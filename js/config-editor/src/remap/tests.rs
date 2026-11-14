@@ -258,23 +258,3 @@ fn a_range_between_any_number_of_edits_maps_exactly_and_never_shrinks() {
         "{exact} exact, {between} between edits"
     );
 }
-
-/// Past the diff's depth cap (every other line of a long text changed) the
-/// lines from the first change to the last are one stretch: a range there
-/// grows over it, never smaller; one before the first change is exact.
-#[test]
-fn too_many_changes_make_one_stretch_a_range_only_grows_in() {
-    let from: String = (0..3_000).map(|line| format!("key{line}: 1\n")).collect();
-    let to: String = (0..3_000)
-        .map(|line| match line % 2 {
-            1 if line > 10 => format!("key{line}: 2\n"),
-            _ => format!("key{line}: 1\n"),
-        })
-        .collect();
-    let line =
-        |number: usize| TextRange::new(TextPosition::new(number, 1), TextPosition::new(number, 8));
-    let remap = Remap::new(&from, &to);
-    assert_eq!(remap.range(line(3)).slice(&to), "key2: 1");
-    let mapped = remap.range(line(1_001));
-    assert!(mapped.slice(&to).contains("key1000: 1"), "{mapped:?}");
-}

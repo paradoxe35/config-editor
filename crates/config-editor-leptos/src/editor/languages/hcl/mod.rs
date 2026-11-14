@@ -44,7 +44,7 @@ use super::super::parse_cache::string_bodies;
 use super::super::commands::indent_unit;
 use super::super::highlight::{MultilineConstruct, Token as HighlightToken, TokenKind, Tokens};
 use super::inline::{InlineEntry as CaretEntry, inline_caret, inline_key_at, inline_key_paths, inline_sibling_keys, caret_value_end, statement_start_at, statements, entry_follows, in_front_of_inline_entry, matching_close};
-use super::super::completion::{kept_const, kept_default, array_branch, object_branch, fill_value, placeholder};
+use super::super::completion::{kept_const, kept_default, array_branch, object_branch, placeholder, required_children, Fill, RequiredChild};
 use super::super::keyboard::utf16_to_byte_index;
 use super::super::language::pointer_segments;
 use super::super::language::{EntryPosition, OneLine, LanguageConfig, bracket_newline, CompletionContext, Newline, Repetition, InlineBlock, InsertContext, ConfigLanguage, LanguageInfo, Lexical, Span, ParseError, SchemaPathSegment,
@@ -77,8 +77,8 @@ impl ConfigLanguage for HclBehavior {
 
     /// The specification allows any number: one past what the editor
     /// holds saves (see `wide_integers`).
-    fn unheld_number(&self, source: &str, error: &ParseError) -> Option<std::ops::Range<usize>> {
-        super::wide_integers::unheld(source, error)
+    fn unheld_numbers(&self, source: &str, error: &ParseError) -> Vec<std::ops::Range<usize>> {
+        super::wide_integers::unheld_all(source, error)
     }
 
     fn repetition(&self) -> Repetition {
@@ -125,23 +125,23 @@ impl ConfigLanguage for HclBehavior {
     /// A block written once (`/b`, `/svc/a`): never an attribute, nor a
     /// block type with labels (an object keyed by them).
     fn lone_item(&self, source: &str, pointer: &str) -> bool {
-        hcl_lone_block(source.strip_prefix('\u{FEFF}').unwrap_or(source), pointer)
+        hcl_lone_block(source, pointer)
     }
 
     fn key_span(&self, source: &str, pointer: &str) -> Option<Span> {
-        super::super::byte_order_mark::span(source, |text| hcl_key_span(text, pointer).map(Span::from))
+        hcl_key_span(source, pointer).map(Span::from)
     }
 
     fn value_span(&self, source: &str, pointer: &str) -> Option<Span> {
-        super::super::byte_order_mark::span(source, |text| hcl_value_span(text, pointer).map(Span::from))
+        hcl_value_span(source, pointer).map(Span::from)
     }
 
     fn value_spans(&self, source: &str, pointers: &[String]) -> Vec<Option<Span>> {
-        super::super::byte_order_mark::spans(source, |text| hcl_value_spans(text, pointers).into_iter().map(|span| span.map(Span::from)).collect())
+        hcl_value_spans(source, pointers).into_iter().map(|span| span.map(Span::from)).collect()
     }
 
     fn key_spans(&self, source: &str, pointers: &[String]) -> Vec<Option<Span>> {
-        super::super::byte_order_mark::spans(source, |text| hcl_key_spans(text, pointers).into_iter().map(|span| span.map(Span::from)).collect())
+        hcl_key_spans(source, pointers).into_iter().map(|span| span.map(Span::from)).collect()
     }
 
     /// A block stays a block and an object attribute an attribute; an
@@ -223,7 +223,7 @@ impl ConfigLanguage for HclBehavior {
     }
 
     fn first_span(&self, source: &str) -> Option<Span> {
-        super::super::byte_order_mark::span(source, |text| first_line_span(text).map(Span::from))
+        first_line_span(source).map(Span::from)
     }
 
     fn completion_context(&self, source: &str, cursor: usize) -> CompletionContext {

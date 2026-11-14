@@ -248,3 +248,74 @@ fn a_placeholder_alone_in_a_multi_line_form_of_a_broken_host_is_whole() {
     }
     report(failures);
 }
+
+/// A placeholder alone in a multi-line form keeps its value, its last line
+/// break included, in every view: joining the line after it onto its own
+/// (Delete at its line's end, Backspace at the next line's start) is refused
+/// where it changes the value, and an edit elsewhere leaves the host its
+/// own text with only that edit made. (Joined in an XML view, a YAML `|`
+/// holding it became `|-`, its value losing its last line break.)
+#[test]
+fn a_placeholder_s_multi_line_form_keeps_its_value_in_every_view() {
+    let mut failures = Vec::new();
+    each_case(|case, host, view, text, tokens| {
+        let given = field_a(host, text);
+        for delete in [true, false] {
+            let (_owner, state, heard) = mount(host, view, text, tokens);
+            let shown = state.doc().text.get_untracked();
+            let end = shown.find(tokens.same).expect("the token") + tokens.same.len();
+            let Some(newline) = shown[end..].find('\n').map(|at| end + at) else {
+                continue;
+            };
+            // The line break after its line, deleted forward from its end or
+            // backward from the next line's start.
+            let start = shown[..newline].encode_utf16().count();
+            let kind = if delete {
+                "deleteContentForward"
+            } else {
+                "deleteContentBackward"
+            };
+            let after = format!("{}{}", &shown[..newline], &shown[newline + 1..]);
+            state.commit(super::super::edit::Edit::input(
+                shown.clone(),
+                (start, start + 1),
+                after,
+                (start, start),
+                kind.into(),
+                0.0,
+            ));
+            convert_now(
+                state,
+                state.doc().text.get_untracked(),
+                state.sync().edit_language.get_untracked(),
+            );
+            if let Some(changed) = heard
+                .get_untracked()
+                .iter()
+                .find(|heard| field_a(host, heard) != given)
+            {
+                let how = if delete { "Delete" } else { "Backspace" };
+                failures.push(format!(
+                    "{case}, joined with {how}: the host heard {changed:?}"
+                ));
+            }
+        }
+        let (_owner, state, heard) = mount(host, view, text, tokens);
+        let shown = state.doc().text.get_untracked();
+        let at = shown.find('x').expect("the name's value") + 1;
+        type_at(state, at, "y");
+        convert_now(
+            state,
+            state.doc().text.get_untracked(),
+            state.sync().edit_language.get_untracked(),
+        );
+        let expected = text.replacen('x', "xy", 1);
+        match heard.get_untracked().last() {
+            Some(last) if *last == expected => {}
+            last => failures.push(format!(
+                "{case}: an edit elsewhere, the host heard {last:?}"
+            )),
+        }
+    });
+    report(failures);
+}

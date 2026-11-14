@@ -1,10 +1,12 @@
 //! A placeholder a host text that does not parse gives as a field's whole
-//! value (read off the host's own characters) takes nothing beside it once
-//! the text on screen parses: what was typed beside it while the text was
-//! broken is flagged at the token, the save waits, and a further key beside
-//! it is refused with the tip, however the text was repaired (typed, pasted,
-//! undone back into the broken text and repaired again). A token the host
-//! wrote with other text beside it stays the host's to embed.
+//! value (read off the host's own characters) takes nothing beside it,
+//! while the text is broken as once it parses: a key typed beside it is
+//! refused with the tip, however the text was repaired (typed, pasted,
+//! undone back into the broken text and repaired again), and the repaired
+//! text holds it alone, unflagged, and saves. (Text typed beside it while
+//! the text was broken was let through, then flagged once it parsed.) A
+//! token the host wrote with other text beside it stays the host's to
+//! embed.
 
 use leptos::prelude::*;
 
@@ -159,94 +161,69 @@ fn tip(state: EditorState) -> String {
         .unwrap_or_default()
 }
 
-/// What the glued text on screen does: flagged at the token, the save
-/// waiting with the message, a further key beside the token refused.
-fn check_glued(
+/// A key typed beside the token is refused with the tip, the text kept.
+fn refused_beside(case: &Broken, state: EditorState, step: &str) -> Option<String> {
+    let before = text(state);
+    state.protect().tip.set(None);
+    type_at(state, token_end(state), "Z");
+    (text(state) != before || !tip(state).contains(SAYS)).then(|| {
+        format!(
+            "{}, {step}: a key beside the token let through: {:?}, tip {:?}",
+            case.name,
+            text(state),
+            tip(state)
+        )
+    })
+}
+
+/// The repaired text holds the token alone: it parses, nothing is
+/// flagged, it saves, and a key beside the token is still refused.
+fn check_whole(
     case: &Broken,
     state: EditorState,
     saves: RwSignal<Vec<String>>,
     step: &str,
 ) -> Vec<String> {
-    let mut failures = Vec::new();
     let name = format!("{}, {step}", case.name);
     if !parses(case, state) {
         return vec![format!("{name}: not repaired: {:?}", text(state))];
     }
+    let mut failures = Vec::new();
     let found = problems(state, case.language, None);
-    if !found.iter().any(|problem| problem.contains(SAYS)) {
-        failures.push(format!("{name}: not flagged: {found:?}"));
+    if found.iter().any(|problem| problem.contains(SAYS)) {
+        failures.push(format!("{name}: flagged: {found:?}"));
     }
-    if state.save() || !saves.get_untracked().is_empty() {
-        failures.push(format!("{name}: saved {:?}", saves.get_untracked()));
-    } else if !tip(state).contains(SAYS) {
-        failures.push(format!("{name}: the save says {:?}", tip(state)));
-    }
-    for (at, label) in [
-        (token_end(state), "beside the token"),
-        (token_end(state) + 1, "after the text beside it"),
-    ] {
-        let before = text(state);
-        state.protect().tip.set(None);
-        type_at(state, at, "Z");
-        if text(state) != before || !tip(state).contains(SAYS) {
-            failures.push(format!(
-                "{name}: a key {label} let through: {:?}, tip {:?}",
-                text(state),
-                tip(state)
-            ));
-        }
+    failures.extend(refused_beside(case, state, step));
+    if !state.save() || saves.get_untracked().len() != 1 {
+        failures.push(format!("{name}: not saved: {:?}", tip(state)));
     }
     failures
 }
 
 #[test]
-fn text_typed_beside_a_whole_placeholder_of_a_broken_host_is_flagged_once_repaired() {
+fn text_typed_beside_a_whole_placeholder_of_a_broken_host_is_refused() {
     let mut failures = Vec::new();
     for case in hosts() {
         for pasted in [false, true] {
-            let (_owner, state, saves) = mount(&case, &case.host);
-            type_at(state, token_end(state), "Y");
-            if !text(state).contains(&format!("{TOKEN}Y")) {
-                failures.push(format!("{}: typing while broken refused", case.name));
-                continue;
-            }
-            repair(state, &case, pasted);
             let step = if pasted {
                 "pasted repair"
             } else {
                 "typed repair"
             };
-            failures.extend(check_glued(&case, state, saves, step));
-            // Taking the text beside it away is free, and then it saves.
-            let end = token_end(state);
-            if !paste(state, end..end + 1, "") {
-                failures.push(format!(
-                    "{}, {step}: taking the glued text away refused",
-                    case.name
-                ));
-            }
-            if !problems(state, case.language, None)
-                .iter()
-                .all(|problem| !problem.contains(SAYS))
-                || !state.save()
-            {
-                failures.push(format!(
-                    "{}, {step}: unglued text not saved: {:?}",
-                    case.name,
-                    text(state)
-                ));
-            }
+            let (_owner, state, saves) = mount(&case, &case.host);
+            failures.extend(refused_beside(&case, state, "while broken"));
+            repair(state, &case, pasted);
+            failures.extend(check_whole(&case, state, saves, step));
         }
     }
     report(failures);
 }
 
 #[test]
-fn undoing_back_into_the_broken_glued_text_and_repairing_again_flags_it() {
+fn undoing_back_into_the_broken_text_and_repairing_again_keeps_it_whole() {
     let mut failures = Vec::new();
     for case in hosts() {
         let (_owner, state, saves) = mount(&case, &case.host);
-        type_at(state, token_end(state), "Y");
         repair(state, &case, true);
         let undo = state.history_edit(false).expect("the repair to undo");
         if !state.commit(undo) || parses(&case, state) {
@@ -257,8 +234,9 @@ fn undoing_back_into_the_broken_glued_text_and_repairing_again_flags_it() {
             ));
             continue;
         }
+        failures.extend(refused_beside(&case, state, "undone"));
         repair(state, &case, true);
-        failures.extend(check_glued(&case, state, saves, "repaired after undo"));
+        failures.extend(check_whole(&case, state, saves, "repaired after undo"));
     }
     report(failures);
 }

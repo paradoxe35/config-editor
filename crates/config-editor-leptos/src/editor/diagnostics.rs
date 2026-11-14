@@ -1,3 +1,4 @@
+use super::byte_order_mark;
 use super::language::ConfigLanguage;
 #[cfg(feature = "schema-validation")]
 use super::language::Span;
@@ -115,6 +116,9 @@ impl SchemaFailure {
 /// The compiled schema, or why `schema_text` is no JSON Schema (worded by
 /// the `invalidSchema` text where it is shown).
 pub(super) fn build_schema(schema_text: &str) -> Result<SchemaBundle, String> {
+    // A byte order mark (a file saved by an editor that writes one) is no
+    // part of the JSON.
+    let schema_text = schema_text.strip_prefix('\u{feff}').unwrap_or(schema_text);
     let schema = super::schema_formats::json::parse(schema_text).map_err(|error| error.0)?;
     build_compiled(schema, Vec::new(), Vec::new())
 }
@@ -124,6 +128,11 @@ fn build_formatted(
     format: SchemaFormat,
     input: &SchemaInput<'_>,
 ) -> Result<SchemaBundle, SchemaFailure> {
+    // A byte order mark is no part of the schema, in any format.
+    let input = &SchemaInput {
+        text: input.text.strip_prefix('\u{feff}').unwrap_or(input.text),
+        ..*input
+    };
     let compiled = format
         .compile(input)
         .map_err(|error| SchemaFailure::Source {
@@ -547,7 +556,9 @@ impl Schema {
     /// Syntax and schema diagnostics for `source`, as the editor shows them
     /// (the editor's own messages in English, the `strings` defaults).
     pub fn validate(&self, language: super::Language, source: &str) -> Vec<Diagnostic> {
-        headless_validate(source, Some(&self.bundle), language.behavior())
+        byte_order_mark::read(source, |source, _| {
+            headless_validate(source, Some(&self.bundle), language.behavior())
+        })
     }
 
     /// The suggestions the editor lists at `cursor` (a UTF-16 offset in
@@ -571,8 +582,15 @@ impl Schema {
         source: &str,
         cursor: usize,
     ) -> Vec<super::Suggestion> {
-        let source = super::line_breaks::as_lf(source);
-        super::completion::schema_suggestions(&self.bundle, language.behavior(), &source, cursor)
+        byte_order_mark::read(source, |source, to| {
+            let source = super::line_breaks::as_lf(source);
+            super::completion::schema_suggestions(
+                &self.bundle,
+                language.behavior(),
+                &source,
+                to.document(cursor),
+            )
+        })
     }
 
     /// The docs the hover card shows for the key at `position` in `source`
@@ -584,8 +602,15 @@ impl Schema {
         source: &str,
         position: super::TextPosition,
     ) -> Option<super::HoverDocs> {
-        let source = super::line_breaks::as_lf(source);
-        super::completion::schema_hover(&self.bundle, language.behavior(), &source, position)
+        byte_order_mark::read(source, |source, to| {
+            let source = super::line_breaks::as_lf(source);
+            super::completion::schema_hover(
+                &self.bundle,
+                language.behavior(),
+                &source,
+                to.document(position),
+            )
+        })
     }
 
     /// Converts `source` from one language to another, reading it as this
@@ -601,12 +626,14 @@ impl Schema {
         source: &str,
         to: super::Language,
     ) -> Result<super::Conversion, super::ConvertError> {
-        super::codec::convert_away(
-            source,
-            from.behavior(),
-            to.behavior(),
-            Some(&self.bundle.schema),
-        )
+        byte_order_mark::read(source, |source, _| {
+            super::codec::convert_away(
+                source,
+                from.behavior(),
+                to.behavior(),
+                Some(&self.bundle.schema),
+            )
+        })
     }
 }
 
@@ -620,7 +647,9 @@ impl Schema {
 /// # }
 /// ```
 pub fn check_syntax(language: super::Language, source: &str) -> Vec<Diagnostic> {
-    headless_validate(source, None, language.behavior())
+    byte_order_mark::read(source, |source, _| {
+        headless_validate(source, None, language.behavior())
+    })
 }
 
 /// [`validate`] of a text from outside the editor, its line breaks read as
@@ -946,12 +975,7 @@ pub(super) fn validate_with(
                         .into_iter()
                         .flat_map(|error| {
                             let path = error.instance_path().as_str().to_string();
-                            if inside(&path, &placeholders)
-                                || (matches!(
-                                    error.kind(),
-                                    ValidationErrorKind::UnevaluatedItems { .. }
-                                ) && !unevaluated.refuses_items(&path))
-                            {
+                            if inside(&path, &placeholders) {
                                 return Vec::new();
                             }
                             // The schema's docs for the value (`x-docs-url`):
@@ -974,16 +998,57 @@ pub(super) fn validate_with(
                             };
                             // Each unknown key gets its own marker and message, so every
                             // one is underlined and reachable with F8.
-                            let locations: Vec<(Option<Span>, String)> = if let Some(unexpected) =
-                                match error.kind() {
-                                    ValidationErrorKind::AdditionalProperties { unexpected } => {
-                                        Some(unexpected.iter().collect::<Vec<_>>())
-                                    }
-                                    ValidationErrorKind::UnevaluatedProperties { unexpected } => {
-                                        Some(unevaluated.refused_keys(&path, unexpected))
-                                    }
-                                    _ => None,
-                                } {
+                            // Each item a list refuses gets its own marker
+                            // where it is written, as an item `items: false`
+                            // refuses does.
+                            let refused_items = match error.kind() {
+                                ValidationErrorKind::AdditionalItems { limit } => Some(
+                                    (*limit..error.instance().as_array().map_or(0, Vec::len))
+                                        .collect(),
+                                ),
+                                ValidationErrorKind::UnevaluatedItems { unexpected } => {
+                                    Some(unevaluated.refused_items(&path, unexpected))
+                                }
+                                _ => None,
+                            };
+                            let locations: Vec<(Option<Span>, String)> = if let Some(indices) =
+                                refused_items
+                            {
+                                indices
+                                    .into_iter()
+                                    .take(MAX_DIAGNOSTICS + 1)
+                                    .filter_map(|index| {
+                                        let item = error.instance().as_array()?.get(index)?.clone();
+                                        let pointer = format!("{path}/{index}");
+                                        let block =
+                                            item.as_object().is_some_and(|map| !map.is_empty())
+                                                || item
+                                                    .as_array()
+                                                    .is_some_and(|items| !items.is_empty());
+                                        let span = super::paths::problem_span(
+                                            behavior, source, &pointer, false, block,
+                                        );
+                                        let value = if secret(&pointer) {
+                                            strings.secret_value.clone()
+                                        } else {
+                                            item.to_string()
+                                        };
+                                        let message = format!(
+                                            "{pointer}: {}",
+                                            super::false_schema::message(&value)
+                                        );
+                                        Some((span, message))
+                                    })
+                                    .collect()
+                            } else if let Some(unexpected) = match error.kind() {
+                                ValidationErrorKind::AdditionalProperties { unexpected } => {
+                                    Some(unexpected.iter().collect::<Vec<_>>())
+                                }
+                                ValidationErrorKind::UnevaluatedProperties { unexpected } => {
+                                    Some(unevaluated.refused_keys(&path, unexpected))
+                                }
+                                _ => None,
+                            } {
                                 let parent = error.instance_path().as_str();
                                 // Only as many as can be shown are located: each is a scan.
                                 unexpected
@@ -991,10 +1056,9 @@ pub(super) fn validate_with(
                                     .take(MAX_DIAGNOSTICS + 1)
                                     .map(|key| {
                                         let pointer = format!("{parent}/{}", escape_pointer(key));
-                                        let span = super::codec::inline_location(
-                                            behavior, source, &pointer, true,
-                                        )
-                                        .or_else(|| behavior.key_span(source, &pointer));
+                                        let span = super::paths::problem_key_span(
+                                            behavior, source, &pointer,
+                                        );
                                         let message = if behavior.text_key() == Some(key.as_str()) {
                                             // XML mixed content: text beside child elements.
                                             strings.text_not_allowed.clone()
@@ -1072,6 +1136,9 @@ pub(super) fn validate_with(
             schema, behavior, source, &document,
         ));
         diagnostics.extend(deprecated);
+        // In the order they are written (the validator finds them in the
+        // schema's order); one with no place first.
+        diagnostics.sort_by_key(|diagnostic| (diagnostic.line, diagnostic.column));
         return capped(diagnostics, strings);
     }
     let mut found = deprecated;
@@ -1178,9 +1245,7 @@ fn deprecation_warnings(
         .into_iter()
         .filter_map(|found| {
             // The key alone, struck through as VS Code does.
-            let span = behavior.key_span(source, &found.pointer).or_else(|| {
-                super::codec::inline_location(behavior, source, &found.pointer, true)
-            })?;
+            let span = super::paths::problem_key_span(behavior, source, &found.pointer)?;
             let message = match &found.message {
                 Some(instead) => fill(
                     &strings.key_deprecated_instead,
@@ -1213,12 +1278,12 @@ fn deprecation_warnings(
         .collect()
 }
 
-/// Whether `branch` (an option's errors) fails only because the value at
-/// `path` has another type (`null` for an object): the value was not meant
-/// for it.
+/// Whether `branch` (an option's errors) wants another type for the value
+/// at `path` (`null` for an object; `1.5` for an option of text and a
+/// list of words, whatever else it says): the value was not meant for it.
 #[cfg(feature = "schema-validation")]
 fn wrong_type(branch: &[ValidationError<'_>], path: &str) -> bool {
-    branch.iter().all(|nested| {
+    branch.iter().any(|nested| {
         matches!(nested.kind(), ValidationErrorKind::Type { .. })
             && nested.instance_path().as_str() == path
     })

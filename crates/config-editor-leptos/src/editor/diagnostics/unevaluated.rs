@@ -96,18 +96,34 @@ impl<'a> Unevaluated<'a> {
             .collect()
     }
 
-    /// Whether the array at `path`, refused items, has an item no applied
-    /// subschema could evaluate.
-    pub(super) fn refuses_items(&self, path: &str) -> bool {
-        if !self.beside_errors(path) {
-            return true;
-        }
+    /// The indices of the items of the array at `path` to report, of
+    /// those refused (`unexpected`, each item as JSON): each is marked
+    /// where it is written.
+    pub(super) fn refused_items(&self, path: &str, unexpected: &[String]) -> Vec<usize> {
         let (branches, instance) = self.branches(path);
-        let length = instance.and_then(Value::as_array).map_or(0, Vec::len);
-        (0..length).any(|index| {
-            !branches
-                .iter()
-                .any(|branch| item_schema(branch, index).is_some())
-        })
+        let items = instance
+            .and_then(Value::as_array)
+            .map_or(&[][..], Vec::as_slice);
+        if !self.beside_errors(path) {
+            // The validator's answer: the items it names, in order.
+            let mut named = unexpected.iter().peekable();
+            return (0..items.len())
+                .filter(|index| {
+                    named
+                        .next_if(|name| {
+                            serde_json::from_str::<Value>(name)
+                                .is_ok_and(|named| named == items[*index])
+                        })
+                        .is_some()
+                })
+                .collect();
+        }
+        (0..items.len())
+            .filter(|index| {
+                !branches
+                    .iter()
+                    .any(|branch| item_schema(branch, *index).is_some())
+            })
+            .collect()
     }
 }

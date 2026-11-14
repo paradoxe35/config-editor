@@ -59,6 +59,21 @@ fn shared_of(source: &str) -> (HashMap<String, String>, Vec<Shared>) {
     (anchors, aliases)
 }
 
+/// [`shared_of`] and the value of a text: read once for all the places a
+/// batch of problems asks for (see `paths::batch_cached`).
+struct Sharing {
+    anchors: HashMap<String, String>,
+    aliases: Vec<Shared>,
+    value: Option<Value>,
+}
+
+fn sharing(source: &str) -> std::rc::Rc<Sharing> {
+    crate::editor::paths::batch_cached(source, || {
+        let (anchors, aliases) = shared_of(source);
+        Sharing { anchors, aliases, value: YamlBehavior.parse(source).ok() }
+    })
+}
+
 /// The pointer under an anchor where `pointer` is written when it reads
 /// through an alias (`c: *x` reads `/c/b` from `/a/b` of `a: &x`) or a
 /// merge (`<<: *x`), through several in turn; `None` when it reads through
@@ -67,8 +82,9 @@ pub(super) fn written_at(source: &str, pointer: &str) -> Option<String> {
     if !source.contains('*') {
         return None;
     }
-    let (anchors, aliases) = shared_of(source);
-    let value = YamlBehavior.parse(source).ok()?;
+    let sharing = sharing(source);
+    let Sharing { anchors, aliases, value } = &*sharing;
+    let value = value.as_ref()?;
     let mut at = pointer.to_string();
     let mut moved = false;
     // Each alias or merge passed on the way, at most once; of several
@@ -370,7 +386,3 @@ fn own_keys(source: &str, line_start: usize, indent: usize) -> Vec<String> {
     keys
 }
 
-/// A key as YAML writes it bare where it can.
-fn yaml_key(key: &str) -> String {
-    if is_plain_identifier(key) { key.to_string() } else { super::suggestions::yaml_quoted(key) }
-}

@@ -14,7 +14,8 @@
 //! - `save`: the last check before an Edit-as save reaches the host;
 //! - `tokens`, `secrets`: secret placeholders, atomic and followed through
 //!   edits; `problems`: placeholders the host did not give; `glued`: text
-//!   beside a placeholder given as a field's whole value;
+//!   beside a placeholder given as a field's whole value; `whole_guard`: the
+//!   check every edit passes for those;
 //! - `suggest`: what suggestions leave out, and reference forms in secrets;
 //! - `live`: the editor's signals, the check wired in, the tooltip;
 //! - `view`: the gutter lock and muted values of each line;
@@ -44,6 +45,7 @@ mod suggest;
 mod texts;
 mod tokens;
 mod view;
+mod whole_guard;
 
 pub(super) use components::ProtectTipView;
 pub(crate) use glued::glued_message;
@@ -79,15 +81,6 @@ mod arrival_tests;
     feature = "xml"
 ))]
 mod block_tests;
-#[cfg(all(
-    test,
-    feature = "yaml",
-    feature = "json",
-    feature = "toml",
-    feature = "hcl",
-    feature = "xml"
-))]
-mod bom_tests;
 #[cfg(all(
     test,
     feature = "yaml",
@@ -349,6 +342,15 @@ mod point_problem_tests;
     feature = "hcl",
     feature = "xml"
 ))]
+mod range_scale_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
 mod reach_tests;
 #[cfg(all(
     test,
@@ -413,3 +415,21 @@ mod tests;
     feature = "xml"
 ))]
 mod typing_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod value_kept_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod whole_guard_tests;

@@ -245,6 +245,14 @@ mod xml_attributes;
     feature = "hcl",
     feature = "xml"
 ))]
+mod xml_children_indent;
+#[cfg(all(
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
 mod xml_comments;
 #[cfg(all(
     feature = "yaml",
@@ -254,6 +262,14 @@ mod xml_comments;
     feature = "xml"
 ))]
 mod xml_declarations;
+#[cfg(all(
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod xml_item_markup;
 #[cfg(all(
     feature = "yaml",
     feature = "json",

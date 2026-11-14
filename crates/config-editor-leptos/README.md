@@ -365,7 +365,7 @@ they come.
 <!-- Generated from crates/config-editor-leptos/src/strings.rs by js/config-editor/tests/settings.rs; do not edit. Regenerate with `UPDATE_GENERATED=1 cargo test -p config-editor-js --test settings`. -->
 
 <details>
-<summary>Every text and its default (194 texts)</summary>
+<summary>Every text and its default (198 texts)</summary>
 
 | Field                           | Default                                                                                                                                     |                                                                                                                                                                                                                                                |
 | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -529,7 +529,7 @@ they come.
 | `reference_type`                | `"reference"`                                                                                                                               | The type column of a reference suggestion.                                                                                                                                                                                                     |
 | `closes_tag`                    | `"Closes <{name}>"`                                                                                                                         | The detail of the end tag XML suggests.                                                                                                                                                                                                        |
 | `end_tag`                       | `"end tag"`                                                                                                                                 | Its type column.                                                                                                                                                                                                                               |
-| `no_suggestions`                | `"No suggestions"`                                                                                                                          | Said when typing empties a list opened with Ctrl+Space or moved in; a list that opened by itself closes silently.                                                                                                                              |
+| `no_suggestions`                | `"No suggestions"`                                                                                                                          | Said when Ctrl+Space finds nothing to offer, and when typing empties a list opened with Ctrl+Space or moved in; a list that opened by itself closes silently.                                                                                  |
 | `key_not_allowed`               | `"\"{key}\" is not allowed here"`                                                                                                           | A key the schema does not allow (`{key}`); its object's pointer goes before it (`/web: `), as before every schema problem but at the root.                                                                                                     |
 | `text_not_allowed`              | `"text is not allowed here, only elements"`                                                                                                 | Text in an element the schema wants elements in (XML); the element's pointer goes before it.                                                                                                                                                   |
 | `key_deprecated`                | `"{pointer}: \"{key}\" is deprecated"`                                                                                                      | A deprecated key.                                                                                                                                                                                                                              |
@@ -537,6 +537,10 @@ they come.
 | `not_one_of`                    | `"{value} is not one of {allowed}"`                                                                                                         | A value not among the allowed ones.                                                                                                                                                                                                            |
 | `wrong_type`                    | `"{value} is not of type {types}"`                                                                                                          | A value of none of the accepted types.                                                                                                                                                                                                         |
 | `not_format`                    | `"{value} is not a valid {format}"`                                                                                                         | A value out of its `format` (checked up to draft-07): `{format}` is its name, quoted.                                                                                                                                                          |
+| `no_item_contained`             | `"{value} has no item its \"contains\" schema allows"`                                                                                      | A list (`{value}`) with no item its `contains` schema allows.                                                                                                                                                                                  |
+| `too_few_contained`             | `"{value} has fewer than {limit} items its \"contains\" schema allows"`                                                                     | A list (`{value}`) with fewer items its `contains` schema allows than its `minContains` (`{limit}`).                                                                                                                                           |
+| `too_many_contained`            | `"{value} has more than {limit} items its \"contains\" schema allows"`                                                                      | A list (`{value}`) with more items its `contains` schema allows than its `maxContains` (`{limit}`).                                                                                                                                            |
+| `must_not_match`                | `"{value} must not match {schema}"`                                                                                                         | A value its `not` schema (`{schema}`, as JSON) matches.                                                                                                                                                                                        |
 | `no_option_matches`             | `"matches none of the {keyword} options: {reasons}"`                                                                                        | A value that matches none of a schema's options (`{keyword}`: `oneOf` or `anyOf`), with why each fails (`{reasons}`, each worded by `option_needs`, `option_refuses` or `option_problem`, joined by `; `).                                     |
 | `several_options_match`         | `"matches more than one of the oneOf options ({options}); only one may match"`                                                              | A value that matches more than one of a `oneOf`'s options (`{options}`, their names joined by `, `).                                                                                                                                           |
 | `option_needs`                  | `"{option} needs \"{key}\""`                                                                                                                | An option (`{option}`) that needs a key the value does not have.                                                                                                                                                                               |
@@ -1206,10 +1210,14 @@ view! { <ConfigEditor value=text schema=SCHEMA secrets=secrets /> }
   over lines (a YAML block scalar of any chomping, folding or indentation
   indicator, a TOML `"""` string, an HCL heredoc, XML text on its own line)
   is its field's whole value too: the line breaks and indentation the form
-  puts around it are not text beside it. Text that gets there while the
-  document does not parse is flagged at the token once it does, a save
-  holding it waits (in the host's language too), and only taking that text
-  away is free until then. A token the host wrote inside longer text is the
+  puts around it are not text beside it, and its value keeps them: no edit
+  changes that value but one taking the token away whole, whatever makes
+  it (a line indented, moved or copied into a block scalar or heredoc, a
+  closing line deleted, a line break joined away, Replace All, undo), while
+  the document parses and while it has a syntax error elsewhere (then the
+  value's text is held as a read-only field's is). Text beside one that
+  gets there anyway is flagged at the token and a save holding it waits.
+  A token the host wrote inside longer text is the
   host's to embed: editing around it is free. When the host's own `value`
   does not parse, the host's characters decide which tokens are a field's
   whole value: one is when the language finds that field's value written
@@ -1546,6 +1554,9 @@ no key, an unknown attribute beside a wildcard): the verdicts agree.
 
 ## Keyboard
 
+<!-- keyboard:start -->
+<!-- Generated from crates/config-editor-leptos/src/editor/a11y/keyboard.rs by its tests; do not edit. Regenerate with `UPDATE_GENERATED=1 cargo test -p config-editor-leptos --lib keyboard`. -->
+
 | Keys                                         | Action                                                                                                                                                                                          |
 | -------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `Ctrl+Space`                                 | Open suggestions (with schema examples)                                                                                                                                                         |
@@ -1585,7 +1596,9 @@ no key, an unknown attribute beside a wildcard): the verdicts agree.
 | `Escape`                                     | Close popups and the find widget, then collapse the selection                                                                                                                                   |
 | `Alt+PageDown` / `Alt+PageUp`                | Next / previous document in a `ConfigDocuments` view                                                                                                                                            |
 
-`Cmd` works in place of `Ctrl` on macOS.
+`Cmd` works in place of `Ctrl` on macOS, except in `Ctrl+Space`, `Ctrl+M` and `Ctrl+Y`.
+
+<!-- keyboard:end -->
 
 ### Keyboard and screen-reader access
 
@@ -1615,7 +1628,11 @@ message of each problem there, the editor's or the host's ("Warning from
 validator: port in use"), why a read-only value is read-only, a secret
 placeholder's hint. It follows the caret a moment after it stops. `F8` and
 `Shift+F8` announce the problem they move to through a polite live region
-("Error 2 of 5: …"). The suggestion list is a `listbox`, hover help a
+("Error 2 of 5: …"). `Ctrl+Space` with nothing to suggest says "No
+suggestions". A save the editor refuses (the text does not parse) is
+announced with its reason; a save it sends is not: `on_save` owns the result
+(the write can still fail on the host's side), so the host announces
+"Saved" once it is done. The suggestion list is a `listbox`, hover help a
 `tooltip`, the change preview a `dialog`, and the footer's problem count
 `aria-live` (the change count is a button: `Alt+F5` announces each change).
 The text area names the single keys that work in it, with the settings it has
@@ -2059,6 +2076,13 @@ being styled as an editor: give it the class `config-editor-theme` with
 `data-color-theme` (`EditorTheme::as_str`), and read `var(--config-editor-bg)`
 and the rest inside it (the demo's page does). The `config-editor` class is
 the editor's own: on a wrapper it would also style the wrapper as one.
+
+The page's own rules for bare elements and attributes (a CSS framework's
+`input`, `button`, `[type='text']` or `span` rules, loaded before the
+editor or after) never reach the controls and text the editor draws: those
+start from the browser's own styles, and the preset's rules for them carry
+an id's weight. Restyle the editor through these tokens and its roots
+(`.config-editor`, `.config-editor-documents`).
 
 </details>
 

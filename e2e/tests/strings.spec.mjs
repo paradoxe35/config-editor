@@ -22,6 +22,10 @@ test.skip(!built, 'js packages not built: run `npm run build` in js/');
 // `status_bar`, `protect`, `diagnostics`).
 const ELSEWHERE = {
   noSuggestions: 'said only for a list the user asked for (Ctrl+Space or moving in it): completion-window.spec',
+  noItemContained: 'contains/minContains/maxContains/not wording, in every language: tests/schema_message_kinds.rs',
+  tooFewContained: 'as noItemContained',
+  tooManyContained: 'as noItemContained',
+  mustNotMatch: 'as noItemContained',
   infosOne: 'info-level problems come from hosts; counts are unit tested',
   infosOther: 'as infosOne',
   problemCode: 'a host problem with a code: a11y tests and host-diagnostics.spec',

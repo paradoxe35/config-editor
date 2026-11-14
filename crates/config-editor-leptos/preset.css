@@ -107,6 +107,13 @@
      textarea and the overlay, and the gap grows with every line. */
   color: var(--config-editor-text);
   font: 13px/1.65 ui-monospace, var(--config-editor-mono);
+  /* The page's text spacing is not inherited: the textarea takes none of
+     it, and the highlighted text over it must lay out as it does. */
+  letter-spacing: normal;
+  word-spacing: normal;
+  text-indent: 0;
+  text-transform: none;
+  text-shadow: none;
 }
 
 .config-editor *,
@@ -115,11 +122,28 @@
   box-sizing: border-box;
 }
 
+/* The host shield. The page's own rules for bare elements, attributes or
+   `:not()` (`input { width: 100% }`, `span { margin: 2px }`, a framework's
+   `input:not([type=checkbox])` or `[type='text']`, loaded before the
+   editor or after) never reach the controls and text the editor draws:
+   each such element starts from the browser's own styles, and every rule
+   of the editor's for what is inside it carries `:not(#\#)` (an id's
+   weight that matches every element), so it outweighs the page's rules
+   but for ids and `!important`. Restyle the editor through its color
+   tokens and its roots (`.config-editor`, `.config-editor-documents`).
+   The toolbar and a host's own toolbar or footer (`ConfigEditorToolbar`,
+   `ConfigEditorFooter`) hold the page's elements: their contents keep the
+   page's look. */
+:where(.config-editor, .config-editor-documents) :is(input, button, textarea, select, span, a, code, kbd, pre, strong, em, b, i, small, p, h1, h2, h3, h4, ul, ol, li, label):where(:not(.config-editor__toolbar *, .config-editor.config-editor__status *)):not(#\#) {
+  all: revert;
+  box-sizing: border-box;
+}
+
 /* A column as tall as the editor: given a height (`height: 100%` in an
    element of a set height, or a documents panel), the text area takes what
    the toolbar and footer leave, down to its minimum height; without one,
    the text sizes it. */
-.config-editor__frame {
+:not(#\#) .config-editor__frame {
   height: 100%;
   display: flex;
   flex-direction: column;
@@ -130,11 +154,11 @@
   background: var(--config-editor-panel);
 }
 
-.config-editor__frame > * { flex: none; }
+:not(#\#) .config-editor__frame > * { flex: none; }
 
 /* Tells the editor whether its height is given (see `fill.rs`): as tall as
    the editor then, nothing when the content sizes it. */
-.config-editor__fill-probe {
+:not(#\#) .config-editor__fill-probe {
   float: left;
   width: 0;
   height: 100%;
@@ -145,23 +169,23 @@
 /* A given height is filled however short or tall: the text area takes what
    the toolbar and footer leave, with no minimum or maximum of its own
    (unless the host sets one). */
-.config-editor__fills .config-editor__surface {
+:not(#\#) .config-editor__fills .config-editor__surface {
   min-height: var(--config-editor-min-height, 0);
   height: auto;
   max-height: var(--config-editor-max-height, none);
 }
-.config-editor__fills .config-editor__highlight,
-.config-editor__fills .config-editor__input {
+:not(#\#) .config-editor__fills .config-editor__highlight,
+:not(#\#) .config-editor__fills .config-editor__input {
   min-height: var(--config-editor-min-height, 0);
 }
-.config-editor__fills .config-editor__input {
+:not(#\#) .config-editor__fills .config-editor__input {
   flex: 1 1 0;
   height: auto;
   max-height: var(--config-editor-max-height, none);
   resize: none;
 }
 
-.config-editor__frame:focus-within {
+:not(#\#) .config-editor__frame:focus-within {
   border-color: var(--config-editor-accent);
 }
 
@@ -201,8 +225,8 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.config-editor__file-icon { flex: none; }
-.config-editor__file-icon {
+:not(#\#) .config-editor__file-icon { flex: none; }
+:not(#\#) .config-editor__file-icon {
   width: 17px;
   height: 17px;
   display: grid;
@@ -224,7 +248,7 @@
   border-left: 1px solid var(--config-editor-border);
 }
 
-.config-editor__action-button {
+:not(#\#) .config-editor__action-button {
   padding: 5px 10px;
   border: 1px solid var(--config-editor-raised-border);
   border-radius: 4px;
@@ -236,19 +260,19 @@
 
 /* A host's button in the toolbar keeps its own height (the row stretches
    the file name's underline, not buttons). */
-.config-editor__toolbar > .config-editor__action-button { align-self: center; }
+:not(#\#) .config-editor__toolbar > .config-editor__action-button { align-self: center; }
 
-.config-editor__action-button:hover:not(:disabled) {
+:not(#\#) .config-editor__action-button:hover:not(:disabled) {
   background: var(--config-editor-raised-hover);
 }
 
-.config-editor__action-button:disabled {
+:not(#\#) .config-editor__action-button:disabled {
   color: var(--config-editor-control-disabled-text);
   cursor: default;
 }
 
 /* The notice when the host's baseline changed under unsaved edits. */
-.config-editor__notice {
+:not(#\#) .config-editor__notice {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -262,10 +286,10 @@
   font: 12px ui-sans-serif, system-ui, sans-serif;
 }
 
-.config-editor__notice[hidden] { display: none; }
+:not(#\#) .config-editor__notice[hidden] { display: none; }
 
 /* Editing as another language: a quiet line under the toolbar. */
-.config-editor__edit-as-notice {
+:not(#\#) .config-editor__edit-as-notice {
   display: flex;
   align-items: flex-start;
   gap: 8px;
@@ -277,11 +301,11 @@
   font: 12px/1.5 ui-sans-serif, system-ui, sans-serif;
 }
 
-.config-editor__edit-as-notice[hidden] { display: none; }
+:not(#\#) .config-editor__edit-as-notice[hidden] { display: none; }
 
-.config-editor__edit-as-notice-message { flex: 1; min-width: 0; }
+:not(#\#) .config-editor__edit-as-notice-message { flex: 1; min-width: 0; }
 
-.config-editor__edit-as-notice-dismiss {
+:not(#\#) .config-editor__edit-as-notice-dismiss {
   flex: none;
   /* A 24px target (WCAG 2.5.8), taking no more room than its line. */
   width: 24px;
@@ -296,21 +320,21 @@
   cursor: pointer;
 }
 
-.config-editor__edit-as-notice-dismiss:hover {
+:not(#\#) .config-editor__edit-as-notice-dismiss:hover {
   background: var(--config-editor-raised-hover);
   color: var(--config-editor-raised-text);
 }
 
-.config-editor__edit-as-notice-dismiss:focus-visible {
+:not(#\#) .config-editor__edit-as-notice-dismiss:focus-visible {
   outline: 2px solid var(--config-editor-focus-ring);
   outline-offset: -2px;
 }
 
-.config-editor__notice-detail { color: var(--config-editor-raised-muted); }
+:not(#\#) .config-editor__notice-detail { color: var(--config-editor-raised-muted); }
 
-.config-editor__notice-actions { display: flex; gap: 6px; }
+:not(#\#) .config-editor__notice-actions { display: flex; gap: 6px; }
 
-.config-editor__notice-button {
+:not(#\#) .config-editor__notice-button {
   padding: 3px 10px;
   border: 1px solid var(--config-editor-raised-border);
   border-radius: 4px;
@@ -320,9 +344,9 @@
   cursor: pointer;
 }
 
-.config-editor__notice-button:hover { background: var(--config-editor-raised-hover); }
+:not(#\#) .config-editor__notice-button:hover { background: var(--config-editor-raised-hover); }
 
-.config-editor__notice-button:focus-visible {
+:not(#\#) .config-editor__notice-button:focus-visible {
   outline: 2px solid var(--config-editor-focus-ring);
   outline-offset: 1px;
 }
@@ -330,7 +354,7 @@
 /* At most 80% of the window, and short enough that the editor with its
    tab bar and footer fits a short window whole (QA 21: in a 300px window
    the footer was cut off). */
-.config-editor__surface {
+:not(#\#) .config-editor__surface {
   position: relative;
   flex: 1 1 auto;
   min-height: var(--config-editor-min-height, min(240px, var(--config-editor-height, 240px), 100vh - 80px));
@@ -342,7 +366,7 @@
 }
 
 /* Above the text layers, opaque: code scrolled sideways passes under it. */
-.config-editor__gutter {
+:not(#\#) .config-editor__gutter {
   position: relative;
   z-index: 5;
   background: var(--config-editor-bg);
@@ -371,19 +395,19 @@
   line-height: var(--config-editor-line-height);
 }
 
-.config-editor__gutter-content > div {
+:not(#\#) .config-editor__gutter-content > div {
   position: relative;
   height: 1lh;
   cursor: pointer;
 }
 
-.config-editor__line-number-active { color: var(--config-editor-line-active); }
+:not(#\#) .config-editor__line-number-active { color: var(--config-editor-line-active); }
 /* A changed or broken line's number takes its marker's color, unless the
    theme gives a darker one (a line number is text, 4.5:1 on the editor). */
-.config-editor__line-number-error { color: var(--config-editor-line-number-error, var(--config-editor-error)); }
-.config-editor__line-number-added { color: var(--config-editor-line-number-added, var(--config-editor-added)); }
-.config-editor__line-number-modified { color: var(--config-editor-line-number-modified, var(--config-editor-modified)); }
-.config-editor__line-number-error::before {
+:not(#\#) .config-editor__line-number-error { color: var(--config-editor-line-number-error, var(--config-editor-error)); }
+:not(#\#) .config-editor__line-number-added { color: var(--config-editor-line-number-added, var(--config-editor-added)); }
+:not(#\#) .config-editor__line-number-modified { color: var(--config-editor-line-number-modified, var(--config-editor-modified)); }
+:not(#\#) .config-editor__line-number-error::before {
   position: absolute;
   top: 8px;
   left: calc(var(--config-editor-marker-column) - 9px);
@@ -395,7 +419,7 @@
 }
 
 /* A read-only line: a lock before the number. */
-.config-editor__lock-marker {
+:not(#\#) .config-editor__lock-marker {
   position: absolute;
   top: calc(50% - 5px);
   left: calc(var(--config-editor-marker-column) - 20px);
@@ -406,8 +430,8 @@
 
 /* The lock's and the key's icons: inline SVG (a strict CSP refuses
    `data:` images). */
-.config-editor__lock-marker svg,
-.config-editor__secret-marker svg {
+:not(#\#) .config-editor__lock-marker svg,
+:not(#\#) .config-editor__secret-marker svg {
   display: block;
   width: 100%;
   height: 100%;
@@ -415,7 +439,7 @@
 }
 
 /* A line with a secret placeholder: a key before the number. */
-.config-editor__secret-marker {
+:not(#\#) .config-editor__secret-marker {
   position: absolute;
   top: calc(50% - 5px);
   left: calc(var(--config-editor-marker-column) - 20px);
@@ -426,19 +450,19 @@
 
 /* A secret placeholder: a chip, drawn without changing the text's width
    (the textarea above holds the same characters). */
-.config-editor__highlight .config-editor__secret {
+:not(#\#) .config-editor__highlight .config-editor__secret {
   border-radius: 3px;
   background: var(--config-editor-secret-chip);
   box-shadow: inset 0 0 0 1px var(--config-editor-secret-chip-border);
 }
 
 /* A read-only value, muted (its key keeps its color). */
-.config-editor__highlight .config-editor__locked,
-.config-editor__highlight .config-editor__locked > span {
+:not(#\#) .config-editor__highlight .config-editor__locked,
+:not(#\#) .config-editor__highlight .config-editor__locked > span {
   color: var(--config-editor-locked);
 }
 
-.config-editor__diff-marker {
+:not(#\#) .config-editor__diff-marker {
   position: absolute;
   top: 0;
   right: -9px;
@@ -449,17 +473,17 @@
   background: transparent;
 }
 
-.config-editor__diff-marker-added { background: var(--config-editor-added); }
-.config-editor__diff-marker-modified { background: var(--config-editor-modified); }
+:not(#\#) .config-editor__diff-marker-added { background: var(--config-editor-added); }
+:not(#\#) .config-editor__diff-marker-modified { background: var(--config-editor-modified); }
 
-.config-editor__diff-marker-added,
-.config-editor__diff-marker-modified {
+:not(#\#) .config-editor__diff-marker-added,
+:not(#\#) .config-editor__diff-marker-modified {
   cursor: pointer;
   transition: width 100ms ease, right 100ms ease, box-shadow 100ms ease;
 }
 
-.config-editor__diff-marker-added::after,
-.config-editor__diff-marker-modified::after {
+:not(#\#) .config-editor__diff-marker-added::after,
+:not(#\#) .config-editor__diff-marker-modified::after {
   position: absolute;
   top: 0;
   right: -4px;
@@ -468,27 +492,27 @@
   content: "";
 }
 
-.config-editor__diff-marker-added:hover,
-.config-editor__diff-marker-added:focus-visible,
-.config-editor__diff-marker-modified:hover,
-.config-editor__diff-marker-modified:focus-visible {
+:not(#\#) .config-editor__diff-marker-added:hover,
+:not(#\#) .config-editor__diff-marker-added:focus-visible,
+:not(#\#) .config-editor__diff-marker-modified:hover,
+:not(#\#) .config-editor__diff-marker-modified:focus-visible {
   right: -10px;
   width: 5px;
 }
 
-.config-editor__diff-marker-added:hover,
-.config-editor__diff-marker-added:focus-visible {
+:not(#\#) .config-editor__diff-marker-added:hover,
+:not(#\#) .config-editor__diff-marker-added:focus-visible {
   background: var(--config-editor-added);
   box-shadow: 0 0 4px color-mix(in srgb, var(--config-editor-added) 70%, transparent);
 }
 
-.config-editor__diff-marker-modified:hover,
-.config-editor__diff-marker-modified:focus-visible {
+:not(#\#) .config-editor__diff-marker-modified:hover,
+:not(#\#) .config-editor__diff-marker-modified:focus-visible {
   background: var(--config-editor-modified);
   box-shadow: 0 0 4px color-mix(in srgb, var(--config-editor-modified) 70%, transparent);
 }
 
-.config-editor__diff-deleted {
+:not(#\#) .config-editor__diff-deleted {
   position: absolute;
   z-index: 1;
   top: -3px;
@@ -501,12 +525,12 @@
   cursor: pointer;
 }
 
-.config-editor__diff-deleted-after {
+:not(#\#) .config-editor__diff-deleted-after {
   top: auto;
   bottom: -3px;
 }
 
-.config-editor__diff-deleted::before {
+:not(#\#) .config-editor__diff-deleted::before {
   position: absolute;
   top: 4px;
   right: 0;
@@ -518,32 +542,32 @@
   transition: height 100ms ease, top 100ms ease, box-shadow 100ms ease;
 }
 
-.config-editor__diff-deleted-after::before {
+:not(#\#) .config-editor__diff-deleted-after::before {
   top: auto;
   bottom: 4px;
 }
 
-.config-editor__diff-deleted:hover::before,
-.config-editor__diff-deleted:focus-visible::before {
+:not(#\#) .config-editor__diff-deleted:hover::before,
+:not(#\#) .config-editor__diff-deleted:focus-visible::before {
   top: 3px;
   height: 5px;
   background: var(--config-editor-removed);
   box-shadow: 0 0 4px color-mix(in srgb, var(--config-editor-removed) 65%, transparent);
 }
 
-.config-editor__diff-deleted-after:hover::before,
-.config-editor__diff-deleted-after:focus-visible::before {
+:not(#\#) .config-editor__diff-deleted-after:hover::before,
+:not(#\#) .config-editor__diff-deleted-after:focus-visible::before {
   top: auto;
   bottom: 3px;
 }
 
-.config-editor__diff-change-trigger:focus-visible,
-.config-editor__diff-deleted:focus-visible {
+:not(#\#) .config-editor__diff-change-trigger:focus-visible,
+:not(#\#) .config-editor__diff-deleted:focus-visible {
   outline: 1px solid var(--config-editor-diff-focus-ring);
   outline-offset: 1px;
 }
 
-.config-editor__diff-peek {
+:not(#\#) .config-editor__diff-peek {
   position: absolute;
   /* Above the find and Go to Line widgets: the peek hangs from its line,
      they sit in the corner, and on a narrow editor they cover its header
@@ -559,7 +583,7 @@
   font: 12px/1.5 ui-sans-serif, system-ui, sans-serif;
 }
 
-.config-editor__diff-peek-header {
+:not(#\#) .config-editor__diff-peek-header {
   position: sticky;
   z-index: 1;
   top: 0;
@@ -572,7 +596,7 @@
   background: var(--config-editor-raised);
 }
 
-.config-editor__diff-peek-header button {
+:not(#\#) .config-editor__diff-peek-header button {
   width: 24px;
   height: 24px;
   padding: 0;
@@ -584,40 +608,40 @@
   font: 18px/1 ui-sans-serif, system-ui, sans-serif;
 }
 
-.config-editor__diff-peek-header button:hover,
-.config-editor__diff-peek-header button:focus-visible { background: var(--config-editor-raised-hover); }
+:not(#\#) .config-editor__diff-peek-header button:hover,
+:not(#\#) .config-editor__diff-peek-header button:focus-visible { background: var(--config-editor-raised-hover); }
 
 /* On one line however narrow the screen (its title tells it whole). */
-.config-editor__diff-peek-title {
+:not(#\#) .config-editor__diff-peek-title {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.config-editor__diff-peek-actions { display: flex; flex: none; align-items: center; gap: 4px; }
+:not(#\#) .config-editor__diff-peek-actions { display: flex; flex: none; align-items: center; gap: 4px; }
 
-.config-editor__diff-peek-header .config-editor__diff-peek-revert {
+:not(#\#) .config-editor__diff-peek-header .config-editor__diff-peek-revert {
   width: auto;
   padding: 0 8px;
   border: 1px solid var(--config-editor-raised-border);
   font: 12px/1 ui-sans-serif, system-ui, sans-serif;
 }
 
-.config-editor__diff-peek-header .config-editor__diff-peek-revert:focus-visible {
+:not(#\#) .config-editor__diff-peek-header .config-editor__diff-peek-revert:focus-visible {
   outline: 1px solid var(--config-editor-focus-ring);
   outline-offset: 1px;
 }
 
-.config-editor__diff-peek-columns {
+:not(#\#) .config-editor__diff-peek-columns {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr));
 }
 
-.config-editor__diff-peek-side { min-width: 0; }
-.config-editor__diff-peek-side + .config-editor__diff-peek-side { border-left: 1px solid var(--config-editor-raised-border); }
+:not(#\#) .config-editor__diff-peek-side { min-width: 0; }
+:not(#\#) .config-editor__diff-peek-side + .config-editor__diff-peek-side { border-left: 1px solid var(--config-editor-raised-border); }
 
-.config-editor__diff-peek-side h3 {
+:not(#\#) .config-editor__diff-peek-side h3 {
   margin: 0;
   padding: 5px 10px;
   border-bottom: 1px solid var(--config-editor-diff-peek-divider);
@@ -625,7 +649,7 @@
   font: 11px/1.4 ui-sans-serif, system-ui, sans-serif;
 }
 
-.config-editor__diff-peek-line {
+:not(#\#) .config-editor__diff-peek-line {
   min-height: 22px;
   display: flex;
   gap: 9px;
@@ -633,19 +657,19 @@
   font: 12px/1.5 var(--config-editor-mono);
 }
 
-.config-editor__diff-peek-line > span { flex: 0 0 10px; text-align: center; }
-.config-editor__diff-peek-line code { overflow-wrap: anywhere; white-space: pre-wrap; }
-.config-editor__diff-peek-removed {
+:not(#\#) .config-editor__diff-peek-line > span { flex: 0 0 10px; text-align: center; }
+:not(#\#) .config-editor__diff-peek-line code { overflow-wrap: anywhere; white-space: pre-wrap; }
+:not(#\#) .config-editor__diff-peek-removed {
   background: var(--config-editor-diff-removed-bg);
   color: var(--config-editor-diff-removed-text);
 }
 
-.config-editor__diff-peek-current {
+:not(#\#) .config-editor__diff-peek-current {
   background: var(--config-editor-diff-current-bg);
   color: var(--config-editor-diff-current-text);
 }
 
-.config-editor__input-wrap {
+:not(#\#) .config-editor__input-wrap {
   position: relative;
   display: flex;
   flex-direction: column;
@@ -655,8 +679,8 @@
 }
 /* Within the surface's bounds, so the gutter (stretched to the surface)
    covers every row in a short window. */
-.config-editor__highlight,
-.config-editor__input {
+:not(#\#) .config-editor__highlight,
+:not(#\#) .config-editor__input {
   min-height: var(--config-editor-min-height, min(240px, var(--config-editor-height, 240px), 100vh - 80px));
   padding: var(--config-editor-padding-top) 20px var(--config-editor-padding-bottom) 0;
   border: 0;
@@ -670,7 +694,7 @@
 /* Above the textarea: its selection and caret paint under the highlighted
    text, so selected text keeps its colors and contrast. The overlay takes
    no pointer events, so the textarea still gets every click. */
-.config-editor__highlight {
+:not(#\#) .config-editor__highlight {
   position: absolute;
   z-index: 2;
   inset: 0 auto auto 0;
@@ -683,14 +707,14 @@
 
 /* The overlay must use exactly the textarea's font, or the caret and selection
    drift off the text; browsers give <code> their own monospace otherwise. */
-.config-editor__highlight code,
-.config-editor__highlight span {
+:not(#\#) .config-editor__highlight code,
+:not(#\#) .config-editor__highlight span {
   font: inherit;
 }
 
-.config-editor__row-spacer { display: block; }
+:not(#\#) .config-editor__row-spacer { display: block; }
 
-.config-editor__code-line {
+:not(#\#) .config-editor__code-line {
   width: max-content;
   min-width: 100%;
   height: 1lh;
@@ -699,15 +723,15 @@
 
 /* A piece of a long row: laid out on its own, so an edit lays out again
    only the pieces it changed (see `highlight::pieces`). */
-.config-editor__code-piece { display: inline-block; }
+:not(#\#) .config-editor__code-piece { display: inline-block; }
 
-.config-editor__gutter-content {
+:not(#\#) .config-editor__gutter-content {
   position: relative;
 }
 
 /* Folding: chevrons right of the diff markers, shown while the gutter is
    hovered (always on touch screens and on folded lines). */
-.config-editor__gutter.config-editor__gutter-folding {
+:not(#\#) .config-editor__gutter.config-editor__gutter-folding {
   --config-editor-fold-gutter: 14px;
   width: calc(
     var(--config-editor-marker-column) + var(--config-editor-gutter-digits, 3) * 1ch +
@@ -716,7 +740,7 @@
   padding-right: calc(var(--config-editor-gutter-padding) + var(--config-editor-fold-gutter));
 }
 
-.config-editor__fold-toggle {
+:not(#\#) .config-editor__fold-toggle {
   position: absolute;
   z-index: 1;
   right: calc(-11px - var(--config-editor-fold-gutter));
@@ -732,7 +756,7 @@
   transition: opacity 120ms ease;
 }
 
-.config-editor__fold-toggle::before {
+:not(#\#) .config-editor__fold-toggle::before {
   position: absolute;
   top: 50%;
   left: 4px;
@@ -744,26 +768,26 @@
   transform: translateY(-75%) rotate(45deg);
 }
 
-.config-editor__fold-toggle-closed::before {
+:not(#\#) .config-editor__fold-toggle-closed::before {
   transform: translate(-25%, -50%) rotate(-45deg);
 }
 
-.config-editor__gutter:hover .config-editor__fold-toggle,
-.config-editor__fold-toggle-closed,
-.config-editor__fold-toggle:focus-visible {
+:not(#\#) .config-editor__gutter:hover .config-editor__fold-toggle,
+:not(#\#) .config-editor__fold-toggle-closed,
+:not(#\#) .config-editor__fold-toggle:focus-visible {
   opacity: 1;
 }
 
-.config-editor__fold-toggle:hover {
+:not(#\#) .config-editor__fold-toggle:hover {
   color: var(--config-editor-line-active);
 }
 
 @media (hover: none) {
-  .config-editor__fold-toggle { opacity: 1; }
+  :not(#\#) .config-editor__fold-toggle { opacity: 1; }
 }
 
 /* A closed fold hiding changes: a dotted bar where the diff markers go. */
-.config-editor__fold-changes {
+:not(#\#) .config-editor__fold-changes {
   position: absolute;
   right: -9px;
   width: 3px;
@@ -774,7 +798,7 @@
 
 /* The chips after folded lines, over the text; only the chips take the
    pointer. */
-.config-editor__fold-chips {
+:not(#\#) .config-editor__fold-chips {
   position: absolute;
   z-index: 3;
   inset: 0 auto auto 0;
@@ -785,7 +809,7 @@
   font: var(--config-editor-font-size)/1.8 var(--config-editor-mono);
 }
 
-.config-editor__fold-chip {
+:not(#\#) .config-editor__fold-chip {
   position: absolute;
   height: 1lh;
   padding: 0 0.6ch;
@@ -799,23 +823,23 @@
   pointer-events: auto;
 }
 
-.config-editor__fold-chip:hover {
+:not(#\#) .config-editor__fold-chip:hover {
   color: var(--config-editor-text);
 }
 
 /* A fold hiding problems: its chip underlined in the most serious one's
    colour. */
-.config-editor__fold-chip--error { box-shadow: inset 0 -2px var(--config-editor-error); }
-.config-editor__fold-chip--warning { box-shadow: inset 0 -2px var(--config-editor-warning); }
-.config-editor__fold-chip--info { box-shadow: inset 0 -2px var(--config-editor-info); }
-.config-editor__fold-chip--hint { box-shadow: inset 0 -2px var(--config-editor-hint); }
+:not(#\#) .config-editor__fold-chip--error { box-shadow: inset 0 -2px var(--config-editor-error); }
+:not(#\#) .config-editor__fold-chip--warning { box-shadow: inset 0 -2px var(--config-editor-warning); }
+:not(#\#) .config-editor__fold-chip--info { box-shadow: inset 0 -2px var(--config-editor-info); }
+:not(#\#) .config-editor__fold-chip--hint { box-shadow: inset 0 -2px var(--config-editor-hint); }
 
-.config-editor__code-line-active { background: var(--config-editor-active-line); }
-.config-editor__code-line-error { background: var(--config-editor-error-line); }
-.config-editor__code-line-added { background: var(--config-editor-added-line); }
-.config-editor__code-line-modified { background: var(--config-editor-modified-line); }
+:not(#\#) .config-editor__code-line-active { background: var(--config-editor-active-line); }
+:not(#\#) .config-editor__code-line-error { background: var(--config-editor-error-line); }
+:not(#\#) .config-editor__code-line-added { background: var(--config-editor-added-line); }
+:not(#\#) .config-editor__code-line-modified { background: var(--config-editor-modified-line); }
 
-.config-editor__input {
+:not(#\#) .config-editor__input {
   position: relative;
   z-index: 1;
   flex: 1 1 auto;
@@ -832,10 +856,10 @@
   max-height: var(--config-editor-max-height, min(80vh, 100vh - 80px));
 }
 
-.config-editor__input::selection { background: var(--config-editor-selection); color: transparent; }
-.config-editor__input:focus-visible { outline: none; }
+:not(#\#) .config-editor__input::selection { background: var(--config-editor-selection); color: transparent; }
+:not(#\#) .config-editor__input:focus-visible { outline: none; }
 
-.config-editor__diagnostic-overlay {
+:not(#\#) .config-editor__diagnostic-overlay {
   position: absolute;
   z-index: 3;
   inset: 0 auto auto 0;
@@ -845,7 +869,7 @@
   pointer-events: none;
 }
 
-.config-editor__diagnostic-marker {
+:not(#\#) .config-editor__diagnostic-marker {
   position: absolute;
   height: 1lh;
   overflow: visible;
@@ -867,44 +891,44 @@
 
 /* Warnings (for example a value a converted document's host language cannot
    keep exactly) use VS Code's warning yellow unless a theme sets the token. */
-.config-editor__diagnostic-marker-warning {
+:not(#\#) .config-editor__diagnostic-marker-warning {
   text-decoration-color: var(--config-editor-warning);
 }
 
 /* Info is VS Code's blue; a hint is a quiet dotted underline. */
-.config-editor__diagnostic-marker-info {
+:not(#\#) .config-editor__diagnostic-marker-info {
   text-decoration-color: var(--config-editor-info);
 }
-.config-editor__diagnostic-marker-hint {
+:not(#\#) .config-editor__diagnostic-marker-hint {
   text-decoration: underline dotted var(--config-editor-hint);
   text-decoration-thickness: 2px;
 }
 
 /* A deprecated key is struck through (in the muted text colour) under its
    wavy underline, as VS Code does. */
-.config-editor__diagnostic-marker-deprecated > span {
+:not(#\#) .config-editor__diagnostic-marker-deprecated > span {
   text-decoration: line-through var(--config-editor-muted);
   text-decoration-thickness: 1px;
 }
 
-.config-editor__diagnostic-marker:focus-visible {
+:not(#\#) .config-editor__diagnostic-marker:focus-visible {
   outline: 1px solid var(--config-editor-focus-ring);
   outline-offset: 1px;
 }
 
 /* Over the same text, the more serious problem's underline is drawn on top
    (an error over a warning), and an identical less serious one not at all. */
-.config-editor__diagnostic-marker { z-index: 4; }
-.config-editor__diagnostic-marker-warning { z-index: 3; }
-.config-editor__diagnostic-marker-info { z-index: 2; }
-.config-editor__diagnostic-marker-hint { z-index: 1; }
-.config-editor__diagnostic-marker-covered { text-decoration-line: none; }
+:not(#\#) .config-editor__diagnostic-marker { z-index: 4; }
+:not(#\#) .config-editor__diagnostic-marker-warning { z-index: 3; }
+:not(#\#) .config-editor__diagnostic-marker-info { z-index: 2; }
+:not(#\#) .config-editor__diagnostic-marker-hint { z-index: 1; }
+:not(#\#) .config-editor__diagnostic-marker-covered { text-decoration-line: none; }
 
 /* The problem tip: the messages of the problems at the hovered underline
    (or where F8 went), each with who reported it, its code and docs link.
    Placed inside the editor and the window; no taller than the room there,
    it scrolls. */
-.config-editor__problem-tip {
+:not(#\#) .config-editor__problem-tip {
   position: fixed;
   z-index: 59;
   box-sizing: border-box;
@@ -924,33 +948,33 @@
   overflow-wrap: anywhere;
   white-space: pre-line;
 }
-.config-editor__problem-tip[hidden] { display: none; }
+:not(#\#) .config-editor__problem-tip[hidden] { display: none; }
 /* Clicks go through to the text under it, unless it has a docs link or
    scrolls. */
-.config-editor__problem-tip { pointer-events: none; }
-.config-editor__problem-tip--interactive { pointer-events: auto; }
+:not(#\#) .config-editor__problem-tip { pointer-events: none; }
+:not(#\#) .config-editor__problem-tip--interactive { pointer-events: auto; }
 /* Unseen for the moment until its height is measured and it is placed
    beside its line (never over it). */
-.config-editor__problem-tip--unmeasured { visibility: hidden; }
+:not(#\#) .config-editor__problem-tip--unmeasured { visibility: hidden; }
 /* The pointer came onto the tip or the hover card another way than from
    what it is for (a card below its line covers the next lines): it goes
    through to the text under it. */
-.config-editor__problem-tip[data-passing],
-.config-editor__hover[data-passing] { pointer-events: none; }
-.config-editor__problem-tip-entry {
+:not(#\#) .config-editor__problem-tip[data-passing],
+:not(#\#) .config-editor__hover[data-passing] { pointer-events: none; }
+:not(#\#) .config-editor__problem-tip-entry {
   padding-left: 7px;
   border-left: 3px solid var(--config-editor-error);
 }
-.config-editor__problem-tip-entry--warning { border-left-color: var(--config-editor-warning); }
-.config-editor__problem-tip-entry--info { border-left-color: var(--config-editor-info); }
-.config-editor__problem-tip-entry--hint { border-left-color: var(--config-editor-hint); }
-.config-editor__problem-tip-entry--current { background: var(--config-editor-raised-hover); }
-.config-editor__problem-tip-message,
-.config-editor__problem-tip-detail { margin: 0; }
-.config-editor__problem-tip-message--docs { cursor: pointer; }
-.config-editor__problem-tip-severity { font-weight: 600; }
-.config-editor__problem-tip-detail { color: var(--config-editor-raised-muted); }
-.config-editor__problem-tip-link {
+:not(#\#) .config-editor__problem-tip-entry--warning { border-left-color: var(--config-editor-warning); }
+:not(#\#) .config-editor__problem-tip-entry--info { border-left-color: var(--config-editor-info); }
+:not(#\#) .config-editor__problem-tip-entry--hint { border-left-color: var(--config-editor-hint); }
+:not(#\#) .config-editor__problem-tip-entry--current { background: var(--config-editor-raised-hover); }
+:not(#\#) .config-editor__problem-tip-message,
+:not(#\#) .config-editor__problem-tip-detail { margin: 0; }
+:not(#\#) .config-editor__problem-tip-message--docs { cursor: pointer; }
+:not(#\#) .config-editor__problem-tip-severity { font-weight: 600; }
+:not(#\#) .config-editor__problem-tip-detail { color: var(--config-editor-raised-muted); }
+:not(#\#) .config-editor__problem-tip-link {
   /* A 24px target (WCAG 2.5.8), taking no more room than its line. */
   display: inline-flex;
   align-items: center;
@@ -960,7 +984,7 @@
 }
 /* The problems on a documented key's line, listed in its hover card above
    the docs (the tip yields to the card there); scrolled when many. */
-.config-editor__hover-problems {
+:not(#\#) .config-editor__hover-problems {
   display: grid;
   gap: 6px;
   padding-bottom: 6px;
@@ -970,7 +994,7 @@
   white-space: pre-line;
 }
 
-.config-editor__diagnostic-marker-eof::before {
+:not(#\#) .config-editor__diagnostic-marker-eof::before {
   position: absolute;
   right: 0;
   bottom: 3px;
@@ -980,7 +1004,7 @@
 }
 
 /* Go to line: a field over the top right of the text, like the find widget. */
-.config-editor__goto {
+:not(#\#) .config-editor__goto {
   position: absolute;
   z-index: 7;
   top: 0;
@@ -1000,23 +1024,23 @@
   font: 11px/1.4 ui-sans-serif, system-ui, sans-serif;
 }
 
-.config-editor__goto[hidden] { display: none; }
+:not(#\#) .config-editor__goto[hidden] { display: none; }
 
 /* Scoped to the widget: the shared `find-input` rule below drops borders. */
-.config-editor__goto .config-editor__goto-input {
+:not(#\#) .config-editor__goto .config-editor__goto-input {
   border: 1px solid var(--config-editor-input-border);
   border-radius: 3px;
   background: var(--config-editor-input-bg);
 }
 
-.config-editor__goto .config-editor__goto-input:focus { border-color: var(--config-editor-focus-ring); }
+:not(#\#) .config-editor__goto .config-editor__goto-input:focus { border-color: var(--config-editor-focus-ring); }
 
 /* Lined up with the field's text (its border and padding). */
-.config-editor__goto-hint { padding: 0 7px; }
+:not(#\#) .config-editor__goto-hint { padding: 0 7px; }
 
 /* Find matches sit under the textarea and the highlighted text, like the
    selection, so the text keeps its colors. */
-.config-editor__search-highlights {
+:not(#\#) .config-editor__search-highlights {
   position: absolute;
   z-index: 1;
   inset: 0 auto auto 0;
@@ -1030,7 +1054,7 @@
 
 /* A line's copy: the same font, as wide as the text lays out, the text
    itself not shown. */
-.config-editor__search-line {
+:not(#\#) .config-editor__search-line {
   position: absolute;
   height: 1lh;
   white-space: pre;
@@ -1041,24 +1065,24 @@
 
 /* A match is an inline box: as tall as the font's glyph area (about 1.17em
    in the monospace fonts the stack names), grown by padding to the line. */
-.config-editor__search-match {
+:not(#\#) .config-editor__search-match {
   padding-block: calc((1lh - 1.17em) / 2);
   border-radius: 2px;
   background: var(--config-editor-search-match);
 }
 
-.config-editor__search-match-bare {
+:not(#\#) .config-editor__search-match-bare {
   display: inline-block;
   width: 0.5ch;
 }
 
-.config-editor__search-match-current {
+:not(#\#) .config-editor__search-match-current {
   background: var(--config-editor-search-match-current);
   box-shadow: inset 0 0 0 1px var(--config-editor-search-match-current-border);
 }
 
 /* The find widget: over the top right of the text, clear of the scrollbar. */
-.config-editor__find {
+:not(#\#) .config-editor__find {
   position: absolute;
   z-index: 6;
   top: 0;
@@ -1080,10 +1104,10 @@
   font: 12px/1.4 ui-sans-serif, system-ui, sans-serif;
 }
 
-.config-editor__find[hidden],
-.config-editor__find [hidden] { display: none; }
+:not(#\#) .config-editor__find[hidden],
+:not(#\#) .config-editor__find [hidden] { display: none; }
 
-.config-editor__find-row {
+:not(#\#) .config-editor__find-row {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -1091,7 +1115,7 @@
   min-width: 0;
 }
 
-.config-editor__find-field {
+:not(#\#) .config-editor__find-field {
   min-width: 0;
   flex: 1 1 150px;
   display: flex;
@@ -1106,11 +1130,11 @@
   background: var(--config-editor-input-bg);
 }
 
-.config-editor__find-field:focus-within { border-color: var(--config-editor-focus-ring); }
-.config-editor__find-field-invalid,
-.config-editor__find-field-invalid:focus-within { border-color: var(--config-editor-error); }
+:not(#\#) .config-editor__find-field:focus-within { border-color: var(--config-editor-focus-ring); }
+:not(#\#) .config-editor__find-field-invalid,
+:not(#\#) .config-editor__find-field-invalid:focus-within { border-color: var(--config-editor-error); }
 
-.config-editor__find-input {
+:not(#\#) .config-editor__find-input {
   /* Its own size whatever the page says of `input` (a framework's
      `width: 100%; display: block; padding: …; font-size: …`). */
   display: block;
@@ -1129,19 +1153,19 @@
   font: 12px var(--config-editor-mono);
 }
 
-.config-editor__replace-input {
+:not(#\#) .config-editor__replace-input {
   flex: 1 1 90px;
   border: 1px solid var(--config-editor-input-border);
   border-radius: 3px;
   background: var(--config-editor-input-bg);
 }
 
-.config-editor__replace-input:focus { border-color: var(--config-editor-focus-ring); }
+:not(#\#) .config-editor__replace-input:focus { border-color: var(--config-editor-focus-ring); }
 
-.config-editor__find-input::placeholder { color: var(--config-editor-raised-muted); }
+:not(#\#) .config-editor__find-input::placeholder { color: var(--config-editor-raised-muted); }
 
-.config-editor__find-toggle,
-.config-editor__find-button {
+:not(#\#) .config-editor__find-toggle,
+:not(#\#) .config-editor__find-button {
   min-width: 22px;
   height: 22px;
   flex: none;
@@ -1154,32 +1178,32 @@
   font: 12px/1 var(--config-editor-mono);
 }
 
-.config-editor__find-toggle:hover,
-.config-editor__find-button:hover { background: var(--config-editor-raised-hover); }
+:not(#\#) .config-editor__find-toggle:hover,
+:not(#\#) .config-editor__find-button:hover { background: var(--config-editor-raised-hover); }
 
-.config-editor__find-toggle-on,
-.config-editor__find-toggle-on:hover {
+:not(#\#) .config-editor__find-toggle-on,
+:not(#\#) .config-editor__find-toggle-on:hover {
   border-color: var(--config-editor-accent);
   background: var(--config-editor-toggle-active);
 }
 
-.config-editor__find-toggle:focus-visible,
-.config-editor__find-button:focus-visible {
+:not(#\#) .config-editor__find-toggle:focus-visible,
+:not(#\#) .config-editor__find-button:focus-visible {
   outline: 1px solid var(--config-editor-focus-ring);
   outline-offset: -1px;
 }
 
-.config-editor__find-text-button {
+:not(#\#) .config-editor__find-text-button {
   padding: 0 7px;
   border-color: var(--config-editor-raised-border);
   background: var(--config-editor-control-bg);
   font: 12px/1 ui-sans-serif, system-ui, sans-serif;
 }
 
-.config-editor__find-expand { font-size: 15px; transition: transform 100ms ease; }
-.config-editor__find-expand-open { transform: rotate(90deg); }
+:not(#\#) .config-editor__find-expand { font-size: 15px; transition: transform 100ms ease; }
+:not(#\#) .config-editor__find-expand-open { transform: rotate(90deg); }
 
-.config-editor__find-count {
+:not(#\#) .config-editor__find-count {
   min-width: 64px;
   flex: none;
   padding: 0 2px;
@@ -1187,20 +1211,20 @@
   white-space: nowrap;
 }
 
-.config-editor__find-count-empty { color: var(--config-editor-status-error); }
+:not(#\#) .config-editor__find-count-empty { color: var(--config-editor-status-error); }
 
-.config-editor__find-actions { display: flex; flex: none; gap: 1px; margin-left: auto; }
+:not(#\#) .config-editor__find-actions { display: flex; flex: none; gap: 1px; margin-left: auto; }
 
-.config-editor__comment { color: var(--config-editor-comment); }
-.config-editor__key { color: var(--config-editor-key); }
-.config-editor__punctuation { color: var(--config-editor-punctuation); }
-.config-editor__reference { color: var(--config-editor-reference); }
-.config-editor__interpolation { color: var(--config-editor-interpolation); }
-.config-editor__string { color: var(--config-editor-string); }
-.config-editor__literal { color: var(--config-editor-literal); }
-.config-editor__value { color: var(--config-editor-value); }
+:not(#\#) .config-editor__comment { color: var(--config-editor-comment); }
+:not(#\#) .config-editor__key { color: var(--config-editor-key); }
+:not(#\#) .config-editor__punctuation { color: var(--config-editor-punctuation); }
+:not(#\#) .config-editor__reference { color: var(--config-editor-reference); }
+:not(#\#) .config-editor__interpolation { color: var(--config-editor-interpolation); }
+:not(#\#) .config-editor__string { color: var(--config-editor-string); }
+:not(#\#) .config-editor__literal { color: var(--config-editor-literal); }
+:not(#\#) .config-editor__value { color: var(--config-editor-value); }
 
-.config-editor__completions {
+:not(#\#) .config-editor__completions {
   position: fixed;
   z-index: 1000;
   width: min(420px, calc(100vw - 16px));
@@ -1216,16 +1240,16 @@
   scrollbar-width: thin;
 }
 
-.config-editor__completions::-webkit-scrollbar { width: 8px; }
-.config-editor__completions::-webkit-scrollbar-thumb {
+:not(#\#) .config-editor__completions::-webkit-scrollbar { width: 8px; }
+:not(#\#) .config-editor__completions::-webkit-scrollbar-thumb {
   border: 2px solid transparent;
   border-radius: 8px;
   background: var(--config-editor-scrollbar-thumb);
   background-clip: padding-box;
 }
 
-.config-editor__completions.hidden { display: none; }
-.config-editor__completion {
+:not(#\#) .config-editor__completions.hidden { display: none; }
+:not(#\#) .config-editor__completion {
   width: 100%;
   /* Every row of a list as high (`RowSize`: 44px, 28px in a list without
      descriptions): only the rows around the
@@ -1245,18 +1269,18 @@
   font: 12px/1.45 ui-sans-serif, system-ui, sans-serif;
 }
 
-.config-editor__completions--compact .config-editor__completion { height: 28px; }
+:not(#\#) .config-editor__completions--compact .config-editor__completion { height: 28px; }
 
-.config-editor__completion-active { background: var(--config-editor-completion-active); }
+:not(#\#) .config-editor__completion-active { background: var(--config-editor-completion-active); }
 
 /* The highlighted row while the list is scrolled away from it, at its
    place (top set inline). */
-.config-editor__completion--pinned {
+:not(#\#) .config-editor__completion--pinned {
   position: absolute;
   left: 0;
 }
 
-.config-editor__hover {
+:not(#\#) .config-editor__hover {
   position: fixed;
   z-index: 60;
   width: max-content;
@@ -1281,21 +1305,21 @@
 
 /* A title, description or deprecation keeps the schema's line breaks (its
    paragraphs and lists). */
-.config-editor__hover-title,
-.config-editor__hover-description,
-.config-editor__hover-deprecation { white-space: pre-line; }
+:not(#\#) .config-editor__hover-title,
+:not(#\#) .config-editor__hover-description,
+:not(#\#) .config-editor__hover-deprecation { white-space: pre-line; }
 
 /* A touch screen: a tap on a card with nothing to tap (no link) or scroll
    goes through to the text under it, to place the caret there. */
 @media (hover: none) {
-  .config-editor__hover:not(.config-editor__hover--interactive) { pointer-events: none; }
+  :not(#\#) .config-editor__hover:not(.config-editor__hover--interactive) { pointer-events: none; }
 }
 
 /* Unseen for the moment until its height is measured: it goes above its
    line when it fits there whole. */
-.config-editor__hover--unmeasured { visibility: hidden; }
+:not(#\#) .config-editor__hover--unmeasured { visibility: hidden; }
 
-.config-editor__hover--scrolls {
+:not(#\#) .config-editor__hover--scrolls {
   scrollbar-width: thin;
   background:
     linear-gradient(var(--config-editor-raised) 30%, transparent) top / 100% 24px no-repeat local,
@@ -1305,8 +1329,8 @@
     var(--config-editor-raised);
 }
 
-.config-editor__protect-tip,
-.config-editor__read-only-notice {
+:not(#\#) .config-editor__protect-tip,
+:not(#\#) .config-editor__read-only-notice {
   position: fixed;
   z-index: 61;
   width: max-content;
@@ -1323,29 +1347,29 @@
   overflow-wrap: anywhere;
 }
 
-.config-editor__protect-tip--refused,
-.config-editor__read-only-notice {
+:not(#\#) .config-editor__protect-tip--refused,
+:not(#\#) .config-editor__read-only-notice {
   border-color: var(--config-editor-locked);
 }
 
-.config-editor__hover-header {
+:not(#\#) .config-editor__hover-header {
   display: flex;
   align-items: baseline;
   flex-wrap: wrap;
   gap: 8px;
 }
 
-.config-editor__hover-key {
+:not(#\#) .config-editor__hover-key {
   font: 12px var(--config-editor-mono);
   color: var(--config-editor-key);
 }
 
-.config-editor__hover-type {
+:not(#\#) .config-editor__hover-type {
   color: var(--config-editor-raised-muted);
   font: 11px var(--config-editor-mono);
 }
 
-.config-editor__hover-required {
+:not(#\#) .config-editor__hover-required {
   padding: 0 5px;
   border-radius: 3px;
   color: var(--config-editor-raised-muted);
@@ -1354,14 +1378,14 @@
 }
 
 /* Focused from the keyboard (a second Ctrl+K Ctrl+I), to scroll it. */
-.config-editor__hover:focus-visible {
+:not(#\#) .config-editor__hover:focus-visible {
   outline: 2px solid var(--config-editor-focus-ring);
   outline-offset: -2px;
 }
 
 /* Text, held to 4.5:1 on the card like the footer's warning count (the
    underline's warning color is lighter in the light themes). */
-.config-editor__hover-deprecated {
+:not(#\#) .config-editor__hover-deprecated {
   padding: 0 5px;
   border-radius: 3px;
   color: var(--config-editor-status-warning);
@@ -1369,25 +1393,25 @@
   font: 10px var(--config-editor-mono);
 }
 
-.config-editor__hover-deprecation {
+:not(#\#) .config-editor__hover-deprecation {
   margin: 0;
   color: var(--config-editor-raised-muted);
   font-style: italic;
 }
 
-.config-editor__hover-value {
+:not(#\#) .config-editor__hover-value {
   display: grid;
   gap: 4px;
   padding-bottom: 6px;
   border-bottom: 1px solid var(--config-editor-raised-border);
 }
 
-.config-editor__hover-value-label {
+:not(#\#) .config-editor__hover-value-label {
   font: 12px var(--config-editor-mono);
   color: var(--config-editor-string);
 }
 
-.config-editor__hover-link {
+:not(#\#) .config-editor__hover-link {
   justify-self: start;
   /* A 24px target (WCAG 2.5.8), taking no more room than its line. */
   display: inline-flex;
@@ -1398,32 +1422,32 @@
   font-size: 11px;
 }
 
-.config-editor__hover-item,
-.config-editor__hover-choice {
+:not(#\#) .config-editor__hover-item,
+:not(#\#) .config-editor__hover-choice {
   display: grid;
   gap: 2px;
   padding-left: 8px;
   border-left: 2px solid var(--config-editor-raised-border);
 }
 
-.config-editor__hover-item-title,
-.config-editor__hover-choice-title {
+:not(#\#) .config-editor__hover-item-title,
+:not(#\#) .config-editor__hover-choice-title {
   color: var(--config-editor-raised-text);
   font-size: 12px;
 }
 
-.config-editor__hover-title {
+:not(#\#) .config-editor__hover-title {
   margin: 0;
   color: var(--config-editor-raised-text);
   font-weight: 600;
 }
 
-.config-editor__hover-description {
+:not(#\#) .config-editor__hover-description {
   margin: 0;
   color: var(--config-editor-raised-text);
 }
 
-.config-editor__hover-meta {
+:not(#\#) .config-editor__hover-meta {
   display: flex;
   gap: 8px;
   align-items: baseline;
@@ -1431,12 +1455,12 @@
   font-size: 11px;
 }
 
-.config-editor__hover-meta code {
+:not(#\#) .config-editor__hover-meta code {
   font: 11px var(--config-editor-mono);
   color: var(--config-editor-raised-text);
   overflow-wrap: anywhere;
 }
-.config-editor__completion-icon {
+:not(#\#) .config-editor__completion-icon {
   width: 17px;
   height: 17px;
   flex: 0 0 17px;
@@ -1449,14 +1473,14 @@
   font: 10px var(--config-editor-mono);
 }
 
-.config-editor__completion-content {
+:not(#\#) .config-editor__completion-content {
   min-width: 0;
   flex: 1;
   display: grid;
   gap: 2px;
 }
 
-.config-editor__completion-primary {
+:not(#\#) .config-editor__completion-primary {
   min-width: 0;
   display: flex;
   align-items: baseline;
@@ -1464,7 +1488,7 @@
   gap: 16px;
 }
 
-.config-editor__completion-key {
+:not(#\#) .config-editor__completion-key {
   overflow: hidden;
   color: var(--config-editor-completion-key);
   font: 12px var(--config-editor-mono);
@@ -1472,35 +1496,35 @@
   white-space: nowrap;
 }
 
-.config-editor__completion-match { color: var(--config-editor-accent-text); }
-.config-editor__completion-active .config-editor__completion-match {
+:not(#\#) .config-editor__completion-match { color: var(--config-editor-accent-text); }
+:not(#\#) .config-editor__completion-active .config-editor__completion-match {
   color: var(--config-editor-completion-match-active);
 }
-.config-editor__completion-active .config-editor__completion-type,
-.config-editor__completion-active .config-editor__completion-detail,
-.config-editor__completion-active .config-editor__completion-deprecated {
+:not(#\#) .config-editor__completion-active .config-editor__completion-type,
+:not(#\#) .config-editor__completion-active .config-editor__completion-detail,
+:not(#\#) .config-editor__completion-active .config-editor__completion-deprecated {
   color: var(--config-editor-completion-type-active);
 }
 
-.config-editor__completion--deprecated .config-editor__completion-key {
+:not(#\#) .config-editor__completion--deprecated .config-editor__completion-key {
   text-decoration: line-through;
   /* Dimmer than a current key, still text (4.5:1). */
   color: color-mix(in srgb, var(--config-editor-completion-key) 80%, var(--config-editor-completion-type));
 }
 
-.config-editor__completion-deprecated {
+:not(#\#) .config-editor__completion-deprecated {
   flex: 0 0 auto;
   color: var(--config-editor-completion-type);
   font: italic 10px ui-sans-serif, system-ui, sans-serif;
 }
 
-.config-editor__completion-type {
+:not(#\#) .config-editor__completion-type {
   flex: 0 0 auto;
   color: var(--config-editor-completion-type);
   font: 11px var(--config-editor-mono);
 }
 
-.config-editor__completion-detail {
+:not(#\#) .config-editor__completion-detail {
   overflow: hidden;
   color: var(--config-editor-completion-detail);
   font: 11px/1.4 ui-sans-serif, system-ui, sans-serif;
@@ -1521,10 +1545,10 @@
   font: 10px/1.4 ui-sans-serif, system-ui, sans-serif;
 }
 
-.config-editor__hint,
-.config-editor__hint > span,
-.config-editor__status-meta { display: flex; align-items: center; gap: 8px; }
-.config-editor__hint kbd {
+:not(#\#) .config-editor__hint,
+:not(#\#) .config-editor__hint > span,
+:not(#\#) .config-editor__status-meta { display: flex; align-items: center; gap: 8px; }
+:not(#\#) .config-editor__hint kbd {
   padding: 1px 4px;
   border: 1px solid var(--config-editor-raised-border);
   border-radius: 3px;
@@ -1533,10 +1557,10 @@
   font: 10px var(--config-editor-mono);
 }
 
-.config-editor__line-count { font-family: var(--config-editor-mono); }
+:not(#\#) .config-editor__line-count { font-family: var(--config-editor-mono); }
 /* The message shrinks with an ellipsis; the line count always stays. */
-.config-editor__status-meta { min-width: 0; flex: 0 1 auto; }
-.config-editor__line-count { flex: none; }
+:not(#\#) .config-editor__status-meta { min-width: 0; flex: 0 1 auto; }
+:not(#\#) .config-editor__line-count { flex: none; }
 /* One row: the summary and the line count first, on the right; the hint
    on the left only when it fits whole beside them (else it wraps to a
    second row, cut off), never squeezed onto two lines. */
@@ -1548,16 +1572,16 @@
     flex-wrap: wrap;
     align-content: flex-start;
   }
-  .config-editor__status-meta { order: -1; }
-  .config-editor__hint,
-  .config-editor__status-meta { min-height: 27px; white-space: nowrap; }
+  :not(#\#) .config-editor__status-meta { order: -1; }
+  :not(#\#) .config-editor__hint,
+  :not(#\#) .config-editor__status-meta { min-height: 27px; white-space: nowrap; }
 }
 @media (max-width: 540px) {
-  .config-editor__hint { display: none; }
+  :not(#\#) .config-editor__hint { display: none; }
   .config-editor__status { justify-content: flex-end; }
 }
 
-.config-editor__diagnostic-status {
+:not(#\#) .config-editor__diagnostic-status {
   min-width: 0;
   max-width: min(60vw, 680px);
   overflow: hidden;
@@ -1573,33 +1597,33 @@
   text-align: left;
 }
 
-.config-editor__diagnostic-status:not(:disabled) { cursor: pointer; }
+:not(#\#) .config-editor__diagnostic-status:not(:disabled) { cursor: pointer; }
 
-.config-editor__diagnostic-status:not(:disabled):hover { text-decoration: underline; }
+:not(#\#) .config-editor__diagnostic-status:not(:disabled):hover { text-decoration: underline; }
 
-.config-editor__diagnostic-status:disabled { cursor: default; }
+:not(#\#) .config-editor__diagnostic-status:disabled { cursor: default; }
 
-.config-editor__diagnostic-status:focus-visible {
+:not(#\#) .config-editor__diagnostic-status:focus-visible {
   outline: 1px solid var(--config-editor-focus-ring);
   outline-offset: 1px;
 }
 
 /* Each count in its severity's color; the detail after them stays muted. */
-.config-editor__diagnostic-count-error { color: var(--config-editor-status-error); }
-.config-editor__diagnostic-count-warning { color: var(--config-editor-status-warning); }
-.config-editor__diagnostic-count-info { color: var(--config-editor-status-info); }
-.config-editor__diagnostic-count-hint { color: var(--config-editor-status-hint); }
+:not(#\#) .config-editor__diagnostic-count-error { color: var(--config-editor-status-error); }
+:not(#\#) .config-editor__diagnostic-count-warning { color: var(--config-editor-status-warning); }
+:not(#\#) .config-editor__diagnostic-count-info { color: var(--config-editor-status-info); }
+:not(#\#) .config-editor__diagnostic-count-hint { color: var(--config-editor-status-hint); }
 
 /* On a phone (no hint) the summary takes the row's free width, left of
    the line count: one row while it fits, else wrapped rather than cut
    (an unplaced problem's message), never with an empty half. */
 @media (max-width: 540px) {
-  .config-editor__status-meta { flex: 1 1 auto; justify-content: flex-end; }
-  .config-editor__diagnostic-status { flex: 1 1 auto; max-width: none; white-space: normal; }
+  :not(#\#) .config-editor__status-meta { flex: 1 1 auto; justify-content: flex-end; }
+  :not(#\#) .config-editor__diagnostic-status { flex: 1 1 auto; max-width: none; white-space: normal; }
 }
 
 /* "Tab moves focus" while Ctrl+M is on; clicking it turns it off. */
-.config-editor__tab-focus-status {
+:not(#\#) .config-editor__tab-focus-status {
   flex: none;
   padding: 0 4px;
   border: 1px solid var(--config-editor-raised-border);
@@ -1610,13 +1634,13 @@
   font: inherit;
 }
 
-.config-editor__tab-focus-status:focus-visible {
+:not(#\#) .config-editor__tab-focus-status:focus-visible {
   outline: 1px solid var(--config-editor-focus-ring);
   outline-offset: 1px;
 }
 
 /* Read by screen readers only: the caret's note, announcements. */
-.config-editor__sr-only {
+:not(#\#) .config-editor__sr-only {
   position: absolute;
   width: 1px;
   height: 1px;
@@ -1630,7 +1654,7 @@
 }
 
 /* "2 changes": status text that jumps to the next change. */
-.config-editor__change-status {
+:not(#\#) .config-editor__change-status {
   flex: none;
   padding: 0;
   border: 0;
@@ -1641,9 +1665,9 @@
   white-space: nowrap;
 }
 
-.config-editor__change-status:hover { text-decoration: underline; }
+:not(#\#) .config-editor__change-status:hover { text-decoration: underline; }
 
-.config-editor__change-status:focus-visible {
+:not(#\#) .config-editor__change-status:focus-visible {
   outline: 1px solid var(--config-editor-focus-ring);
   outline-offset: 1px;
 }
@@ -1799,28 +1823,28 @@
 
 /* The peek's single-side dividers also colour their undrawn sides in these
    families (invisible; kept so computed styles stay identical). */
-.config-editor[data-theme="vscode-light"] .config-editor__diff-peek-header,
-.config-editor[data-theme="obsidian"] .config-editor__diff-peek-header,
-.config-editor[data-theme="obsidian-light"] .config-editor__diff-peek-header,
-.config-editor[data-theme="vscode-light"] .config-editor__diff-peek-side + .config-editor__diff-peek-side,
-.config-editor[data-theme="obsidian"] .config-editor__diff-peek-side + .config-editor__diff-peek-side,
-.config-editor[data-theme="obsidian-light"] .config-editor__diff-peek-side + .config-editor__diff-peek-side {
+:not(#\#) .config-editor[data-theme="vscode-light"] .config-editor__diff-peek-header,
+:not(#\#) .config-editor[data-theme="obsidian"] .config-editor__diff-peek-header,
+:not(#\#) .config-editor[data-theme="obsidian-light"] .config-editor__diff-peek-header,
+:not(#\#) .config-editor[data-theme="vscode-light"] .config-editor__diff-peek-side + .config-editor__diff-peek-side,
+:not(#\#) .config-editor[data-theme="obsidian"] .config-editor__diff-peek-side + .config-editor__diff-peek-side,
+:not(#\#) .config-editor[data-theme="obsidian-light"] .config-editor__diff-peek-side + .config-editor__diff-peek-side {
   border-color: var(--config-editor-raised-border);
 }
 
-.config-editor__code-line-active.config-editor__code-line-added {
+:not(#\#) .config-editor__code-line-active.config-editor__code-line-added {
   background:
     linear-gradient(var(--config-editor-active-line), var(--config-editor-active-line)),
     var(--config-editor-added-line);
 }
 
-.config-editor__code-line-active.config-editor__code-line-modified {
+:not(#\#) .config-editor__code-line-active.config-editor__code-line-modified {
   background:
     linear-gradient(var(--config-editor-active-line), var(--config-editor-active-line)),
     var(--config-editor-modified-line);
 }
 
-.config-editor__code-line-active.config-editor__code-line-error {
+:not(#\#) .config-editor__code-line-active.config-editor__code-line-error {
   background:
     linear-gradient(var(--config-editor-active-line), var(--config-editor-active-line)),
     var(--config-editor-error-line);
@@ -1828,28 +1852,28 @@
 
 @media (max-width: 600px) {
   .config-editor__toolbar { padding: 0 10px; }
-  .config-editor__gutter {
+  :not(#\#) .config-editor__gutter {
     --config-editor-marker-column: 23px;
     --config-editor-gutter-padding: 10px;
   }
   /* The schema state as its check mark alone (its words still named). */
   .config-editor__schema-state { font-size: 0; }
   .config-editor__schema-check { font-size: 12px; }
-  .config-editor__status-meta { gap: 5px; }
+  :not(#\#) .config-editor__status-meta { gap: 5px; }
 }
 
 /* Every small control is at least 24×24px, by its own box or through a
    larger invisible hit area (WCAG 2.5.8, for a mouse as for a finger): the
    change bars, the chevrons, the chip and the find buttons. The gutter is
    wide enough for the bars' and the chevrons' areas to stay apart. */
-.config-editor__gutter:not(.config-editor__gutter-folding) {
+:not(#\#) .config-editor__gutter:not(.config-editor__gutter-folding) {
   padding-right: calc(var(--config-editor-gutter-padding) + 11px);
   width: calc(
     var(--config-editor-marker-column) + var(--config-editor-gutter-digits, 3) * 1ch +
       var(--config-editor-gutter-padding) + 11px
   );
 }
-.config-editor__gutter.config-editor__gutter-folding {
+:not(#\#) .config-editor__gutter.config-editor__gutter-folding {
   --config-editor-fold-gutter: 24px;
   padding-right: calc(var(--config-editor-gutter-padding) + var(--config-editor-fold-gutter) + 13px);
   width: calc(
@@ -1857,21 +1881,21 @@
       var(--config-editor-gutter-padding) + var(--config-editor-fold-gutter) + 13px
   );
 }
-.config-editor__fold-toggle {
+:not(#\#) .config-editor__fold-toggle {
   right: calc(-24px - var(--config-editor-fold-gutter));
   top: calc((1lh - max(24px, 1lh)) / 2);
   height: max(24px, 1lh);
 }
-.config-editor__fold-toggle::before { left: 9px; }
+:not(#\#) .config-editor__fold-toggle::before { left: 9px; }
 /* The bar's area: from the number's edge to the chevrons, 24px tall. */
-.config-editor__diff-marker-added::after,
-.config-editor__diff-marker-modified::after {
+:not(#\#) .config-editor__diff-marker-added::after,
+:not(#\#) .config-editor__diff-marker-modified::after {
   top: -1px;
   right: -15px;
   bottom: -1px;
   left: -6px;
 }
-.config-editor__diff-deleted::after {
+:not(#\#) .config-editor__diff-deleted::after {
   position: absolute;
   top: -6px;
   right: -15px;
@@ -1879,28 +1903,26 @@
   height: 24px;
   content: "";
 }
-.config-editor__find-toggle,
-.config-editor__find-button {
+:not(#\#) .config-editor__find-toggle,
+:not(#\#) .config-editor__find-button {
   min-width: 24px;
   height: 24px;
 }
-.config-editor__fold-chip { min-width: 24px; }
+:not(#\#) .config-editor__fold-chip { min-width: 24px; }
 /* The chip is a line tall; its hit area is 24px. */
-.config-editor__fold-chip::before {
+:not(#\#) .config-editor__fold-chip::before {
   position: absolute;
   inset: calc((1lh - max(24px, 1lh)) / 2) 0;
   content: "";
 }
 
-/* Touch screens: the footer's and the notices' buttons too. */
-@media (pointer: coarse) {
-  .config-editor__diagnostic-status,
-  .config-editor__change-status,
-  .config-editor__tab-focus-status,
-  .config-editor__notice-button,
-  .config-editor__action-button {
-    min-height: 24px;
-  }
+/* The footer's and the notices' buttons too (their rows have the room). */
+:not(#\#) .config-editor__diagnostic-status,
+:not(#\#) .config-editor__change-status,
+:not(#\#) .config-editor__tab-focus-status,
+:not(#\#) .config-editor__notice-button,
+:not(#\#) .config-editor__action-button {
+  min-height: 24px;
 }
 
 /* Forced colors (Windows high contrast) drop backgrounds and shadows:
@@ -1909,51 +1931,51 @@
    are on, the current problem in the tip, a secret's chip, a fold's
    problem mark) is drawn in system colors instead. */
 @media (forced-colors: active) {
-  .config-editor__line-number-error::before,
-  .config-editor__diff-marker-added,
-  .config-editor__diff-marker-modified,
-  .config-editor__diff-deleted::before,
-  .config-editor__lock-marker,
-  .config-editor__secret-marker,
-  .config-editor__search-match,
-  .config-editor__highlight .config-editor__secret,
-  .config-editor__completion-active,
-  .config-editor__find-toggle-on,
-  .config-editor__fold-chip--error,
-  .config-editor__fold-chip--warning,
-  .config-editor__fold-chip--info,
-  .config-editor__fold-chip--hint {
+  :not(#\#) .config-editor__line-number-error::before,
+  :not(#\#) .config-editor__diff-marker-added,
+  :not(#\#) .config-editor__diff-marker-modified,
+  :not(#\#) .config-editor__diff-deleted::before,
+  :not(#\#) .config-editor__lock-marker,
+  :not(#\#) .config-editor__secret-marker,
+  :not(#\#) .config-editor__search-match,
+  :not(#\#) .config-editor__highlight .config-editor__secret,
+  :not(#\#) .config-editor__completion-active,
+  :not(#\#) .config-editor__find-toggle-on,
+  :not(#\#) .config-editor__fold-chip--error,
+  :not(#\#) .config-editor__fold-chip--warning,
+  :not(#\#) .config-editor__fold-chip--info,
+  :not(#\#) .config-editor__fold-chip--hint {
     forced-color-adjust: none;
   }
-  .config-editor__line-number-error::before { background: CanvasText; }
-  .config-editor__diff-marker-added,
-  .config-editor__diff-marker-modified { background: Highlight; }
-  .config-editor__diff-deleted::before { background: CanvasText; }
-  .config-editor__lock-marker,
-  .config-editor__secret-marker { color: CanvasText; }
+  :not(#\#) .config-editor__line-number-error::before { background: CanvasText; }
+  :not(#\#) .config-editor__diff-marker-added,
+  :not(#\#) .config-editor__diff-marker-modified { background: Highlight; }
+  :not(#\#) .config-editor__diff-deleted::before { background: CanvasText; }
+  :not(#\#) .config-editor__lock-marker,
+  :not(#\#) .config-editor__secret-marker { color: CanvasText; }
   /* Matches outlined (the text stays readable over them), the current one
      filled. */
-  .config-editor__search-match {
+  :not(#\#) .config-editor__search-match {
     background: transparent;
     box-shadow: inset 0 0 0 1px Highlight;
   }
-  .config-editor__search-match-current {
+  :not(#\#) .config-editor__search-match-current {
     background: transparent;
     box-shadow: inset 0 0 0 2px Highlight;
   }
   /* Its text too: the theme's string colour stays otherwise (forced
      colours do not reach inside `forced-color-adjust: none`). */
-  .config-editor__highlight .config-editor__secret,
+  :not(#\#) .config-editor__highlight .config-editor__secret,
   .config-editor__highlight .config-editor__secret * {
     background: Canvas;
     color: CanvasText;
   }
-  .config-editor__highlight .config-editor__secret {
+  :not(#\#) .config-editor__highlight .config-editor__secret {
     box-shadow: inset 0 0 0 1px CanvasText;
   }
-  .config-editor__completion-active,
-  .config-editor__find-toggle-on,
-  .config-editor__find-toggle-on:hover {
+  :not(#\#) .config-editor__completion-active,
+  :not(#\#) .config-editor__find-toggle-on,
+  :not(#\#) .config-editor__find-toggle-on:hover {
     border-color: HighlightText;
     background: Highlight;
     color: HighlightText;
@@ -1961,20 +1983,20 @@
   /* Every part of the selected suggestion, over the rules that color
      them there (QA 24: its type kept its grey on Highlight). */
   .config-editor__completion-active *,
-  .config-editor__completion-active .config-editor__completion-match,
-  .config-editor__completion-active .config-editor__completion-type,
-  .config-editor__completion-active .config-editor__completion-deprecated,
-  .config-editor__completion-active .config-editor__completion-key,
-  .config-editor__completion-active .config-editor__completion-detail,
-  .config-editor__completion-active .config-editor__completion-icon {
+  :not(#\#) .config-editor__completion-active .config-editor__completion-match,
+  :not(#\#) .config-editor__completion-active .config-editor__completion-type,
+  :not(#\#) .config-editor__completion-active .config-editor__completion-deprecated,
+  :not(#\#) .config-editor__completion-active .config-editor__completion-key,
+  :not(#\#) .config-editor__completion-active .config-editor__completion-detail,
+  :not(#\#) .config-editor__completion-active .config-editor__completion-icon {
     border-color: HighlightText;
     color: HighlightText;
   }
-  .config-editor__problem-tip-entry--current { outline: 1px solid Highlight; }
-  .config-editor__fold-chip--error,
-  .config-editor__fold-chip--warning,
-  .config-editor__fold-chip--info,
-  .config-editor__fold-chip--hint {
+  :not(#\#) .config-editor__problem-tip-entry--current { outline: 1px solid Highlight; }
+  :not(#\#) .config-editor__fold-chip--error,
+  :not(#\#) .config-editor__fold-chip--warning,
+  :not(#\#) .config-editor__fold-chip--info,
+  :not(#\#) .config-editor__fold-chip--hint {
     background: ButtonFace;
     color: ButtonText;
     box-shadow: inset 0 -2px ButtonText;
@@ -1983,39 +2005,39 @@
      painted over the text area, in CanvasText (hard-bar D3.a11y-1: 2.07:1
      over Highlight in the light scheme, 2.62:1 in the dark one), so the fill
      stays near Canvas, which that text always reads on. */
-  .config-editor__input {
+  :not(#\#) .config-editor__input {
     forced-color-adjust: none;
     caret-color: CanvasText;
   }
-  .config-editor__input::selection {
+  :not(#\#) .config-editor__input::selection {
     background: color-mix(in srgb, Highlight 40%, Canvas);
     color: transparent;
   }
   /* The find field's focus: its border is CanvasText either way, so a ring
      shows it (hard-bar D18.a11y-2). */
-  .config-editor__find-field:focus-within {
+  :not(#\#) .config-editor__find-field:focus-within {
     outline: 2px solid Highlight;
     outline-offset: 1px;
   }
   /* The caret's line, outlined. */
-  .config-editor__code-line-active { outline: 1px solid GrayText; outline-offset: -1px; }
+  :not(#\#) .config-editor__code-line-active { outline: 1px solid GrayText; outline-offset: -1px; }
   /* One color for every severity: each keeps its own line style (an
      error wavy, a warning dashed, an info double, a hint dotted), in the
      underlines and the tip's entries alike. */
-  .config-editor__diagnostic-marker-warning { text-decoration-style: dashed; }
-  .config-editor__diagnostic-marker-info { text-decoration-style: double; }
-  .config-editor__problem-tip-entry--warning { border-left-style: dashed; }
-  .config-editor__problem-tip-entry--info { border-left-style: double; }
-  .config-editor__problem-tip-entry--hint { border-left-style: dotted; }
+  :not(#\#) .config-editor__diagnostic-marker-warning { text-decoration-style: dashed; }
+  :not(#\#) .config-editor__diagnostic-marker-info { text-decoration-style: double; }
+  :not(#\#) .config-editor__problem-tip-entry--warning { border-left-style: dashed; }
+  :not(#\#) .config-editor__problem-tip-entry--info { border-left-style: double; }
+  :not(#\#) .config-editor__problem-tip-entry--hint { border-left-style: dotted; }
 }
 
 /* No sliding or fading for those who ask for less motion. */
 @media (prefers-reduced-motion: reduce) {
-  .config-editor__fold-toggle,
-  .config-editor__find-expand,
-  .config-editor__diff-marker-added,
-  .config-editor__diff-marker-modified,
-  .config-editor__diff-deleted::before {
+  :not(#\#) .config-editor__fold-toggle,
+  :not(#\#) .config-editor__find-expand,
+  :not(#\#) .config-editor__diff-marker-added,
+  :not(#\#) .config-editor__diff-marker-modified,
+  :not(#\#) .config-editor__diff-deleted::before {
     transition: none;
   }
 }
@@ -2312,7 +2334,7 @@
   --config-editor-caret: #dce3eb;
 }
 
-.config-editor[data-theme] .config-editor__gutter {
+:not(#\#) .config-editor[data-theme] .config-editor__gutter {
   border-right: 0;
   background: var(--config-editor-bg);
 }
@@ -2388,11 +2410,17 @@
   min-width: 0;
   max-width: 100%;
   color: var(--config-editor-text);
+  /* As in the editor: the page's text spacing is not inherited. */
+  letter-spacing: normal;
+  word-spacing: normal;
+  text-indent: 0;
+  text-transform: none;
+  text-shadow: none;
 }
 
 /* The strip: the tab list, then the "+" (with `on_add`), which stays at
    the end while the tabs scroll. */
-.config-editor-documents__strip {
+:not(#\#) .config-editor-documents__strip {
   flex: none;
   display: flex;
   min-width: 0;
@@ -2404,7 +2432,7 @@
   font: 12px/1.2 ui-sans-serif, system-ui, sans-serif;
 }
 
-.config-editor-documents__tabs {
+:not(#\#) .config-editor-documents__tabs {
   position: relative;
   flex: 0 1 auto;
   display: flex;
@@ -2415,7 +2443,7 @@
   scrollbar-color: var(--config-editor-scrollbar-thumb) transparent;
 }
 
-.config-editor-documents__add {
+:not(#\#) .config-editor-documents__add {
   flex: none;
   width: 35px;
   height: 35px;
@@ -2428,16 +2456,16 @@
   font: 18px/1 ui-sans-serif, system-ui, sans-serif;
   cursor: pointer;
 }
-.config-editor-documents__add:hover {
+:not(#\#) .config-editor-documents__add:hover {
   background: var(--config-editor-tab-bg);
   color: var(--config-editor-tab-active-text);
 }
-.config-editor-documents__add:focus-visible {
+:not(#\#) .config-editor-documents__add:focus-visible {
   outline: 1px solid var(--config-editor-focus-ring);
   outline-offset: -1px;
 }
 
-.config-editor-documents__tab {
+:not(#\#) .config-editor-documents__tab {
   position: relative;
   flex: none;
   display: flex;
@@ -2454,12 +2482,12 @@
   box-sizing: border-box;
 }
 
-.config-editor-documents__tab-active {
+:not(#\#) .config-editor-documents__tab-active {
   background: var(--config-editor-tab-active-bg);
   color: var(--config-editor-tab-active-text);
 }
 
-.config-editor-documents__tab-active::before {
+:not(#\#) .config-editor-documents__tab-active::before {
   content: "";
   position: absolute;
   inset: 0 0 auto 0;
@@ -2467,18 +2495,18 @@
   background: var(--config-editor-tab-active-border);
 }
 
-.config-editor-documents__tab:focus-visible {
+:not(#\#) .config-editor-documents__tab:focus-visible {
   outline: 1px solid var(--config-editor-focus-ring);
   outline-offset: -1px;
 }
 
-.config-editor-documents__icon { flex: none; }
+:not(#\#) .config-editor-documents__icon { flex: none; }
 
 /* The name's room, whatever the tab's other parts take (a touch screen's
    wider close button, none on a tab that cannot be closed); more by the
    letters that tell a shared file's name apart (set on the tab), so the
    rest of the name keeps its room. */
-.config-editor-documents__name {
+:not(#\#) .config-editor-documents__name {
   display: flex;
   min-width: 0;
   max-width: calc(154px + var(--config-editor-tab-kept, 0px));
@@ -2488,33 +2516,34 @@
 /* A name's end stays whole (`service-con…production.yaml`, the file's own
    name after a folder: `eu-west-1/…limits.toml`): a narrow tab cuts its
    start, so names sharing a start still differ. */
-.config-editor-documents__name-start {
+:not(#\#) .config-editor-documents__name-start {
   flex: 0 1 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.config-editor-documents__name-start:empty { display: none; }
-.config-editor-documents__name-end { flex: none; }
+:not(#\#) .config-editor-documents__name-start:empty { display: none; }
+:not(#\#) .config-editor-documents__name-end { flex: none; }
 /* The letters that tell a name from the other tabs' with the same file's
    name (`eu-…limits.toml` beside `eu/limits.toml`) stay whole, and the
    ellipsis after them shows. */
-.config-editor-documents__name-kept { flex: none; }
-.config-editor-documents__name-kept + .config-editor-documents__name-start { min-width: 1em; }
+:not(#\#) .config-editor-documents__name-kept { flex: none; }
+:not(#\#) .config-editor-documents__name-kept + .config-editor-documents__name-start { min-width: 1em; }
 
-.config-editor-documents__tab-readonly .config-editor-documents__name { font-style: italic; }
+:not(#\#) .config-editor-documents__tab-readonly .config-editor-documents__name { font-style: italic; }
 
 /* A tab that cannot be closed keeps no room for the button: only its
    unsaved dot, while it has one. */
-.config-editor-documents__tab:not(.config-editor-documents__tab-dirty) .config-editor-documents__marker {
+:not(#\#) .config-editor-documents__tab:not(.config-editor-documents__tab-dirty) .config-editor-documents__marker {
   display: none;
 }
 
-.config-editor-documents__close,
-.config-editor-documents__marker {
+/* At least 24×24px, to a mouse as to a finger (WCAG 2.5.8). */
+:not(#\#) .config-editor-documents__close,
+:not(#\#) .config-editor-documents__marker {
   flex: none;
-  width: 20px;
-  height: 20px;
+  width: 24px;
+  height: 24px;
   display: grid;
   place-items: center;
   padding: 0;
@@ -2525,38 +2554,29 @@
   font: 14px/1 ui-sans-serif, system-ui, sans-serif;
 }
 
-/* Touch screens: at least 24×24px to a finger. */
-@media (pointer: coarse) {
-  .config-editor-documents__close,
-  .config-editor-documents__marker {
-    width: 24px;
-    height: 24px;
-  }
-}
-
-.config-editor-documents__close { cursor: pointer; }
-.config-editor-documents__close:hover { background: var(--config-editor-raised-hover); }
-.config-editor-documents__close > span,
-.config-editor-documents__marker > span { grid-area: 1 / 1; }
+:not(#\#) .config-editor-documents__close { cursor: pointer; }
+:not(#\#) .config-editor-documents__close:hover { background: var(--config-editor-raised-hover); }
+:not(#\#) .config-editor-documents__close > span,
+:not(#\#) .config-editor-documents__marker > span { grid-area: 1 / 1; }
 
 /* A dirty tab shows its dot; hovering a closable tab (or a clean active
    one) shows the close button instead. */
-.config-editor-documents__dirty-dot {
+:not(#\#) .config-editor-documents__dirty-dot {
   color: var(--config-editor-tab-dirty);
   font-size: 11px;
   visibility: hidden;
 }
-.config-editor-documents__close-icon { visibility: hidden; }
-.config-editor-documents__tab-dirty .config-editor-documents__dirty-dot { visibility: visible; }
-.config-editor-documents__tab:hover .config-editor-documents__close-icon,
-.config-editor-documents__tab-active:not(.config-editor-documents__tab-dirty) .config-editor-documents__close-icon {
+:not(#\#) .config-editor-documents__close-icon { visibility: hidden; }
+:not(#\#) .config-editor-documents__tab-dirty .config-editor-documents__dirty-dot { visibility: visible; }
+:not(#\#) .config-editor-documents__tab:hover .config-editor-documents__close-icon,
+:not(#\#) .config-editor-documents__tab-active:not(.config-editor-documents__tab-dirty) .config-editor-documents__close-icon {
   visibility: visible;
 }
-.config-editor-documents__tab-dirty:hover .config-editor-documents__close .config-editor-documents__dirty-dot {
+:not(#\#) .config-editor-documents__tab-dirty:hover .config-editor-documents__close .config-editor-documents__dirty-dot {
   visibility: hidden;
 }
 
-.config-editor-documents__panels {
+:not(#\#) .config-editor-documents__panels {
   position: relative;
   flex: 1 1 auto;
   display: flex;
@@ -2565,7 +2585,7 @@
   min-height: 0;
 }
 
-.config-editor-documents__panel {
+:not(#\#) .config-editor-documents__panel {
   flex: 1 1 auto;
   display: flex;
   flex-direction: column;
@@ -2579,14 +2599,14 @@
   min-height: 0;
 }
 
-.config-editor-documents__panels .config-editor__frame {
+:not(#\#) .config-editor-documents__panels .config-editor__frame {
   border-top-left-radius: 0;
   border-top-right-radius: 0;
 }
 
 /* Hidden panels keep their editor laid out (so its scroll position and
    measurements stay), out of sight and out of the page's height. */
-.config-editor-documents__panel-hidden {
+:not(#\#) .config-editor-documents__panel-hidden {
   position: absolute;
   inset: 0 0 auto 0;
   height: 0;
@@ -2595,7 +2615,7 @@
   pointer-events: none;
 }
 
-.config-editor-documents__empty {
+:not(#\#) .config-editor-documents__empty {
   margin: 0;
   padding: 24px;
   border: 1px solid var(--config-editor-tab-border);
@@ -2606,19 +2626,19 @@
 }
 
 @media (max-width: 600px) {
-  .config-editor-documents__tab { padding-left: 8px; }
+  :not(#\#) .config-editor-documents__tab { padding-left: 8px; }
   /* Room for a short folder before a shared file's name (prod/). */
-  .config-editor-documents__name { max-width: calc(100px + var(--config-editor-tab-kept, 0px)); }
+  :not(#\#) .config-editor-documents__name { max-width: calc(100px + var(--config-editor-tab-kept, 0px)); }
   /* A tab's folder (`conf.d/`) is left out, so the names that tell the
      tabs apart show; the title keeps the whole name. */
-  .config-editor-documents__name-folder { display: none; }
+  :not(#\#) .config-editor-documents__name-folder { display: none; }
 }
 
 /* Forced colors (Windows high contrast) drop backgrounds: the selected
    tab's bar would be gone (closable or not), so it is drawn in a system
    color. */
 @media (forced-colors: active) {
-  .config-editor-documents__tab-active::before {
+  :not(#\#) .config-editor-documents__tab-active::before {
     forced-color-adjust: none;
     background: Highlight;
   }

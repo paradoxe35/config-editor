@@ -28,6 +28,7 @@ fn wide(language: Language) -> (Vec<&'static str>, Vec<&'static str>) {
                 "{\"id\": -9223372036854775809}\n",
                 "{\"n\": 1e400}\n",
                 "{\"a\": 18446744073709551616, \"b\": [1e400, -99999999999999999999]}\n",
+                "{\"a\": \"x 99999999999999999999\", \"b\": 99999999999999999999}\n",
             ],
             vec![
                 "{\"id\": 123456789012345678901234, }\n",
@@ -40,6 +41,7 @@ fn wide(language: Language) -> (Vec<&'static str>, Vec<&'static str>) {
                 "id: 123456789012345678901234\n",
                 "id: -9223372036854775809\n",
                 "a: 18446744073709551616\nb:\n  - 1\n  - -99999999999999999999\n",
+                "a: 99999999999999999999 # 99999999999999999999\nb: \"1 99999999999999999999\"\n",
             ],
             vec!["id: 123456789012345678901234\nb: [\n"],
         )
@@ -48,6 +50,7 @@ fn wide(language: Language) -> (Vec<&'static str>, Vec<&'static str>) {
             vec![
                 "id = 123456789012345678901234\n",
                 "a = 18446744073709551616\nb = [1, 99999999999999999999]\n",
+                "a = 99999999999999999999 # 1e400\nb = \"x 1e400\"\n",
             ],
             vec!["id = 123456789012345678901234\nb = [\n"],
         )
@@ -137,5 +140,91 @@ fn a_view_never_saves_a_number_past_what_the_editor_holds() {
             }
         }
     }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+/// A text of `filler` plain entries and `wide` numbers past what the editor
+/// holds (integers past 64 bits, both signs, and floats past the largest),
+/// written in `language`.
+fn many_wide(language: Language, filler: usize, wide: usize) -> String {
+    let numbers = [
+        "123456789012345678901234567",
+        "-99999999999999999999",
+        "1e400",
+    ];
+    let entries: Vec<String> = (0..filler)
+        .map(|index| (format!("f{index}"), index.to_string()))
+        .chain((0..wide).map(|index| (format!("w{index}"), numbers[index % 3].to_string())))
+        .map(|(key, value)| {
+            if language == Language::JSON {
+                format!("\"{key}\": {value}")
+            } else if language == Language::YAML {
+                format!("{key}: {value}")
+            } else {
+                format!("{key} = {value}")
+            }
+        })
+        .collect();
+    if language == Language::JSON {
+        format!("{{\n{}\n}}\n", entries.join(",\n"))
+    } else {
+        format!("{}\n", entries.join("\n"))
+    }
+}
+
+/// Whether a text with many numbers past what the editor holds saves is
+/// told from a few reads of it, however many there are (each read in
+/// turn with the ones before stood in for: 8 s for 700 in 5,000 lines).
+#[test]
+fn many_numbers_past_what_the_editor_holds_are_judged_in_a_few_reads() {
+    use super::super::work_count::{Work, counted};
+    let mut failures = Vec::new();
+    for language in [Language::JSON, Language::YAML, Language::HCL] {
+        for filler in [200, 2000] {
+            for wide in [0, 30, 300] {
+                let text = many_wide(language, filler, wide);
+                let (saves, parsed) = counted(Work::ParsedBytes, || language.saves(&text));
+                if !saves {
+                    failures.push(format!(
+                        "{language}: {filler} entries, {wide} wide: refused"
+                    ));
+                }
+                // None: one read; any number of them: a few.
+                if parsed
+                    > if wide == 0 {
+                        text.len()
+                    } else {
+                        3 * text.len()
+                    }
+                {
+                    failures.push(format!(
+                        "{language}: {filler} entries, {wide} wide: {parsed} bytes parsed of {}",
+                        text.len()
+                    ));
+                }
+                // A syntax error after them all: refused, as soon.
+                let broken = format!(
+                    "{text}{}",
+                    if language == Language::JSON {
+                        "]"
+                    } else {
+                        "x = [\n"
+                    }
+                );
+                let (saves, parsed) = counted(Work::ParsedBytes, || language.saves(&broken));
+                if saves || parsed > 3 * broken.len() {
+                    failures.push(format!(
+                        "{language}: {filler} entries, {wide} wide, broken: saves {saves}, {parsed} bytes parsed of {}",
+                        broken.len()
+                    ));
+                }
+            }
+        }
+    }
+    // TOML holds its integers to 64 bits: there they still wait.
+    let filler: String = (0..50).map(|index| format!("a{index} = 1\n")).collect();
+    let toml = format!("{filler}id = 9223372036854775808\n");
+    assert!(Language::TOML.saves(&filler));
+    assert!(!Language::TOML.saves(&toml));
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }

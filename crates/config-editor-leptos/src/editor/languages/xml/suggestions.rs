@@ -472,6 +472,11 @@ pub(super) fn property_insert(
     root: &Value,
     context: &InsertContext<'_>,
 ) -> Option<(String, usize)> {
+    // A key no XML name (`a b`, `1x`, an unbound `p:k`) names nothing the
+    // writer writes.
+    if !writes_key(&XmlBehavior, key) {
+        return None;
+    }
     // A schema marking attributes (`"xml": {"attribute": true}`) tells
     // them from elements: a start tag offers only those (when the element
     // has any), the content only the others.
@@ -486,54 +491,27 @@ pub(super) fn property_insert(
         return None;
     }
     let (base_indent, unit) = (context.base_indent, context.unit);
-    // An object or list default is elements of its own (a list's items
-    // repeat the key), as the XML writer writes them.
-    if written_const(property, root).is_none()
-        && let Some(elements) = written_default(property, root)
-            .filter(|value| is_filled_container(value))
-            .and_then(|value| written_elements(key, value, base_indent, unit))
+    // An object or list const or default is elements of its own (a
+    // list's items repeat the key), as the XML writer writes them.
+    let kept = written_const(property, root).or_else(|| written_default(property, root));
+    if let Some(elements) = kept
+        .filter(|value| is_filled_container(value))
+        .and_then(|value| written_elements(key, value, base_indent, unit))
     {
         let caret = utf16(&elements);
         return Some((elements, caret));
     }
     let mut insert = format!("<{key}>");
     let mut caret = None;
-    let scalar_default = written_default(property, root).filter(|value| !value.is_array() && !value.is_object());
-    if let Some(value) = written_const(property, root).or(scalar_default) {
+    if let Some(value) = kept.filter(|value| !value.is_array() && !value.is_object()) {
         insert.push_str(&escape_text(&xml_text(value)));
-    } else if let Some(branch) = object_branch(property, root).or_else(|| item_object(property, root)) {
-        let children = required_children(branch);
+    } else if object_branch(property, root).or_else(|| item_object(property, root)).is_some() {
+        let children = required_children(&XmlBehavior, property, root);
         if children.is_empty() {
             // No required children: leave the caret between the tags.
             caret = Some(insert.len());
         } else {
-            let child_indent = format!("{base_indent}{unit}");
-            insert.push('\n');
-            for (name, child) in &children {
-                let takes_caret = caret.is_none();
-                // A default, else (past the caret's child) a fill: a value
-                // Tab selects.
-                let fill = child_fill(&XmlBehavior, child, root, takes_caret);
-                insert.push_str(&child_indent);
-                if let Some(elements) = fill
-                    .as_ref()
-                    .filter(|value| is_filled_container(value))
-                    .and_then(|value| written_elements(name, value, &child_indent, unit))
-                {
-                    insert.push_str(&elements);
-                    insert.push('\n');
-                    continue;
-                }
-                insert.push_str(&format!("<{name}>"));
-                if takes_caret {
-                    caret = Some(insert.len());
-                }
-                if let Some(value) = fill.filter(|value| !value.is_object() && !value.is_array()) {
-                    insert.push_str(&escape_text(&xml_text(&value)));
-                }
-                insert.push_str(&format!("</{name}>\n"));
-            }
-            insert.push_str(base_indent);
+            write_children(&children, base_indent, unit, &mut insert, &mut caret);
         }
     }
     let caret = caret.unwrap_or(insert.len());
@@ -601,23 +579,57 @@ pub(super) fn attribute_insert(name: &str, property: &Value, root: &Value) -> Op
     Some((insert, caret))
 }
 
-/// The required properties of an object schema that have a schema of their
-/// own, in the order the schema lists them.
-pub(super) fn required_children(branch: &Value) -> Vec<(String, &Value)> {
-    let Some(properties) = branch.get("properties").and_then(Value::as_object) else {
-        return Vec::new();
-    };
-    branch
-        .get("required")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(Value::as_str)
-        .filter_map(|name| {
-            let key = name.strip_prefix('@').unwrap_or(name);
-            properties.get(key).map(|child| (key.to_string(), child))
-        })
-        .collect()
+/// `children` as elements on lines of their own below the start tag just
+/// written, then `base_indent` for its end tag; `caret` is set to the
+/// byte offset in `insert` of the value the caret goes to. A value the
+/// writer writes as elements (a list, an object) is written as it does.
+fn write_children(
+    children: &[RequiredChild<'_>],
+    base_indent: &str,
+    unit: &str,
+    insert: &mut String,
+    caret: &mut Option<usize>,
+) {
+    let child_indent = format!("{base_indent}{unit}");
+    insert.push('\n');
+    for child in children {
+        let name = child.key;
+        insert.push_str(&child_indent);
+        let value = match &child.fill {
+            Fill::Value(value) | Fill::CaretAt(value) | Fill::Empty(Some(value)) => Some(value),
+            _ => None,
+        };
+        if let Some(elements) = value
+            .filter(|value| is_filled_container(value))
+            .and_then(|value| written_elements(name, value, &child_indent, unit))
+        {
+            if matches!(child.fill, Fill::CaretAt(_)) {
+                *caret = Some(insert.len());
+            }
+            insert.push_str(&elements);
+            insert.push('\n');
+            continue;
+        }
+        insert.push_str(&format!("<{name}>"));
+        match &child.fill {
+            Fill::Children(nested) => {
+                write_children(nested, &child_indent, unit, insert, caret);
+            }
+            Fill::Caret { .. } => *caret = Some(insert.len()),
+            // Before the value.
+            Fill::CaretAt(value) => {
+                *caret = Some(insert.len());
+                insert.push_str(&escape_text(&xml_text(value)));
+            }
+            // An empty value (`""`, `{}`) is the empty element.
+            Fill::Value(value) | Fill::Empty(Some(value)) if !value.is_object() && !value.is_array() => {
+                insert.push_str(&escape_text(&xml_text(value)));
+            }
+            _ => {}
+        }
+        insert.push_str(&format!("</{name}>\n"));
+    }
+    insert.push_str(base_indent);
 }
 
 /// Text as element content: a carriage return as a reference, since XML

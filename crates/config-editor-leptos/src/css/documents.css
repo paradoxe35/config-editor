@@ -10,11 +10,17 @@
   min-width: 0;
   max-width: 100%;
   color: var(--config-editor-text);
+  /* As in the editor: the page's text spacing is not inherited. */
+  letter-spacing: normal;
+  word-spacing: normal;
+  text-indent: 0;
+  text-transform: none;
+  text-shadow: none;
 }
 
 /* The strip: the tab list, then the "+" (with `on_add`), which stays at
    the end while the tabs scroll. */
-.config-editor-documents__strip {
+:not(#\#) .config-editor-documents__strip {
   flex: none;
   display: flex;
   min-width: 0;
@@ -26,7 +32,7 @@
   font: 12px/1.2 ui-sans-serif, system-ui, sans-serif;
 }
 
-.config-editor-documents__tabs {
+:not(#\#) .config-editor-documents__tabs {
   position: relative;
   flex: 0 1 auto;
   display: flex;
@@ -37,7 +43,7 @@
   scrollbar-color: var(--config-editor-scrollbar-thumb) transparent;
 }
 
-.config-editor-documents__add {
+:not(#\#) .config-editor-documents__add {
   flex: none;
   width: 35px;
   height: 35px;
@@ -50,16 +56,16 @@
   font: 18px/1 ui-sans-serif, system-ui, sans-serif;
   cursor: pointer;
 }
-.config-editor-documents__add:hover {
+:not(#\#) .config-editor-documents__add:hover {
   background: var(--config-editor-tab-bg);
   color: var(--config-editor-tab-active-text);
 }
-.config-editor-documents__add:focus-visible {
+:not(#\#) .config-editor-documents__add:focus-visible {
   outline: 1px solid var(--config-editor-focus-ring);
   outline-offset: -1px;
 }
 
-.config-editor-documents__tab {
+:not(#\#) .config-editor-documents__tab {
   position: relative;
   flex: none;
   display: flex;
@@ -76,12 +82,12 @@
   box-sizing: border-box;
 }
 
-.config-editor-documents__tab-active {
+:not(#\#) .config-editor-documents__tab-active {
   background: var(--config-editor-tab-active-bg);
   color: var(--config-editor-tab-active-text);
 }
 
-.config-editor-documents__tab-active::before {
+:not(#\#) .config-editor-documents__tab-active::before {
   content: "";
   position: absolute;
   inset: 0 0 auto 0;
@@ -89,18 +95,18 @@
   background: var(--config-editor-tab-active-border);
 }
 
-.config-editor-documents__tab:focus-visible {
+:not(#\#) .config-editor-documents__tab:focus-visible {
   outline: 1px solid var(--config-editor-focus-ring);
   outline-offset: -1px;
 }
 
-.config-editor-documents__icon { flex: none; }
+:not(#\#) .config-editor-documents__icon { flex: none; }
 
 /* The name's room, whatever the tab's other parts take (a touch screen's
    wider close button, none on a tab that cannot be closed); more by the
    letters that tell a shared file's name apart (set on the tab), so the
    rest of the name keeps its room. */
-.config-editor-documents__name {
+:not(#\#) .config-editor-documents__name {
   display: flex;
   min-width: 0;
   max-width: calc(154px + var(--config-editor-tab-kept, 0px));
@@ -110,33 +116,34 @@
 /* A name's end stays whole (`service-con…production.yaml`, the file's own
    name after a folder: `eu-west-1/…limits.toml`): a narrow tab cuts its
    start, so names sharing a start still differ. */
-.config-editor-documents__name-start {
+:not(#\#) .config-editor-documents__name-start {
   flex: 0 1 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.config-editor-documents__name-start:empty { display: none; }
-.config-editor-documents__name-end { flex: none; }
+:not(#\#) .config-editor-documents__name-start:empty { display: none; }
+:not(#\#) .config-editor-documents__name-end { flex: none; }
 /* The letters that tell a name from the other tabs' with the same file's
    name (`eu-…limits.toml` beside `eu/limits.toml`) stay whole, and the
    ellipsis after them shows. */
-.config-editor-documents__name-kept { flex: none; }
-.config-editor-documents__name-kept + .config-editor-documents__name-start { min-width: 1em; }
+:not(#\#) .config-editor-documents__name-kept { flex: none; }
+:not(#\#) .config-editor-documents__name-kept + .config-editor-documents__name-start { min-width: 1em; }
 
-.config-editor-documents__tab-readonly .config-editor-documents__name { font-style: italic; }
+:not(#\#) .config-editor-documents__tab-readonly .config-editor-documents__name { font-style: italic; }
 
 /* A tab that cannot be closed keeps no room for the button: only its
    unsaved dot, while it has one. */
-.config-editor-documents__tab:not(.config-editor-documents__tab-dirty) .config-editor-documents__marker {
+:not(#\#) .config-editor-documents__tab:not(.config-editor-documents__tab-dirty) .config-editor-documents__marker {
   display: none;
 }
 
-.config-editor-documents__close,
-.config-editor-documents__marker {
+/* At least 24×24px, to a mouse as to a finger (WCAG 2.5.8). */
+:not(#\#) .config-editor-documents__close,
+:not(#\#) .config-editor-documents__marker {
   flex: none;
-  width: 20px;
-  height: 20px;
+  width: 24px;
+  height: 24px;
   display: grid;
   place-items: center;
   padding: 0;
@@ -147,38 +154,29 @@
   font: 14px/1 ui-sans-serif, system-ui, sans-serif;
 }
 
-/* Touch screens: at least 24×24px to a finger. */
-@media (pointer: coarse) {
-  .config-editor-documents__close,
-  .config-editor-documents__marker {
-    width: 24px;
-    height: 24px;
-  }
-}
-
-.config-editor-documents__close { cursor: pointer; }
-.config-editor-documents__close:hover { background: var(--config-editor-raised-hover); }
-.config-editor-documents__close > span,
-.config-editor-documents__marker > span { grid-area: 1 / 1; }
+:not(#\#) .config-editor-documents__close { cursor: pointer; }
+:not(#\#) .config-editor-documents__close:hover { background: var(--config-editor-raised-hover); }
+:not(#\#) .config-editor-documents__close > span,
+:not(#\#) .config-editor-documents__marker > span { grid-area: 1 / 1; }
 
 /* A dirty tab shows its dot; hovering a closable tab (or a clean active
    one) shows the close button instead. */
-.config-editor-documents__dirty-dot {
+:not(#\#) .config-editor-documents__dirty-dot {
   color: var(--config-editor-tab-dirty);
   font-size: 11px;
   visibility: hidden;
 }
-.config-editor-documents__close-icon { visibility: hidden; }
-.config-editor-documents__tab-dirty .config-editor-documents__dirty-dot { visibility: visible; }
-.config-editor-documents__tab:hover .config-editor-documents__close-icon,
-.config-editor-documents__tab-active:not(.config-editor-documents__tab-dirty) .config-editor-documents__close-icon {
+:not(#\#) .config-editor-documents__close-icon { visibility: hidden; }
+:not(#\#) .config-editor-documents__tab-dirty .config-editor-documents__dirty-dot { visibility: visible; }
+:not(#\#) .config-editor-documents__tab:hover .config-editor-documents__close-icon,
+:not(#\#) .config-editor-documents__tab-active:not(.config-editor-documents__tab-dirty) .config-editor-documents__close-icon {
   visibility: visible;
 }
-.config-editor-documents__tab-dirty:hover .config-editor-documents__close .config-editor-documents__dirty-dot {
+:not(#\#) .config-editor-documents__tab-dirty:hover .config-editor-documents__close .config-editor-documents__dirty-dot {
   visibility: hidden;
 }
 
-.config-editor-documents__panels {
+:not(#\#) .config-editor-documents__panels {
   position: relative;
   flex: 1 1 auto;
   display: flex;
@@ -187,7 +185,7 @@
   min-height: 0;
 }
 
-.config-editor-documents__panel {
+:not(#\#) .config-editor-documents__panel {
   flex: 1 1 auto;
   display: flex;
   flex-direction: column;
@@ -201,14 +199,14 @@
   min-height: 0;
 }
 
-.config-editor-documents__panels .config-editor__frame {
+:not(#\#) .config-editor-documents__panels .config-editor__frame {
   border-top-left-radius: 0;
   border-top-right-radius: 0;
 }
 
 /* Hidden panels keep their editor laid out (so its scroll position and
    measurements stay), out of sight and out of the page's height. */
-.config-editor-documents__panel-hidden {
+:not(#\#) .config-editor-documents__panel-hidden {
   position: absolute;
   inset: 0 0 auto 0;
   height: 0;
@@ -217,7 +215,7 @@
   pointer-events: none;
 }
 
-.config-editor-documents__empty {
+:not(#\#) .config-editor-documents__empty {
   margin: 0;
   padding: 24px;
   border: 1px solid var(--config-editor-tab-border);
@@ -228,19 +226,19 @@
 }
 
 @media (max-width: 600px) {
-  .config-editor-documents__tab { padding-left: 8px; }
+  :not(#\#) .config-editor-documents__tab { padding-left: 8px; }
   /* Room for a short folder before a shared file's name (prod/). */
-  .config-editor-documents__name { max-width: calc(100px + var(--config-editor-tab-kept, 0px)); }
+  :not(#\#) .config-editor-documents__name { max-width: calc(100px + var(--config-editor-tab-kept, 0px)); }
   /* A tab's folder (`conf.d/`) is left out, so the names that tell the
      tabs apart show; the title keeps the whole name. */
-  .config-editor-documents__name-folder { display: none; }
+  :not(#\#) .config-editor-documents__name-folder { display: none; }
 }
 
 /* Forced colors (Windows high contrast) drop backgrounds: the selected
    tab's bar would be gone (closable or not), so it is drawn in a system
    color. */
 @media (forced-colors: active) {
-  .config-editor-documents__tab-active::before {
+  :not(#\#) .config-editor-documents__tab-active::before {
     forced-color-adjust: none;
     background: Highlight;
   }

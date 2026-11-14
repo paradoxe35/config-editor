@@ -53,7 +53,7 @@ use super::inline::{caret_value_end,
     InlineEntry as CaretEntry, inline_caret, inline_key_at, inline_sibling_keys,
     statement_start_at, entry_follows, in_front_of_inline_entry,
 };
-use super::super::completion::{child_fill, kept_const, kept_default, array_branch, object_branch};
+use super::super::completion::{kept_const, kept_default, array_branch, object_branch, required_children, Fill, RequiredChild};
 use super::super::keyboard::utf16_to_byte_index;
 use super::super::language::{LanguageConfig, CompletionContext, Newline, EntryPosition, InsertContext, ConfigLanguage, LanguageInfo, Lexical, Span, ParseError,
     SchemaPathSegment,
@@ -75,8 +75,8 @@ impl ConfigLanguage for YamlBehavior {
 
     /// The specification allows any number: one past what the editor
     /// holds saves (see `wide_integers`).
-    fn unheld_number(&self, source: &str, error: &ParseError) -> Option<std::ops::Range<usize>> {
-        super::wide_integers::unheld(source, error)
+    fn unheld_numbers(&self, source: &str, error: &ParseError) -> Vec<std::ops::Range<usize>> {
+        super::wide_integers::unheld_all(source, error)
     }
 
     fn info(&self) -> LanguageInfo {
@@ -172,26 +172,26 @@ impl ConfigLanguage for YamlBehavior {
     }
 
     fn key_span(&self, source: &str, pointer: &str) -> Option<Span> {
-        super::super::byte_order_mark::span(source, |text| match root_flow_span(text) {
-            Some(root) => in_flow_root(self, text, root, pointer, true),
+        match root_flow_span(source) {
+            Some(root) => in_flow_root(self, source, root, pointer, true),
             // A key inside a flow collection over lines (`tcp: {` then
             // `nodelay: true,`): in the collection its parent writes.
-            None => yaml_span_for_path(text, pointer)
+            None => yaml_span_for_path(source, pointer)
                 .map(Span::from)
-                .or_else(|| super::super::codec::inline_location(self, text, pointer, true)),
-        })
+                .or_else(|| super::super::codec::inline_location(self, source, pointer, true)),
+        }
     }
 
     /// The root's value is found only when it is a flow collection.
     fn value_span(&self, source: &str, pointer: &str) -> Option<Span> {
-        super::super::byte_order_mark::span(source, |text| match root_flow_span(text) {
-            Some(root) => in_flow_root(self, text, root, pointer, false),
-            None => yaml_value_span_for_path(text, pointer).map(Span::from),
-        })
+        match root_flow_span(source) {
+            Some(root) => in_flow_root(self, source, root, pointer, false),
+            None => yaml_value_span_for_path(source, pointer).map(Span::from),
+        }
     }
 
     fn first_span(&self, source: &str) -> Option<Span> {
-        super::super::byte_order_mark::span(source, |text| first_yaml_span(text).map(Span::from))
+        first_yaml_span(source).map(Span::from)
     }
 
     fn completion_context(&self, source: &str, cursor: usize) -> CompletionContext {

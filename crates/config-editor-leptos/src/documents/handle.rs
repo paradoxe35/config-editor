@@ -144,8 +144,9 @@ impl DocumentsHandle {
     }
 
     /// Saves every document with unsaved edits, in order, through
-    /// `on_save`. Returns the ids sent: a document whose `edit_as` edit
-    /// cannot convert back yet is left out.
+    /// `on_save`. Returns the ids sent: a document whose text does not
+    /// read (shown or not), or whose `edit_as` edit cannot convert back
+    /// yet, is left out.
     pub fn save_all(&self) -> Vec<String> {
         self.view()
             .map(|documents| documents.save_all())

@@ -210,6 +210,13 @@ locks, tokens, folds and diagnostics follow the field there), and
   through the CSSOM), never a `style` string, which `tests/strict_csp.rs`
   enforces; the preset loads nothing (no `url()`: icons are inline SVG);
   `e2e/tests/strict-csp.spec.mjs` runs every feature under the policy.
+- The page's CSS never reaches what the editor draws (the host shield at
+  the top of `src/css/base.css`): every element inside the roots starts
+  from the browser's styles, and every rule of the preset for them begins
+  with `:not(#\#) ` (an id's weight), which `tests/host_shield.rs`
+  enforces; `e2e/tests/host-css-shield.spec.mjs` mounts under hostile
+  framework stylesheets. Only the color tokens, the roots and the toolbar's
+  and footer's own boxes (a host composes them) keep a lighter weight.
 
 ### Everyone can use it
 
@@ -243,6 +250,10 @@ packages.
   fails when they are stale).
 - The README contents lists: `node scripts/readme-toc.mjs` after adding or
   renaming a section.
+- The crate README's Keyboard table, written from the keys table in
+  `src/editor/a11y/keyboard.rs` (which also names the keys in
+  `aria-keyshortcuts`): `UPDATE_GENERATED=1 cargo test -p
+config-editor-leptos --lib keyboard`.
 - The screenshots in `docs/screenshots` and their gallery page:
   `cd e2e && npm run screenshots` (after `trunk build --release` and the npm
   build). A UI change reruns the scenes it affects; a new visible feature

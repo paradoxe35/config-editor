@@ -34,7 +34,8 @@
 //! inside a string or a YAML plain value excepted), a YAML plain value
 //! takes nothing glued onto it (`abc<`); nor does a locked value's content
 //! written over lines or as XML text, whose whitespace is content too
-//! (`content`).
+//! (`content`), nor the inside of a locked string written over lines (a
+//! blank line typed between a block scalar's header and its text).
 
 mod closers;
 mod content;
@@ -58,7 +59,7 @@ use super::locks::{Lock, Protected};
 use super::reach::out_of_reach;
 use super::texts::Reason;
 use crate::EditorStrings;
-use content::glued_to_content;
+use content::{glued_to_content, written_string_changed};
 use edit::Edited;
 use hiding::hidden;
 use joining::{LinePaths, is_near, joining_lines, near_lines, span};
@@ -141,8 +142,41 @@ pub(crate) fn check(
         return Ok(());
     }
     nothing_hidden(&edit, &pointed)?;
-    nothing_joins(&edit, &pointed)?;
+    nothing_joins(&edit, &pointed, true)?;
     indents_kept(&edit, &pointed)
+}
+
+/// Checks the edit turning `before` (whose locks are `protected`, values
+/// only) into `after`, a text that does not parse, for the values' text
+/// alone: each kept, nothing glued onto it or joining it, nothing hidden,
+/// no line indented under it, as for a lock; a value moved with its key,
+/// re-indented with it, or its key renamed, is free (see `whole_guard`: a
+/// placeholder only keeps its value).
+pub(crate) fn check_values(
+    behavior: &dyn ConfigLanguage,
+    reading_schema: Option<&Value>,
+    protected: &Protected,
+    before: &str,
+    after: &str,
+) -> Result<(), Blocked> {
+    if protected.locks.is_empty() || before == after {
+        return Ok(());
+    }
+    let edit = Edited::new(behavior, reading_schema, protected, before, after);
+    if edit.parsed().is_some() {
+        return Ok(());
+    }
+    stretches_kept(&edit, false)?;
+    let pointed: Vec<&Lock> = protected
+        .locks
+        .iter()
+        .filter(|lock| lock.pointer.is_some())
+        .collect();
+    if pointed.is_empty() || edit.spacing_only() {
+        return Ok(());
+    }
+    nothing_hidden(&edit, &pointed)?;
+    nothing_joins(&edit, &pointed, false)
 }
 
 /// Every lock's stretches, and the keys holding it, survive the edit;
@@ -162,7 +196,9 @@ fn stretches_kept(edit: &Edited<'_>, repairing: bool) -> Result<(), Blocked> {
         if !lock.ranges.iter().all(|range| edit.kept(range)) && !free() {
             return Err(refused(&lock.reason));
         }
-        if glued_to_content(edit, lock) {
+        if glued_to_content(edit, lock)
+            || (edit.parsed().is_none() && written_string_changed(edit, lock))
+        {
             return Err(refused(&lock.reason));
         }
         let held = || {
@@ -208,9 +244,11 @@ fn pins_still_hold(edited: &Value, protected: &Protected) -> Result<(), Blocked>
 /// a locked field once it parses (a key half typed inside a locked block,
 /// a duplicate of a locked key or of a key holding one): the edit may not
 /// add a line whose path is inside a locked field, or which names a key
-/// holding it; and a locked field the edit moves (a line command, a cut and
-/// paste) stays where it is (see `moved`).
-fn nothing_joins(edit: &Edited<'_>, pointed: &[&Lock]) -> Result<(), Blocked> {
+/// holding it; and a locked field the edit moves (a line command, a cut
+/// and paste) stays where it is (see `moved`). Without `paths_kept` (a
+/// value held for its text alone), its key may be renamed or moved, and a
+/// second line of its own key (a copy of its line) joins nothing.
+fn nothing_joins(edit: &Edited<'_>, pointed: &[&Lock], paths_kept: bool) -> Result<(), Blocked> {
     let new_lines = LineIndex::new(edit.after);
     // Each line's path is read once for all the locks.
     let old_paths = LinePaths::new(edit.behavior, edit.before, &edit.lines);
@@ -223,11 +261,11 @@ fn nothing_joins(edit: &Edited<'_>, pointed: &[&Lock]) -> Result<(), Blocked> {
     };
     for lock in pointed {
         let pointer = lock.pointer.as_deref().unwrap_or_default();
-        if is_near(lock, &edit.region, &edit.lines) && !place.kept(lock) {
+        if is_near(lock, &edit.region, &edit.lines) && !place.kept(lock, paths_kept) {
             return Err(refused(&lock.reason));
         }
         let count = |paths: &LinePaths<'_>, region: &Range<usize>, near| {
-            joining_lines(paths, region, near, pointer)
+            joining_lines(paths, region, near, pointer, !paths_kept)
         };
         let Some((low, high)) = span(lock) else {
             continue;

@@ -4,6 +4,7 @@
 use leptos::prelude::*;
 
 use super::super::codec;
+use super::super::languages::Language;
 use super::super::state::EditorState;
 use super::super::sync;
 use super::SaveRequest;
@@ -37,9 +38,8 @@ impl EditorState {
         // language is read here: a save never sends text its reader refuses
         // (a number the editor cannot hold exactly, which the language
         // allows, saves).
-        let document = document.filter(|text| {
-            self.bridge().is_some() || codec::saves_in_own_language(self.behavior(), text)
-        });
+        let document = document
+            .filter(|text| self.bridge().is_some() || self.config().host_language.saves(text));
         match document {
             Some(text) => {
                 self.editing().sent.update_value(|sent| sent.note(&text));
@@ -119,5 +119,16 @@ impl EditorState {
                 }
             }
         }
+    }
+}
+
+impl Language {
+    /// Whether `text` may be sent to `on_save` as this language, the
+    /// host's: it reads, or all that stands in its way are numbers the
+    /// editor cannot hold exactly that the language allows. The one gate
+    /// for a shown editor's text and a `ConfigDocuments` document never
+    /// shown.
+    pub(crate) fn saves(self, text: &str) -> bool {
+        codec::saves_in_own_language(self.behavior(), text)
     }
 }

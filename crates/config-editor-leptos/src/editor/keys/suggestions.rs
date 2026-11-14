@@ -31,10 +31,12 @@ pub(super) fn request(state: EditorState, event: &KeyboardEvent) -> bool {
     state.completion().asked.set_value(true);
     state.completion().explicit.set(true);
     state.completion().requested.set(true);
-    // Nothing to list where the text is protected (a secret placeholder):
-    // the key is not silent.
-    if state.completion().suggestions.with_untracked(Vec::is_empty) {
-        super::super::a11y::say_protected_at_caret(state);
+    // The user asked: nothing to offer is said, with the reason where the
+    // text is protected (a secret placeholder).
+    if state.completion().suggestions.with_untracked(Vec::is_empty)
+        && !super::super::a11y::say_protected_at_caret(state)
+    {
+        super::super::a11y::say_no_suggestions(state);
     }
     true
 }

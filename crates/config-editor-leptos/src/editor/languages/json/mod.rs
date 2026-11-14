@@ -23,7 +23,7 @@ use suggestions::*;
 use editing::*;
 
 use super::super::commands::indent_unit;
-use super::super::completion::{kept_const, kept_default, array_branch, object_branch, fill_value, placeholder};
+use super::super::completion::{kept_const, kept_default, array_branch, object_branch, placeholder, required_children, Fill, RequiredChild};
 use super::super::highlight::{self, TokenKind, Tokens};
 use super::super::keyboard::utf16_to_byte_index;
 use super::super::language::pointer_segments;
@@ -60,8 +60,8 @@ impl ConfigLanguage for JsonBehavior {
 
     /// The specification allows any number: one past what the editor
     /// holds saves (see `wide_integers`).
-    fn unheld_number(&self, source: &str, error: &ParseError) -> Option<std::ops::Range<usize>> {
-        super::wide_integers::unheld(source, error)
+    fn unheld_numbers(&self, source: &str, error: &ParseError) -> Vec<std::ops::Range<usize>> {
+        super::wide_integers::unheld_all(source, error)
     }
 
     fn info(&self) -> LanguageInfo {
@@ -98,15 +98,15 @@ impl ConfigLanguage for JsonBehavior {
     }
 
     fn key_span(&self, source: &str, pointer: &str) -> Option<Span> {
-        super::super::byte_order_mark::span(source, |text| json_key_span(text, pointer).map(Span::from))
+        json_key_span(source, pointer).map(Span::from)
     }
 
     fn value_span(&self, source: &str, pointer: &str) -> Option<Span> {
-        super::super::byte_order_mark::span(source, |text| json_value_span(text, pointer).map(Span::from))
+        json_value_span(source, pointer).map(Span::from)
     }
 
     fn first_span(&self, source: &str) -> Option<Span> {
-        super::super::byte_order_mark::span(source, |text| first_line_span(text).map(Span::from))
+        first_line_span(source).map(Span::from)
     }
 
     fn completion_context(&self, source: &str, cursor: usize) -> CompletionContext {

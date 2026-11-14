@@ -138,10 +138,37 @@ fn patch_lines(
     // at its key's column, `-   item`), from the matched lines above it.
     let mut written_new: Vec<String> = rendered_new.iter().map(|line| line.to_string()).collect();
     {
-        let (host_unit, rendered_unit) = (
-            super::super::commands::indent_unit(previous),
-            super::super::commands::indent_unit(&before),
-        );
+        // Lines aligned as the host aligns them (an XML start tag's
+        // attribute lines): no depth to indent from, nor a unit to read,
+        // and added as written.
+        let aligned = |text: &str, count: usize| {
+            let mut aligned = vec![false; count];
+            for line in language.aligned_lines(text) {
+                if let Some(slot) = aligned.get_mut(line) {
+                    *slot = true;
+                }
+            }
+            aligned
+        };
+        let aligned_old = aligned(&before, rendered_old.len());
+        let aligned_new = aligned(&after, rendered_new.len());
+        let aligned_host = aligned(previous, host.len());
+        let unit = |lines: &[&str], aligned: &[bool]| {
+            if !aligned.contains(&true) {
+                return None;
+            }
+            let depth_lines: Vec<&str> = lines
+                .iter()
+                .zip(aligned)
+                .filter(|(_, aligned)| !**aligned)
+                .map(|(line, _)| *line)
+                .collect();
+            Some(super::super::commands::indent_unit(&depth_lines.join("\n")))
+        };
+        let host_unit = unit(&host, &aligned_host)
+            .unwrap_or_else(|| super::super::commands::indent_unit(previous));
+        let rendered_unit = unit(&rendered_old, &aligned_old)
+            .unwrap_or_else(|| super::super::commands::indent_unit(&before));
         let (mut old_at, mut new_at) = (0, 0);
         for edit in &edits {
             match edit {
@@ -150,11 +177,12 @@ fn patch_lines(
                     new_at += 1;
                 }
                 DiffEdit::Delete => old_at += 1,
+                DiffEdit::Insert if aligned_new[new_at] => new_at += 1,
                 DiffEdit::Insert => {
                     written_new[new_at] = in_host_indentation(
                         &flow,
                         rendered_new[new_at],
-                        &rendered_old[..old_at],
+                        (&rendered_old[..old_at], &aligned_old[..old_at]),
                         &place[..old_at],
                         &host,
                         &host_unit,
@@ -421,11 +449,12 @@ fn reads_alias(flow: &Flow, head: &str, wanted: &str) -> bool {
 /// at the host indent of the nearest matched line above with the same
 /// rendered indent (a sibling), else one host unit per rendered unit below
 /// the nearest shallower one (its parent); a list item takes the sibling's
-/// spacing after its dash.
+/// spacing after its dash. A line `aligned` (as the host aligns it, see
+/// [`ConfigLanguage::aligned_lines`]) is neither.
 fn in_host_indentation(
     flow: &Flow,
     line: &str,
-    rendered_old: &[&str],
+    (rendered_old, aligned): (&[&str], &[bool]),
     place: &[Option<usize>],
     host: &[&str],
     host_unit: &str,
@@ -440,6 +469,7 @@ fn in_host_indentation(
     let placed = || {
         (0..rendered_old.len())
             .rev()
+            .filter(|index| !aligned[*index])
             .filter_map(|index| Some((rendered_old[index], host[place[index]?])))
             .filter(|(rendered, _)| !rendered.trim().is_empty())
     };

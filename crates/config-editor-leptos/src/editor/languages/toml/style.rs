@@ -95,17 +95,7 @@ pub(super) fn fold_dotted_tables(rendered: &str, dotted: &HashSet<Dotted>, previ
         let (_, body) = sections.remove(index);
         let quoted = prefix
             .iter()
-            .map(|segment| {
-                let bare = !segment.is_empty()
-                    && segment
-                        .chars()
-                        .all(|character| character.is_ascii_alphanumeric() || matches!(character, '_' | '-'));
-                if bare {
-                    segment.clone()
-                } else {
-                    super::suggestions::basic_string(segment)
-                }
-            })
+            .map(|segment| super::suggestions::toml_key(segment))
             .collect::<Vec<_>>()
             .join(".");
         // Only lines starting a key get the prefix: the rest of a multi-line

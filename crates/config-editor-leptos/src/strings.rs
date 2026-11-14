@@ -441,7 +441,7 @@ pub struct EditorStrings {
     pub closes_tag: String,
     /// Its type column.
     pub end_tag: String,
-    /// Said when typing empties a list opened with Ctrl+Space or moved in; a list that opened by itself closes silently.
+    /// Said when Ctrl+Space finds nothing to offer, and when typing empties a list opened with Ctrl+Space or moved in; a list that opened by itself closes silently.
     pub no_suggestions: String,
 
     // Problems the editor words.
@@ -463,6 +463,16 @@ pub struct EditorStrings {
     /// A value out of its `format` (checked up to draft-07): `{format}` is
     /// its name, quoted.
     pub not_format: String,
+    /// A list (`{value}`) with no item its `contains` schema allows.
+    pub no_item_contained: String,
+    /// A list (`{value}`) with fewer items its `contains` schema allows
+    /// than its `minContains` (`{limit}`).
+    pub too_few_contained: String,
+    /// A list (`{value}`) with more items its `contains` schema allows
+    /// than its `maxContains` (`{limit}`).
+    pub too_many_contained: String,
+    /// A value its `not` schema (`{schema}`, as JSON) matches.
+    pub must_not_match: String,
     /// A value that matches none of a schema's options (`{keyword}`:
     /// `oneOf` or `anyOf`), with why each fails (`{reasons}`, each worded
     /// by `option_needs`, `option_refuses` or `option_problem`, joined by
@@ -744,6 +754,14 @@ impl Default for EditorStrings {
             not_one_of: text("{value} is not one of {allowed}"),
             wrong_type: text("{value} is not of type {types}"),
             not_format: text("{value} is not a valid {format}"),
+            no_item_contained: text("{value} has no item its \"contains\" schema allows"),
+            too_few_contained: text(
+                "{value} has fewer than {limit} items its \"contains\" schema allows",
+            ),
+            too_many_contained: text(
+                "{value} has more than {limit} items its \"contains\" schema allows",
+            ),
+            must_not_match: text("{value} must not match {schema}"),
             no_option_matches: text("matches none of the {keyword} options: {reasons}"),
             several_options_match: text(
                 "matches more than one of the oneOf options ({options}); only one may match",

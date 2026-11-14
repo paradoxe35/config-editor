@@ -17,7 +17,7 @@ use super::locks::{Sources, protect};
 
 /// `blocks` services, each with an image, a port and a comment where the
 /// language has one; YAML's merge the defaults they share.
-fn services(language: Language, blocks: usize) -> String {
+pub(super) fn services(language: Language, blocks: usize) -> String {
     let each = |index: usize| match language.label() {
         "YAML" => format!(
             "  # service {index}\n  svc_{index}:\n    <<: *defaults\n    image: \"app-{index}:1.0\"\n    port: {index}\n"
@@ -72,7 +72,7 @@ fn views() -> Vec<(Language, Language)> {
 
 /// Types `qqq` inside the image of the middle service, a key at a time,
 /// as the browser does.
-fn type_in_middle(state: EditorState, blocks: usize) {
+pub(super) fn type_in_middle(state: EditorState, blocks: usize) {
     let value = format!("app-{}:", blocks / 2);
     let shown = state.doc().text.get_untracked();
     let byte = shown.find(&value).expect("the middle image") + 2;

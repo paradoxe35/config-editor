@@ -6,20 +6,15 @@ use super::*;
 /// `${ ... }`-style source text; a heredoc without them reads as its text,
 /// as a quoted string does (`$${x}` is `${x}`).
 pub(super) fn hcl_parse(source: &str) -> Result<Value, ParseError> {
-    // A leading byte order mark is no part of the document (as YAML, TOML
-    // and XML read it); columns on its line count it.
-    let bom = usize::from(source.starts_with('\u{FEFF}'));
-    let text = source.strip_prefix('\u{FEFF}').unwrap_or(source);
     let read = || -> Result<Value, hcl::Error> {
-        super::read::read(text, false).map(super::floats::read_whole_floats)
+        super::read::read(source, false).map(super::floats::read_whole_floats)
     };
     let value = read().map_err(|error| {
         // Only syntax errors carry a location; others fall back to the top.
         let (line, column) = match &error {
             hcl::Error::Parse(parse) => {
                 let location = parse.location();
-                let bom = if location.line() == 1 { bom } else { 0 };
-                (location.line(), location.column() + bom)
+                (location.line(), location.column())
             }
             _ => (1, 1),
         };
@@ -297,11 +292,13 @@ fn inline_keys(source: &str, index: &Indexed, wanted: &[Vec<String>]) -> Vec<Opt
             if !tails.contains(tail.as_slice()) {
                 continue;
             }
+            // From the walk kept for the text while a batch runs for it,
+            // not a walk from the top for each statement.
             let above = outer.get_or_insert_with(|| {
-                let outer = analyze(source, start);
-                let mut full = body_path(&outer, outer.snapshot.body);
-                if outer.snapshot.in_map {
-                    full.extend(outer.snapshot.value_prefix.iter().cloned());
+                let (scan, snapshot) = analyze_at(source, start);
+                let mut full = body_path(&scan, snapshot.body);
+                if snapshot.in_map {
+                    full.extend(snapshot.value_prefix.iter().cloned());
                 }
                 full
             });

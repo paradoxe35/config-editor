@@ -147,20 +147,7 @@ pub(super) fn property_completions(
         .iter()
         .flat_map(|schema| branches_for(schema, root, instance))
         .collect();
-    // A key one branch only names (`"version": true`, as an `anyOf` saying
-    // "at least one of" does) is described where another branch declares
-    // it: its type, its docs, what accepting it writes.
-    let mut described: std::collections::HashMap<&str, &Value> = std::collections::HashMap::new();
-    for (key, property) in branches
-        .iter()
-        .filter_map(|branch| branch.get("properties").and_then(Value::as_object))
-        .flatten()
-    {
-        if !names_only(property) {
-            described.entry(key.as_str()).or_insert(property);
-        }
-    }
-    for branch in branches {
+    for branch in &branches {
         let Some(properties) = branch.get("properties").and_then(Value::as_object) else {
             continue;
         };
@@ -182,9 +169,15 @@ pub(super) fn property_completions(
             .map(|names| names.iter().filter_map(Value::as_str).collect())
             .unwrap_or_default();
         for (key, property) in properties {
-            let property = match described.get(key.as_str()) {
-                Some(described) if names_only(property) => *described,
-                _ => property,
+            // A key this branch only names is described where another
+            // declares it: its type, its docs, what accepting it writes.
+            let Some(info) = key_info(key, &branches, choices, root) else {
+                continue;
+            };
+            let property = if names_only(property) {
+                info.schema
+            } else {
+                property
             };
             // A list key written by repetition can appear again: any list in
             // XML, a list of objects as HCL blocks (never inside `{ … }`).
@@ -218,20 +211,8 @@ pub(super) fn property_completions(
             };
             let (cursor_offset, selected) =
                 default_selection(&insert, cursor_offset, property, root, behavior);
-            let holding = choices.holding(key);
-            let typed_by: Vec<&Value> = holding
-                .iter()
-                .map(|(_, schema)| *schema)
-                .filter(|schema| !names_only(schema))
-                .collect();
-            let title = (!holding.is_empty())
-                .then(|| choices.titles_holding(key))
-                .flatten();
-            let type_label = if typed_by.is_empty() {
-                schema_type_label(property, root, "property")
-            } else {
-                type_label_of_all(&typed_by, root, "property")
-            };
+            let title = choices.titles_holding(key);
+            let type_label = info.type_label;
             candidates.push((
                 score,
                 Completion {
@@ -265,16 +246,6 @@ pub(super) fn property_completions(
         }
     }
     sorted_completions(candidates)
-}
-
-/// Whether a property's schema only names the key (`true`, `{}`),
-/// describing nothing of its value.
-fn names_only(property: &Value) -> bool {
-    match property {
-        Value::Bool(true) => true,
-        Value::Object(members) => members.is_empty(),
-        _ => false,
-    }
 }
 
 #[cfg(test)]
@@ -820,6 +791,26 @@ pub(super) fn completions_for_context(
         document,
     );
 
+    // An empty document under a schema whose root is a list: its first
+    // entry opens the list's first item.
+    if let Some((open, close, indent)) = context.root_item
+        && context.value_key.is_none()
+        && !schemas
+            .iter()
+            .any(|schema| object_branch(schema, &bundle.schema).is_some())
+        && schemas
+            .iter()
+            .any(|schema| array_branch(schema, &bundle.schema).is_some())
+    {
+        let item = CompletionContext {
+            path: vec![SchemaPathSegment::ArrayItem(0)],
+            entry_wrap: Some((open, close)),
+            base_indent: format!("{}{indent}", context.base_indent),
+            root_item: None,
+            ..context.clone()
+        };
+        return completions_for_context(source, cursor_byte, &item, force, bundle, behavior);
+    }
     if let Some(key) = context.value_key.as_deref() {
         // A number being typed is the user's own value: suggesting a longer
         // one (`1` → `10`) would make Enter replace it. Ctrl+Space still lists them.

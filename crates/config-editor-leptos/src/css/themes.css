@@ -291,7 +291,7 @@
   --config-editor-caret: #dce3eb;
 }
 
-.config-editor[data-theme] .config-editor__gutter {
+:not(#\#) .config-editor[data-theme] .config-editor__gutter {
   border-right: 0;
   background: var(--config-editor-bg);
 }

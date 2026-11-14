@@ -32,7 +32,7 @@ use editing::*;
 use colors::*;
 
 use super::inline::{InlineEntry as CaretEntry, inline_caret, inline_key_at, inline_keys, inline_sibling_keys, caret_value_end, string_end_at_caret, statement_start_at, entry_follows, in_front_of_inline_entry};
-use super::super::completion::{kept_const, kept_default, array_branch, object_branch, fill_value, placeholder, schema_const};
+use super::super::completion::{kept_const, kept_default, array_branch, object_branch, placeholder, schema_const, required_children, Fill, RequiredChild};
 use super::super::keyboard::utf16_to_byte_index;
 use super::super::language::pointer_segments;
 use super::super::language::{LanguageConfig, bracket_newline, CompletionContext, Newline, EntryPosition, InsertContext, ConfigLanguage, LanguageInfo, Lexical, Span, ParseError,
@@ -90,11 +90,11 @@ impl ConfigLanguage for TomlBehavior {
     }
 
     fn key_span(&self, source: &str, pointer: &str) -> Option<Span> {
-        super::super::byte_order_mark::span(source, |text| toml_key_span(text, pointer).map(Span::from))
+        toml_key_span(source, pointer).map(Span::from)
     }
 
     fn value_span(&self, source: &str, pointer: &str) -> Option<Span> {
-        super::super::byte_order_mark::span(source, |text| toml_value_span(text, pointer).map(Span::from))
+        toml_value_span(source, pointer).map(Span::from)
     }
 
     /// A value follows, or the rest of a dotted key (`tcp|.nodelay`).
@@ -166,20 +166,19 @@ impl ConfigLanguage for TomlBehavior {
 
     /// Bare (`A-Za-z0-9_-`), else a basic string (`"a.b"`).
     fn written_key(&self, _source: &str, _pointer: &str, key: &str) -> Option<String> {
-        let bare = !key.is_empty() && key.chars().all(|character| character.is_ascii_alphanumeric() || matches!(character, '_' | '-'));
-        Some(if bare { key.to_string() } else { basic_string(key) })
+        Some(toml_key(key))
     }
 
     fn value_spans(&self, source: &str, pointers: &[String]) -> Vec<Option<Span>> {
-        super::super::byte_order_mark::spans(source, |text| toml_value_spans(text, pointers).into_iter().map(|span| span.map(Span::from)).collect())
+        toml_value_spans(source, pointers).into_iter().map(|span| span.map(Span::from)).collect()
     }
 
     fn key_spans(&self, source: &str, pointers: &[String]) -> Vec<Option<Span>> {
-        super::super::byte_order_mark::spans(source, |text| toml_key_spans(text, pointers).into_iter().map(|span| span.map(Span::from)).collect())
+        toml_key_spans(source, pointers).into_iter().map(|span| span.map(Span::from)).collect()
     }
 
     fn first_span(&self, source: &str) -> Option<Span> {
-        super::super::byte_order_mark::span(source, |text| first_line_span(text).map(Span::from))
+        first_line_span(source).map(Span::from)
     }
 
     fn completion_context(&self, source: &str, cursor: usize) -> CompletionContext {
