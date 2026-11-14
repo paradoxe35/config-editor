@@ -10,7 +10,9 @@
 use std::collections::{HashMap, HashSet};
 use std::ops::Range;
 
-use super::super::super::language::{ConfigLanguage, Repetition, SchemaPathSegment};
+use super::super::super::language::{
+    ConfigLanguage, Repetition, SchemaPathSegment, pointer_segments,
+};
 use super::super::super::paths::FieldPath;
 use super::super::super::work_count::{Work, note};
 use super::super::locate::plain;
@@ -97,10 +99,13 @@ pub(super) fn joining_counts(
                 counts[lock] += 1;
             }
         }
-        // A second key holding the field.
+        // A second key holding the field: one whose block labels, if it
+        // writes any, are the field's keys below it (`resource "a" "c" {`
+        // beside a locked `resource "a" "b"` is another block).
         if !half_typed && !path.is_empty() && names_holder(behavior, &path, content) {
+            let labels = behavior.block_labels(content.trim_start());
             for &lock in index.inside(&path) {
-                if reaches(lock) {
+                if index.labels_lead_to(&path, &labels, lock) && reaches(lock) {
                     counts[lock] += 1;
                 }
             }
@@ -199,14 +204,18 @@ fn is_word(character: char) -> bool {
 struct LockIndex {
     own: HashMap<String, Vec<usize>>,
     holders: HashMap<String, Vec<usize>>,
+    /// Each lock's plain form.
+    forms: Vec<String>,
 }
 
 impl LockIndex {
     fn new(behavior: &dyn ConfigLanguage, locks: &[Joinable<'_>]) -> Self {
         let mut own: HashMap<String, Vec<usize>> = HashMap::new();
         let mut holders: HashMap<String, Vec<usize>> = HashMap::new();
+        let mut forms = Vec::with_capacity(locks.len());
         for (index, lock) in locks.iter().enumerate() {
             let form = plain(behavior, lock.pointer);
+            forms.push(form.clone());
             for (at, _) in form.match_indices('/').filter(|(at, _)| *at > 0) {
                 holders
                     .entry(form[..at].to_string())
@@ -215,7 +224,19 @@ impl LockIndex {
             }
             own.entry(form).or_default().push(index);
         }
-        LockIndex { own, holders }
+        LockIndex {
+            own,
+            holders,
+            forms,
+        }
+    }
+
+    /// Whether `labels`, written after the key at `path` (a path holding
+    /// `lock`), are `lock`'s next keys below it, as far as both go: the
+    /// block they open holds the field, or is inside it.
+    fn labels_lead_to(&self, path: &str, labels: &[String], lock: usize) -> bool {
+        let below = pointer_segments(self.forms[lock].get(path.len()..).unwrap_or_default());
+        labels.iter().zip(below).all(|(label, key)| *label == key)
     }
 
     /// The locks `path` is, or is inside: those at `path` and at each path

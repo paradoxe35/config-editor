@@ -267,6 +267,15 @@ mod guard_scale_tests;
     feature = "hcl",
     feature = "xml"
 ))]
+mod holder_list_secret_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
 mod holder_prefix_tests;
 #[cfg(all(
     test,
@@ -494,6 +503,15 @@ mod secret_tests;
     feature = "xml"
 ))]
 mod sibling_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod stepped_closer_tests;
 #[cfg(all(
     test,
     feature = "yaml",

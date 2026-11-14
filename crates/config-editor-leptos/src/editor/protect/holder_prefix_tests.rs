@@ -8,6 +8,10 @@
 //! field, written whole, is still refused. In YAML, JSON, TOML, HCL and
 //! XML, for secrets, read-only paths, the schema's `readOnly` and
 //! read-only ranges, typed a key at a time with auto-closing on and off.
+//! So is a new HCL block of a locked block's type with other labels
+//! (`resource "aws_s3_bucket" "logs"` after a locked `resource
+//! "aws_instance" "web"`), and a TOML table beside it (QA 37: with
+//! auto-closing off, the line was wiped when its `{` was typed).
 
 use leptos::prelude::*;
 
@@ -129,6 +133,45 @@ const CASES: &[Case] = &[
         after: "port = 1",
         entries: &["\ndbname = \"main\"", "\ndb_host {\n}"],
         duplicate: "\ndb {\n  password = \"y\"\n}",
+    },
+    Case {
+        label: "HCL labelled block",
+        language: Language::HCL,
+        text: "resource \"aws_instance\" \"web\" {\n  ami = \"{v}\"\n  instance_type = \"t3.micro\"\n}\n",
+        locked: "/resource/aws_instance/web/ami",
+        line: 2,
+        after: "}",
+        entries: &[
+            "\nresource \"aws_s3_bucket\" \"logs\" {\n  bucket = \"x\"\n}",
+            "\nresource \"aws_instance\" \"db\" {\n  ami = \"ami-9\"\n}",
+            "\nresource \"aws_instance\" \"web2\" {\n  ami = \"x\"\n}",
+            "\ndata \"aws_instance\" \"web\" {\n}",
+        ],
+        duplicate: "\nresource \"aws_instance\" \"web\" {\n  ami = \"evil\"\n}",
+    },
+    Case {
+        label: "HCL labelled block, typed inside its type",
+        language: Language::HCL,
+        text: "resource \"aws_instance\" \"web\" {\n  ami = \"{v}\"\n}\nresource \"aws_instance\" \"db\" {\n  ami = \"x\"\n}\n",
+        locked: "/resource/aws_instance/web/ami",
+        line: 2,
+        after: "\"x\"",
+        entries: &["\n  web {\n  }", "\n  tags = { web = 1 }"],
+        duplicate: "",
+    },
+    Case {
+        label: "TOML dotted header",
+        language: Language::TOML,
+        text: "[resource.aws_instance.web]\nami = \"{v}\"\n",
+        locked: "/resource/aws_instance/web/ami",
+        line: 2,
+        after: "ami = \"{v}\"",
+        entries: &[
+            "\n\n[resource.aws_s3_bucket.logs]\nbucket = \"x\"",
+            "\n\n[resource.aws_instance.db]\nami = \"x\"",
+            "\n\n[resource.aws_instance.web2]",
+        ],
+        duplicate: "\n\n[resource.aws_instance.web]",
     },
     Case {
         label: "XML element",

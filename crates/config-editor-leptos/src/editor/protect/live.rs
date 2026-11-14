@@ -517,6 +517,20 @@ impl EditorState {
         });
     }
 
+    /// A closer the editor wrote was typed over, the caret stepping from
+    /// UTF-16 `from` to `to`: typing goes on past it, so an entry refused
+    /// right after it (the `:` after `"password"`) is taken back whole, as
+    /// without auto-closing.
+    pub(crate) fn note_stepped_over(&self, from: usize, to: usize) {
+        self.protect().marks.update_value(|marks| {
+            if let Some((start, end)) = marks.typed
+                && end == from
+            {
+                marks.typed = Some((start, to));
+            }
+        });
+    }
+
     /// The caret moved, or another kind of key was pressed: typing starts
     /// afresh.
     pub(crate) fn forget_refusal(&self) {

@@ -184,12 +184,14 @@ fn type_over_closer(state: EditorState, event: &KeyboardEvent, start: usize, typ
     true
 }
 
-/// Typing goes on past a closer typed over, in one undo step.
+/// Typing goes on past a closer typed over, in one undo step, and as one
+/// run of typing for a refusal after it.
 fn stepped_over(state: EditorState, event: &KeyboardEvent, from: usize, to: usize) {
     state
         .doc()
         .history
         .update(|history| history.stepped_over(from, to, event.time_stamp()));
+    state.note_stepped_over(from, to);
 }
 
 /// A closer typed where the same one already follows: the `}` the editor

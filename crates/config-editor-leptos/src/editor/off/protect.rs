@@ -162,6 +162,8 @@ impl EditorState {
 
     pub(super) fn forget_refusal(&self) {}
 
+    pub(super) fn note_stepped_over(&self, _from: usize, _to: usize) {}
+
     pub(super) fn find_protected_again(&self, _origin: &Origin) {}
 
     pub(super) fn leave_ranges(&self, _before: &str) {}
