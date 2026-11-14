@@ -59,7 +59,7 @@ const editorProps = {
   readOnlyRanges: optional(Array as PropType<TextRangeInput[]>),
   /** How secret placeholders are matched, described and completed. Changing `placeholder`, `hint` or `referencePrefixes`, or adding or removing `isPlaceholder`, re-mounts; a new `isPlaceholder` function in its place does not. */
   secrets: optional(Object as PropType<SecretOptions>),
-  /** JSON Schema as JSON text. Changing it re-mounts. */
+  /** JSON Schema as JSON or YAML text. Changing it re-mounts. */
   schema: optional(String),
   /** `@schema-warning`: once per thing in `schema` the editor cannot use. Without a listener, a console warning. */
   onSchemaWarning: listener<(message: string) => void>(),

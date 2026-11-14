@@ -26,7 +26,7 @@ impl Setup {
             (Some(SchemaSource::Compiled(left)), Some(SchemaSource::Compiled(right))) => {
                 left.shares(right)
             }
-            (Some(SchemaSource::Json(left)), Some(SchemaSource::Json(right))) => left == right,
+            (Some(SchemaSource::Text(left)), Some(SchemaSource::Text(right))) => left == right,
             _ => false,
         };
         self.language == other.language && same_schema
@@ -118,7 +118,7 @@ pub(super) fn step(ids: &[String], active: Option<&str>, offset: isize) -> Optio
     ids.get(target).cloned()
 }
 
-/// Compiled schemas by their JSON text, so documents given the same text
+/// Compiled schemas by their text, so documents given the same text
 /// share one, compiled once.
 #[derive(Default)]
 pub(super) struct SchemaCache {
@@ -126,7 +126,7 @@ pub(super) struct SchemaCache {
 }
 
 impl SchemaCache {
-    /// Resolves each document's schema: JSON text to the compiled schema of
+    /// Resolves each document's schema: its text to the compiled schema of
     /// that text (compiled now if no document had it before), a compiled
     /// schema as it is. Text that does not compile stays text, so the
     /// editor shows the error. Schemas no document uses any more are
@@ -139,19 +139,19 @@ impl SchemaCache {
         sources
             .into_iter()
             .map(|source| match source? {
-                SchemaSource::Json(json) => {
-                    let schema = match self.compiled.get(&json) {
+                SchemaSource::Text(text) => {
+                    let schema = match self.compiled.get(&text) {
                         Some(schema) => Some(schema.clone()),
                         None => previous
-                            .remove(&json)
-                            .or_else(|| Schema::compile(&json).ok()),
+                            .remove(&text)
+                            .or_else(|| Schema::compile(&text).ok()),
                     };
                     Some(match schema {
                         Some(schema) => {
-                            self.compiled.insert(json, schema.clone());
+                            self.compiled.insert(text, schema.clone());
                             SchemaSource::Compiled(schema)
                         }
-                        None => SchemaSource::Json(json),
+                        None => SchemaSource::Text(text),
                     })
                 }
                 compiled => Some(compiled),
@@ -310,7 +310,7 @@ mod tests {
         );
         assert!(resolved[1].is_none());
         assert!(
-            matches!(&resolved[4], Some(SchemaSource::Json(text)) if text == "{ not json"),
+            matches!(&resolved[4], Some(SchemaSource::Text(text)) if text == "{ not json"),
             "an invalid schema stays text, for the editor to report"
         );
         assert_eq!(cache.len(), 1);

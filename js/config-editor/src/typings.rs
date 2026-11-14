@@ -19,7 +19,7 @@ export interface EditorOptions extends EditorSettings {
   language?: LanguageName;
   /** Edit in another language; `value` and `onChange` stay in `language`. */
   editAs?: LanguageName;
-  /** JSON Schema (as JSON text) for completion, hover docs and validation. */
+  /** JSON Schema (as JSON or YAML text) for completion, hover docs and validation. */
   schema?: string;
   /** Text the diff gutter compares against. Default: the initial `value`. */
   baseline?: string;
@@ -365,7 +365,7 @@ export interface DocumentSpec {
   readOnlyReason?: string;
   /** Whether the user may close it (close button, middle click, `Delete` on its tab ask `onClose`). Default `true`; `false` for a document that must stay open: its tab has no close button. Without `onClose` no tab has one. Switches live. */
   closable?: boolean;
-  /** JSON Schema as JSON text; documents with the same text share one compiled schema. One that does not compile throws, as it does for a `ConfigEditor`. */
+  /** JSON Schema as JSON or YAML text; documents with the same text share one compiled schema. One that does not compile throws, as it does for a `ConfigEditor`. */
   schema?: string;
   /** Edit in another language than `language`; switches live. A list with the same `editAs` changes nothing: to ask for it again (after an undo stepped back across the switch), call `editAs(id, language)`. */
   editAs?: LanguageName;

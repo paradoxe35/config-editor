@@ -52,7 +52,7 @@ pub struct Document {
     /// must stay open (the main config) sets `false`, and its tab has no
     /// close button. Without `on_close` no tab has one. Switches live.
     pub closable: bool,
-    /// The document's JSON Schema. Documents given the same JSON text share
+    /// The document's JSON Schema. Documents given the same text share
     /// one compiled schema; a [`Schema`](crate::Schema) passed as
     /// `Compiled` is shared as it is.
     pub schema: Option<SchemaSource>,
@@ -156,7 +156,7 @@ impl Document {
         self
     }
 
-    /// Sets the schema: JSON text or a compiled [`Schema`](crate::Schema).
+    /// Sets the schema: JSON or YAML text, or a compiled [`Schema`](crate::Schema).
     #[must_use]
     pub fn schema(mut self, schema: impl Into<SchemaSource>) -> Self {
         self.schema = Some(schema.into());

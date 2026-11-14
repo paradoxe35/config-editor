@@ -82,20 +82,14 @@ pub(super) struct SchemaBundle {
     validator: jsonschema::Validator,
 }
 
-/// The compiled schema, or why `schema_text` is no JSON Schema (worded by
-/// the `invalidSchema` text where it is shown).
+/// The compiled schema, or why `schema_text` (JSON, or YAML with the
+/// `yaml` feature) is no JSON Schema (worded by the `invalidSchema` text
+/// where it is shown).
 pub(super) fn build_schema(schema_text: &str) -> Result<SchemaBundle, String> {
     // A byte order mark (a file saved by an editor that writes one) is no
-    // part of the JSON.
+    // part of the schema.
     let schema_text = schema_text.strip_prefix('\u{feff}').unwrap_or(schema_text);
-    let mut schema: Value = serde_json::from_str(schema_text).map_err(|error| {
-        if error.to_string().starts_with("recursion limit exceeded") {
-            "it nests objects and lists more than 128 levels deep, deeper than the editor reads"
-                .to_string()
-        } else {
-            error.to_string()
-        }
-    })?;
+    let mut schema = super::languages::read_schema_text(schema_text)?;
     super::empty_refs::to_root(&mut schema);
     #[cfg(feature = "schema-validation")]
     let validator = jsonschema::validator_for(
@@ -283,29 +277,31 @@ impl std::fmt::Debug for Schema {
 }
 
 /// The `schema` of a [`ConfigEditor`](crate::ConfigEditor): a JSON Schema
-/// document, or a [`Schema`] compiled once and shared between editors.
+/// document as JSON or YAML text, or a [`Schema`] compiled once and shared
+/// between editors.
 ///
 /// Converts from `&str`, `String`, and `Schema`, so `schema=SCHEMA_JSON` and
 /// `schema=compiled.clone()` both work.
 #[derive(Clone, Debug)]
 #[non_exhaustive]
 pub enum SchemaSource {
-    /// A JSON Schema document, compiled when the editor mounts; a compile
-    /// error is shown inline.
-    Json(String),
+    /// A JSON Schema document as JSON text, or as YAML text (feature
+    /// `yaml`), compiled when the editor mounts; a compile error is shown
+    /// inline.
+    Text(String),
     /// An already compiled schema.
     Compiled(Schema),
 }
 
 impl From<&str> for SchemaSource {
-    fn from(json: &str) -> Self {
-        SchemaSource::Json(json.to_string())
+    fn from(text: &str) -> Self {
+        SchemaSource::Text(text.to_string())
     }
 }
 
 impl From<String> for SchemaSource {
-    fn from(json: String) -> Self {
-        SchemaSource::Json(json)
+    fn from(text: String) -> Self {
+        SchemaSource::Text(text)
     }
 }
 
@@ -326,21 +322,31 @@ impl Schema {
 impl SchemaSource {
     pub(super) fn resolve(self) -> Result<std::sync::Arc<SchemaBundle>, String> {
         match self {
-            SchemaSource::Json(json) => build_schema(&json).map(std::sync::Arc::new),
+            SchemaSource::Text(text) => build_schema(&text).map(std::sync::Arc::new),
             SchemaSource::Compiled(schema) => Ok(schema.bundle),
         }
     }
 }
 
 impl Schema {
-    /// Compiles a JSON Schema document.
+    /// Compiles a JSON Schema document written as JSON, or as YAML
+    /// (feature `yaml`). A text that is JSON is read as JSON; one that is
+    /// not and does not start with `{` or `[` is read as YAML.
+    ///
+    /// ```
+    /// # #[cfg(feature = "yaml")] {
+    /// use config_editor_leptos::Schema;
+    /// let from_yaml = Schema::compile("properties:\n  listen: {type: integer}\n").unwrap();
+    /// assert!(from_yaml.warnings().is_empty());
+    /// # }
+    /// ```
     ///
     /// # Errors
     ///
-    /// Returns [`SchemaError`] when `schema_json` is not JSON or not a valid
-    /// schema.
-    pub fn compile(schema_json: &str) -> Result<Self, SchemaError> {
-        build_schema(schema_json)
+    /// Returns [`SchemaError`] when `schema_text` is neither JSON nor YAML,
+    /// or not a valid schema.
+    pub fn compile(schema_text: &str) -> Result<Self, SchemaError> {
+        build_schema(schema_text)
             .map(|bundle| Schema {
                 bundle: std::sync::Arc::new(bundle),
             })

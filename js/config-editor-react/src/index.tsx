@@ -93,7 +93,7 @@ export interface ConfigEditorProps extends EditorSettings {
    * does not (the latest one is called).
    */
   secrets?: SecretOptions;
-  /** JSON Schema as JSON text. Changing it re-mounts. */
+  /** JSON Schema as JSON or YAML text. Changing it re-mounts. */
   schema?: string;
   /** Called once per thing in `schema` the editor cannot use (an unsupported `patternProperties` regex). Default: a console warning. */
   onSchemaWarning?: (message: string) => void;

@@ -279,6 +279,21 @@ mod wide_integers;
 ))]
 mod nesting;
 
+// A schema's text, JSON or YAML, read into its JSON value.
+mod schema_text;
+pub(crate) use schema_text::read_schema_text;
+#[cfg(test)]
+mod schema_text_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod yaml_schema_matrix;
+
 macro_rules! registry {
     ($($(#[doc = $doc:literal])* $feature:literal => $constant:ident => $module:ident::$implementation:ident,)+) => {
         $(#[cfg(feature = $feature)] mod $module;)+

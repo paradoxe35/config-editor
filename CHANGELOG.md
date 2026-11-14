@@ -18,6 +18,7 @@ WebAssembly.
   suggestions and hover included, from `separators` alone for flat formats
   such as `.env`, or through callbacks for nested ones).
 - One JSON Schema drives every language: they all parse into the same data.
+  The schema is given as JSON or YAML text.
 - The shared code knows no language's characters: brackets, separators,
   quotes, item markers, document markers and markup come from the language
   (`LanguageConfig`'s `map_brackets`, `list_brackets`, `item_separator`,

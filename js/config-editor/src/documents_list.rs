@@ -44,7 +44,7 @@ pub(crate) struct Listed {
 
 /// What reading the list keeps from one reading to the next: each
 /// document's secret options, built once per id as its editor reads them
-/// when it mounts; its texts, and its schema compiled (with its JSON text),
+/// when it mounts; its texts, and its schema compiled (with its text),
 /// each read again only when the host gives another string (see `given`).
 #[derive(Default)]
 pub(crate) struct Kept {
@@ -92,7 +92,7 @@ fn warn_unclaimed(file_name: &str, fallback: Language) {
 }
 
 /// The documents JavaScript lists, as the component takes them. Schemas
-/// stay JSON text: the view compiles each distinct text once and shares it.
+/// stay text: the view compiles each distinct text once and shares it.
 ///
 /// A document's `settings` go over `view`; its `secrets` are built once per
 /// id, and its `schema` compiled once per text (a schema that does not
@@ -264,7 +264,7 @@ fn text_of(
         .map(Some)
 }
 
-/// Document `id`'s schema, given as `given` (the JSON text): compiled once
+/// Document `id`'s schema, given as `given` (its JSON or YAML text): compiled once
 /// per text, shared by the documents giving the same one.
 fn schema_of(
     kept: &mut Kept,
