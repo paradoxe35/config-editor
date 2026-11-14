@@ -195,6 +195,10 @@ fn assert_linear(kind: EditKind) {
 }
 
 /// The cases `finding` excuses grow no faster than their document.
+#[allow(
+    dead_code,
+    reason = "used by an open finding's ignored test (none open now)"
+)]
 fn assert_fixed(finding: &str) {
     crate::editor::parse_cache::hold();
     let schema = shapes::schema();
@@ -214,18 +218,6 @@ fn assert_fixed(finding: &str) {
 
 // The open findings' cases, whole: each mark goes with the finding's
 // entry in `known.rs` once its fix is in.
-
-#[test]
-#[ignore = "SP37-1: a large edit in an Edit-as view goes through the item trail (quadratic, cubic with items alike)"]
-fn sp37_1_edits_in_a_view_trace_the_items_in_linear_work() {
-    assert_fixed("SP37-1");
-}
-
-#[test]
-#[ignore = "SC37-2: the validation's error path is exponential in a recursive anyOf"]
-fn sc37_2_a_recursive_any_of_is_validated_in_linear_work() {
-    assert_fixed("SC37-2");
-}
 
 macro_rules! linear {
     ($($name:ident: $kind:ident),* $(,)?) => {

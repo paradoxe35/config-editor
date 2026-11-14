@@ -21,6 +21,7 @@ mod by_data;
 mod copies;
 mod follow;
 mod items;
+mod line_runs;
 mod pasted;
 mod places;
 mod splice;

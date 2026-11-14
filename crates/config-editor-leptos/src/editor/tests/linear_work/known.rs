@@ -17,44 +17,32 @@ pub(super) struct Known {
     pub(super) applies: fn(&Case) -> bool,
 }
 
-pub(super) const KNOWN: &[Known] = &[
-    // An edit in an Edit-as view removing a line break is traced through
-    // the item trail: each item after it found among those before by a
-    // walk over them, each cut item's lines looked for over the whole
-    // pasted text and every place already taken (quadratic; cubic with
-    // items alike); and each item left unmatched (all of them after a
-    // Replace all of their keys) compared with every item cut.
-    Known {
-        finding: "SP37-1",
-        work: &[Work::TrailStep, Work::ItemComparison],
-        applies: |case| {
-            view(case)
-                && kinds(
-                    case,
-                    &[
-                        EditKind::DeleteLine,
-                        EditKind::CutPausePaste,
-                        EditKind::CutPaste,
-                        EditKind::MoveLine,
-                        EditKind::ReplaceAll,
-                        EditKind::PasteWhole,
-                    ],
-                )
-        },
-    },
-    // The errors of a recursive `anyOf` weighed again at each level
-    // (exponential in the depth), the schema's branches walked for each.
-    Known {
-        finding: "SC37-2",
-        work: &[Work::ErrorVisit, Work::BranchWalk],
-        applies: |case| kinds(case, &[EditKind::Validate]) && shapes(case, &[Shape::Deep]),
-    },
-];
+pub(super) const KNOWN: &[Known] = &[];
 
 /// Cases a kind of work grows faster in by design, each with its reason
 /// (`finding` names it): left out of the standing tests for the kinds of
 /// work named, for good.
 pub(super) const ALLOWED: &[Known] = &[
+    // A Replace all over a view's items: the list matching that tells
+    // which changed list items moved (`codec::moves::matching`) scores
+    // every pair of changed items up to a budget of 250 000 pairs, then
+    // only nearby ones: quadratic up to that cap, linear past it (QA 37,
+    // SP37-1: the item trail itself is linear, `large_edit_work`).
+    Known {
+        finding: "list items paired up to a fixed budget",
+        work: &[Work::ItemComparison],
+        applies: |case| view(case) && kinds(case, &[EditKind::ReplaceAll]),
+    },
+    // A value nested in a recursive `anyOf`/`oneOf`: each value is
+    // explained at most 256 times (`diagnostics::explanation`), so below
+    // that bound the work follows the option tree and past it grows
+    // linearly with the depth; `schema_error_cost` checks it at depths
+    // 8, 12 and 16 (QA 37, SC37-2), too slow for this matrix's 25 setups.
+    Known {
+        finding: "options explained up to a fixed bound",
+        work: &[Work::ErrorVisit, Work::OptionTried, Work::BranchWalk],
+        applies: |case| kinds(case, &[EditKind::Validate]) && shapes(case, &[Shape::Deep]),
+    },
     // A host's own text with a field's key written many times: the locks
     // read the path at the start of every line (`protect::scan::written`),
     // each from the top of the text, in a text of up to `MAX_LINES` (500)
@@ -80,6 +68,10 @@ pub(super) fn excused(case: &Case, work: Option<Work>) -> Option<&'static str> {
 }
 
 /// Whether `case` is one of `finding`'s.
+#[allow(
+    dead_code,
+    reason = "used by an open finding's ignored test (none open now)"
+)]
 pub(super) fn of(case: &Case, finding: &str) -> bool {
     KNOWN
         .iter()

@@ -49,6 +49,10 @@ pub(super) enum EditKind {
 }
 
 impl EditKind {
+    #[allow(
+        dead_code,
+        reason = "used by an open finding's ignored test (none open now)"
+    )]
     pub(super) const ALL: [Self; 14] = [
         Self::Open,
         Self::Type,

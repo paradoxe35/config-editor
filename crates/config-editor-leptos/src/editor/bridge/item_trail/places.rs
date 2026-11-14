@@ -65,6 +65,13 @@ impl<'a> Places<'a> {
         }
     }
 
+    /// `place` taken, by lines no cut item is written on.
+    pub(super) fn hold(&mut self, place: Range<usize>) {
+        if !place.is_empty() {
+            self.taken.insert(place.start, place.end);
+        }
+    }
+
     /// The first place at or after line `*from`'s start (of the places
     /// `lines` may start at) where `lines` are written and no place is
     /// taken, taken now; `*from` moved past every place passed, which no
