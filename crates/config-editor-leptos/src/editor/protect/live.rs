@@ -725,10 +725,19 @@ impl EditorState {
     }
 
     /// Byte ranges of `text` (the text on screen) no replace may touch
-    /// (find and replace's Replace All).
+    /// (find and replace's Replace All). Each offset is read off the
+    /// text's lines, split once, never by a pass from the top (one per
+    /// lock and placeholder: quadratic with a lock on every line).
     #[cfg(feature = "search")]
     pub(crate) fn protected_bytes(&self, text: &str) -> Vec<Range<usize>> {
         let byte = |at: usize| super::super::keyboard::utf16_to_byte_index(text, at);
+        let behavior = self.behavior();
+        super::super::paths::with_spans(behavior, text, &[], || self.protected_bytes_in(&byte))
+    }
+
+    /// [`Self::protected_bytes`], with `byte` the byte at a UTF-16 offset.
+    #[cfg(feature = "search")]
+    fn protected_bytes_in(&self, byte: &dyn Fn(usize) -> usize) -> Vec<Range<usize>> {
         self.protect().protected.with_untracked(|protected| {
             protected
                 .locks

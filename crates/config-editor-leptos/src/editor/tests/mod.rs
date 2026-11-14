@@ -172,6 +172,21 @@ mod own_problems;
 mod problem_cap;
 #[cfg(feature = "yaml")]
 mod reveal_range;
+// Counts every kind of edit in every language and view, so it needs every
+// optional feature the edits reach.
+#[cfg(all(
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml",
+    feature = "folding",
+    feature = "diff",
+    feature = "search",
+    feature = "protect",
+    feature = "schema-validation"
+))]
+mod linear_work;
 #[cfg(all(
     feature = "schema-validation",
     feature = "yaml",
