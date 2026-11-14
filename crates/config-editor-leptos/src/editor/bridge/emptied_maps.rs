@@ -72,7 +72,7 @@ fn writes_value(edit: &dyn ConfigLanguage, edit_text: &str, pointer: &str) -> bo
     !written.is_empty() && edit.comment_start(written) != Some(0)
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "yaml"))]
 mod tests {
     use super::kept;
     use crate::editor::Language;
