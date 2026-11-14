@@ -37,6 +37,8 @@ mod attribute_order;
 mod markup;
 mod declarations;
 mod attribute_layout;
+mod identity;
+mod kept_markup;
 // The fold ranges (the `folding` feature).
 #[cfg(feature = "folding")]
 mod folding;
@@ -398,15 +400,20 @@ impl ConfigLanguage for XmlBehavior {
         // Empty elements the host closes with an end tag (`<x a="1"></x>`)
         // are written that way again, not as `<x a="1"/>`, and each tag is
         // spelled as the host spells it (`<x a='1' />`), its attributes
-        // laid out as the host's (a line each, aligned, markup kept).
+        // laid out as the host's (a line each, aligned), each element's
+        // markup back on that element, wherever the edit moved it.
         Ok(match previous {
-            Some(previous) => attribute_layout::with_layout_of(
-                &tag_spelling::with_tag_spelling_of(
-                    &one_line::with_one_line_elements_of(&with_end_tags_of(&out, previous), previous),
+            Some(previous) => {
+                let host = crate::editor::parse_cache::parsed(self, previous);
+                attribute_layout::with_layout_of(
+                    &tag_spelling::with_tag_spelling_of(
+                        &one_line::with_one_line_elements_of(&with_end_tags_of(&out, previous), previous),
+                        previous,
+                    ),
                     previous,
-                ),
-                previous,
-            ),
+                    &identity::Identity::of(host.as_ref().as_ref().ok(), value),
+                )
+            }
             None => out,
         })
     }
@@ -423,6 +430,13 @@ impl ConfigLanguage for XmlBehavior {
     /// Inside empty elements (`<k>|</k>`).
     fn empty_value_slots(&self, text: &str) -> Vec<usize> {
         text.match_indices("></").map(|(at, _)| at + 1).collect()
+    }
+
+    /// An element holding other markup (`xsi:type`, a namespace
+    /// declaration) than the host element it is: it reads the same, yet
+    /// XML readers read it otherwise.
+    fn changed_form(&self, previous: &str, patched: &str) -> Option<String> {
+        kept_markup::changed_markup(self, previous, patched)
     }
 
     fn key_renames(&self, source: &str, pointer: &str, new_key: &str) -> Option<Vec<crate::editor::language::KeyEdit>> {
@@ -456,6 +470,11 @@ impl ConfigLanguage for XmlBehavior {
 
     fn entries_together(&self, patched: &str, previous: &str) -> String {
         one_line::with_one_line_elements_of(patched, previous)
+    }
+
+    /// A start tag's attribute lines, aligned as the host aligns them.
+    fn aligned_lines(&self, text: &str) -> Vec<usize> {
+        attribute_layout::attribute_lines(text)
     }
 
     fn one_line_body(&self, value: &Value, _indent: &str, _unit: &str) -> Option<String> {

@@ -44,6 +44,15 @@ impl Markup {
             || name.starts_with("xmlns:")
             || name.split_once(':').is_some_and(|(prefix, _)| self.instance_prefixes.iter().any(|known| known == prefix))
     }
+
+    /// Whether the attribute written `name` with `value` (quoted or not)
+    /// says its element is nil (`xsi:nil="true"`).
+    pub(super) fn nil(&self, name: &str, value: &str) -> bool {
+        let value = value.trim_matches(['"', '\'']).trim();
+        name.split_once(':').is_some_and(|(prefix, local)| {
+            local == "nil" && self.instance_prefixes.iter().any(|known| known == prefix)
+        }) && matches!(value, "true" | "1")
+    }
 }
 
 /// Why `value` cannot be written as XML over `previous`: its first key

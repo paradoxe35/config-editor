@@ -1886,6 +1886,17 @@ pub trait ConfigLanguage: Send + Sync + 'static {
         patched.to_string()
     }
 
+    /// The lines (0-based) of `text`, written by
+    /// [`serialize`](Self::serialize) over a host, that continue a
+    /// construct begun on an earlier line and are indented as the host
+    /// aligns them, not by depth (an XML start tag's attribute lines). A
+    /// structural Edit-as save indents no line it adds from them, and
+    /// writes such a line it adds as it is. Default: none.
+    fn aligned_lines(&self, text: &str) -> Vec<usize> {
+        let _ = text;
+        Vec::new()
+    }
+
     /// The text for the `value` range of a [`OneLine`] now holding `value`
     /// (`{ nodelay = true }`), so a save edits the container where it is.
     /// When one line cannot hold it, the text may span lines, indented by
