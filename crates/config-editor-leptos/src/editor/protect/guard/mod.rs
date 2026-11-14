@@ -182,6 +182,13 @@ pub(crate) fn check_values(
     if edit.parsed().is_some() {
         return Ok(());
     }
+    // A field whose key is written twice holds a value in each copy: a
+    // line diff takes a changed copy for its twin, so each is counted.
+    if let Some(lock) = protected.locks.iter().find(|lock| {
+        lock.ranges.len() > 1 && !lock.ranges.iter().all(|range| edit.copies_kept(range))
+    }) {
+        return Err(refused(&lock.reason));
+    }
     stretches_kept(&edit, false)?;
     let pointed: Vec<&Lock> = protected
         .locks

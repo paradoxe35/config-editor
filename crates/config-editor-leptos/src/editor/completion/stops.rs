@@ -28,13 +28,19 @@ pub fn schema_example(schema: &Value, root: &Value) -> Option<Value> {
 /// [`required_children`] has the language write, as found later by
 /// [`stop_ranges`]. The child the caret goes to is written empty, and so
 /// is none.
+#[cfg(test)]
 pub(crate) fn required_fills(
     behavior: &dyn ConfigLanguage,
     property: &Value,
     root: &Value,
 ) -> Vec<(String, String)> {
+    fills_of(&required_children(behavior, property, root))
+}
+
+/// [`required_fills`] of `children` found already.
+pub(crate) fn fills_of(children: &[RequiredChild<'_>]) -> Vec<(String, String)> {
     let mut fills = Vec::new();
-    collect_fills(&required_children(behavior, property, root), &mut fills);
+    collect_fills(children, &mut fills);
     fills
 }
 
@@ -50,8 +56,9 @@ fn collect_fills(children: &[RequiredChild<'_>], fills: &mut Vec<(String, String
     }
 }
 
-/// The scalars of `value` written for `key`: itself, or an object's
-/// members under their own keys.
+/// The scalars of `value` written for `key`: itself, an object's members
+/// under their own keys, or a list's items in order, each under the
+/// list's key.
 fn collect_values(key: &str, value: &Value, fills: &mut Vec<(String, String)>) {
     match value {
         Value::Object(members) => {
@@ -59,15 +66,25 @@ fn collect_values(key: &str, value: &Value, fills: &mut Vec<(String, String)>) {
                 collect_values(key, member, fills);
             }
         }
-        Value::Array(_) | Value::Null => {}
+        Value::Array(items) => {
+            for item in items {
+                collect_values(key, item, fills);
+            }
+        }
+        Value::Null => {}
         Value::String(text) if text.is_empty() => {}
         value => fills.push((key.to_string(), value_label(value))),
     }
 }
 
 /// UTF-16 ranges in `insert`, after `cursor_offset`, of the `fills` it
-/// wrote: each value is looked for after its key on the key's line, in
-/// order. A fill not written that way (left empty) is skipped.
+/// wrote: each value is looked for after its key on the key's line (the
+/// first such line from where the fill before it ended), in order; the
+/// next item of a list (a fill under the key of the fill before) first
+/// right after the item before it, on its line, as a list written on one
+/// line has its key once, and the first fill also on the caret's line
+/// (its key before the caret). A fill not written that way (left empty)
+/// is skipped.
 pub(crate) fn stop_ranges(
     insert: &str,
     cursor_offset: usize,
@@ -75,14 +92,29 @@ pub(crate) fn stop_ranges(
 ) -> Vec<(usize, usize)> {
     let mut from = utf16_to_byte_index(insert, cursor_offset);
     let mut ranges = Vec::new();
+    let line_end = |at: usize| insert[at..].find('\n').map_or(insert.len(), |end| at + end);
+    let after_key = |from: usize, key: &str, text: &str| {
+        let mut search = from;
+        loop {
+            let key_end = find_word(insert, search, key)? + key.len();
+            if let Some(start) = find_word(&insert[..line_end(key_end)], key_end, text) {
+                return Some(start);
+            }
+            search = key_end;
+        }
+    };
+    let mut previous: Option<&str> = None;
     for (key, text) in fills {
-        let Some(key_end) = find_word(insert, from, key).map(|at| at + key.len()) else {
-            continue;
+        let on_line = || find_word(&insert[..line_end(from)], from, text);
+        let start = match previous {
+            Some(before) if before == key => on_line().or_else(|| after_key(from, key, text)),
+            Some(_) => after_key(from, key, text),
+            // The first: its key may sit before the caret (a list's items,
+            // the caret in the first).
+            None => after_key(from, key, text).or_else(on_line),
         };
-        let line_end = insert[key_end..]
-            .find('\n')
-            .map_or(insert.len(), |at| key_end + at);
-        let Some(start) = find_word(&insert[..line_end], key_end, text) else {
+        previous = Some(key);
+        let Some(start) = start else {
             continue;
         };
         let end = start + text.len();
@@ -135,6 +167,21 @@ pub(crate) fn next_stop(
         (Some(slot), Some(stop)) => Some(if stop.0 < slot.0 { stop } else { slot }),
         (slot, stop) => slot.or(stop),
     }
+}
+
+/// `(cursor_offset, selected)` for a block whose caret goes to a list
+/// written with items ([`caret_at_list`]): in its first item's value, as
+/// Tab would select it (its empty slot, or the value written selected).
+pub(crate) fn caret_in_list(
+    insert: &str,
+    cursor_offset: usize,
+    fills: &[(String, String)],
+    behavior: &dyn ConfigLanguage,
+) -> Option<(usize, usize)> {
+    let end = insert.encode_utf16().count();
+    let stops = stop_ranges(insert, cursor_offset, fills);
+    let (anchor, caret) = next_stop(insert, cursor_offset, end, &stops, behavior)?;
+    Some((caret, caret - anchor))
 }
 
 #[cfg(test)]

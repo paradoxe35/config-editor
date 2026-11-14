@@ -23,11 +23,12 @@
 //! (and set it right), the host is told the document again (`onChange`). A
 //! text sent before one that came back may still come (out of order) or
 //! never (a host handing back only the latest of several): it stays an
-//! echo, but is not counted on to come. An update's `value` is always the
-//! host's word, the text it gave last included (a reset to the
-//! constructor's text); a document's text listed again, as it was listed
-//! last (the whole `documents` list given for another document's edit), is
-//! no news, as a framework's binding passes an unchanged prop on.
+//! echo, but is not counted on to come. The text the host gave last
+//! (`value`, a document's text in the list), given again, is no news, as
+//! a framework's binding passes an unchanged prop on: a render for another
+//! prop, or the whole `documents` list given for another document's edit,
+//! passes the store's text again while it lags behind the typing (QA 34).
+//! A reset to it then is `replaceValue`'s.
 //!
 //! Texts are told apart as the editor reads them (see `Print`): an echo a
 //! store wrote another way (the byte order mark dropped, LF for CRLF) is
@@ -161,6 +162,17 @@ pub(crate) enum Echo {
     Resend,
 }
 
+/// What a text the host gave is (see [`Echoes::kind`]).
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Kind {
+    /// The text it gave last, given again.
+    Again,
+    /// A copy the editor sent.
+    Copy,
+    /// The host's own text.
+    Own,
+}
+
 /// The texts one document sent that the host has not handed back yet.
 ///
 /// Every one is kept, however many wait (a busy page, a slow host):
@@ -194,11 +206,6 @@ pub(crate) struct Echoes {
     now: f64,
     /// The text the host gave last.
     last_given: Option<Print>,
-    /// When (see [`clock`]) the host gave it, and when the editor last sent
-    /// a text of the user's: the same text given again in an update with
-    /// nothing typed in between is the host's render again, no news.
-    given_at: u64,
-    typed_at: Option<u64>,
     /// The text the host gave last in a list or an update, which
     /// `replaceValue` leaves as it was.
     last_listed: Option<Print>,
@@ -237,7 +244,6 @@ impl Echoes {
             let print = Print::of(text);
             self.last_listed = Some(print);
             self.last_given = Some(print);
-            self.given_at = clock();
             self.document = Some(print);
         }
     }
@@ -251,7 +257,6 @@ impl Echoes {
         if self.on {
             let print = Print::of(text);
             self.last_given = Some(print);
-            self.given_at = clock();
             self.document = Some(print);
         }
     }
@@ -259,7 +264,7 @@ impl Echoes {
     /// The editor sent `text`, the document, to the host (its `onChange`).
     pub(crate) fn sent(&mut self, text: &str) {
         if self.on {
-            self.typed_at = Some(self.send(Print::of(text)));
+            self.send(Print::of(text));
         }
     }
 
@@ -268,7 +273,7 @@ impl Echoes {
         self.document = None;
     }
 
-    fn send(&mut self, print: Print) -> u64 {
+    fn send(&mut self, print: Print) {
         let serial = tick();
         self.order.insert(serial, print);
         self.copies.entry(print).or_default().push_back(Sent {
@@ -277,7 +282,6 @@ impl Echoes {
             doubted: false,
         });
         self.document = Some(print);
-        serial
     }
 
     /// The document `current`'s print: the one known (the text sent,
@@ -357,79 +361,64 @@ impl Echoes {
         }
     }
 
-    /// The host gave `value` in an update (`update({ value })`), the
-    /// document being `current`; the texts sent from `flushed` on (see
-    /// [`clock`]) were sent while the update was handled (an edit still
-    /// held, sent first). A text the editor never sent is news, whatever
-    /// the host gave before (the constructor's text again: a discard).
+    /// The host gave `value` in an update (`update({ value })`) or a list
+    /// (the whole `documents` list), the document being `current`; the
+    /// texts sent from `flushed` on (see [`clock`]) were sent while it was
+    /// handled (an edit still held, sent first). A text the editor never
+    /// sent is news, whatever the host gave before (the constructor's text
+    /// after an echo came back: a discard); the text it gave last, given
+    /// again, is not (see [`Echoes::kind`]).
     pub(crate) fn received(&mut self, value: &str, current: &str, flushed: u64) -> Echo {
-        self.take(value, current, false, flushed)
-    }
-
-    /// The host listed `value` for the document (the whole `documents`
-    /// list), as [`Echoes::received`], but the text it listed last, listed
-    /// again, is no news (the list given for another document's edit), as
-    /// a framework's binding passes an unchanged prop on.
-    pub(crate) fn listed(&mut self, value: &str, current: &str, flushed: u64) -> Echo {
-        self.take(value, current, true, flushed)
-    }
-
-    fn take(&mut self, value: &str, current: &str, listed: bool, flushed: u64) -> Echo {
         if !self.on {
             return Echo::Apply;
         }
         let print = Print::of(value);
-        // The text given last, given again in an update with nothing typed
-        // since (the texts sent from `flushed` on were typed while this
-        // update was handled): the host's render again (a framework
-        // rendering twice, a store writing the text another way).
-        let rendered_again = !listed
-            && self.last_given == Some(print)
-            && self
-                .typed_at
-                .is_none_or(|typed| typed < self.given_at || typed >= flushed);
+        let kind = self.kind(print);
         self.last_given = Some(print);
-        self.given_at = clock();
-        let again = self.last_listed.replace(print) == Some(print);
+        self.last_listed = Some(print);
         let same = self.same(value, print, current);
-        let news = if (listed && again) || rendered_again {
-            // Listed again: a render, or the echo of a copy sent since (and
+        let news = match kind {
+            // Given again: a render, or the echo of a copy sent since (and
             // a text sent after it may have come and gone in the same
             // render of the host's). That copy stays an echo, but is not
             // counted on to come; while the host is on an older text, it is
             // taken for news once.
-            let copy = self.copies.get_mut(&print).and_then(|copies| {
-                copies
-                    .iter_mut()
-                    .rev()
-                    .inspect(|_| work::note(work::Work::CopyVisited))
-                    .find(|sent| !sent.doubted)
-            });
-            match copy {
-                Some(copy) => {
-                    copy.counted_out = true;
-                    copy.doubted = !same;
-                    copy.doubted
+            Kind::Again => {
+                let copy = self.copies.get_mut(&print).and_then(|copies| {
+                    copies
+                        .iter_mut()
+                        .rev()
+                        .inspect(|_| work::note(work::Work::CopyVisited))
+                        .find(|sent| !sent.doubted)
+                });
+                match copy {
+                    Some(copy) => {
+                        copy.counted_out = true;
+                        copy.doubted = !same;
+                        copy.doubted
+                    }
+                    None => false,
                 }
-                None => false,
             }
-        } else if self.copies.contains_key(&print) {
             // The newest copy (a typo fixed sends the same text twice): a
             // host handing back only the latest text hands back that one.
-            self.came(print);
-            true
-        } else {
-            // The host's own text. When it replaces the document, the
-            // texts sent before belong to the text it replaced (another
-            // file, a discarded draft): no echoes any more, so going back
-            // to one of them applies. Those sent while it was handled (an
-            // edit still held, sent first) were unknown to the host: still
-            // echoes.
-            if !same {
-                self.forget_before(flushed);
-                self.document = Some(print);
+            Kind::Copy => {
+                self.came(print);
+                true
             }
-            return Echo::Apply;
+            Kind::Own => {
+                // The host's own text. When it replaces the document, the
+                // texts sent before belong to the text it replaced (another
+                // file, a discarded draft): no echoes any more, so going back
+                // to one of them applies. Those sent while it was handled (an
+                // edit still held, sent first) were unknown to the host: still
+                // echoes.
+                if !same {
+                    self.forget_before(flushed);
+                    self.document = Some(print);
+                }
+                return Echo::Apply;
+            }
         };
         if same {
             self.document = Some(print);
@@ -447,6 +436,32 @@ impl Echoes {
         }
         self.send(document);
         Echo::Resend
+    }
+
+    /// How [`Echoes::received`] reads a text printed `print`. The text the
+    /// host gave last (in an update, a list or the constructor), given
+    /// again, is its render again: its store did not change (a framework
+    /// rendering twice, or for another prop, a store writing the text
+    /// another way), whatever was typed since (QA 34: a render for another
+    /// prop, the store lagging behind the typing, rolled the typing back).
+    /// To reset to it while the echoes of what was typed are still to
+    /// come, the host calls `replaceValue`.
+    fn kind(&self, print: Print) -> Kind {
+        if self.last_listed == Some(print) {
+            Kind::Again
+        } else if self.copies.contains_key(&print) {
+            Kind::Copy
+        } else {
+            Kind::Own
+        }
+    }
+
+    /// Whether [`Echoes::received`] would take `value` for a text that
+    /// replaces the document `current`, without taking it: ranges given
+    /// with it are read in it only then (see `crate::given_ranges`).
+    pub(crate) fn replaces(&mut self, value: &str, current: &str) -> bool {
+        let print = Print::of(value);
+        !self.same(value, print, current) && (!self.on || self.kind(print) == Kind::Own)
     }
 
     /// The pause after a [`Echo::Settle`] or [`Echo::Resend`] is over:
@@ -511,7 +526,7 @@ mod work {
 #[cfg(test)]
 mod tests {
     use super::work::{Work, counted};
-    use super::{Echo, Echoes, SETTLE_MS};
+    use super::{Echo, Echoes, Print, SETTLE_MS};
 
     /// No text sent while the update is handled.
     const NONE: u64 = u64::MAX;
@@ -527,6 +542,19 @@ mod tests {
         assert_eq!(echoes.order.len(), by_text);
         assert!(echoes.copies.values().all(|copies| !copies.is_empty()));
         by_text
+    }
+
+    /// `received` with no text sent meanwhile, checking first that
+    /// `replaces` foresees it: the text applies and is not the document.
+    fn checked(echoes: &mut Echoes, value: &str, current: &str) -> Echo {
+        let replaces = echoes.replaces(value, current);
+        let echo = echoes.received(value, current, NONE);
+        assert_eq!(
+            replaces,
+            echo == Echo::Apply && Print::of(value) != Print::of(current),
+            "{value:?} over {current:?}: {echo:?}"
+        );
+        echo
     }
 
     /// Without the option every text applies and nothing is kept.
@@ -799,7 +827,7 @@ mod tests {
                 in_flight = waiting;
                 for (_, text) in arrived {
                     host = text;
-                    match echoes.received(&host, &document, NONE) {
+                    match checked(&mut echoes, &host, &document) {
                         Echo::Apply => assert_eq!(host, document, "round {round}"),
                         Echo::Skip | Echo::Settle => {}
                         Echo::Resend => in_flight.push((time + next(30), document.clone())),
@@ -807,7 +835,7 @@ mod tests {
                 }
                 // Now and then the host renders again with what it holds.
                 if next(4) == 0 {
-                    match echoes.listed(&host, &document, NONE) {
+                    match checked(&mut echoes, &host, &document) {
                         Echo::Apply => assert_eq!(host, document, "round {round}"),
                         Echo::Skip | Echo::Settle => {}
                         Echo::Resend => in_flight.push((time + next(30), document.clone())),
@@ -827,14 +855,14 @@ mod tests {
         let mut echoes = Echoes::new(true);
         echoes.given("a");
         echoes.sent("ab");
-        assert_eq!(echoes.listed("a", "ab", NONE), Echo::Skip);
-        assert_eq!(echoes.listed("ab", "ab", NONE), Echo::Apply);
+        assert_eq!(echoes.received("a", "ab", NONE), Echo::Skip);
+        assert_eq!(echoes.received("ab", "ab", NONE), Echo::Apply);
         echoes.sent("abc");
         // A re-render with what it holds, before the echo of `abc` comes.
-        assert_eq!(echoes.listed("ab", "abc", NONE), Echo::Skip);
-        assert_eq!(echoes.listed("abc", "abc", NONE), Echo::Apply);
-        assert_eq!(echoes.listed("reset", "abc", NONE), Echo::Apply);
-        assert_eq!(echoes.listed("reset", "reset", NONE), Echo::Apply);
+        assert_eq!(echoes.received("ab", "abc", NONE), Echo::Skip);
+        assert_eq!(echoes.received("abc", "abc", NONE), Echo::Apply);
+        assert_eq!(echoes.received("reset", "abc", NONE), Echo::Apply);
+        assert_eq!(echoes.received("reset", "reset", NONE), Echo::Apply);
     }
 
     /// QA 30 (F30-2): after `replaceValue`, a list as the host gave it
@@ -853,7 +881,7 @@ mod tests {
             echoes.replaced("listen: 1");
             let document = "listen: 1";
             assert_ne!(
-                echoes.listed("listen: 7835", document, NONE),
+                echoes.received("listen: 7835", document, NONE),
                 Echo::Apply,
                 "reversed {reversed}"
             );
@@ -863,7 +891,7 @@ mod tests {
                 back.reverse();
             }
             for text in back {
-                let echo = echoes.listed(text, document, NONE);
+                let echo = echoes.received(text, document, NONE);
                 assert!(
                     text == document || echo != Echo::Apply,
                     "{text} applied (reversed {reversed})"
@@ -872,32 +900,84 @@ mod tests {
         }
     }
 
-    /// An update giving the text the host gave last (the constructor's: a
-    /// discard, a reset) while echoes are on their way is the host's own:
-    /// it applies, and the echoes of the texts it replaced apply too when
-    /// they come (QA 29: the reset was ignored).
+    /// QA 34 (n8): a host rendering again for another reason (another
+    /// prop changed) passes its store's text, the text it gave last, while
+    /// the store lags behind the typing: no news (an update's as a list's,
+    /// one rule), written as the editor wrote it or another way, whether
+    /// that text is the constructor's or an echo that came back. Typing is
+    /// never rolled back, and the store's late echoes are told apart as
+    /// before. Before, an update giving it with a key typed since applied.
     #[test]
-    fn the_last_text_given_again_in_an_update_applies() {
+    fn the_stores_older_text_given_again_while_typing_is_no_news() {
+        type Store = fn(&str) -> String;
+        let stores: [(&str, Store); 3] = [
+            ("as sent", str::to_string),
+            ("LF", |text| text.replace("\r\n", "\n")),
+            ("no BOM", |text| {
+                text.trim_start_matches('\u{feff}').to_string()
+            }),
+        ];
+        let texts: Vec<String> = (0..=9)
+            .map(|typed| format!("\u{feff}name: a\r\nnote: {}\r\n", &"hello wor"[..typed]))
+            .collect();
+        for (name, store) in stores {
+            for lag in [1, 2, 3] {
+                let mut echoes = Echoes::new(true);
+                echoes.given(&texts[0]);
+                let mut held = store(&texts[0]);
+                let render = |echoes: &mut Echoes, held: &str, document: &str| {
+                    let echo = checked(echoes, held, document);
+                    assert!(
+                        echo != Echo::Apply || Print::of(held) == Print::of(document),
+                        "{name}, lag {lag}: {held:?} rolled {document:?} back"
+                    );
+                };
+                for typed in 1..texts.len() {
+                    echoes.sent(&texts[typed]);
+                    // A render for another prop: the store as it is.
+                    render(&mut echoes, &held, &texts[typed]);
+                    // The store takes a text `lag` keys late (its echo),
+                    // and renders with it three times.
+                    if typed + 1 >= lag {
+                        held = store(&texts[typed + 1 - lag]);
+                        for _ in 0..3 {
+                            render(&mut echoes, &held, &texts[typed]);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// An update giving a text of the host's own, the constructor's again
+    /// once the host took a text the editor sent (a discard, a reset),
+    /// applies; given while the echoes of what was typed are still to come,
+    /// the text the host gave last is its render again (QA 34, see
+    /// `the_stores_older_text_given_again_while_typing_is_no_news`): a
+    /// reset then is `replaceValue`'s.
+    #[test]
+    fn a_text_of_the_hosts_own_applies_in_an_update() {
         let mut echoes = Echoes::new(true);
         echoes.given("a");
         echoes.sent("ab");
+        assert_eq!(checked(&mut echoes, "ab", "ab"), Echo::Apply);
         echoes.sent("abc");
-        assert_eq!(echoes.received("a", "abc", NONE), Echo::Apply);
+        assert_eq!(checked(&mut echoes, "a", "abc"), Echo::Apply);
         assert_eq!(waiting(&echoes), 0);
-        echoes.sent("aQ");
-        assert_eq!(echoes.received("a", "aQ", NONE), Echo::Apply);
-        // A text that came back, given again: applies too.
+        // A text that came back, given back after another one: applies too.
         echoes.sent("aR");
-        assert_eq!(echoes.received("aR", "aR", NONE), Echo::Apply);
+        assert_eq!(checked(&mut echoes, "aR", "aR"), Echo::Apply);
+        assert_eq!(checked(&mut echoes, "a", "aR"), Echo::Apply);
         echoes.sent("aRS");
-        assert_eq!(echoes.received("aR", "aRS", NONE), Echo::Apply);
+        assert_eq!(checked(&mut echoes, "a", "aRS"), Echo::Skip);
+        assert_eq!(checked(&mut echoes, "aRS", "aRS"), Echo::Apply);
     }
 
     /// QA 33 (HO33-3): the text given last, given again in an update with
     /// nothing typed in between (a framework rendering twice), is no news,
     /// written as the editor wrote it or another way (a store writing LF or
-    /// dropping the byte order mark), whether the typing ran ahead or not;
-    /// typed in between, it is the host's own again (a discard).
+    /// dropping the byte order mark), whether the typing ran ahead or not,
+    /// and so it stays with a key typed in between (QA 34).
     #[test]
     fn the_same_update_twice_with_nothing_typed_between_is_no_news() {
         type Store = fn(&str) -> String;
@@ -932,15 +1012,15 @@ mod tests {
                     );
                 }
             }
-            // Typed in between: the host's own text, as before.
+            // Typed in between: still the host's render.
             let mut echoes = Echoes::new(true);
             echoes.given(texts[0]);
             echoes.sent(texts[1]);
             let given = store(texts[1]);
             assert_ne!(echoes.received(&given, texts[1], NONE), Echo::Resend);
             echoes.sent(texts[2]);
-            assert_eq!(
-                echoes.received(&given, texts[2], NONE),
+            assert_ne!(
+                checked(&mut echoes, &given, texts[2]),
                 Echo::Apply,
                 "{name}"
             );
@@ -976,27 +1056,22 @@ mod tests {
     /// and nothing tells the host B's text again.
     #[test]
     fn a_text_sent_before_the_hosts_own_one_is_no_echo_any_more() {
-        for listed in [false, true] {
+        // An update's text and a list's are read by one rule.
+        {
             let mut echoes = Echoes::new(true);
-            let give = |echoes: &mut Echoes, value: &str, current: &str| {
-                if listed {
-                    echoes.listed(value, current, NONE)
-                } else {
-                    echoes.received(value, current, NONE)
-                }
-            };
+            let give = checked;
             echoes.given("a: 1");
             echoes.sent("a: 19");
             assert_eq!(give(&mut echoes, "b: 2", "a: 19"), Echo::Apply);
             assert_eq!(give(&mut echoes, "a: 19", "b: 2"), Echo::Apply);
-            assert!(!echoes.settle("a: 19"), "listed {listed}");
+            assert!(!echoes.settle("a: 19"));
             // On B again, typed, switched to A before B's echo came, then
             // back.
             assert_eq!(give(&mut echoes, "b: 2", "a: 19"), Echo::Apply);
             echoes.sent("b: 27");
             assert_eq!(give(&mut echoes, "a: 19", "b: 27"), Echo::Apply);
             assert_eq!(give(&mut echoes, "b: 27", "a: 19"), Echo::Apply);
-            assert_eq!(waiting(&echoes), 0, "listed {listed}");
+            assert_eq!(waiting(&echoes), 0);
             // Three files: typed in B, on to C and A, back to B.
             echoes.sent("b: 278");
             assert_eq!(give(&mut echoes, "c: 3", "b: 278"), Echo::Apply);
@@ -1095,7 +1170,7 @@ mod tests {
         echoes.unsent();
         // Typed over `b` (the same length), with no `onChange`.
         let ((), reads) = counted(Work::TextRead, || {
-            assert_eq!(echoes.listed("a", "ax", NONE), Echo::Resend);
+            assert_eq!(echoes.received("a", "ax", NONE), Echo::Resend);
         });
         assert_eq!(reads, 2);
         assert_eq!(echoes.received("ab", "ax", NONE), Echo::Settle);
@@ -1184,7 +1259,7 @@ mod tests {
                         assert_ne!(echoes.received(&text, &document, NONE), Echo::Apply);
                     }
                     let last = order[count / 2 - 1].to_string();
-                    assert_ne!(echoes.listed(&last, &document, NONE), Echo::Apply);
+                    assert_ne!(echoes.received(&last, &document, NONE), Echo::Apply);
                 })
                 .1
             });
@@ -1296,7 +1371,7 @@ mod tests {
             }
             self.render_due = false;
             self.echoes.at(at as f64);
-            match self.echoes.listed(&self.host, &self.document, NONE) {
+            match checked(&mut self.echoes, &self.host, &self.document) {
                 Echo::Apply => assert_eq!(self.host, self.document, "a rollback"),
                 Echo::Skip => {}
                 echo => {
@@ -1421,7 +1496,7 @@ mod tests {
                               echoes: &mut Echoes,
                               again: &mut Vec<String>,
                               settle: &mut bool| {
-                    match echoes.listed(host, document, NONE) {
+                    match checked(echoes, host, document) {
                         Echo::Apply => assert_eq!(host, document, "{order:?} {renders:b}"),
                         Echo::Skip => {}
                         Echo::Settle => *settle = true,
@@ -1482,5 +1557,90 @@ mod tests {
             typed += keys.len();
         }
         assert!(resent < typed, "{resent} texts sent again for {typed} keys");
+    }
+
+    /// Whether a range ending at one-based `line`, `column` (exclusive,
+    /// as `readOnlyRanges` count) fits `text`: read in a text it does not
+    /// fit, it is warned about (a column past the line's end) or refused.
+    fn fits(text: &str, (line, column): (usize, usize)) -> bool {
+        text.lines()
+            .nth(line - 1)
+            .is_some_and(|found| column <= found.chars().count() + 1)
+    }
+
+    /// QA 34 (HO34-1): ranges given again unchanged (`readOnlyRanges`) are
+    /// read only in a text that replaces the document (`replaces`), never
+    /// in an echo nor the text the host gave last: typing that moves the
+    /// locked line, Edit-as switches rewriting the text, a store writing
+    /// LF for CRLF and handing each text back late and out of order, and
+    /// renders twice at random, never read them in a text (before, every
+    /// echo was read: "column 14 is past the end of line 4"). A text of
+    /// the host's own still reads them, a bad range there still warned
+    /// about.
+    #[test]
+    fn ranges_given_again_are_read_only_in_a_text_that_replaces_the_document() {
+        let given = "a: 1\r\nb: 2\r\nc: 3\r\nhost: example\r\n";
+        // The lock ends at line 4, column 14 (after `host: example`).
+        let end = (4, 14);
+        assert!(fits(given, end));
+        let edits: Vec<String> = (0..12)
+            .map(|step| match step % 3 {
+                // Lines above the lock removed: it moves up.
+                0 => format!("c: {step}\r\nhost: example\r\n"),
+                // The text rewritten another way (an Edit-as switch).
+                1 => format!("a: {step}\r\nb: 2\r\nc: 3\r\nhost: example\r\n# {step}\r\n"),
+                _ => format!("a: 1\r\n\r\nhost: example\r\nd: {step}\r\n"),
+            })
+            .collect();
+        assert!(edits.iter().any(|text| !fits(text, end)));
+        for seed in 1..=40 {
+            let mut next = rng(seed);
+            let mut echoes = Echoes::new(true);
+            echoes.given(given);
+            let mut held = given.to_string();
+            let mut late: Vec<String> = Vec::new();
+            let mut read = 0;
+            for document in &edits {
+                echoes.sent(document);
+                late.push(document.replace("\r\n", "\n"));
+                while !late.is_empty() && next(3) != 0 {
+                    held = late.remove(next(late.len() as u64) as usize);
+                    for _ in 0..=next(2) {
+                        read += usize::from(echoes.replaces(&held, document));
+                        assert_ne!(checked(&mut echoes, &held, document), Echo::Apply);
+                    }
+                }
+                read += usize::from(echoes.replaces(&held, document));
+                checked(&mut echoes, &held, document);
+            }
+            assert_eq!(read, 0, "seed {seed}: ranges read in an echo");
+        }
+        // The host's own text: read in it, warned about when they do not fit.
+        let mut echoes = Echoes::new(true);
+        echoes.given(given);
+        echoes.sent(&edits[0]);
+        let own = "x: 1\n";
+        assert!(echoes.replaces(own, &edits[0]) && !fits(own, end));
+    }
+
+    /// Telling whether a text replaces the document costs at most two
+    /// reads of a text, whatever its size.
+    #[test]
+    fn telling_whether_a_text_replaces_costs_two_reads_at_any_size() {
+        for lines in [100, 10_000] {
+            let body: String = (0..lines).map(|line| format!("k{line}: v\r\n")).collect();
+            let texts: Vec<String> = (0..4)
+                .map(|typed| format!("a: {typed}\r\n{body}"))
+                .collect();
+            let mut echoes = Echoes::new(true);
+            echoes.given(&texts[0]);
+            for text in &texts[1..] {
+                echoes.sent(text);
+            }
+            let stored = texts[1].replace("\r\n", "\n");
+            let (replaces, reads) = counted(Work::TextRead, || echoes.replaces(&stored, &texts[3]));
+            assert!(!replaces);
+            assert!(reads <= 2, "{lines} lines: {reads} texts read");
+        }
     }
 }

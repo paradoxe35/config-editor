@@ -114,18 +114,23 @@ pub(in crate::editor) fn select_nearest(state: EditorState, reveal: bool) {
     }
 }
 
-/// A query typed into an empty field that matches nothing: the count
-/// already read "No results", so its live text does not change and a
-/// screen reader says nothing; the editor's live region says it.
-pub(in crate::editor) fn say_no_results_after_empty(state: EditorState, was_empty: bool) {
+/// What the editor's live region says of the query just typed. A query
+/// typed into an empty field that matches nothing: the count already read
+/// "No results", so its live text does not change and a screen reader says
+/// nothing; the live region says it. A query cleared: a "No results" the
+/// live region still holds no longer holds, and goes.
+pub(in crate::editor) fn say_query_results(state: EditorState, was_empty: bool) {
     let search = state.search();
-    let nothing = search.query.with_untracked(|query| !query.is_empty())
-        && search
-            .results
-            .with_untracked(|results| results.matches.is_empty() && results.error.is_none());
+    let no_results = state.strings_untracked(|strings| strings.no_results.clone());
+    if search.query.with_untracked(String::is_empty) {
+        state.a11y().take_back(&no_results);
+        return;
+    }
+    let nothing = search
+        .results
+        .with_untracked(|results| results.matches.is_empty() && results.error.is_none());
     if was_empty && nothing {
-        let said = state.strings_untracked(|strings| strings.no_results.clone());
-        state.a11y().announce(said);
+        state.a11y().announce(no_results);
     }
 }
 

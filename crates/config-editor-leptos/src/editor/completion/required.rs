@@ -1,6 +1,7 @@
 //! What a block inserted for an object writes for its required children,
 //! decided once for every language (each only writes it in its syntax):
-//! a default the language keeps, a list as an empty list (`[]`), an
+//! a default the language keeps, a list as an empty list (`[]`) or with
+//! the items its `minItems` asks for (each a value to type), an
 //! object's own required children filled the same way, the caret at the
 //! first value left to type, and past it what the language keeps of a
 //! value. A child whose key or value the language cannot write as text
@@ -38,6 +39,8 @@ pub enum Fill<'a> {
     },
     /// This value with the caret at it (before it, inside an empty list):
     /// the block leaves no value to type, so the caret goes to its first.
+    /// A list written with items to type (its `minItems`) is written so
+    /// too, the caret then moved into its first item's value.
     CaretAt(Value),
     /// No value to write: an empty value where the language has one (a
     /// YAML `key:`, an XML `<key></key>`), else this one (`""`, `null`,
@@ -141,10 +144,16 @@ fn fill<'a>(
         && object_branch(child, root).is_none()
     {
         let empty = Value::Array(Vec::new());
-        return [least_list(language, array, root), empty]
+        let list = [least_list(language, array, root), empty]
             .into_iter()
-            .find(|list| language_keeps(language, list, child, root))
-            .map(Fill::Value);
+            .find(|list| language_keeps(language, list, child, root))?;
+        // Items to type: the caret starts in the first one when no value
+        // before the list took it.
+        if list.as_array().is_some_and(|items| !items.is_empty()) && !*caret {
+            *caret = true;
+            return Some(Fill::CaretAt(list));
+        }
+        return Some(Fill::Value(list));
     }
     if object_branch(child, root).is_some() {
         let nested = children(language, child, root, caret, depth + 1);
@@ -200,5 +209,15 @@ pub fn writes_key(language: &dyn ConfigLanguage, key: &str) -> bool {
         read.get("r")
             .and_then(Value::as_object)
             .is_some_and(|members| members.contains_key(key))
+    })
+}
+
+/// Whether the caret of `children` goes to a list written with items
+/// (see [`Fill::CaretAt`]).
+pub(crate) fn caret_at_list(children: &[RequiredChild<'_>]) -> bool {
+    children.iter().any(|child| match &child.fill {
+        Fill::CaretAt(Value::Array(items)) => !items.is_empty(),
+        Fill::Children(nested) => caret_at_list(nested),
+        _ => false,
     })
 }

@@ -262,20 +262,35 @@ impl EditorState {
         }
         let shown_as_host =
             self.sync().edit_language.get_untracked() == self.config().host_language;
-        let synced_edit = self.sync().synced_edit;
+        let saved = self
+            .sync()
+            .synced_edit
+            .with_value(|synced| *synced == edit.text);
+        // A new session: the host's own text (a new value, or typed in the
+        // host's language, or undone back into it: see `show_language`).
+        let new_session =
+            *origin == Origin::HostValue || (shown_as_host && edit.origin != Origin::Switch);
+        let users = matches!(
+            origin,
+            Origin::Command | Origin::Input { .. } | Origin::Undo | Origin::Redo
+        );
         self.sync().trail.update_value(|trail| {
-            let users = matches!(
-                origin,
-                Origin::Command | Origin::Input { .. } | Origin::Undo | Origin::Redo
-            );
-            if users && !shown_as_host {
+            if new_session {
+                *trail = if saved {
+                    item_trail::Trail::starting(&edit.text)
+                } else {
+                    item_trail::Trail::default()
+                };
+            } else if users {
                 trail.note(&edit.before, &edit.text, edit.caret());
-            } else if synced_edit.with_value(|synced| *synced == edit.text) {
-                *trail = item_trail::Trail::starting(&edit.text);
+            } else if saved {
+                // A switch (to another view, or the host's language and
+                // back): the session's items are known still.
+                trail.restart(&edit.text);
             } else {
                 // Unsaved edits converted (a switch whose save waits):
                 // what they did to the items is not known.
-                *trail = item_trail::Trail::default();
+                trail.forget_edits();
             }
         });
     }
@@ -358,6 +373,11 @@ pub(super) fn take_host_value(state: EditorState, external: String) {
         ),
     };
     state.sync().synced_edit.set_value(edit.clone());
+    // A new session, though the view's text may read the same.
+    state
+        .sync()
+        .trail
+        .set_value(item_trail::Trail::starting(&edit));
     state.sync().synced.notify();
     state.sync().synced_hosts.update_value(Vec::clear);
     state.note_in_sync(true);
@@ -514,19 +534,25 @@ pub(super) fn convert_now(state: EditorState, text: String, language: Language) 
                 .map(|(_, _, host)| host.clone())
         });
         let hosts_own = known.is_some();
-        let (result, trail) = match known {
-            Some(host) => (Ok(host), item_trail::Trail::starting(&text)),
+        let follows = state.sync().trail.with_value(|trail| {
+            state
+                .sync()
+                .synced_edit
+                .with_value(|synced| trail.begins_on(synced))
+        });
+        let (result, trail) = state.sync().trail.with_value(|trail| match known {
+            // Its items are the session's first view's only when it is
+            // that view's host text.
+            Some(host) if host == origin => (Ok(host), trail.at_origin(&text)),
+            Some(host) => (Ok(host), trail.unknown_from(&text)),
+            None if follows => bridge.to_host_traced(&text, &previous, &origin, Some(trail)),
             // Edits followed from another text than the one saved tell
             // nothing of this save's items: their values do.
             None => {
-                let synced = state.sync().synced_edit;
-                state.sync().trail.with_value(|trail| {
-                    let trail =
-                        Some(trail).filter(|trail| synced.with_value(|text| trail.begins_on(text)));
-                    bridge.to_host_traced(&text, &previous, &origin, trail)
-                })
+                let (result, _) = bridge.to_host_traced(&text, &previous, &origin, None);
+                (result, trail.unknown_from(&text))
             }
-        };
+        });
         // However the edit got there, a save never changes a read-only
         // value: it is refused like any other unsafe save. A text the host
         // itself had is its own to restore.

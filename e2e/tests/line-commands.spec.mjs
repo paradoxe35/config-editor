@@ -4,7 +4,8 @@ import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 // The line commands (Alt+↑/↓ move lines, Shift+Alt+↑/↓ copy them,
-// Ctrl+Shift+K deletes them, Ctrl+] / Ctrl+[ indent / outdent them), as in
+// Ctrl+Shift+K deletes them, Ctrl+] / Ctrl+[ indent / outdent them,
+// Ctrl+Enter / Ctrl+Shift+Enter open a line below / above), as in
 // VS Code: a closed fold is one unit (a folded line takes its hidden lines
 // along and stays folded, a line moves past a fold whole), each is one undo
 // step, a lock inside a folded region is judged as its lines are, the
@@ -150,6 +151,12 @@ function expected(text, [first, last], at, key, [next, previous] = [1, 1]) {
           ]),
           first,
         ];
+      // A line opened below the whole block, or above the folded line, at
+      // the folded line's indentation.
+      case "Control+Enter":
+        return [join([before, block, [indent(block[0])], after]), first];
+      case "Control+Shift+Enter":
+        return [join([before, [indent(block[0])], block, after]), first + 1];
     }
   }
   // The line above moved down past the fold, the one below up past it.
@@ -161,7 +168,11 @@ function expected(text, [first, last], at, key, [next, previous] = [1, 1]) {
   return [join([before, after[0], block, after.slice(1)]), first + 1];
 }
 
+const indent = (line) => line.match(/^[ \t]*/)[0];
+
 const HEADER_KEYS = [
+  "Control+Enter",
+  "Control+Shift+Enter",
   "Alt+ArrowDown",
   "Alt+ArrowUp",
   "Shift+Alt+ArrowDown",

@@ -56,6 +56,16 @@ mod at_least_one_matrix;
     feature = "hcl",
     feature = "xml"
 ))]
+mod choice_hover_fit_matrix;
+#[cfg(all(
+    test,
+    feature = "schema-validation",
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
 mod choice_hover_matrix;
 #[cfg(all(
     test,
@@ -199,6 +209,16 @@ mod nested_tests;
     feature = "xml"
 ))]
 mod non_finite_matrix;
+#[cfg(all(
+    test,
+    feature = "schema-validation",
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod one_line_item_matrix;
 #[cfg(all(
     test,
     feature = "yaml",

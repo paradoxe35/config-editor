@@ -121,3 +121,67 @@ fn tab_walks_the_values_of_an_accepted_block_nested_two_deep() {
     }
     assert!(failures.is_empty(), "{}", failures.join("\n\n"));
 }
+
+/// A required list with `minItems` is written with its items, and Tab
+/// walks each item's value in order, the caret starting in the first
+/// item when the list comes first: a list of strings, of numbers, of
+/// objects, first, after a string field, or alone.
+#[test]
+fn tab_walks_the_items_a_required_list_is_written_with() {
+    let lists = [
+        (
+            r#""list":{"type":"array","minItems":2,"items":{"type":"string"}}"#,
+            &["T1", "T2"][..],
+            json!(["T1", "T2"]),
+        ),
+        (
+            r#""list":{"type":"array","minItems":2,"items":{"type":"integer"}}"#,
+            &["7", "8"][..],
+            json!([7, 8]),
+        ),
+        (
+            r#""list":{"type":"array","minItems":1,"items":{"type":"object","required":["h"],
+                "properties":{"h":{"type":"string"}}}}"#,
+            &["H"][..],
+            json!([{"h": "H"}]),
+        ),
+    ];
+    let orders: [&[&str]; 3] = [&["list", "name"], &["name", "list"], &["list"]];
+    let mut failures = Vec::new();
+    for (list, items, wanted_list) in &lists {
+        for order in orders {
+            let schema = format!(
+                r#"{{"type":"object","properties":{{"svc":{{"type":"object","required":{},
+                    "properties":{{"name":{{"type":"string"}},{list}}}}}}}}}"#,
+                serde_json::to_string(order).unwrap()
+            );
+            let mut typed = Vec::new();
+            let mut wanted = serde_json::Map::new();
+            for key in order {
+                if *key == "list" {
+                    typed.extend_from_slice(items);
+                    wanted.insert("list".into(), wanted_list.clone());
+                } else {
+                    typed.push("N");
+                    wanted.insert("name".into(), json!("N"));
+                }
+            }
+            let wanted = json!({ "svc": wanted });
+            for language in LANGUAGES {
+                let text = typed_through(language, &schema, &typed);
+                let read = read(language, &schema, &text);
+                if read.as_ref() != Some(&wanted) {
+                    failures.push(format!(
+                        "{language} {order:?} {items:?}:\n{text}\nreads {read:?}"
+                    ));
+                }
+            }
+        }
+    }
+    assert!(
+        failures.is_empty(),
+        "{} failures:\n{}",
+        failures.len(),
+        failures.join("\n\n")
+    );
+}

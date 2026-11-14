@@ -111,13 +111,99 @@ impl Wording<'_> {
                         ),
                     }
                 }
-                None => fill(
-                    &strings.must_not_match,
-                    &[("value", &error.instance()), ("schema", schema)],
-                ),
+                None => self.refused_by_not(error, schema),
             },
             _ => error.to_string(),
         }
+    }
+
+    /// A value a `not` (`schema`) refuses, in plain words where the `not`
+    /// is one keyword: a type, a `const` or `enum`, keys refused one by
+    /// one (an `anyOf` of single `required` keys); else the schema as
+    /// JSON.
+    fn refused_by_not(&self, error: &ValidationError<'_>, schema: &Value) -> String {
+        let strings = self.strings;
+        let value = error.instance();
+        let quoted = |names: Vec<String>| {
+            names
+                .iter()
+                .map(|name| Value::from(name.as_str()).to_string())
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
+        let only = schema.as_object().and_then(|members| {
+            let mut keywords = members.iter().filter(|(keyword, _)| {
+                !matches!(keyword.as_str(), "title" | "description" | "$comment")
+            });
+            let one = keywords.next()?;
+            keywords.next().is_none().then_some(one)
+        });
+        let worded = match only {
+            Some((keyword, Value::String(name))) if keyword == "type" => Some(fill(
+                &strings.must_not_be_type,
+                &[("value", &value), ("types", &quoted(vec![name.clone()]))],
+            )),
+            Some((keyword, Value::Array(names))) if keyword == "type" => {
+                let names: Option<Vec<String>> = names
+                    .iter()
+                    .map(|name| name.as_str().map(str::to_string))
+                    .collect();
+                names.map(|names| {
+                    fill(
+                        &strings.must_not_be_type,
+                        &[("value", &value), ("types", &quoted(names))],
+                    )
+                })
+            }
+            Some((keyword, refused)) if keyword == "const" => Some(fill(
+                &strings.must_not_be,
+                &[("value", &value), ("values", &refused.to_string())],
+            )),
+            Some((keyword, Value::Array(refused))) if keyword == "enum" => Some(fill(
+                &strings.must_not_be,
+                &[
+                    ("value", &value),
+                    (
+                        "values",
+                        &refused
+                            .iter()
+                            .map(Value::to_string)
+                            .collect::<Vec<_>>()
+                            .join(" or "),
+                    ),
+                ],
+            )),
+            Some((keyword, Value::Array(options))) if keyword == "anyOf" => {
+                let keys: Option<Vec<&str>> = options
+                    .iter()
+                    .map(
+                        |option| match option.get("required")?.as_array()?.as_slice() {
+                            [key] if option.as_object()?.len() == 1 => key.as_str(),
+                            _ => None,
+                        },
+                    )
+                    .collect();
+                let held: Vec<String> = keys
+                    .unwrap_or_default()
+                    .into_iter()
+                    .filter(|key| value.get(key).is_some())
+                    .map(str::to_string)
+                    .collect();
+                (!held.is_empty()).then(|| {
+                    fill(
+                        &strings.must_not_have,
+                        &[("value", &value), ("keys", &quoted(held))],
+                    )
+                })
+            }
+            _ => None,
+        };
+        worded.unwrap_or_else(|| {
+            fill(
+                &strings.must_not_match,
+                &[("value", &value), ("schema", schema)],
+            )
+        })
     }
 
     /// The keys a `not` (`schema`) refuses written together, when that is

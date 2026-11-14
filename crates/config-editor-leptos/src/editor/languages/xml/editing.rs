@@ -17,11 +17,20 @@ pub(super) fn newline_with_indent(source: &str, cursor: usize) -> String {
 
 /// The indent a new line at byte `byte` starts from: its line's, or after
 /// a tag written over lines (`<bean id="a"` then `class="b">`) the line
-/// the tag starts on, not the attribute line it ends on (QA `E32-6`).
+/// the tag starts on, not the attribute line it ends on (QA `E32-6`). A
+/// line that begins inside markup written over lines (`b --> <y/>`, the
+/// end of a comment begun above) indents from the line that markup starts
+/// on (QA `E34-2`).
 fn line_indent(source: &str, byte: usize) -> String {
     let before = source[..byte].trim_end_matches([' ', '\t']);
-    let from = markup_start(before).unwrap_or(byte);
-    let line_start = source[..from].rfind('\n').map_or(0, |index| index + 1);
+    let mut from = markup_start(before).unwrap_or(byte);
+    let line_start = loop {
+        let line_start = source[..from].rfind('\n').map_or(0, |index| index + 1);
+        match open_markup_start(&source[..line_start]) {
+            Some(start) => from = start,
+            None => break line_start,
+        }
+    };
     source[line_start..]
         .chars()
         .take_while(|character| matches!(character, ' ' | '\t'))
@@ -42,6 +51,16 @@ fn markup_start(before: &str) -> Option<usize> {
     } else {
         None
     }
+}
+
+/// Where the markup still open at the end of `before` starts: a comment,
+/// CDATA section, processing instruction or tag it does not close.
+fn open_markup_start(before: &str) -> Option<usize> {
+    let unclosed = |open: &str, close: &str| before.rfind(open).filter(|at| !before[*at..].contains(close));
+    unclosed("<!--", "-->")
+        .or_else(|| unclosed("<![CDATA[", "]]>"))
+        .or_else(|| unclosed("<?", "?>"))
+        .or_else(|| unclosed("<", ">"))
 }
 
 /// `</name>` when a `>` typed at `cursor` would finish the start tag `<name …`,

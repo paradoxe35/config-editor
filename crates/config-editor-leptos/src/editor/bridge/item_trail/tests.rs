@@ -193,3 +193,70 @@ fn a_selection_from_item_to_item_deletes_the_first() {
         previous(&[("/l/0", "/l/1")])
     );
 }
+
+/// QA `E34-1`: an item cut, saved, then pasted after a switch where its
+/// lines read otherwise (another indent) is the item cut, by its data.
+#[test]
+fn an_item_pasted_with_other_lines_is_the_item_cut_by_its_data() {
+    let cut = TARGETS.replace("  - name: console\n", "");
+    let caret = at(&cut, "  - name: blackhole", 0, 0);
+    let saved = |text: &str| {
+        let mut trail = Trail::starting(TARGETS);
+        trail.note(TARGETS, &cut, caret);
+        let mut trail = trail
+            .trace(Language::YAML.behavior(), &cut)
+            .expect("traced")
+            .saved;
+        // A switch and back: the same text, the session's items known.
+        trail.restart(&cut);
+        trail.note(&cut, text, text.encode_utf16().count());
+        trail
+            .trace(Language::YAML.behavior(), text)
+            .expect("traced")
+            .items
+    };
+    let pasted = format!("{cut}  -   name: console\n");
+    assert_eq!(
+        saved(&pasted).get("/targets/2"),
+        Some(&ItemSource::Origin("/targets/1".into()))
+    );
+    // Another item's data is no item cut.
+    let other = format!("{cut}  - name: other\n");
+    assert_eq!(saved(&other).get("/targets/2"), None);
+}
+
+/// The items pasted are compared with the items cut, not with every item
+/// of the view: a typing pause after a cut and a paste compares as many
+/// at any size.
+#[test]
+fn pasted_items_are_compared_with_the_cut_ones_only_at_any_size() {
+    use super::super::super::work_count::{Work, counted};
+    let comparisons = |count: usize| {
+        let start: String = std::iter::once("l:\n".to_string())
+            .chain((0..count).map(|item| format!("  - size: {item}\n")))
+            .collect();
+        let cut = start.replacen("  - size: 1\n", "", 1);
+        let caret = start.find("  - size: 1\n").expect("found");
+        let mut trail = Trail::starting(&start);
+        trail.note(&start, &cut, caret);
+        let mut trail = trail
+            .trace(Language::YAML.behavior(), &cut)
+            .expect("traced")
+            .saved;
+        let pasted = format!("{cut}  -  size: 1\n");
+        trail.note(&cut, &pasted, pasted.encode_utf16().count());
+        let (items, compared) = counted(Work::ItemComparison, || {
+            trail
+                .trace(Language::YAML.behavior(), &pasted)
+                .expect("traced")
+                .items
+        });
+        assert_eq!(
+            items.get(&format!("/l/{}", count - 1)),
+            Some(&ItemSource::Origin("/l/1".into()))
+        );
+        compared
+    };
+    assert_eq!(comparisons(50), 1);
+    assert_eq!(comparisons(800), 1);
+}

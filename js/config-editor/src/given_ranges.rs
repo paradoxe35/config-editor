@@ -30,9 +30,27 @@ fn print(list: &JsValue) -> Option<String> {
 /// `rangesFor`) stay where the editor moved them: unless the text they
 /// come with replaces the document (`replaces`). A text the document
 /// holds, an echo of one it sent or one older than the typing keeps them,
-/// whatever order the echoes come back in.
+/// whatever order the echoes come back in. Whether it replaces is known
+/// before the text is taken (`Echoes::replaces`), so ranges that stay are
+/// not read in it at all: not checked against a text they were not given
+/// for (QA 34, HO34-1: an echo warned of columns past a line's end).
 pub(crate) fn stay(again: bool, replaces: bool) -> bool {
     again && !replaces
+}
+
+/// What became of a document's ranges listed again as given last.
+pub(crate) enum Again {
+    /// Its text does not replace the one its editor holds (that text, an
+    /// echo): they are the ones its editor was given, which it moved with
+    /// each edit since. Not in the listed text's places, they are not moved
+    /// from it to the document (QA 34: moved as if they were, a lock whose
+    /// line ended past the end of the line that took its place above it
+    /// was given again on that line).
+    Stayed,
+    /// Its text replaces the one its editor holds: they were read in it.
+    /// These are the ones its editor was given, which stay if that text
+    /// turns out not to replace its own after all.
+    Read(Vec<TextRange>),
 }
 
 /// The ranges a `ConfigEditor` was given last.

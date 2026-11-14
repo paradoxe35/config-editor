@@ -27,6 +27,9 @@ const FORMS: &[(&str, &[&str])] = &[
     ("- na|", &["name"]),
     ("- image: x\n  |", &["cmd", "name"]),
     ("- |\n  image: x", &["cmd", "name"]),
+    // An anchor on the item.
+    ("- &x |", &["cmd", "image", "name"]),
+    ("- &x na|", &["name"]),
 ];
 
 /// The list around the caret's item (`@`), its items written at column 4.

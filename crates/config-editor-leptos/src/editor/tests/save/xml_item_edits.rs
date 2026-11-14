@@ -17,7 +17,7 @@ const XSI: &str = "xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\"";
 
 /// What tells the items apart besides their data.
 #[derive(Clone, Copy, Debug)]
-enum Kind {
+pub(in crate::editor::tests) enum Kind {
     Type,
     DefaultNamespace,
     /// `<a:item xmlns:a="urn:N">`.
@@ -25,7 +25,7 @@ enum Kind {
 }
 
 impl Kind {
-    fn host(self, sizes: &[u32]) -> String {
+    pub(in crate::editor::tests) fn host(self, sizes: &[u32]) -> String {
         let mut text = format!("<root {XSI}>\n");
         for (item, size) in sizes.iter().enumerate() {
             let (open, close) = match self {
@@ -48,7 +48,7 @@ impl Kind {
     }
 
     /// The markup of the items of `saved`, as the host's item each is.
-    fn order(self, saved: &str) -> Vec<usize> {
+    pub(in crate::editor::tests) fn order(self, saved: &str) -> Vec<usize> {
         let marker = match self {
             Kind::Type => "xsi:type=\"T",
             Kind::DefaultNamespace => "xmlns=\"urn:d",
@@ -107,7 +107,7 @@ fn session(
 /// The line ranges (from 0, end excluded) of the list items of a view
 /// whose items each start on a line of their own: a YAML `- ` line, or a
 /// JSON `{` line through its `}`.
-fn item_lines(edit: Language, view: &str) -> Vec<(usize, usize)> {
+pub(in crate::editor::tests) fn item_lines(edit: Language, view: &str) -> Vec<(usize, usize)> {
     let lines: Vec<&str> = view.lines().collect();
     let starts: Vec<usize> = (0..lines.len())
         .filter(|at| {
@@ -142,7 +142,7 @@ fn item_lines(edit: Language, view: &str) -> Vec<(usize, usize)> {
         .collect()
 }
 
-fn line_offset(text: &str, line: usize) -> usize {
+pub(in crate::editor::tests) fn line_offset(text: &str, line: usize) -> usize {
     text.split_inclusive('\n').take(line).map(str::len).sum()
 }
 

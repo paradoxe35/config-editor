@@ -25,11 +25,17 @@ fn json_errors_word_a_text_that_starts_as_json() {
     // Its place said as a document's problem says it.
     for (text, wanted) in [
         ("{\"type\": }", "expected value (line 1, column 10)"),
-        ("  [1, 2", "EOF while parsing a list (line 1, column 7)"),
-        ("{", "EOF while parsing an object (line 1, column 1)"),
+        (
+            "  [1, 2",
+            "the text ends before the list is closed: a ] is missing (line 1, column 7)",
+        ),
+        (
+            "{",
+            "the text ends before the map is closed: a } is missing (line 1, column 1)",
+        ),
         (
             "{\"type\": \"object\"} extra",
-            "trailing characters (line 1, column 20)",
+            "more text follows the end of the schema (line 1, column 20)",
         ),
     ] {
         assert_eq!(read_schema_text(text).unwrap_err(), wanted, "{text:?}");
@@ -217,7 +223,7 @@ properties:
         for (text, expected) in [
             (
                 "properties:\n  a: b: c\n",
-                "mapping values are not allowed in this context (line 2, column 7)",
+                "a colon and a space inside a plain value start a map in YAML: quote the value, as in description: \"note: this\" (line 2, column 7)",
             ),
             (
                 "type: object\ntype: array\n",
@@ -295,7 +301,7 @@ properties:
             ),
             (
                 "type: object\n---\ntype: string\n",
-                "This text holds more than one YAML document (separated by ---): the editor reads one document per file. Keep one, or split them into files (line 2, column 1)",
+                "this text holds more than one YAML document (separated by ---): the editor reads one document per file. Keep one, or split them into files (line 2, column 1)",
             ),
             (
                 "~",

@@ -23,7 +23,7 @@ use crate::options::{
     warn_unknown_options,
 };
 use crate::protect::{paths_from, ranges_from, secrets_from};
-use crate::remap::{moved_between, reads_as};
+use crate::remap::moved_between;
 use crate::settings::{settings_from, settings_result};
 use crate::settle;
 use crate::told::{self, Told};
@@ -417,9 +417,21 @@ impl ConfigEditor {
         // document once it is known, below).
         let (mut host_diagnostics, mut read_only_ranges) = {
             let latest = self.latest.lock().unwrap_or_else(PoisonError::into_inner);
-            let held = value
-                .as_deref()
-                .is_none_or(|value| reads_as(value, &latest));
+            // Whether `value` will replace the document: not the text it
+            // holds, an echo, nor a text older than the typing (see `echo`
+            // below). Ranges given again are read only in such a text (QA
+            // 34, HO34-1: read in an echo they warned of columns past a
+            // line's end, and could throw).
+            let replaces = || {
+                value.as_deref().is_some_and(|value| {
+                    !(told && value != *latest)
+                        && self
+                            .state
+                            .echoes
+                            .try_update_value(|echoes| echoes.replaces(value, &latest))
+                            .unwrap_or(true)
+                })
+            };
             let host_text = ranges_for
                 .as_deref()
                 .or(value.as_deref())
@@ -435,7 +447,7 @@ impl ConfigEditor {
                 .transpose()?;
             let read_only_ranges = ranges_given
                 .as_ref()
-                .filter(|_| !crate::given_ranges::stay(ranges_again, !held))
+                .filter(|_| !ranges_again || !crate::given_ranges::stay(true, replaces()))
                 .map(|list| ranges_from(list, host_text, "readOnlyRanges"))
                 .transpose()?;
             (host_diagnostics, read_only_ranges)

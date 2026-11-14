@@ -116,9 +116,12 @@ editor is in), shared by every editor and documents view there and removed
 with the last. Host stylesheets later in `<head>` or in `<body>` win over its
 rules at equal specificity; the theme variables have zero specificity, so
 any rule overrides them. Set the `--config-editor-*` variables (colors,
-`--config-editor-font-size`, `--config-editor-line-height`, the height
-ones) on `.config-editor` or the editor's own element or `class`: on `body`
-or `html` they have no effect. The page's rules for bare elements never
+`--config-editor-font-size`, `--config-editor-line-height`) on the editor's
+root: `.config-editor`, or your `class`, which goes on it. On `body`, `html`
+or an element around the editor they have no effect, as the root sets each
+itself. The height ones (`--config-editor-height`,
+`--config-editor-min-height`, `--config-editor-max-height`) the root does
+not set, so they inherit: on the root or on any element above it. The page's rules for bare elements never
 reach the editor, but rules marked `!important` and rules that target its
 inner `config-editor__*` classes do: those are the host's choice. Under a strict Content-Security-Policy, serve it as
 a file instead (see
@@ -370,7 +373,7 @@ they come.
 <!-- Generated from crates/config-editor-leptos/src/strings.rs by js/config-editor/tests/settings.rs; do not edit. Regenerate with `UPDATE_GENERATED=1 cargo test -p config-editor-js --test settings`. -->
 
 <details>
-<summary>Every text and its default (203 texts)</summary>
+<summary>Every text and its default (206 texts)</summary>
 
 | Field                           | Default                                                                                                                                     |                                                                                                                                                                                                                                                |
 | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -548,6 +551,9 @@ they come.
 | `too_few_contained`             | `"{value} has fewer than {limit} items its \"contains\" schema allows"`                                                                     | A list (`{value}`) with fewer items its `contains` schema allows than its `minContains` (`{limit}`).                                                                                                                                           |
 | `too_many_contained`            | `"{value} has more than {limit} items its \"contains\" schema allows"`                                                                      | A list (`{value}`) with more items its `contains` schema allows than its `maxContains` (`{limit}`).                                                                                                                                            |
 | `must_not_match`                | `"{value} must not match {schema}"`                                                                                                         | A value its `not` schema (`{schema}`, as JSON) matches.                                                                                                                                                                                        |
+| `must_not_be_type`              | `"{value} must not be of type {types}"`                                                                                                     | A value of a type its `not` schema refuses (`not: {type: …}`): the types (`{types}`), each quoted, joined by `, `.                                                                                                                             |
+| `must_not_be`                   | `"{value} must not be {values}"`                                                                                                            | A value its `not` schema refuses by name (`not: {const: …}` or `not: {enum: […]}`): the refused values (`{values}`), as JSON, joined by the word "or".                                                                                         |
+| `must_not_have`                 | `"{value} must not have {keys}"`                                                                                                            | An object holding keys its `not` schema refuses one by one (`not: {anyOf: [{required: [a]}, {required: [b]}]}`): the ones it holds (`{keys}`), each quoted, joined by `, `.                                                                    |
 | `keys_used_together`            | `"{key} can't be used together with {other}"`                                                                                               | An object holding both keys its `not` schema keeps apart (`not: {required: [a, b]}`, or a key's dependent schema's `not`): the first (`{key}`) and the other (`{other}`), each quoted.                                                         |
 | `keys_all_used_together`        | `"{keys} can't all be used together"`                                                                                                       | An object holding all of three or more keys its `not` schema keeps apart (`not: {required: [a, b, c]}`): the keys (`{keys}`), each quoted, joined by `, `.                                                                                     |
 | `no_option_matches`             | `"matches none of the {keyword} options: {reasons}"`                                                                                        | A value that matches none of a schema's options (`{keyword}`: `oneOf` or `anyOf`), with why each fails (`{reasons}`, each worded by `option_needs`, `option_refuses` or `option_problem`, joined by `; `).                                     |

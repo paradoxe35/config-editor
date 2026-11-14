@@ -3,6 +3,7 @@
 use leptos::prelude::*;
 use web_sys::KeyboardEvent;
 
+use super::super::commands::copied_lines;
 use super::super::edit::Edit;
 use super::super::keyboard::{replace_selection, utf16_to_byte_index};
 use super::super::state::{EditorState, textarea_selection};
@@ -63,6 +64,12 @@ pub(in crate::editor) fn enter_at(
     };
     if pressed == Pressed::LineAbove {
         open_line_above(state, text, selection);
+        return;
+    }
+    if pressed == Pressed::LineBelow
+        && let Some(block_end) = folded_block_end(state, &text, selection.1)
+    {
+        open_line_after_fold(state, text, selection, block_end);
         return;
     }
     let modified = pressed == Pressed::LineBelow;
@@ -163,14 +170,48 @@ pub(super) fn break_in_indentation(text: &str, cursor: usize) -> Option<String> 
 /// Ctrl+Shift+Enter opens a line above, at this line's indent.
 fn open_line_above(state: EditorState, text: String, selection: (usize, usize)) {
     let line_start = line_start_of(&text, selection.0);
-    let indent: String = text[utf16_to_byte_index(&text, line_start)..]
-        .chars()
-        .take_while(|character| matches!(character, ' ' | '\t'))
-        .collect();
+    let indent = indent_at(&text, line_start);
     let (updated, _) = replace_selection(&text, line_start, line_start, &format!("{indent}\n"));
     let caret = line_start + indent.encode_utf16().count();
     state.commit(Edit::new(text, selection, updated, caret));
     state.close_suggestions();
+}
+
+/// Where Ctrl+Enter on a folded line opens its line: after the whole block
+/// the fold closes (its hidden lines and a closing line it leaves shown),
+/// as the other line commands take a fold; `None` on a line not folded.
+fn folded_block_end(state: EditorState, text: &str, caret: usize) -> Option<usize> {
+    state.view().projection.with_untracked(|projection| {
+        projection.hidden_from(line_end_of(text, caret))?;
+        let (_, end) = copied_lines(state.behavior(), text, caret, projection);
+        // Before the line break that ends the block's last line.
+        let byte = utf16_to_byte_index(text, end);
+        Some(end - usize::from(text[..byte].ends_with('\n')))
+    })
+}
+
+/// Ctrl+Enter on a folded line: a line after the block at `block_end`, at
+/// the folded line's own indentation (beside the block, not in it), the
+/// fold kept closed.
+fn open_line_after_fold(
+    state: EditorState,
+    text: String,
+    selection: (usize, usize),
+    block_end: usize,
+) {
+    let indent = indent_at(&text, line_start_of(&text, selection.1));
+    let (updated, _) = replace_selection(&text, block_end, block_end, &format!("\n{indent}"));
+    let caret = block_end + 1 + indent.encode_utf16().count();
+    state.commit(Edit::new(text, selection, updated, caret));
+    state.close_suggestions();
+}
+
+/// The indentation of the line starting at UTF-16 `line_start`.
+fn indent_at(text: &str, line_start: usize) -> String {
+    text[utf16_to_byte_index(text, line_start)..]
+        .chars()
+        .take_while(|character| matches!(character, ' ' | '\t'))
+        .collect()
 }
 
 /// After a value typed before a closer the editor wrote that ends it (the

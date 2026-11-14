@@ -1,8 +1,8 @@
 //! The host shield (see the top of `src/css/base.css`): every element the
 //! editor draws inside its roots starts from the browser's own styles, so
 //! a page's rules for bare elements never reach it, and every rule of the
-//! preset's for those elements carries `:not(#\#)` (an id's weight) to
-//! outweigh the page's attribute and `:not()` rules. A rule written
+//! preset's for those elements carries `:not(#\#):not(#\#)` (two ids' weight) to
+//! outweigh the page's attribute, `:not()` and id-scoped (`#app div`) rules. A rule written
 //! without it would lose to the shield's reset, and the element would show
 //! unstyled: this test names such rules.
 //!
@@ -16,10 +16,10 @@
 
 use config_editor_leptos::PRESET_CSS;
 
-const SHIELD: &str = r":not(#\#) ";
+const SHIELD: &str = r":not(#\#):not(#\#) ";
 
 /// The built-in toolbar and footer: inside the frame.
-const BUILT_IN: &str = r":not(#\#) .config-editor__frame ";
+const BUILT_IN: &str = r":not(#\#):not(#\#) .config-editor__frame ";
 
 /// The roots: their rules keep a class's weight.
 const ROOTS: &[&str] = &[
@@ -140,7 +140,7 @@ fn every_rule_inside_the_editor_carries_the_shield() {
     for list in selector_lists(PRESET_CSS) {
         let selectors = selectors(&list);
         for selector in &selectors {
-            // The id weight on an ancestor (`:not(#\#) .x`) or joined to
+            // The id weight on an ancestor (`:not(#\#):not(#\#) .x`) or joined to
             // the first compound (`:not(#\#)[dir="rtl"] .x`, which also
             // matches `<html dir="rtl">`, an element with no ancestor).
             if selector.starts_with(SHIELD.trim_end()) || exempt(selector) {
@@ -166,7 +166,7 @@ fn every_rule_inside_the_editor_carries_the_shield() {
 /// of the editor root's names it there with the shield too.
 #[test]
 fn the_editor_root_rules_reach_an_editor_in_a_documents_view() {
-    let twin = r":not(#\#) .config-editor-documents .config-editor";
+    let twin = r":not(#\#):not(#\#) .config-editor-documents .config-editor";
     let missing: Vec<String> = selector_lists(PRESET_CSS)
         .into_iter()
         .filter(|list| {

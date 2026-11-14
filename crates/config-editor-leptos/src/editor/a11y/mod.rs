@@ -89,6 +89,18 @@ impl A11yState {
     pub(super) fn announce(&self, message: String) {
         crate::live_region::say(self.announcement, message);
     }
+
+    /// Empties the live region if it still holds `message` (said once or
+    /// repeated), which no longer holds; anything else said since stays.
+    #[cfg(feature = "search")]
+    pub(super) fn take_back(&self, message: &str) {
+        let stale = self
+            .announcement
+            .with_untracked(|said| said.trim_end_matches('\u{a0}') == message);
+        if stale {
+            self.announcement.set(String::new());
+        }
+    }
 }
 
 #[cfg(test)]

@@ -256,7 +256,7 @@ with that reason.
 <!-- Generated from crates/config-editor-leptos/src/strings.rs by js/config-editor/tests/settings.rs; do not edit. Regenerate with `UPDATE_GENERATED=1 cargo test -p config-editor-js --test settings`. -->
 
 <details>
-<summary>Every text and its default (203 texts)</summary>
+<summary>Every text and its default (206 texts)</summary>
 
 | Key                         | Default                                                                                                                                     |                                                                                                                                                                                                                                                |
 | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -434,6 +434,9 @@ with that reason.
 | `tooFewContained`           | `"{value} has fewer than {limit} items its \"contains\" schema allows"`                                                                     | A list (`{value}`) with fewer items its `contains` schema allows than its `minContains` (`{limit}`).                                                                                                                                           |
 | `tooManyContained`          | `"{value} has more than {limit} items its \"contains\" schema allows"`                                                                      | A list (`{value}`) with more items its `contains` schema allows than its `maxContains` (`{limit}`).                                                                                                                                            |
 | `mustNotMatch`              | `"{value} must not match {schema}"`                                                                                                         | A value its `not` schema (`{schema}`, as JSON) matches.                                                                                                                                                                                        |
+| `mustNotBeType`             | `"{value} must not be of type {types}"`                                                                                                     | A value of a type its `not` schema refuses (`not: {type: …}`): the types (`{types}`), each quoted, joined by `, `.                                                                                                                             |
+| `mustNotBe`                 | `"{value} must not be {values}"`                                                                                                            | A value its `not` schema refuses by name (`not: {const: …}` or `not: {enum: […]}`): the refused values (`{values}`), as JSON, joined by the word "or".                                                                                         |
+| `mustNotHave`               | `"{value} must not have {keys}"`                                                                                                            | An object holding keys its `not` schema refuses one by one (`not: {anyOf: [{required: [a]}, {required: [b]}]}`): the ones it holds (`{keys}`), each quoted, joined by `, `.                                                                    |
 | `keysUsedTogether`          | `"{key} can't be used together with {other}"`                                                                                               | An object holding both keys its `not` schema keeps apart (`not: {required: [a, b]}`, or a key's dependent schema's `not`): the first (`{key}`) and the other (`{other}`), each quoted.                                                         |
 | `keysAllUsedTogether`       | `"{keys} can't all be used together"`                                                                                                       | An object holding all of three or more keys its `not` schema keeps apart (`not: {required: [a, b, c]}`): the keys (`{keys}`), each quoted, joined by `, `.                                                                                     |
 | `noOptionMatches`           | `"matches none of the {keyword} options: {reasons}"`                                                                                        | A value that matches none of a schema's options (`{keyword}`: `oneOf` or `anyOf`), with why each fails (`{reasons}`, each worded by `optionNeeds`, `optionRefuses` or `optionProblem`, joined by `; `).                                        |
@@ -555,9 +558,11 @@ coming back after that is taken as yours. Within that, nothing typed is
 lost. An echo the store wrote another way (without the byte order mark,
 with LF line breaks) is still the echo, and the document keeps its own.
 Ranges given with an echo (`readOnlyRanges`, host `range`s) are in
-the echoed text: they are moved to the document. Any other `value` is yours
-and applies, the text you gave last included (a reset to the text the
-editor was created with). The texts `onChange` gave before it belong to the
+the echoed text: they are moved to the document. The text you gave last,
+given again, is no news either: a render for another prop passes your
+store's text again while it is still behind the typing (reset to it with
+`replaceValue`). Any other `value` is yours and applies (a discard to the
+text the editor was created with, once your store took a later one). The texts `onChange` gave before it belong to the
 text it replaced (another file, a discarded draft): they are yours from
 then on, so going back to one (a file switched back to) applies. So once
 you give a text of your own, drop the answers still to come for the texts
@@ -1853,10 +1858,13 @@ yours later in the page wins over the preset's at equal specificity) and its
 color variables. Every theme color is a CSS variable on the `.config-editor` root, and the
 bundled themes set them with zero specificity, so a plain rule in your
 stylesheet overrides any theme, wherever it sits. Set the `--config-editor-*`
-variables (colors, `--config-editor-font-size`, `--config-editor-line-height`,
-the height ones) on `.config-editor`, or on the editor's own element or
-`className`: on `body` or `html` they have no effect, as the root sets each
-itself. The shield covers your page's bare-element rules, not rules marked
+variables (colors, `--config-editor-font-size`, `--config-editor-line-height`)
+on the editor's root: `.config-editor`, or your `className`, which goes on
+it. On `body`, `html` or the element you mount the editor in they have no
+effect, as the root sets each itself. The height ones
+(`--config-editor-height`, `--config-editor-min-height`,
+`--config-editor-max-height`) the root does not set, so they inherit: on the
+root or on any element above it. The shield covers your page's bare-element rules, not rules marked
 `!important` and not rules that target the editor's inner `config-editor__*`
 classes: those are your choice.
 

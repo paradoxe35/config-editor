@@ -3,9 +3,10 @@
 //!
 //! The match is cheap and exact, never a validation: the one option whose
 //! `required` keys are all present, else the one whose `const` properties
-//! the value has, else none. Hover names the matched option (or lists
-//! them all), and key suggestions carry their option's title and list the
-//! matched option's keys first.
+//! the value has, else (for hover, on an object written out) the one it
+//! fits by a quick look at its values, else none. Hover names the matched
+//! option (or lists them all), and key suggestions carry their option's
+//! title and list the matched option's keys first.
 
 use super::*;
 
@@ -36,6 +37,42 @@ impl ObjectChoice<'_> {
 
     fn required_present(&self, keys: &HashSet<String>) -> bool {
         !self.required.is_empty() && self.required.iter().all(|key| keys.contains(*key))
+    }
+
+    /// Whether one of its branches names `key` as a property.
+    fn declares(&self, key: &str) -> bool {
+        self.branches.iter().any(|branch| {
+            branch
+                .get("properties")
+                .and_then(|properties| properties.get(key))
+                .is_some()
+        })
+    }
+
+    /// Whether the object `values` fits this choice, as far as a quick
+    /// look tells: its required keys are there, no key it shuts out
+    /// (`additionalProperties: false` and not declared) is, and each
+    /// declared value has the type, `const`, `enum` and bounds its schema
+    /// asks for. Never a full validation.
+    fn fits(&self, values: &serde_json::Map<String, Value>, root: &Value) -> bool {
+        let closed = self
+            .branches
+            .iter()
+            .any(|branch| branch.get("additionalProperties") == Some(&Value::Bool(false)));
+        self.required.iter().all(|key| values.contains_key(*key))
+            && values.iter().all(|(key, value)| {
+                let declared: Vec<&Value> = self
+                    .branches
+                    .iter()
+                    .filter_map(|branch| branch.get("properties")?.get(key))
+                    .collect();
+                if declared.is_empty() {
+                    return !closed;
+                }
+                declared
+                    .iter()
+                    .all(|schema| value_fits(schema, value, root))
+            })
     }
 
     fn consts_match(&self, values: &serde_json::Map<String, Value>) -> bool {
@@ -108,6 +145,47 @@ pub(crate) fn object_choices<'a>(schema: &'a Value, root: &'a Value) -> Vec<Obje
         steps.extend(next.into_iter().rev());
     }
     choices
+}
+
+/// Whether `value` fits a property's `schema` (through a `$ref`): its
+/// `const`, `enum`, type and numeric bounds. `false` alone fits nothing.
+fn value_fits(schema: &Value, value: &Value, root: &Value) -> bool {
+    let schema = match schema.get("$ref").and_then(Value::as_str) {
+        Some(reference) => ref_target(reference, root).unwrap_or(schema),
+        None => schema,
+    };
+    if *schema == Value::Bool(false) {
+        return false;
+    }
+    // A language without number types (XML) reads `9` as text.
+    let read;
+    let value = match value {
+        Value::String(text) if schema.get("type").is_some() && !accepts(schema, value) => {
+            read = serde_json::from_str::<Value>(text.trim())
+                .ok()
+                .filter(|read| !read.is_string());
+            read.as_ref().unwrap_or(value)
+        }
+        _ => value,
+    };
+    let number = value.as_f64();
+    let bound = |keyword: &str, holds: fn(f64, f64) -> bool| match (
+        schema.get(keyword).and_then(Value::as_f64),
+        number,
+    ) {
+        (Some(limit), Some(number)) => holds(number, limit),
+        _ => true,
+    };
+    schema.get("const").is_none_or(|expected| expected == value)
+        && schema
+            .get("enum")
+            .and_then(Value::as_array)
+            .is_none_or(|allowed| allowed.contains(value))
+        && (schema.get("type").is_none() || accepts(schema, value))
+        && bound("minimum", |number, limit| number >= limit)
+        && bound("maximum", |number, limit| number <= limit)
+        && bound("exclusiveMinimum", |number, limit| number > limit)
+        && bound("exclusiveMaximum", |number, limit| number < limit)
 }
 
 /// `option` as a choice, when it describes an object.
@@ -214,6 +292,30 @@ pub(crate) fn matched_choice(
     }
 }
 
+/// For a whole object (hover reads one written out): the one choice it
+/// fits ([`ObjectChoice::fits`]), else the one fitting choice declaring
+/// every key it has. `None` where that does not decide.
+fn fitted_choice(
+    choices: &[ObjectChoice<'_>],
+    values: &serde_json::Map<String, Value>,
+    root: &Value,
+) -> Option<usize> {
+    let fitting: Vec<usize> = (0..choices.len())
+        .filter(|&index| choices[index].fits(values, root))
+        .collect();
+    let only = |indexes: &[usize]| match indexes {
+        [only] => Some(*only),
+        _ => None,
+    };
+    only(&fitting).or_else(|| {
+        let declaring: Vec<usize> = fitting
+            .into_iter()
+            .filter(|&index| values.keys().all(|key| choices[index].declares(key)))
+            .collect();
+        only(&declaring)
+    })
+}
+
 /// The value at `path` in a parsed document: a step written as an index
 /// names an item of an array and the key of its digits in an object. An
 /// item of something the document has as one value (an XML element written
@@ -248,9 +350,9 @@ pub(crate) fn object_at(
     value_at(document, path)?.as_object().cloned()
 }
 
-/// [`object_at`] with the line at `cursor_byte` left empty: the caret's
-/// line holds a key being typed (`<` in XML), which would keep the rest
-/// from parsing (see [`document_around`]). Still `None` where the text
+/// [`object_at`] with the entry typed at `cursor_byte` left out (or its
+/// line, where it is alone on it): a key being typed (`<` in XML) would
+/// keep the rest from parsing (see [`document_around`]). Still `None` where the text
 /// around it does not parse (an error elsewhere): the keys alone then
 /// decide.
 pub(crate) fn object_around(
@@ -263,8 +365,8 @@ pub(crate) fn object_around(
     value_at(&document, path)?.as_object().cloned()
 }
 
-/// The document `source` holds with the line at `cursor_byte` left empty
-/// (see [`object_around`]), when that parses.
+/// The document `source` holds with the entry typed at `cursor_byte` left
+/// out (see [`object_around`]), when that parses.
 pub(crate) fn document_around(
     source: &str,
     cursor_byte: usize,
@@ -275,11 +377,17 @@ pub(crate) fn document_around(
         .find('\n')
         .map_or(source.len(), |at| cursor_byte + at);
     let (before, after) = (&source[..line_start], &source[line_end..]);
-    // Read aside: the text with the line left out must not push the text
-    // on screen out of the shared parse.
-    behavior
-        .parse(&behavior.caret_line_left_out(source, line_start, line_end))
-        .ok()
+    // Read aside: the text with the entry or line left out must not push
+    // the text on screen out of the shared parse. Only the entry typed,
+    // where the line holds more (an item written on one line), so the
+    // item stays in its place.
+    super::typed_entry::typed_entry_left_out(behavior, source, cursor_byte)
+        .and_then(|text| behavior.parse(&text).ok())
+        .or_else(|| {
+            behavior
+                .parse(&behavior.caret_line_left_out(source, line_start, line_end))
+                .ok()
+        })
         .or_else(|| without_dangling_separator(before, after, behavior))
 }
 
@@ -346,7 +454,8 @@ impl<'a> ChoicesAt<'a> {
                 .as_ref()
                 .map(|values| values.keys().cloned().collect())
                 .unwrap_or_default();
-            matched_choice(&choices, &keys, || values)
+            matched_choice(&choices, &keys, || values.clone())
+                .or_else(|| fitted_choice(&choices, values.as_ref()?, root))
         };
         Self { choices, matched }
     }

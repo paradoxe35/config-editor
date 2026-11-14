@@ -555,6 +555,15 @@ pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionConte
             content = after_dash;
             first = false;
         }
+        // An anchor or a tag the caret is past (`- &x |`, `&x na|`): what
+        // follows it is the node's content, keys typed there too.
+        let rest = without_node_properties(content);
+        let properties = &content[..content.len() - rest.len()];
+        if properties.ends_with([' ', '\t'])
+            && indent + prefix.len() - rest.len() <= caret_column
+        {
+            content = rest;
+        }
         (content, prefix.len() - content.len())
     };
     let candidate_colon = mapping_colon_anywhere(line_content);

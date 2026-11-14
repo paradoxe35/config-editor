@@ -213,7 +213,8 @@ locks, tokens, folds and diagnostics follow the field there), and
 - The page's CSS never reaches what the editor draws (the host shield at
   the top of `src/css/base.css`): every element inside the roots starts
   from the browser's styles, and every rule of the preset for them begins
-  with `:not(#\#) ` (an id's weight), which `tests/host_shield.rs`
+  with `:not(#\#):not(#\#) ` (two ids' weight, over a page rule scoped
+  by an id), which `tests/host_shield.rs`
   enforces; `e2e/tests/host-css-shield.spec.mjs` mounts under hostile
   framework stylesheets. Only the color tokens, the roots and the toolbar's
   and footer's own boxes (a host composes them) keep a lighter weight.

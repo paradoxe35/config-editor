@@ -101,7 +101,7 @@ pub(super) fn changed_markup(language: &XmlBehavior, previous: &str, patched: &s
     let tokens = tokenize(patched);
     let plan = plan_paths(patched, &tokens);
     // The prefix of each element open, innermost last.
-    let mut open: Vec<Option<&str>> = Vec::new();
+    let mut open: written_names::Open<Option<&str>> = written_names::Open::default();
     for token in &tokens {
         match token.kind {
             Kind::EndTag => {
@@ -112,12 +112,15 @@ pub(super) fn changed_markup(language: &XmlBehavior, previous: &str, patched: &s
             _ => continue,
         }
         let in_parent = open.last().copied().flatten();
+        let before = open.before().map(|prefix| prefix.map(str::to_string));
+        let written_prefix = written_names::prefix(patched, token);
+        let saved = markup_attributes(patched, token, &saved_markup);
+        open.child(written_prefix, saved.iter().any(|(name, _)| written_names::binds(written_prefix, name)));
         if !patched[..token.end].ends_with("/>") {
-            open.push(written_names::prefix(patched, token));
+            open.push(written_prefix);
         }
         let Some(path) = plan.path_of(token.start) else { continue };
-        let saved = markup_attributes(patched, token, &saved_markup);
-        let prefix = written_names::prefix(patched, token).map(str::to_string);
+        let prefix = written_prefix.map(str::to_string);
         let own = identity.host_path(path).and_then(|(path, side)| {
             let elements = match side {
                 Host::Previous => &host,
@@ -143,8 +146,8 @@ pub(super) fn changed_markup(language: &XmlBehavior, previous: &str, patched: &s
                     Some(allowed) => allowed.contains(&name),
                     None => {
                         let parent = identity.host_path(written_names::parent(path)).filter(|(_, side)| *side == Host::Previous);
-                        let wanted = host.children.new_name_prefix(parent.as_ref().map(|(path, _)| path.as_slice()), in_parent);
-                        name == (wanted.map(str::to_string), Vec::new())
+                        let wanted = host.children.new_name_prefix(parent.as_ref().map(|(path, _)| path.as_slice()), before.as_ref().map(Option::as_deref), in_parent);
+                        name == (wanted, Vec::new())
                     }
                 }
             }

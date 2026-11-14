@@ -7,18 +7,28 @@ use super::super::commands::line_range;
 use super::super::diff::DiffKind;
 use super::super::input;
 use super::super::line_rows::{LineRows, RowUiState};
+use super::super::scroll_through::{
+    Swipe, gutter_touch_end, gutter_touch_move, gutter_touch_start, gutter_wheel,
+};
 use super::super::state::{EditorState, line_count};
 use super::row_state_for;
 use crate::reactive::{KeyedList, MANY_ROWS, RowSpacer};
 
 #[component]
 pub(crate) fn Gutter(state: EditorState, rows: LineRows) -> impl IntoView {
+    let swipe = StoredValue::new(Swipe::default());
     view! {
         <div
             class="config-editor__gutter"
             class:config-editor__gutter-folding=state.config().settings.folding
             on:mousemove=move |event| input::gutter_move(state, &event)
             on:mousedown=move |event| input::gutter_press(state, &event)
+            // The wheel and a finger scroll the text, as over the text.
+            on:wheel=move |event| gutter_wheel(state, &event)
+            on:touchstart=move |event| gutter_touch_start(swipe, &event)
+            on:touchmove=move |event| gutter_touch_move(state, swipe, &event)
+            on:touchend=move |_| gutter_touch_end(swipe)
+            on:touchcancel=move |_| gutter_touch_end(swipe)
             // As wide as the longest line number (at least three digits);
             // the stylesheet adds the marker column and the padding.
             style:--config-editor-gutter-digits=move || {

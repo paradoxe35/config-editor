@@ -4,40 +4,16 @@
 
 use std::collections::HashSet;
 
-use config_editor_leptos::Document;
 use config_editor_leptos::js_support::flush_pending_input;
 use leptos::prelude::{GetValue, UpdateValue, WithValue};
 use wasm_bindgen::JsValue;
 
 use super::State;
+use super::echo_ranges::take;
 use crate::documents_list::Listed;
 use crate::echoes::{Echo, Echoes};
 use crate::mount::call_host_with;
-use crate::remap::{moved_between, reads_as};
 use crate::settle;
-
-/// The listed `document`'s text is an echo: it keeps `current`, and the
-/// ranges listed with it (in the echoed text) move to `current`, but for
-/// ranges that stay where the editor has them (`ranges_stay`).
-fn keep(document: &mut Document, current: &str, ranges_stay: bool) {
-    if document.value == current {
-        return;
-    }
-    let ranges = !ranges_stay && !document.read_only_ranges.is_empty();
-    if ranges || !document.host_diagnostics.is_empty() {
-        let (ranges, diagnostics) = moved_between(
-            &document.value,
-            current,
-            ranges.then(|| std::mem::take(&mut document.read_only_ranges)),
-            Some(std::mem::take(&mut document.host_diagnostics)),
-        );
-        if let Some(ranges) = ranges {
-            document.read_only_ranges = ranges;
-        }
-        document.host_diagnostics = diagnostics.unwrap_or_default();
-    }
-    current.clone_into(&mut document.value);
-}
 
 impl State {
     /// With `echoing`, takes echoes out of `listed`: a document whose
@@ -80,26 +56,16 @@ impl State {
                         continue;
                     };
                     echo.at(now);
-                    let echo = echo.listed(&document.value, current, flushed);
-                    // The ranges given last, with a text that does not
-                    // replace the document's (an echo, or that text as the
-                    // editor reads it), stay where its editor moved them
-                    // (see `given_ranges`).
-                    let replaces = echo == Echo::Apply && !reads_as(&document.value, current);
-                    let stays = listed
-                        .ranges_again
-                        .remove(&document.id)
-                        .filter(|_| crate::given_ranges::stay(true, replaces));
-                    let ranges_stay = stays.is_some();
-                    if let Some(ranges) = stays {
-                        document.read_only_ranges = ranges.clone();
+                    let echo = echo.received(&document.value, current, flushed);
+                    let again = listed.ranges_again.remove(&document.id);
+                    let applies = echo == Echo::Apply;
+                    if let Some(ranges) = take(document, current, again, applies) {
                         ranges_kept.push((document.id.clone(), ranges));
                     }
-                    if echo == Echo::Apply {
+                    if applies {
                         continue;
                     }
                     settles |= echo != Echo::Skip;
-                    keep(document, current, ranges_stay);
                     if echo == Echo::Resend {
                         resend.push((document.id.clone(), current.clone()));
                     }

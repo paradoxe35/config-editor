@@ -2,7 +2,8 @@
 //! `<include-filter>` under `<context:component-scan>`, an `<annotation>`
 //! under `<xs:element>`, a `Qty` under `<m:GetPrice>` were each saved in
 //! the default namespace): the new element takes the prefix of its
-//! siblings when it has some, else its parent's. Each new element's
+//! nearest sibling when it has some (the one before it, else after: QA
+//! `E34-3`, siblings of two prefixes), else its parent's. Each new element's
 //! namespace is read as a namespace-aware reader reads it.
 
 use super::xml_prefix_items::expanded_names;
@@ -29,6 +30,8 @@ struct Case {
     host: String,
     parent: &'static str,
     key: &'static str,
+    /// Its place among the parent's keys; `None` after them.
+    at: Option<usize>,
     value: Value,
     wanted: Vec<(&'static [&'static str], &'static str)>,
 }
@@ -47,6 +50,7 @@ fn cases() -> Vec<Case> {
             ),
             parent: "/beans/component-scan",
             key: "exclude-filter",
+            at: None,
             value: json!({"type": "regex", "expression": "x"}),
             wanted: vec![(&["beans", "component-scan", "exclude-filter"], CONTEXT)],
         },
@@ -55,6 +59,7 @@ fn cases() -> Vec<Case> {
             host: spring("<context:component-scan base-package=\"a\"/>"),
             parent: "/beans/component-scan",
             key: "include-filter",
+            at: None,
             value: json!({"type": "regex", "expression": "x"}),
             wanted: vec![(&["beans", "component-scan", "include-filter"], CONTEXT)],
         },
@@ -65,6 +70,7 @@ fn cases() -> Vec<Case> {
             ),
             parent: "/schema/element",
             key: "annotation",
+            at: None,
             value: json!({"documentation": "d"}),
             wanted: vec![
                 (&["schema", "element", "annotation"], XS),
@@ -78,6 +84,7 @@ fn cases() -> Vec<Case> {
             ),
             parent: "/schema/element",
             key: "annotation",
+            at: None,
             value: json!({"documentation": "d"}),
             wanted: vec![
                 (&["schema", "element", "annotation"], XS),
@@ -91,6 +98,7 @@ fn cases() -> Vec<Case> {
             ),
             parent: "/Envelope/Body/GetPrice",
             key: "Qty",
+            at: None,
             value: json!(2),
             wanted: vec![(&["Envelope", "Body", "GetPrice", "Qty"], "urn:m")],
         },
@@ -101,6 +109,7 @@ fn cases() -> Vec<Case> {
             ),
             parent: "/Envelope/Body",
             key: "Note",
+            at: None,
             value: json!("n"),
             wanted: vec![(&["Envelope", "Body", "Note"], SOAP)],
         },
@@ -109,6 +118,7 @@ fn cases() -> Vec<Case> {
             host: "<p:list xmlns:p=\"urn:p\">\n  <p:v>1</p:v>\n</p:list>\n".to_string(),
             parent: "/list",
             key: "w",
+            at: None,
             value: json!(2),
             wanted: vec![(&["list", "w"], "urn:p")],
         },
@@ -118,10 +128,45 @@ fn cases() -> Vec<Case> {
                 .to_string(),
             parent: "/list/item",
             key: "w",
+            at: None,
             value: json!(2),
             wanted: vec![(&["list", "item", "w"], "")],
         },
+        mixed("after b:y", None, "urn:b"),
+        mixed("between a:x and b:y", Some(1), "urn:a"),
+        mixed("before a:x", Some(0), "urn:a"),
+        mixed_reversed("between b:y and a:x", Some(1), "urn:b"),
+        mixed_reversed("before b:y", Some(0), "urn:b"),
     ]
+}
+
+/// Siblings of two prefixes, `a:x` then `b:y`: a key added `at` takes
+/// the nearest's.
+fn mixed(label: &'static str, at: Option<usize>, namespace: &'static str) -> Case {
+    Case {
+        label,
+        host: "<root xmlns:a=\"urn:a\" xmlns:b=\"urn:b\">\n  <a:cfg>\n    <a:x>1</a:x>\n    <b:y>2</b:y>\n  </a:cfg>\n</root>\n".to_string(),
+        parent: "/root/cfg",
+        key: "z",
+        at,
+        value: json!(3),
+        wanted: vec![(&["root", "cfg", "z"], namespace)],
+    }
+}
+
+/// [`mixed`] with `b:y` first.
+fn mixed_reversed(label: &'static str, at: Option<usize>, namespace: &'static str) -> Case {
+    Case {
+        host: "<root xmlns:a=\"urn:a\" xmlns:b=\"urn:b\">\n  <a:cfg>\n    <b:y>2</b:y>\n    <a:x>1</a:x>\n  </a:cfg>\n</root>\n".to_string(),
+        ..mixed(label, at, namespace)
+    }
+}
+
+/// `map` with `key` set to `value` at its place `at` (`None`: last).
+fn inserted(map: &mut serde_json::Map<String, Value>, key: &str, at: Option<usize>, value: Value) {
+    let mut entries: Vec<(String, Value)> = std::mem::take(map).into_iter().collect();
+    entries.insert(at.unwrap_or(entries.len()), (key.to_string(), value));
+    map.extend(entries);
 }
 
 #[test]
@@ -135,7 +180,7 @@ fn a_key_added_under_a_prefixed_element_takes_its_siblings_or_parents_prefix() {
                     .pointer_mut(case.parent)
                     .and_then(Value::as_object_mut)
                 {
-                    map.insert(case.key.to_string(), case.value.clone());
+                    inserted(map, case.key, case.at, case.value.clone());
                 }
             });
             let saved = match saved {
