@@ -83,6 +83,8 @@ mod conditional_typing_matrix;
     feature = "xml"
 ))]
 mod default_read_back_matrix;
+#[cfg(all(test, feature = "yaml", feature = "json", feature = "toml"))]
+mod dynamic_refs_matrix;
 #[cfg(all(
     test,
     feature = "yaml",
@@ -139,6 +141,15 @@ mod fold_matrix;
     feature = "xml"
 ))]
 mod highlight_matrix;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod item_before_items_matrix;
 #[cfg(all(test, feature = "yaml", feature = "schema-validation"))]
 mod item_start_tests;
 #[cfg(all(
@@ -179,6 +190,15 @@ mod non_finite_matrix;
 mod pairs_matrix;
 #[cfg(all(
     test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod present_keys_matrix;
+#[cfg(all(
+    test,
     feature = "schema-validation",
     feature = "yaml",
     feature = "json",
@@ -204,7 +224,25 @@ mod required_fill_matrix;
     feature = "hcl",
     feature = "xml"
 ))]
+mod required_hover_matrix;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
 mod schema_help_matrix;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod tab_through_matrix;
 #[cfg(all(
     test,
     feature = "yaml",

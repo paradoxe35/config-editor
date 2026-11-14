@@ -377,6 +377,11 @@ pub fn inline_value_len(text: &str) -> usize {
     if text.starts_with(['"', '\'']) {
         return skip_quoted(text, 0);
     }
+    // An inline container written there (`[| { a = 1 }]`) is a value of
+    // its own, not one being typed.
+    if text.trim_start().starts_with(['{', '[']) {
+        return 0;
+    }
     let end = text.find([',', '}', ']', '\n']).unwrap_or(text.len());
     text[..end].trim_end().len()
 }

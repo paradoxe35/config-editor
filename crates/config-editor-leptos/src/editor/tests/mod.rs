@@ -112,6 +112,15 @@ mod schema_options;
 mod schema_walk;
 // Counts the suggestions' work in every language.
 #[cfg(all(
+    feature = "schema-validation",
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod list_item_problems;
+#[cfg(all(
     feature = "yaml",
     feature = "json",
     feature = "toml",

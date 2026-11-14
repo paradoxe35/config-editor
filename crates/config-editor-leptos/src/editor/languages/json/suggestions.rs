@@ -192,6 +192,7 @@ pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionConte
             is_array_item.then_some(("{", "}"))
         },
         root_item: empty_document.then_some(("[\n  {\n    ", "\n  }\n]\n", "  ")),
+        root_value: empty_document.then_some(("[\n  ", "\n]\n")),
         block: block.flatten(),
         path,
         typed: source[typed_start..cursor].to_string(),

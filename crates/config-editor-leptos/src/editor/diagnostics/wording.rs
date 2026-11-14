@@ -94,10 +94,24 @@ impl Wording<'_> {
                 super::super::false_schema::message(&error.instance().to_string())
             }
             ValidationErrorKind::Contains => self.contains(error),
-            ValidationErrorKind::Not { schema } => fill(
-                &strings.must_not_match,
-                &[("value", &error.instance()), ("schema", schema)],
-            ),
+            ValidationErrorKind::Not { schema } => {
+                match crate::editor::completion::keys_kept_apart(schema, self.root) {
+                    Some(keys) => {
+                        let quoted: Vec<String> = keys
+                            .iter()
+                            .map(|key| Value::from(*key).to_string())
+                            .collect();
+                        fill(
+                            &strings.keys_used_together,
+                            &[("key", &quoted[0]), ("others", &quoted[1..].join(", "))],
+                        )
+                    }
+                    None => fill(
+                        &strings.must_not_match,
+                        &[("value", &error.instance()), ("schema", schema)],
+                    ),
+                }
+            }
             _ => error.to_string(),
         }
     }
@@ -339,6 +353,31 @@ fn expected_types(
     branches: &[Vec<ValidationError<'_>>],
     strings: &EditorStrings,
 ) -> Option<String> {
+    let types = expected_type_names(error, branches)?;
+    Some(fill(
+        &strings.wrong_type,
+        &[("value", &error.instance()), ("types", &types.join(", "))],
+    ))
+}
+
+/// Whether `error` (an `anyOf` or a `oneOf` none of whose options match)
+/// is only that every option wants another type for the value: a problem
+/// with the value, not with which keys an object has.
+pub(in crate::editor) fn every_option_wants_another_type(error: &ValidationError<'_>) -> bool {
+    match error.kind() {
+        ValidationErrorKind::AnyOf { context } | ValidationErrorKind::OneOfNotValid { context } => {
+            expected_type_names(error, context).is_some()
+        }
+        _ => false,
+    }
+}
+
+/// The types the options of [`expected_types`] want, when each wants
+/// another type for the value.
+fn expected_type_names(
+    error: &ValidationError<'_>,
+    branches: &[Vec<ValidationError<'_>>],
+) -> Option<Vec<String>> {
     let path = error.instance_path().as_str();
     let mut types: Vec<String> = Vec::new();
     for branch in branches {
@@ -358,12 +397,7 @@ fn expected_types(
             return None;
         }
     }
-    (!types.is_empty()).then(|| {
-        fill(
-            &strings.wrong_type,
-            &[("value", &error.instance()), ("types", &types.join(", "))],
-        )
-    })
+    (!types.is_empty()).then_some(types)
 }
 
 /// The types a validator's type message lists: `"integer"` and `"string"`

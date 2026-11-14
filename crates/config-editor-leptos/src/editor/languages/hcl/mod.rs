@@ -239,6 +239,10 @@ impl ConfigLanguage for HclBehavior {
         existing_body_keys(source, cursor_byte, path)
     }
 
+    fn repeated_keys(&self, source: &str, cursor_byte: usize, path: &[SchemaPathSegment]) -> HashSet<String> {
+        repeated_block_types(source, cursor_byte, path)
+    }
+
     fn property_insert(
         &self,
         key: &str,
@@ -246,6 +250,9 @@ impl ConfigLanguage for HclBehavior {
         root: &Value,
         context: &InsertContext<'_>,
     ) -> Option<(String, usize)> {
+        if context.another_item {
+            return another_block(key, property, root, context.base_indent, context.unit);
+        }
         property_insert(key, property, root, context.base_indent, context.unit, context.position == EntryPosition::Block)
     }
 

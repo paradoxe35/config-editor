@@ -844,7 +844,7 @@ pub(super) fn validate_with(
                                                 || item
                                                     .as_array()
                                                     .is_some_and(|items| !items.is_empty());
-                                        let span = super::paths::problem_span(
+                                        let span = super::paths::schema_problem_span(
                                             behavior, source, &pointer, false, block,
                                         );
                                         let value = if secret(&pointer) {
@@ -875,7 +875,7 @@ pub(super) fn validate_with(
                                     .take(MAX_DIAGNOSTICS + 1)
                                     .map(|key| {
                                         let pointer = format!("{parent}/{}", escape_pointer(key));
-                                        let span = super::paths::problem_key_span(
+                                        let span = super::paths::schema_problem_key_span(
                                             behavior, source, &pointer,
                                         );
                                         let message = if behavior.text_key() == Some(key.as_str()) {
@@ -902,17 +902,19 @@ pub(super) fn validate_with(
                                     _ => false,
                                 };
                                 // A missing property is reported on the object's key.
-                                let location = super::paths::problem_span(
+                                let location = super::paths::schema_problem_span(
                                     behavior,
                                     source,
                                     &path,
                                     match error.kind() {
                                         ValidationErrorKind::Required { .. } => true,
-                                        // Which keys the object has decides it.
+                                        // Which keys the object has decides it,
+                                        // unless no option takes an object.
                                         ValidationErrorKind::AnyOf { .. }
                                         | ValidationErrorKind::OneOfNotValid { .. }
                                         | ValidationErrorKind::OneOfMultipleValid { .. } => {
                                             error.instance().is_object()
+                                                && !wording::every_option_wants_another_type(error)
                                         }
                                         _ => false,
                                     },
@@ -1055,7 +1057,7 @@ fn deprecation_warnings(
         .into_iter()
         .filter_map(|found| {
             // The key alone, struck through as VS Code does.
-            let span = super::paths::problem_key_span(behavior, source, &found.pointer)?;
+            let span = super::paths::schema_problem_key_span(behavior, source, &found.pointer)?;
             let message = match &found.message {
                 Some(instead) => fill(
                     &strings.key_deprecated_instead,

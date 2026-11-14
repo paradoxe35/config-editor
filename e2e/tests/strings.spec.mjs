@@ -26,6 +26,7 @@ const ELSEWHERE = {
   tooFewContained: 'as noItemContained',
   tooManyContained: 'as noItemContained',
   mustNotMatch: 'as noItemContained',
+  keysUsedTogether: 'as noItemContained',
   infosOne: 'info-level problems come from hosts; counts are unit tested',
   infosOther: 'as infosOne',
   problemCode: 'a host problem with a code: a11y tests and host-diagnostics.spec',

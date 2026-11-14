@@ -74,6 +74,28 @@ fn sharing(source: &str) -> std::rc::Rc<Sharing> {
     })
 }
 
+/// Where the key `pointer` names is written as an alias (`*k : 1`, `k`
+/// anchoring the key's text): the alias, in its map.
+pub(super) fn alias_key_span(source: &str, pointer: &str) -> Option<Span> {
+    if !source.contains('*') {
+        return None;
+    }
+    let (map, key) = pointer.rsplit_once('/')?;
+    let key = key.replace("~1", "/").replace("~0", "~");
+    let sharing = sharing(source);
+    let Sharing { anchors, aliases, value } = &*sharing;
+    let value = value.as_ref()?;
+    let alias = aliases.iter().find(|alias| {
+        let in_key = source[alias.end..].trim_start_matches(' ').starts_with(':');
+        in_key
+            && alias.pointer == map
+            && anchors.get(&alias.name).and_then(|anchor| value.pointer(anchor)).and_then(Value::as_str) == Some(key.as_str())
+    })?;
+    let (line, column) = crate::editor::paths::line_column(source, alias.start);
+    let width = source[alias.start..alias.end].chars().count();
+    Some(Span { line, start_column: column, end_column: column + width })
+}
+
 /// The pointer under an anchor where `pointer` is written when it reads
 /// through an alias (`c: *x` reads `/c/b` from `/a/b` of `a: &x`) or a
 /// merge (`<<: *x`), through several in turn; `None` when it reads through

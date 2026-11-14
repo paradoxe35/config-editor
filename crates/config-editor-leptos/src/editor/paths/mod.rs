@@ -311,6 +311,64 @@ pub(crate) fn problem_span(
         })
 }
 
+/// [`problem_span`] of a schema problem, also where the schema read an
+/// object as a one-item list (see [`conformed_spelling`]).
+#[cfg(feature = "schema-validation")]
+pub(crate) fn schema_problem_span(
+    behavior: &dyn ConfigLanguage,
+    source: &str,
+    pointer: &str,
+    required: bool,
+    written_as_block: bool,
+) -> Option<Span> {
+    problem_span(behavior, source, pointer, required, written_as_block).or_else(|| {
+        let written = conformed_spelling(behavior, source, pointer)?;
+        problem_span(behavior, source, &written, required, written_as_block)
+    })
+}
+
+/// [`problem_key_span`] of a schema problem, as [`schema_problem_span`].
+pub(crate) fn schema_problem_key_span(
+    behavior: &dyn ConfigLanguage,
+    source: &str,
+    pointer: &str,
+) -> Option<Span> {
+    problem_key_span(behavior, source, pointer).or_else(|| {
+        let written = conformed_spelling(behavior, source, pointer)?;
+        problem_key_span(behavior, source, &written)
+    })
+}
+
+/// `pointer` of a schema problem as the text writes it where the schema
+/// read an object as a one-item list (`codec::conform_arrays`: an HCL
+/// `listen = { … }`, labelled blocks `listen "a" { … }`): without each
+/// `/0` that names nothing written. `None` when there is none to drop.
+/// Only schema problems are read so: without the schema such an index
+/// names nothing.
+fn conformed_spelling(
+    behavior: &dyn ConfigLanguage,
+    source: &str,
+    pointer: &str,
+) -> Option<String> {
+    if behavior.repetition() == Repetition::None || !pointer.contains("/0") {
+        return None;
+    }
+    let mut written = String::new();
+    for segment in pointer.split('/').skip(1) {
+        let indexed = format!("{written}/{segment}");
+        let names_nothing = || {
+            memo_value_span(behavior, source, &indexed).is_none()
+                && memo_key_span(behavior, source, &indexed).is_none()
+                && inline_location(behavior, source, &indexed, false).is_none()
+        };
+        if segment == "0" && !written.is_empty() && names_nothing() {
+            continue;
+        }
+        written = indexed;
+    }
+    (written != pointer).then_some(written)
+}
+
 /// Where the key `pointer` names is written (a key a problem is about), in
 /// an inline container or not, or where the text writes it once and reads
 /// it there (see [`through_shared`]).
@@ -319,8 +377,12 @@ pub(crate) fn problem_key_span(
     source: &str,
     pointer: &str,
 ) -> Option<Span> {
-    inline_location(behavior, source, pointer, true)
-        .or_else(|| memo_key_span(behavior, source, pointer))
+    spellings(behavior, source, pointer)
+        .iter()
+        .find_map(|pointer| {
+            inline_location(behavior, source, pointer, true)
+                .or_else(|| memo_key_span(behavior, source, pointer))
+        })
         .or_else(|| {
             through_shared(behavior, source, pointer, |written| {
                 problem_key_span(behavior, source, written)

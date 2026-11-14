@@ -1162,6 +1162,12 @@ export interface EditorStrings {
    */
   mustNotMatch?: string;
   /**
+   * An object holding all of the keys its `not` schema keeps apart (`not: {required: [...]}`): the first (`{key}`) and the others (`{others}`), each quoted, joined by `, `.
+   *
+   * @default "{key} can't be used together with {others}"
+   */
+  keysUsedTogether?: string;
+  /**
    * A value that matches none of a schema's options (`{keyword}`: `oneOf` or `anyOf`), with why each fails (`{reasons}`, each worded by `option_needs`, `option_refuses` or `option_problem`, joined by `; `).
    *
    * @default "matches none of the {keyword} options: {reasons}"

@@ -79,6 +79,15 @@ fn has_prefixed_key(value: &Value) -> bool {
     }
 }
 
+/// Why `key` (an attribute: `@a`, or a key with a prefix, `x:a`) cannot be
+/// written at the top of a document without a root element.
+fn top_attribute_message(key: &str) -> String {
+    format!(
+        "XML keeps {key} only as an attribute, and the top of the document has no element to hold it: put it inside an element, or name it without the prefix (at /{})",
+        key.replace('~', "~0").replace('/', "~1")
+    )
+}
+
 
 /// An XML scalar edit (see `ConfigLanguage::edits_one_scalar`): an
 /// `<name>text</name>` line read as a document of its own; the edit adds
@@ -393,6 +402,12 @@ impl ConfigLanguage for XmlBehavior {
             }
             None => {
                 for (key, child) in map {
+                    // An attribute at the top, where no element holds it:
+                    // named as the key is written (`x:a`, not `@x:a`).
+                    if let Some(name) = key.strip_prefix('@') {
+                        let written = if value.get(key).is_some() { key.as_str() } else { name };
+                        return Err(top_attribute_message(written));
+                    }
                     write_element(&mut out, key, child)?;
                 }
             }
