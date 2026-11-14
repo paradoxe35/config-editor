@@ -128,10 +128,18 @@ impl Language {
     /// host's: it reads, or all that stands in its way are numbers the
     /// editor cannot hold exactly that the language allows. The one gate
     /// for a shown editor's text and a `ConfigDocuments` document never
-    /// shown. A leading byte order mark is read past, as at every entry
-    /// point (see `byte_order_mark`): no language sees it.
+    /// shown. The text is read as the editor reads a host's (see
+    /// `line_endings`): line breaks as LF, so a lone CR its language does
+    /// not read saves shown or not; and a leading byte order mark is read
+    /// past, as at every entry point (see `byte_order_mark`): no language
+    /// sees it.
     pub(crate) fn saves(self, text: &str) -> bool {
-        byte_order_mark::read(text, |text, _| {
+        let text: std::borrow::Cow<'_, str> = if text.contains('\r') {
+            super::super::state::normalize_newlines(text.to_string()).into()
+        } else {
+            text.into()
+        };
+        byte_order_mark::read(&text, |text, _| {
             codec::saves_in_own_language(self.behavior(), text)
         })
     }

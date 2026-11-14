@@ -29,6 +29,15 @@ mod entries;
 mod handle;
 mod kept_focus;
 mod keys;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod line_break_save_tests;
 mod model;
 mod plan;
 #[cfg(all(test, feature = "yaml", feature = "toml"))]

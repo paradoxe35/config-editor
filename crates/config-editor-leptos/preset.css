@@ -160,6 +160,17 @@
   cursor: auto;
 }
 
+/* The roots' own box: a page's rules for bare elements (`div { padding:
+   1rem; margin: 8px }`, `main div`) do not reach it, while any rule of the
+   page's naming a class (`.config-editor`, the `className` given) does,
+   wherever it sits. Each `:not()` of an element name no element has
+   weighs one element: these outweigh a rule of one or two element names
+   and stay under a class. */
+:where(.config-editor, .config-editor-documents):not(config-editor-root):not(config-editor-root):not(config-editor-root) {
+  margin: 0;
+  padding: 0;
+}
+
 .config-editor,
 :not(#\#) .config-editor-documents .config-editor {
   position: relative;

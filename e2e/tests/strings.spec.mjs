@@ -126,6 +126,7 @@ const ELSEWHERE = {
   optionProblem: 'as noOptionMatches',
   optionNumber: 'as noOptionMatches',
   invalidSchema: 'a schema that does not compile: diagnostics tests',
+  emptySchema: 'an empty schema text: empty_schema tests',
   hostCannotKeep: 'edit_as and bridge tests',
   editCannotShow: 'edit_as and bridge tests',
   notSaved: 'edit_as and bridge tests',

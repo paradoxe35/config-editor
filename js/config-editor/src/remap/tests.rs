@@ -1,7 +1,7 @@
 //! Moving ranges between two texts.
 use config_editor_leptos::{TextPosition, TextRange};
 
-use super::{Remap, moved_between};
+use super::{Remap, moved_between, reads_as};
 use crate::text_lines::TextLines;
 
 /// Ranges given for the text on screen of a BOM or CRLF document name
@@ -257,4 +257,24 @@ fn a_range_between_any_number_of_edits_maps_exactly_and_never_shrinks() {
         exact > 2_000 && between > 300,
         "{exact} exact, {between} between edits"
     );
+}
+
+/// A store's copy of the document (LF for CRLF or a lone CR, no byte order
+/// mark) reads as the document; a text that differs in anything else does
+/// not (QA 33, HO33-3: ranges given again with it stay where they are).
+#[test]
+fn a_text_written_another_way_reads_as_the_document() {
+    let document = "\u{feff}a: 1\r\nb: 2\r\n";
+    for copy in [
+        document,
+        "a: 1\nb: 2\n",
+        "\u{feff}a: 1\nb: 2\n",
+        "a: 1\rb: 2\r",
+    ] {
+        assert!(reads_as(copy, document), "{copy:?}");
+        assert!(reads_as(document, copy), "{copy:?}");
+    }
+    for other in ["a: 1\nb: 3\n", "a: 1\n\nb: 2\n", "a: 1\nb: 2", ""] {
+        assert!(!reads_as(other, document), "{other:?}");
+    }
 }

@@ -84,11 +84,15 @@ pub(super) struct SchemaBundle {
 
 /// The compiled schema, or why `schema_text` (JSON, or YAML with the
 /// `yaml` feature) is no JSON Schema (worded by the `invalidSchema` text
-/// where it is shown).
+/// where it is shown, see [`schema_message`]): empty for a text that is
+/// empty or only white space.
 pub(super) fn build_schema(schema_text: &str) -> Result<SchemaBundle, String> {
     // A byte order mark (a file saved by an editor that writes one) is no
     // part of the schema.
     let schema_text = schema_text.strip_prefix('\u{feff}').unwrap_or(schema_text);
+    if schema_text.trim().is_empty() {
+        return Err(String::new());
+    }
     let mut schema = super::languages::read_schema_text(schema_text)?;
     super::empty_refs::to_root(&mut schema);
     #[cfg(feature = "schema-validation")]
@@ -235,6 +239,16 @@ impl std::str::FromStr for Severity {
     }
 }
 
+/// The message for a schema that does not compile, `error` as
+/// [`build_schema`] gives it (empty: the text is).
+pub(super) fn schema_message(strings: &EditorStrings, error: &str) -> String {
+    if error.is_empty() {
+        strings.empty_schema.clone()
+    } else {
+        fill(&strings.invalid_schema, &[("error", &error)])
+    }
+}
+
 /// A JSON Schema that failed to compile, with the reason.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SchemaError(pub String);
@@ -350,12 +364,7 @@ impl Schema {
             .map(|bundle| Schema {
                 bundle: std::sync::Arc::new(bundle),
             })
-            .map_err(|error| {
-                SchemaError(fill(
-                    &default_strings().invalid_schema,
-                    &[("error", &error)],
-                ))
-            })
+            .map_err(|error| SchemaError(schema_message(default_strings(), &error)))
     }
 
     /// What the editor cannot use in this schema, one message each, such as
@@ -695,7 +704,7 @@ pub(super) fn validate_with(
             line: None,
             column: None,
             end_column: None,
-            message: fill(&strings.invalid_schema, &[("error", &error)]),
+            message: schema_message(strings, error),
             severity: Severity::Error,
             ..Diagnostic::default()
         }];

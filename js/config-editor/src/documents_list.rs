@@ -3,7 +3,7 @@
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 
-use config_editor_leptos::{Document, EditorSettings, Language, Schema, SecretOptions};
+use config_editor_leptos::{Document, EditorSettings, Language, Schema, SecretOptions, TextRange};
 use js_sys::{Array, Object};
 use wasm_bindgen::prelude::*;
 
@@ -41,6 +41,11 @@ const DOCUMENT_KEYS: &[&str] = &[
 pub(crate) struct Listed {
     pub(crate) documents: Vec<Document>,
     pub(crate) overrides: Vec<(String, JsValue)>,
+    /// The documents listed with the ranges given last and a text other
+    /// than the one they hold: the ranges their editors were given, which
+    /// stay if that text turns out not to replace theirs (an echo, see
+    /// `given_ranges::stay`).
+    pub(crate) ranges_again: HashMap<String, Vec<TextRange>>,
 }
 
 /// What reading the list keeps from one reading to the next: each
@@ -53,7 +58,7 @@ pub(crate) struct Kept {
     pub(crate) texts: Given<String>,
     schemas: Given<(String, Schema)>,
     /// Each document's `readOnlyRanges` as given (see `given_ranges`).
-    ranges: crate::given_ranges::Listed,
+    pub(crate) ranges: crate::given_ranges::Listed,
 }
 
 impl Kept {
@@ -100,11 +105,14 @@ fn warn_unclaimed(file_name: &str, fallback: Language) {
 ///
 /// A document's `settings` go over `view`; its `secrets` are built once per
 /// id, and its `schema` compiled once per text (a schema that does not
-/// compile throws, as a `ConfigEditor`'s does), see [`Kept`].
+/// compile throws, as a `ConfigEditor`'s does), see [`Kept`]. `holds(id, value)`
+/// says whether the editor of document `id` holds the text `value` (its
+/// ranges given again then stay, see `given_ranges`).
 pub(crate) fn documents_from(
     list: &JsValue,
     view: &EditorSettings,
     kept: &mut Kept,
+    holds: &dyn Fn(&str, &str) -> bool,
 ) -> Result<Listed, JsError> {
     if !Array::is_array(list) {
         return Err(JsError::new(
@@ -114,6 +122,7 @@ pub(crate) fn documents_from(
     let list: &Array = list.unchecked_ref();
     let mut documents = Vec::with_capacity(list.length() as usize);
     let mut overrides = Vec::new();
+    let mut ranges_again = HashMap::new();
     for (index, item) in list.iter().enumerate() {
         let name = |key: &str| format!("documents[{index}].{key}");
         if !item.is_object() || Array::is_array(&item) {
@@ -171,7 +180,11 @@ pub(crate) fn documents_from(
             ));
             document.edit_as_text = None;
         }
-        document = with_protection(document, &item, index, kept)?;
+        let again;
+        (document, again) = with_protection(document, &item, index, kept, holds)?;
+        if let Some(ranges) = again {
+            ranges_again.insert(document.id.clone(), ranges);
+        }
         let own = field(&item, "settings");
         if !own.is_undefined() && !own.is_null() {
             if !own.is_object() || Array::is_array(&own) {
@@ -200,18 +213,22 @@ pub(crate) fn documents_from(
     Ok(Listed {
         documents,
         overrides,
+        ranges_again,
     })
 }
 
 /// A document's host problems, read-only fields and secrets. Its ranges
 /// as given last, listed again with the text it holds, keep where its
-/// editor moved them (see `given_ranges`): they are not read again.
+/// editor moved them (see `given_ranges`): they are not read again. Listed
+/// with another text, they are read in it, and the ones its editor was
+/// given are returned too: they stay if that text is an echo.
 fn with_protection(
     mut document: Document,
     item: &JsValue,
     index: usize,
     kept: &mut Kept,
-) -> Result<Document, JsError> {
+    holds: &dyn Fn(&str, &str) -> bool,
+) -> Result<(Document, Option<Vec<TextRange>>), JsError> {
     let name = |key: &str| format!("documents[{index}].{key}");
     let diagnostics = field(item, "hostDiagnostics");
     if !diagnostics.is_undefined() && !diagnostics.is_null() {
@@ -221,18 +238,16 @@ fn with_protection(
     }
     let paths = paths_from(&field(item, "readOnlyPaths"), &name("readOnlyPaths"))?;
     let given = field(item, "readOnlyRanges");
-    let held = kept.texts.held(&document.id, "value");
-    let ranges = match kept
-        .ranges
-        .again(&document.id, &given, held == Some(&document.value))
-    {
-        Some(ranges) => ranges,
-        None => {
-            let ranges = ranges_from(&given, &document.value, &name("readOnlyRanges"))?;
-            kept.ranges.read(&document.id, &given, ranges.clone());
-            ranges
+    let holds = holds(&document.id, &document.value);
+    let mut again = kept.ranges.again(&document.id, &given);
+    let ranges = match again.take() {
+        Some(ranges) if crate::given_ranges::stay(true, !holds) => ranges,
+        last => {
+            again = last;
+            ranges_from(&given, &document.value, &name("readOnlyRanges"))?
         }
     };
+    kept.ranges.read(&document.id, &given, ranges.clone());
     document = document.read_only_paths(paths).read_only_ranges(ranges);
     let given = field(item, "secrets");
     if !given.is_undefined() && !given.is_null() {
@@ -246,7 +261,7 @@ fn with_protection(
         };
         document = document.secrets(options);
     }
-    Ok(document)
+    Ok((document, again))
 }
 
 /// Document `id`'s `value` (`name` in errors): a string, as a

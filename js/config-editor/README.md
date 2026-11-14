@@ -251,7 +251,7 @@ with that reason.
 <!-- Generated from crates/config-editor-leptos/src/strings.rs by js/config-editor/tests/settings.rs; do not edit. Regenerate with `UPDATE_GENERATED=1 cargo test -p config-editor-js --test settings`. -->
 
 <details>
-<summary>Every text and its default (200 texts)</summary>
+<summary>Every text and its default (201 texts)</summary>
 
 | Key                         | Default                                                                                                                                     |                                                                                                                                                                                                                                                |
 | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -437,6 +437,7 @@ with that reason.
 | `optionProblem`             | `"{option}: {problem}"`                                                                                                                     | An option (`{option}`) and another problem it has with the value.                                                                                                                                                                              |
 | `optionNumber`              | `"option {number}"`                                                                                                                         | The name of an option with no title or description (`{number}`, from 1).                                                                                                                                                                       |
 | `invalidSchema`             | `"Invalid JSON Schema: {error}"`                                                                                                            | A schema that does not compile.                                                                                                                                                                                                                |
+| `emptySchema`               | `"Invalid JSON Schema: the schema text is empty"`                                                                                           | A schema whose text is empty, or only spaces and line breaks.                                                                                                                                                                                  |
 | `invalidPlaceholder`        | `"secrets.placeholder: {error}"`                                                                                                            | A secret placeholder pattern the editor cannot use (it does not compile, or matches empty text): no token is taken for a placeholder.                                                                                                          |
 | `problemAtPath`             | `"{path}: {message}"`                                                                                                                       | A host's problem with a field the editor cannot find in the text, listed with the field's path.                                                                                                                                                |
 | `hostCannotKeep`            | `"{pointer}: {host} cannot keep this value exactly; it reads back differently"`                                                             | A value the host's language reads back differently (Edit-as).                                                                                                                                                                                  |
@@ -1707,7 +1708,8 @@ after) never reach what it draws: each element inside starts from the
 browser's own styles, and its rules for them carry an id's weight. Nor do
 the text properties your page sets on `body` or on the editor's element
 (`text-align: center`, an underline, letter spacing, a tab size): its
-roots set each to its initial value. Style the editor
+roots set each to its initial value, nor a bare element rule's padding or
+margin (`div { padding: 1rem }`) to the roots' own box. Style the editor
 through its roots (`.config-editor`, `.config-editor-documents`; a rule of
 yours later in the page wins over the preset's at equal specificity) and its
 color variables. Every theme color is a CSS variable on the `.config-editor` root, and the

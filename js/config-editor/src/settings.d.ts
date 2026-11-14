@@ -1210,6 +1210,12 @@ export interface EditorStrings {
    */
   invalidSchema?: string;
   /**
+   * A schema whose text is empty, or only spaces and line breaks.
+   *
+   * @default "Invalid JSON Schema: the schema text is empty"
+   */
+  emptySchema?: string;
+  /**
    * A secret placeholder pattern the editor cannot use (it does not compile, or matches empty text): no token is taken for a placeholder.
    *
    * @default "secrets.placeholder: {error}"

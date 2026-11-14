@@ -23,7 +23,7 @@ const CHARACTERS: [&str; 4] = ["a", "é", "設定", "😀"];
 /// Where the characters go in a document of `language`: a key, a value,
 /// and (XML) an attribute value or element text; each a document that
 /// reads.
-fn documents(language: Language, characters: &str) -> Vec<(&'static str, String)> {
+pub(super) fn documents(language: Language, characters: &str) -> Vec<(&'static str, String)> {
     let c = characters;
     if language == Language::YAML {
         vec![("key", format!("{c}: 1\n")), ("value", format!("k: {c}\n"))]
@@ -95,7 +95,10 @@ fn view(list: &[Document]) -> (Documents, Sent) {
 
 /// What a never-shown `x` holding `text` answers to `save` and to
 /// `save_all`, and the texts each sent.
-fn unshown(language: Language, text: &str) -> (bool, Vec<String>, Vec<(String, String)>) {
+pub(super) fn unshown(
+    language: Language,
+    text: &str,
+) -> (bool, Vec<String>, Vec<(String, String)>) {
     let list = [
         Document::new("first", "first.yaml", "k: 1\n"),
         Document::new("x", file_name(language), text).baseline("changed\n"),
@@ -107,7 +110,7 @@ fn unshown(language: Language, text: &str) -> (bool, Vec<String>, Vec<(String, S
     (one, all, heard)
 }
 
-const LANGUAGES: [Language; 5] = [
+pub(super) const LANGUAGES: [Language; 5] = [
     Language::YAML,
     Language::JSON,
     Language::TOML,
@@ -223,7 +226,7 @@ fn save_all_sends_every_other_document_past_one_it_refuses() {
 }
 
 /// A document of `language` with `entries` values, each different.
-fn sized(language: Language, entries: usize) -> String {
+pub(super) fn sized(language: Language, entries: usize) -> String {
     let values = (0..entries).map(|at| format!("é{at}"));
     if language == Language::YAML {
         values.map(|value| format!("k{value}: v\n")).collect()

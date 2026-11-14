@@ -118,6 +118,13 @@ fn as_read(text: &str) -> std::borrow::Cow<'_, str> {
     }
 }
 
+/// Whether `a` and `b` are one text as the editor reads it (see
+/// [`as_read`]): a host store writing LF or dropping the byte order mark
+/// hands back the document it was given. Read again only when they differ.
+pub(crate) fn reads_as(a: &str, b: &str) -> bool {
+    a == b || as_read(a) == as_read(b)
+}
+
 /// Host `ranges` and `diagnostics` given for `from`, moved to `to` (each
 /// read as the editor reads positions: see [`as_read`]); as they are when
 /// the two name the same places.
