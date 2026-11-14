@@ -19,7 +19,7 @@ use std::sync::Arc;
 type ItemMap = HashMap<String, ItemSource>;
 
 mod collapsed;
-mod emptied_maps;
+mod emptied_containers;
 mod emptied_quotes;
 mod host_strings;
 pub(super) mod item_trail;
@@ -353,7 +353,7 @@ impl Bridge {
         };
         // A map whose last entry the view deleted (`deps:` left alone) is
         // the empty map, not a null.
-        let value = emptied_maps::kept(self.edit.behavior(), edit_text, &old, value);
+        let value = emptied_containers::kept(self.edit.behavior(), edit_text, &old, value);
         // Each changed value in the host's own form (a TOML datetime read
         // back normalized), or the reason the save waits.
         let value = host_scalars(host, previous_host, &old, value)?;
@@ -376,7 +376,9 @@ impl Bridge {
         let Ok(target) = codec::read(host, &rendered.text, self.shape())
             .map(|target| host.spelled_like(&rendered.text, target, &value))
         else {
-            if let Some(error) = written_anew::refused(self.host, previous_host, (&old, &value)) {
+            if let Some(error) =
+                written_anew::refused(self.host, (previous_host, &rendered.text), (&old, &value))
+            {
                 return Err(error);
             }
             #[cfg(test)]
@@ -576,9 +578,11 @@ impl Bridge {
             // No patch applies: the host is written anew, which keeps none
             // of its comments; a host with some waits.
             None => {
-                if let Some(error) =
-                    written_anew::refused(self.host, previous_host, (&old, &target))
-                {
+                if let Some(error) = written_anew::refused(
+                    self.host,
+                    (previous_host, &rendered.text),
+                    (&old, &target),
+                ) {
                     return Err(error);
                 }
                 #[cfg(test)]

@@ -29,7 +29,7 @@ mod bom;
     feature = "hcl",
     feature = "xml"
 ))]
-mod emptied_maps;
+mod emptied_containers;
 #[cfg(all(
     feature = "yaml",
     feature = "json",
@@ -214,6 +214,14 @@ mod toml_tables;
     feature = "xml"
 ))]
 mod typed;
+#[cfg(all(
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod whole_rewrites;
 #[cfg(all(
     feature = "yaml",
     feature = "json",

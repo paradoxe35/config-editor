@@ -1,15 +1,15 @@
-//! A map whose last entry a view deleted: a YAML view left with `deps:`
-//! and nothing under it reads a null, which a TOML or XML host cannot
-//! hold (the save waited) and a JSON or HCL host would hold as another
-//! value than the map it was. Where the host held a map and the view
-//! writes no value there, the save keeps an empty map; a null the user
-//! wrote (`deps: null`, `deps: ~`) stays one.
+//! A map or list whose last entry a view deleted: a YAML view left with
+//! `deps:` and nothing under it reads a null, which a TOML or XML host
+//! cannot hold (the save waited) and a JSON or HCL host would hold as
+//! another value than the container it was. Where the host held a map or
+//! a list and the view writes no value there, the save keeps it, empty; a
+//! null the user wrote (`deps: null`, `deps: ~`) stays one.
 
 use super::super::language::ConfigLanguage;
 use serde_json::{Map, Value};
 
 /// `value` (the view's edit) with each null the view writes no value for,
-/// where `old` (the host's value) holds a map, an empty map.
+/// where `old` (the host's value) holds a map or a list, an empty one.
 pub(super) fn kept(
     edit: &dyn ConfigLanguage,
     edit_text: &str,
@@ -22,17 +22,20 @@ pub(super) fn kept(
         if !writes_value(edit, edit_text, &pointer)
             && let Some(slot) = value.pointer_mut(&pointer)
         {
-            *slot = Value::Object(Map::new());
+            *slot = match old.pointer(&pointer) {
+                Some(Value::Array(_)) => Value::Array(Vec::new()),
+                _ => Value::Object(Map::new()),
+            };
         }
     }
     value
 }
 
-/// The pointers of the nulls of `value` where `old` holds a map: only
+/// The pointers of the nulls of `value` where `old` holds a container: only
 /// where both hold a container is the walk taken further.
 fn find(value: &Value, old: &Value, pointer: &mut String, found: &mut Vec<String>) {
     match (value, old) {
-        (Value::Null, Value::Object(_)) => found.push(pointer.clone()),
+        (Value::Null, Value::Object(_) | Value::Array(_)) => found.push(pointer.clone()),
         (Value::Object(map), Value::Object(was)) => {
             for (key, child) in map {
                 if let Some(was) = was.get(key) {
@@ -87,6 +90,13 @@ mod tests {
         assert_eq!(
             kept(yaml, text, &old, value),
             json!({"a": {"deps": {}, "n": null, "s": null}})
+        );
+        let lists = json!({"a": {"arr": [1], "n": [2]}});
+        let text = "a:\n  arr:\n  n: ~\n";
+        let value = json!({"a": {"arr": null, "n": null}});
+        assert_eq!(
+            kept(yaml, text, &lists, value),
+            json!({"a": {"arr": [], "n": null}})
         );
         let text = "a:\n  deps: # gone\n  n: ~\n  s:\n";
         let value = json!({"a": {"deps": null, "n": null, "s": null}});
