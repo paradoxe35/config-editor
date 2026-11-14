@@ -2,19 +2,23 @@
 //! than once (a line moved, cut and pasted, or typed into a block that
 //! holds the same key: the text does not parse). The language finds one of
 //! them by the field's path; which one it finds is its own affair, so a
-//! token in the other one has no value written for it, and was taken as
+//! token in another one has no value written for it, and was taken as
 //! plain text (typing beside it reached the host glued) or kept its whole
-//! line (no way back). Each other copy is found the same way in a stand-in
-//! of the text with the key found renamed (one character changed for
-//! another of the same length, so every byte stays where it is): each
-//! token is judged in the value it is written in.
+//! line (no way back). Every copy is found in a stand-in of the text with
+//! each copy's key renamed apart (letters changed for others, so every
+//! byte stays where it is): each token is judged in the value it is
+//! written in, however many copies there are (see `copies`).
 //!
 //! A check judging many placeholders at once (an edit of the whole text)
-//! finds the copies of all their fields together ([`with_own_values`]):
-//! each stand-in renames the key found for every field, and is read once
-//! for all of them, so the work is a few readings of the text, never a few
-//! for each placeholder (QA 34: Ctrl+A Tab on the large sample pasted four
-//! times read the text thousands of times and hung the page).
+//! looks for the copies of all their fields together ([`with_own_values`]),
+//! so the work is a few readings of the text, never a few for each
+//! placeholder (QA 34: Ctrl+A Tab on the large sample pasted four times
+//! read the text thousands of times and hung the page). The copies past
+//! the one the language finds are read only when a lookup needs one: a
+//! token in that copy (most are) costs no stand-in (QA 35: one line moved
+//! read every copy of every field near it, 1.5 times slower).
+
+mod copies;
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -23,14 +27,9 @@ use std::rc::Rc;
 
 use super::super::codec::scalar_range;
 use super::super::language::ConfigLanguage;
-use super::super::paths::{TextPosition, key_range, with_spans, written_value_span};
+use super::super::paths::{in_batch, with_spans, written_value_span};
 
-/// Copies of one key a token is looked for among (a line pasted a few
-/// times over); past them it has no value written for it.
-const MAX_COPIES: usize = 4;
-
-/// The value ranges written for each field, one per copy of its key, in
-/// the order the stand-ins found them.
+/// The value ranges written for each field, one per copy of its key.
 type Copies = HashMap<String, Vec<Range<usize>>>;
 
 /// A text by address and length, and its language: borrowed while
@@ -38,7 +37,8 @@ type Copies = HashMap<String, Vec<Range<usize>>>;
 type TextKey = (usize, usize, &'static str);
 
 thread_local! {
-    static FOUND: RefCell<Vec<(TextKey, Rc<Copies>)>> = const { RefCell::new(Vec::new()) };
+    static SEARCHES: RefCell<Vec<(TextKey, Rc<RefCell<Search>>)>> =
+        const { RefCell::new(Vec::new()) };
 }
 
 fn text_key(behavior: &dyn ConfigLanguage, text: &str) -> TextKey {
@@ -46,21 +46,25 @@ fn text_key(behavior: &dyn ConfigLanguage, text: &str) -> TextKey {
 }
 
 /// Runs `work` with the values written for each of `pointers` in `text`,
-/// every copy of their keys, found at once: [`own_value`] calls for those
-/// fields of that text inside it answer from them.
+/// every copy of their keys, looked for together: [`own_value`] calls for
+/// those fields of that text inside it share the readings.
 pub(crate) fn with_own_values<T>(
     behavior: &dyn ConfigLanguage,
     text: &str,
     pointers: &[String],
     work: impl FnOnce() -> T,
 ) -> T {
-    let copies = Rc::new(copies(behavior, text, pointers, None));
-    FOUND.with(|found| found.borrow_mut().push((text_key(behavior, text), copies)));
+    let search = Rc::new(RefCell::new(Search::new(pointers)));
+    SEARCHES.with(|searches| {
+        searches
+            .borrow_mut()
+            .push((text_key(behavior, text), search))
+    });
     // Taken off on the way out, a panic included.
     struct Pop;
     impl Drop for Pop {
         fn drop(&mut self) {
-            let _ = FOUND.try_with(|found| found.borrow_mut().pop());
+            let _ = SEARCHES.try_with(|searches| searches.borrow_mut().pop());
         }
     }
     let _pop = Pop;
@@ -68,154 +72,120 @@ pub(crate) fn with_own_values<T>(
 }
 
 /// The bytes of the value written for the field at `pointer` that holds
-/// the token at bytes `token` of `text`: the first copy of the field's key
-/// the language finds, or one written after it. (The stand-ins only
-/// rename keys: the value's bytes read the same in `text`.)
+/// the token at bytes `token` of `text`: in whichever copy of the field's
+/// key it is written. (The stand-ins only rename keys: the value's bytes
+/// read the same in `text`.)
 pub(crate) fn own_value(
     behavior: &dyn ConfigLanguage,
     text: &str,
     pointer: &str,
     token: &Range<usize>,
 ) -> Option<Range<usize>> {
-    let holds = |range: &&Range<usize>| range.start <= token.start && token.end <= range.end;
     let key = text_key(behavior, text);
-    let known = FOUND.with(|found| {
-        found
+    let running = SEARCHES.with(|searches| {
+        searches
             .borrow()
             .iter()
             .rev()
-            .filter(|(text, _)| *text == key)
-            .find_map(|(_, copies)| {
-                copies
-                    .get(pointer)
-                    .map(|ranges| ranges.iter().find(holds).cloned())
-            })
+            .find(|(text, search)| *text == key && search.borrow().wants(pointer))
+            .map(|(_, search)| search.clone())
     });
-    match known {
-        Some(range) => range,
-        None => copies(behavior, text, &[pointer.to_string()], Some(token))
-            .get(pointer)?
-            .iter()
-            .find(holds)
-            .cloned(),
+    match running {
+        Some(search) => search
+            .borrow_mut()
+            .value_holding(behavior, text, pointer, token),
+        None => Search::new(&[pointer.to_string()]).value_holding(behavior, text, pointer, token),
     }
 }
 
-/// The values written for each of `pointers` in `text`, one per copy of
-/// its key: each stand-in of the text read once for all of them (a single
-/// field's lookups answer from the reading its caller holds). With
-/// `wanted`, the search stops at the value holding those bytes.
-fn copies(
-    behavior: &dyn ConfigLanguage,
-    text: &str,
-    pointers: &[String],
-    wanted: Option<&Range<usize>>,
-) -> Copies {
-    let mut found = Copies::new();
-    // Made once a copy is renamed: most tokens are in the first.
-    let mut starts: Option<Vec<usize>> = None;
-    let mut probe: Option<String> = None;
-    let mut active: Vec<String> = pointers.to_vec();
-    active.sort_unstable();
-    active.dedup();
-    for pointer in &active {
-        found.insert(pointer.clone(), Vec::new());
+/// How far a [`Search`] has read.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum Read {
+    Nothing,
+    /// The copy the language finds of each field.
+    Found,
+    /// Every copy.
+    Every,
+}
+
+/// The copies of some fields' keys in a text, read as far as a lookup
+/// needs: the copy the language finds first, every copy after.
+struct Search {
+    /// The fields looked for (sorted).
+    pointers: Vec<String>,
+    found: Copies,
+    read: Read,
+}
+
+impl Search {
+    fn new(pointers: &[String]) -> Self {
+        let mut pointers = pointers.to_vec();
+        pointers.sort_unstable();
+        pointers.dedup();
+        Search {
+            pointers,
+            found: Copies::new(),
+            read: Read::Nothing,
+        }
     }
-    for round in 0..MAX_COPIES {
-        let last = round + 1 == MAX_COPIES;
-        let mut read = |probe: &str| {
-            let mut renames = Vec::new();
-            let mut next = Vec::new();
-            for pointer in &active {
-                let Some(range) = written_value_span(behavior, probe, pointer)
-                    .and_then(|span| scalar_range(behavior, probe, span))
-                else {
-                    continue;
-                };
-                let done = wanted
-                    .is_some_and(|token| range.start <= token.start && token.end <= range.end);
-                found.entry(pointer.clone()).or_default().push(range);
-                if done || last {
-                    continue;
+
+    fn wants(&self, pointer: &str) -> bool {
+        self.pointers
+            .binary_search_by(|each| each.as_str().cmp(pointer))
+            .is_ok()
+    }
+
+    /// The value of `pointer` (one of the fields looked for) that holds
+    /// bytes `token`, reading further until one does or every copy is
+    /// read.
+    fn value_holding(
+        &mut self,
+        behavior: &dyn ConfigLanguage,
+        text: &str,
+        pointer: &str,
+        token: &Range<usize>,
+    ) -> Option<Range<usize>> {
+        let holds = |range: &&Range<usize>| range.start <= token.start && token.end <= range.end;
+        loop {
+            let held = self
+                .found
+                .get(pointer)
+                .and_then(|ranges| ranges.iter().find(holds));
+            if let Some(range) = held {
+                return Some(range.clone());
+            }
+            match self.read {
+                Read::Nothing => {
+                    self.found = found_copies(behavior, text, &self.pointers);
+                    self.read = Read::Found;
                 }
-                // Another copy of the key: renamed in the next stand-in.
-                let Some(key) = key_range(behavior, probe, pointer) else {
-                    continue;
-                };
-                let starts = starts.get_or_insert_with(|| line_starts(text));
-                let (start, end) = (
-                    byte_at(starts, probe, key.start),
-                    byte_at(starts, probe, key.end),
-                );
-                let Some((at, character)) = probe
-                    .get(start..end)
-                    .and_then(|key| key.char_indices().find(|(_, c)| c.is_ascii_alphanumeric()))
-                else {
-                    continue;
-                };
-                renames.push((start + at, if character == 'a' { b'b' } else { b'a' }));
-                next.push(pointer.clone());
+                Read::Found => {
+                    self.found = copies::every_copy(behavior, text, &self.pointers);
+                    self.read = Read::Every;
+                }
+                Read::Every => return None,
             }
-            (renames, next)
-        };
-        // The first reading is the caller's when it asks for one field.
-        let current = probe.as_deref().unwrap_or(text);
-        let (renames, next) = if round == 0 && active.len() == 1 {
-            read(current)
-        } else {
-            with_spans(behavior, current, &active, || read(current))
-        };
-        if renames.is_empty() {
-            break;
-        }
-        // ASCII for ASCII: every byte stays where it is.
-        let mut bytes = probe
-            .take()
-            .unwrap_or_else(|| text.to_string())
-            .into_bytes();
-        for (at, renamed) in renames {
-            bytes[at] = renamed;
-        }
-        let Ok(renamed) = String::from_utf8(bytes) else {
-            break;
-        };
-        probe = Some(renamed);
-        active = next;
-    }
-    found
-}
-
-/// The byte each line of `text` starts at, whatever ends the lines (the
-/// positions the language gives count CR, LF and CRLF as line ends).
-fn line_starts(text: &str) -> Vec<usize> {
-    let bytes = text.as_bytes();
-    let mut starts = vec![0];
-    let mut at = 0;
-    while at < bytes.len() {
-        match bytes[at] {
-            b'\r' if bytes.get(at + 1) == Some(&b'\n') => {
-                at += 2;
-                starts.push(at);
-            }
-            b'\r' | b'\n' => {
-                at += 1;
-                starts.push(at);
-            }
-            _ => at += 1,
         }
     }
-    starts
 }
 
-/// The byte of `text` (whose lines start at `starts`) at one-based
-/// `position` (its column in characters, clamped to the line).
-fn byte_at(starts: &[usize], text: &str, position: TextPosition) -> usize {
-    let start = starts[position.line.saturating_sub(1).min(starts.len() - 1)];
-    let rest = &text[start..];
-    let content = &rest[..rest.find(['\r', '\n']).unwrap_or(rest.len())];
-    start
-        + content
-            .char_indices()
-            .nth(position.column.saturating_sub(1))
-            .map_or(content.len(), |(at, _)| at)
+/// The value of each of `pointers` in the copy of its key the language
+/// finds: read in the batch its caller holds for the text, else one
+/// reading for all (a single field's lookups are its caller's).
+fn found_copies(behavior: &dyn ConfigLanguage, text: &str, pointers: &[String]) -> Copies {
+    let read = || {
+        pointers
+            .iter()
+            .filter_map(|pointer| {
+                let range = written_value_span(behavior, text, pointer)
+                    .and_then(|span| scalar_range(behavior, text, span))?;
+                Some((pointer.clone(), vec![range]))
+            })
+            .collect()
+    };
+    if pointers.len() == 1 || in_batch(text) {
+        read()
+    } else {
+        with_spans(behavior, text, pointers, read)
+    }
 }

@@ -1036,6 +1036,12 @@ export interface EditorStrings {
    */
   movedPlaceholder?: string;
   /**
+   * One of the host's placeholders written in its own field more often than the host gave it there: a copy of it.
+   *
+   * @default "{pointer}: this placeholder is in this field already; another copy of it is plain text"
+   */
+  extraPlaceholder?: string;
+  /**
    * One of the host's field placeholders written in a comment.
    *
    * @default "This placeholder stands for the secret of {owner}; in a comment it is plain text"

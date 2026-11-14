@@ -426,6 +426,9 @@ pub struct EditorStrings {
     pub unknown_placeholder: String,
     /// One of the host's placeholders outside the field it stands in.
     pub moved_placeholder: String,
+    /// One of the host's placeholders written in its own field more often
+    /// than the host gave it there: a copy of it.
+    pub extra_placeholder: String,
     /// One of the host's field placeholders written in a comment.
     pub placeholder_in_comment: String,
     /// A placeholder the host wrote in a comment, in a field.
@@ -760,6 +763,9 @@ impl Default for EditorStrings {
             ),
             moved_placeholder: text(
                 "{pointer}: this placeholder stands for the secret of {owner}, not this field's; here it is plain text",
+            ),
+            extra_placeholder: text(
+                "{pointer}: this placeholder is in this field already; another copy of it is plain text",
             ),
             placeholder_in_comment: text(
                 "This placeholder stands for the secret of {owner}; in a comment it is plain text",

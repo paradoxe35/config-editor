@@ -31,12 +31,13 @@ fn a_fields_token_pasted_into_another_field_is_reported_there() {
             let case = format!("{language} ({})", tokens.pattern);
             let text = sample(language, tokens);
             let (_owner, state) = mount(language, &text, tokens);
-            // The token of `a` and `b` pasted over the one of `c`.
+            // The token of `a` and `b` pasted over the one of `c`: it stands
+            // for the secret of both.
             let c = nth(&text, tokens.other, 0);
             replace(state, c.clone(), tokens.same);
             let shown = state.doc().text.get_untracked();
             let want = vec![format!(
-                "{} /c: this placeholder stands for the secret of /a, not this field's; here it is plain text",
+                "{} /c: this placeholder stands for the secret of /a, /b, not this field's; here it is plain text",
                 place(&shown, c.start, tokens.same)
             )];
             if flagged(state, language) != want {

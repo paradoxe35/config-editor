@@ -172,6 +172,13 @@ pub(crate) enum Work {
         allow(dead_code, reason = "only the lock check notes it")
     )]
     LockLine,
+    /// A stand-in of a text read for the copies of keys written more than
+    /// once (`protect::own_value`: the text with the keys found renamed).
+    #[cfg_attr(
+        not(feature = "protect"),
+        allow(dead_code, reason = "only the lock check notes it")
+    )]
+    StandIn,
 }
 
 impl Work {
@@ -215,6 +222,7 @@ impl Work {
             Self::OffsetSeek => 34,
             Self::RangesFollowed => 35,
             Self::LockLine => 36,
+            Self::StandIn => 37,
         }
     }
 
@@ -258,12 +266,13 @@ impl Work {
         Self::OffsetSeek,
         Self::RangesFollowed,
         Self::LockLine,
+        Self::StandIn,
     ];
 }
 
 /// How many kinds of work there are.
 #[cfg(test)]
-const KINDS: usize = 37;
+const KINDS: usize = 38;
 
 #[cfg(test)]
 thread_local! {

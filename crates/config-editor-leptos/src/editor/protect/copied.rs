@@ -39,20 +39,23 @@ pub(super) fn copied_placeholders(
         }
         // The token's own fields by what names them alike (a lookup per
         // holder, never a pass over them: one mask in thousands of fields).
-        let mut owner = None;
+        let mut owners: Vec<&str> = Vec::new();
         let mut own: HashMap<String, Vec<(&str, usize)>> = HashMap::new();
         for known in known.iter().filter(|known| known.token == *token) {
             let Some(field) = known.field.as_deref() else {
                 continue;
             };
-            owner.get_or_insert(field);
+            if !owners.contains(&field) {
+                owners.push(field);
+            }
             own.entry(field_key(field))
                 .or_default()
                 .push((field, known.count));
         }
-        let Some(owner) = owner else {
+        if owners.is_empty() {
             continue;
-        };
+        }
+        let owner = owners.join(", ");
         for pointer in pointers {
             let slot = own.get_mut(&field_key(pointer)).and_then(|fields| {
                 fields.iter_mut().find(|(field, count)| {
@@ -67,7 +70,7 @@ pub(super) fn copied_placeholders(
             if writes(behavior, text, document, pointer, token) {
                 continue;
             }
-            let message = texts::moved_placeholder(strings, pointer, owner);
+            let message = texts::moved_placeholder(strings, pointer, &owner);
             problems.push(on_field(behavior, text, pointer, token, message));
         }
     }

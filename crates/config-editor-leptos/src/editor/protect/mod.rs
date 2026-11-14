@@ -327,6 +327,14 @@ mod lock_scale_tests;
     feature = "yaml",
     feature = "json",
     feature = "toml",
+    feature = "hcl"
+))]
+mod many_copies_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
     feature = "hcl",
     feature = "xml"
 ))]

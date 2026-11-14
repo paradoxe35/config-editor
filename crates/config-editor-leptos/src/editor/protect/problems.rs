@@ -185,7 +185,7 @@ pub(crate) fn unknown_placeholders(
             };
             let pointer = path.to_pointer();
             match owner {
-                Some(owner) => {
+                Some(_) => {
                     // In its own field (as often as the host wrote it
                     // there): real.
                     if let Some(slot) = left.get_mut(token).and_then(|fields| {
@@ -196,7 +196,8 @@ pub(crate) fn unknown_placeholders(
                         slot.1 -= 1;
                         continue;
                     }
-                    texts::moved_placeholder(strings, &pointer, owner)
+                    let fields = left.get(token).map_or(&[][..], Vec::as_slice);
+                    moved_or_extra(document, fields, &pointer, strings)
                 }
                 None if in_comments.contains_key(token) => {
                     texts::comment_placeholder(strings, &pointer)
@@ -221,6 +222,36 @@ pub(crate) fn unknown_placeholders(
     }
     problems.extend(copied);
     problems
+}
+
+/// What a host's token at `pointer` outside its count in its `fields`
+/// (each with how many of its writings are still to be met) is: a copy
+/// beyond those the host wrote in that very field, or one moved from the
+/// fields still missing it (all of them when none is).
+fn moved_or_extra(
+    document: Option<&Value>,
+    fields: &[(&str, usize)],
+    pointer: &str,
+    strings: &EditorStrings,
+) -> String {
+    if fields
+        .iter()
+        .any(|(field, _)| is_own_field(document, field, pointer))
+    {
+        return texts::extra_placeholder(strings, pointer);
+    }
+    let missing: Vec<&str> = fields
+        .iter()
+        .filter(|(_, count)| *count > 0)
+        .map(|(field, _)| *field)
+        .collect();
+    let mut owners = if missing.is_empty() {
+        fields.iter().map(|(field, _)| *field).collect()
+    } else {
+        missing
+    };
+    owners.dedup();
+    texts::moved_placeholder(strings, pointer, &owners.join(", "))
 }
 
 /// Placeholders looked up by path at most in one check; past that, their
