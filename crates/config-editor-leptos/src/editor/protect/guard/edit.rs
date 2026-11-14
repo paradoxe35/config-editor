@@ -125,6 +125,34 @@ impl<'a> Edited<'a> {
         ) || self.lines_kept(range)
     }
 
+    /// Whether `range` of `before` (on one line), with the character
+    /// before it and the rest of its line, ends as many lines of the text
+    /// after as before. A line diff keeps a changed line as its twin (a
+    /// key written twice, both copies alike): one copy fewer is one
+    /// changed. The key before it is free to rename.
+    pub(super) fn copies_kept(&self, range: &Range<usize>) -> bool {
+        let line = self.lines.line_of(range.start);
+        if line != self.lines.line_of(range.end) {
+            return true;
+        }
+        let bounds = self.lines.line_bounds(line);
+        let from = self
+            .lines
+            .byte_of(range.start.saturating_sub(1).max(bounds.start));
+        let line_start = self.lines.byte_of(bounds.start);
+        let text = self.lines.line_text(line).trim_end_matches('\r');
+        let Some(tail) = text.get(from - line_start..) else {
+            return true;
+        };
+        let copies = |source: &str| {
+            source
+                .lines()
+                .filter(|other| other.trim_end_matches('\r').ends_with(tail))
+                .count()
+        };
+        copies(self.before) <= copies(self.after)
+    }
+
     /// Whether the lines of `range` of `before` are kept whole by a line
     /// diff of the two texts, either one of the two shortest (two lines
     /// swapped keep one or the other: the edit and its undo, a line moved

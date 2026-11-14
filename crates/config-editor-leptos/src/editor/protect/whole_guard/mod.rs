@@ -15,7 +15,9 @@
 //!   again (its key renamed back, its line uncommented or moved back) is
 //!   held to the same: the token alone. A value that already had text
 //!   beside it may only lose some; after a repair (the text before did
-//!   not parse) the token must stand alone;
+//!   not parse) the token must stand alone, unless the broken text wrote
+//!   that text beside it already (`repaired`: the way back from a key
+//!   written twice is never refused);
 //! - else (the edited text does not parse) the field is held as a read-only
 //!   field is through a syntax error, by the lock check (`guard`): its
 //!   value's text is kept, nothing glued on its ends, no line joining it or
@@ -25,7 +27,10 @@
 //!   elsewhere cannot write beside one, and the repair is checked when the
 //!   text parses (`broken`). Each placeholder near the edit is matched to
 //!   its field by where it is written, never paired with every field
-//!   holding the same token (one fixed mask in thousands of fields).
+//!   holding the same token (one fixed mask in thousands of fields), and
+//!   judged in the value it is written in, also where its field's key is
+//!   written twice (a line moved into a block holding it: `own_value`);
+//!   one whose value already holds other text beside it is the user's.
 //!
 //! A token given whole written near the edit in none of its fields (its
 //! field's parent key renamed, its line moved into another block) is held
@@ -40,6 +45,7 @@
 mod broken;
 mod index;
 mod moved;
+mod repaired;
 
 pub(crate) use index::WholeIndex;
 
@@ -111,7 +117,7 @@ impl Placeholders<'_> {
         match parsed.as_ref() {
             Ok(document) => Verdict {
                 glued: self
-                    .glued_in_parsed(before, document)
+                    .glued_in_parsed(before, after, document)
                     .or_else(|| self.glued_where_moved(before, after, document, changed)),
                 parses: Some(true),
             },
@@ -132,8 +138,9 @@ impl Placeholders<'_> {
     /// a line uncommented or moved back into its block). A value that
     /// already had text beside it may only lose some, and one already
     /// made a list or map stays as it was; after a repair (`before` does
-    /// not parse) it holds the token alone, as the host wrote it or bare.
-    fn glued_in_parsed(&self, before: &str, document: &Value) -> Option<String> {
+    /// not parse) it holds the token alone, as the host wrote it or bare,
+    /// unless `before` wrote the text beside it already (`repaired`).
+    fn glued_in_parsed(&self, before: &str, after: &str, document: &Value) -> Option<String> {
         // Read the text before only for a value not as the host wrote it.
         let behavior = self.behavior;
         let mut changed = self
@@ -162,6 +169,9 @@ impl Placeholders<'_> {
                         !only_taken_from(was, now)
                     }
                     (Some(Holding::Within(was)), Holding::Within(now)) => was != now,
+                    // A repair: refused unless the text beside it was
+                    // written there already (see `repaired`).
+                    (None, Holding::Beside(_)) => !self.glued_before_repair(before, after, known),
                     _ => true,
                 }
             })

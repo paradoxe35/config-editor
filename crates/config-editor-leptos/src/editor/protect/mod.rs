@@ -37,6 +37,7 @@ mod locate;
 mod locks;
 mod marks;
 mod moved_off;
+mod own_value;
 mod problems;
 mod reach;
 mod rewritten;
@@ -141,6 +142,15 @@ mod browse_tests;
 mod copied_field_tests;
 #[cfg(all(test, feature = "yaml"))]
 mod copied_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod duplicate_key_mask_tests;
 #[cfg(all(
     test,
     feature = "yaml",

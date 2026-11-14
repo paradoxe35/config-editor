@@ -14,11 +14,14 @@ use std::ops::Range;
 use serde_json::Value;
 
 use super::super::super::codec::scalar_range;
+use super::super::super::language::ConfigLanguage;
 use super::super::super::paths::{FieldPath, path_at, with_spans, written_value_span};
 use super::super::super::text_change::{changed_bytes, utf16_len};
+use super::super::glued::written_alone;
 use super::super::guard::check_values;
 use super::super::locate::LineIndex;
 use super::super::locks::{Lock, Protected, Sources, protect};
+use super::super::own_value::own_value;
 use super::super::texts::Reason;
 use super::super::tokens::Known;
 use super::Placeholders;
@@ -134,8 +137,17 @@ impl Placeholders<'_> {
             let Some(first) = self.index.first_of(token) else {
                 continue;
             };
-            let at = path_at(self.behavior, before, range.start)
-                .and_then(|path| self.index.in_field(token, &path.to_pointer()));
+            let pointer = path_at(self.behavior, before, range.start).map(|path| path.to_pointer());
+            let at = pointer
+                .as_deref()
+                .and_then(|pointer| self.index.in_field(token, pointer));
+            // One whose value holds other text beside it already is the
+            // user's (see `moved_alone`): taking it away is the way back.
+            if let (Some(_), Some(pointer)) = (at, pointer.as_deref())
+                && glued_where_written(self.behavior, before, pointer, lines, range)
+            {
+                continue;
+            }
             near.push(((*range).clone(), &self.known[at.unwrap_or(first)]));
             placed.push(at.is_some());
         }
@@ -158,11 +170,31 @@ impl Placeholders<'_> {
         let mut found = Vec::new();
         let mut unfound = Vec::new();
         for pointer in pointers {
-            let value = written_value_span(self.behavior, before, pointer)
-                .and_then(|span| scalar_range(self.behavior, before, span));
-            match value {
-                Some(value) => found.push((pointer, value)),
-                None => unfound.push(FieldPath::from(pointer.as_str())),
+            // Each value holding one of them: the field's key may be
+            // written more than once (a line moved into a block holding
+            // it), each copy its own token's.
+            let mut values: Vec<Range<usize>> = Vec::new();
+            for (token, _) in near
+                .iter()
+                .filter(|(_, known)| known.field.as_deref() == Some(pointer.as_str()))
+            {
+                let bytes = lines.byte_of(token.start)..lines.byte_of(token.end);
+                if let Some((_, value)) = own_value(self.behavior, before, pointer, &bytes)
+                    && !values.contains(&value)
+                {
+                    values.push(value);
+                }
+            }
+            if values.is_empty() {
+                values.extend(
+                    written_value_span(self.behavior, before, pointer)
+                        .and_then(|span| scalar_range(self.behavior, before, span)),
+                );
+            }
+            if values.is_empty() {
+                unfound.push(FieldPath::from(pointer.as_str()));
+            } else {
+                found.push((pointer, values));
             }
         }
         let mut protected = if unfound.is_empty() {
@@ -185,11 +217,13 @@ impl Placeholders<'_> {
             .iter()
             .filter_map(|(_, known)| Some((known.field.as_deref()?, known.whole.as_deref()?)))
             .collect();
-        for (pointer, value) in found {
+        for (pointer, values) in found {
             protected.locks.push(Lock {
                 pointer: Some(pointer.clone()),
                 key: None,
-                ranges: std::iter::once(lines.units_of(value.start)..lines.units_of(value.end))
+                ranges: values
+                    .iter()
+                    .map(|value| lines.units_of(value.start)..lines.units_of(value.end))
                     .collect(),
                 guards: Vec::new(),
                 reason: Reason::Field,
@@ -202,6 +236,21 @@ impl Placeholders<'_> {
         }
         protected
     }
+}
+
+/// Whether the token at UTF-16 `range` of `text` (split by `lines`), in
+/// the field at `pointer`, is written in a value holding other text
+/// beside it: found where it is written, and not written alone.
+fn glued_where_written(
+    behavior: &dyn ConfigLanguage,
+    text: &str,
+    pointer: &str,
+    lines: &LineIndex<'_>,
+    range: &Range<usize>,
+) -> bool {
+    let bytes = lines.byte_of(range.start)..lines.byte_of(range.end);
+    written_alone(behavior, text, pointer, bytes.clone()).is_none()
+        && own_value(behavior, text, pointer, &bytes).is_some()
 }
 
 /// For each of `near`, the index in `locks` of the lock holding it in one
