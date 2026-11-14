@@ -624,9 +624,13 @@ any two texts with the free `ChangeSummary::between(baseline, current)`;
 Nothing is saved by itself. `Ctrl+S` / `Cmd+S` in the editor (the browser's
 save dialog prevented) and `EditorHandle::save` call `on_save` with a
 `SaveRequest { text, language }`: the document in the host's `language`.
-Text that does not parse is never saved, in any language: nothing is sent,
-`save` returns `false`, and the caret goes to the syntax error with its
-message shown (`on_change` still hears every edit). Text written beside a
+Text that does not parse, its line breaks read as the editor reads them
+(LF, CRLF and a lone CR each end a line), is never saved, in any language:
+nothing is sent, `save` returns `false`, and the caret goes to the syntax
+error with its message shown (`on_change` still hears every edit). The
+host's own line breaks are kept as it wrote them: a lone CR in a TOML or HCL
+text, shown as its reader's syntax error, does not hold a save back (see
+Line endings below). Text written beside a
 secret placeholder the host gave as a field's whole value waits the same
 way, its message shown. While editing as another
 language, an edit still waiting out the typing pause is converted first (it
@@ -645,7 +649,8 @@ ending as it did, an edited line keeps its ending, and a new line takes the
 ending of the line above (the text's most common one when there is none).
 A lone CR that the language does not read as a line break (TOML, HCL) is
 shown as the syntax error its reader gives, until that line is edited (an
-edited line then takes a break the language reads). Dirty state and the
+edited line then takes a break the language reads); it does not hold a save
+back, and the save keeps it as it was. Dirty state and the
 diff compare line endings as LF. Every position the API gives or takes
 (`Language::range_of`, `path_at`, `fold_ranges`, `check_syntax`,
 `Schema::validate`, `TextPosition::from_offset` and `to_offset`) counts

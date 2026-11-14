@@ -1164,9 +1164,12 @@ without the lines of closed folds, so read the document from `value` (or
 
 Nothing is saved by itself: `Ctrl+S` / `Cmd+S` in the editor (and
 `editor.save()`) calls `onSave` with the document in `language`. Text that
-does not parse is never saved, in any language: nothing is sent, `save()`
-returns `false`, and the caret goes to the syntax error (`onChange` still
-hears every edit). Text written beside a secret placeholder the host gave as
+does not parse, its line breaks read as the editor reads them (LF, CRLF and
+a lone CR each end a line), is never saved, in any language: nothing is
+sent, `save()` returns `false`, and the caret goes to the syntax error
+(`onChange` still hears every edit). The host's own line breaks are kept as
+it wrote them: a lone CR in a TOML or HCL text, shown as its reader's syntax
+error, does not hold a save back (see Line endings below). Text written beside a secret placeholder the host gave as
 a field's whole value waits the same way, its message shown. While editing as another language, an edit still waiting
 out the typing pause is converted first; when it cannot be written in
 `language` (invalid, or a `null` for TOML), the save waits the same way.
@@ -1188,7 +1191,7 @@ as it did, an edited line keeps its ending, and a new line takes the ending
 of the line above (the text's most common one when there is none). A lone CR
 that the language does not read as a line break (TOML, HCL) is shown as the
 syntax error its reader gives (as `parse` reports it), until that line is
-edited. Every position the tools give or take (`validate`, `rangeOf`,
+edited; it does not hold a save back, and the save keeps it as it was. Every position the tools give or take (`validate`, `rangeOf`,
 `pathAt`, `parse` errors) counts LF, CRLF and a lone CR each as one line
 break, as the editor does.
 

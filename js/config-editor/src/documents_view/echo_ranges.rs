@@ -13,8 +13,10 @@ use crate::remap::{moved_between, reads_as};
 /// became of its ranges listed again as given last. A text that does not
 /// apply keeps `current`, and its ranges and diagnostics (in the listed
 /// text's places) move to it, but for ranges that stay where its editor
-/// moved them. Returns those, when the list read them in the listed text
-/// (the next list compares with them).
+/// moved them. Returns the ranges its editor is given when they are not
+/// the ones the list read (the next list compares with these, see
+/// `given_ranges::Listed::kept`): those its editor was given before, or
+/// the ones read in the listed text moved to `current`.
 pub(crate) fn take(
     document: &mut Document,
     current: &str,
@@ -35,18 +37,21 @@ pub(crate) fn take(
         }
         _ => false,
     };
-    if !applies {
-        keep(document, current, ranges_stay);
+    if !applies && keep(document, current, ranges_stay) && kept.is_none() {
+        // Positions in `current` now, not in the listed text: listed again
+        // with it, they are not read in its places (QA 35, HO35-1).
+        kept = Some(document.read_only_ranges.clone());
     }
     kept
 }
 
 /// The listed `document`'s text is an echo: it keeps `current`, and the
 /// ranges listed with it (in the echoed text) move to `current`, but for
-/// ranges that stay where the editor has them (`ranges_stay`).
-fn keep(document: &mut Document, current: &str, ranges_stay: bool) {
+/// ranges that stay where the editor has them (`ranges_stay`). Returns
+/// whether the ranges moved.
+fn keep(document: &mut Document, current: &str, ranges_stay: bool) -> bool {
     if document.value == current {
-        return;
+        return false;
     }
     let ranges = !ranges_stay && !document.read_only_ranges.is_empty();
     if ranges || !document.host_diagnostics.is_empty() {
@@ -62,8 +67,13 @@ fn keep(document: &mut Document, current: &str, ranges_stay: bool) {
         document.host_diagnostics = diagnostics.unwrap_or_default();
     }
     current.clone_into(&mut document.value);
+    ranges
 }
 
 #[cfg(test)]
 #[path = "echo_ranges/tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "echo_ranges/listed_again_tests.rs"]
+mod listed_again_tests;

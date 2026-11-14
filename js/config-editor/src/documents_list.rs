@@ -241,7 +241,8 @@ fn with_protection(
     }
     let paths = paths_from(&field(item, "readOnlyPaths"), &name("readOnlyPaths"))?;
     let given = field(item, "readOnlyRanges");
-    let (ranges, again) = match kept.ranges.again(&document.id, &given) {
+    let print = crate::given_ranges::print(&given);
+    let (ranges, again) = match kept.ranges.again(&document.id, print.as_deref()) {
         Some(ranges)
             if crate::given_ranges::stay(true, replaces(&document.id, &document.value)) =>
         {
@@ -252,7 +253,7 @@ fn with_protection(
             last.map(Again::Read),
         ),
     };
-    kept.ranges.read(&document.id, &given, ranges.clone());
+    kept.ranges.read(&document.id, print, ranges.clone());
     document = document.read_only_paths(paths).read_only_ranges(ranges);
     let given = field(item, "secrets");
     if !given.is_undefined() && !given.is_null() {

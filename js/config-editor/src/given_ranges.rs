@@ -20,7 +20,7 @@ use wasm_bindgen::JsValue;
 
 /// What a list of ranges is compared by: its JSON. `None` when it has none
 /// (a cycle, a value JSON cannot write): it then equals no other.
-fn print(list: &JsValue) -> Option<String> {
+pub(crate) fn print(list: &JsValue) -> Option<String> {
     js_sys::JSON::stringify(list)
         .ok()
         .and_then(|text| text.as_string())
@@ -83,17 +83,17 @@ pub(crate) struct Listed {
 }
 
 impl Listed {
-    /// Document `id`'s ranges, given as `list`, when they are the ones
-    /// given last: as its editor was given them (it has moved them since).
-    pub(crate) fn again(&self, id: &str, list: &JsValue) -> Option<Vec<TextRange>> {
-        let print = print(list)?;
+    /// Document `id`'s ranges, given as `print` (see [`print`]), when they
+    /// are the ones given last: as its editor was given them (it has moved
+    /// them since).
+    pub(crate) fn again(&self, id: &str, print: Option<&str>) -> Option<Vec<TextRange>> {
         let (known, ranges) = self.last.get(id)?;
-        (*known == print).then(|| ranges.clone())
+        (*known == print?).then(|| ranges.clone())
     }
 
-    /// Document `id`'s ranges, given as `list`, read as `ranges`.
-    pub(crate) fn read(&mut self, id: &str, list: &JsValue, ranges: Vec<TextRange>) {
-        match print(list) {
+    /// Document `id`'s ranges, given as `print`, read as `ranges`.
+    pub(crate) fn read(&mut self, id: &str, print: Option<String>, ranges: Vec<TextRange>) {
+        match print {
             Some(print) => {
                 self.read.insert(id.to_string(), (print, ranges));
             }
@@ -103,8 +103,13 @@ impl Listed {
         }
     }
 
-    /// Document `id` keeps `ranges`, those its editor was given before: the
-    /// text the list gave it did not replace its own (see [`stay`]).
+    /// Document `id`'s editor is given `ranges`, not the ones the list read:
+    /// the text the list gave it did not replace its own (see [`stay`]), so
+    /// it keeps those its editor was given before, or the ones read in that
+    /// text moved to its own. A list giving the same ranges again compares
+    /// with these: they are in the editor's text, not the listed one (QA 35,
+    /// HO35-1: the ranges read in an echo, listed again with it, were given
+    /// its editor in the echo's places, a line above the lock).
     pub(crate) fn kept(&mut self, id: &str, ranges: Vec<TextRange>) {
         if let Some((_, last)) = self.last.get_mut(id) {
             *last = ranges;

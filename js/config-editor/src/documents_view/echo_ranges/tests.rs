@@ -8,15 +8,15 @@ use crate::given_ranges::Again;
 /// A language's sample: its file name, text, the range locking its last
 /// field (as `rangeOf` gives it, by lines), the text a line is typed
 /// after (above the lock) and that line.
-struct Sample {
-    file: &'static str,
-    text: &'static str,
+pub(super) struct Sample {
+    pub(super) file: &'static str,
+    pub(super) text: &'static str,
     lock: [usize; 4],
     after: &'static str,
-    line: &'static str,
+    pub(super) line: &'static str,
 }
 
-const SAMPLES: &[Sample] = &[
+pub(super) const SAMPLES: &[Sample] = &[
     Sample {
         file: "m.yaml",
         text: "name: a\nport: 80\nhost: h\n",
@@ -57,7 +57,7 @@ const SAMPLES: &[Sample] = &[
 impl Sample {
     /// The texts the editor sends as the line is typed: the line break,
     /// then each character.
-    fn typed(&self) -> Vec<String> {
+    pub(super) fn typed(&self) -> Vec<String> {
         let at = self.text.find(self.after).expect("after") + self.after.len();
         let (head, tail) = self.text.split_at(at);
         (0..=self.line.len())
@@ -65,7 +65,7 @@ impl Sample {
             .collect()
     }
 
-    fn lock(&self) -> TextRange {
+    pub(super) fn lock(&self) -> TextRange {
         let [start_line, start_column, end_line, end_column] = self.lock;
         TextRange::new(
             TextPosition::new(start_line, start_column),
