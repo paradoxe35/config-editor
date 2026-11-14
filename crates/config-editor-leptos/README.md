@@ -852,7 +852,8 @@ view! {
   edited), `on_dirty_change((id, dirty))` (when a document is added, then on
   every change), `on_problems((id, problems))` (its editor's own problems,
   as `ConfigEditor`'s `on_problems`: once its editor mounts, when the
-  document is first shown, then on every change). Each tab shows a dot
+  document is first shown or at once when it is listed with an
+  `edit_as_text`, then on every change). Each tab shows a dot
   while its document is dirty.
 - **What each document shows:** `on_edit_as_change((id, language))` says
   the language on screen, once when its editor mounts and then each time it
@@ -905,7 +906,8 @@ tabs.edit_as("main", Language::TOML);
 ```
 
 - **Switching keeps each document's state.** An editor mounts the first time
-  its document is shown and then stays, hidden (`visibility: hidden`,
+  its document is shown (at once for a document listed with an
+  `edit_as_text`) and then stays, hidden (`visibility: hidden`,
   `inert`) while another is active, so its caret, selection, scroll
   position, undo history, folds, find widget and Edit-as language are where
   they were. Mounting lazily keeps the start cheap; keeping editors avoids
@@ -919,7 +921,8 @@ tabs.edit_as("main", Language::TOML);
 - **`DocumentsHandle`:** `select(id)` (shows it and focuses its editor),
   `show(id)` (shows it, leaving the focus where it is: a host following its
   own state of which file is open), `active()`, `editor(id)` / `active_editor()` (the document's
-  `EditorHandle`, attached once it has been shown), `is_dirty(id)`,
+  `EditorHandle`, attached once it has been shown, or at once for a
+  document listed with an `edit_as_text`), `is_dirty(id)`,
   `save(id)`, `save_all()` (the dirty documents; returns the ids sent),
   `edit_as(id, language)` (see above), `focus()`.
 - **Settings:** `settings` takes the same [`EditorSettings`](#settings) as

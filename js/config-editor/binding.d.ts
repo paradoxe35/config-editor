@@ -162,7 +162,8 @@ export interface ConfigDocumentsHandle {
   /**
    * The editor of the document `id` (paths, folds, focus, saving), or `null`
    * when there is no such document or the view has not mounted. Its queries
-   * answer `null` / `false` until the document has been shown once.
+   * answer `null` / `false` until the document has been shown once (or
+   * listed with `editAsText`, which mounts its editor at once).
    */
   editor(id: string): EditorView | null;
   /**

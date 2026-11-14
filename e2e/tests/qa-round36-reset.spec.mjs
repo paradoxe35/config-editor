@@ -224,3 +224,156 @@ test.describe('ConfigDocuments: replaceValue, then typing, the host listing ever
     });
   }
 });
+
+// --- QA round 37 (HO37-1): a reset to the text the host listed last. -------
+
+// A discard back to the file as loaded (its echoes of what was typed still
+// held, so the host lists that text last), or back to the echo that came
+// back last, then a key, with the three texts listed late in each of the 6
+// orders: the key stays. Before, the reset to the text listed last was not
+// counted as on its way, so in 2 orders its listing after the key's echo
+// was taken for the host's own and threw the key away.
+
+/** Every order of `items`. */
+const permutations = (items) =>
+  items.length === 0
+    ? [[]]
+    : items.flatMap((item, at) =>
+        permutations([...items.slice(0, at), ...items.slice(at + 1)]).map((rest) => [item, ...rest]),
+      );
+
+/** The pages' drivers: `typeKey(key)` types at the end of the document,
+ * `reset(text)` resets it (its listing held), `held()` counts the texts
+ * held, `release(index)` lists one, `current()` is the editor's text and
+ * the host's. */
+const HOSTS = {
+  ...Object.fromEntries(
+    DOCUMENTS_FRAMEWORK_PAGES.map((name) => [
+      name,
+      {
+        loaded: '[limits]\nmax_pending = 512\n',
+        async open(page) {
+          await open(page, name, '?manual');
+          await page.click('[role="tab"][data-document-id="limits"]');
+          return page.locator('.config-editor-documents__panel:visible textarea.config-editor__input');
+        },
+        reset: (text) => window.documentsHandle.current.setValue('limits', text),
+        held: () => window.heldEchoes(),
+        release: (index) => window.releaseEchoes([index]),
+        current: () => ({
+          editor: window.documentsHandle.current.editor('limits').value,
+          host: window.currentFiles().find((file) => file.id === 'limits').value,
+        }),
+      },
+    ]),
+  ),
+  ConfigDocuments: {
+    loaded: 'listen: 7835\n',
+    async open(page) {
+      await mountHolding(page);
+      return page.locator('#probe textarea.config-editor__input');
+    },
+    reset: (text) => {
+      window.view.replaceValue('main', text);
+      window.hold('main', text);
+    },
+    held: () => window.held.length,
+    release: (index) => window.release(index),
+    current: () => ({
+      editor: window.view.editor('main').value,
+      host: window.files.find((file) => file.id === 'main').value,
+    }),
+  },
+  ConfigEditor: {
+    loaded: 'listen: 7835\n',
+    async open(page) {
+      await open(page, 'documents.html');
+      await page.evaluate(async () => {
+        window.documentsView.destroy();
+        const module = await import('../config-editor/index.js');
+        const host = document.createElement('div');
+        host.id = 'probe';
+        host.style.height = '420px';
+        document.body.prepend(host);
+        window.stored = 'listen: 7835\n';
+        window.held = [];
+        window.hold = (value) =>
+          window.held.push(() => {
+            window.stored = value;
+            window.view.update({ value });
+          });
+        window.release = (index) => window.held[index]();
+        window.view = new module.ConfigEditor(host, {
+          language: 'yaml',
+          value: window.stored,
+          echoes: true,
+          onChange: (value) => window.hold(value),
+        });
+      });
+      return page.locator('#probe textarea.config-editor__input');
+    },
+    reset: (text) => {
+      window.view.replaceValue(text);
+      window.hold(text);
+    },
+    held: () => window.held.length,
+    release: (index) => window.release(index),
+    current: () => ({ editor: window.view.value, host: window.stored }),
+  },
+};
+
+for (const [name, host] of Object.entries(HOSTS)) {
+  test.describe(`${name}: a reset to the text listed last, then a key, listed in any order`, () => {
+    test.skip(!built, 'js packages not built: run `npm run build` in js/');
+
+    for (const to of ['loaded', 'echo back']) {
+      for (const order of permutations([0, 1, 2])) {
+        test(`back to the ${to === 'loaded' ? 'file as loaded' : 'echo that came back'}, listed ${order}`, async ({
+          page,
+        }) => {
+          const input = await host.open(page);
+          const held = () => page.evaluate(host.held);
+          const typeKey = async (key) => {
+            const before = await held();
+            await input.focus();
+            await page.keyboard.press('Control+End');
+            await page.keyboard.type(key);
+            await expect.poll(held).toBe(before + 1);
+          };
+          const reset = async (text) => {
+            const before = await held();
+            await page.evaluate(host.reset, text);
+            await expect.poll(held).toBe(before + 1);
+          };
+          const release = (index) => page.evaluate(host.release, index);
+          await typeKey('a');
+          let target = host.loaded;
+          if (to === 'echo back') {
+            await release(0);
+            await page.waitForTimeout(400);
+            await typeKey('b');
+            target = `${host.loaded}a`;
+          }
+          const first = (await held()) - 1;
+          await reset(target);
+          await typeKey('c');
+          for (const index of order) {
+            await release(first + index);
+            await page.waitForTimeout(10);
+          }
+          // What the editor sends again (at once, or after the pause).
+          for (let released = await held(); ; ) {
+            await page.waitForTimeout(400);
+            const now = await held();
+            if (now === released) break;
+            expect(now - released).toBeLessThan(8);
+            for (; released < now; released += 1) await release(released);
+          }
+          const expected = `${target}c`;
+          expect(await page.evaluate(host.current)).toEqual({ editor: expected, host: expected });
+          expect(page.errors).toEqual([]);
+        });
+      }
+    }
+  });
+}

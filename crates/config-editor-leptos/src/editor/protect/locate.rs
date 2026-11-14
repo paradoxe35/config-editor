@@ -10,7 +10,7 @@ use serde_json::Value;
 
 use super::super::language::{ConfigLanguage, Repetition};
 use super::super::parse_cache::string_bodies;
-use super::super::paths::{TextRange, batch_cached, field_range, key_range, path_at};
+use super::super::paths::{TextPosition, TextRange, batch_cached, field_range, key_range, path_at};
 use super::super::work_count::{Work, note_many};
 use super::marks::escape;
 use super::scan::Written;
@@ -88,6 +88,23 @@ impl<'a> LineIndex<'a> {
 
     pub(crate) fn line_count(&self) -> usize {
         self.starts.len()
+    }
+
+    /// The one-based line and character column of UTF-16 `offset` (clamped
+    /// to the text): what [`LineIndex::offset`] reads back.
+    pub(crate) fn position(&self, offset: usize) -> TextPosition {
+        let line = self.line_of(offset);
+        let (byte, units) = self.starts[line];
+        let mut counted = units;
+        let mut column = 1;
+        for character in self.text[byte..].chars() {
+            if counted >= offset || character == '\n' {
+                break;
+            }
+            counted += character.len_utf16();
+            column += 1;
+        }
+        TextPosition::new(line + 1, column)
     }
 
     /// The byte index of UTF-16 `offset` (clamped to the text), read from

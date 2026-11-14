@@ -81,7 +81,7 @@ pub(crate) struct ProtectState {
     pub(crate) ranges: RwSignal<Vec<Range<usize>>>,
     /// The host's ranges in its own text while editing as another
     /// language, followed through each conversion back.
-    in_host: HostRanges,
+    pub(super) in_host: HostRanges,
     /// The host's ranges `ranges` was first placed from, until the effect
     /// placing them again first runs: ranges the host changed before then
     /// (an update in the task that mounts the editor) are placed then.

@@ -57,3 +57,31 @@ fn edits_before_and_after_a_range_shift_or_leave_it() {
         [range]
     );
 }
+
+/// A UTF-16 offset read as a line and character column reads back as the
+/// offset (wide characters, line ends, past the end clamped): the ranges a
+/// host's reset moves are given back in the positions it gives.
+#[test]
+fn an_offset_as_a_position_reads_back() {
+    use super::locate::LineIndex;
+    let text = "a: é𝄞x\r\nb: 2\n\nc";
+    let lines = LineIndex::new(text);
+    let units = text.encode_utf16().count();
+    for offset in 0..=units {
+        // Not inside a surrogate pair.
+        if text
+            .encode_utf16()
+            .nth(offset)
+            .is_some_and(|unit| (0xdc00..0xe000).contains(&unit))
+        {
+            continue;
+        }
+        let position = lines.position(offset);
+        assert_eq!(
+            lines.offset(position.line, position.column),
+            offset,
+            "{offset}: {position:?}"
+        );
+    }
+    assert_eq!(lines.position(units + 5), lines.position(units));
+}

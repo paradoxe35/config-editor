@@ -97,9 +97,9 @@ export interface ConfigDocumentsProps extends EditorSettings {
   onSave?: (id: string, value: string, language: LanguageName) => void;
   /** Called with a document's id and whether it differs from its baseline: when it is added, then each time that changes. */
   onDirtyChange?: (id: string, dirty: boolean) => void;
-  /** Called with a document's id and its editor's own problems: once its editor mounts (when first shown), then each time they change. */
+  /** Called with a document's id and its editor's own problems: once its editor mounts (when first shown, or at once when listed with `editAsText`), then each time they change. */
   onProblems?: (id: string, problems: Diagnostic[]) => void;
-  /** Called with a document's id and the language on screen in its editor: once when the editor mounts (the first time the document is shown), then each time that changes (a switch made, one that waited until the text converted, undo or redo across a switch). */
+  /** Called with a document's id and the language on screen in its editor: once when the editor mounts (the first time the document is shown, or at once when listed with `editAsText`), then each time that changes (a switch made, one that waited until the text converted, undo or redo across a switch). */
   onEditAsChange?: (id: string, language: LanguageName) => void;
   /** Called with a document's id and whether the text on screen is written back to its `value`: once when its editor mounts, then each time that changes. */
   onSyncChange?: (id: string, inSync: boolean) => void;

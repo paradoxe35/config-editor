@@ -182,7 +182,7 @@ export interface EditorView {
   readonly text: string | null;
   /** Whether the document differs from its baseline. */
   readonly isDirty: boolean;
-  /** The path of what the caret is on, or `null` (a document's editor: until it has been shown once). */
+  /** The path of what the caret is on, or `null` (a document's editor: until it has been shown once, or listed with `editAsText`). */
   readonly currentPath: EditorPath | null;
   /** The folded blocks, one-based `{ startLine, endLine }` (`startLine` stays visible). */
   readonly foldedLines: LineRange[];
@@ -379,7 +379,7 @@ export interface DocumentSpec {
   readOnlyPaths?: FieldPath[];
   /** Stretches of this document (in its language) the user cannot change; update live. */
   readOnlyRanges?: TextRangeInput[];
-  /** Secret placeholders, as `ConfigEditor`'s `secrets`. Read when the document's editor mounts (the first time it is shown). */
+  /** Secret placeholders, as `ConfigEditor`'s `secrets`. Read when the document's editor mounts (the first time it is shown, or at once when it is listed with `editAsText`). */
   secrets?: SecretOptions;
 }
 
@@ -414,9 +414,9 @@ export interface DocumentsOptions extends EditorSettings {
   onSave?: (id: string, value: string, language: LanguageName) => void;
   /** Called with a document's id and whether it differs from its baseline: when it is added, then each time that changes. */
   onDirtyChange?: (id: string, dirty: boolean) => void;
-  /** Called with a document's id and its editor's own problems (as `ConfigEditor`'s `onProblems`): once its editor mounts (when the document is first shown), then each time they change. */
+  /** Called with a document's id and its editor's own problems (as `ConfigEditor`'s `onProblems`): once its editor mounts (when the document is first shown, or at once when it is listed with `editAsText`), then each time they change. */
   onProblems?: (id: string, problems: Diagnostic[]) => void;
-  /** Called with a document's id and the language on screen in its editor: once when the editor mounts (the first time the document is shown), then each time that changes (a switch made, one that waited until the text converted, undo or redo across a switch). */
+  /** Called with a document's id and the language on screen in its editor: once when the editor mounts (the first time the document is shown, or at once when it is listed with `editAsText`), then each time that changes (a switch made, one that waited until the text converted, undo or redo across a switch). */
   onEditAsChange?: (id: string, language: LanguageName) => void;
   /** Called with a document's id and whether the text on screen is written back to its `value`: once when its editor mounts, then each time that changes (see `ConfigEditor`'s `onSyncChange`). */
   onSyncChange?: (id: string, inSync: boolean) => void;

@@ -166,6 +166,10 @@ impl EditorState {
 
     pub(super) fn leave_ranges(&self, _before: &str) {}
 
+    pub(crate) fn host_ranges_now(&self) -> Vec<TextRange> {
+        Vec::new()
+    }
+
     pub(super) fn check_host_save(
         &self,
         _old: &str,

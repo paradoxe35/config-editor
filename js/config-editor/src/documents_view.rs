@@ -686,7 +686,8 @@ impl ConfigDocuments {
     /// `update({ documents })` that its editor gave and has not seen come
     /// back yet is its echo; this never is (a revert to such a text). List
     /// the document with that text from then on. Its editor keeps the
-    /// caret on the same text when possible; `onChange` does not hear it.
+    /// caret on the same text when possible, and its read-only ranges on
+    /// the text they cover; `onChange` does not hear it.
     /// `false` when no document has that id.
     #[wasm_bindgen(js_name = replaceValue)]
     pub fn replace_value(
@@ -716,12 +717,23 @@ impl ConfigDocuments {
         });
         self.state.given(&id, &value);
         let edits = self.edits();
+        let ranges = self.ranges_moved_to(&id, &value, &edits);
         let _ = self.state.documents.try_update(|documents| {
             keep_edits(documents, &edits);
             if let Some(document) = documents.iter_mut().find(|document| document.id == id) {
                 document.value = value;
+                if let Some(ranges) = &ranges {
+                    document.read_only_ranges.clone_from(ranges);
+                }
             }
         });
+        // A list giving the same ranges again compares with these.
+        if let Some(ranges) = ranges {
+            let _ = self
+                .state
+                .kept
+                .try_update_value(|kept| kept.ranges.kept(&id, ranges));
+        }
         if let Some(documents) = self.state.documents.try_get_untracked() {
             self.owner.with(|| {
                 config_editor_leptos::js_support::take_documents(&self.state.handle, &documents);
@@ -913,6 +925,33 @@ impl ConfigDocuments {
         let (resend, settles) = resend;
         self.state.tell_again(resend, settles);
         Ok(())
+    }
+
+    /// The read-only ranges of the document `id` moved to `value`, the
+    /// text `replaceValue` gives it (see `reset_ranges`): from the text its
+    /// editor holds (`edits`), else the one listed.
+    fn ranges_moved_to(
+        &self,
+        id: &str,
+        value: &str,
+        edits: &HashMap<String, Edited>,
+    ) -> Option<Vec<config_editor_leptos::TextRange>> {
+        let (listed, given) = self
+            .state
+            .documents
+            .try_with_untracked(|documents| {
+                documents
+                    .iter()
+                    .find(|document| document.id == id)
+                    .map(|document| (document.value.clone(), document.read_only_ranges.clone()))
+            })
+            .flatten()?;
+        let current = edits
+            .get(id)
+            .and_then(|edited| edited.value.clone())
+            .unwrap_or(listed);
+        let handle = self.state.handle.editor(id)?;
+        crate::reset_ranges::moved_to(&handle, &current, value, || given)
     }
 
     /// What each open document holds that its list may not say, for

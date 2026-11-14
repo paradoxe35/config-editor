@@ -44,6 +44,7 @@ mod options;
 mod protect;
 mod reentry;
 mod remap;
+mod reset_ranges;
 mod schema_cache;
 mod settings;
 mod settle;

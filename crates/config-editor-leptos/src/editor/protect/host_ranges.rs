@@ -13,6 +13,7 @@ use super::carry::Moves;
 use super::follow::follow_ranges;
 use super::locate::LineIndex;
 use crate::editor::paths::TextRange;
+use crate::editor::state::EditorState;
 use crate::editor::work_count::{Work, note};
 
 /// A host text and the host's ranges as UTF-16 offsets of it.
@@ -74,4 +75,39 @@ pub(super) fn offsets(text: &str, ranges: &[TextRange]) -> Vec<Range<usize>> {
     }
     let lines = LineIndex::new(text);
     ranges.iter().map(|range| lines.range(*range)).collect()
+}
+
+/// UTF-16 `ranges` of `text` as positions in it.
+fn positions(text: &str, ranges: &[Range<usize>]) -> Vec<TextRange> {
+    if ranges.is_empty() {
+        return Vec::new();
+    }
+    let lines = LineIndex::new(text);
+    ranges
+        .iter()
+        .map(|range| TextRange::new(lines.position(range.start), lines.position(range.end)))
+        .collect()
+}
+
+impl EditorState {
+    /// The host's ranges where they are now, followed through every edit
+    /// since they were placed, as positions in the host's text (the text
+    /// on screen, or the host's own while editing as another language):
+    /// what a host replacing the text without new ranges moves them from
+    /// (QA 37, FW37-2: placed again where they were given, in the text
+    /// that replaced the one they followed, a lock covered another line).
+    pub(crate) fn host_ranges_now(&self) -> Vec<TextRange> {
+        let host = self.config().host_language == self.sync().edit_language.get_untracked();
+        if host {
+            let ranges = self.protect().ranges.get_untracked();
+            self.doc()
+                .text
+                .with_untracked(|text| positions(text, &ranges))
+        } else {
+            self.sync().host_text.with_value(|text| {
+                let ranges = self.protect().in_host.in_text(text);
+                positions(text, &ranges)
+            })
+        }
+    }
 }

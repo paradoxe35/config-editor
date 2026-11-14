@@ -599,8 +599,8 @@ impl ConfigEditor {
     /// is: with `echoes`, `update({ value })` takes a text `onChange` gave
     /// that has not come back yet for its echo; this never does (a revert to
     /// such a text). Echoes still on their way are skipped when they come.
-    /// The caret stays on the same text when possible; `onChange` does not
-    /// hear it.
+    /// The caret stays on the same text when possible, and the read-only
+    /// ranges on the text they cover; `onChange` does not hear it.
     #[wasm_bindgen(js_name = replaceValue)]
     pub fn replace_value(
         &self,
@@ -620,6 +620,15 @@ impl ConfigEditor {
             .state
             .echoes
             .try_update_value(|echoes| echoes.replaced(&value));
+        // The locks go with the text they cover (see `reset_ranges`).
+        let given = self.state.read_only_ranges;
+        if let Some(ranges) =
+            crate::reset_ranges::moved_to(&self.state.handle, &self.latest_text(), &value, || {
+                given.try_get_untracked().unwrap_or_default()
+            })
+        {
+            let _ = self.state.read_only_ranges.try_set(ranges);
+        }
         self.show(value);
         Ok(())
     }

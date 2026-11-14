@@ -580,7 +580,11 @@ revert), or to reset while the echoes of what was typed are still to come,
 call `replaceValue(text)`: it always applies, and the echoes on their way
 are still told apart. Your store then takes that text, late if it likes:
 given back after what is typed next, it is the reset's echo and keeps the
-typing. The promise is
+typing, also for a reset to the text you gave last (a discard to the file
+as loaded). A reset to the document as it is changes nothing (a second
+Discard): your store holds that text once. The `readOnlyRanges` the editor
+holds go with the text they cover into the reset's text (the ranges you
+give next, with a text, are read in that text as always). The promise is
 yours to keep: a host that hands back only some texts (the latest of
 several) leaves the others counted as echoes (every text sent is
 remembered until its echo comes, a text of your own replaces the
@@ -609,12 +613,12 @@ for your own text), so set those with `replaceValue` too.
 
 `ConfigEditor` adds:
 
-| Member               | Description                                                                                                                                                                                                                                                                                                                                           |
-| -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `update(options)`    | Change the editor live; see [`update`](#updateoptions).                                                                                                                                                                                                                                                                                               |
-| `replaceValue(text)` | Replace the document with a text of your own, whatever it is: with `echoes`, `update({ value })` takes a text `onChange` gave that has not come back yet for its echo and keeps the document; this never does (a revert to such a text). The caret stays on the same text when possible; `onChange` does not hear it.                                 |
-| `destroy()`          | Unmount. An edit still converting (while editing as another language) is sent to `onChange` first. Safe to call inside any callback (`onChange`, `onSave`, …).                                                                                                                                                                                        |
-| `free()`             | Release the WebAssembly object after `destroy()`. Optional; the garbage collector does it too. An editor stays on the page until `destroy()`, whether or not you keep a reference to it. Call `destroy()` first: after `free()` the instance cannot be used at all (wasm-bindgen's own method). Inside a callback it frees once the callback returns. |
+| Member               | Description                                                                                                                                                                                                                                                                                                                                                            |
+| -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `update(options)`    | Change the editor live; see [`update`](#updateoptions).                                                                                                                                                                                                                                                                                                                |
+| `replaceValue(text)` | Replace the document with a text of your own, whatever it is: with `echoes`, `update({ value })` takes a text `onChange` gave that has not come back yet for its echo and keeps the document; this never does (a revert to such a text). The caret stays on the same text when possible, and the `readOnlyRanges` on the text they cover; `onChange` does not hear it. |
+| `destroy()`          | Unmount. An edit still converting (while editing as another language) is sent to `onChange` first. Safe to call inside any callback (`onChange`, `onSave`, …).                                                                                                                                                                                                         |
+| `free()`             | Release the WebAssembly object after `destroy()`. Optional; the garbage collector does it too. An editor stays on the page until `destroy()`, whether or not you keep a reference to it. Call `destroy()` first: after `free()` the instance cannot be used at all (wasm-bindgen's own method). Inside a callback it frees once the callback returns.                  |
 
 An exception thrown by a callback is logged to the console and does not
 break the editor.
@@ -1317,8 +1321,9 @@ view.isDirty("main");
   started, and that call leaves those keys as you set them, applying only
   its others.
 - `onProblems(id, problems)` gives each document's editor's own problems
-  (as `ConfigEditor`'s `onProblems`): once its editor mounts, when the
-  document is first shown, then each time they change.
+  (as `ConfigEditor`'s `onProblems`): once its editor mounts (when the
+  document is first shown, or at once when it is listed with
+  `editAsText`), then each time they change.
 - Nothing closes by itself: `onClose({ id, dirty })` asks you (close button,
   middle click, `Delete` on a tab). Only closable documents ask: a document
   with `closable: false` (switches live) stays open, with no close button,
@@ -1339,7 +1344,8 @@ view.isDirty("main");
   cannot be added by `update` to a view mounted without them.
 - Switching keeps each document's caret, selection, scroll position, undo
   history, folds and find widget: an editor mounts the first time its
-  document is shown, then stays (hidden) while it is open. With ten
+  document is shown (at once for a document listed with `editAsText`),
+  then stays (hidden) while it is open. With ten
   ~2000-line documents all shown, the view used about 21 MB of wasm memory
   (1.5 to 1.9 MB per editor) and 4 MB of JS heap. Closing a document gives
   its editor's memory back, as `destroy()` does for a `ConfigEditor` (all
@@ -1423,7 +1429,11 @@ view.editAs("main", "toml"); // after an undo across the switch: ask again
   its document is shown (at once with `editAsText`): until then `value`, `text` and `unifiedDiff`
   answer the document as listed, `settings` and `isDirty` answer too and
   `save()` sends it, while its paths, folds and `reveal` answer `null` or
-  `false` (`[]` for `foldedLines`). Once its document is removed,
+  `false` (`[]` for `foldedLines`). With `editAsText` it answers from that
+  text from the constructor on; a document an `update` lists with it opens
+  once the view renders the new list (its panel is not on the page before),
+  and until then `save()` and `saveAll()` send nothing for it, never the
+  text as listed. Once its document is removed,
   it stays with it and answers `null` (`value`, `text`, `currentPath`) or
   `false` (`save()`, `isDirty`, `reveal`, …), also when a new document
   with the same id is listed: ask `editor(id)` again for that one.
