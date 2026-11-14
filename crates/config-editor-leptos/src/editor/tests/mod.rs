@@ -220,7 +220,8 @@ mod schema_text_wording;
     feature = "json",
     feature = "toml",
     feature = "hcl",
-    feature = "xml"
+    feature = "xml",
+    feature = "protect"
 ))]
 mod secret_inside_messages;
 
