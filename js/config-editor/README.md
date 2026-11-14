@@ -489,8 +489,16 @@ editor.update({ hostDiagnostics: problems, onSave: null });
   file switched to, a discard, a reset); a `value` that is the document
   already changes nothing. The caret stays on the same text when possible.
   `readOnlyRanges` and host `range`s given with it are in the new document.
-  For a host that hands every `onChange` text back, see
+  The text `onChange` gave last, given while the editor still held a newer
+  edit (one edited as another language, waiting out the typing pause, that
+  the update first sends to `onChange`), is older than what was typed: it
+  keeps the document. For a host that hands every `onChange` text back, see
   [Hosts that echo](#hosts-that-echo).
+- `readOnlyRanges` equal to the ones given last (the same JSON), given again
+  with no new text (a host passing all its options again, with the `value`
+  `onChange` gave), stay where the editor moved them as the user typed: they
+  are not read again at the places they name in the edited text. Ranges that
+  differ, or come with a new text or `rangesFor`, are read in that text.
 - `rangesFor` names the text an update's (or the constructor's)
   `readOnlyRanges` and host `range`s were worked out for, when it is not the document (a check of a text the
   user has typed past since): they are checked in it and moved to the
@@ -535,7 +543,9 @@ seconds after a text `onChange` gave later came back: a host handing back
 only the latest of several never hands back the ones it skipped, so they
 are forgotten then (what the editor keeps stays bounded), and one of them
 coming back after that is taken as yours. Within that, nothing typed is
-lost. Ranges given with an echo (`readOnlyRanges`, host `range`s) are in
+lost. An echo the store wrote another way (without the byte order mark,
+with LF line breaks) is still the echo, and the document keeps its own.
+Ranges given with an echo (`readOnlyRanges`, host `range`s) are in
 the echoed text: they are moved to the document. Any other `value` is yours
 and applies, the text you gave last included (a reset to the text the
 editor was created with). The texts `onChange` gave before it belong to the
@@ -1326,8 +1336,10 @@ view.isDirty("main");
   `settings` go over them for its editor: the keys it gives replace the
   view's, the rest follow the view's.
 - Per document, as on `ConfigEditor`: `hostDiagnostics`, `readOnlyPaths`,
-  `readOnlyRanges` (updated in place by `update({ documents })`) and `secrets` (read
-  when its editor mounts).
+  `readOnlyRanges` (updated in place by `update({ documents })`; a document
+  listed again with the ranges it had and the text its editor holds keeps
+  them where the editor moved them, as `ConfigEditor`'s `update` does) and
+  `secrets` (read when its editor mounts).
 - What each document shows: `onEditAsChange(id, language)` says the
   language on screen, once when its editor mounts, then each time it changes
   (a switch made, also one that waited until the text could convert; undo

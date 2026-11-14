@@ -59,6 +59,8 @@ pub struct ConfigEditor {
     reentry: crate::reentry::Reentry,
     /// The options it cannot change, as given (see `update`).
     built_from: crate::update::BuiltFrom,
+    /// The `readOnlyRanges` given last (see `given_ranges`).
+    ranges_given: crate::given_ranges::Given,
 }
 
 /// The unmount handle, reactive owner, and element of an editor.
@@ -279,6 +281,7 @@ impl ConfigEditor {
             id: std::cell::Cell::new(Some(id)),
             reentry: crate::reentry::Reentry::default(),
             built_from: crate::update::BuiltFrom::of(&options, editor_fixed(language)),
+            ranges_given: crate::given_ranges::Given::new(&field(&options, "readOnlyRanges")),
         })
     }
 
@@ -311,7 +314,10 @@ impl ConfigEditor {
     /// text is unchanged). With `echoes`, a text `onChange` gave that has
     /// not come back yet is its echo and keeps the document. Ranges are in
     /// `rangesFor`, else `value` (an echo included), else the document,
-    /// and are moved from that text to the document.
+    /// and are moved from that text to the document; `readOnlyRanges` equal
+    /// to the last ones, given with no new text, stay where the editor
+    /// moved them (see `given_ranges`). The text `onChange` gave last, given
+    /// while an edit still held is sent first, keeps the document.
     /// `language`, `schema`, `fileName`, `className`,
     /// `secrets` and `echoes` are what the editor is built from: they throw (create
     /// a new editor instead), but for the value it was built with given again
@@ -347,6 +353,11 @@ impl ConfigEditor {
         // call, and stays.
         self.reentry.note_options(&options);
         let flushed = echoes::clock();
+        // Whether `value` is the text the host was told last, before the
+        // flush below sends it what the user typed since (see `echo` below).
+        let told = value.as_deref().is_some_and(|value| {
+            *value == *self.latest.lock().unwrap_or_else(PoisonError::into_inner)
+        });
         let newer = self.reentry.flush(|| {
             if value.is_some() {
                 config_editor_leptos::flush_pending_edits();
@@ -390,10 +401,19 @@ impl ConfigEditor {
             .transpose()?;
         let current = self.state.settings.try_get_untracked().unwrap_or_default();
         let settings = settings_change(&current, &options)?;
+        // The ranges given last, given again with no `rangesFor`, stay where
+        // the editor moved them while the document stays the text it holds
+        // (see `given_ranges`): not read again.
+        let ranges_given = given(&options, "readOnlyRanges");
+        let ranges_again = ranges_for.is_none()
+            && ranges_given
+                .as_ref()
+                .is_some_and(|list| self.ranges_given.same(list));
         // Ranges are checked in the text they were given for (moved to the
         // document once it is known, below).
         let (mut host_diagnostics, mut read_only_ranges) = {
             let latest = self.latest.lock().unwrap_or_else(PoisonError::into_inner);
+            let held = value.as_deref().is_none_or(|value| *value == *latest);
             let host_text = ranges_for
                 .as_deref()
                 .or(value.as_deref())
@@ -407,8 +427,10 @@ impl ConfigEditor {
                     }
                 })
                 .transpose()?;
-            let read_only_ranges = given(&options, "readOnlyRanges")
-                .map(|list| ranges_from(&list, host_text, "readOnlyRanges"))
+            let read_only_ranges = ranges_given
+                .as_ref()
+                .filter(|_| !(ranges_again && held))
+                .map(|list| ranges_from(list, host_text, "readOnlyRanges"))
                 .transpose()?;
             (host_diagnostics, read_only_ranges)
         };
@@ -433,9 +455,16 @@ impl ConfigEditor {
         let on_save = callback_change(&options, "onSave")?;
 
         // Everything checked: apply. With `echoes`, an echo of an edit the
-        // user typed past keeps the document (see `echoes`).
+        // user typed past keeps the document (see `echoes`). The text the
+        // host was told last, given while the flush above sent it a newer
+        // one (an Edit-as edit waiting out the typing pause), is older than
+        // what the user typed: it keeps the document too, with or without
+        // `echoes` (the host could not know the newer text).
         let echo = value.as_deref().map(|value| {
             let latest = self.latest.lock().unwrap_or_else(PoisonError::into_inner);
+            if told && value != *latest {
+                return Echo::Skip;
+            }
             state
                 .echoes
                 .try_update_value(|echoes| {
@@ -445,6 +474,14 @@ impl ConfigEditor {
                 .unwrap_or(Echo::Apply)
         });
         let shown = value.as_ref().filter(|_| echo == Some(Echo::Apply));
+        // The ranges given last, with a text that does not apply (an echo
+        // skipped, a text older than the typing), stay where they are too.
+        if ranges_again && shown.is_none() {
+            read_only_ranges = None;
+        }
+        if let Some(list) = &ranges_given {
+            self.ranges_given.remember(list);
+        }
         // Ranges given for another text than the document are moved to it.
         if host_diagnostics.is_some() || read_only_ranges.is_some() {
             let latest = self.latest.lock().unwrap_or_else(PoisonError::into_inner);

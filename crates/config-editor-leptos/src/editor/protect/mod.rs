@@ -144,6 +144,15 @@ mod copied_field_tests;
     feature = "hcl",
     feature = "xml"
 ))]
+mod edge_insert_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
 mod exact_change_tests;
 #[cfg(all(
     test,

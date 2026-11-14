@@ -144,7 +144,7 @@ export interface EditorUpdate extends SettingsUpdate {
   hostDiagnostics?: HostDiagnostic[] | null;
   /** Replaces the fields the user cannot change; `null` or `[]` clears them. */
   readOnlyPaths?: FieldPath[] | null;
-  /** Replaces the stretches the user cannot change (in `rangesFor`, else `value`, else the document); `null` or `[]` clears them. */
+  /** Replaces the stretches the user cannot change (in `rangesFor`, else `value`, else the document); `null` or `[]` clears them. The ones given last, given again with no new text, stay where the editor moved them as the user typed. */
   readOnlyRanges?: TextRangeInput[] | null;
   onChange?: ((value: string) => void) | null;
   onEditAsChange?: ((language: LanguageName) => void) | null;

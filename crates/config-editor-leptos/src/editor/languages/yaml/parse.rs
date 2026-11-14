@@ -56,14 +56,15 @@ pub(super) fn yaml_parse(source: &str) -> Result<Value, ParseError> {
                 "at end of input",
             );
         }
-        if let (Some(line), Some(column)) = (line, column)
-            && let Some(plain) = super::super::wide_integers::out_of_range(source, line, column)
+        let mut column = column;
+        if let (Some(line), Some(at)) = (line, column)
+            && let Some((start, plain)) = super::super::wide_integers::out_of_range(source, line, at)
         {
             message = plain;
+            column = Some(start);
         }
         // A key that is a list or a map (`? [a, b]`, `{[a]: 1}`): said
         // plainly, on its `?` where it has one.
-        let mut column = column;
         if let Some(kind) = ["sequence", "mapping", "map"]
             .into_iter()
             .find(|kind| message.starts_with(&format!("invalid type: {kind}, expected a string key")))

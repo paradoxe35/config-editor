@@ -353,6 +353,60 @@ fn non_finite_numbers_fail_integer_multiple_of_and_bounds() {
     assert!(failures.is_empty(), "{failures:#?}");
 }
 
+/// A number too large to hold (a float past the largest, an integer past
+/// 64 bits, either sign) is underlined whole in every language that reads
+/// it as a number, wherever the parser stopped in it (QA 32: JSON's
+/// `1e400` only on its last `0`, HCL's on `e400`).
+#[test]
+fn a_number_too_large_is_underlined_whole_in_every_language() {
+    let mut failures = Vec::new();
+    let literals = [
+        "1e400",
+        "-1e400",
+        "1.5e999",
+        "99999999999999999999999",
+        "-99999999999999999999999",
+    ];
+    for language in [
+        Language::JSON,
+        Language::TOML,
+        Language::HCL,
+        Language::YAML,
+    ] {
+        for literal in literals {
+            // YAML reads an overflowing float as an infinity.
+            if language == Language::YAML && literal.contains('e') {
+                continue;
+            }
+            let (source, line) = match language.label() {
+                "JSON" => (format!("{{\n  \"a\": 1,\n  \"b\": {literal}\n}}\n"), 3),
+                "YAML" => (format!("a: 1\nb: {literal}\n"), 2),
+                _ => (format!("a = 1\nb = {literal}\n"), 2),
+            };
+            let problems =
+                super::super::diagnostics::validate(&source, None, None, true, language.behavior());
+            let text: Vec<char> = source.split('\n').nth(line - 1).unwrap().chars().collect();
+            let marked = problems.iter().find_map(|problem| {
+                let (column, end) = (problem.column?, problem.end_column?);
+                (problem.line == Some(line)).then(|| {
+                    text[column - 1..(end - 1).min(text.len())]
+                        .iter()
+                        .collect::<String>()
+                })
+            });
+            if marked.as_deref() != Some(literal) {
+                failures.push(format!("{language} {literal}: {marked:?} ({problems:?})"));
+            }
+        }
+    }
+    assert!(
+        failures.is_empty(),
+        "{} failing:\n{}",
+        failures.len(),
+        failures.join("\n")
+    );
+}
+
 /// A YAML plain number too large for a float (`1e400`) is an infinity, as
 /// the float syntax says, not a string; quoted it stays a string.
 #[test]

@@ -70,6 +70,14 @@ impl<T: Clone> Given<T> {
         Some(read)
     }
 
+    /// Document `id`'s `key` as the last list read it, or the view handed
+    /// it since (what its editor holds, unless the host gave another).
+    pub(crate) fn held(&self, id: &str, key: &'static str) -> Option<&T> {
+        self.last
+            .get(&(id.to_string(), key))
+            .map(|(_, value)| value)
+    }
+
     /// Every value read, from this list and the last.
     pub(crate) fn values(&self) -> impl Iterator<Item = &T> {
         self.read
