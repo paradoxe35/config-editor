@@ -519,6 +519,49 @@ export function frameworkCases(name) {
       expect((await heard()).length).toBe(2);
     });
 
+    test('a schema in another format: its format, resources and options reach the editor, and a new one re-mounts', async ({ page: browserPage }) => {
+      await open(browserPage, name);
+      await browserPage.evaluate(() => {
+        // `use: <file>` lines take a resource's lines; the options' `type`
+        // is the type of every field.
+        window.coreApi.registerSchemaFormat({
+          name: 'fields',
+          compile(text, resources, options) {
+            const lines = text.split('\n').flatMap((line) => (line.startsWith('use: ') ? resources[line.slice(5)].split('\n') : [line]));
+            const properties = Object.fromEntries(lines.filter(Boolean).map((field) => [field, { type: options.type ?? 'string' }]));
+            return { schema: { properties }, losses: [{ message: 'field order is not checked', construct: 'order' }] };
+          },
+        });
+        window.heard = [];
+        window.warned = [];
+        window.setExtraProps({
+          schema: 'use: common.fields\n',
+          schemaFormat: 'fields',
+          schemaResources: { 'common.fields': 'listen\n' },
+          onProblems: (problems) => window.heard.push(problems.map(({ message }) => message)),
+          onSchemaWarning: (message) => window.warned.push(message),
+        });
+      });
+      // `listen: 7835` is no string.
+      await expect.poll(() => browserPage.evaluate(() => window.heard.at(-1) ?? [])).toEqual(['/listen: 7835 is not of type "string"']);
+      expect(await browserPage.evaluate(() => window.warned)).toEqual(['field order is not checked']);
+      await input(browserPage).evaluate((element) => (element.dataset.kept = 'yes'));
+      await browserPage.evaluate(() => {
+        window.heard = [];
+        window.setExtraProps({
+          schema: 'use: common.fields\n',
+          schemaFormat: 'fields',
+          schemaResources: { 'common.fields': 'listen\n' },
+          schemaOptions: { type: 'integer' },
+          onProblems: (problems) => window.heard.push(problems.map(({ message }) => message)),
+        });
+      });
+      await expect.poll(() => browserPage.evaluate(() => window.heard.at(-1))).toEqual([]);
+      // New options: a new editor, with the document.
+      expect(await input(browserPage).evaluate((element) => element.dataset.kept ?? 'remounted')).toBe('remounted');
+      await expect(input(browserPage)).toHaveValue(/listen: 7835/);
+    });
+
     test('unmounted right after an edit, it calls nothing more', async ({ page: browserPage }) => {
       await open(browserPage, name);
       await browserPage.evaluate(() => {

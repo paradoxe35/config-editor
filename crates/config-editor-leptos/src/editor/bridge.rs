@@ -11,7 +11,7 @@ use super::codec::{self, Conversion, ConvertError};
 use super::diagnostics::{Diagnostic, SchemaBundle, Severity};
 use super::edit_as::{EditAsProblem, EditAsText, SaveError};
 use super::item_sources::{self, ItemSource, ItemSources};
-use super::language::ConfigLanguage;
+use super::language::{ConfigLanguage, Scalars};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -314,7 +314,7 @@ impl Bridge {
         // A view that writes every scalar as text (XML) only guesses types:
         // the edited values keep the host's.
         let value = match &seen {
-            Some(seen) if self.edit.behavior().scalars_are_text() => {
+            Some(seen) if self.edit.behavior().scalars() == Scalars::Text => {
                 text_scalars::in_host_types(&old, seen, value).map_err(|pointer| {
                     ConvertError::Unsupported(format!(
                         "{} reads an empty element here, and {} holds no empty number or boolean: the edit is saved once it holds a value again (at {pointer})",
@@ -382,7 +382,7 @@ impl Bridge {
         }
         // So is a string a host that writes scalars as text reads back as
         // another value (XML `<s>true</s>` is the boolean).
-        if host.scalars_are_text()
+        if host.scalars() == Scalars::Text
             && let Some((pointer, read)) = host_strings::first_read_otherwise(&value, &target)
         {
             let string = value.pointer(&pointer).and_then(|value| value.as_str());

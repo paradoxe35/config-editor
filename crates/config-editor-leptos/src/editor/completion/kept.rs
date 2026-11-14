@@ -21,15 +21,32 @@ pub fn language_keeps(
         let empty = serde_json::json!({ "r": {} });
         return language.serialize(&empty, None).is_err();
     };
-    let Ok(mut read) = language.parse(&text) else {
+    let text_scalars = language.scalars() == Scalars::Text;
+    let read = if text_scalars {
+        language.parse_text(&text)
+    } else {
+        language.parse(&text)
+    };
+    let Ok(mut read) = read else {
         return false;
     };
     let Some(read) = read.pointer_mut("/r/k").map(Value::take) else {
         return false;
     };
     let mut read = read;
+    // Read as the schema types it there.
+    if text_scalars {
+        super::text_typing::type_texts(&mut read, property, root, language);
+    }
     if language.repetition() != Repetition::None {
-        conform(&mut read, property, root, language.repetition(), 0);
+        conform(
+            &mut read,
+            property,
+            root,
+            language.repetition(),
+            0,
+            text_scalars,
+        );
     }
     read == *value
 }

@@ -32,9 +32,9 @@ pub(super) use renames::{patch_renames, patch_scalar_to_container, with_renames_
 pub(super) use reorder::{patch_reorder, unmoved_comments};
 pub(super) use steps::steps;
 
-use super::completion::conform_arrays;
+use super::completion::{conform_arrays, conform_typed_arrays, type_texts};
 use super::flow_syntax::Flow;
-use super::language::{ConfigLanguage, ParseError, Repetition, Span};
+use super::language::{ConfigLanguage, ParseError, Repetition, Scalars, Span};
 use serde_json::Value;
 use std::fmt;
 
@@ -83,19 +83,35 @@ impl fmt::Display for ConvertError {
 
 impl std::error::Error for ConvertError {}
 
-/// Parses `source`, reading lone values as the arrays `schema` expects in a
-/// language that repeats keys for arrays; from the last reading of the
-/// same text (see `parse_cache`).
+/// Parses `source` as `schema` expects it: in a language that writes every
+/// scalar as text, each one typed by the schema (see `text_typing`), and
+/// in a language that repeats keys for arrays, lone values read as the
+/// arrays the schema wants; from the last reading of the same text (see
+/// `parse_cache`).
 pub(super) fn read(
     language: &dyn ConfigLanguage,
     source: &str,
     schema: Option<&Value>,
 ) -> Result<Value, ParseError> {
-    match schema.filter(|_| language.repetition() != Repetition::None) {
+    let shaped = language.scalars() == Scalars::Text || language.repetition() != Repetition::None;
+    match schema.filter(|_| shaped) {
         Some(schema) => super::parse_cache::conformed(language, source, schema, |value| {
-            conform_arrays(value, schema, language.repetition());
+            by_schema(language, value, schema);
         }),
         None => super::parse_cache::parse(language, source),
+    }
+}
+
+/// `value`, as the language reads it for a schema (`parse_text` for one
+/// whose scalars are text), typed and shaped by `schema`.
+pub(super) fn by_schema(language: &dyn ConfigLanguage, value: &mut Value, schema: &Value) {
+    if language.scalars() == Scalars::Text {
+        type_texts(value, schema, schema, language);
+        if language.repetition() != Repetition::None {
+            conform_typed_arrays(value, schema, language.repetition());
+        }
+    } else if language.repetition() != Repetition::None {
+        conform_arrays(value, schema, language.repetition());
     }
 }
 
@@ -151,11 +167,19 @@ pub(super) fn read_aside(
     schema: Option<&Value>,
 ) -> Result<Value, ParseError> {
     super::work_count::note_many(super::work_count::Work::ParsedBytes, source.len());
-    let mut value = language.parse(source)?;
-    if let Some(schema) = schema.filter(|_| language.repetition() != Repetition::None) {
-        conform_arrays(&mut value, schema, language.repetition());
+    match schema {
+        Some(schema) if language.scalars() == Scalars::Text => {
+            let mut value = language.parse_text(source)?;
+            by_schema(language, &mut value, schema);
+            Ok(value)
+        }
+        Some(schema) if language.repetition() != Repetition::None => {
+            let mut value = language.parse(source)?;
+            conform_arrays(&mut value, schema, language.repetition());
+            Ok(value)
+        }
+        _ => language.parse(source),
     }
-    Ok(value)
 }
 
 /// Renders `value` in `target`, reading the result back to find the losses.
@@ -165,7 +189,7 @@ pub(super) fn render(
     previous: Option<&str>,
     schema: Option<&Value>,
 ) -> Result<Conversion, ConvertError> {
-    let text = serialize(target, value, previous)?;
+    let text = serialize_shaped(target, value, previous, schema)?;
     let reread = read(target, &text, schema).map_err(|error| {
         ConvertError::Unsupported(format!(
             "the converted document does not read back: {}",
@@ -186,6 +210,17 @@ pub(super) fn serialize(
     value: &Value,
     previous: Option<&str>,
 ) -> Result<String, ConvertError> {
+    serialize_shaped(language, value, previous, None)
+}
+
+/// [`serialize`], the document following `schema` (see
+/// [`ConfigLanguage::serialize_with`]).
+pub(super) fn serialize_shaped(
+    language: &dyn ConfigLanguage,
+    value: &Value,
+    previous: Option<&str>,
+    schema: Option<&Value>,
+) -> Result<String, ConvertError> {
     // A language without infinities writes them as text, which reads back
     // as a string: a loss (see `non_finite`).
     let value = if language.writes_non_finite() {
@@ -195,7 +230,7 @@ pub(super) fn serialize(
     };
     let value = emptied_items::without_emptied(language, previous, value);
     let mut text = language
-        .serialize(&value, previous)
+        .serialize_with(&value, previous, schema)
         .map_err(ConvertError::Unsupported)?;
     text.truncate(text.trim_end_matches('\n').len());
     text.push('\n');
@@ -344,7 +379,7 @@ pub(super) fn patch_scalars(
         // attribute's `"…"`; a TOML string made a number loses them).
         let written = &previous[range.clone()];
         let flow = Flow::of(language);
-        if language.scalars_are_text()
+        if language.scalars() == Scalars::Text
             && let Some(quote) = written
                 .chars()
                 .next()

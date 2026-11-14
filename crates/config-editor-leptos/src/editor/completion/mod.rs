@@ -21,6 +21,9 @@ mod popup;
 mod required;
 mod schema;
 mod stops;
+pub(crate) mod text_typing;
+#[cfg(test)]
+mod text_typing_tests;
 mod typed_entry;
 mod window;
 
@@ -47,6 +50,7 @@ use required::caret_at_list;
 pub use required::{Fill, RequiredChild, required_children, writes_key};
 pub(crate) use schema::*;
 pub(crate) use stops::*;
+pub(crate) use text_typing::type_texts;
 pub(crate) use window::*;
 // Public for languages written outside the crate (see `language`).
 pub use schema::{array_branch, object_branch, placeholder, schema_const, schema_default};
@@ -56,7 +60,8 @@ use super::commands::indent_unit;
 use super::diagnostics::SchemaBundle;
 use super::keyboard::{replace_selection, utf16_to_byte_index};
 use super::language::{
-    CompletionContext, ConfigLanguage, EntryPosition, InsertContext, Repetition, SchemaPathSegment,
+    CompletionContext, ConfigLanguage, EntryPosition, InsertContext, Repetition, Scalars,
+    SchemaPathSegment,
 };
 use super::metrics::read_editor_metrics;
 use super::positioning::{POPUP_MARGIN, PopupFrame};

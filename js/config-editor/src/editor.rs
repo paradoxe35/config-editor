@@ -6,7 +6,9 @@ use std::collections::HashMap;
 use std::sync::PoisonError;
 
 use config_editor_leptos::js_support::Timer;
-use config_editor_leptos::{EditorHandle, Language, Schema};
+use config_editor_leptos::{EditorHandle, Language};
+
+use crate::schema_formats::{SOURCE_KEYS, read_spec};
 use js_sys::Function;
 use leptos::prelude::*;
 use wasm_bindgen::prelude::*;
@@ -159,9 +161,11 @@ impl ConfigEditor {
             .filter(|edit| *edit != language);
         let settings = settings_from(&options)?;
         let schema = match string_option(&options, "schema")? {
-            Some(json) => {
-                Some(Schema::compile(&json).map_err(|error| JsError::new(&error.to_string()))?)
-            }
+            Some(text) => Some(
+                read_spec(&options, &SOURCE_KEYS, "")?
+                    .compile(&text)
+                    .map_err(|error| JsError::new(&error.to_string()))?,
+            ),
             None => None,
         };
         // A text, as `update` takes it: `null` is no document.

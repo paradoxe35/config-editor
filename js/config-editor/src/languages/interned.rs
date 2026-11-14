@@ -14,7 +14,7 @@ thread_local! {
 }
 
 /// `text`, kept once.
-pub(super) fn text(text: &str) -> &'static str {
+pub(crate) fn text(text: &str) -> &'static str {
     TEXTS.with(|texts| {
         let mut texts = texts.borrow_mut();
         if let Some(known) = texts.get(text) {
@@ -27,7 +27,7 @@ pub(super) fn text(text: &str) -> &'static str {
 }
 
 /// A list of texts, kept once.
-pub(super) fn texts<S: AsRef<str>>(items: &[S]) -> &'static [&'static str] {
+pub(crate) fn texts<S: AsRef<str>>(items: &[S]) -> &'static [&'static str] {
     let items: Vec<&'static str> = items.iter().map(|item| text(item.as_ref())).collect();
     TEXT_LISTS.with(|lists| {
         let mut lists = lists.borrow_mut();

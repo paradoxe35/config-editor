@@ -11,9 +11,9 @@ use std::rc::Rc;
 
 use serde_json::Value;
 
-use super::super::language::{ConfigLanguage, ParseError};
+use super::super::language::{ConfigLanguage, ParseError, Scalars};
 use super::super::work_count::{Work, note_many};
-use super::{HOLDERS, parse};
+use super::{HOLDERS, parse, parse_text};
 
 /// How many documents are kept: a save reads the host's last text, the
 /// one it writes whole (to read its values back) and the one it patches,
@@ -53,7 +53,13 @@ pub(crate) fn conformed(
     if let Some(value) = cached {
         return Ok((*value).clone());
     }
-    let mut value = parse(language, text)?;
+    // A language whose scalars are text reads them as text for a schema
+    // to type (see `ConfigLanguage::parse_text`).
+    let mut value = if language.scalars() == Scalars::Text {
+        parse_text(language, text)?
+    } else {
+        parse(language, text)?
+    };
     note_many(Work::ConformedBytes, text.len());
     conform(&mut value);
     if HOLDERS.with(Cell::get) > 0 {

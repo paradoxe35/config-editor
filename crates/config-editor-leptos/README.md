@@ -45,6 +45,9 @@ method and headless function here has a JS option, method or function there
 - [Read-only fields](#read-only-fields)
 - [Secrets](#secrets)
 - [Schema help](#schema-help)
+- [Schema formats](#schema-formats)
+  - [OpenAPI](#openapi)
+  - [XML Schema (XSD)](#xml-schema-xsd)
 - [Keyboard](#keyboard)
   - [Keyboard and screen-reader access](#keyboard-and-screen-reader-access)
   - [Find and replace](#find-and-replace)
@@ -126,34 +129,34 @@ a file instead (see
 
 ## `<ConfigEditor>` props
 
-| Prop                   | Type                                       | Default               | Purpose                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| ---------------------- | ------------------------------------------ | --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `language`             | `Language`                                 | `Language::YAML`      | Language of the document the host stores: `initial_value`, `value`, `baseline` and `on_change` are always in it.                                                                                                                                                                                                                                                                                                                                                                                          |
-| `edit_as`              | `Language`, `Option<Language>` or a signal | unset                 | Show and edit the document in another language. Changing it converts the open document in place, unsaved edits included.                                                                                                                                                                                                                                                                                                                                                                                  |
-| `initial_value`        | `String`                                   | `""`                  | Starting text, also the diff baseline (uncontrolled).                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| `value`                | `Signal<String>`                           | —                     | Controlled text. Updates flow in; the caret stays on the same text and the scroll position is kept.                                                                                                                                                                                                                                                                                                                                                                                                       |
-| `on_change`            | `Fn(String)`                               | —                     | Called with the document after every edit (after each typing pause while editing as another language).                                                                                                                                                                                                                                                                                                                                                                                                    |
-| `on_edit_as_change`    | `Fn(Language)`                             | —                     | Called with the language on screen: once on mount, then each time an `edit_as` switch completes and when undo or redo steps back across one. A switch waits while the document cannot convert yet (TOML has no `null`): until then the host's language stays on screen, edited and sent to `on_change` as it is, with the reason shown on the value in the way. Label the language shown from this, not from `edit_as`.                                                                                   |
-| `on_sync_change`       | `Fn(bool)`                                 | —                     | Called with whether the text on screen is written back to the host's document: once on mount, then each time that changes. `false` while an `edit_as` edit cannot convert back (invalid text, a value `language` cannot hold or would read back differently, a read-only value changed: `EditorHandle::value` is `None` and `on_change` waits), whatever brought it there (typing, paste, cut, drop, undo, a switch, a reload, a new `value`); read after each typing pause. Always `true` in `language`. |
-| `on_schema_warning`    | `Fn(String)`                               | console warning       | Called once per thing in `schema` the editor cannot use, such as a `patternProperties` regex its engine cannot compile.                                                                                                                                                                                                                                                                                                                                                                                   |
-| `baseline`             | `Signal<String>`                           | the document at mount | Text the diff gutter and the dirty flag compare against; set it to the saved text after saving. See [Saving](#saving-and-unsaved-edits).                                                                                                                                                                                                                                                                                                                                                                  |
-| `schema`               | `&str`, `String` or `Schema`               | —                     | JSON Schema (draft 2020-12 and earlier) as JSON or YAML text (YAML with the `yaml` feature), for diagnostics, completion and hover. Pass a compiled `Schema` to share one across editors.                                                                                                                                                                                                                                                                                                                 |
-| `read_only`            | `bool` or a signal                         | `false`               | View mode: navigation, selection, highlighting, diagnostics, diffs and hover keep working. Switches live, completions included.                                                                                                                                                                                                                                                                                                                                                                           |
-| `read_only_reason`     | `String`, `Option<String>` or a signal     | —                     | Why the editor is read-only (a file the host manages, a missing permission), while `read_only` is on: the "Cannot edit in a read-only editor" notice says it when the user tries to edit (`Cannot edit in a read-only editor: {reason}`), and so does the text area's accessible description.                                                                                                                                                                                                             |
-| `file_name`            | `String`                                   | `untitled.<ext>`      | Name shown in the toolbar.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| `class`                | `String`                                   | —                     | Extra class on the editor root.                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| `settings`             | `EditorSettings` or a signal               | defaults              | The theme, colors and every on/off switch (toolbar, footer, diagnostics, diff, completions, search, folding, …); see [Settings](#settings). Every setting switches live.                                                                                                                                                                                                                                                                                                                                  |
-| `on_change_summary`    | `Fn(ChangeSummary)`                        | —                     | Called with the lines added, removed and modified against `baseline`, and the number of changes, whenever that changes.                                                                                                                                                                                                                                                                                                                                                                                   |
-| `on_problems`          | `Fn(Vec<Diagnostic>)`                      | —                     | Called with the editor's own problems (syntax, schema, secret placeholders, values Edit-as cannot convert; `origin` `Editor`), never `host_diagnostics`: once on mount, then each time they change after a pause in typing, not while they stay the same. With `show_diagnostics` off it finds none. Gate a Save button on it instead of parsing again.                                                                                                                                                   |
-| `handle`               | `EditorHandle`                             | —                     | Find fields, follow the caret and jump to a field from the host; see [Paths and positions](#paths-and-positions).                                                                                                                                                                                                                                                                                                                                                                                         |
-| `on_path_change`       | `Fn(FieldPath)`                            | —                     | Called with the path of what the caret is on each time it changes (and once on mount), for a breadcrumb.                                                                                                                                                                                                                                                                                                                                                                                                  |
-| `host_diagnostics`     | `Signal<Vec<HostDiagnostic>>`              | —                     | Problems the host found (its own checks: a service, a build step), by path or range, shown with the editor's own; see [Host diagnostics](#host-diagnostics).                                                                                                                                                                                                                                                                                                                                              |
-| `read_only_paths`      | `Signal<Vec<FieldPath>>`                   | —                     | Fields the user cannot change, each a whole subtree, on top of the schema's `readOnly` ones; see [Read-only fields](#read-only-fields).                                                                                                                                                                                                                                                                                                                                                                   |
-| `read_only_ranges`     | `Signal<Vec<TextRange>>`                   | —                     | Stretches of the host's text the user cannot change; they follow the text through edits.                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| `secrets`              | `SecretOptions`                            | defaults              | How secret placeholders are matched, described and completed; see [Secrets](#secrets).                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| `on_save`              | `Fn(SaveRequest)`                          | —                     | Called on `Ctrl+S` / `Cmd+S` and `EditorHandle::save` with the document in `language`. Nothing saves by itself; without it `Ctrl+S` is the browser's.                                                                                                                                                                                                                                                                                                                                                     |
-| `on_dirty_change`      | `Fn(bool)`                                 | —                     | Called with whether the text differs from `baseline`: once on mount, then each time that changes.                                                                                                                                                                                                                                                                                                                                                                                                         |
-| `on_baseline_conflict` | `Fn(BaselineConflict)`                     | —                     | Called when a new `baseline` arrives under unsaved edits (the notice opens) and when that is settled.                                                                                                                                                                                                                                                                                                                                                                                                     |
+| Prop                   | Type                                         | Default               | Purpose                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| ---------------------- | -------------------------------------------- | --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `language`             | `Language`                                   | `Language::YAML`      | Language of the document the host stores: `initial_value`, `value`, `baseline` and `on_change` are always in it.                                                                                                                                                                                                                                                                                                                                                                                          |
+| `edit_as`              | `Language`, `Option<Language>` or a signal   | unset                 | Show and edit the document in another language. Changing it converts the open document in place, unsaved edits included.                                                                                                                                                                                                                                                                                                                                                                                  |
+| `initial_value`        | `String`                                     | `""`                  | Starting text, also the diff baseline (uncontrolled).                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `value`                | `Signal<String>`                             | —                     | Controlled text. Updates flow in; the caret stays on the same text and the scroll position is kept.                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `on_change`            | `Fn(String)`                                 | —                     | Called with the document after every edit (after each typing pause while editing as another language).                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `on_edit_as_change`    | `Fn(Language)`                               | —                     | Called with the language on screen: once on mount, then each time an `edit_as` switch completes and when undo or redo steps back across one. A switch waits while the document cannot convert yet (TOML has no `null`): until then the host's language stays on screen, edited and sent to `on_change` as it is, with the reason shown on the value in the way. Label the language shown from this, not from `edit_as`.                                                                                   |
+| `on_sync_change`       | `Fn(bool)`                                   | —                     | Called with whether the text on screen is written back to the host's document: once on mount, then each time that changes. `false` while an `edit_as` edit cannot convert back (invalid text, a value `language` cannot hold or would read back differently, a read-only value changed: `EditorHandle::value` is `None` and `on_change` waits), whatever brought it there (typing, paste, cut, drop, undo, a switch, a reload, a new `value`); read after each typing pause. Always `true` in `language`. |
+| `on_schema_warning`    | `Fn(String)`                                 | console warning       | Called once per thing in `schema` the editor cannot use, such as a `patternProperties` regex its engine cannot compile.                                                                                                                                                                                                                                                                                                                                                                                   |
+| `baseline`             | `Signal<String>`                             | the document at mount | Text the diff gutter and the dirty flag compare against; set it to the saved text after saving. See [Saving](#saving-and-unsaved-edits).                                                                                                                                                                                                                                                                                                                                                                  |
+| `schema`               | `&str`, `String`, `Schema` or `SchemaSource` | —                     | JSON Schema (draft 2020-12 and earlier) as JSON or YAML text (YAML with the `yaml` feature), for diagnostics, completion and hover. Pass a compiled `Schema` to share one across editors, or a `SchemaSource::Formatted` for a schema in another format (see [Schema formats](#schema-formats)).                                                                                                                                                                                                          |
+| `read_only`            | `bool` or a signal                           | `false`               | View mode: navigation, selection, highlighting, diagnostics, diffs and hover keep working. Switches live, completions included.                                                                                                                                                                                                                                                                                                                                                                           |
+| `read_only_reason`     | `String`, `Option<String>` or a signal       | —                     | Why the editor is read-only (a file the host manages, a missing permission), while `read_only` is on: the "Cannot edit in a read-only editor" notice says it when the user tries to edit (`Cannot edit in a read-only editor: {reason}`), and so does the text area's accessible description.                                                                                                                                                                                                             |
+| `file_name`            | `String`                                     | `untitled.<ext>`      | Name shown in the toolbar.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `class`                | `String`                                     | —                     | Extra class on the editor root.                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `settings`             | `EditorSettings` or a signal                 | defaults              | The theme, colors and every on/off switch (toolbar, footer, diagnostics, diff, completions, search, folding, …); see [Settings](#settings). Every setting switches live.                                                                                                                                                                                                                                                                                                                                  |
+| `on_change_summary`    | `Fn(ChangeSummary)`                          | —                     | Called with the lines added, removed and modified against `baseline`, and the number of changes, whenever that changes.                                                                                                                                                                                                                                                                                                                                                                                   |
+| `on_problems`          | `Fn(Vec<Diagnostic>)`                        | —                     | Called with the editor's own problems (syntax, schema, secret placeholders, values Edit-as cannot convert; `origin` `Editor`), never `host_diagnostics`: once on mount, then each time they change after a pause in typing, not while they stay the same. With `show_diagnostics` off it finds none. Gate a Save button on it instead of parsing again.                                                                                                                                                   |
+| `handle`               | `EditorHandle`                               | —                     | Find fields, follow the caret and jump to a field from the host; see [Paths and positions](#paths-and-positions).                                                                                                                                                                                                                                                                                                                                                                                         |
+| `on_path_change`       | `Fn(FieldPath)`                              | —                     | Called with the path of what the caret is on each time it changes (and once on mount), for a breadcrumb.                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `host_diagnostics`     | `Signal<Vec<HostDiagnostic>>`                | —                     | Problems the host found (its own checks: a service, a build step), by path or range, shown with the editor's own; see [Host diagnostics](#host-diagnostics).                                                                                                                                                                                                                                                                                                                                              |
+| `read_only_paths`      | `Signal<Vec<FieldPath>>`                     | —                     | Fields the user cannot change, each a whole subtree, on top of the schema's `readOnly` ones; see [Read-only fields](#read-only-fields).                                                                                                                                                                                                                                                                                                                                                                   |
+| `read_only_ranges`     | `Signal<Vec<TextRange>>`                     | —                     | Stretches of the host's text the user cannot change; they follow the text through edits.                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `secrets`              | `SecretOptions`                              | defaults              | How secret placeholders are matched, described and completed; see [Secrets](#secrets).                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `on_save`              | `Fn(SaveRequest)`                            | —                     | Called on `Ctrl+S` / `Cmd+S` and `EditorHandle::save` with the document in `language`. Nothing saves by itself; without it `Ctrl+S` is the browser's.                                                                                                                                                                                                                                                                                                                                                     |
+| `on_dirty_change`      | `Fn(bool)`                                   | —                     | Called with whether the text differs from `baseline`: once on mount, then each time that changes.                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `on_baseline_conflict` | `Fn(BaselineConflict)`                       | —                     | Called when a new `baseline` arrives under unsaved edits (the notice opens) and when that is settled.                                                                                                                                                                                                                                                                                                                                                                                                     |
 
 While editing as another language, edits reach `on_change` after each typing
 pause. Call `config_editor_leptos::flush_pending_edits()` before reading the
@@ -370,7 +373,7 @@ they come.
 <!-- Generated from crates/config-editor-leptos/src/strings.rs by js/config-editor/tests/settings.rs; do not edit. Regenerate with `UPDATE_GENERATED=1 cargo test -p config-editor-js --test settings`. -->
 
 <details>
-<summary>Every text and its default (205 texts)</summary>
+<summary>Every text and its default (206 texts)</summary>
 
 | Field                           | Default                                                                                                                                     |                                                                                                                                                                                                                                                |
 | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -560,6 +563,7 @@ they come.
 | `option_problem`                | `"{option}: {problem}"`                                                                                                                     | An option (`{option}`) and another problem it has with the value.                                                                                                                                                                              |
 | `option_number`                 | `"option {number}"`                                                                                                                         | The name of an option with no title or description (`{number}`, from 1).                                                                                                                                                                       |
 | `invalid_schema`                | `"Invalid JSON Schema: {error}"`                                                                                                            | A schema that does not compile.                                                                                                                                                                                                                |
+| `invalid_schema_source`         | `"Invalid {format}: {error}"`                                                                                                               | A schema its format cannot read (`{format}`: the format's label, such as `XSD`).                                                                                                                                                               |
 | `empty_schema`                  | `"Invalid JSON Schema: the schema text is empty"`                                                                                           | A schema whose text is empty, or only spaces and line breaks.                                                                                                                                                                                  |
 | `invalid_placeholder`           | `"secrets.placeholder: {error}"`                                                                                                            | A secret placeholder pattern the editor cannot use (it does not compile, or matches empty text): no token is taken for a placeholder.                                                                                                          |
 | `problem_at_path`               | `"{path}: {message}"`                                                                                                                       | A host's problem with a field the editor cannot find in the text, listed with the field's path.                                                                                                                                                |
@@ -1281,11 +1285,13 @@ beside it ignored up to draft-07), `allOf`/`anyOf`/`oneOf`, the
 written, `unevaluatedProperties`, and tuples (`prefixItems`, draft-07
 `items` lists):
 
-References are followed inside the schema only: a `$ref` to another file or
-a URL is refused when the schema is compiled, even from an unused `$defs`
+The editor fetches nothing: a `$ref` to another file or a URL is followed
+when the host passes that file in the schema's resources (see
+[Schema formats](#schema-formats); the file is bundled into the schema), and
+refused when the schema is compiled otherwise, even from an unused `$defs`
 entry, with the place of the `$ref` ("the $ref at /properties/a/$ref names
-…"). Put such a schema under `$defs` with its `$id` and the references to
-that `$id` resolve. The `format` keyword is checked up to draft-07, as
+…"). A schema under `$defs` with its `$id` resolves the references to that
+`$id` too. The `format` keyword is checked up to draft-07, as
 those drafts assert it (`"nope" is not a valid "email"`); from 2019-09
 on (and without a `$schema`) it is an annotation: a schema that declares the
 2020-12 format-assertion vocabulary is accepted, and `format` still does not
@@ -1353,6 +1359,220 @@ nothing. `pattern` itself is only checked by the validator, which rejects a
 schema whose regex it cannot compile.
 
 </details>
+
+## Schema formats
+
+The editor works with JSON Schema. A schema written in another format is
+compiled into JSON Schema first by that format's [`SchemaCompiler`], wrapped
+in a [`SchemaFormat`] as a language is wrapped in a `Language`. The format is
+always given, never guessed from the text; `SchemaFormat::from_path` names
+the built-in format of a schema file by its extension.
+
+| Format                                          | Name              | Extensions                                                        |
+| ----------------------------------------------- | ----------------- | ----------------------------------------------------------------- |
+| `SchemaFormat::JSON_SCHEMA` (JSON or YAML text) | `"json-schema"`   | `json`, `schema.json`, `yaml`, `yml`, `schema.yaml`, `schema.yml` |
+| `SchemaFormat::OPENAPI`                         | `"openapi"`       | `openapi.json`, `openapi.yaml`, `swagger.json`                    |
+| `SchemaFormat::XSD` (feature `xsd`)             | `"xsd"`           | `xsd`                                                             |
+| Your own: `SchemaFormat::new(&YOURS)`           | its `info().name` | its `info().extensions`                                           |
+
+```rust
+use config_editor_leptos::{SchemaFormat, SchemaResources, SchemaSource};
+
+// An OpenAPI document's named schema:
+let mut options = serde_json::Map::new();
+options.insert("schema".into(), "Server".into());
+let schema = SchemaSource::Formatted {
+    format: SchemaFormat::OPENAPI,
+    text: OPENAPI_YAML.to_string(),
+    resources: SchemaResources::new(),
+    options,
+};
+view! { <ConfigEditor language=Language::YAML schema=schema value=text /> }
+
+// With the files it refers to, and the format's options:
+let schema = SchemaSource::Formatted {
+    format: SchemaFormat::new(&MY_FORMAT),
+    text: main_text,
+    resources: SchemaResources::new().with("common.schema", common_text),
+    options: serde_json::Map::new(),
+};
+```
+
+A compile error is shown inline, as an invalid JSON Schema's is
+(`invalid_schema_source`: "Invalid {format}: {error}"). To share one schema
+between editors, compile it once with
+`Schema::compile_as(format, &SchemaInput::new(text).resources(&files))` and
+pass the [`Schema`].
+
+- **Resources.** The editor never fetches anything. A schema that refers to
+  other files (an include, an import, an external `$ref`) gets them from
+  `resources`, by location: resolved against the schema's location (its
+  `SchemaInput::at`, which a file's own references resolve against too),
+  then as written; an XSD import without a location is the resource
+  `urn:` and its namespace. A missing one is a compile error naming it and
+  where to pass it. JSON Schema files are bundled into the schema's `$defs`
+  (`#/$defs/common.json/…`), so completion and hover follow them too.
+  `SchemaFormat::imports(text)` lists the locations a text refers to, so a
+  host fetches them first (and calls it again on each fetched text).
+- **Extra checks.** A rule JSON Schema cannot hold (XSD's element order,
+  its `xs:key`) can still be checked: `CompiledSchema::with_checks` adds a
+  [`SchemaCheck`] beside the JSON Schema. The editor runs each one where it
+  validates (at the same pause in typing), giving it a [`CheckedDocument`]:
+  the text, its language, the value as the schema reads it and the
+  compiled JSON Schema (where a format leaves the annotations its checks
+  read). Each [`CheckProblem`] names the JSON pointer of the value it is
+  about; the editor places it there in any view, words it with the pointer
+  first and caps it with the schema's problems. Each check runs once per
+  validation; the editor knows nothing of what it checks.
+- **Losses.** What a format says that neither its JSON Schema nor its
+  checks check is a [`SchemaLoss`]: its construct, where it is, and its
+  effect (`NotChecked`, `Loosened` or `Approximated`). `Schema::losses()`
+  lists them, and each is also one of `Schema::warnings()`, so
+  `on_schema_warning` reports it.
+- **Build time.** `Schema::json()` is the JSON Schema a compiler gave:
+  compile once (in a build step, or with `compileSchema` in JavaScript) and
+  ship plain JSON Schema instead.
+- **Your own format.** Implement [`SchemaCompiler`]: `info` (name, label,
+  extensions), `compile` (the text, its location, resources and options in,
+  the JSON Schema, its losses and its checks out), and optionally
+  `imports`. Emit what
+  [completion and hover read](#schema-help); other keywords are validated
+  but give no help. DTD, RELAX NG, Protobuf, Avro or CUE are left to
+  compilers a host registers this way (or to their own tools, which emit
+  JSON Schema at build time).
+
+```rust
+use config_editor_leptos::{CompiledSchema, SchemaCompiler, SchemaError, SchemaFormatInfo,
+    SchemaInput, SchemaLoss, LossEffect};
+
+struct Fields;
+impl SchemaCompiler for Fields {
+    fn info(&self) -> SchemaFormatInfo {
+        SchemaFormatInfo { name: "fields", label: "Fields", extensions: &["fields"] }
+    }
+    fn compile(&self, input: &SchemaInput<'_>) -> Result<CompiledSchema, SchemaError> {
+        let mut properties = serde_json::Map::new();
+        for line in input.text.lines().filter(|line| !line.is_empty()) {
+            let (name, kind) = line.split_once(':').ok_or_else(|| SchemaError(format!("no type: {line}")))?;
+            properties.insert(name.trim().into(), serde_json::json!({ "type": kind.trim() }));
+        }
+        let order = SchemaLoss::new("order", LossEffect::NotChecked, "field order is not checked");
+        Ok(CompiledSchema::new(serde_json::json!({ "properties": properties })).with_losses(vec![order]))
+    }
+}
+static FIELDS: Fields = Fields;
+let format = SchemaFormat::new(&FIELDS);
+```
+
+### OpenAPI
+
+`SchemaFormat::OPENAPI` takes an OpenAPI 3.x or Swagger 2.0 document (JSON,
+or YAML with the `yaml` feature) and makes one of its named schemas
+(`components.schemas`, Swagger's `definitions`) the document's schema: the
+option `schema` names it (`{"schema": "ServerConfig"}`; needless when there
+is one), the others are `$defs` it refers to. OpenAPI 3.1 schemas are
+JSON Schema 2020-12 as they are; 3.0 and Swagger ones are rewritten where
+they differ (`nullable: true` adds `null` to the type, a boolean
+`exclusiveMinimum`/`exclusiveMaximum` takes its bound, `example` becomes
+`examples`). The XML object is kept, so `"xml": {"attribute": true}` writes
+attributes in an XML view. A `discriminator` is a loss: the options are
+matched by their schemas.
+
+### XML Schema (XSD)
+
+`SchemaFormat::XSD` (feature `xsd`) compiles an XSD 1.0 file into JSON
+Schema in the [XML mapping](#xml-mapping), so it validates, completes and
+documents every view of the document (Edit-as YAML of a `pom.xml` is
+checked against the POM's XSD too):
+
+```rust
+use config_editor_leptos::{Schema, SchemaFormat, SchemaInput};
+
+let mut options = serde_json::Map::new();
+options.insert("root".into(), "project".into());
+let pom = Schema::compile_as(SchemaFormat::XSD, &SchemaInput::new(POM_XSD).options(&options))?;
+for loss in pom.losses() { log::info!("{loss}"); } // what is not checked
+```
+
+- **Elements** are properties keyed by local name; `minOccurs` gives
+  `required`, `maxOccurs` above 1 a list (a lone element reads as a
+  one-item list). **Attributes** are properties marked
+  `"xml": {"attribute": true}`, so a conversion to XML writes them back as
+  attributes (`@name` beside a child element of that name); `use`,
+  `default` and `fixed` map to `required`, `default` and `const`. Text
+  beside attributes is `#text`.
+- **Types**: the built-in types (integers with their bounds, `boolean`
+  with XSD's `1`/`0`, `decimal`, dates with their `format`, `token` and
+  names with their whitespace rule and pattern), restrictions with their
+  facets (`enumeration` typed by the base, lengths, bounds, `pattern`
+  anchored as XSD anchors it), unions, and complex types by extension (the
+  base's content flattened in) or restriction. Named types and global
+  elements are `$defs`; recursion is fine. `xs:documentation` is the
+  description hover shows.
+- **Roots**: every global element may start a document (a file may hold
+  several, as the XML reader allows); the option `root` names the one, and
+  `configRoot` takes one element's content as the document (a file whose
+  top element is `config-root="true"`).
+- **Closed** content models reject keys they do not name
+  (`additionalProperties: false`), catching typos; the option `lax: true`
+  opens them for hand-extended configs. `xs:any` opens them too, and
+  `xs:anyAttribute namespace="##other"` allows prefixed attributes.
+- **Checked beside the JSON Schema** ([extra checks](#schema-formats)):
+  - each element's children against its **content model**, as an XSD
+    validator runs them: the order of an `xs:sequence`, an `xs:choice`
+    (one option, nested or repeated), substitution groups (one member),
+    every `minOccurs` and `maxOccurs` (counts above 64 as unbounded),
+    `xs:all`, and the children of mixed content. A problem names what was
+    expected (`<b> is not expected here; expected <a>`) on the element;
+  - **wildcards**: the namespaces an `xs:any` allows, and, where a
+    wildcard leaves the model open, each attribute against its
+    declarations and the `xs:anyAttribute` namespaces;
+  - **identity constraints**: `xs:key` (unique, and present), `xs:unique`
+    and `xs:keyref` (a value of its key), for selectors and fields of
+    child steps, `*`, `.//`, `|` and a field's final `@attribute`.
+
+  In an XML text the order and namespaces are read from the text itself
+  (repeated elements apart, as written). In another language's view the
+  children are taken in the model's order (TOML and HCL write tables after
+  values), so there the order is not checked, nor the namespaces (an
+  element written without a prefix is in the target namespace).
+
+- **Not checked.** These XSD rules have no form the editor checks, so a
+  document breaking only them shows no problem. Each one the schema uses
+  is reported as a schema warning (`Schema::losses()`, `on_schema_warning`)
+  with its file and line:
+  - the order of the elements of an `xs:sequence` in another language's
+    view (above), and there a value named as both an attribute and a
+    child element (Spring's `value`), which may be either: it is taken as
+    whichever the content model allows;
+  - an identity constraint whose XPath is beyond the subset above;
+  - `xs:any` with `processContents` `strict` or `lax`: the elements it
+    allows are not checked against their declarations; the namespaces of
+    the attributes an `xs:anyAttribute` allows, in another language's
+    view;
+  - a content model too large to check (over 20,000 states once its
+    counts are unrolled), and an `xs:all` extended by (or extending)
+    another model: checked without its counts;
+  - `totalDigits`, `fractionDigits`, the items of an `xs:list`, and
+    patterns using Unicode blocks (`\p{IsBasicLatin}`);
+  - `float` and `double`'s `INF`, `-INF` and `NaN`; `nillable` and
+    `xsi:nil`; abstract types and `xsi:type`; `blockDefault` and
+    `finalDefault`;
+  - XSD 1.1 (`xs:assert`, `xs:alternative`, `xs:override`) and
+    `xs:notation`;
+  - a name two namespaces both define (the data model keys by local name:
+    the one read first is used).
+- **Several files**: `xs:include`, `xs:import` and `xs:redefine` read
+  their files from the resources (an import without a `schemaLocation` from
+  `urn:` and its namespace; the XML namespace's own needs none); a
+  redefinition replaces the definition it names and may derive from it.
+  `imports(text)` lists the `schemaLocation`s a text names, for the host to
+  fetch (call it again on each fetched file).
+
+Checked against `xmllint --schema` on real schemas (Maven POM 4.0.0, Log4j
+2, Spring beans, JUnit XML, a .NET-style config), with instances that only
+the checks catch (elements out of order, a key used twice, a `keyref` to
+no key, an unknown attribute beside a wildcard): the verdicts agree.
 
 ## Keyboard
 
@@ -1613,6 +1833,25 @@ adds a root: `{"listen": 4343, "port": 80}` writes `<listen>4343</listen>` and
 `<port>80</port>`, and a key added at the top in another view is one more
 top-level element.
 
+With a schema, each attribute value and element text is read as the type
+the schema gives its place instead of guessed: `<price>1.50</price>` is the
+number 1.5 where the schema wants a number (a save keeps `1.50` as written
+until the value changes), `<port> 080 </port>` is 80 where it wants an
+integer and the exact text where it wants a string, `<name>true</name>` is
+the string `"true"` where it wants a string, and a schema
+may list other spellings of a boolean (`"x-true": ["true", "1"]`,
+`"x-false": ["false", "0"]`, as the XSD format writes them).
+`"x-whitespace": "collapse"` (or `"replace"`) on a string schema trims and
+joins its whitespace. Where the schema allows several types, or says
+none, the text is read as without a schema.
+
+A property the schema marks `"xml": {"attribute": true}` (the OpenAPI XML
+object, which other views ignore) is written as an attribute where the XML
+text does not write it already: converting `{"server": {"port": 80}}` writes
+`<server port="80"/>`, and a key added in another view of an XML file is an
+attribute there. In a start tag, completion then offers the element's
+attributes only, and in its content only its elements.
+
 Namespace declarations (`xmlns`, `xmlns:m`) and the attributes of the XML
 Schema instance namespace (`xsi:schemaLocation`, `xsi:type`, with whatever
 prefix is bound to it) are markup, not data: `<project xmlns="…"
@@ -1653,15 +1892,16 @@ const ENV: Language = Language::new(&DOTENV);
 // <ConfigEditor language=ENV .../>, ENV.convert(text, Language::YAML), …
 ```
 
-| Method                                                                                              | Adds                                                            |
-| --------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
-| `info`, `parse` (required)                                                                          | Name, icon, extensions; syntax errors and the data model        |
-| `serialize`                                                                                         | Conversion into the language (Edit-as, either way)              |
-| `key_span`, `value_span`                                                                            | Positions for schema diagnostics and read-only fields           |
-| `completion_context`, `existing_keys`, `property_insert`, `format_value`                            | Schema completion; see [below](#completion-and-hover)           |
-| `hover_key`                                                                                         | Hover docs                                                      |
-| `highlight`, `comments`, `multiline_strings`                                                        | Syntax colors, comments and strings over several lines included |
-| `newline`, `toggle_comments`, `auto_close`, `complete_on_type`, `reindent_on_type`, `lexical_state` | Editing behavior                                                |
+| Method                                                                                              | Adds                                                                                                       |
+| --------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `info`, `parse` (required)                                                                          | Name, icon, extensions; syntax errors and the data model                                                   |
+| `serialize`                                                                                         | Conversion into the language (Edit-as, either way)                                                         |
+| `key_span`, `value_span`                                                                            | Positions for schema diagnostics and read-only fields                                                      |
+| `completion_context`, `existing_keys`, `property_insert`, `format_value`                            | Schema completion; see [below](#completion-and-hover)                                                      |
+| `hover_key`                                                                                         | Hover docs                                                                                                 |
+| `highlight`, `comments`, `multiline_strings`                                                        | Syntax colors, comments and strings over several lines included                                            |
+| `newline`, `toggle_comments`, `auto_close`, `complete_on_type`, `reindent_on_type`, `lexical_state` | Editing behavior                                                                                           |
+| `scalars` (`Scalars::Text`), `parse_text`, `guess_scalar`                                           | Values that are all text in your syntax (`.env`) read as the types the schema gives (`PORT=80` an integer) |
 
 Read-only fields hold in a language without spans too: the editor then
 compares the field's value on every edit whose text parses, and refuses one
@@ -1774,6 +2014,7 @@ all.
 | With sections (`[table]`)               | `starts_section`                              | A lock in a large text that does not parse finds the section's lines                                        | —                                                                                                                  |
 | With trailing comments                  | `comment_start`                               | Edit-as keeps a line's comment when the line is renamed or moves                                            | `comment_start_outside_quotes`                                                                                     |
 | With values over lines (`[` … `]`)      | `multiline_constructs`, `highlight_continued` | Each line of an array, a flow collection or a start tag written over several lines is colored as its inside | `MultilineConstruct::structure`, `MultilineConstruct::colored`                                                     |
+| Writing every scalar as text (`.env`)   | `scalars`, `parse_text`, `guess_scalar`       | Where the schema gives a type, the text there reads as it (`PORT=80` is a number); elsewhere the guess      | —                                                                                                                  |
 | Any                                     | `fold_ranges`                                 | What folds; the default folds by indentation, `config`'s brackets and comments, and multi-line strings      | `indent_fold_ranges`, `bracket_fold_ranges`, `comment_fold_ranges`, `string_body_fold_ranges`, `merge_fold_ranges` |
 
 `config_editor_leptos::language` also exports the other helpers the built-in
@@ -1899,7 +2140,8 @@ images. An end-to-end test runs every feature under this policy.
 
 ## Cargo features
 
-All are on by default; turn off what you don't use to shrink the build.
+All but `xsd` are on by default; turn off what you don't use to shrink the
+build.
 
 | Feature             | Enables                                                                                                                                                                                                                                                                   |
 | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -1913,6 +2155,7 @@ All are on by default; turn off what you don't use to shrink the build.
 | `diff`              | [Changes against the baseline](#changes-against-the-baseline): the gutter markers and their preview, revert, `Alt+F5`, the change count (`on_change_summary`) and `unified_diff`. Without it the baseline still drives the dirty flag and saving.                         |
 | `folding`           | [Folding](#folding): the chevrons, the folding keys and the handle's folding methods.                                                                                                                                                                                     |
 | `protect`           | [Read-only fields](#read-only-fields) and [secrets](#secrets): the schema's `readOnly`, `writeOnly` and `x-secret`, `read_only_paths`, `read_only_ranges` and `secrets`. The whole-document `read_only` works without it.                                                 |
+| `xsd`               | Off by default. `SchemaFormat::XSD`: XML Schema as a [schema format](#schema-formats) (`quick-xml`, which `xml` uses too).                                                                                                                                                |
 
 ```toml
 # YAML with live schema diagnostics:
@@ -1970,17 +2213,19 @@ headless functions) is left out by the linker, feature or not.
 
 | Build                                                           | wasm, gzip -9 |
 | --------------------------------------------------------------- | ------------- |
-| Everything (the default features)                               | 1815 KB       |
-| YAML + JSON, every optional feature, no `schema-validation`     | 721 KB        |
-| YAML + JSON, every optional feature, with `schema-validation`   | 1417 KB       |
-| Minimal: YAML only, no optional feature, no `schema-validation` | 579 KB        |
-| Saved by leaving out `schema-validation` (from everything)      | -700 KB       |
-| Saved by leaving out `search` (from everything)                 | -34 KB        |
-| Saved by leaving out `folding` (from everything)                | -30 KB        |
-| Saved by leaving out `diff` (from everything)                   | -25 KB        |
-| Saved by leaving out `protect` (from everything)                | -53 KB        |
+| Everything (the default features)                               | 2274 KB       |
+| YAML + JSON, every optional feature, no `schema-validation`     | 1150 KB       |
+| YAML + JSON, every optional feature, with `schema-validation`   | 1861 KB       |
+| Minimal: YAML only, no optional feature, no `schema-validation` | 914 KB        |
+| Added by `xsd` (to everything)                                  | +46 KB        |
+| XML + `xsd`, every optional feature, no `schema-validation`     | 1079 KB       |
+| Saved by leaving out `schema-validation` (from everything)      | -715 KB       |
+| Saved by leaving out `search` (from everything)                 | -39 KB        |
+| Saved by leaving out `folding` (from everything)                | -34 KB        |
+| Saved by leaving out `diff` (from everything)                   | -31 KB        |
+| Saved by leaving out `protect` (from everything)                | -109 KB       |
 
-Measured 2026-11-07 with rustc 1.99.1, without wasm-opt (not installed), by `scripts/wasm-sizes.sh`.
+Measured 2026-11-13 with rustc 1.99.1, without wasm-opt (not installed), by `scripts/wasm-sizes.sh`.
 
 <!-- wasm-sizes:end -->
 
@@ -1998,5 +2243,12 @@ MIT. See [LICENSE](LICENSE).
 [Leptos]: https://leptos.dev
 [`Schema::warnings`]: https://docs.rs/config-editor-leptos/latest/config_editor_leptos/struct.Schema.html#method.warnings
 [`PRESET_CSS`]: https://docs.rs/config-editor-leptos/latest/config_editor_leptos/constant.PRESET_CSS.html
+[`Schema`]: https://docs.rs/config-editor-leptos/latest/config_editor_leptos/struct.Schema.html
+[`SchemaCompiler`]: https://docs.rs/config-editor-leptos/latest/config_editor_leptos/trait.SchemaCompiler.html
+[`SchemaFormat`]: https://docs.rs/config-editor-leptos/latest/config_editor_leptos/struct.SchemaFormat.html
+[`SchemaLoss`]: https://docs.rs/config-editor-leptos/latest/config_editor_leptos/struct.SchemaLoss.html
+[`SchemaCheck`]: https://docs.rs/config-editor-leptos/latest/config_editor_leptos/trait.SchemaCheck.html
+[`CheckedDocument`]: https://docs.rs/config-editor-leptos/latest/config_editor_leptos/struct.CheckedDocument.html
+[`CheckProblem`]: https://docs.rs/config-editor-leptos/latest/config_editor_leptos/struct.CheckProblem.html
 [`@pngwasi/config-editor`]: https://www.npmjs.com/package/@pngwasi/config-editor
 [`@pngwasi/config-editor-react`]: https://www.npmjs.com/package/@pngwasi/config-editor-react

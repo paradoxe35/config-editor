@@ -81,22 +81,25 @@ the Rust crate's struct so they never drift. Events are props too
 (`@save` is the `onSave` prop): the editor knows which listeners are set,
 so `Ctrl+S` is the editor's only while there is a `@save` listener.
 
-| Prop                     | Type               | Default          | Purpose                                                                                                                                                                         |
-| ------------------------ | ------------------ | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `v-model` (`modelValue`) | `string`           | —                | The document, in `language`. A parent that applies the edits late never rolls the document back (see [below](#late-parents)).                                                   |
-| `default-value`          | `string`           | `""`             | The initial document without `v-model`.                                                                                                                                         |
-| `language`               | `string`           | `"yaml"`         | `"yaml"`, `"json"`, `"toml"`, `"hcl"`, `"xml"`, or a registered one. Changing it re-mounts.                                                                                     |
-| `edit-as`                | `string \| null`   | —                | Show and edit the document in another language; it is saved back in `language`, keeping its comments.                                                                           |
-| `host-diagnostics`       | `HostDiagnostic[]` | —                | Problems the host found (its own checks: a service, a build step), by path or range, shown with the editor's own. Updates live, also when changed in place.                     |
-| `read-only-paths`        | `FieldPath[]`      | —                | Fields the user cannot change (each a whole subtree), on top of the schema's `readOnly` ones. Updates live.                                                                     |
-| `read-only-ranges`       | `TextRangeInput[]` | —                | Stretches of the document (in `language`) the user cannot change. Updates live.                                                                                                 |
-| `secrets`                | `SecretOptions`    | defaults         | Secret placeholders (`«secret 3f2a»`) in `writeOnly` / `x-secret` fields stay atomic. Changing `placeholder`, `hint` or `referencePrefixes` re-mounts.                          |
-| `schema`                 | `string`           | —                | JSON Schema as JSON or YAML text: completion, hover docs and validation. Changing it re-mounts.                                                                                 |
-| `baseline`               | `string`           | initial value    | Text the diff gutter compares against: the version last saved or loaded. A new one under unsaved edits asks the user (Reload / Keep mine).                                      |
-| `read-only`              | `boolean`          | `false`          | View mode.                                                                                                                                                                      |
-| `read-only-reason`       | `string`           | —                | Why the editor is read-only, while `read-only` is on: the "Cannot edit in a read-only editor" notice says it, and so does the text area's accessible description. Updates live. |
-| `file-name`              | `string`           | `untitled.<ext>` | Shown in the toolbar. Changing it re-mounts.                                                                                                                                    |
-| `editor-class`           | `string`           | —                | Class on the editor root. Changing it re-mounts. `class`, `style` and other attributes go on the component's `<div>`, as for any Vue component.                                 |
+| Prop                     | Type                      | Default          | Purpose                                                                                                                                                                                                                                |
+| ------------------------ | ------------------------- | ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `v-model` (`modelValue`) | `string`                  | —                | The document, in `language`. A parent that applies the edits late never rolls the document back (see [below](#late-parents)).                                                                                                          |
+| `default-value`          | `string`                  | `""`             | The initial document without `v-model`.                                                                                                                                                                                                |
+| `language`               | `string`                  | `"yaml"`         | `"yaml"`, `"json"`, `"toml"`, `"hcl"`, `"xml"`, or a registered one. Changing it re-mounts.                                                                                                                                            |
+| `edit-as`                | `string \| null`          | —                | Show and edit the document in another language; it is saved back in `language`, keeping its comments.                                                                                                                                  |
+| `host-diagnostics`       | `HostDiagnostic[]`        | —                | Problems the host found (its own checks: a service, a build step), by path or range, shown with the editor's own. Updates live, also when changed in place.                                                                            |
+| `read-only-paths`        | `FieldPath[]`             | —                | Fields the user cannot change (each a whole subtree), on top of the schema's `readOnly` ones. Updates live.                                                                                                                            |
+| `read-only-ranges`       | `TextRangeInput[]`        | —                | Stretches of the document (in `language`) the user cannot change. Updates live.                                                                                                                                                        |
+| `secrets`                | `SecretOptions`           | defaults         | Secret placeholders (`«secret 3f2a»`) in `writeOnly` / `x-secret` fields stay atomic. Changing `placeholder`, `hint` or `referencePrefixes` re-mounts.                                                                                 |
+| `schema`                 | `string`                  | —                | The schema: completion, hover docs and validation. JSON Schema as JSON or YAML text, or a schema in `schemaFormat` (see [Schema formats](https://www.npmjs.com/package/@pngwasi/config-editor#schema-formats)). Changing it re-mounts. |
+| `schema-format`          | `string`                  | `"json-schema"`  | The format `schema` is written in: `"json-schema"` (JSON or YAML text), `"openapi"`, `"xsd"` or one from `registerSchemaFormat`; never guessed. Changing it re-mounts.                                                                 |
+| `schema-resources`       | `Record<string, string>`  | —                | The files `schema` refers to (an include, an import, an external `$ref`), by location: the editor fetches nothing. Changing them re-mounts.                                                                                            |
+| `schema-options`         | `Record<string, unknown>` | —                | Options of `schemaFormat`. Changing them re-mounts.                                                                                                                                                                                    |
+| `baseline`               | `string`                  | initial value    | Text the diff gutter compares against: the version last saved or loaded. A new one under unsaved edits asks the user (Reload / Keep mine).                                                                                             |
+| `read-only`              | `boolean`                 | `false`          | View mode.                                                                                                                                                                                                                             |
+| `read-only-reason`       | `string`                  | —                | Why the editor is read-only, while `read-only` is on: the "Cannot edit in a read-only editor" notice says it, and so does the text area's accessible description. Updates live.                                                        |
+| `file-name`              | `string`                  | `untitled.<ext>` | Shown in the toolbar. Changing it re-mounts.                                                                                                                                                                                           |
+| `editor-class`           | `string`                  | —                | Class on the editor root. Changing it re-mounts. `class`, `style` and other attributes go on the component's `<div>`, as for any Vue component.                                                                                        |
 
 | Event                 | Payload                             | When                                                                                                                                                                                                                                                                                    |
 | --------------------- | ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -115,7 +118,8 @@ so `Ctrl+S` is the editor's only while there is a `@save` listener.
 `v-model`, `edit-as`, `read-only`, `baseline`, `host-diagnostics`,
 `read-only-paths`, `read-only-ranges`, every setting and every listener
 update the live editor (the caret, undo history and folds stay); a list
-or object prop changed in place counts. `language`, `schema`, `file-name`,
+or object prop changed in place counts. `language`, `schema`,
+`schema-format`, `schema-resources`, `schema-options`, `file-name`,
 `editor-class` and the `secrets` patterns re-create it; the document, its
 diff baseline and the caret (when it had focus) carry over, undo history
 starts over.
@@ -185,7 +189,7 @@ pairs, `…One` for 1 and `…Other` otherwise.
 <!-- Generated from crates/config-editor-leptos/src/strings.rs by js/config-editor/tests/settings.rs; do not edit. Regenerate with `UPDATE_GENERATED=1 cargo test -p config-editor-js --test settings`. -->
 
 <details>
-<summary>Every text and its default (205 texts)</summary>
+<summary>Every text and its default (206 texts)</summary>
 
 | Key                         | Default                                                                                                                                     |                                                                                                                                                                                                                                                |
 | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -375,6 +379,7 @@ pairs, `…One` for 1 and `…Other` otherwise.
 | `optionProblem`             | `"{option}: {problem}"`                                                                                                                     | An option (`{option}`) and another problem it has with the value.                                                                                                                                                                              |
 | `optionNumber`              | `"option {number}"`                                                                                                                         | The name of an option with no title or description (`{number}`, from 1).                                                                                                                                                                       |
 | `invalidSchema`             | `"Invalid JSON Schema: {error}"`                                                                                                            | A schema that does not compile.                                                                                                                                                                                                                |
+| `invalidSchemaSource`       | `"Invalid {format}: {error}"`                                                                                                               | A schema its format cannot read (`{format}`: the format's label, such as `XSD`).                                                                                                                                                               |
 | `emptySchema`               | `"Invalid JSON Schema: the schema text is empty"`                                                                                           | A schema whose text is empty, or only spaces and line breaks.                                                                                                                                                                                  |
 | `invalidPlaceholder`        | `"secrets.placeholder: {error}"`                                                                                                            | A secret placeholder pattern the editor cannot use (it does not compile, or matches empty text): no token is taken for a placeholder.                                                                                                          |
 | `problemAtPath`             | `"{path}: {message}"`                                                                                                                       | A host's problem with a field the editor cannot find in the text, listed with the field's path.                                                                                                                                                |
@@ -570,15 +575,16 @@ they take and return: `EditorSettings`, `EditorStrings`, `ThemeName`,
 `ThemeColorMap`, `LanguageName`, `DocumentSpec`, `CloseRequest`,
 `ChangeSummary`, `BaselineConflict`, `FieldPath`, `EditorPath`,
 `EditorRange`, `LineRange`, `EditorView` (what `editor(id)` returns),
-`HostDiagnostic`, `Diagnostic` (a problem the editor reports), `Severity`, `SecretOptions`, `TextRangeInput`. The runtime prop declarations are exported too
+`HostDiagnostic`, `Diagnostic` (a problem the editor reports), `Severity`, `SecretOptions`, `TextRangeInput`, `SchemaFormatName` (a `schemaFormat`). The runtime prop declarations are exported too
 (`configEditorProps`, `configDocumentsProps`), for a wrapper component of
 your own.
 
 The helpers come from `@pngwasi/config-editor`, a peer dependency:
-`loadConfigEditor`, `languages()`, `themes()`, `languageForFile` and
-`registerLanguage` from its main entry, and the tools (`validate`,
+`loadConfigEditor`, `languages()`, `themes()`, `languageForFile`,
+`registerLanguage`, `registerSchemaFormat`, `schemaFormats()` and
+`schemaFormatForFile` from its main entry, and the tools (`validate`,
 `convert`, `parse`, `serialize`, `unifiedDiff`, `changeSummary`, `rangeOf`, `rangesOf`,
-`pathAt`, `schemaWarnings`, `presetCss`) from
+`pathAt`, `schemaWarnings`, `compileSchema`, `schemaImports`, `presetCss`) from
 `@pngwasi/config-editor/tools`, called after `loadConfigEditor()` has
 resolved; see the [`@pngwasi/config-editor` README](https://www.npmjs.com/package/@pngwasi/config-editor#pngwasiconfig-editortools).
 

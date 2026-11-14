@@ -30,11 +30,15 @@ use super::work_count::{Work, note, note_many};
 mod conformed;
 pub(crate) use conformed::conformed;
 
-/// How many parses are kept.
-const PARSES_KEPT: usize = 2;
+/// How many parses are kept: two texts, each read as the language guesses
+/// its scalars and with them as text (a language that writes every scalar
+/// as text reads both ways when a schema types them, see
+/// `ConfigLanguage::parse_text`).
+const PARSES_KEPT: usize = 4;
 
-/// A parse: the language's label (its identity), the text and the result.
-type Entry = (&'static str, String, Rc<Result<Value, ParseError>>);
+/// A parse: the language's label (its identity), whether its scalars were
+/// left as text, the text and the result.
+type Entry = (&'static str, bool, String, Rc<Result<Value, ParseError>>);
 
 /// String bodies: the language's label, the text and its body lines.
 type Bodies = (&'static str, String, Rc<Vec<Range<usize>>>);
@@ -65,14 +69,23 @@ thread_local! {
 /// `text` parsed as `language`, from the last parse when it was of the same
 /// text in the same language.
 pub(crate) fn parsed(language: &dyn ConfigLanguage, text: &str) -> Rc<Result<Value, ParseError>> {
+    parsed_as(language, text, false)
+}
+
+/// [`parsed`], or with `as_text` [`ConfigLanguage::parse_text`]'s reading.
+fn parsed_as(
+    language: &dyn ConfigLanguage,
+    text: &str,
+    as_text: bool,
+) -> Rc<Result<Value, ParseError>> {
     let label = language.info().label;
     let cached = LAST.with(|last| {
         let mut last = last.borrow_mut();
-        let at = last
-            .iter()
-            .position(|(known, written, _)| *known == label && written == text)?;
+        let at = last.iter().position(|(known, reading, written, _)| {
+            *known == label && *reading == as_text && written == text
+        })?;
         let entry = last.remove(at);
-        let result = Rc::clone(&entry.2);
+        let result = Rc::clone(&entry.3);
         last.insert(0, entry);
         Some(result)
     });
@@ -80,13 +93,17 @@ pub(crate) fn parsed(language: &dyn ConfigLanguage, text: &str) -> Rc<Result<Val
         return result;
     }
     note_many(Work::ParsedBytes, text.len());
-    let result = Rc::new(language.parse(text));
+    let result = Rc::new(if as_text {
+        language.parse_text(text)
+    } else {
+        language.parse(text)
+    });
     if HOLDERS.with(Cell::get) == 0 {
         return result;
     }
     LAST.with(|last| {
         let mut last = last.borrow_mut();
-        last.insert(0, (label, text.to_string(), Rc::clone(&result)));
+        last.insert(0, (label, as_text, text.to_string(), Rc::clone(&result)));
         last.truncate(PARSES_KEPT);
     });
     result
@@ -103,8 +120,9 @@ pub(crate) fn known_to_parse(language: &dyn ConfigLanguage, text: &str) -> Optio
     LAST.with(|last| {
         last.borrow()
             .iter()
-            .find(|(known, written, _)| *known == label && written == text)
-            .map(|(_, _, result)| result.is_ok())
+            // A reading as text parses where the typed one does.
+            .find(|(known, _, written, _)| *known == label && written == text)
+            .map(|(_, _, _, result)| result.is_ok())
     })
 }
 
@@ -243,6 +261,12 @@ fn at_place<T: Clone + 'static>(
 /// [`parsed`], as an owned document.
 pub(crate) fn parse(language: &dyn ConfigLanguage, text: &str) -> Result<Value, ParseError> {
     (*parsed(language, text)).clone()
+}
+
+/// `text` read by [`ConfigLanguage::parse_text`], from the last such
+/// reading when it was of the same text in the same language.
+pub(crate) fn parse_text(language: &dyn ConfigLanguage, text: &str) -> Result<Value, ParseError> {
+    (*parsed_as(language, text, true)).clone()
 }
 
 /// An editor mounted: parses are kept.

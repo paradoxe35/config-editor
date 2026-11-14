@@ -36,6 +36,7 @@ mod prefixed;
 mod attribute_order;
 mod markup;
 mod declarations;
+mod hints;
 mod attribute_layout;
 mod identity;
 mod kept_markup;
@@ -60,7 +61,7 @@ use super::super::completion::{kept_const, kept_default, array_branch, object_br
 use super::super::highlight::{MultilineConstruct, Token as HighlightToken, TokenKind, Tokens};
 use super::super::keyboard::utf16_to_byte_index;
 use super::super::language::pointer_segments;
-use super::super::language::{OneLine, CompletionContext, Newline, Repetition, EntryPosition, InlineBlock, InsertContext, ConfigLanguage, LanguageInfo, Lexical, Span, ParseError,
+use super::super::language::{Scalars, OneLine, CompletionContext, Newline, Repetition, EntryPosition, InlineBlock, InsertContext, ConfigLanguage, LanguageInfo, Lexical, Span, ParseError,
     SchemaPathSegment, inline_block,
 };
 use quick_xml::XmlVersion;
@@ -264,8 +265,18 @@ impl ConfigLanguage for XmlBehavior {
         parse::mixed_content(source)
     }
 
-    fn scalars_are_text(&self) -> bool {
-        true
+    fn scalars(&self) -> Scalars {
+        Scalars::Text
+    }
+
+    /// Every attribute value and element text exactly as written.
+    fn parse_text(&self, source: &str) -> Result<Value, ParseError> {
+        xml_parse_as(source, Reading::Text).map(super::super::codec::non_finite::escape_strings)
+    }
+
+    /// Numbers that write back unchanged, `true`, `false` and `null`.
+    fn guess_scalar(&self, text: &str) -> Value {
+        typed_scalar(text)
     }
 
     fn unconvertible(&self, source: &str) -> Option<String> {
@@ -356,6 +367,12 @@ impl ConfigLanguage for XmlBehavior {
     /// rootless unless `previous` had a config root, which is kept along with
     /// its declaration.
     fn serialize(&self, value: &Value, previous: Option<&str>) -> Result<String, String> {
+        self.serialize_with(value, previous, None)
+    }
+
+    /// A new scalar the schema marks `"xml": {"attribute": true}` is
+    /// written as an attribute (one the previous text writes keeps its form).
+    fn serialize_with(&self, value: &Value, previous: Option<&str>, schema: Option<&Value>) -> Result<String, String> {
         if let Some(pointer) = empty_key(value, String::new()) {
             return Err(format!("an empty key cannot be an XML element name (at {pointer})"));
         }
@@ -372,8 +389,17 @@ impl ConfigLanguage for XmlBehavior {
             return Err(reason);
         }
         let framing = previous.map(xml_framing).unwrap_or_default();
-        let attributes = previous.map(attribute_paths).unwrap_or_default();
+        let mut attributes = previous.map(attribute_paths).unwrap_or_default();
         let old = previous.filter(|_| !attributes.is_empty()).and_then(|previous| xml_parse(previous).ok());
+        if let Some(schema) = schema {
+            // What the text writes keeps its form: elements of the
+            // previous text stay elements.
+            let written = match (&old, previous) {
+                (Some(_), _) | (_, None) => None,
+                (None, Some(previous)) => super::super::parse_cache::parse(self, previous).ok(),
+            };
+            attributes.extend(hints::schema_attribute_paths(value, schema, old.as_ref().or(written.as_ref())));
+        }
         if let Some(reason) = attribute_values::first_container_attribute(value, old.as_ref(), &attributes) {
             return Err(reason);
         }
@@ -536,7 +562,7 @@ impl ConfigLanguage for XmlBehavior {
     }
 
     fn text_key(&self) -> Option<&'static str> {
-        Some("#text")
+        Some(super::XML_TEXT_KEY)
     }
 
     fn markup_delimiters(&self) -> Option<(char, char)> {
@@ -604,3 +630,5 @@ fn empty_key(value: &Value, pointer: String) -> Option<String> {
 mod tests;
 #[cfg(test)]
 mod existing_tests;
+#[cfg(all(test, feature = "yaml", feature = "json", feature = "toml", feature = "hcl"))]
+mod hints_tests;

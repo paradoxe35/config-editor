@@ -517,6 +517,9 @@ pub struct EditorStrings {
     pub option_number: String,
     /// A schema that does not compile.
     pub invalid_schema: String,
+    /// A schema its format cannot read (`{format}`: the format's label, such
+    /// as `XSD`).
+    pub invalid_schema_source: String,
     /// A schema whose text is empty, or only spaces and line breaks.
     pub empty_schema: String,
     /// A secret placeholder pattern the editor cannot use (it does not
@@ -802,6 +805,7 @@ impl Default for EditorStrings {
             option_problem: text("{option}: {problem}"),
             option_number: text("option {number}"),
             invalid_schema: text("Invalid JSON Schema: {error}"),
+            invalid_schema_source: text("Invalid {format}: {error}"),
             empty_schema: text("Invalid JSON Schema: the schema text is empty"),
             invalid_placeholder: text("secrets.placeholder: {error}"),
             problem_at_path: text("{path}: {message}"),

@@ -52,6 +52,8 @@ mod hover_problems;
 mod input;
 mod item_sources;
 mod kept_focus;
+mod schema_checks;
+mod schema_formats;
 #[cfg(feature = "schema-validation")]
 mod schema_refs;
 mod ui_refs;
@@ -104,6 +106,7 @@ pub use changes::unified_diff;
 pub use codec::{Conversion, ConvertError, float_of, float_value, string_of, string_value};
 pub use completion::{HoverDocs, Suggestion};
 pub use components::{ConfigEditorFooter, ConfigEditorToolbar};
+pub(crate) use diagnostics::SchemaKey;
 pub use diagnostics::{
     Diagnostic, DiagnosticOrigin, Schema, SchemaError, SchemaSource, Severity, check_syntax,
 };
@@ -113,6 +116,10 @@ pub use host_editing::{BaselineConflict, SaveRequest};
 pub use language::ParseError;
 pub use languages::{Language, UnknownLanguage};
 pub use paths::{FieldPath, TextPosition, TextRange};
+pub use schema_formats::{
+    CheckProblem, CheckedDocument, CompiledSchema, LossEffect, SchemaCheck, SchemaCompiler,
+    SchemaFormat, SchemaFormatInfo, SchemaInput, SchemaLoss, SchemaResources, UnknownSchemaFormat,
+};
 pub use secret_options::SecretOptions;
 pub use theme::{EditorTheme, ThemeColor, ThemeColors, UnknownTheme};
 

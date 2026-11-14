@@ -86,7 +86,10 @@ in the browser (in `onMount`, or behind `browser` from `$app/environment`).
 | `readOnlyPaths`      | `FieldPath[]`                               | —                | Fields the user cannot change (each a whole subtree), on top of the schema's `readOnly` ones. Updates live.                                                                                                                                                                                                                                                       |
 | `readOnlyRanges`     | `TextRangeInput[]`                          | —                | Stretches of the document (in `language`) the user cannot change. Updates live.                                                                                                                                                                                                                                                                                   |
 | `secrets`            | `SecretOptions`                             | defaults         | Secret placeholders (`«secret 3f2a»`) in `writeOnly` / `x-secret` fields stay atomic. Changing `placeholder`, `hint` or `referencePrefixes` re-mounts.                                                                                                                                                                                                            |
-| `schema`             | `string`                                    | —                | JSON Schema as JSON or YAML text: completion, hover docs and validation. Changing it re-mounts.                                                                                                                                                                                                                                                                   |
+| `schema`             | `string`                                    | —                | The schema: completion, hover docs and validation. JSON Schema as JSON or YAML text, or a schema in `schemaFormat` (see [Schema formats](https://www.npmjs.com/package/@pngwasi/config-editor#schema-formats)). Changing it re-mounts.                                                                                                                            |
+| `schemaFormat`       | `string`                                    | `"json-schema"`  | The format `schema` is written in: `"json-schema"` (JSON or YAML text), `"openapi"`, `"xsd"` or one from `registerSchemaFormat`; never guessed. Changing it re-mounts.                                                                                                                                                                                            |
+| `schemaResources`    | `Record<string, string>`                    | —                | The files `schema` refers to (an include, an import, an external `$ref`), by location: the editor fetches nothing. Changing them re-mounts.                                                                                                                                                                                                                       |
+| `schemaOptions`      | `Record<string, unknown>`                   | —                | Options of `schemaFormat`. Changing them re-mounts.                                                                                                                                                                                                                                                                                                               |
 | `onSchemaWarning`    | `(message: string) => void`                 | console warning  | Once per thing in `schema` the editor cannot use.                                                                                                                                                                                                                                                                                                                 |
 | `baseline`           | `string`                                    | initial value    | Text the diff gutter compares against: the version last saved or loaded. A new one under unsaved edits asks the user (Reload / Keep mine).                                                                                                                                                                                                                        |
 | `onSave`             | `(value: string, language: string) => void` | —                | `Ctrl+S` / `Cmd+S` (the browser's dialog prevented) and `save()`. Nothing saves by itself. Without it, `Ctrl+S` is the browser's.                                                                                                                                                                                                                                 |
@@ -102,8 +105,8 @@ in the browser (in `onMount`, or behind `browser` from `$app/environment`).
 `value`, `editAs`, `readOnly`, `baseline`, `hostDiagnostics`,
 `readOnlyPaths`, `readOnlyRanges`, every setting and every callback update
 the live editor (the caret, undo history and folds stay); a `$state` list or
-object changed in place counts. `language`, `schema`, `fileName`,
-`editorClass` and the `secrets` patterns re-create it; the document, its diff
+object changed in place counts. `language`, `schema`, `schemaFormat`,
+`schemaResources`, `schemaOptions`, `fileName`, `editorClass` and the `secrets` patterns re-create it; the document, its diff
 baseline and the caret (when it had focus) carry over, undo history starts
 over.
 
@@ -171,7 +174,7 @@ pairs, `…One` for 1 and `…Other` otherwise.
 <!-- Generated from crates/config-editor-leptos/src/strings.rs by js/config-editor/tests/settings.rs; do not edit. Regenerate with `UPDATE_GENERATED=1 cargo test -p config-editor-js --test settings`. -->
 
 <details>
-<summary>Every text and its default (205 texts)</summary>
+<summary>Every text and its default (206 texts)</summary>
 
 | Key                         | Default                                                                                                                                     |                                                                                                                                                                                                                                                |
 | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -361,6 +364,7 @@ pairs, `…One` for 1 and `…Other` otherwise.
 | `optionProblem`             | `"{option}: {problem}"`                                                                                                                     | An option (`{option}`) and another problem it has with the value.                                                                                                                                                                              |
 | `optionNumber`              | `"option {number}"`                                                                                                                         | The name of an option with no title or description (`{number}`, from 1).                                                                                                                                                                       |
 | `invalidSchema`             | `"Invalid JSON Schema: {error}"`                                                                                                            | A schema that does not compile.                                                                                                                                                                                                                |
+| `invalidSchemaSource`       | `"Invalid {format}: {error}"`                                                                                                               | A schema its format cannot read (`{format}`: the format's label, such as `XSD`).                                                                                                                                                               |
 | `emptySchema`               | `"Invalid JSON Schema: the schema text is empty"`                                                                                           | A schema whose text is empty, or only spaces and line breaks.                                                                                                                                                                                  |
 | `invalidPlaceholder`        | `"secrets.placeholder: {error}"`                                                                                                            | A secret placeholder pattern the editor cannot use (it does not compile, or matches empty text): no token is taken for a placeholder.                                                                                                          |
 | `problemAtPath`             | `"{path}: {message}"`                                                                                                                       | A host's problem with a field the editor cannot find in the text, listed with the field's path.                                                                                                                                                |
@@ -551,13 +555,14 @@ they take and return: `EditorSettings`, `EditorStrings`, `ThemeName`,
 `ThemeColorMap`, `LanguageName`, `DocumentSpec`, `CloseRequest`,
 `ChangeSummary`, `BaselineConflict`, `FieldPath`, `EditorPath`,
 `EditorRange`, `LineRange`, `EditorView` (what `editor(id)` returns),
-`HostDiagnostic`, `Diagnostic` (a problem the editor reports), `Severity`, `SecretOptions`, `TextRangeInput`.
+`HostDiagnostic`, `Diagnostic` (a problem the editor reports), `Severity`, `SecretOptions`, `TextRangeInput`, `SchemaFormatName` (a `schemaFormat`).
 
 The helpers come from `@pngwasi/config-editor`, a peer dependency:
-`loadConfigEditor`, `languages()`, `themes()`, `languageForFile` and
-`registerLanguage` from its main entry, and the tools (`validate`,
+`loadConfigEditor`, `languages()`, `themes()`, `languageForFile`,
+`registerLanguage`, `registerSchemaFormat`, `schemaFormats()` and
+`schemaFormatForFile` from its main entry, and the tools (`validate`,
 `convert`, `parse`, `serialize`, `unifiedDiff`, `changeSummary`, `rangeOf`, `rangesOf`,
-`pathAt`, `schemaWarnings`, `presetCss`) from
+`pathAt`, `schemaWarnings`, `compileSchema`, `schemaImports`, `presetCss`) from
 `@pngwasi/config-editor/tools`, called after `loadConfigEditor()` has
 resolved; see the [`@pngwasi/config-editor` README](https://www.npmjs.com/package/@pngwasi/config-editor#pngwasiconfig-editortools).
 

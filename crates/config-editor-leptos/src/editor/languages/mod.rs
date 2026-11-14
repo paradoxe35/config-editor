@@ -404,6 +404,26 @@ registry! {
     "xml" => XML => xml::XmlBehavior,
 }
 
+/// The key XML reads text beside attributes or child elements under (see
+/// `ConfigLanguage::text_key`), which the XSD format writes its schemas
+/// with.
+#[cfg_attr(not(feature = "xml"), allow(dead_code))]
+pub(crate) const XML_TEXT_KEY: &str = "#text";
+
+/// OpenAPI documents (`SchemaFormat::OPENAPI`), read as YAML too where the
+/// build has it.
+pub(crate) static OPENAPI: super::schema_formats::openapi::OpenApi =
+    super::schema_formats::openapi::OpenApi {
+        #[cfg(feature = "yaml")]
+        yaml: Some(|text| {
+            Language::YAML
+                .parse(text)
+                .map_err(|error| error.to_string())
+        }),
+        #[cfg(not(feature = "yaml"))]
+        yaml: None,
+    };
+
 impl Language {
     /// Wraps a language implementation, built-in or external.
     ///

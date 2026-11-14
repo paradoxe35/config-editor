@@ -213,6 +213,14 @@ mod typed;
     feature = "hcl",
     feature = "xml"
 ))]
+mod typed_by_schema;
+#[cfg(all(
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
 mod wide_integers;
 #[cfg(all(
     feature = "yaml",

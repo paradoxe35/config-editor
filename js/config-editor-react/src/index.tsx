@@ -9,6 +9,7 @@ import type {
   FieldPath,
   HostDiagnostic,
   LanguageName,
+  SchemaFormatName,
   SecretOptions,
   TextRangeInput,
 } from "@pngwasi/config-editor";
@@ -35,6 +36,7 @@ export type {
   HostDiagnostic,
   LanguageName,
   LineRange,
+  SchemaFormatName,
   SecretOptions,
   Severity,
   TextRangeInput,
@@ -95,7 +97,13 @@ export interface ConfigEditorProps extends EditorSettings {
   secrets?: SecretOptions;
   /** JSON Schema as JSON or YAML text. Changing it re-mounts. */
   schema?: string;
-  /** Called once per thing in `schema` the editor cannot use (an unsupported `patternProperties` regex). Default: a console warning. */
+  /** The format `schema` is written in (default `"json-schema"`, never guessed). Changing it re-mounts. */
+  schemaFormat?: SchemaFormatName;
+  /** The files `schema` refers to (an include, an import, an external `$ref`), by location. Changing them re-mounts. */
+  schemaResources?: Record<string, string>;
+  /** Options of `schemaFormat`, such as an XSD's `{ root: "project" }`. Changing them re-mounts. */
+  schemaOptions?: Record<string, unknown>;
+  /** Called once per thing in `schema` the editor cannot use (an unsupported `patternProperties` regex, what its format cannot express). Default: a console warning. */
   onSchemaWarning?: (message: string) => void;
   /**
    * Text the diff gutter compares against: the version last saved or loaded.

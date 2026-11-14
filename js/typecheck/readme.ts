@@ -1,6 +1,6 @@
 // The README examples, type-checked against the built packages (`npm run typecheck`).
-import { ConfigEditor, loadConfigEditor, registerLanguage, type ChangeSummary, type CustomLanguageContext, type EditorUpdate, type EditorView } from "@pngwasi/config-editor";
-import { convert, unifiedDiff, validate } from "@pngwasi/config-editor/tools";
+import { ConfigEditor, loadConfigEditor, registerLanguage, registerSchemaFormat, schemaFormatForFile, schemaFormats, type ChangeSummary, type CustomLanguageContext, type EditorUpdate, type EditorView } from "@pngwasi/config-editor";
+import { compileSchema, convert, schemaImports, unifiedDiff, validate } from "@pngwasi/config-editor/tools";
 import { DocumentsBinding, EditorBinding, SETTING_TYPES } from "@pngwasi/config-editor/binding";
 const noChanges: ChangeSummary = { added: 0, removed: 0, modified: 0, hunks: 0 };
 await loadConfigEditor();
@@ -37,6 +37,7 @@ const env = registerLanguage({
   comments: { lineComment: "#" },
   brackets: [["{", "}"], ["[", "]"]],
   separators: ["="],
+  scalars: "text",
 });
 new ConfigEditor(element, { language: env, schema: schemaText });
 // Schema completion and hover for a nested custom language.
@@ -149,3 +150,36 @@ binding.detach();
 new DocumentsBinding("tabs", { documents: [] }).handle.saveAll();
 const kind: "boolean" | "string" | "object" = SETTING_TYPES.showFooter;
 void [found, bound, kind, noChanges, review, sent, unsaved, folded, savedIds, shown, active, dirtyMain];
+// Schema formats: JSON Schema in YAML, a registered format, compiling at build time.
+{
+  const crdSchemaYaml: string = "properties: {}\n";
+  new ConfigEditor(element, { language: "yaml", value: "", schema: crdSchemaYaml });
+  new ConfigEditor(element, { schema: "port: integer\n", schemaFormat: "fields", schemaResources: { "common.fields": "" }, schemaOptions: { root: "project" } });
+  const name: string = registerSchemaFormat({
+    name: "fields",
+    extensions: ["fields"],
+    compile(text, resources, options) {
+      const properties: Record<string, unknown> = {};
+      for (const line of text.split("\n").filter(Boolean)) {
+        const [field, type] = line.split(":").map((part) => part.trim());
+        properties[field] = { type };
+      }
+      const losses = [{ message: "field order is not checked", construct: "order" }];
+      void resources; void options;
+      return { schema: { properties }, losses };
+    },
+    imports: (text) => [text],
+  });
+  const { schema, losses } = compileSchema("port: integer\n", { format: name });
+  const effect: "not-checked" | "loosened" | "approximated" = losses[0].effect;
+  const json: string = schema;
+  const fetchFirst: string[] = schemaImports("use: common.fields\n", "fields");
+  const warnings: string[] = schemaWarnings("port: integer\n", { schemaFormat: "fields" });
+  const format: string | null = schemaFormatForFile("crd.schema.yaml");
+  const labels: string[] = schemaFormats().map((info) => info.label);
+  validate("yaml", "port: 1\n", "port: integer\n", { schemaFormat: "fields", schemaResources: {}, schemaOptions: {} });
+  convert("xml", "<port>1</port>", "json", "port: integer\n", { schemaFormat: "fields" });
+  // @ts-expect-error: the editor is built from its schema's format.
+  editor.update({ schemaFormat: "fields" });
+  void effect; void json; void fetchFirst; void warnings; void format; void labels;
+}

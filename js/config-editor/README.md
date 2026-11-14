@@ -36,6 +36,7 @@ which build on this package.
   - [Secrets](#secrets)
   - [Paths](#paths)
 - [Languages and themes](#languages-and-themes)
+  - [Schema formats](#schema-formats)
   - [XML mapping](#xml-mapping)
 - [`@pngwasi/config-editor/tools`](#pngwasiconfig-editortools)
 - [`@pngwasi/config-editor/binding`](#pngwasiconfig-editorbinding)
@@ -121,7 +122,10 @@ document and its callbacks (below) and every [setting](#settings) (`theme`,
 | `language`           | `string`                                    | `"yaml"`         | Language of the document: `"yaml"`, `"json"`, `"toml"`, `"hcl"`, `"xml"` (any case, or a file extension such as `"yml"` or `"tf"`), or a registered one. `value`, `baseline` and `onChange` are always in it.                                                                                                                                                                                                                                                                                                                                                                                                  |
 | `value`              | `string`                                    | `""`             | The document.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | `editAs`             | `string`                                    | —                | Show and edit the document in another language; it is saved back in `language`, keeping its comments.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| `schema`             | `string`                                    | —                | JSON Schema as JSON or YAML text: completion, hover docs and validation.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `schema`             | `string`                                    | —                | The schema: completion, hover docs and validation. JSON Schema as JSON or YAML text, or a schema in `schemaFormat`; see [Schema formats](#schema-formats).                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `schemaFormat`       | `string`                                    | `"json-schema"`  | The format `schema` is written in: `"json-schema"` (JSON or YAML text), `"openapi"`, `"xsd"` or one from `registerSchemaFormat`. Never guessed from the text.                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `schemaResources`    | `Record<string, string>`                    | —                | The files `schema` refers to (an include, an import, an external `$ref`), by location: the editor fetches nothing.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| `schemaOptions`      | `Record<string, unknown>`                   | —                | Options of `schemaFormat`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | `baseline`           | `string`                                    | `value`          | Text the diff gutter compares against: the version last saved or loaded. See [Saving](#saving-and-unsaved-edits).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | `readOnly`           | `boolean`                                   | `false`          | View mode: navigation, selection, diagnostics and hover keep working.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | `readOnlyReason`     | `string`                                    | —                | Why the editor is read-only, while `readOnly` is on: the "Cannot edit in a read-only editor" notice says it when the user tries to edit, and so does the text area's accessible description. `update` changes it (`null`: no reason).                                                                                                                                                                                                                                                                                                                                                                          |
@@ -150,7 +154,8 @@ An unknown language, theme or color token, or an invalid schema, throws an
 `value`, `baseline`, `editAs`, `readOnly`, `hostDiagnostics`, the read-only
 fields, the callbacks and every setting change live through
 [`update`](#updateoptions). The other options (`language`, `schema`,
-`fileName`, `className`, `secrets`, `echoes`) are what the editor is built from:
+`schemaFormat`, `schemaResources`, `schemaOptions`, `fileName`, `className`,
+`secrets`, `echoes`) are what the editor is built from:
 create a new one to change them (the framework components do it for you).
 
 ### Settings
@@ -251,7 +256,7 @@ with that reason.
 <!-- Generated from crates/config-editor-leptos/src/strings.rs by js/config-editor/tests/settings.rs; do not edit. Regenerate with `UPDATE_GENERATED=1 cargo test -p config-editor-js --test settings`. -->
 
 <details>
-<summary>Every text and its default (205 texts)</summary>
+<summary>Every text and its default (206 texts)</summary>
 
 | Key                         | Default                                                                                                                                     |                                                                                                                                                                                                                                                |
 | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -441,6 +446,7 @@ with that reason.
 | `optionProblem`             | `"{option}: {problem}"`                                                                                                                     | An option (`{option}`) and another problem it has with the value.                                                                                                                                                                              |
 | `optionNumber`              | `"option {number}"`                                                                                                                         | The name of an option with no title or description (`{number}`, from 1).                                                                                                                                                                       |
 | `invalidSchema`             | `"Invalid JSON Schema: {error}"`                                                                                                            | A schema that does not compile.                                                                                                                                                                                                                |
+| `invalidSchemaSource`       | `"Invalid {format}: {error}"`                                                                                                               | A schema its format cannot read (`{format}`: the format's label, such as `XSD`).                                                                                                                                                               |
 | `emptySchema`               | `"Invalid JSON Schema: the schema text is empty"`                                                                                           | A schema whose text is empty, or only spaces and line breaks.                                                                                                                                                                                  |
 | `invalidPlaceholder`        | `"secrets.placeholder: {error}"`                                                                                                            | A secret placeholder pattern the editor cannot use (it does not compile, or matches empty text): no token is taken for a placeholder.                                                                                                          |
 | `problemAtPath`             | `"{path}: {message}"`                                                                                                                       | A host's problem with a field the editor cannot find in the text, listed with the field's path.                                                                                                                                                |
@@ -860,12 +866,15 @@ the editor mounts and for an empty document.
 The main entry also lists what the editor accepts, for pickers and file
 handling (after `loadConfigEditor()`):
 
-| Function                       | Returns          | Description                                                                                                                                     |
-| ------------------------------ | ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| `languages()`                  | `LanguageInfo[]` | The built-in and registered languages: `{ name, label, icon, extensions, defaultFileName }` each (`name` is what `language` and `editAs` take). |
-| `themes()`                     | `ThemeInfo[]`    | The bundled themes: `{ name, label, dark }` each (`name` is what `theme` takes, `label` its display name, `dark` whether it is a dark theme).   |
-| `languageForFile(path)`        | `string \| null` | The language of a file from its extension (`"main.tf"` gives `"hcl"`), registered languages included.                                           |
-| `registerLanguage(definition)` | `string`         | Add a custom language (written in JavaScript); returns its name. See [Custom languages](#custom-languages).                                     |
+| Function                           | Returns              | Description                                                                                                                                     |
+| ---------------------------------- | -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `languages()`                      | `LanguageInfo[]`     | The built-in and registered languages: `{ name, label, icon, extensions, defaultFileName }` each (`name` is what `language` and `editAs` take). |
+| `themes()`                         | `ThemeInfo[]`        | The bundled themes: `{ name, label, dark }` each (`name` is what `theme` takes, `label` its display name, `dark` whether it is a dark theme).   |
+| `languageForFile(path)`            | `string \| null`     | The language of a file from its extension (`"main.tf"` gives `"hcl"`), registered languages included.                                           |
+| `registerLanguage(definition)`     | `string`             | Add a custom language (written in JavaScript); returns its name. See [Custom languages](#custom-languages).                                     |
+| `schemaFormats()`                  | `SchemaFormatInfo[]` | The built-in and registered schema formats: `{ name, label, extensions }` each (`name` is what `schemaFormat` takes).                           |
+| `schemaFormatForFile(path)`        | `string \| null`     | The schema format of a file from the longest extension it ends with (`"crd.schema.yaml"` gives `"json-schema"`), registered formats included.   |
+| `registerSchemaFormat(definition)` | `string`             | Add a schema format (a compiler written in JavaScript); returns its name. See [Schema formats](#schema-formats).                                |
 
 ```js
 import { languageForFile, languages, themes } from "@pngwasi/config-editor";
@@ -875,6 +884,105 @@ languages().find((language) => language.extensions.includes("yml"));
 // { name: "yaml", label: "YAML", icon: "Y", extensions: ["yaml", "yml"], defaultFileName: "untitled.yaml" }
 for (const theme of themes())
   picker.append(new Option(theme.label, theme.name));
+```
+
+### Schema formats
+
+The editor works with JSON Schema. A schema written in another format is
+compiled into JSON Schema first; the format is given with `schemaFormat`,
+never guessed from the text (`schemaFormatForFile` names a file's format by
+its extension).
+
+| `schemaFormat`  | The schema is                                                                                                                                                                                                                                                                                                                                                 |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `"json-schema"` | JSON Schema as JSON or YAML text (the default; Kubernetes CRDs and many repos write it in YAML).                                                                                                                                                                                                                                                              |
+| `"openapi"`     | An OpenAPI 3.x or Swagger 2.0 document (JSON or YAML): `schemaOptions: { schema: "Name" }` names the schema of `components.schemas` (or `definitions`) the document follows, the others its references.                                                                                                                                                       |
+| `"xsd"`         | XML Schema (XSD 1.0) in the [XML mapping](#xml-mapping): options `root` (the one top element), `configRoot` (an element whose content is the document) and `lax` (open content models). Element order, choices, wildcards' namespaces and `xs:key`/`xs:keyref`/`xs:unique` are checked beside the JSON Schema; what it cannot check is a loss, with its line. |
+| your own        | compiled by a format you register with `registerSchemaFormat`                                                                                                                                                                                                                                                                                                 |
+
+```js
+new ConfigEditor(element, {
+  language: "yaml",
+  value,
+  schema: crdSchemaYaml, // JSON Schema written in YAML: no format needed
+});
+```
+
+```js
+// A pom.xml checked, completed and documented by Maven's XSD, in every view.
+new ConfigEditor(element, {
+  language: "xml",
+  value: pomXml,
+  schema: mavenXsd,
+  schemaFormat: "xsd",
+  schemaOptions: { root: "project" },
+  onSchemaWarning: (loss) => console.info(loss), // what the XSD says that is not checked
+});
+```
+
+The editor fetches nothing: a schema that refers to other files (an
+include, an import, an external `$ref`) gets them from `schemaResources`, by
+location, and a missing one is a compile error naming it. `schemaImports`
+lists what a text refers to, so you can fetch it first. A rule a format's
+JSON Schema cannot hold may be checked beside it (XSD's element order and
+`xs:key` are); what is checked by neither is a loss,
+reported through `onSchemaWarning` like a schema warning; `compileSchema`
+gives the losses structured (`{ message, construct, effect, location?, line?,
+column? }`, `effect` being `"not-checked"`, `"loosened"` or
+`"approximated"`).
+
+A format of your own is a compiler written in JavaScript. It runs
+synchronously when an editor mounts and in the tools; it returns the JSON
+Schema (an object, or JSON text), its losses and its checks, and throws to
+refuse a text (the message is shown as the schema's error). A check
+(`{ name, check(document) }`) runs each time the editor validates, given
+`{ text, language, value, schema }`, and returns problems
+`{ pointer, message, atKey?, severity? }`: each is shown on the value at
+its JSON pointer, in every view, with the schema's problems (a check that
+throws is a warning at the top). Emit the keywords completion
+and hover read (`properties`, `items`, `anyOf`/`oneOf`/`allOf`, `enum`,
+`default`, `description`, `$ref` to `#/…`). DTD, RELAX NG, Protobuf, Avro or
+CUE are left to formats you register this way, or to their own tools, which
+emit JSON Schema at build time.
+
+```js
+import { registerSchemaFormat } from "@pngwasi/config-editor";
+import { compileSchema } from "@pngwasi/config-editor/tools";
+
+registerSchemaFormat({
+  name: "fields", // what `schemaFormat` takes
+  extensions: ["fields"],
+  compile(text, resources, options) {
+    const properties = {};
+    for (const line of text.split("\n").filter(Boolean)) {
+      const [name, type] = line.split(":").map((part) => part.trim());
+      properties[name] = { type };
+    }
+    const losses = [
+      { message: "field order is not checked", construct: "order" },
+    ];
+    // A rule JSON Schema cannot hold: no key named like its value.
+    const checks = [
+      {
+        name: "no echoes",
+        check: ({ value }) =>
+          Object.entries(value ?? {})
+            .filter(([key, item]) => key === item)
+            .map(([key]) => ({
+              pointer: `/${key}`,
+              message: "echoes its key",
+            })),
+      },
+    ];
+    return { schema: { properties }, losses, checks };
+  },
+  imports: (text) => [], // locations to fetch into `schemaResources`
+});
+
+const { schema, losses } = compileSchema("port: integer\n", {
+  format: "fields",
+});
+// schema: '{"properties":{"port":{"type":"integer"}}}': ship it as JSON Schema
 ```
 
 ### XML mapping
@@ -892,6 +1000,25 @@ file may hold one top-level element or several (a fragment). The editor never
 adds a root: `{"listen": 4343, "port": 80}` writes `<listen>4343</listen>` and
 `<port>80</port>`, and a key added at the top in another view is one more
 top-level element.
+
+With a schema, each attribute value and element text is read as the type
+the schema gives its place instead of guessed: `<price>1.50</price>` is the
+number 1.5 where the schema wants a number (a save keeps `1.50` as written
+until the value changes), `<port> 080 </port>` is 80 where it wants an
+integer and the exact text where it wants a string, `<name>true</name>` is
+the string `"true"` where it wants a string, and a schema
+may list other spellings of a boolean (`"x-true": ["true", "1"]`,
+`"x-false": ["false", "0"]`, as the XSD format writes them).
+`"x-whitespace": "collapse"` (or `"replace"`) on a string schema trims and
+joins its whitespace. Where the schema allows several types, or says
+none, the text is read as without a schema.
+
+A property the schema marks `"xml": {"attribute": true}` (the OpenAPI XML
+object, which other views ignore) is written as an attribute where the XML
+text does not write it already: converting `{"server": {"port": 80}}` writes
+`<server port="80"/>`, and a key added in another view of an XML file is an
+attribute there. In a start tag, completion then offers the element's
+attributes only, and in its content only its elements.
 
 Namespace declarations (`xmlns`, `xmlns:m`) and the attributes of the XML
 Schema instance namespace (`xsi:schemaLocation`, `xsi:type`, with whatever
@@ -913,19 +1040,21 @@ build step or a review screen. They need the WebAssembly module loaded:
 `loadConfigEditor()`, which this entry exports too. A `schema` argument is a
 JSON Schema as JSON or YAML text, as the editor's `schema` option takes.
 
-| Function                                   | Returns                   | Description                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| ------------------------------------------ | ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `validate(language, text, schema?)`        | `Diagnostic[]`            | Syntax problems, plus schema problems when a schema is given. The schema is compiled once and kept for the next call with the same text (`convert` and `schemaWarnings` share it).                                                                                                                                                                                                                                                                                                                                                                                            |
-| `convert(from, text, to, schema?)`         | `{ text, losses }`        | Convert between languages. `losses` lists JSON pointers of values the target reads back differently (an infinity or `NaN` is written as the text `inf` or `nan` in JSON, HCL and XML, and listed). Throws when the text does not parse or the target cannot express it at all (TOML has no `null`). With a schema, a lone XML element where it expects a list converts as a one-item list.                                                                                                                                                                                    |
-| `unifiedDiff(baseline, current, context?)` | `string`                  | The `diff -u` of two texts: `--- baseline` / `+++ current` headers, then `@@` hunks with `context` lines around each change (default 3). `""` when they have the same lines; line endings are compared as LF.                                                                                                                                                                                                                                                                                                                                                                 |
-| `changeSummary(baseline, current)`         | `ChangeSummary`           | `{ added, removed, modified, hunks }` between two texts, as the diff gutter and `onChangeSummary` count them: a final line break added is the empty last line added, one removed is no change (no line goes), where `unifiedDiff` writes both as `diff -u` does (the last line changed, `\ No newline at end of file`).                                                                                                                                                                                                                                                       |
-| `parse(language, text)`                    | `unknown`                 | The document as plain data (objects, arrays, strings, numbers, booleans, `null`): the model schema validation sees, the same in every language. YAML's `.inf`/`.nan` and TOML's `inf`/`nan` are `Infinity`, `-Infinity` and `NaN`. An integer past 2^53 (TOML and YAML hold 64-bit ones) is a `bigint`, exact, and `serialize` takes one back; one past 64 bits, or a JSON number past a float's range (`1e400`), is a syntax error, in the editor too. A YAML number with a leading zero (`012`) is the string it is written as (YAML 1.1 read it as octal, 1.2 as decimal). |
-| `serialize(language, value)`               | `string`                  | Plain data as a document, only when it reads back as exactly that value (the check `convert`'s `losses` make). Throws when the value is not plain data (a `Date`, `Map`, `Set` or class instance throws: pass a date's `toISOString()`) or the language cannot express it exactly (TOML has no `null`; XML has no empty, nested or one-item list). In every language, as `JSON.stringify` does, an object member set to `undefined` is left out, and an `undefined` or a hole in an array throws.                                                                             |
-| `rangeOf(language, text, path)`            | `EditorRange \| null`     | Where a field is written in a text, as the editor's `rangeOf` answers; see [Paths](#paths).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| `rangesOf(language, text, paths)`          | `(EditorRange \| null)[]` | `rangeOf` for each of many paths, in order, the text read once for all of them (thousands of paths one by one each read it again).                                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| `pathAt(language, text, index)`            | `EditorPath \| null`      | The path at a string index of a text, as the editor's `pathAt` answers.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| `schemaWarnings(schema)`                   | `string[]`                | What the editor cannot use in a schema (the messages `onSchemaWarning` receives). Throws on an invalid schema.                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| `presetCss()`                              | `string`                  | The stylesheet the editor injects (layout and every theme), for `styled: false`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| Function                                                 | Returns                   | Description                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| -------------------------------------------------------- | ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `validate(language, text, schema?, source?)`             | `Diagnostic[]`            | Syntax problems, plus schema problems when a schema is given (`source`: `{ schemaFormat, schemaResources, schemaOptions }` for a schema in another format). The schema is compiled once and kept for the next call with the same schema (`convert` and `schemaWarnings` share it).                                                                                                                                                                                                                                                                                            |
+| `convert(from, text, to, schema?, source?)`              | `{ text, losses }`        | Convert between languages. `losses` lists JSON pointers of values the target reads back differently (an infinity or `NaN` is written as the text `inf` or `nan` in JSON, HCL and XML, and listed). Throws when the text does not parse or the target cannot express it at all (TOML has no `null`). With a schema, a lone XML element where it expects a list converts as a one-item list.                                                                                                                                                                                    |
+| `unifiedDiff(baseline, current, context?)`               | `string`                  | The `diff -u` of two texts: `--- baseline` / `+++ current` headers, then `@@` hunks with `context` lines around each change (default 3). `""` when they have the same lines; line endings are compared as LF.                                                                                                                                                                                                                                                                                                                                                                 |
+| `changeSummary(baseline, current)`                       | `ChangeSummary`           | `{ added, removed, modified, hunks }` between two texts, as the diff gutter and `onChangeSummary` count them: a final line break added is the empty last line added, one removed is no change (no line goes), where `unifiedDiff` writes both as `diff -u` does (the last line changed, `\ No newline at end of file`).                                                                                                                                                                                                                                                       |
+| `parse(language, text)`                                  | `unknown`                 | The document as plain data (objects, arrays, strings, numbers, booleans, `null`): the model schema validation sees, the same in every language. YAML's `.inf`/`.nan` and TOML's `inf`/`nan` are `Infinity`, `-Infinity` and `NaN`. An integer past 2^53 (TOML and YAML hold 64-bit ones) is a `bigint`, exact, and `serialize` takes one back; one past 64 bits, or a JSON number past a float's range (`1e400`), is a syntax error, in the editor too. A YAML number with a leading zero (`012`) is the string it is written as (YAML 1.1 read it as octal, 1.2 as decimal). |
+| `serialize(language, value)`                             | `string`                  | Plain data as a document, only when it reads back as exactly that value (the check `convert`'s `losses` make). Throws when the value is not plain data (a `Date`, `Map`, `Set` or class instance throws: pass a date's `toISOString()`) or the language cannot express it exactly (TOML has no `null`; XML has no empty, nested or one-item list). In every language, as `JSON.stringify` does, an object member set to `undefined` is left out, and an `undefined` or a hole in an array throws.                                                                             |
+| `rangeOf(language, text, path)`                          | `EditorRange \| null`     | Where a field is written in a text, as the editor's `rangeOf` answers; see [Paths](#paths).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `rangesOf(language, text, paths)`                        | `(EditorRange \| null)[]` | `rangeOf` for each of many paths, in order, the text read once for all of them (thousands of paths one by one each read it again).                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `pathAt(language, text, index)`                          | `EditorPath \| null`      | The path at a string index of a text, as the editor's `pathAt` answers.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `schemaWarnings(schema, source?)`                        | `string[]`                | What the editor cannot use in a schema, then what its format loses (the messages `onSchemaWarning` receives). Throws on an invalid schema.                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `compileSchema(text, { format?, resources?, options? })` | `{ schema, losses }`      | A schema in another format compiled to JSON Schema (`schema`, as JSON text) with what the format loses (`SchemaLoss[]`): compile at build time and ship plain JSON Schema. Throws on an invalid schema.                                                                                                                                                                                                                                                                                                                                                                       |
+| `schemaImports(text, format?)`                           | `string[]`                | The locations a schema refers to, to fetch into `schemaResources` (call it again on each fetched text).                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `presetCss()`                                            | `string`                  | The stylesheet the editor injects (layout and every theme), for `styled: false`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 
 ```ts
 interface Diagnostic {
@@ -1515,11 +1644,19 @@ const env = registerLanguage({
     ["[", "]"],
   ], // they auto-close, and Enter between them opens a line
   separators: ["="], // key renames, Tab through empty values, schema completion and hover
+  scalars: "text", // optional: every value is text, read as the type the schema gives its key
 });
 
 new ConfigEditor(element, { language: env, schema });
 convert("env", "listen=7835\n", "yaml").text; // 'listen: "7835"\n'
 ```
+
+With `scalars: "text"` (a language whose values are all text, as `.env`
+files are), a value is read as the type the schema gives its key: under a
+schema saying `PORT` is an integer, `PORT=80` is the number 80 and
+`PORT=x` is the text `"x"` validation reports; where the schema says no
+type it stays the string `parse` returned. A value edited in another view
+keeps the type the document reads it as.
 
 A registered language gets schema validation (placed with `keySpan` and
 `valueSpan`), conversion to and from every other language, and Edit-as;

@@ -217,12 +217,22 @@ export class EditorBinding extends Binding {
   }
 
   mountKey() {
-    const { language, schema, fileName, editorClassName, secrets } = this.props;
+    const { language, schema, schemaFormat, schemaResources, schemaOptions, fileName, editorClassName, secrets } =
+      this.props;
     // The secrets options that re-mount (the check function does not).
     const patterns = secrets
       ? [secrets.placeholder, secrets.hint, secrets.referencePrefixes, !!secrets.isPlaceholder]
       : null;
-    return JSON.stringify([language ?? null, schema ?? null, fileName ?? null, editorClassName ?? null, patterns]);
+    return JSON.stringify([
+      language ?? null,
+      schema ?? null,
+      schemaFormat ?? null,
+      schemaResources ?? null,
+      schemaOptions ?? null,
+      fileName ?? null,
+      editorClassName ?? null,
+      patterns,
+    ]);
   }
 
   retryKey() {
@@ -246,6 +256,9 @@ export class EditorBinding extends Binding {
       language: props.language,
       editAs: props.editAs ?? undefined,
       schema: props.schema,
+      schemaFormat: props.schemaFormat,
+      schemaResources: props.schemaResources,
+      schemaOptions: props.schemaOptions,
       baseline,
       fileName: props.fileName,
       readOnly: props.readOnly,

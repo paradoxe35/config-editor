@@ -480,7 +480,13 @@ pub(crate) fn named_properties<'a>(branch: &'a Value, key: &str) -> Vec<&'a Valu
 /// where only an array is allowed becomes a one-item array (a single XML
 /// `<dns>` element is `dns: [...]`).
 pub(crate) fn conform_arrays(value: &mut Value, schema: &Value, repetition: Repetition) {
-    conform(value, schema, schema, repetition, 0);
+    conform(value, schema, schema, repetition, 0, false);
+}
+
+/// [`conform_arrays`] of a value whose text scalars the schema typed
+/// already (see `text_typing`): they are not guessed again.
+pub(crate) fn conform_typed_arrays(value: &mut Value, schema: &Value, repetition: Repetition) {
+    conform(value, schema, schema, repetition, 0, true);
 }
 
 pub(super) fn conform(
@@ -489,6 +495,7 @@ pub(super) fn conform(
     root: &Value,
     repetition: Repetition,
     depth: usize,
+    typed: bool,
 ) {
     if depth > 64 {
         return;
@@ -502,6 +509,7 @@ pub(super) fn conform(
     // XML text that looks like a number, boolean, or `null` is a string
     // where only a string is allowed (`<public_address>123</…>`).
     if repetition == Repetition::Elements
+        && !typed
         && matches!(value, Value::Number(_) | Value::Bool(_) | Value::Null)
         && !branches.iter().any(|branch| accepts(branch, value))
         && branches
@@ -514,6 +522,7 @@ pub(super) fn conform(
     // strings, untyped: `<v>1.3</v>` is the `"1.3"` listed. (XML reads a
     // number only from text it writes back unchanged: `1.3`, not `1.30`.)
     if repetition == Repetition::Elements
+        && !typed
         && matches!(value, Value::Number(_) | Value::Bool(_) | Value::Null)
         && listed_as_strings(&branches, value)
     {
@@ -543,7 +552,7 @@ pub(super) fn conform(
         Value::Array(items) => {
             for (index, item) in items.iter_mut().enumerate() {
                 for item_schema in children_of(&branches, &SchemaPathSegment::ArrayItem(index)) {
-                    conform(item, item_schema, root, repetition, depth + 1);
+                    conform(item, item_schema, root, repetition, depth + 1, typed);
                 }
             }
         }
@@ -551,7 +560,7 @@ pub(super) fn conform(
             for (key, child) in map.iter_mut() {
                 let segment = SchemaPathSegment::Key(key.clone());
                 for child_schema in children_of(&branches, &segment) {
-                    conform(child, child_schema, root, repetition, depth + 1);
+                    conform(child, child_schema, root, repetition, depth + 1, typed);
                 }
             }
         }

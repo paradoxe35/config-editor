@@ -36,14 +36,15 @@ step_fmt() {
 }
 
 step_clippy() {
-  cargo clippy --all-targets -- -D warnings
+  # The defaults and the opt-in `xsd` schema format.
+  cargo clippy --all-targets --features config-editor-leptos/xsd -- -D warnings
   cargo clippy -p config-editor-js --target wasm32-unknown-unknown -- -D warnings
   (cd crates/config-editor-leptos &&
     cargo clippy --all-targets --no-default-features --features yaml,json,toml,hcl,xml -- -D warnings)
 }
 
 step_test() {
-  run_tests test -p config-editor-leptos
+  run_tests test -p config-editor-leptos --features xsd
   # Also checks that the settings' generated TypeScript type and README tables
   # match `EditorSettings` (UPDATE_GENERATED=1 rewrites them).
   run_tests test -p config-editor-js
@@ -54,7 +55,7 @@ step_test() {
 # by it.
 step_languages() {
   (cd crates/config-editor-leptos &&
-    for features in yaml json toml hcl xml schema-validation; do
+    for features in yaml json toml hcl xml schema-validation xsd; do
       echo "== --features $features"
       cargo clippy --lib --tests --no-default-features --features "$features" -- -D warnings
       run_tests test --lib --no-default-features --features "$features"

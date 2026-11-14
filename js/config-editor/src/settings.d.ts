@@ -1234,6 +1234,12 @@ export interface EditorStrings {
    */
   invalidSchema?: string;
   /**
+   * A schema its format cannot read (`{format}`: the format's label, such as `XSD`).
+   *
+   * @default "Invalid {format}: {error}"
+   */
+  invalidSchemaSource?: string;
+  /**
    * A schema whose text is empty, or only spaces and line breaks.
    *
    * @default "Invalid JSON Schema: the schema text is empty"

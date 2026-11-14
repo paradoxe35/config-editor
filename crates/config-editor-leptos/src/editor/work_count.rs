@@ -172,6 +172,9 @@ pub(crate) enum Work {
         allow(dead_code, reason = "only the lock check notes it")
     )]
     LockLine,
+    /// A schema format's extra check run on a document
+    /// (`SchemaCheck::check`): once per check and validation.
+    SchemaCheck,
 }
 
 impl Work {
@@ -215,6 +218,7 @@ impl Work {
             Self::OffsetSeek => 34,
             Self::RangesFollowed => 35,
             Self::LockLine => 36,
+            Self::SchemaCheck => 37,
         }
     }
 
@@ -258,12 +262,13 @@ impl Work {
         Self::OffsetSeek,
         Self::RangesFollowed,
         Self::LockLine,
+        Self::SchemaCheck,
     ];
 }
 
 /// How many kinds of work there are.
 #[cfg(test)]
-const KINDS: usize = 37;
+const KINDS: usize = 38;
 
 #[cfg(test)]
 thread_local! {
