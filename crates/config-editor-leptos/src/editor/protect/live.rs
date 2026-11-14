@@ -19,13 +19,14 @@ use super::super::paths::{FieldPath, TextRange};
 use super::super::secret_options::SecretOptions;
 use super::super::state::EditorState;
 use super::follow::follow_ranges;
-use super::glued::{first_glued, glued_by_edit, glued_in_save, glued_message};
+use super::glued::{first_glued, glued_in_save, glued_message};
 use super::guard::{Blocked, check};
 use super::locate::LineIndex;
 use super::locks::{Protected, Sources, protect};
 use super::save::{ReadOnlyChange, check_save, locked_pointers, range_pointers};
 use super::secrets::SecretState;
 use super::texts::save_waits;
+use super::whole_guard::Placeholders;
 use crate::reactive::later::{self, Timeout};
 
 /// How long a refused edit's tooltip stays, in milliseconds.
@@ -402,14 +403,35 @@ impl EditorState {
     }
 
     /// The field of a placeholder given whole that the edit from `before`
-    /// to `after` writes text beside (see `glued`).
+    /// to `after` writes text beside, or changes the value of (see
+    /// `whole_guard`). Remembers whether `after` parses, so the next edit's
+    /// check needs no parse to tell an edit out of every placeholder's reach.
     fn glued_by(&self, before: &str, after: &str) -> Option<String> {
         let secrets = self.protect().secrets;
-        secrets.known.with_untracked(|known| {
-            secrets.tokens.with_untracked(|tokens| {
-                glued_by_edit(self.behavior(), known, tokens, before, after)
+        let behavior = self.behavior();
+        let before_parses = secrets
+            .parsing
+            .with_value(|known| known.as_deref() == Some(before))
+            || parse_cache::known_to_parse(behavior, before) == Some(true);
+        let verdict = self.config().schema.with_value(|schema| {
+            secrets.known.with_untracked(|known| {
+                secrets.tokens.with_untracked(|tokens| {
+                    Placeholders {
+                        behavior,
+                        reading_schema: schema.as_deref().map(|bundle| &bundle.schema),
+                        known,
+                        tokens,
+                    }
+                    .check(before, after, before_parses)
+                })
             })
-        })
+        });
+        if verdict.glued.is_none() {
+            secrets
+                .parsing
+                .set_value((verdict.parses == Some(true)).then(|| after.to_string()));
+        }
+        verdict.glued
     }
 
     /// After typing was refused at a read-only field with `message`: what

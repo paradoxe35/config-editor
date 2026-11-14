@@ -493,25 +493,14 @@ for (const host of HOSTS) {
     }
 
     // A host `value` that does not parse: its own characters say the token
-    // is `a`'s whole value, so a key typed beside it while broken is flagged
-    // once the text is repaired by editing, the save waits and a further key
-    // is refused.
-    test("text typed beside a whole placeholder of a broken host is flagged once repaired", async ({
+    // is `a`'s whole value, so a key typed beside it while broken is
+    // refused as once it parses; repaired by editing, the text holds it
+    // alone, unflagged, and saves.
+    test("text typed beside a whole placeholder of a broken host is refused", async ({
       page: browserPage,
     }) => {
       const broken = documentOf(host).replace("last: 1", "last: [");
-      await browserPage.goto(
-        page({
-          value: broken,
-          schema: SCHEMA,
-          secrets: { placeholder: host.placeholder },
-        }),
-      );
-      await expect(browserPage.locator("body")).toHaveAttribute(
-        "data-ready",
-        "true",
-        { timeout: 20000 },
-      );
+      await open(browserPage, host, broken);
       const caretAt = (needle, offset) =>
         input(browserPage).evaluate(
           (element, [needle, offset]) => {
@@ -522,14 +511,16 @@ for (const host of HOSTS) {
           },
           [needle, offset],
         );
+      const glued = "/a: a secret placeholder stands for the whole secret";
       await caretAt(
         `a: ${host.quote}${host.same}`,
         `a: ${host.quote}${host.same}`.length,
       );
       await browserPage.keyboard.type("Y");
-      await expect(input(browserPage)).toHaveValue(
-        new RegExp(`${host.same.replace(/[{}]/g, "\\$&")}Y`),
-      );
+      await expect(
+        browserPage.locator(".config-editor__protect-tip"),
+      ).toContainText(glued);
+      await expect(input(browserPage)).toHaveValue(broken);
       // Repaired by typing over the `[`.
       await input(browserPage).evaluate((element) => {
         const at = element.value.indexOf("last: [") + 6;
@@ -539,26 +530,13 @@ for (const host of HOSTS) {
       });
       await browserPage.keyboard.type("1");
       await expect(input(browserPage)).toHaveValue(/last: 1\n$/);
-      const glued = "/a: a secret placeholder stands for the whole secret";
+      await browserPage.waitForTimeout(600);
       await expect(
-        markers(browserPage).and(
-          browserPage.locator(`[data-message^="${glued}"]`),
-        ),
-      ).toHaveCount(1);
-      expect(await browserPage.evaluate(() => window.editor.save())).toBe(
-        false,
-      );
-      expect(await browserPage.evaluate(() => window.saves)).toEqual([]);
-      await caretAt(
-        `a: ${host.quote}${host.same}`,
-        `a: ${host.quote}${host.same}`.length,
-      );
-      const before = await input(browserPage).inputValue();
-      await browserPage.keyboard.type("Z");
-      await expect(
-        browserPage.locator(".config-editor__protect-tip"),
-      ).toContainText(glued);
-      expect(await input(browserPage).inputValue()).toBe(before);
+        browserPage.locator(`[data-message^="${glued}"]`),
+      ).toHaveCount(0);
+      expect(await browserPage.evaluate(() => window.editor.save())).toBe(true);
+      const changes = await browserPage.evaluate(() => window.changes);
+      expect(changes.filter((change) => /»Y|\}\}Y/.test(change))).toEqual([]);
     });
   });
 }

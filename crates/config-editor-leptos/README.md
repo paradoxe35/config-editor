@@ -1206,10 +1206,14 @@ view! { <ConfigEditor value=text schema=SCHEMA secrets=secrets /> }
   over lines (a YAML block scalar of any chomping, folding or indentation
   indicator, a TOML `"""` string, an HCL heredoc, XML text on its own line)
   is its field's whole value too: the line breaks and indentation the form
-  puts around it are not text beside it. Text that gets there while the
-  document does not parse is flagged at the token once it does, a save
-  holding it waits (in the host's language too), and only taking that text
-  away is free until then. A token the host wrote inside longer text is the
+  puts around it are not text beside it, and its value keeps them: no edit
+  changes that value but one taking the token away whole, whatever makes
+  it (a line indented, moved or copied into a block scalar or heredoc, a
+  closing line deleted, a line break joined away, Replace All, undo), while
+  the document parses and while it has a syntax error elsewhere (then the
+  value's text is held as a read-only field's is). Text beside one that
+  gets there anyway is flagged at the token and a save holding it waits.
+  A token the host wrote inside longer text is the
   host's to embed: editing around it is free. When the host's own `value`
   does not parse, the host's characters decide which tokens are a field's
   whole value: one is when the language finds that field's value written

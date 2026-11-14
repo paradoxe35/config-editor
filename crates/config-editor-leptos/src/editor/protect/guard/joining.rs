@@ -60,12 +60,14 @@ impl<'a> LinePaths<'a> {
 /// field (its lines, and the next line holding code on each side, where a
 /// line joins a block) and those naming one of its keys (a duplicate, a
 /// TOML table or dotted key anywhere). `None` when they are too many to
-/// read.
+/// read. With `own_key_free`, a line naming the field's own key (a copy of
+/// its line, a duplicate the parser may read last) is not counted.
 pub(super) fn joining_lines(
     paths: &LinePaths<'_>,
     region: &Range<usize>,
     near: Range<usize>,
     pointer: &str,
+    own_key_free: bool,
 ) -> Option<usize> {
     let (behavior, lines) = (paths.behavior, paths.lines);
     let first = lines.line_of(region.start);
@@ -96,7 +98,13 @@ pub(super) fn joining_lines(
             && within(behavior, pointer, &path)
             && !within(behavior, &path, pointer)
             && names_holder(behavior, &path, content);
-        if holds || within(behavior, &path, pointer) {
+        let own_key = || {
+            own_key_free
+                && keys
+                    .last()
+                    .is_some_and(|key| names_word(std::slice::from_ref(key), content))
+        };
+        if holds || (within(behavior, &path, pointer) && !own_key()) {
             count += 1;
         }
     }

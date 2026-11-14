@@ -92,6 +92,22 @@ pub(crate) fn parsed(language: &dyn ConfigLanguage, text: &str) -> Rc<Result<Val
     result
 }
 
+/// Whether `text` parses as `language`, when one of the last parses was of
+/// it: read without parsing.
+#[cfg_attr(
+    not(feature = "protect"),
+    allow(dead_code, reason = "only the placeholders' check asks")
+)]
+pub(crate) fn known_to_parse(language: &dyn ConfigLanguage, text: &str) -> Option<bool> {
+    let label = language.info().label;
+    LAST.with(|last| {
+        last.borrow()
+            .iter()
+            .find(|(known, written, _)| *known == label && written == text)
+            .map(|(_, _, result)| result.is_ok())
+    })
+}
+
 /// The lines of `text`'s multi-line string bodies in `language` (see
 /// [`ConfigLanguage::string_body_lines`]), from the last reading when it was
 /// of the same text in the same language.

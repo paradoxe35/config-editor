@@ -62,6 +62,19 @@ pub(super) fn out_of_reach(
     if protected.document.is_none() || !protected.unplaced.is_empty() || !all_pinned(protected) {
         return None;
     }
+    reaches_none(behavior, &protected.locks, before, after)
+}
+
+/// How offsets move through the edit making `after` of `before` (a text
+/// that parses), when it changes one scalar on a line none of `locks` is
+/// on, whose path is none of theirs, nor inside or holding one; `None`
+/// when it may reach one.
+pub(super) fn reaches_none(
+    behavior: &dyn ConfigLanguage,
+    locks: &[Lock],
+    before: &str,
+    after: &str,
+) -> Option<Shift> {
     let (start, old_end, new_end) = changed_bytes(before, after);
     let inserted = &after[start..new_end];
     if !behavior.edits_one_scalar(before, start..old_end, inserted) {
@@ -74,7 +87,7 @@ pub(super) fn out_of_reach(
     let first = utf16_len(&before[..line_start]);
     let last = first + utf16_len(&before[line_start..line_end]);
     let touches = |range: &Range<usize>| range.start <= last && range.end >= first;
-    let reached = protected.locks.iter().any(|lock| {
+    let reached = locks.iter().any(|lock| {
         let hull = lock
             .ranges
             .iter()
@@ -92,7 +105,7 @@ pub(super) fn out_of_reach(
     let code = first + utf16_len(&line[..line.len() - line.trim_start().len()]);
     let read = || path_at(behavior, before, code).map(|path| path.to_pointer());
     let path = line_path(behavior, before, first, read)?;
-    if reads_a_lock(behavior, protected, &path) {
+    if reads_a_lock(behavior, locks, &path) {
         return None;
     }
     // The line after the edit writes the same path: the next key typed on
@@ -106,9 +119,8 @@ pub(super) fn out_of_reach(
 /// where a lock is written and what the text reads on the line are found
 /// apart, and a text that fools one (an HCL string over lines holding
 /// `id = 1`) does not hand the other's field to the fast path.
-fn reads_a_lock(behavior: &dyn ConfigLanguage, protected: &Protected, path: &str) -> bool {
-    protected
-        .locks
+fn reads_a_lock(behavior: &dyn ConfigLanguage, locks: &[Lock], path: &str) -> bool {
+    locks
         .iter()
         .filter_map(|lock| lock.pointer.as_deref())
         .any(|pointer| within(behavior, path, pointer) || within(behavior, pointer, path))

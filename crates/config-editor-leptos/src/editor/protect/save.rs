@@ -8,8 +8,9 @@ use std::sync::Arc;
 use serde_json::Value;
 
 use super::super::codec;
+use super::super::codec::scalar_range;
 use super::super::language::ConfigLanguage;
-use super::super::paths::{field_range, with_spans};
+use super::super::paths::{field_range, with_spans, written_value_span};
 use super::locate::LineIndex;
 use super::locks::{Sources, protect};
 use super::marks::escape;
@@ -21,7 +22,8 @@ pub(crate) struct ReadOnlyChange {
 }
 
 /// The pointers of the fields `ranges` (UTF-16, in `text`) cover: each
-/// field written there whose range overlaps one, outermost first. Every
+/// field written there whose range, or scalar value as written (over the
+/// lines below its key too), overlaps one, outermost first. Every
 /// field's span is read in one pass of the text (a read each made every
 /// keystroke of an Edit-as view with read-only ranges cost fields × text).
 pub(crate) fn range_pointers(
@@ -46,8 +48,17 @@ pub(crate) fn range_pointers(
                 inside.push((pointer, child));
             });
             for (child_pointer, child) in inside {
+                // A value written below its key (XML text over lines) is
+                // the field's too.
+                let scalar = || !child.is_object() && !child.is_array();
                 let covered = field_range(behavior, text, &child_pointer)
-                    .is_some_and(|range| overlaps.any(lines.range(range)));
+                    .is_some_and(|range| overlaps.any(lines.range(range)))
+                    || (scalar()
+                        && written_value_span(behavior, text, &child_pointer)
+                            .and_then(|span| scalar_range(behavior, text, span))
+                            .is_some_and(|range| {
+                                overlaps.any(lines.units_of(range.start)..lines.units_of(range.end))
+                            }));
                 if covered {
                     found.push(child_pointer);
                 } else {

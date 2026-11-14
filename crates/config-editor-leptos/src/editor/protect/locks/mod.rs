@@ -199,8 +199,11 @@ pub(crate) fn protect(
     let carried = sources.previous.filter(|_| reading.document.is_none());
     let marks = reading.schema_marks();
     let mut marked = fields::marked(&reading, carried, marks.read_only);
+    let mut covered_pins = Vec::new();
     if carried.is_none() {
-        marked.extend(fields::covered(&reading, &protected.locks));
+        let covered = fields::covered(&reading, &protected.locks);
+        marked.extend(covered.fields);
+        covered_pins = covered.pins;
     }
     let mut placer = Placer::new(&reading, carried);
     let outermost = fields::outermost(&reading, &marked);
@@ -217,6 +220,11 @@ pub(crate) fn protect(
         }
     });
     protected.pins = placer.into_pins(&protected.locks, &protected.unplaced);
+    for (pointer, value) in covered_pins {
+        if !protected.pins.iter().any(|(known, _)| *known == pointer) {
+            protected.pins.push((pointer, value));
+        }
+    }
     protected.secret = fields::secret(&reading, carried, marks.secret);
     protected.marked = marked;
     protected.document = reading.into_document().map(Arc::new);

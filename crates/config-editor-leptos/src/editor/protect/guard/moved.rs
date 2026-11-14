@@ -26,9 +26,13 @@ pub(super) struct Place<'p, 'e, 'o, 'n> {
 }
 
 impl Place<'_, '_, '_, '_> {
-    /// Whether `lock` stays where it is (see the module docs).
-    pub(super) fn kept(&self, lock: &Lock) -> bool {
-        self.paths_kept(lock) && self.nothing_indented_under(lock) && self.lines_together(lock)
+    /// Whether `lock` stays where it is (see the module docs); without
+    /// `paths`, its lines may read under other paths (its key renamed or
+    /// moved: a value held for its text alone).
+    pub(super) fn kept(&self, lock: &Lock, paths: bool) -> bool {
+        (!paths || self.paths_kept(lock))
+            && self.nothing_indented_under(lock)
+            && self.lines_together(lock)
     }
 
     /// The lines of `lock` holding code, followed through the edit (those

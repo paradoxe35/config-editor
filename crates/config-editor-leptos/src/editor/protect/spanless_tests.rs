@@ -370,23 +370,51 @@ fn a_refusal_takes_back_only_the_typing_it_is_about() {
     );
 }
 
-/// A placeholder given as a field's whole value that gets text beside it
-/// (typed while the text did not parse) is a problem the host hears and
-/// the status shows, though the language cannot say where it is written:
-/// the save waits for it (it used to wait with no problem shown).
+/// A placeholder given as a field's whole value takes nothing beside it
+/// though the language cannot say where a field is written: typed while
+/// the text does not parse, it is refused (its line is kept), and the
+/// repair saves.
 #[test]
-fn a_glued_placeholder_is_a_problem_without_spans() {
+fn a_whole_placeholder_takes_nothing_beside_it_without_spans() {
     let token = "«secret 3f2a91c0»";
     let text = format!("KEY={token}\nNAME=a\n");
+    let saves = RwSignal::new(Vec::<String>::new());
     let mut editor = TestEditor::new(Language::new(&ENV), &text);
     editor.secrets = Some(SecretOptions::default().with_placeholder("«secret [0-9a-f]{8}»"));
+    editor.on_save = Some(Callback::new(move |request: SaveRequest| {
+        saves.update(|all| all.push(request.text));
+    }));
     let (_owner, state) = editor.mount();
     assert!(change(state, "NAME=a", "NAMEa"), "breaking a line is free");
     assert!(
-        change(state, token, &format!("{token}Z")),
-        "typed while broken"
+        !change(state, token, &format!("{token}Z")),
+        "typed beside it while broken"
     );
-    assert!(change(state, "NAMEa", "NAME=a"), "the repair elsewhere");
+    assert!(change(state, "NAMEa", "NAME=b"), "the repair elsewhere");
+    assert!(state.save(), "it saves");
+    assert_eq!(
+        saves.get_untracked(),
+        vec![format!("KEY={token}\nNAME=b\n")]
+    );
+}
+
+/// A placeholder given as a field's whole value with text beside it anyway
+/// is a problem the host hears and the status shows, though the language
+/// cannot say where it is written: the save waits for it (it used to wait
+/// with no problem shown).
+#[test]
+fn a_glued_placeholder_is_a_problem_without_spans() {
+    let token = "«secret 3f2a91c0»";
+    let text = format!("KEY={token}Z\nNAME=a\n");
+    let mut editor = TestEditor::new(Language::new(&ENV), &text);
+    editor.secrets = Some(SecretOptions::default().with_placeholder("«secret [0-9a-f]{8}»"));
+    let (_owner, state) = editor.mount();
+    // The host gave it whole (its own text beside one is its to embed).
+    state.protect().secrets.known.update(|known| {
+        for known in known.iter_mut() {
+            known.whole = Some(token.to_string());
+        }
+    });
     assert!(!state.save(), "the save waits");
     let found = problems(state, Language::new(&ENV), None);
     assert!(

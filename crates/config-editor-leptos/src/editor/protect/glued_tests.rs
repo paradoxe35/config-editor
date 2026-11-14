@@ -216,10 +216,13 @@ fn replacing_a_whole_placeholder_and_editing_around_it_stay_free() {
     report(failures);
 }
 
-/// Text glued on while the text did not parse is flagged at the token
-/// once it parses, and an Edit-as save of it waits.
+/// Text typed beside a placeholder while the text does not parse (a syntax
+/// error elsewhere) is refused as when it parses, in every host language
+/// and view: once the error is repaired the field holds the token alone,
+/// nothing is flagged, and the host never hears it glued. (It was let
+/// through and only flagged once the text parsed again.)
 #[test]
-fn text_glued_on_while_the_text_did_not_parse_is_flagged_and_not_saved() {
+fn text_typed_beside_a_placeholder_while_the_text_does_not_parse_is_refused() {
     let mut failures = Vec::new();
     for tokens in &HOSTS {
         for host in ALL {
@@ -234,39 +237,53 @@ fn text_glued_on_while_the_text_did_not_parse_is_flagged_and_not_saved() {
                 let end = shown.trim_end().len();
                 let broken = breaking(view);
                 paste(state, end..end, broken);
+                state.protect().tip.set(None);
                 type_at(state, start + tokens.same.len(), "Z");
                 let now = state.doc().text.get_untracked();
+                if now.contains(&format!("{}Z", tokens.same)) {
+                    failures.push(format!("{case}: typed beside it while broken: {now:?}"));
+                }
+                if !state
+                    .protect()
+                    .tip
+                    .get_untracked()
+                    .is_some_and(|tip| tip.message.starts_with(SAYS))
+                {
+                    failures.push(format!(
+                        "{case}: refusal {:?}",
+                        state.protect().tip.get_untracked()
+                    ));
+                }
                 let Some(from) = now.rfind(broken) else {
                     failures.push(format!("{case}: not broken: {now:?}"));
                     continue;
                 };
-                paste(state, from..from + broken.len(), "");
+                if !paste(state, from..from + broken.len(), "") {
+                    failures.push(format!("{case}: the repair was refused"));
+                    continue;
+                }
                 pause(state);
                 let now = state.doc().text.get_untracked();
-                if field_a(view, &now) != Some(format!("{}Z", tokens.same)) {
-                    failures.push(format!("{case}: not glued while broken: {now:?}"));
-                    continue;
+                if field_a(view, &now).as_deref() != Some(tokens.same) {
+                    failures.push(format!("{case}: repaired as {now:?}"));
                 }
                 let found = problems(state, view, None);
-                if !found.iter().any(|problem| problem.contains(SAYS)) {
-                    failures.push(format!("{case}: not flagged: {found:?}"));
-                }
-                if view == host {
-                    continue;
+                if found.iter().any(|problem| problem.contains(SAYS)) {
+                    failures.push(format!("{case}: flagged: {found:?}"));
                 }
                 if let Some(glued) = heard
                     .get_untracked()
                     .iter()
-                    .find(|text| field_a(host, text).as_deref() != Some(tokens.same))
+                    .find(|text| field_a(host, text).is_some_and(|value| value != tokens.same))
                 {
                     failures.push(format!("{case}: the host heard {glued:?}"));
                 }
                 let waits = state.sync().conversion_problems.get_untracked().iter().any(|problem| {
                     matches!(&problem.text, EditAsText::NotSaved { error, .. } if error.pointer() == "/a")
                 });
-                if !waits {
+                if waits {
                     failures.push(format!(
-                        "{case}: the save does not wait: {:?}",
+                        "{case}: the save waits: {:?}",
                         state.sync().conversion_problems.get_untracked()
                     ));
                 }

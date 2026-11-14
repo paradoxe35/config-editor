@@ -28,10 +28,11 @@ pub(super) struct Reading<'a> {
     scanned: OnceCell<Vec<Written>>,
 }
 
-/// The locks of a stand-in (see `scan::stand_in`), and the lines it
-/// blanked.
+/// The locks of a stand-in (see `scan::stand_in`), its text, and the lines
+/// it blanked.
 pub(super) struct StandInLocks {
     pub(super) protected: Protected,
+    pub(super) text: String,
     pub(super) blanked: Vec<usize>,
 }
 
@@ -97,6 +98,7 @@ impl<'a> Reading<'a> {
                     );
                     StandInLocks {
                         protected,
+                        text: stand.text,
                         blanked: stand.blanked,
                     }
                 })
