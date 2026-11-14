@@ -119,6 +119,14 @@ test.describe('touch targets in round 16', () => {
     await expect(chip).toBeVisible();
     await expectFingerSized(chip, 'the fold chip');
     await page.locator('.demo__settings-toggle').click();
+    // The demo places the open list in the next frame; a finger lands on it once it is in the window.
+    const list = page.locator('.demo__settings-list');
+    await expect
+      .poll(async () => {
+        const box = await list.boundingBox();
+        return box !== null && box.x >= 0 && box.x + box.width <= 390;
+      }, { message: 'the open list is within the window' })
+      .toBe(true);
     await expectFingerSized(page.locator('.demo__setting input').first(), 'a setting’s checkbox');
   });
 });
