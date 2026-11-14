@@ -89,6 +89,12 @@ pub(super) fn holding<'a>(
         Some(Value::String(value)) if known.alone_in(value) => Holding::Alone(value),
         Some(Value::String(value)) if value.contains(&known.token) => Holding::Beside(value),
         Some(Value::Array(items)) if copies(behavior, items, known) => Holding::Not,
+        // A second element of the field's name written beside its own (in
+        // a language that repeats an element for a list): a new item, the
+        // token still an item's whole value.
+        Some(Value::Array(items)) if alone_item(behavior, items, known).is_some() => {
+            alone_item(behavior, items, known).map_or(Holding::Not, Holding::Alone)
+        }
         Some(value @ (Value::Array(_) | Value::Object(_))) if holds(value, &known.token) => {
             Holding::Within(value)
         }
@@ -105,6 +111,23 @@ fn copies(behavior: &dyn ConfigLanguage, items: &[Value], known: &Known) -> bool
         && items
             .iter()
             .all(|item| item.as_str().is_some_and(|text| known.alone_in(text)))
+}
+
+/// The item of `items`, a field's value in a language that repeats any
+/// element for a list (a string item is one written as an element of its
+/// own, never one written in a list), holding `known`'s token alone.
+fn alone_item<'a>(
+    behavior: &dyn ConfigLanguage,
+    items: &'a [Value],
+    known: &Known,
+) -> Option<&'a str> {
+    if behavior.repetition() != Repetition::Elements {
+        return None;
+    }
+    items
+        .iter()
+        .filter_map(Value::as_str)
+        .find(|text| known.alone_in(text))
 }
 
 /// Whether one of the strings `value` holds holds `token`.

@@ -186,6 +186,7 @@ const CONFIG_LANGUAGE = {
   lone_item: { exempt: RUST_ONLY_REFINEMENT },
   repeated_keys: { exempt: RUST_ONLY_REFINEMENT },
   caret_line_left_out: { exempt: RUST_ONLY_REFINEMENT },
+  key_half_typed: { exempt: RUST_ONLY_REFINEMENT },
   entry_started: { exempt: RUST_ONLY_REFINEMENT },
   lexical_state: { custom: 'multilineRanges' },
   saved_string_lines: { custom: 'multilineRanges' },
