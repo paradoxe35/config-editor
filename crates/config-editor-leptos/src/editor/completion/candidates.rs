@@ -90,8 +90,9 @@ pub(super) fn value_completions(
 }
 
 /// The keys a branch certain to apply declares `false` (`properties: {b:
-/// false}`, the `else` an `if` takes saying `url: false`): no value of
-/// theirs is valid, so they are not offered. A `oneOf`/`anyOf` option
+/// false}`, the `else` an `if` takes saying `url: false`) or otherwise
+/// admitting nothing ([`admits_nothing`]: `{not: {}}`): no value of theirs
+/// is valid, so they are not offered. A `oneOf`/`anyOf` option
 /// counts only once matched; a conditional only where the document
 /// decides it.
 fn forbidden_keys<'a>(
@@ -105,11 +106,7 @@ fn forbidden_keys<'a>(
         branch
             .get("properties")
             .and_then(Value::as_object)
-            .is_some_and(|properties| {
-                properties
-                    .values()
-                    .any(|schema| *schema == Value::Bool(false))
-            })
+            .is_some_and(|properties| properties.values().any(admits_nothing))
     };
     // Most schemas have none: no second walk then.
     if !branches.iter().any(declares_false) {
@@ -123,7 +120,7 @@ fn forbidden_keys<'a>(
         .flat_map(|properties| {
             properties
                 .iter()
-                .filter(|(_, schema)| **schema == Value::Bool(false))
+                .filter(|(_, schema)| admits_nothing(schema))
                 .map(|(key, _)| key.as_str())
         })
         .collect()

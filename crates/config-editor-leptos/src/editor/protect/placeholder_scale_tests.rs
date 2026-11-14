@@ -165,7 +165,7 @@ fn real_placeholders_stay_real_while_a_large_text_does_not_parse_in_every_langua
     for language in languages() {
         let behavior = language.behavior();
         let host = written(language, 2_000);
-        let known = matcher.known(behavior, &host);
+        let known = matcher.known(behavior, &host, None);
         // Half a line typed at the end.
         let typing = format!("{host}\n<{{\n");
         if behavior.parse(&typing).is_ok() {
@@ -202,7 +202,7 @@ fn a_large_document_pasted_again_is_checked_without_a_lookup_per_copy_in_every_l
     for language in languages() {
         let behavior = language.behavior();
         let host = written(language, 1_000);
-        let known = matcher.known(behavior, &host);
+        let known = matcher.known(behavior, &host, None);
         // Pasted at the end: each token written twice, the copies not real.
         let twice = format!("{host}\n{host}");
         let followed = locate_written(&matcher, &twice, &known);
@@ -233,7 +233,7 @@ fn thousands_of_placeholders_are_found_again_in_one_parse_in_every_language() {
     for language in languages() {
         let behavior = language.behavior();
         let host = written(language, 2_000);
-        let known = matcher.known(behavior, &host);
+        let known = matcher.known(behavior, &host, None);
         let (took, found) =
             crate::editor::test_timing::best_of(3, || matcher.locate(behavior, &host, &known));
         let expected = locate_written(&matcher, &host, &known);
@@ -259,7 +259,7 @@ fn thousands_of_commented_placeholders_are_found_unreal_in_one_parse_in_every_la
     for language in languages() {
         let behavior = language.behavior();
         let host = written(language, 2_000);
-        let known = matcher.known(behavior, &host);
+        let known = matcher.known(behavior, &host, None);
         let end = host.encode_utf16().count();
         let Some((commented, ..)) = behavior.toggle_comments(&host, 0, end) else {
             continue;
@@ -285,7 +285,7 @@ fn placeholders_also_written_in_comments_are_placed_in_one_parse_in_every_langua
     for language in languages() {
         let behavior = language.behavior();
         let host = written(language, 300);
-        let known = matcher.known(behavior, &host);
+        let known = matcher.known(behavior, &host, None);
         let end = host.encode_utf16().count();
         let Some((commented, ..)) = behavior.toggle_comments(&host, 0, end) else {
             continue;
@@ -339,7 +339,8 @@ fn placeholders_of_a_text_that_does_not_parse_cost_one_reading() {
         let reads = |clients: usize| {
             let text = broken(language, clients);
             assert!(behavior.parse(&text).is_err(), "{language}: broken");
-            let (known, known_reads) = counted(Work::PathLookup, || matcher.known(behavior, &text));
+            let (known, known_reads) =
+                counted(Work::PathLookup, || matcher.known(behavior, &text, None));
             assert!(known.len() >= clients, "{language}: {} known", known.len());
             let (found, locate_reads) =
                 counted(Work::PathLookup, || matcher.locate(behavior, &text, &known));
@@ -376,7 +377,7 @@ fn one_placeholder_in_many_fields_is_placed_by_lookups() {
                 .serialize(&json!({ "clients": map }), None)
                 .expect("writes");
             counted(Work::PlaceLookup, || {
-                let known = matcher.known(behavior, &text);
+                let known = matcher.known(behavior, &text, None);
                 assert_eq!(
                     matcher.locate(behavior, &text, &known).len(),
                     count,

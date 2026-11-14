@@ -89,12 +89,8 @@ impl<'a> Identity<'a> {
             let Seg::Key(key) = &path[at] else { return None };
             let (Value::Object(new_map), Value::Object(old_map)) = (new, old) else { return None };
             let new_child = new_map.get(key)?;
-            let old_key = host_key(old_map, new_map, key)?;
-            let old_child = &old_map[old_key];
             pointer.push('/');
             pointer.push_str(key);
-            old_at.push('/');
-            old_at.push_str(&escaped(old_key));
             new_at.push('/');
             new_at.push_str(&escaped(key));
             let new_items = items(new_child);
@@ -111,7 +107,8 @@ impl<'a> Identity<'a> {
                 _ => new_at.clone(),
             };
             let told = self.told.filter(|_| side == Host::Previous);
-            // Pasted back from the session's first text: that item.
+            // Pasted back from the session's first text: that item (or
+            // key, which the host's last text may not hold, QA `E35-1`).
             if let Some((sources, Some(origin))) = told
                 && let Some(ItemSource::Origin(from)) = sources.of(&item_at(index), !new_child.is_array())
             {
@@ -126,6 +123,10 @@ impl<'a> Identity<'a> {
                 at += 1;
                 continue;
             }
+            let old_key = host_key(old_map, new_map, key)?;
+            let old_child = &old_map[old_key];
+            old_at.push('/');
+            old_at.push_str(&escaped(old_key));
             let old_items = items(old_child);
             let place = {
                 let mut lists = self.lists.borrow_mut();
@@ -134,9 +135,13 @@ impl<'a> Identity<'a> {
                         Some((sources, _)) => (0..new_items.len())
                             .map(|index| match sources.of(&item_at(index), !new_child.is_array()) {
                                 None => Told::Nothing,
-                                Some(ItemSource::Previous(from)) => {
-                                    place_in(from, &old_at, old_child.is_array()).map_or(Told::Elsewhere, Told::At)
-                                }
+                                Some(ItemSource::Previous(from)) => match place_in(from, &old_at, old_child.is_array()) {
+                                    Some(place) => Told::At(place),
+                                    // The key of a list written as a lone
+                                    // item: which item, values tell.
+                                    None if *from == old_at => Told::Nothing,
+                                    None => Told::Elsewhere,
+                                },
                                 Some(ItemSource::Origin(_)) => Told::Elsewhere,
                             })
                             .collect(),

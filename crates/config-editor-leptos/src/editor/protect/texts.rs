@@ -100,6 +100,12 @@ pub(crate) fn moved_placeholder(strings: &EditorStrings, pointer: &str, owner: &
     )
 }
 
+/// A copy of one of the host's placeholders in its own field, past those
+/// the host wrote there.
+pub(crate) fn extra_placeholder(strings: &EditorStrings, pointer: &str) -> String {
+    fill(&strings.extra_placeholder, &[("pointer", &pointer)])
+}
+
 /// One of the host's field placeholders written in a comment.
 pub(crate) fn placeholder_in_comment(strings: &EditorStrings, owner: &str) -> String {
     fill(&strings.placeholder_in_comment, &[("owner", &owner)])

@@ -23,10 +23,20 @@ fn traced(
         trail.note(&text, next, *caret);
         text = next.clone();
     }
+    // The list items: map entries are followed too, each kept here.
+    let list_item = |pointer: &str| {
+        pointer
+            .rsplit('/')
+            .next()
+            .is_some_and(|last| last.parse::<usize>().is_ok())
+    };
     trail
         .trace(language.behavior(), &text)
         .expect("traced")
         .items
+        .into_iter()
+        .filter(|(pointer, _)| list_item(pointer))
+        .collect()
 }
 
 fn previous(pairs: &[(&str, &str)]) -> HashMap<String, ItemSource> {
@@ -172,7 +182,8 @@ fn a_trace_reads_each_text_once_at_any_size() {
                 })
             })
         });
-        assert_eq!(traced, Some(items - 1));
+        // The items left, and the list's key.
+        assert_eq!(traced, Some(items));
         assert!(parsed <= start.len() + after.len(), "{parsed} bytes parsed");
         (lines, paths, reads)
     };
@@ -259,4 +270,56 @@ fn pasted_items_are_compared_with_the_cut_ones_only_at_any_size() {
     };
     assert_eq!(comparisons(50), 1);
     assert_eq!(comparisons(800), 1);
+}
+
+/// A map entry cut, saved without, and pasted back (its lines written
+/// otherwise) is the entry moved, by its data under the same key (QA
+/// `E35-1`); pasted entries are compared with the cut ones of the same
+/// key only, as many at any size.
+#[test]
+fn a_key_cut_and_pasted_after_a_save_is_the_key_moved_at_any_size() {
+    use super::super::super::work_count::{Work, counted};
+    let comparisons = |count: usize| {
+        let start: String = std::iter::once("m:\n".to_string())
+            .chain((0..count).map(|key| format!("  k{key}:\n    x: 1\n")))
+            .collect();
+        let cut = start.replacen("  k1:\n    x: 1\n", "", 1);
+        let caret = start.find("  k1:\n").expect("found");
+        let mut trail = Trail::starting(&start);
+        trail.note(&start, &cut, caret);
+        let mut trail = trail
+            .trace(Language::YAML.behavior(), &cut)
+            .expect("traced")
+            .saved;
+        let pasted = format!("{cut}  k1:\n    x:  1\n");
+        trail.note(&cut, &pasted, pasted.encode_utf16().count());
+        let (items, compared) = counted(Work::ItemComparison, || {
+            trail
+                .trace(Language::YAML.behavior(), &pasted)
+                .expect("traced")
+                .items
+        });
+        assert_eq!(
+            items.get("/m/k1"),
+            Some(&ItemSource::Origin("/m/k1".into()))
+        );
+        // Another key holding the same data is no key cut.
+        let other = format!("{cut}  k9999:\n    x: 1\n");
+        let mut fresh = Trail::starting(&start);
+        fresh.note(&start, &cut, caret);
+        let mut fresh = fresh
+            .trace(Language::YAML.behavior(), &cut)
+            .expect("traced")
+            .saved;
+        fresh.note(&cut, &other, other.encode_utf16().count());
+        let traced = fresh
+            .trace(Language::YAML.behavior(), &other)
+            .expect("traced")
+            .items;
+        assert_eq!(traced.get("/m/k9999"), None);
+        compared
+    };
+    let small = comparisons(50);
+    assert_eq!(small, comparisons(800));
+    assert!(small <= 2, "{small} comparisons");
 }

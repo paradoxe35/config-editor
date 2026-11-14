@@ -5,19 +5,24 @@
 //! of the host element it is (`identity`), and an element the edit added
 //! none but the declaration of its name; an element given content is no
 //! longer `xsi:nil`. Each element keeps its name's prefix, and one added
-//! takes its siblings' (`written_names`).
+//! takes its siblings' (`written_names`). A key the host element writes
+//! as an attribute stays one, and a child element stays a child (QA
+//! `E35-1`: views show both alike).
 
-use super::attribute_layout::{filled, markup_attributes};
+use super::attribute_layout::{Tag, filled, markup_attributes};
 use super::identity::{self, Host, Identity};
 use super::*;
 
 /// A host element as the check reads it: its markup attributes (name,
-/// value), whether it holds anything, and the prefix of its name.
+/// value), whether it holds anything, the prefix of its name, and the
+/// local names of its other attributes and of its child elements.
 #[derive(Clone, Default)]
 struct HostElement {
     markup: Vec<(String, String)>,
     filled: bool,
     prefix: Option<String>,
+    attributes: Vec<String>,
+    children: Vec<String>,
 }
 
 impl HostElement {
@@ -27,6 +32,24 @@ impl HostElement {
         let binding = self.markup.iter().filter(|(name, _)| written_names::binds(self.prefix.as_deref(), name)).cloned().collect();
         (self.prefix.clone(), binding)
     }
+
+    /// Whether `saved` writes a key this element writes as an attribute
+    /// only as a child element, or one it writes only as a child as an
+    /// attribute (an attribute and a child of one name are two keys).
+    fn form_changed(&self, saved: &HostElement) -> bool {
+        let moved = |name: &String, from: (&[String], &[String]), to: (&[String], &[String])| {
+            !from.1.contains(name) && to.1.contains(name) && !to.0.contains(name)
+        };
+        let host = (self.attributes.as_slice(), self.children.as_slice());
+        let written = (saved.attributes.as_slice(), saved.children.as_slice());
+        self.attributes.iter().any(|name| moved(name, host, written))
+            || self.children.iter().any(|name| moved(name, (host.1, host.0), (written.1, written.0)))
+    }
+}
+
+/// A name without its prefix.
+fn local(name: &str) -> String {
+    name.rsplit(':').next().unwrap_or(name).to_string()
 }
 
 /// An element's name as the check reads it: its prefix, and the
@@ -34,7 +57,7 @@ impl HostElement {
 type Name = (Option<String>, Vec<(String, String)>);
 
 /// The elements of a host text, by their paths, the names elements added
-/// to each path may take, and whether any holds markup or a prefix.
+/// to each path may take, and whether any holds markup, a prefix or an attribute.
 struct HostElements {
     markup: declarations::Markup,
     elements: HashMap<Vec<String>, HostElement>,
@@ -54,12 +77,23 @@ impl HostElements {
                 continue;
             }
             let Some(path) = plan.path_of(token.start) else { continue };
+            let attributes: Vec<String> = Tag::of(text, token, &read.markup)
+                .attributes
+                .iter()
+                .filter(|attribute| !attribute.markup)
+                .map(|attribute| local(&text[attribute.name.clone()]))
+                .collect();
             let element = HostElement {
                 markup: markup_attributes(text, token, &read.markup),
                 filled: filled(text, token),
                 prefix: written_names::prefix(text, token).map(str::to_string),
+                attributes,
+                children: Vec::new(),
             };
-            read.marked |= !element.markup.is_empty() || element.prefix.is_some();
+            read.marked |= !element.markup.is_empty() || element.prefix.is_some() || !element.attributes.is_empty();
+            if let (Some(parent), Some(name)) = (read.elements.get_mut(&strings(written_names::parent(path))), unindexed(path).pop()) {
+                parent.children.push(name);
+            }
             read.children.note(path, element.prefix.as_deref(), !element.name().1.is_empty());
             read.names.entry(unindexed(path)).or_default().push(element.name());
             read.elements.insert(strings(path), element);
@@ -68,7 +102,8 @@ impl HostElements {
     }
 }
 
-/// Whether an element of `text` holds markup or a prefixed name.
+/// Whether an element of `text` holds markup, a prefixed name or an
+/// attribute: what no view shows.
 pub(super) fn holds_markup(text: &str) -> bool {
     HostElements::of(text).marked
 }
@@ -81,9 +116,11 @@ pub(super) fn holds_markup(text: &str) -> bool {
 /// a writer pairing items otherwise is caught.
 pub(super) fn changed_markup(language: &XmlBehavior, previous: &str, patched: &str) -> Option<String> {
     let host = HostElements::of(previous);
-    // A view writes no markup (`declarations::first_markup_key`) and no
-    // prefix.
-    if !host.marked {
+    // A view writes no markup (`declarations::first_markup_key`), no
+    // prefix and no attribute, but what a save pastes back from the
+    // session's first text holds that text's.
+    let pasted_back = || crate::editor::item_sources::told(previous, |_| true).is_some_and(|sources| sources.holds_origin_items());
+    if !host.marked && !pasted_back() {
         return None;
     }
     let old = crate::editor::parse_cache::parsed(language, previous);
@@ -98,6 +135,7 @@ pub(super) fn changed_markup(language: &XmlBehavior, previous: &str, patched: &s
     let identity = Identity::of(Some(old), new)
         .told(sources.as_deref(), first_value.as_ref().and_then(|first| first.as_ref().as_ref().ok()));
     let saved_markup = declarations::Markup::of(patched);
+    let saved_elements = HostElements::of(patched);
     let tokens = tokenize(patched);
     let plan = plan_paths(patched, &tokens);
     // The prefix of each element open, innermost last.
@@ -135,7 +173,8 @@ pub(super) fn changed_markup(language: &XmlBehavior, previous: &str, patched: &s
                 if !own.filled && filled(patched, token) {
                     wanted.retain(|(name, value)| !elements.markup.nil(name, value));
                 }
-                saved == wanted && prefix == own.prefix
+                let form_kept = saved_elements.elements.get(&strings(path)).is_none_or(|saved| !own.form_changed(saved));
+                saved == wanted && prefix == own.prefix && form_kept
             }
             // Added: named as one of its path's host elements, or where
             // the host has none, in its siblings' namespace, else its
@@ -209,5 +248,26 @@ mod tests {
         // Moved, it stays nil; left empty, it must.
         assert_eq!(check(&format!("<r {XSI}>\n  <e><v>2</v></e>\n  <e xsi:nil=\"true\"/>\n</r>\n")), None);
         assert_eq!(check(&format!("<r {XSI}>\n  <e/>\n  <e><v>2</v></e>\n</r>\n")), Some("/r/e/0".into()));
+    }
+
+    /// A key the host writes as an attribute saved as a child element (or
+    /// the other way) reads back the same in every view, yet is another
+    /// document: caught, on any element, in any namespace (QA `E35-1`).
+    #[test]
+    fn an_attribute_written_as_a_child_or_a_child_as_an_attribute_is_caught() {
+        for (host, saved, caught) in [
+            ("<r>\n  <s pkg=\"x\"/>\n</r>\n", "<r>\n  <s>\n    <pkg>x</pkg>\n  </s>\n</r>\n", Some("/r/s")),
+            ("<r v=\"1\">\n  <s><pkg>x</pkg></s>\n</r>\n", "<r v=\"1\">\n  <s pkg=\"x\"/>\n</r>\n", Some("/r/s")),
+            ("<r xmlns:c=\"urn:c\">\n  <c:s c:pkg=\"x\"/>\n</r>\n", "<r xmlns:c=\"urn:c\">\n  <c:s><c:pkg>x</c:pkg></c:s>\n</r>\n", Some("/r/s")),
+            ("<r>\n  <s xmlns=\"urn:s\" pkg=\"x\"/>\n</r>\n", "<r>\n  <s xmlns=\"urn:s\"><pkg>x</pkg></s>\n</r>\n", Some("/r/s")),
+            // An attribute and a child of one name are two keys.
+            ("<r a=\"1\">\n  <a>2</a>\n</r>\n", "<r a=\"1\">\n  <a>3</a>\n</r>\n", None),
+            ("<r a=\"1\">\n  <a>2</a>\n</r>\n", "<r>\n  <a>2</a>\n</r>\n", None),
+            // Kept, removed or added in its own form: nothing changed form.
+            ("<r>\n  <s pkg=\"x\"/>\n</r>\n", "<r>\n  <s pkg=\"y\" q=\"1\"/>\n</r>\n", None),
+            ("<r>\n  <s pkg=\"x\"/>\n</r>\n", "<r>\n  <s><q>1</q></s>\n</r>\n", None),
+        ] {
+            assert_eq!(changed_markup(&XmlBehavior, host, saved).as_deref(), caught, "{host} -> {saved}");
+        }
     }
 }

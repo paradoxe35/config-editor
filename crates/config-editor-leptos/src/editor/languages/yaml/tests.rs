@@ -1626,3 +1626,43 @@ fn a_complex_keys_value_line_is_not_a_plain_scalar_going_on() {
         assert!(covering.is_empty(), "{source:?}: {covering:?}");
     }
 }
+
+/// QA 35: an anchor or a tag before a flow mapping (`obj: &x {|}`,
+/// `- !!map {|}`) left the mapping unseen: no key was offered in it.
+#[test]
+fn keys_are_offered_in_a_flow_mapping_behind_an_anchor_or_a_tag() {
+    let schema = build_schema(
+        r#"{"type":"object","properties":{
+            "list":{"type":"array","items":{"type":"object","properties":{
+                "name":{"type":"string"},"port":{"type":"integer"}}}},
+            "obj":{"type":"object","properties":{
+                "name":{"type":"string"},"port":{"type":"integer"}}}}}"#,
+    )
+    .unwrap();
+    let mut failures = Vec::new();
+    for (marked, wanted) in [
+        ("obj: {|}\n", &["name", "port"][..]),
+        ("obj: &x {|}\n", &["name", "port"]),
+        ("obj: !!map {|}\n", &["name", "port"]),
+        ("obj: &x !!map {|}\n", &["name", "port"]),
+        ("obj: &x {name: q, |}\n", &["port"]),
+        ("obj: &x {\n  |\n}\n", &["name", "port"]),
+        ("list:\n  - {|}\n", &["name", "port"]),
+        ("list:\n  - &x {|}\n", &["name", "port"]),
+        ("list:\n  - !!map {|}\n", &["name", "port"]),
+        ("list: [&x {|}]\n", &["name", "port"]),
+        ("list:\n  - &x {name: q, |}\n", &["port"]),
+    ] {
+        let at = marked.find('|').unwrap();
+        let source = marked.replacen('|', "", 1);
+        let mut labels: Vec<String> = completions(&source, at, true, Some(&schema), true)
+            .into_iter()
+            .map(|option| option.label)
+            .collect();
+        labels.sort();
+        if labels != wanted {
+            failures.push(format!("{marked:?}: offered {labels:?}"));
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}

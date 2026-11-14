@@ -42,6 +42,7 @@ mod identity;
 mod kept_markup;
 mod kept_elements;
 mod written_names;
+mod pasted_attributes;
 // The fold ranges (the `folding` feature).
 #[cfg(feature = "folding")]
 mod folding;
@@ -117,6 +118,20 @@ impl ConfigLanguage for XmlBehavior {
 
     fn repetition(&self) -> Repetition {
         Repetition::Elements
+    }
+
+    fn key_half_typed(&self, line: &str) -> bool {
+        // A start tag's name with nothing after it yet: no `>`, `/` or
+        // space ends it.
+        let Some(tag) = line.strip_prefix('<') else {
+            return false;
+        };
+        let name_end = tag
+            .find(|character: char| {
+                !(character.is_alphanumeric() || matches!(character, '_' | '-' | '.' | ':'))
+            })
+            .unwrap_or(tag.len());
+        name_end > 0 && name_end == tag.len()
     }
 
     fn reindent_on_type(&self, source: &str, cursor: usize, typed: char) -> Option<String> {
@@ -389,7 +404,9 @@ impl ConfigLanguage for XmlBehavior {
             return Err(reason);
         }
         let framing = previous.map(xml_framing).unwrap_or_default();
-        let mut attributes = previous.map(attribute_paths).unwrap_or_default();
+        let mut attributes = previous
+            .map(|previous| pasted_attributes::with_pasted_back(attribute_paths(previous), previous, value))
+            .unwrap_or_default();
         let old = previous.filter(|_| !attributes.is_empty()).and_then(|previous| xml_parse(previous).ok());
         if let Some(schema) = schema {
             // What the text writes keeps its form: elements of the

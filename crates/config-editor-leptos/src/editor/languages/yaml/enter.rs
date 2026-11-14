@@ -5,7 +5,8 @@
 
 use super::super::super::keyboard::utf16_to_byte_index;
 use super::super::super::language::{Newline, bracket_newline};
-use super::editing::{code_before_comment, newline_with_indent};
+use super::editing::{code_before_comment, item_content_column, newline_with_indent, open_quoted_scalar, opens_children};
+use super::suggestions::mapping_colon;
 
 pub(super) fn newline(source: &str, cursor: usize) -> Newline {
     let byte = utf16_to_byte_index(source, cursor);
@@ -36,7 +37,35 @@ pub(super) fn newline(source: &str, cursor: usize) -> Newline {
             replaces_before: line.len(),
         };
     }
+    if let Some(indent) = entry_after_caret(source, line_start, byte) {
+        return Newline::new(format!("\n{indent}"));
+    }
     Newline::new(newline_with_indent(source, cursor))
+}
+
+/// Enter right after a complete value, before a key or an item written on
+/// the same line (`port: 1|host: x`): the rest is an entry of its own, at
+/// the line's indentation for an item, at its item's content column for a
+/// key, not a continued value (QA `E35-1b`). `None` after a key with no
+/// value or an opener, where the rest goes deeper.
+fn entry_after_caret(source: &str, line_start: usize, byte: usize) -> Option<String> {
+    let line = &source[line_start..byte];
+    let rest = code_before_comment(source[byte..].split('\n').next().unwrap_or_default()).trim();
+    if rest.is_empty() || open_quoted_scalar(&source[..byte]).is_some() {
+        return None;
+    }
+    let code = code_before_comment(line).trim_end();
+    let content_column = item_content_column(code);
+    let content = &code[content_column..];
+    if content.is_empty() || mapping_colon(content).is_some_and(|colon| opens_children(content[colon + 1..].trim())) {
+        return None;
+    }
+    let indent = &line[..line.len() - line.trim_start_matches([' ', '\t']).len()];
+    if rest == "-" || rest.starts_with("- ") || rest.starts_with("-\t") {
+        return Some(indent.to_string());
+    }
+    mapping_colon(rest).filter(|colon| *colon > 0)?;
+    Some(format!("{indent}{}", " ".repeat(content_column - indent.len())))
 }
 
 /// Whether a flow collection opened in `code` (a line's text before the

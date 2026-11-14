@@ -48,9 +48,15 @@ pub(crate) struct SecretState {
 }
 
 impl SecretState {
-    pub(crate) fn new(options: SecretOptions, host: Written<'_>, shown: Written<'_>) -> Self {
+    /// With `reading`, the schema the views read the host's text by.
+    pub(crate) fn new(
+        options: SecretOptions,
+        host: Written<'_>,
+        shown: Written<'_>,
+        reading: Option<&serde_json::Value>,
+    ) -> Self {
         let matcher = SecretMatcher::new(&options);
-        let known = matcher.known(host.0, host.1);
+        let known = matcher.known(host.0, host.1, reading);
         // By text, then by path only if the document says they are not all
         // in their fields.
         let written = locate_written(&matcher, shown.1, &known);
@@ -432,10 +438,13 @@ impl EditorState {
         let secrets = self.protect().secrets;
         if host_changed {
             let host = self.config().host_language.behavior();
-            let known = secrets.matcher.with_value(|matcher| {
-                self.sync()
-                    .host_text
-                    .with_value(|text| matcher.known(host, text))
+            let known = self.config().schema.with_value(|schema| {
+                let reading = schema.as_deref().map(|bundle| &bundle.schema);
+                secrets.matcher.with_value(|matcher| {
+                    self.sync()
+                        .host_text
+                        .with_value(|text| matcher.known(host, text, reading))
+                })
             });
             if secrets.known.with_untracked(|current| *current != known) {
                 secrets.known.set(known);
@@ -464,9 +473,12 @@ impl EditorState {
     pub(crate) fn adopt_host_tokens(&self, host: &str) {
         let secrets = self.protect().secrets;
         let language = self.config().host_language.behavior();
-        let known = secrets
-            .matcher
-            .with_value(|matcher| matcher.known(language, host));
+        let known = self.config().schema.with_value(|schema| {
+            let reading = schema.as_deref().map(|bundle| &bundle.schema);
+            secrets
+                .matcher
+                .with_value(|matcher| matcher.known(language, host, reading))
+        });
         if secrets.known.with_untracked(|current| *current != known) {
             secrets.known.set(known);
         }

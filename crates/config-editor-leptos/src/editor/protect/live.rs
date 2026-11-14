@@ -126,6 +126,7 @@ impl ProtectState {
                     secrets,
                     (host_language.behavior(), host),
                     (edit_language.get_untracked().behavior(), shown),
+                    schema.as_deref().map(|bundle| &bundle.schema),
                 )
             })
         });

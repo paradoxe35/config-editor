@@ -14,8 +14,8 @@ use std::ops::Range;
 use serde_json::Value;
 
 use super::super::super::codec::scalar_range;
-use super::super::super::language::ConfigLanguage;
-use super::super::super::paths::{FieldPath, path_at, with_spans, written_value_span};
+use super::super::super::language::{ConfigLanguage, Repetition};
+use super::super::super::paths::{FieldPath, field_key, path_at, with_spans, written_value_span};
 use super::super::super::text_change::{changed_bytes, utf16_len};
 use super::super::glued::written_alone;
 use super::super::guard::check_values;
@@ -211,7 +211,9 @@ impl Placeholders<'_> {
                 .filter(|(_, known)| known.field.as_deref() == Some(pointer.as_str()))
             {
                 let bytes = lines.byte_of(token.start)..lines.byte_of(token.end);
-                if let Some(value) = own_value(self.behavior, before, pointer, &bytes)
+                let value = item_value(self.behavior, before, pointer, token, &bytes)
+                    .or_else(|| own_value(self.behavior, before, pointer, &bytes));
+                if let Some(value) = value
                     && !values.contains(&value)
                 {
                     values.push(value);
@@ -268,6 +270,30 @@ impl Placeholders<'_> {
         }
         protected
     }
+}
+
+/// In a language that repeats any element for a list, the bytes of the
+/// value of the item the token at UTF-16 `token` (bytes `bytes`) of `text`
+/// is written in, where its field at `pointer` is written more than once
+/// (a second element of its name typed or copied beside it): that item's
+/// value alone is the token's, the other items are new ones.
+fn item_value(
+    behavior: &dyn ConfigLanguage,
+    text: &str,
+    pointer: &str,
+    token: &Range<usize>,
+    bytes: &Range<usize>,
+) -> Option<Range<usize>> {
+    if behavior.repetition() != Repetition::Elements {
+        return None;
+    }
+    let item = path_at(behavior, text, token.start)?.to_pointer();
+    if item == pointer || field_key(&item) != field_key(pointer) {
+        return None;
+    }
+    written_value_span(behavior, text, &item)
+        .and_then(|span| scalar_range(behavior, text, span))
+        .filter(|value| value.start <= bytes.start && bytes.end <= value.end)
 }
 
 /// Whether the token at UTF-16 `range` of `text` (split by `lines`), in

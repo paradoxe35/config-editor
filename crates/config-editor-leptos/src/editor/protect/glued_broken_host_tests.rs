@@ -398,7 +398,7 @@ fn whole_values_of_a_text_that_does_not_parse_cost_one_reading() {
             text.replace_range(line_start..line_end, &lines);
             let ((known, documents), spans) = counted(Work::SpanLookup, || {
                 counted(Work::DocumentRead, || {
-                    matcher.known(case.language.behavior(), &text)
+                    matcher.known(case.language.behavior(), &text, None)
                 })
             });
             let whole = known.iter().filter(|known| known.whole.is_some()).count();

@@ -2,7 +2,7 @@
 //! the options of a `oneOf` that share a description are told apart by
 //! number, a value of a type no option takes names every option's type, a
 //! list `contains` refuses says how many of its items count, a `not`
-//! schema says what it must not match, and an item a list refuses
+//! schema says what it must not match (never as JSON), and an item a list refuses
 //! (`additionalItems`, `unevaluatedItems`) is marked where it is written.
 //! Problems come in the order they are written, and a schema text may
 //! start with a byte order mark.
@@ -75,11 +75,11 @@ fn problems_of_every_kind_read_plainly_in_every_language() {
             r#"{"properties":{"s":{"not":{"type":"string"}}}}"#,
             r#"/s: "x" must not be of type "string""#,
         ),
-        // A `not` of more than one keyword: the `not` as JSON.
+        // A `not` of more than one keyword: no schema as JSON.
         (
             "s: x\n",
             r#"{"properties":{"s":{"not":{"type":"string","minLength":1}}}}"#,
-            r#"/s: "x" must not match {"type":"string","minLength":1}"#,
+            r#"/s: "x" is not allowed here"#,
         ),
         // A `not` of required keys: the keys can't be used together.
         (

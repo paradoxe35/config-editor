@@ -144,6 +144,7 @@ body { margin: 0; }
    boxes themselves too on touch screens. */
 .demo__check,
 .demo__setting { min-height: 24px; }
+.demo__setting input { flex-shrink: 0; }
 @media (pointer: coarse) {
   .demo__check input,
   .demo__setting input { width: 24px; height: 24px; margin: 0; }

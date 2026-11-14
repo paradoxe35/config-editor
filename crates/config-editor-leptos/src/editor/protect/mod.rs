@@ -327,6 +327,14 @@ mod lock_scale_tests;
     feature = "yaml",
     feature = "json",
     feature = "toml",
+    feature = "hcl"
+))]
+mod many_copies_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
     feature = "hcl",
     feature = "xml"
 ))]
@@ -394,6 +402,15 @@ mod placeholder_scale_tests;
     feature = "xml"
 ))]
 mod point_problem_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod prefix_name_tests;
 #[cfg(all(
     test,
     feature = "yaml",
@@ -520,3 +537,12 @@ mod whole_guard_tests;
     feature = "xml"
 ))]
 mod whole_scale_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod xml_list_secret_tests;

@@ -10,7 +10,7 @@
 use std::collections::{HashMap, HashSet};
 use std::ops::Range;
 
-use super::super::super::language::SchemaPathSegment;
+use super::super::super::language::{ConfigLanguage, Repetition, SchemaPathSegment};
 use super::super::super::paths::FieldPath;
 use super::super::super::work_count::{Work, note};
 use super::super::locate::plain;
@@ -67,6 +67,11 @@ pub(super) fn joining_counts(
             locks[lock].near.contains(&line) || names_word(&keys[lock], content)
         };
         let path = plain(behavior, &path);
+        // A key still being typed names no field yet (`<name` on its way
+        // to `<namespace>`): it is no second copy of the field or of a key
+        // holding it until written whole. Inside the field it joins it all
+        // the same.
+        let half_typed = behavior.key_half_typed(content.trim_start());
         // Inside the field (or the field itself): it joins it, unless it
         // is a line of its own key that may be.
         for lock in index.holding(&path) {
@@ -76,12 +81,15 @@ pub(super) fn joining_counts(
                         .last()
                         .is_some_and(|key| names_word(std::slice::from_ref(key), content))
             };
+            if half_typed && index.is_at(named(behavior, &path), lock) {
+                continue;
+            }
             if reaches(lock) && !own_key() {
                 counts[lock] += 1;
             }
         }
         // A second key holding the field.
-        if !path.is_empty() && names_holder(behavior, &path, content) {
+        if !half_typed && !path.is_empty() && names_holder(behavior, &path, content) {
             for &lock in index.inside(&path) {
                 if reaches(lock) {
                     counts[lock] += 1;
@@ -90,6 +98,23 @@ pub(super) fn joining_counts(
         }
     }
     counts
+}
+
+/// The field a line read at `path` names: in a language that repeats an
+/// element for a list, a second element of a field's name reads as its
+/// item (`/a/name/1`), named `/a/name`.
+fn named<'p>(behavior: &dyn ConfigLanguage, path: &'p str) -> &'p str {
+    if behavior.repetition() == Repetition::None {
+        return path;
+    }
+    match path.rsplit_once('/') {
+        Some((field, index))
+            if !index.is_empty() && index.bytes().all(|byte| byte.is_ascii_digit()) =>
+        {
+            field
+        }
+        _ => path,
+    }
 }
 
 /// The keys of the path `pointer`.
@@ -168,10 +193,7 @@ struct LockIndex {
 }
 
 impl LockIndex {
-    fn new(
-        behavior: &dyn super::super::super::language::ConfigLanguage,
-        locks: &[Joinable<'_>],
-    ) -> Self {
+    fn new(behavior: &dyn ConfigLanguage, locks: &[Joinable<'_>]) -> Self {
         let mut own: HashMap<String, Vec<usize>> = HashMap::new();
         let mut holders: HashMap<String, Vec<usize>> = HashMap::new();
         for (index, lock) in locks.iter().enumerate() {
@@ -197,6 +219,11 @@ impl LockIndex {
         std::iter::once("")
             .chain(ends.filter(|at| *at > 0).map(|at| &path[..at]))
             .flat_map(|form| self.own.get(form).into_iter().flatten().copied())
+    }
+
+    /// Whether `lock` is the one at `path`.
+    fn is_at(&self, path: &str, lock: usize) -> bool {
+        self.own.get(path).is_some_and(|own| own.contains(&lock))
     }
 
     /// The locks inside `path`, not at it.

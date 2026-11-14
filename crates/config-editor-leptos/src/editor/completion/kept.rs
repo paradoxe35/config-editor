@@ -102,6 +102,9 @@ fn filled(
                 Value::Object(members) if members.is_empty() => {
                     required_filled(language, schema, root, depth).unwrap_or(Value::Object(members))
                 }
+                Value::Array(items) if items.is_empty() => {
+                    least_items(language, schema, root, depth)
+                }
                 other => other,
             };
             Some(value).filter(|value| keeps(value))
@@ -138,6 +141,37 @@ fn required_filled(
         }
     }
     (!members.is_empty()).then_some(Value::Object(members))
+}
+
+/// Most items a list's `minItems` has written for it.
+const MAX_LEAST_ITEMS: usize = 8;
+
+/// The list a list `schema` describes is written as: as many items as its
+/// `minItems` asks, each [`filled`] (a list in an item, a list of lists,
+/// filled the same way), so it is no error the moment it is written;
+/// empty when it asks none or an item has no value to write.
+pub(super) fn least_list(language: &dyn ConfigLanguage, schema: &Value, root: &Value) -> Value {
+    least_items(language, schema, root, 0)
+}
+
+fn least_items(language: &dyn ConfigLanguage, schema: &Value, root: &Value, depth: usize) -> Value {
+    let empty = || Value::Array(Vec::new());
+    let Some(array) = array_branch(schema, root).filter(|_| depth < MAX_FILL_DEPTH) else {
+        return empty();
+    };
+    let least = array
+        .get("minItems")
+        .and_then(Value::as_u64)
+        .map_or(0, |least| usize::try_from(least).unwrap_or(usize::MAX));
+    let item = |index: usize| {
+        let schema = array
+            .get("prefixItems")
+            .and_then(|prefix| prefix.get(index))
+            .or_else(|| array.get("items").filter(|items| !items.is_array()))?;
+        filled(language, schema, root, depth + 1)
+    };
+    let items: Option<Vec<Value>> = (0..least.min(MAX_LEAST_ITEMS)).map(item).collect();
+    items.map_or_else(empty, Value::Array)
 }
 
 /// What a required child past the one the caret goes to gets: its

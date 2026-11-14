@@ -35,20 +35,21 @@ pub(crate) struct ItemSources {
     /// host reads it back): a write of another value (a step of a save
     /// made in several) is told nothing.
     pub(crate) values: Vec<Value>,
-    /// Each item's source, by its pointer in the view's value: an item of
-    /// a list at `/l/1` is at `/l/1`, and its list's lone item at `/l/0`
-    /// or `/l`. Items not listed are not told by the edit.
+    /// Each item's (and map entry's) source, by its pointer in the view's
+    /// value: an item of a list at `/l/1` is at `/l/1`, and its list's
+    /// lone item at `/l/0` or `/l`. Items not listed are not told by the
+    /// edit.
     pub(crate) items: HashMap<String, ItemSource>,
 }
 
 impl ItemSources {
     /// The source of the item at `pointer` (`lone` when its list holds it
-    /// alone, which the view may write either way).
+    /// alone, which the view may write either way: the view's item at
+    /// `{pointer}/0` first, else the key or item at `pointer`).
     pub(crate) fn of(&self, pointer: &str, lone: bool) -> Option<&ItemSource> {
-        self.items.get(pointer).or_else(|| {
-            lone.then(|| self.items.get(&format!("{pointer}/0")))
-                .flatten()
-        })
+        lone.then(|| self.items.get(&format!("{pointer}/0")))
+            .flatten()
+            .or_else(|| self.items.get(pointer))
     }
 
     /// Whether any item comes from the session's first host text.

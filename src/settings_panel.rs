@@ -147,6 +147,20 @@ fn close_on_focus_out(
     }
 }
 
+/// Keeps focus where it is when a press lands on the list's text (a label's
+/// words): the browser would otherwise move focus to the nearest focusable
+/// ancestor (the page's `main`), which looks like leaving the list. The
+/// label's own click still toggles its checkbox, and focuses it.
+fn keep_focus_on_press(event: web_sys::MouseEvent) {
+    let on_control = event
+        .target()
+        .and_then(|target| target.dyn_into::<web_sys::Element>().ok())
+        .is_some_and(|element| element.closest("input, button").ok().flatten().is_some());
+    if !on_control {
+        event.prevent_default();
+    }
+}
+
 #[component]
 pub fn SettingsPanel(settings: RwSignal<EditorSettings>) -> impl IntoView {
     let keys: Vec<String> = switches(&settings.get_untracked())
@@ -187,6 +201,7 @@ pub fn SettingsPanel(settings: RwSignal<EditorSettings>) -> impl IntoView {
                 class="demo__settings-list"
                 node_ref=list
                 style:transform=placement
+                on:mousedown=keep_focus_on_press
                 hidden=move || !open.get()
             >
                 {keys.into_iter().map(|key| switch(settings, key)).collect_view()}

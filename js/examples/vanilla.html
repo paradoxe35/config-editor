@@ -7,12 +7,17 @@
     <style>
       body { margin: 0; font: 13px system-ui, sans-serif; background: #1e1e1e; color: #ddd; }
       header { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; padding: 8px 12px; }
+      header button, header select { min-height: 24px; }
+      header label { display: inline-flex; align-items: center; gap: 4px; min-height: 24px; }
+      header input[type="checkbox"] { width: 24px; height: 24px; margin: 0; }
+      h1 { font-size: inherit; margin: 0; }
       pre { margin: 0; padding: 8px 12px; white-space: pre-wrap; max-height: 25vh; overflow: auto; }
     </style>
   </head>
   <body>
+    <main>
     <header>
-      <strong>config-editor</strong>
+      <h1>config-editor</h1>
       <label>Edit as
         <select id="edit-as">
           <option value="">Same</option><option>json</option><option>toml</option><option>hcl</option><option>xml</option><option>env</option>
@@ -32,6 +37,7 @@
     </header>
     <div id="editor"></div>
     <pre id="saved"></pre>
+    </main>
     <script type="module">
       import { ConfigEditor, loadConfigEditor, registerLanguage, themes } from "../config-editor/index.js";
       import { validate } from "../config-editor/tools.js";

@@ -172,6 +172,13 @@ pub(crate) enum Work {
         allow(dead_code, reason = "only the lock check notes it")
     )]
     LockLine,
+    /// A stand-in of a text read for the copies of keys written more than
+    /// once (`protect::own_value`: the text with the keys found renamed).
+    #[cfg_attr(
+        not(feature = "protect"),
+        allow(dead_code, reason = "only the lock check notes it")
+    )]
+    StandIn,
     /// A schema format's extra check run on a document
     /// (`SchemaCheck::check`): once per check and validation.
     SchemaCheck,
@@ -218,7 +225,8 @@ impl Work {
             Self::OffsetSeek => 34,
             Self::RangesFollowed => 35,
             Self::LockLine => 36,
-            Self::SchemaCheck => 37,
+            Self::StandIn => 37,
+            Self::SchemaCheck => 38,
         }
     }
 
@@ -262,13 +270,14 @@ impl Work {
         Self::OffsetSeek,
         Self::RangesFollowed,
         Self::LockLine,
+        Self::StandIn,
         Self::SchemaCheck,
     ];
 }
 
 /// How many kinds of work there are.
 #[cfg(test)]
-const KINDS: usize = 38;
+const KINDS: usize = 39;
 
 #[cfg(test)]
 thread_local! {

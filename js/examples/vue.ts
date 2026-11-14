@@ -139,7 +139,7 @@ const App = defineComponent({
   },
   template: `
     <header>
-      <strong>config-editor-vue</strong>
+      <h1>config-editor-vue</h1>
       <label>Edit as
         <select id="edit-as" :value="editAs ?? ''" @change="editAs = $event.target.value || null">
           <option value="">Same</option><option>json</option><option>toml</option><option>hcl</option><option>xml</option>

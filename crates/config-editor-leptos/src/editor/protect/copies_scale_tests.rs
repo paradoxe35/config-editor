@@ -9,6 +9,7 @@
 use leptos::prelude::*;
 
 use super::super::Language;
+use super::super::keys::line_edit::LineCommand;
 use super::super::keys::lines::{Command, run};
 use super::super::secret_options::SecretOptions;
 use super::super::state::EditorState;
@@ -98,6 +99,55 @@ fn a_text_holding_its_keys_several_times_checks_placeholders_in_linear_work() {
                     small[index], large[index]
                 ));
             }
+        }
+    }
+    super::super::parse_cache::release();
+    assert!(costly.is_empty(), "{costly:#?}");
+}
+
+/// The stand-ins of the text read for the copies of its keys, and the
+/// readings of the whole text, when the first placeholder's line of the
+/// sample written `copies` times moves down a line.
+fn line_moved(language: Language, copies: usize) -> (usize, usize) {
+    let text = sample(language).repeat(copies);
+    let mut editor = TestEditor::new(language, &text);
+    editor.secrets = Some(SecretOptions::default().with_placeholder("«secret [0-9a-f]{8}»"));
+    let (_owner, state) = editor.mount();
+    let line = text
+        .lines()
+        .position(|line| line.contains("«secret"))
+        .expect("a placeholder");
+    let at: usize = text
+        .lines()
+        .take(line)
+        .map(|line| line.encode_utf16().count() + 1)
+        .sum();
+    let ((), counts) = counted_all(|| {
+        run(
+            state,
+            Command::Lines(LineCommand::Move { down: true }),
+            (at, at),
+            false,
+        );
+    });
+    let count = |kind: Work| counts[Work::ALL.iter().position(|each| *each == kind).unwrap()];
+    (count(Work::StandIn), count(Work::DocumentRead))
+}
+
+/// One line moved in the first copy of its keys reads no stand-in for the
+/// later copies, and the same few readings of the text at any size: work
+/// for the lookups it makes, not every copy of every field near it (QA 35:
+/// Alt+Down on the large sample written four times was 1.5 times slower).
+#[test]
+fn a_line_moved_reads_only_the_copies_it_looks_up() {
+    super::super::parse_cache::hold();
+    let mut costly = Vec::new();
+    for language in Language::ALL.iter().copied() {
+        let (small, large) = (line_moved(language, 2), line_moved(language, 4));
+        if small.0 > 0 || large.0 > 0 || large.1 > small.1 {
+            costly.push(format!(
+                "{language}: (stand-ins, readings) {small:?} for two copies, {large:?} for four"
+            ));
         }
     }
     super::super::parse_cache::release();

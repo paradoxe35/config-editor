@@ -113,6 +113,12 @@
 .config-editor-documents,
 :not(#\#):not(#\#) .config-editor-documents .config-editor {
   display: block;
+}
+/* The text properties come with the shield's weight, so a page rule for
+   bare elements (`#app div { letter-spacing }`) cannot move the drawn text
+   off the textarea's: both read the root's values. */
+:not(#\#):not(#\#) .config-editor,
+:not(#\#):not(#\#) .config-editor-documents {
   writing-mode: horizontal-tb;
   text-orientation: mixed;
   text-align: start;

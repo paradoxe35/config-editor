@@ -20,7 +20,7 @@ type Flag = (Option<usize>, String);
 fn flagged(host: &str, text: &str) -> Vec<Flag> {
     let yaml = Language::YAML.behavior();
     let matcher = SecretMatcher::new(&SecretOptions::default());
-    let known = matcher.known(yaml, host);
+    let known = matcher.known(yaml, host, None);
     unknown_placeholders(
         yaml,
         text,

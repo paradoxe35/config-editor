@@ -6,7 +6,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 // QA round 34, UX: the wheel and a finger over the line numbers scroll the
 // text as over the text itself, the page only at the text's ends (UX34-1);
 // clearing a find query that said "No results" takes that back from the
-// live region (UX34-5). Ctrl+Enter on a folded line is in
+// live region (UX34-5); the wheel over the suggestion list (UX35-1). Ctrl+Enter on a folded line is in
 // line-commands.spec.mjs (UX34-4). Through the npm package's page (run
 // `npm run build` in js/ first).
 const js = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "js");
@@ -125,7 +125,9 @@ test.describe("the line numbers scroll the text (UX34-1)", () => {
     await expect.poll(async () => (await scrolled(page)).text).toBe(0);
     const short = await gutter(page).boundingBox();
     await drag(page, cdp, [at[0], short.y + short.height / 2], -150);
-    await expect.poll(async () => (await scrolled(page)).page).toBeGreaterThan(0);
+    await expect
+      .poll(async () => (await scrolled(page)).page)
+      .toBeGreaterThan(0);
     expect(errors).toEqual([]);
     await context.close();
   });
@@ -147,4 +149,66 @@ test("clearing a query that said “No results” takes it back from the live re
   await page.keyboard.type("zz");
   await expect(said(page)).toHaveText(/No results/);
   expect(errors).toEqual([]);
+});
+
+test.describe("the wheel over the suggestion list (UX35-1)", () => {
+  const filler = Array.from({ length: 200 }, (_, i) => `# line ${i}\n`).join(
+    "",
+  );
+  const schemaOf = (count) =>
+    JSON.stringify({
+      type: "object",
+      properties: Object.fromEntries(
+        Array.from({ length: count }, (_, i) => [
+          `prop_${i}`,
+          { type: "string" },
+        ]),
+      ),
+    });
+  const list = (page) => page.locator(".config-editor__completions");
+  const listTop = (page) => list(page).evaluate((element) => element.scrollTop);
+
+  async function openList(page, count) {
+    const errors = await open(page, {
+      value: `\n${filler}`,
+      schema: schemaOf(count),
+    });
+    await page.setViewportSize({ width: 1000, height: 700 });
+    await input(page).focus();
+    await page.keyboard.press("Control+Home");
+    await page.keyboard.press("Control+Space");
+    await expect(list(page)).toBeVisible();
+    return errors;
+  }
+
+  test("a list with nothing to scroll passes the wheel to the text", async ({
+    page,
+  }) => {
+    const errors = await openList(page, 1);
+    const box = await list(page).boundingBox();
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.wheel(0, 200);
+    await expect.poll(async () => (await scrolled(page)).text).toBe(200);
+    await expect(list(page)).toBeVisible();
+    expect(errors).toEqual([]);
+  });
+
+  test("a long list scrolls itself, then the text at its end", async ({
+    page,
+  }) => {
+    const errors = await openList(page, 40);
+    const box = await list(page).boundingBox();
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.wheel(0, 100);
+    await expect.poll(() => listTop(page)).toBeGreaterThan(0);
+    expect((await scrolled(page)).text, "the text stays").toBe(0);
+    await list(page).evaluate(
+      (element) => (element.scrollTop = element.scrollHeight),
+    );
+    const end = await listTop(page);
+    await page.mouse.wheel(0, 150);
+    await expect.poll(async () => (await scrolled(page)).text).toBe(150);
+    expect(await listTop(page)).toBe(end);
+    expect(errors).toEqual([]);
+  });
 });

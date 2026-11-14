@@ -162,8 +162,15 @@ impl SecretMatcher {
     /// Read off the parsed document (one parse, whatever the number of
     /// tokens); a text that does not parse is read token by token instead,
     /// each field's value where the language finds it written (see
-    /// [`written_alone`]).
-    pub(crate) fn known(&self, behavior: &dyn ConfigLanguage, text: &str) -> Vec<Known> {
+    /// [`written_alone`]). With `reading` (the schema), the document is
+    /// read as the views read it: an XML list of one element is a list of
+    /// one item, its token an item's whole value (`/l/0`).
+    pub(crate) fn known(
+        &self,
+        behavior: &dyn ConfigLanguage,
+        text: &str,
+        reading: Option<&serde_json::Value>,
+    ) -> Vec<Known> {
         let mut known: Vec<Known> = Vec::new();
         // Where each token is in `known`, by its field: a lookup per held
         // token, not a pass over the fields already holding it (one token
@@ -197,7 +204,7 @@ impl SecretMatcher {
             behavior.comments(text)
         };
         let commented = |start: usize| in_comment(&comments, start);
-        match behavior.parse(text) {
+        match super::super::codec::read(behavior, text, reading) {
             Ok(document) => {
                 let mut printed = std::collections::HashMap::new();
                 self.each_held(&document, |token, pointer, whole| {
@@ -664,7 +671,7 @@ mod tests {
         let matcher = SecretMatcher::new(&SecretOptions::default());
         let host = format!("a: {TOKEN}\nb: «secret zz»\n");
         let yaml = Language::YAML.behavior();
-        let known = matcher.known(yaml, &host);
+        let known = matcher.known(yaml, &host, None);
         assert_eq!(
             known,
             vec![Known {
@@ -691,7 +698,9 @@ mod tests {
             &SecretOptions::default().with_matcher(|token| token.ends_with("2a»")),
         );
         assert_eq!(
-            custom.known(yaml, "x: «secret 11»\ny: «secret 2a»").len(),
+            custom
+                .known(yaml, "x: «secret 11»\ny: «secret 2a»", None)
+                .len(),
             1
         );
         use crate::editor::paths::same_field;

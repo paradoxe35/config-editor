@@ -234,7 +234,7 @@ fn a_placeholder_alone_in_a_multi_line_form_of_a_broken_host_is_whole() {
             .filter(|(_, form, _)| !form.ends_with("closed on its line"))
         {
             let broken = format!("{text}{}", breaking(host));
-            let known = SecretMatcher::new(&tokens.options()).known(host.behavior(), &broken);
+            let known = SecretMatcher::new(&tokens.options()).known(host.behavior(), &broken, None);
             let whole: Vec<_> = known
                 .iter()
                 .filter(|known| known.field.as_deref() == Some("/a"))

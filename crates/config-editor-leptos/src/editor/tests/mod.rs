@@ -47,6 +47,14 @@ mod item_trail;
     feature = "xml"
 ))]
 mod item_trail_switches;
+#[cfg(all(
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod key_trail_switches;
 // Reads what the view reads (folds, suggestions) on every language's sample.
 #[cfg(all(
     feature = "yaml",
@@ -159,6 +167,15 @@ mod list_item_problems;
     feature = "schema-validation"
 ))]
 mod one_line_item_work;
+#[cfg(all(
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml",
+    feature = "schema-validation"
+))]
+mod option_nested_keys_work;
 #[cfg(all(
     feature = "yaml",
     feature = "json",

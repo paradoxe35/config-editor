@@ -131,14 +131,30 @@ impl Wording<'_> {
                 .collect::<Vec<_>>()
                 .join(", ")
         };
+        // A `not` every value matches (`not: {}`, `not: true`): no value
+        // is allowed, as a `false` schema says.
+        let annotation = |keyword: &str| matches!(keyword, "title" | "description" | "$comment");
+        if *schema == Value::Bool(true)
+            || schema
+                .as_object()
+                .is_some_and(|members| members.keys().all(|keyword| annotation(keyword)))
+        {
+            return super::super::false_schema::message(&value.to_string());
+        }
+        // A `type` beside a `const` or `enum` adds nothing to their names.
         let only = schema.as_object().and_then(|members| {
-            let mut keywords = members.iter().filter(|(keyword, _)| {
-                !matches!(keyword.as_str(), "title" | "description" | "$comment")
-            });
+            let named = members.contains_key("const") || members.contains_key("enum");
+            let mut keywords = members
+                .iter()
+                .filter(|(keyword, _)| !annotation(keyword) && !(named && *keyword == "type"));
             let one = keywords.next()?;
             keywords.next().is_none().then_some(one)
         });
         let worded = match only {
+            Some((keyword, pattern @ Value::String(_))) if keyword == "pattern" => Some(fill(
+                &strings.must_not_match_pattern,
+                &[("value", &value), ("pattern", pattern)],
+            )),
             Some((keyword, Value::String(name))) if keyword == "type" => Some(fill(
                 &strings.must_not_be_type,
                 &[("value", &value), ("types", &quoted(vec![name.clone()]))],

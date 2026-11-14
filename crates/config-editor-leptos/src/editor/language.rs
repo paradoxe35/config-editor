@@ -1196,6 +1196,17 @@ pub trait ConfigLanguage: Send + Sync + 'static {
         None
     }
 
+    /// Whether `line` (a line's text past its indent) starts with a key
+    /// still being typed: what the language reads as naming a key before
+    /// the key's markup is written whole (an XML start tag without its
+    /// `>`, a TOML table header without its `]`). It names no field yet:
+    /// `<name` on its way to `<namespace>` is not a second `<name>`.
+    /// Default: never (a key is read as typed).
+    fn key_half_typed(&self, line: &str) -> bool {
+        let _ = line;
+        false
+    }
+
     /// The text with the caret's line (`line_start..line_end`, the line
     /// break kept) left out, to read the rest of the document while a
     /// half-typed entry would not parse. A language whose line also opens
@@ -1996,9 +2007,10 @@ pub trait ConfigLanguage: Send + Sync + 'static {
 
     /// Whether the entries of `source` hold what no other language shows
     /// (an XML element's `xsi:type`, its namespace declaration, its
-    /// name's prefix), so an Edit-as save over it reads which list item
-    /// is which from the user's edits (`item_sources`), not only from
-    /// values that read alike. Default: no, values tell.
+    /// name's prefix, which of its keys are attributes), so an Edit-as
+    /// save over it reads which list item or map entry is which from the
+    /// user's edits (`item_sources`), not only from values that read
+    /// alike. Default: no, values tell.
     fn items_hold_unshown(&self, source: &str) -> bool {
         let _ = source;
         false

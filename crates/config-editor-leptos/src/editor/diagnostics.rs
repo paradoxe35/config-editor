@@ -85,8 +85,9 @@ pub(super) struct SchemaBundle {
     /// Some field is `readOnly`, `writeOnly` or `x-secret`: documents are
     /// walked for them.
     pub(super) has_marks: bool,
-    /// Some schema is conditional (`if`, a dependent schema): completion
-    /// and hover read the document to decide it.
+    /// Some schema is decided by the document (`if`, a dependent schema,
+    /// `oneOf`/`anyOf` options): completion and hover read the document to
+    /// decide it.
     pub(super) has_conditionals: bool,
     #[cfg(feature = "schema-validation")]
     validator: jsonschema::Validator,

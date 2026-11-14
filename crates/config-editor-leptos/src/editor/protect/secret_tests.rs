@@ -80,7 +80,7 @@ fn placeholders_survive_every_conversion_and_save() {
     let schema = schema();
     let mut failures = Vec::new();
     for (host, host_text) in documents() {
-        let known = matcher().known(host.behavior(), &host_text);
+        let known = matcher().known(host.behavior(), &host_text, None);
         if known.len() != 3 {
             failures.push(format!("{host}: known {known:?}"));
             continue;
@@ -187,7 +187,7 @@ fn random_edits_never_cut_a_placeholder() {
     let mut random = Random(0x2545_f491_4f6c_dd1d);
     let mut saves = 0;
     for (host, host_text) in documents() {
-        let known = matcher().known(host.behavior(), &host_text);
+        let known = matcher().known(host.behavior(), &host_text, None);
         for (edit, _) in documents() {
             let bridge = Bridge::new(host, edit, Some(bundle.clone()));
             let mut shown = match &bridge {
@@ -255,7 +255,7 @@ fn an_untouched_placeholder_passes_the_schema_check_in_every_language() {
     let mut failures = Vec::new();
     for (language, text) in documents() {
         let accepted: Vec<(String, String)> = matcher()
-            .known(language.behavior(), &text)
+            .known(language.behavior(), &text, None)
             .into_iter()
             .filter_map(|known| Some((known.token, known.field?)))
             .collect();
@@ -314,7 +314,7 @@ fn unknown_placeholders_in_secret_fields_are_flagged() {
     let schema = schema();
     let mut failures = Vec::new();
     for (language, text) in documents() {
-        let known = matcher().known(language.behavior(), &text);
+        let known = matcher().known(language.behavior(), &text, None);
         let none = unknown_placeholders(
             language.behavior(),
             &text,

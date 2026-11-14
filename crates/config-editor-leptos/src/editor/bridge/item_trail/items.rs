@@ -1,7 +1,8 @@
-//! The list items of a view's text and the lines each is written on: from
-//! the first line holding one of its keys or values to the last. An item
-//! sharing its first line with another (a flow list) has none: lines do
-//! not tell such items apart.
+//! The list items and map entries of a view's text and the lines each is
+//! written on: from the first line holding one of its keys or values to
+//! the last. An entry sharing its first line with another that is not
+//! inside it (the items of a flow list) has none: lines do not tell such
+//! entries apart.
 
 use super::super::super::language::ConfigLanguage;
 use super::super::super::paths;
@@ -9,21 +10,23 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::ops::Range;
 
-/// A list item of a view's text.
+/// A list item or map entry of a view's text.
 #[derive(Clone, Debug)]
 pub(super) struct Item {
     pub(super) pointer: String,
+    /// A map entry's key; `None` for a list item.
+    pub(super) key: Option<String>,
     /// Its lines, from the start of the first.
     pub(super) lines: Range<usize>,
 }
 
-/// The list items of `text` in `language` with lines of their own, in
-/// document order, from its value `value`.
+/// The list items and map entries of `text` in `language` with lines of
+/// their own, in document order, from its value `value`.
 pub(super) fn items(language: &dyn ConfigLanguage, text: &str, value: &Value) -> Vec<Item> {
     // Every value's pointer, each item's marked, in document order.
     let mut pointers = Vec::new();
-    walk(value, &mut String::new(), false, &mut pointers);
-    let (all, marked): (Vec<String>, Vec<bool>) = pointers.into_iter().unzip();
+    walk(value, &mut String::new(), None, &mut pointers);
+    let (all, marked): (Vec<String>, Vec<Option<Option<String>>>) = pointers.into_iter().unzip();
     // Every span from one read of the text.
     let (values, keys): (Vec<_>, Vec<_>) = paths::with_spans(language, text, &all, || {
         all.iter()
@@ -49,9 +52,9 @@ pub(super) fn items(language: &dyn ConfigLanguage, text: &str, value: &Value) ->
         .collect();
     let mut found = Vec::new();
     for (index, pointer) in all.iter().enumerate() {
-        if !marked[index] {
+        let Some(key) = &marked[index] else {
             continue;
-        }
+        };
         let inside = format!("{pointer}/");
         let within = std::iter::once(&lines[index]).chain(
             all[index + 1..]
@@ -79,27 +82,49 @@ pub(super) fn items(language: &dyn ConfigLanguage, text: &str, value: &Value) ->
         };
         found.push(Item {
             pointer: pointer.clone(),
+            key: key.clone(),
             lines: start..end,
         });
     }
-    // Items starting on one line are told apart by no line.
-    let mut per_line: HashMap<usize, usize> = HashMap::new();
+    // Entries starting on one line are told apart by no line, unless all
+    // but the first (in document order: the outermost) are inside it.
+    let mut first_on_line: HashMap<usize, (&str, bool)> = HashMap::new();
     for item in &found {
-        *per_line.entry(item.lines.start).or_default() += 1;
+        first_on_line
+            .entry(item.lines.start)
+            .and_modify(|(first, alone)| {
+                *alone &= item
+                    .pointer
+                    .strip_prefix(*first)
+                    .is_some_and(|rest| rest.starts_with('/'));
+            })
+            .or_insert((&item.pointer, true));
     }
-    found.retain(|item| per_line[&item.lines.start] == 1);
+    let kept: Vec<bool> = found
+        .iter()
+        .map(|item| first_on_line[&item.lines.start] == (item.pointer.as_str(), true))
+        .collect();
+    let mut kept = kept.into_iter();
+    found.retain(|_| kept.next().unwrap_or(false));
     found
 }
 
-fn walk(value: &Value, pointer: &mut String, item: bool, out: &mut Vec<(String, bool)>) {
-    out.push((pointer.clone(), item));
+/// Each value's pointer under `pointer`, with `Some` of its key for a map
+/// entry (`Some(None)` for a list item), `None` for the root.
+fn walk(
+    value: &Value,
+    pointer: &mut String,
+    entry: Option<Option<String>>,
+    out: &mut Vec<(String, Option<Option<String>>)>,
+) {
+    out.push((pointer.clone(), entry));
     let length = pointer.len();
     match value {
         Value::Object(map) => {
             for (key, child) in map {
                 pointer.push('/');
                 pointer.push_str(&key.replace('~', "~0").replace('/', "~1"));
-                walk(child, pointer, false, out);
+                walk(child, pointer, Some(Some(key.clone())), out);
                 pointer.truncate(length);
             }
         }
@@ -107,7 +132,7 @@ fn walk(value: &Value, pointer: &mut String, item: bool, out: &mut Vec<(String, 
             for (index, child) in items.iter().enumerate() {
                 pointer.push('/');
                 pointer.push_str(&index.to_string());
-                walk(child, pointer, true, out);
+                walk(child, pointer, Some(None), out);
                 pointer.truncate(length);
             }
         }
