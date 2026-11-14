@@ -29,6 +29,14 @@ mod convert_messages;
 mod handle;
 #[cfg(feature = "yaml")]
 mod hidden_suggestions;
+#[cfg(all(
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod item_trail;
 // Reads what the view reads (folds, suggestions) on every language's sample.
 #[cfg(all(
     feature = "yaml",
@@ -63,6 +71,8 @@ mod hover_look_back;
 mod live_settings;
 #[cfg(feature = "yaml")]
 mod nesting_limits;
+#[cfg(all(feature = "yaml", feature = "folding"))]
+mod nothing_to_fold;
 #[cfg(all(feature = "yaml", feature = "schema-validation"))]
 mod own_problems;
 #[cfg(all(feature = "yaml", feature = "protect"))]
@@ -111,6 +121,15 @@ mod schema_options;
 #[cfg(all(feature = "yaml", feature = "schema-validation"))]
 mod schema_walk;
 // Counts the suggestions' work in every language.
+#[cfg(all(
+    feature = "schema-validation",
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod list_item_problems;
 #[cfg(all(
     feature = "yaml",
     feature = "json",

@@ -232,31 +232,30 @@ fn a_built_in_format_is_found_by_name_and_by_the_longest_extension() {
 #[test]
 fn json_schema_written_in_yaml_compiles_and_a_yaml_error_says_where() {
     let yaml = "properties:\n  listen: {type: integer}\nrequired: [listen]\n";
-    let schema = Schema::compile_as(SchemaFormat::JSON_SCHEMA_YAML, &SchemaInput::new(yaml))
-        .expect("compiles");
+    let schema =
+        Schema::compile_as(SchemaFormat::JSON_SCHEMA, &SchemaInput::new(yaml)).expect("compiles");
     assert_eq!(
         schema.json(),
         &json!({"properties": {"listen": {"type": "integer"}}, "required": ["listen"]})
     );
     assert!(schema.losses().is_empty());
     let cases: &[(&str, Option<SchemaFormat>)] = &[
-        ("k8s/crd.yaml", Some(SchemaFormat::JSON_SCHEMA_YAML)),
-        ("app.schema.yml", Some(SchemaFormat::JSON_SCHEMA_YAML)),
+        ("k8s/crd.yaml", Some(SchemaFormat::JSON_SCHEMA)),
+        ("app.schema.yml", Some(SchemaFormat::JSON_SCHEMA)),
+        ("api/petstore.openapi.yaml", Some(SchemaFormat::OPENAPI)),
     ];
     for (path, expected) in cases {
         assert_eq!(SchemaFormat::from_path(path), *expected, "{path}");
     }
-    assert_eq!(
-        "json-schema-yaml".parse::<SchemaFormat>(),
-        Ok(SchemaFormat::JSON_SCHEMA_YAML)
-    );
+    // No separate YAML format: "json-schema" reads both.
+    assert!("json-schema-yaml".parse::<SchemaFormat>().is_err());
     let error = Schema::compile_as(
-        SchemaFormat::JSON_SCHEMA_YAML,
+        SchemaFormat::JSON_SCHEMA,
         &SchemaInput::new("properties:\n  a: {type: [\n"),
     )
     .expect_err("refused");
     assert!(
-        error.0.starts_with("Invalid JSON Schema (YAML): ") && error.0.contains("(line "),
+        error.0.starts_with("Invalid JSON Schema: ") && error.0.contains("line "),
         "{}",
         error.0
     );
@@ -268,8 +267,7 @@ fn a_yaml_schema_validates_documents_like_its_json_twin() {
     use crate::editor::Language;
     let yaml = "properties:\n  listen: {type: integer}\nadditionalProperties: false\n";
     let json = r#"{"properties":{"listen":{"type":"integer"}},"additionalProperties":false}"#;
-    let from_yaml =
-        Schema::compile_as(SchemaFormat::JSON_SCHEMA_YAML, &SchemaInput::new(yaml)).unwrap();
+    let from_yaml = Schema::compile_as(SchemaFormat::JSON_SCHEMA, &SchemaInput::new(yaml)).unwrap();
     let from_json = Schema::compile(json).unwrap();
     for document in ["listen: 80\n", "listen: x\n", "other: 1\n"] {
         assert_eq!(
@@ -318,7 +316,7 @@ fn a_formatted_source_resolves_and_its_error_names_the_format() {
         failure.message(crate::strings::default_strings()),
         "Invalid Fields: no resource \"gone\""
     );
-    let failure = SchemaSource::Json("{".to_string())
+    let failure = SchemaSource::Text("{".to_string())
         .resolve()
         .err()
         .expect("refused");
@@ -356,7 +354,7 @@ fn sources_share_a_key_only_when_everything_they_compile_from_is_the_same() {
         SchemaSource::formatted(SchemaFormat::JSON_SCHEMA, "a: string\n").key()
     );
     assert_eq!(
-        SchemaSource::Json("{}".into()).key(),
+        SchemaSource::Text("{}".into()).key(),
         SchemaSource::formatted(SchemaFormat::JSON_SCHEMA, "{}").key()
     );
     let compiled = Schema::compile("{}").unwrap();
@@ -445,7 +443,7 @@ fn a_yaml_schema_bundles_yaml_files() {
     let main = "properties:\n  port: {$ref: 'common.yaml#/port'}\n";
     let resources = SchemaResources::new().with("common.yaml", "port:\n  type: integer\n");
     let schema = Schema::compile_as(
-        SchemaFormat::JSON_SCHEMA_YAML,
+        SchemaFormat::JSON_SCHEMA,
         &SchemaInput::new(main).resources(&resources),
     )
     .expect("bundled");
@@ -453,10 +451,7 @@ fn a_yaml_schema_bundles_yaml_files() {
         schema.json()["$defs"]["common.yaml"]["port"]["type"],
         json!("integer")
     );
-    assert_eq!(
-        SchemaFormat::JSON_SCHEMA_YAML.imports(main),
-        ["common.yaml"]
-    );
+    assert_eq!(SchemaFormat::JSON_SCHEMA.imports(main), ["common.yaml"]);
 }
 
 /// The doc example's compiler, run by many threads at once (the trait is

@@ -141,7 +141,7 @@ test.describe('schema formats in the tools', () => {
         problems: tools.validate('yaml', 'port: x\n', 'use: common.fields\nlose: order\n', source).map((problem) => problem.message),
         warnings: tools.schemaWarnings('use: common.fields\nlose: order\n', source),
         converted: tools.convert('xml', '<port>80</port>', 'json', 'use: common.fields\n', source).text,
-        yaml: tools.validate('json', '{"listen": "x"}', 'properties:\n  listen: {type: integer}\n', { schemaFormat: 'json-schema-yaml' }).map((problem) => problem.message),
+        yaml: tools.validate('json', '{"listen": "x"}', 'properties:\n  listen: {type: integer}\n', { schemaFormat: 'json-schema' }).map((problem) => problem.message),
       };
     });
     expect(result).toEqual({
@@ -160,13 +160,12 @@ test.describe('schema formats in the tools', () => {
     }));
     expect(result.name).toBe('fields');
     expect(result.formats).toEqual([
-      ['json-schema', 'JSON Schema', ['json', 'schema.json']],
-      ['json-schema-yaml', 'JSON Schema (YAML)', ['yaml', 'yml', 'schema.yaml', 'schema.yml']],
+      ['json-schema', 'JSON Schema', ['json', 'schema.json', 'yaml', 'yml', 'schema.yaml', 'schema.yml']],
       ['openapi', 'OpenAPI', ['openapi.json', 'openapi.yaml', 'openapi.yml', 'swagger.json', 'swagger.yaml']],
       ['xsd', 'XSD', ['xsd']],
       ['fields', 'Fields schema', ['fields', 'schema.fields']],
     ]);
-    expect(result.files).toEqual(['json-schema-yaml', 'json-schema-yaml', 'json-schema', 'fields', 'fields', null, null, 'xsd']);
+    expect(result.files).toEqual(['json-schema', 'json-schema', 'json-schema', 'fields', 'fields', null, null, 'xsd']);
     const errors = await attempt(page, (core, tools) => {
       const message = (run) => {
         try {
@@ -178,7 +177,7 @@ test.describe('schema formats in the tools', () => {
       };
       return [
         message(() => tools.compileSchema('use: gone.fields\n', { format: 'fields' })),
-        message(() => tools.compileSchema('properties: [\n', { format: 'json-schema-yaml' })).replace(/ \(line.*/, ''),
+        message(() => tools.compileSchema('properties: [\n', { format: 'json-schema' })).replace(/ \(line.*/, ''),
         message(() => tools.compileSchema('{}', { format: 'jtd' })),
         message(() => core.registerSchemaFormat({ name: 'json-schema', compile: () => ({ schema: {} }) })),
         message(() => core.registerSchemaFormat({ name: 'nothing' })),
@@ -187,8 +186,8 @@ test.describe('schema formats in the tools', () => {
       ];
     });
     expect(errors[0]).toBe('Invalid Fields schema: no resource gone.fields');
-    expect(errors[1]).toMatch(/^Invalid JSON Schema \(YAML\): /);
-    expect(errors[2]).toBe('unknown schema format "jtd" (expected json-schema, json-schema-yaml, openapi, xsd); registered: fields');
+    expect(errors[1]).toMatch(/^Invalid JSON Schema: /);
+    expect(errors[2]).toBe('unknown schema format "jtd" (expected json-schema, openapi, xsd); registered: fields');
     expect(errors[3]).toBe('"json-schema" is a built-in schema format');
     expect(errors[4]).toBe('a schema format needs compile(text, resources, options)');
     expect(errors[5]).toBe("Invalid bad: bad's compile() must return { schema, losses?, checks? }");
@@ -354,6 +353,39 @@ test.describe('a custom language whose values are text', () => {
 
 test.describe('schema formats in the editor and the documents view', () => {
   test.beforeEach(async ({ page }) => open(page));
+
+  test('JSON Schema written in YAML is "json-schema" in every entry point', async ({ page }) => {
+    const result = await page.evaluate(async () => {
+      const yaml = 'properties:\n  port: {type: integer}\n';
+      window.editor.destroy();
+      const heard = {};
+      window.editor = new window.core.ConfigEditor(document.getElementById('editor'), {
+        language: 'yaml',
+        value: 'port: x\n',
+        schema: yaml,
+        onProblems: (problems) => (heard.editor = problems.map((problem) => problem.message)),
+      });
+      await new Promise((resolve) => setTimeout(resolve, 600));
+      window.editor.destroy();
+      const view = new window.core.ConfigDocuments(document.getElementById('editor'), {
+        documents: [{ id: 'a', fileName: 'a.yaml', value: 'port: x\n', schema: yaml, schemaFormat: 'json-schema' }],
+        onProblems: (id, problems) => (heard[id] = problems.map((problem) => problem.message)),
+      });
+      await new Promise((resolve) => setTimeout(resolve, 600));
+      view.destroy();
+      return {
+        heard,
+        tools: window.tools.validate('json', '{"port": "x"}', yaml).map((problem) => problem.message),
+        compiled: JSON.parse(window.tools.compileSchema(yaml).schema),
+        forFile: window.core.schemaFormatForFile('crd.schema.yaml'),
+      };
+    });
+    const problem = ['/port: "x" is not of type "integer"'];
+    expect(result.heard).toEqual({ editor: problem, a: problem });
+    expect(result.tools).toEqual(problem);
+    expect(result.compiled).toEqual({ properties: { port: { type: 'integer' } } });
+    expect(result.forFile).toBe('json-schema');
+  });
 
   test('an editor compiles its schema in its format and reports the losses as schema warnings', async ({ page }) => {
     const result = await page.evaluate(async () => {

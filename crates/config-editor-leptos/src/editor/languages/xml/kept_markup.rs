@@ -3,36 +3,85 @@
 //! `xsi:type` or a namespace declaration, yet XML readers read the
 //! element otherwise. So each element of a saved text must hold the markup
 //! of the host element it is (`identity`), and an element the edit added
-//! none; an element given content is no longer `xsi:nil`.
+//! none but the declaration of its name; an element given content is no
+//! longer `xsi:nil`. Each element keeps its name's prefix, and one added
+//! takes its siblings' (`written_names`).
 
 use super::attribute_layout::{filled, markup_attributes};
-use super::identity::Identity;
+use super::identity::{self, Host, Identity};
 use super::*;
 
-/// A host element's markup attributes (name, value), and whether it holds
-/// anything.
-type HostMarkup = (Vec<(String, String)>, bool);
+/// A host element as the check reads it: its markup attributes (name,
+/// value), whether it holds anything, and the prefix of its name.
+#[derive(Clone, Default)]
+struct HostElement {
+    markup: Vec<(String, String)>,
+    filled: bool,
+    prefix: Option<String>,
+}
+
+impl HostElement {
+    /// The name an element added beside it may take: its prefix, and the
+    /// declaration binding it where this one declares it.
+    fn name(&self) -> Name {
+        let binding = self.markup.iter().filter(|(name, _)| written_names::binds(self.prefix.as_deref(), name)).cloned().collect();
+        (self.prefix.clone(), binding)
+    }
+}
+
+/// An element's name as the check reads it: its prefix, and the
+/// declaration binding it on its own start tag.
+type Name = (Option<String>, Vec<(String, String)>);
+
+/// The elements of a host text, by their paths, the names elements added
+/// to each path may take, and whether any holds markup or a prefix.
+struct HostElements {
+    markup: declarations::Markup,
+    elements: HashMap<Vec<String>, HostElement>,
+    names: HashMap<Vec<String>, Vec<Name>>,
+    marked: bool,
+}
+
+impl HostElements {
+    fn of(text: &str) -> Self {
+        let markup = declarations::Markup::of(text);
+        let tokens = tokenize(text);
+        let plan = plan_paths(text, &tokens);
+        let mut read = HostElements { markup, elements: HashMap::new(), names: HashMap::new(), marked: false };
+        for token in &tokens {
+            if !matches!(token.kind, Kind::OpenTag { closing: false, .. }) {
+                continue;
+            }
+            let Some(path) = plan.path_of(token.start) else { continue };
+            let element = HostElement {
+                markup: markup_attributes(text, token, &read.markup),
+                filled: filled(text, token),
+                prefix: written_names::prefix(text, token).map(str::to_string),
+            };
+            read.marked |= !element.markup.is_empty() || element.prefix.is_some();
+            read.names.entry(unindexed(path)).or_default().push(element.name());
+            read.elements.insert(strings(path), element);
+        }
+        read
+    }
+}
+
+/// Whether an element of `text` holds markup or a prefixed name.
+pub(super) fn holds_markup(text: &str) -> bool {
+    HostElements::of(text).marked
+}
 
 /// The pointer of the first element of `patched` (a save's text for
-/// `previous`) holding other markup than the host element it is.
+/// `previous`) holding other markup or another name's prefix than the
+/// host element it is, or, for one the edit added, than its siblings'.
+/// Which host element each is, the check reads from the edit
+/// (`item_sources`) and the saved text, not from what the writer chose:
+/// a writer pairing items otherwise is caught.
 pub(super) fn changed_markup(language: &XmlBehavior, previous: &str, patched: &str) -> Option<String> {
-    let markup = declarations::Markup::of(previous);
-    let tokens = tokenize(previous);
-    let plan = plan_paths(previous, &tokens);
-    // Each element's markup, and whether it holds anything.
-    let mut host: HashMap<Vec<String>, HostMarkup> = HashMap::new();
-    for token in &tokens {
-        if !matches!(token.kind, Kind::OpenTag { closing: false, .. }) {
-            continue;
-        }
-        let Some(path) = plan.path_of(token.start) else { continue };
-        let held = markup_attributes(previous, token, &markup);
-        if !held.is_empty() {
-            host.insert(strings(path), (held, filled(previous, token)));
-        }
-    }
-    // A view writes no markup (`declarations::first_markup_key`).
-    if host.is_empty() {
+    let host = HostElements::of(previous);
+    // A view writes no markup (`declarations::first_markup_key`) and no
+    // prefix.
+    if !host.marked {
         return None;
     }
     let old = crate::editor::parse_cache::parsed(language, previous);
@@ -40,7 +89,12 @@ pub(super) fn changed_markup(language: &XmlBehavior, previous: &str, patched: &s
     let (Ok(old), Ok(new)) = (old.as_ref(), new.as_ref()) else {
         return None;
     };
-    let identity = Identity::of(Some(old), new);
+    let sources = crate::editor::item_sources::told(previous, |held| identity::alike(held, new));
+    let origin = sources.as_ref().filter(|sources| sources.holds_origin_items()).map(|sources| sources.origin.clone());
+    let first_value = origin.as_deref().map(|origin| crate::editor::parse_cache::parsed(language, origin));
+    let first = origin.as_deref().map(HostElements::of);
+    let identity = Identity::of(Some(old), new)
+        .told(sources.as_deref(), first_value.as_ref().and_then(|first| first.as_ref().as_ref().ok()));
     let saved_markup = declarations::Markup::of(patched);
     let tokens = tokenize(patched);
     let plan = plan_paths(patched, &tokens);
@@ -50,12 +104,34 @@ pub(super) fn changed_markup(language: &XmlBehavior, previous: &str, patched: &s
         }
         let Some(path) = plan.path_of(token.start) else { continue };
         let saved = markup_attributes(patched, token, &saved_markup);
-        let (mut wanted, was_filled) = identity.host_path(path).and_then(|path| host.get(&path)).cloned().unwrap_or_default();
-        // An empty element given content is no longer nil.
-        if !was_filled && filled(patched, token) {
-            wanted.retain(|(name, value)| !markup.nil(name, value));
-        }
-        if saved != wanted {
+        let prefix = written_names::prefix(patched, token).map(str::to_string);
+        let own = identity.host_path(path).and_then(|(path, side)| {
+            let elements = match side {
+                Host::Previous => &host,
+                Host::Origin => first.as_ref()?,
+            };
+            Some((elements, elements.elements.get(&path)?))
+        });
+        let kept = match own {
+            Some((elements, own)) => {
+                let mut wanted = own.markup.clone();
+                // An empty element given content is no longer nil.
+                if !own.filled && filled(patched, token) {
+                    wanted.retain(|(name, value)| !elements.markup.nil(name, value));
+                }
+                saved == wanted && prefix == own.prefix
+            }
+            // Added: named as one of its path's host elements, or plainly
+            // where the host has none; no other markup.
+            None => {
+                let name = (prefix, saved);
+                match host.names.get(&unindexed(path)) {
+                    Some(allowed) => allowed.contains(&name),
+                    None => name == (None, Vec::new()),
+                }
+            }
+        };
+        if !kept {
             let segments: Vec<String> = strings(path).iter().map(|segment| segment.replace('~', "~0").replace('/', "~1")).collect();
             return Some(segments.iter().map(|segment| format!("/{segment}")).collect());
         }

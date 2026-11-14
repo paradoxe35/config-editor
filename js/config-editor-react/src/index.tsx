@@ -95,7 +95,7 @@ export interface ConfigEditorProps extends EditorSettings {
    * does not (the latest one is called).
    */
   secrets?: SecretOptions;
-  /** JSON Schema as JSON text. Changing it re-mounts. */
+  /** JSON Schema as JSON or YAML text. Changing it re-mounts. */
   schema?: string;
   /** The format `schema` is written in (default `"json-schema"`, never guessed). Changing it re-mounts. */
   schemaFormat?: SchemaFormatName;

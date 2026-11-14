@@ -81,7 +81,8 @@ pub(super) const KEYS: &[Row] = &[
     row(
         "`Ctrl+M`",
         "Toggle Tab moves focus: `Tab` / `Shift+Tab` leave the editor instead of indenting",
-        &[Always],
+        // Read-only, Tab always leaves: nothing to toggle.
+        &[Editable],
     ),
     row(
         "`Escape`, then `Tab` / `Shift+Tab`",

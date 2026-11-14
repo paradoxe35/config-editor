@@ -180,6 +180,19 @@ fn every_documented_single_chord_is_named_while_its_setting_is_on() {
     }
 }
 
+/// QA 32, A32-1: a read-only editor's Tab always leaves, so `Ctrl+M` has
+/// nothing to switch: it is not named there (nor taken, see `focus`).
+#[test]
+fn ctrl_m_is_named_only_while_the_text_can_be_edited() {
+    let named = |context: Context| {
+        chords_in(context)
+            .split(' ')
+            .any(|chord| chord == "Control+M")
+    };
+    assert!(named(all_on()));
+    assert!(!named(without(When::Editable)));
+}
+
 #[test]
 fn the_npm_readme_names_the_same_single_chords() {
     let text = std::fs::read_to_string(repo_file("js/config-editor/README.md")).unwrap();

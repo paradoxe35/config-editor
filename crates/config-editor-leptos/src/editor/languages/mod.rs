@@ -83,6 +83,8 @@ mod conditional_typing_matrix;
     feature = "xml"
 ))]
 mod default_read_back_matrix;
+#[cfg(all(test, feature = "yaml", feature = "json", feature = "toml"))]
+mod dynamic_refs_matrix;
 #[cfg(all(
     test,
     feature = "yaml",
@@ -139,6 +141,15 @@ mod fold_matrix;
     feature = "xml"
 ))]
 mod highlight_matrix;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod item_before_items_matrix;
 #[cfg(all(test, feature = "yaml", feature = "schema-validation"))]
 mod item_start_tests;
 #[cfg(all(
@@ -179,6 +190,15 @@ mod non_finite_matrix;
 mod pairs_matrix;
 #[cfg(all(
     test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod present_keys_matrix;
+#[cfg(all(
+    test,
     feature = "schema-validation",
     feature = "yaml",
     feature = "json",
@@ -204,7 +224,25 @@ mod required_fill_matrix;
     feature = "hcl",
     feature = "xml"
 ))]
+mod required_hover_matrix;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
 mod schema_help_matrix;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod tab_through_matrix;
 #[cfg(all(
     test,
     feature = "yaml",
@@ -279,6 +317,21 @@ mod wide_integers;
 ))]
 mod nesting;
 
+// A schema's text, JSON or YAML, read into its JSON value.
+mod schema_text;
+pub(crate) use schema_text::read_schema_text;
+#[cfg(test)]
+mod schema_text_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod yaml_schema_matrix;
+
 macro_rules! registry {
     ($($(#[doc = $doc:literal])* $feature:literal => $constant:ident => $module:ident::$implementation:ident,)+) => {
         $(#[cfg(feature = $feature)] mod $module;)+
@@ -329,18 +382,6 @@ pub(crate) static OPENAPI: super::schema_formats::openapi::OpenApi =
         }),
         #[cfg(not(feature = "yaml"))]
         yaml: None,
-    };
-
-/// JSON Schema written as YAML (`SchemaFormat::JSON_SCHEMA_YAML`).
-#[cfg(feature = "yaml")]
-pub(crate) static JSON_SCHEMA_IN_YAML: super::schema_formats::written_in::SchemaWrittenIn =
-    super::schema_formats::written_in::SchemaWrittenIn {
-        language: Language::YAML,
-        info: super::schema_formats::SchemaFormatInfo {
-            name: "json-schema-yaml",
-            label: "JSON Schema (YAML)",
-            extensions: &["yaml", "yml", "schema.yaml", "schema.yml"],
-        },
     };
 
 impl Language {

@@ -214,3 +214,56 @@ fn the_diff_works_in_time_linear_in_the_text() {
         );
     }
 }
+
+/// A list of the same items replaced as a whole, past what Myers takes,
+/// with no line written once to anchor it (all one value, pairs of
+/// values, every other item changed): each item's range stays on its own
+/// line, and the list after it maps exactly (QA 32: the whole list was one
+/// stretch, every range in it grew over all of it).
+#[test]
+fn a_changed_list_of_repeated_lines_keeps_each_range_on_its_line() {
+    type Item = fn(usize) -> String;
+    let shapes: [(&str, Item, Item); 3] = [
+        ("all the same", |_| "80".into(), |_| "81".into()),
+        (
+            "pairs",
+            |i| format!("p{}", i >> 1),
+            |i| format!("q{}", i >> 1),
+        ),
+        (
+            "every other changed",
+            |i| if i % 2 == 1 { "x".into() } else { "y".into() },
+            |i| if i % 2 == 1 { "x".into() } else { "z".into() },
+        ),
+    ];
+    for count in [100, 300, 1_000, 5_000] {
+        for (name, before, after) in shapes {
+            let text = |item: Item| -> String {
+                let mut text = String::from("a:\n  ports:\n");
+                for index in 0..count {
+                    text += &format!("    - {}\n", item(index));
+                }
+                text += "b:\n  hosts:\n";
+                for index in 0..count {
+                    text += &format!("    - h{index}\n");
+                }
+                text
+            };
+            let (from, to) = (text(before), text(after));
+            let remap = Remap::new(&from, &to);
+            for index in [0, count / 2, count - 1] {
+                let line = 3 + index;
+                let mapped = remap.range(line_range(&from, line));
+                assert_eq!(
+                    (mapped.start.line, mapped.end.line),
+                    (line, line),
+                    "{name}, {count}: item {index}"
+                );
+            }
+            let hosts: Vec<(usize, usize)> = (count + 3..=2 * count + 4)
+                .map(|line| (line, line))
+                .collect();
+            assert_exact(&from, &to, &hosts);
+        }
+    }
+}

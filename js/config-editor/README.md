@@ -122,8 +122,8 @@ document and its callbacks (below) and every [setting](#settings) (`theme`,
 | `language`           | `string`                                    | `"yaml"`         | Language of the document: `"yaml"`, `"json"`, `"toml"`, `"hcl"`, `"xml"` (any case, or a file extension such as `"yml"` or `"tf"`), or a registered one. `value`, `baseline` and `onChange` are always in it.                                                                                                                                                                                                                                                                                                                                                                                                  |
 | `value`              | `string`                                    | `""`             | The document.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | `editAs`             | `string`                                    | —                | Show and edit the document in another language; it is saved back in `language`, keeping its comments.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| `schema`             | `string`                                    | —                | The schema: completion, hover docs and validation. JSON Schema as JSON text, or a schema in `schemaFormat`; see [Schema formats](#schema-formats).                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
-| `schemaFormat`       | `string`                                    | `"json-schema"`  | The format `schema` is written in: `"json-schema"`, `"json-schema-yaml"`, `"openapi"`, `"xsd"` or one from `registerSchemaFormat`. Never guessed from the text.                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `schema`             | `string`                                    | —                | The schema: completion, hover docs and validation. JSON Schema as JSON or YAML text, or a schema in `schemaFormat`; see [Schema formats](#schema-formats).                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `schemaFormat`       | `string`                                    | `"json-schema"`  | The format `schema` is written in: `"json-schema"` (JSON or YAML text), `"openapi"`, `"xsd"` or one from `registerSchemaFormat`. Never guessed from the text.                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | `schemaResources`    | `Record<string, string>`                    | —                | The files `schema` refers to (an include, an import, an external `$ref`), by location: the editor fetches nothing.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | `schemaOptions`      | `Record<string, unknown>`                   | —                | Options of `schemaFormat`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | `baseline`           | `string`                                    | `value`          | Text the diff gutter compares against: the version last saved or loaded. See [Saving](#saving-and-unsaved-edits).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
@@ -256,7 +256,7 @@ with that reason.
 <!-- Generated from crates/config-editor-leptos/src/strings.rs by js/config-editor/tests/settings.rs; do not edit. Regenerate with `UPDATE_GENERATED=1 cargo test -p config-editor-js --test settings`. -->
 
 <details>
-<summary>Every text and its default (198 texts)</summary>
+<summary>Every text and its default (201 texts)</summary>
 
 | Key                         | Default                                                                                                                                     |                                                                                                                                                                                                                                                |
 | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -368,6 +368,8 @@ with that reason.
 | `unfoldedLines`             | `"Unfolded lines {first}–{last}"`                                                                                                           | Announced when the fold of lines `{first}` to `{last}` opens.                                                                                                                                                                                  |
 | `foldedRanges`              | `"Folded {count} ranges"`                                                                                                                   | Announced when `{count}` ranges (two or more) fold at once.                                                                                                                                                                                    |
 | `unfoldedRanges`            | `"Unfolded {count} ranges"`                                                                                                                 | Announced when `{count}` folds (two or more) open at once.                                                                                                                                                                                     |
+| `nothingToFold`             | `"Nothing to fold"`                                                                                                                         | Announced when a fold key (`Ctrl+Shift+[`, `Ctrl+K Ctrl+0`) finds nothing to fold.                                                                                                                                                             |
+| `nothingToUnfold`           | `"Nothing to unfold"`                                                                                                                       | Announced when an unfold key (`Ctrl+Shift+]`, `Ctrl+K Ctrl+J`) finds nothing to open.                                                                                                                                                          |
 | `required`                  | `"required"`                                                                                                                                | The hover card's mark of a required key.                                                                                                                                                                                                       |
 | `deprecated`                | `"deprecated"`                                                                                                                              | The hover card's mark of a deprecated key.                                                                                                                                                                                                     |
 | `defaultValue`              | `"Default"`                                                                                                                                 | The hover card's default row.                                                                                                                                                                                                                  |
@@ -432,6 +434,7 @@ with that reason.
 | `tooFewContained`           | `"{value} has fewer than {limit} items its \"contains\" schema allows"`                                                                     | A list (`{value}`) with fewer items its `contains` schema allows than its `minContains` (`{limit}`).                                                                                                                                           |
 | `tooManyContained`          | `"{value} has more than {limit} items its \"contains\" schema allows"`                                                                      | A list (`{value}`) with more items its `contains` schema allows than its `maxContains` (`{limit}`).                                                                                                                                            |
 | `mustNotMatch`              | `"{value} must not match {schema}"`                                                                                                         | A value its `not` schema (`{schema}`, as JSON) matches.                                                                                                                                                                                        |
+| `keysUsedTogether`          | `"{key} can't be used together with {others}"`                                                                                              | An object holding all of the keys its `not` schema keeps apart (`not: {required: [...]}`): the first (`{key}`) and the others (`{others}`), each quoted, joined by `, `.                                                                       |
 | `noOptionMatches`           | `"matches none of the {keyword} options: {reasons}"`                                                                                        | A value that matches none of a schema's options (`{keyword}`: `oneOf` or `anyOf`), with why each fails (`{reasons}`, each worded by `optionNeeds`, `optionRefuses` or `optionProblem`, joined by `; `).                                        |
 | `severalOptionsMatch`       | `"matches more than one of the oneOf options ({options}); only one may match"`                                                              | A value that matches more than one of a `oneOf`'s options (`{options}`, their names joined by `, `).                                                                                                                                           |
 | `optionNeeds`               | `"{option} needs \"{key}\""`                                                                                                                | An option (`{option}`) that needs a key the value does not have.                                                                                                                                                                               |
@@ -493,8 +496,16 @@ editor.update({ hostDiagnostics: problems, onSave: null });
   file switched to, a discard, a reset); a `value` that is the document
   already changes nothing. The caret stays on the same text when possible.
   `readOnlyRanges` and host `range`s given with it are in the new document.
-  For a host that hands every `onChange` text back, see
+  The text `onChange` gave last, given while the editor still held a newer
+  edit (one edited as another language, waiting out the typing pause, that
+  the update first sends to `onChange`), is older than what was typed: it
+  keeps the document. For a host that hands every `onChange` text back, see
   [Hosts that echo](#hosts-that-echo).
+- `readOnlyRanges` equal to the ones given last (the same JSON), given again
+  with no new text (a host passing all its options again, with the `value`
+  `onChange` gave), stay where the editor moved them as the user typed: they
+  are not read again at the places they name in the edited text. Ranges that
+  differ, or come with a new text or `rangesFor`, are read in that text.
 - `rangesFor` names the text an update's (or the constructor's)
   `readOnlyRanges` and host `range`s were worked out for, when it is not the document (a check of a text the
   user has typed past since): they are checked in it and moved to the
@@ -539,7 +550,9 @@ seconds after a text `onChange` gave later came back: a host handing back
 only the latest of several never hands back the ones it skipped, so they
 are forgotten then (what the editor keeps stays bounded), and one of them
 coming back after that is taken as yours. Within that, nothing typed is
-lost. Ranges given with an echo (`readOnlyRanges`, host `range`s) are in
+lost. An echo the store wrote another way (without the byte order mark,
+with LF line breaks) is still the echo, and the document keeps its own.
+Ranges given with an echo (`readOnlyRanges`, host `range`s) are in
 the echoed text: they are moved to the document. Any other `value` is yours
 and applies, the text you gave last included (a reset to the text the
 editor was created with). The texts `onChange` gave before it belong to the
@@ -846,15 +859,15 @@ the editor mounts and for an empty document.
 The main entry also lists what the editor accepts, for pickers and file
 handling (after `loadConfigEditor()`):
 
-| Function                           | Returns              | Description                                                                                                                                        |
-| ---------------------------------- | -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `languages()`                      | `LanguageInfo[]`     | The built-in and registered languages: `{ name, label, icon, extensions, defaultFileName }` each (`name` is what `language` and `editAs` take).    |
-| `themes()`                         | `ThemeInfo[]`        | The bundled themes: `{ name, label, dark }` each (`name` is what `theme` takes, `label` its display name, `dark` whether it is a dark theme).      |
-| `languageForFile(path)`            | `string \| null`     | The language of a file from its extension (`"main.tf"` gives `"hcl"`), registered languages included.                                              |
-| `registerLanguage(definition)`     | `string`             | Add a custom language (written in JavaScript); returns its name. See [Custom languages](#custom-languages).                                        |
-| `schemaFormats()`                  | `SchemaFormatInfo[]` | The built-in and registered schema formats: `{ name, label, extensions }` each (`name` is what `schemaFormat` takes).                              |
-| `schemaFormatForFile(path)`        | `string \| null`     | The schema format of a file from the longest extension it ends with (`"crd.schema.yaml"` gives `"json-schema-yaml"`), registered formats included. |
-| `registerSchemaFormat(definition)` | `string`             | Add a schema format (a compiler written in JavaScript); returns its name. See [Schema formats](#schema-formats).                                   |
+| Function                           | Returns              | Description                                                                                                                                     |
+| ---------------------------------- | -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `languages()`                      | `LanguageInfo[]`     | The built-in and registered languages: `{ name, label, icon, extensions, defaultFileName }` each (`name` is what `language` and `editAs` take). |
+| `themes()`                         | `ThemeInfo[]`        | The bundled themes: `{ name, label, dark }` each (`name` is what `theme` takes, `label` its display name, `dark` whether it is a dark theme).   |
+| `languageForFile(path)`            | `string \| null`     | The language of a file from its extension (`"main.tf"` gives `"hcl"`), registered languages included.                                           |
+| `registerLanguage(definition)`     | `string`             | Add a custom language (written in JavaScript); returns its name. See [Custom languages](#custom-languages).                                     |
+| `schemaFormats()`                  | `SchemaFormatInfo[]` | The built-in and registered schema formats: `{ name, label, extensions }` each (`name` is what `schemaFormat` takes).                           |
+| `schemaFormatForFile(path)`        | `string \| null`     | The schema format of a file from the longest extension it ends with (`"crd.schema.yaml"` gives `"json-schema"`), registered formats included.   |
+| `registerSchemaFormat(definition)` | `string`             | Add a schema format (a compiler written in JavaScript); returns its name. See [Schema formats](#schema-formats).                                |
 
 ```js
 import { languageForFile, languages, themes } from "@pngwasi/config-editor";
@@ -873,20 +886,18 @@ compiled into JSON Schema first; the format is given with `schemaFormat`,
 never guessed from the text (`schemaFormatForFile` names a file's format by
 its extension).
 
-| `schemaFormat`       | The schema is                                                                                                                                                                                                                                                                                                                                                 |
-| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `"json-schema"`      | JSON Schema as JSON text (the default).                                                                                                                                                                                                                                                                                                                       |
-| `"json-schema-yaml"` | JSON Schema written in YAML (Kubernetes CRDs, many repos).                                                                                                                                                                                                                                                                                                    |
-| `"openapi"`          | An OpenAPI 3.x or Swagger 2.0 document (JSON or YAML): `schemaOptions: { schema: "Name" }` names the schema of `components.schemas` (or `definitions`) the document follows, the others its references.                                                                                                                                                       |
-| `"xsd"`              | XML Schema (XSD 1.0) in the [XML mapping](#xml-mapping): options `root` (the one top element), `configRoot` (an element whose content is the document) and `lax` (open content models). Element order, choices, wildcards' namespaces and `xs:key`/`xs:keyref`/`xs:unique` are checked beside the JSON Schema; what it cannot check is a loss, with its line. |
-| your own             | compiled by a format you register with `registerSchemaFormat`                                                                                                                                                                                                                                                                                                 |
+| `schemaFormat`  | The schema is                                                                                                                                                                                                                                                                                                                                                 |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `"json-schema"` | JSON Schema as JSON or YAML text (the default; Kubernetes CRDs and many repos write it in YAML).                                                                                                                                                                                                                                                              |
+| `"openapi"`     | An OpenAPI 3.x or Swagger 2.0 document (JSON or YAML): `schemaOptions: { schema: "Name" }` names the schema of `components.schemas` (or `definitions`) the document follows, the others its references.                                                                                                                                                       |
+| `"xsd"`         | XML Schema (XSD 1.0) in the [XML mapping](#xml-mapping): options `root` (the one top element), `configRoot` (an element whose content is the document) and `lax` (open content models). Element order, choices, wildcards' namespaces and `xs:key`/`xs:keyref`/`xs:unique` are checked beside the JSON Schema; what it cannot check is a loss, with its line. |
+| your own        | compiled by a format you register with `registerSchemaFormat`                                                                                                                                                                                                                                                                                                 |
 
 ```js
 new ConfigEditor(element, {
   language: "yaml",
   value,
-  schema: crdSchemaYaml,
-  schemaFormat: "json-schema-yaml",
+  schema: crdSchemaYaml, // JSON Schema written in YAML: no format needed
 });
 ```
 
@@ -1019,7 +1030,8 @@ keyed by the name as written.
 
 The editor's answers about a text, without an editor: for a server, a
 build step or a review screen. They need the WebAssembly module loaded:
-`loadConfigEditor()`, which this entry exports too.
+`loadConfigEditor()`, which this entry exports too. A `schema` argument is a
+JSON Schema as JSON or YAML text, as the editor's `schema` option takes.
 
 | Function                                                 | Returns                   | Description                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | -------------------------------------------------------- | ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -1454,8 +1466,10 @@ view.isDirty("main");
   `settings` go over them for its editor: the keys it gives replace the
   view's, the rest follow the view's.
 - Per document, as on `ConfigEditor`: `hostDiagnostics`, `readOnlyPaths`,
-  `readOnlyRanges` (updated in place by `update({ documents })`) and `secrets` (read
-  when its editor mounts).
+  `readOnlyRanges` (updated in place by `update({ documents })`; a document
+  listed again with the ranges it had and the text its editor holds keeps
+  them where the editor moved them, as `ConfigEditor`'s `update` does) and
+  `secrets` (read when its editor mounts).
 - What each document shows: `onEditAsChange(id, language)` says the
   language on screen, once when its editor mounts, then each time it changes
   (a switch made, also one that waited until the text could convert; undo
@@ -1824,10 +1838,13 @@ its display name and whether it is dark.
 The editor injects its own stylesheet: one `<style>` at the end of the
 page's `<head>` (or in the shadow root the editor is in), shared by every
 editor and documents view there and removed with the last. Your page's
-rules for bare elements and attributes (a CSS framework's `input`, `button`,
-`[type='text']` or `span` rules, loaded before the editor or after) never
-reach the controls and text it draws: those start from the browser's own
-styles, and its rules for them carry an id's weight. Style the editor
+rules for bare elements, attributes or every element (a CSS framework's
+`input`, `div`, `[type='text']` or `*` rules, loaded before the editor or
+after) never reach what it draws: each element inside starts from the
+browser's own styles, and its rules for them carry an id's weight. Nor do
+the text properties your page sets on `body` or on the editor's element
+(`text-align: center`, an underline, letter spacing, a tab size): its
+roots set each to its initial value. Style the editor
 through its roots (`.config-editor`, `.config-editor-documents`; a rule of
 yours later in the page wins over the preset's at equal specificity) and its
 color variables. Every theme color is a CSS variable on the `.config-editor` root, and the

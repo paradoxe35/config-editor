@@ -80,6 +80,26 @@ fn context(state: EditorState, in_documents: bool) -> Context {
     }
 }
 
+/// Whether `chord` (as the keys table writes it, `Ctrl+M`) works in the
+/// text now: the gate that names it in `aria-keyshortcuts`.
+pub(super) fn works_now(state: EditorState, chord: &str) -> bool {
+    let in_documents = state
+        .view()
+        .textarea_ref
+        .get_untracked()
+        .is_some_and(|element| {
+            element
+                .closest(".config-editor-documents")
+                .ok()
+                .flatten()
+                .is_some()
+        });
+    let context = untrack(|| context(state, in_documents));
+    gated_chords()
+        .into_iter()
+        .any(|(named, when)| named == chord && context.allows(when))
+}
+
 /// Keeps the textarea's `aria-keyshortcuts` in step with the settings.
 pub(in crate::editor) fn connect_shortcuts(state: EditorState) {
     Effect::new(move |_| {

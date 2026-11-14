@@ -7,7 +7,9 @@
 //! follow only pointers from the root, so once the validator is built, each
 //! reference that names a schema in the same document is rewritten to the
 //! root pointer of that schema. References to other documents stay as they
-//! are.
+//! are. A `$dynamicRef` or `$recursiveRef` reads as a `$ref` to the schema
+//! it names statically (its `$dynamicAnchor`, the root for `#`), and up to
+//! draft-04 `id` is `$id`.
 
 use serde_json::Value;
 use std::collections::HashMap;
@@ -34,7 +36,11 @@ const DEFAULT_BASE: &str = "json-schema:///";
 struct Index {
     resources: HashMap<String, String>,
     anchors: HashMap<(String, String), String>,
-    references: Vec<(String, String, String)>,
+    /// Each reference: where, its base, what it names, and whether it is
+    /// a `$dynamicRef` or `$recursiveRef` (written as a `$ref` beside it).
+    references: Vec<(String, String, String, bool)>,
+    /// The keyword naming a resource: `$id`, or `id` up to draft-04.
+    id: &'static str,
 }
 
 /// Rewrites each `$ref` of `schema` that names a schema of the same
@@ -48,9 +54,16 @@ pub(super) fn to_pointers(schema: &mut Value) {
 /// What [`to_pointers`] changes: the pointer of each object whose `$ref`
 /// it rewrites, and the new reference.
 pub(super) fn pointer_rewrites(schema: &Value) -> Vec<(String, String)> {
-    let mut index = Index::default();
+    let old_id = schema
+        .get("$schema")
+        .and_then(Value::as_str)
+        .is_some_and(|dialect| dialect.contains("draft-04") || dialect.contains("draft-03"));
+    let mut index = Index {
+        id: if old_id { "id" } else { "$id" },
+        ..Index::default()
+    };
     let base = schema
-        .get("$id")
+        .get(index.id)
         .and_then(Value::as_str)
         .filter(|id| !id.starts_with('#'))
         .map_or_else(
@@ -60,12 +73,12 @@ pub(super) fn pointer_rewrites(schema: &Value) -> Vec<(String, String)> {
     index.resources.insert(base.clone(), String::new());
     walk(schema, String::new(), &base, &mut index);
     let mut rewrites = Vec::new();
-    for (site, base, reference) in index.references {
+    for (site, base, reference, dynamic) in index.references {
         let Some(target) = resolve(&index.resources, &index.anchors, &base, &reference) else {
             continue;
         };
         let rewritten = format!("#{target}");
-        if rewritten != reference {
+        if dynamic || rewritten != reference {
             rewrites.push((site, rewritten));
         }
     }
@@ -85,7 +98,7 @@ fn walk(value: &Value, pointer: String, base: &str, index: &mut Index) {
     match value {
         Value::Object(members) => {
             let mut base = base.to_string();
-            if let Some(id) = members.get("$id").and_then(Value::as_str) {
+            if let Some(id) = members.get(index.id).and_then(Value::as_str) {
                 match id.strip_prefix('#') {
                     // Draft-07 names an anchor with a fragment-only `$id`.
                     Some(name) => {
@@ -120,9 +133,19 @@ fn walk(value: &Value, pointer: String, base: &str, index: &mut Index) {
                 }
             }
             if let Some(reference) = members.get("$ref").and_then(Value::as_str) {
+                index.references.push((
+                    pointer.clone(),
+                    base.clone(),
+                    reference.to_string(),
+                    false,
+                ));
+            } else if let Some(reference) = ["$dynamicRef", "$recursiveRef"]
+                .iter()
+                .find_map(|keyword| members.get(*keyword).and_then(Value::as_str))
+            {
                 index
                     .references
-                    .push((pointer.clone(), base.clone(), reference.to_string()));
+                    .push((pointer.clone(), base.clone(), reference.to_string(), true));
             }
             for (key, member) in members {
                 let at = format!("{pointer}/{}", escaped(key));
@@ -337,5 +360,47 @@ mod tests {
         );
         assert_eq!(reference("/$defs/sub/properties/q/$ref"), "#/$defs/sub");
         assert_eq!(reference("/default/$ref"), "#myAnchor", "data stays");
+    }
+
+    #[test]
+    fn dynamic_and_recursive_references_and_draft_four_ids_become_root_pointers() {
+        let mut dynamic = json!({
+            "$id": "https://example.com/tree",
+            "$dynamicAnchor": "node",
+            "properties": {"children": {"items": {"$dynamicRef": "#node"}}}
+        });
+        to_pointers(&mut dynamic);
+        assert_eq!(
+            dynamic.pointer("/properties/children/items/$ref"),
+            Some(&json!("#"))
+        );
+        let mut recursive = json!({
+            "$recursiveAnchor": true,
+            "$defs": {"leaf": {"properties": {"kids": {"items": {"$recursiveRef": "#"}}}}}
+        });
+        to_pointers(&mut recursive);
+        assert_eq!(
+            recursive.pointer("/$defs/leaf/properties/kids/items/$ref"),
+            Some(&json!("#"))
+        );
+        let mut draft_four = json!({
+            "$schema": "http://json-schema.org/draft-04/schema#",
+            "definitions": {"a": {"id": "#foo", "type": "object"}},
+            "properties": {"a": {"$ref": "#foo"}, "id": {"type": "string"}}
+        });
+        to_pointers(&mut draft_four);
+        assert_eq!(
+            draft_four.pointer("/properties/a/$ref"),
+            Some(&json!("#/definitions/a"))
+        );
+        // From draft-06 on, `id` names nothing.
+        let mut draft_six = draft_four.clone();
+        draft_six["$schema"] = json!("http://json-schema.org/draft-06/schema#");
+        draft_six["properties"]["a"]["$ref"] = json!("#foo");
+        to_pointers(&mut draft_six);
+        assert_eq!(
+            draft_six.pointer("/properties/a/$ref"),
+            Some(&json!("#foo"))
+        );
     }
 }

@@ -8,18 +8,17 @@
 //! where they have theirs), so a save adding or removing one changes only
 //! that attribute's text.
 
-use super::identity::Identity;
 use super::*;
 use std::ops::Range;
 
 /// One attribute in a start tag.
-struct Attribute {
+pub(super) struct Attribute {
     /// The blanks before it.
     blanks: Range<usize>,
-    name: Range<usize>,
+    pub(super) name: Range<usize>,
     /// Its value, quotes included.
-    value: Range<usize>,
-    markup: bool,
+    pub(super) value: Range<usize>,
+    pub(super) markup: bool,
 }
 
 impl Attribute {
@@ -31,14 +30,14 @@ impl Attribute {
 
 /// A start tag's attributes and where its name ends and its closing text
 /// (the blanks before `>` or `/>`, and that) begins.
-struct Tag {
-    name_end: usize,
-    attributes: Vec<Attribute>,
+pub(super) struct Tag {
+    pub(super) name_end: usize,
+    pub(super) attributes: Vec<Attribute>,
     close: Range<usize>,
 }
 
 impl Tag {
-    fn of(source: &str, token: &Token, markup: &declarations::Markup) -> Self {
+    pub(super) fn of(source: &str, token: &Token, markup: &declarations::Markup) -> Self {
         let name_end = local_name_start(source, token) + name_len(source, token);
         let mut after = name_end;
         let mut attributes = Vec::new();
@@ -67,7 +66,7 @@ impl Tag {
 
     /// The tag with only the attributes `keep` keeps (each keeps the
     /// blanks before it).
-    fn keeping(&self, keep: impl Fn(&Attribute) -> bool) -> Tag {
+    pub(super) fn keeping(&self, keep: impl Fn(&Attribute) -> bool) -> Tag {
         Tag {
             name_end: self.name_end,
             attributes: self
@@ -90,88 +89,13 @@ impl Tag {
     }
 
     /// The `name=value` texts of its data attributes.
-    fn pairs<'a>(&self, source: &'a str) -> Vec<(&'a str, &'a str)> {
+    pub(super) fn pairs<'a>(&self, source: &'a str) -> Vec<(&'a str, &'a str)> {
         self.attributes
             .iter()
             .filter(|attribute| !attribute.markup)
             .map(|attribute| (&source[attribute.name.clone()], &source[attribute.value.clone()]))
             .collect()
     }
-}
-
-/// A host start tag.
-struct HostTag {
-    tag: Tag,
-    pairs: Vec<(String, String)>,
-    filled: bool,
-}
-
-fn unindexed(path: &[Seg]) -> Vec<String> {
-    strings(path).into_iter().filter(|segment| crate::editor::language::pointer_index(segment).is_none()).collect()
-}
-
-/// `written` (a rewrite of `previous`, from the value `identity` edits it
-/// to) with each start tag laid out as `previous` writes the same
-/// element's (see the module documentation): its own, wherever the edit
-/// moved it. An element the edit added is laid out as the nearest of its
-/// path's, without that one's markup. The attributes keep the order, names
-/// and values of `written`.
-pub(super) fn with_layout_of(written: &str, previous: &str, identity: &Identity<'_>) -> String {
-    let markup = declarations::Markup::of(previous);
-    let host_tokens = tokenize(previous);
-    let host_plan = plan_paths(previous, &host_tokens);
-    let mut host: Vec<HostTag> = Vec::new();
-    let mut by_path: HashMap<Vec<String>, usize> = HashMap::new();
-    let mut by_name: HashMap<Vec<String>, Vec<usize>> = HashMap::new();
-    for token in &host_tokens {
-        if !matches!(token.kind, Kind::OpenTag { closing: false, .. }) {
-            continue;
-        }
-        let Some(path) = host_plan.path_of(token.start) else { continue };
-        let tag = Tag::of(previous, token, &markup);
-        let pairs = tag.pairs(previous).into_iter().map(|(name, value)| (name.to_string(), value.to_string())).collect();
-        by_path.insert(strings(path), host.len());
-        by_name.entry(unindexed(path)).or_default().push(host.len());
-        host.push(HostTag { tag, pairs, filled: filled(previous, token) });
-    }
-    let tokens = tokenize(written);
-    let plan = plan_paths(written, &tokens);
-    let mut seen: HashMap<Vec<String>, usize> = HashMap::new();
-    let mut out = String::with_capacity(written.len() + previous.len() / 8);
-    let mut copied = 0;
-    for token in &tokens {
-        if !matches!(token.kind, Kind::OpenTag { closing: false, .. }) {
-            continue;
-        }
-        let Some(path) = plan.path_of(token.start) else { continue };
-        let name = unindexed(path);
-        let ordinal = {
-            let count = seen.entry(name.clone()).or_default();
-            *count += 1;
-            *count - 1
-        };
-        let tag = Tag::of(written, token, &markup);
-        let own = identity.host_path(path).and_then(|path| by_path.get(&path)).map(|at| &host[*at]);
-        let like = match own {
-            // An empty element given content is no longer nil.
-            Some(own) if !own.filled && filled(written, token) => {
-                own.tag.keeping(|attribute| !markup.nil(&previous[attribute.name.clone()], &previous[attribute.value.clone()]))
-            }
-            Some(own) => own.tag.keeping(|_| true),
-            None => {
-                let pairs = tag.pairs(written);
-                let Some(nearest) = by_name.get(&name).and_then(|tags| nearest(&host, tags, ordinal, &pairs)) else {
-                    continue;
-                };
-                nearest.tag.keeping(|attribute| !attribute.markup)
-            }
-        };
-        out.push_str(&written[copied..tag.name_end]);
-        laid_out(&mut out, (written, &tag), (previous, &like));
-        copied = token.end;
-    }
-    out.push_str(&written[copied..]);
-    out
 }
 
 /// The lines (0-based) of `text` a tag continues on: its attributes over
@@ -211,22 +135,9 @@ pub(super) fn markup_attributes(source: &str, token: &Token, markup: &declaratio
     found
 }
 
-/// The host tag of `tags` (one element path's, in order) an added tag,
-/// the `ordinal`-th written of that path, is laid out like: of those a
-/// few places around it, the one sharing the most attributes with it, then
-/// the nearest.
-fn nearest<'a>(host: &'a [HostTag], tags: &[usize], ordinal: usize, pairs: &[(&str, &str)]) -> Option<&'a HostTag> {
-    let shared = |host: &HostTag| {
-        pairs.iter().filter(|(name, value)| host.pairs.iter().any(|(other, held)| other == name && held == value)).count()
-    };
-    (ordinal.saturating_sub(2)..tags.len().min(ordinal + 3))
-        .max_by_key(|index| (shared(&host[tags[*index]]), std::cmp::Reverse(index.abs_diff(ordinal))))
-        .map(|index| &host[tags[index]])
-}
-
 /// Writes the attributes and close of the written tag `tag` laid out as
 /// `host` is.
-fn laid_out(out: &mut String, (written, tag): (&str, &Tag), (previous, host): (&str, &Tag)) {
+pub(super) fn laid_out(out: &mut String, (written, tag): (&str, &Tag), (previous, host): (&str, &Tag)) {
     let slots = &host.attributes;
     let mut emitted = vec![false; slots.len()];
     // Where the last attribute written stands among the host's.
@@ -312,12 +223,13 @@ fn laid_out(out: &mut String, (written, tag): (&str, &Tag), (previous, host): (&
 #[cfg(test)]
 mod tests {
     use super::super::identity::Identity;
+    use super::super::kept_elements;
     use super::super::parse::xml_parse;
 
     /// `written` laid out as `previous`, each element by the item it is.
     fn with_layout_of(written: &str, previous: &str) -> String {
         let (old, new) = (xml_parse(previous).expect("reads"), xml_parse(written).expect("reads"));
-        super::with_layout_of(written, previous, &Identity::of(Some(&old), &new))
+        kept_elements::with_layout_of(written, (previous, None), &Identity::of(Some(&old), &new))
     }
 
     #[test]

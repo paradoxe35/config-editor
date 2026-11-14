@@ -19,7 +19,7 @@ export interface EditorOptions extends EditorSettings {
   language?: LanguageName;
   /** Edit in another language; `value` and `onChange` stay in `language`. */
   editAs?: LanguageName;
-  /** The schema for completion, hover docs and validation: JSON Schema as JSON text, or a schema in `schemaFormat`. One that does not compile throws. */
+  /** The schema for completion, hover docs and validation: JSON Schema as JSON or YAML text, or a schema in `schemaFormat`. One that does not compile throws. */
   schema?: string;
   /** The format `schema` is written in. Default `"json-schema"`; never guessed from the text (`schemaFormatForFile` names the format of a file). What the format cannot express in JSON Schema reaches `onSchemaWarning`. */
   schemaFormat?: SchemaFormatName;
@@ -150,7 +150,7 @@ export interface EditorUpdate extends SettingsUpdate {
   hostDiagnostics?: HostDiagnostic[] | null;
   /** Replaces the fields the user cannot change; `null` or `[]` clears them. */
   readOnlyPaths?: FieldPath[] | null;
-  /** Replaces the stretches the user cannot change (in `rangesFor`, else `value`, else the document); `null` or `[]` clears them. */
+  /** Replaces the stretches the user cannot change (in `rangesFor`, else `value`, else the document); `null` or `[]` clears them. The ones given last, given again with no new text, stay where the editor moved them as the user typed. */
   readOnlyRanges?: TextRangeInput[] | null;
   onChange?: ((value: string) => void) | null;
   onEditAsChange?: ((language: LanguageName) => void) | null;
@@ -379,7 +379,7 @@ export interface DocumentSpec {
   readOnlyReason?: string;
   /** Whether the user may close it (close button, middle click, `Delete` on its tab ask `onClose`). Default `true`; `false` for a document that must stay open: its tab has no close button. Without `onClose` no tab has one. Switches live. */
   closable?: boolean;
-  /** The schema, as `ConfigEditor`'s `schema`: JSON Schema as JSON text, or a schema in `schemaFormat`; documents with the same schema (text, format, resources and options) share one compiled schema. One that does not compile throws, as it does for a `ConfigEditor`. A new one mounts a new editor. */
+  /** The schema, as `ConfigEditor`'s `schema`: JSON Schema as JSON or YAML text, or a schema in `schemaFormat`; documents with the same schema (text, format, resources and options) share one compiled schema. One that does not compile throws, as it does for a `ConfigEditor`. */
   schema?: string;
   /** The format `schema` is written in, as `ConfigEditor`'s `schemaFormat`. */
   schemaFormat?: SchemaFormatName;

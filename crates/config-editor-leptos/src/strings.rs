@@ -311,6 +311,12 @@ pub struct EditorStrings {
     pub folded_ranges: String,
     /// Announced when `{count}` folds (two or more) open at once.
     pub unfolded_ranges: String,
+    /// Announced when a fold key (`Ctrl+Shift+[`, `Ctrl+K Ctrl+0`) finds
+    /// nothing to fold.
+    pub nothing_to_fold: String,
+    /// Announced when an unfold key (`Ctrl+Shift+]`, `Ctrl+K Ctrl+J`)
+    /// finds nothing to open.
+    pub nothing_to_unfold: String,
 
     // Hover and problems.
     /// The hover card's mark of a required key.
@@ -473,6 +479,10 @@ pub struct EditorStrings {
     pub too_many_contained: String,
     /// A value its `not` schema (`{schema}`, as JSON) matches.
     pub must_not_match: String,
+    /// An object holding all of the keys its `not` schema keeps apart
+    /// (`not: {required: [...]}`): the first (`{key}`) and the others
+    /// (`{others}`), each quoted, joined by `, `.
+    pub keys_used_together: String,
     /// A value that matches none of a schema's options (`{keyword}`:
     /// `oneOf` or `anyOf`), with why each fails (`{reasons}`, each worded
     /// by `option_needs`, `option_refuses` or `option_problem`, joined by
@@ -676,6 +686,8 @@ impl Default for EditorStrings {
             unfolded_lines: text("Unfolded lines {first}–{last}"),
             folded_ranges: text("Folded {count} ranges"),
             unfolded_ranges: text("Unfolded {count} ranges"),
+            nothing_to_fold: text("Nothing to fold"),
+            nothing_to_unfold: text("Nothing to unfold"),
             required: text("required"),
             deprecated: text("deprecated"),
             default_value: text("Default"),
@@ -762,6 +774,7 @@ impl Default for EditorStrings {
                 "{value} has more than {limit} items its \"contains\" schema allows",
             ),
             must_not_match: text("{value} must not match {schema}"),
+            keys_used_together: text("{key} can't be used together with {others}"),
             no_option_matches: text("matches none of the {keyword} options: {reasons}"),
             several_options_match: text(
                 "matches more than one of the oneOf options ({options}); only one may match",

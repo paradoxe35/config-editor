@@ -10,7 +10,8 @@ use super::{byte_range, escape, reads_as, through_long_quote};
 use serde_json::Value;
 
 /// `previous` with renamed keys renamed where they are written, when `new`
-/// is `old` with only keys renamed (same values, same positions).
+/// is `old` with only keys renamed (same values, same positions): an
+/// inline table renamed with the keys inside it stays inline (QA `E32-5`).
 pub(in super::super) fn patch_renames(
     language: &dyn ConfigLanguage,
     previous: &str,
@@ -30,8 +31,8 @@ pub(in super::super) fn patch_renames(
 /// `previous` with every rename made where the language writes the key
 /// (its [`key_renames`](ConfigLanguage::key_renames), else the key's span),
 /// all placed from one read of `previous` (one at a time, each read the
-/// text so far again): renamed keys hold no other renamed key, so each is
-/// where `previous` writes it. `None` when one cannot be made, or two
+/// text so far again): each is where `previous` writes the key, by its
+/// pointer there, a key inside a renamed one too. `None` when one cannot be made, or two
 /// would write over each other.
 fn renamed(
     language: &dyn ConfigLanguage,
@@ -147,8 +148,8 @@ pub(in super::super) fn with_renames_undone(old: &Value, new: &Value) -> Value {
     }
 }
 
-/// Collects `(old pointer, old key, new key)` for each key `new` renames;
-/// `None` when anything else differs.
+/// Collects `(old pointer, old key, new key)` for each key `new` renames,
+/// inside a renamed key too; `None` when anything else differs.
 fn renamed_keys(
     old: &Value,
     new: &Value,
@@ -160,16 +161,14 @@ fn renamed_keys(
             for ((old_key, old_value), (new_key, new_value)) in left.iter().zip(right) {
                 let child = format!("{pointer}/{}", escape(old_key));
                 if old_key != new_key {
-                    if old_value != new_value
-                        || left.contains_key(new_key)
-                        || right.contains_key(old_key)
-                    {
+                    if left.contains_key(new_key) || right.contains_key(old_key) {
                         return None;
                     }
-                    out.push((child, old_key.clone(), new_key.clone()));
-                } else {
-                    renamed_keys(old_value, new_value, child, out)?;
+                    out.push((child.clone(), old_key.clone(), new_key.clone()));
                 }
+                // Keys inside it renamed too (a Replace All over a key and
+                // the keys inside it), each where the host writes it.
+                renamed_keys(old_value, new_value, child, out)?;
             }
             Some(())
         }

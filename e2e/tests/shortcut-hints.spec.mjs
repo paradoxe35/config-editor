@@ -94,6 +94,8 @@ test.describe('a window a few lines tall (D23.ux-5)', () => {
     await expect(widget.locator('.config-editor__replace-input')).toBeVisible();
     const box = await widget.locator('.config-editor__find-input:not(.config-editor__replace-input)').boundingBox();
     expect(box.width, 'the find field is wide enough to type in').toBeGreaterThanOrEqual(60);
+    // A match, so the replace buttons are not marked unavailable.
+    await page.keyboard.type(':');
     await widget.locator('.config-editor__replace-input').click({ trial: true });
     await widget.locator('.config-editor__find-text-button').last().click({ trial: true });
   });

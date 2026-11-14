@@ -76,10 +76,13 @@ fn floats_past_64_bits(value: &Value, pointer: String, found: &mut Vec<String>) 
 /// large`, `number out of range`, `floating-point number overflowed`, or a
 /// syntax error inside `1e400`), said plainly: the number literal at
 /// `line` and `column` (one-based, in characters; the error may point just
-/// past it) past the 64-bit integers, or past the largest float. `None`
-/// when no such literal is there.
-pub(super) fn out_of_range(source: &str, line: usize, column: usize) -> Option<String> {
-    literal_out_of_range(source, line, column).map(|(_, message)| message)
+/// past it) past the 64-bit integers, or past the largest float, with the
+/// column the literal starts at (an error marks it whole, `-1e400`, not
+/// from where the parser stopped). `None` when no such literal is there.
+pub(super) fn out_of_range(source: &str, line: usize, column: usize) -> Option<(usize, String)> {
+    let (bytes, message) = literal_out_of_range(source, line, column)?;
+    let line_start = source[..bytes.start].rfind('\n').map_or(0, |at| at + 1);
+    Some((source[line_start..bytes.start].chars().count() + 1, message))
 }
 
 /// Where the number literal `error` (a parse of `source`) is about is

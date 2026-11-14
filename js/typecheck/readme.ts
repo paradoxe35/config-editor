@@ -153,7 +153,7 @@ void [found, bound, kind, noChanges, review, sent, unsaved, folded, savedIds, sh
 // Schema formats: JSON Schema in YAML, a registered format, compiling at build time.
 {
   const crdSchemaYaml: string = "properties: {}\n";
-  new ConfigEditor(element, { language: "yaml", value: "", schema: crdSchemaYaml, schemaFormat: "json-schema-yaml" });
+  new ConfigEditor(element, { language: "yaml", value: "", schema: crdSchemaYaml });
   new ConfigEditor(element, { schema: "port: integer\n", schemaFormat: "fields", schemaResources: { "common.fields": "" }, schemaOptions: { root: "project" } });
   const name: string = registerSchemaFormat({
     name: "fields",

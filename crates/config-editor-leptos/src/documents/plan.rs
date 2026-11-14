@@ -312,7 +312,7 @@ mod tests {
         );
         assert!(resolved[1].is_none());
         assert!(
-            matches!(&resolved[4], Some(SchemaSource::Json(text)) if text == "{ not json"),
+            matches!(&resolved[4], Some(SchemaSource::Text(text)) if text == "{ not json"),
             "an invalid schema stays text, for the editor to report"
         );
         assert_eq!(cache.len(), 1);

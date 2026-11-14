@@ -104,6 +104,12 @@ const CASES: &[(&str, &str, (usize, usize))] = &[
         "base: &b\n  limits:\n    cpu: 1\nsvc:\n  a: *b\n",
         (2, 3),
     ),
+    // A key written as an alias of its text: on the alias.
+    (
+        "alias as a key, unknown key",
+        "k: &k prt\nsvc:\n  a:\n    host: h\n    *k : 1\n",
+        (5, 5),
+    ),
     // An anchor under a list item and under a nested key.
     (
         "anchor in a nested key",

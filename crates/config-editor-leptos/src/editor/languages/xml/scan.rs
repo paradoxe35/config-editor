@@ -70,6 +70,12 @@ pub(super) fn marks_config_root(source: &str, token: &Token) -> bool {
     })
 }
 
+/// An element's path without its places among repeated siblings: the
+/// path every item of its list shares.
+pub(super) fn unindexed(path: &[Seg]) -> Vec<String> {
+    strings(path).into_iter().filter(|segment| crate::editor::language::pointer_index(segment).is_none()).collect()
+}
+
 pub(super) fn strings(path: &[Seg]) -> Vec<String> {
     path.iter()
         .map(|segment| match segment {

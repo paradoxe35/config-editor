@@ -142,3 +142,26 @@ fn whole_and_underflowing_floats_convert_to_every_target_without_losses() {
     }
     report(failures);
 }
+
+/// A key with a prefix (an attribute in XML) at the top of a document
+/// converted to XML is refused in plain words naming the key as written,
+/// as it is nested: never an `@` the user did not write.
+#[test]
+fn a_prefixed_key_at_the_top_is_refused_naming_the_key_as_written() {
+    let mut failures = Vec::new();
+    for (source, key) in [
+        ("{\"key:colon\": 3, \"nest\": {\"a\": 1}}", "key:colon"),
+        ("{\"@x\": 3, \"nest\": {\"a\": 1}}", "@x"),
+    ] {
+        match Language::JSON.convert(source, Language::XML) {
+            Err(error)
+                if error
+                    .to_string()
+                    .contains(&format!("XML keeps {key} only as an attribute"))
+                    && error.to_string().ends_with(&format!("(at /{key})"))
+                    && (key.starts_with('@') || !error.to_string().contains('@')) => {}
+            other => failures.push(format!("{source:?}: {other:?}")),
+        }
+    }
+    report(failures);
+}

@@ -13,6 +13,40 @@ fn written_const<'a>(property: &'a Value, root: &'a Value) -> Option<&'a Value> 
     kept_const(&YamlBehavior, property, root)
 }
 
+/// Values left empty at line ends (`key: `, `key:`), not a key whose
+/// value is the block below it (`limits:` over more indented lines, or a
+/// list at its own indent).
+pub(super) fn line_end_slots(text: &str) -> Vec<usize> {
+    let indent = |line: &str| line.len() - line.trim_start_matches(' ').len();
+    let lines: Vec<(usize, &str)> = text
+        .split_inclusive('\n')
+        .scan(0, |offset, line| {
+            let start = *offset;
+            *offset += line.len();
+            Some((start, line.trim_end_matches(['\n', '\r'])))
+        })
+        .collect();
+    let mut slots = Vec::new();
+    for (at, (start, body)) in lines.iter().enumerate() {
+        if !body.ends_with(':') && !body.ends_with(": ") {
+            continue;
+        }
+        let below = lines[at + 1..]
+            .iter()
+            .map(|(_, line)| *line)
+            .find(|line| !line.trim().is_empty());
+        let opens_block = !body.ends_with(' ')
+            && below.is_some_and(|below| {
+                indent(below) > indent(body)
+                    || (indent(below) == indent(body) && dash_item(below.trim_start()).is_some())
+            });
+        if !opens_block {
+            slots.push(start + body.len());
+        }
+    }
+    slots
+}
+
 /// A key as a suggestion, a flow mapping and a merge's written-out keys
 /// write it: plain where every reader takes it as that text, else
 /// quoted (`"on"`, `"a b"`, `""`).
@@ -691,6 +725,7 @@ pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionConte
             .encode_utf16()
             .count(),
         root_item,
+        root_value: root_item.map(|_| ("- ", "")),
         value_key,
         value_needs_space,
         is_array_item: current_is_array_item,

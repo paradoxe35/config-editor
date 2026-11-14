@@ -29,6 +29,11 @@
 //! last (the whole `documents` list given for another document's edit), is
 //! no news, as a framework's binding passes an unchanged prop on.
 //!
+//! Texts are told apart as the editor reads them (see `Print`): an echo a
+//! store wrote another way (the byte order mark dropped, LF for CRLF) is
+//! still the echo, and one that is the document written another way keeps
+//! the document's own form.
+//!
 //! Ranges given with a skipped echo (`readOnlyRanges`, host diagnostics)
 //! are in the echoed text: they are mapped to the document (see
 //! `crate::remap`).
@@ -76,19 +81,51 @@ fn tick() -> u64 {
     })
 }
 
-/// A short stand-in for a text: its length and a 64-bit FNV-1a hash.
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
-struct Print(usize, u64);
+/// A short stand-in for a text, as the editor reads it (no byte order
+/// mark, every line break one line feed: a host store that drops the mark
+/// or writes LF hands back the same text): its length and a 64-bit FNV-1a
+/// hash, both of that reading. Two prints are equal by those alone; the
+/// length of the text as given (`raw`) only tells whether a print kept for
+/// the document may still be its own (see `document_print`).
+#[derive(Clone, Copy, Debug)]
+struct Print(usize, u64, usize);
+
+impl PartialEq for Print {
+    fn eq(&self, other: &Self) -> bool {
+        (self.0, self.1) == (other.0, other.1)
+    }
+}
+
+impl Eq for Print {}
+
+impl std::hash::Hash for Print {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        (self.0, self.1).hash(state);
+    }
+}
 
 impl Print {
     fn of(text: &str) -> Self {
         work::note(work::Work::TextRead);
+        let bytes = text.strip_prefix('\u{feff}').unwrap_or(text).as_bytes();
         let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
-        for byte in text.bytes() {
+        let mut length = 0;
+        let mut at = 0;
+        while at < bytes.len() {
+            let mut byte = bytes[at];
+            if byte == b'\r' {
+                // CRLF and a lone CR read as one line feed.
+                byte = b'\n';
+                if bytes.get(at + 1) == Some(&b'\n') {
+                    at += 1;
+                }
+            }
             hash ^= u64::from(byte);
             hash = hash.wrapping_mul(0x0100_0000_01b3);
+            length += 1;
+            at += 1;
         }
-        Self(text.len(), hash)
+        Self(length, hash, text.len())
     }
 }
 
@@ -239,13 +276,27 @@ impl Echoes {
     /// given or shown last) when it is that long, else read.
     fn document_print(&mut self, current: &str) -> Print {
         match self.document {
-            Some(print) if print.0 == current.len() => print,
+            Some(print) if print.2 == current.len() => print,
             _ => {
                 let print = Print::of(current);
                 self.document = Some(print);
                 print
             }
         }
+    }
+
+    /// Whether `value` (printed `print`) is the document `current` as the
+    /// editor reads it (see [`Print`]); read again only when one of them
+    /// has a byte order mark or a carriage return.
+    fn same(&mut self, value: &str, print: Print, current: &str) -> bool {
+        if value == current {
+            return true;
+        }
+        let plain = |text: &str| !text.starts_with('\u{feff}') && !text.contains('\r');
+        if plain(value) && plain(current) {
+            return false;
+        }
+        print == self.document_print(current)
     }
 
     /// Whether a copy of `print` is counted on to come: no text sent after
@@ -322,6 +373,7 @@ impl Echoes {
         let print = Print::of(value);
         self.last_given = Some(print);
         let again = self.last_listed.replace(print) == Some(print);
+        let same = self.same(value, print, current);
         let news = if listed && again {
             // Listed again: a render, or the echo of a copy sent since (and
             // a text sent after it may have come and gone in the same
@@ -338,7 +390,7 @@ impl Echoes {
             match copy {
                 Some(copy) => {
                     copy.counted_out = true;
-                    copy.doubted = value != current;
+                    copy.doubted = !same;
                     copy.doubted
                 }
                 None => false,
@@ -355,15 +407,21 @@ impl Echoes {
             // to one of them applies. Those sent while it was handled (an
             // edit still held, sent first) were unknown to the host: still
             // echoes.
-            if value != current {
+            if !same {
                 self.forget_before(flushed);
                 self.document = Some(print);
             }
             return Echo::Apply;
         };
-        if value == current {
+        if same {
             self.document = Some(print);
-            return Echo::Apply;
+            // The document written another way (the host's store dropped
+            // the byte order mark or wrote LF): it keeps its own.
+            return if value == current {
+                Echo::Apply
+            } else {
+                Echo::Skip
+            };
         }
         let document = self.document_print(current);
         if self.to_come(document) {
@@ -534,6 +592,86 @@ mod tests {
             }
             assert_eq!(host, current, "{order:?}");
             assert_eq!(waiting(&echoes), 0, "{order:?}");
+        }
+    }
+
+    /// A host whose store writes each text another way (the byte order
+    /// mark dropped, LF for CRLF, both) hands back echoes all the same: in
+    /// any order, none rolls a BOM and CRLF document back, and the document
+    /// keeps its own form (QA 32: they were taken for the host's own texts
+    /// and applied, losing what was typed since).
+    #[test]
+    fn echoes_written_another_way_are_still_echoes() {
+        type Store = fn(&str) -> String;
+        let stores: [(&str, Store); 3] = [
+            ("no BOM", |text| {
+                text.trim_start_matches('\u{feff}').to_string()
+            }),
+            ("LF", |text| text.replace("\r\n", "\n")),
+            ("both", |text| {
+                text.trim_start_matches('\u{feff}').replace("\r\n", "\n")
+            }),
+        ];
+        let texts = [
+            "\u{feff}a: 12\r\nb: 2\r\n",
+            "\u{feff}a: 123\r\nb: 2\r\n",
+            "\u{feff}a: 1234\r\nb: 2\r\n",
+            "\u{feff}a: 12345\r\nb: 2\r\n",
+        ];
+        let current = texts[3];
+        let orders = [
+            [0, 1, 2, 3],
+            [3, 2, 1, 0],
+            [1, 0, 3, 2],
+            [2, 3, 0, 1],
+            [0, 3, 1, 2],
+        ];
+        for (name, store) in stores {
+            for order in orders {
+                let mut echoes = Echoes::new(true);
+                for text in texts {
+                    echoes.sent(text);
+                }
+                for index in order {
+                    let given = store(texts[index]);
+                    let echo = echoes.received(&given, current, NONE);
+                    assert_ne!(echo, Echo::Apply, "{name} {order:?}: {given:?} applied");
+                }
+            }
+        }
+    }
+
+    /// An echo written another way costs at most two reads of a text (its
+    /// own, and the document's when it has a byte order mark or a carriage
+    /// return), whatever the size of the document: the work per echo stays
+    /// the same at 100 and at 10,000 lines.
+    #[test]
+    fn an_echo_written_another_way_costs_two_reads_at_any_size() {
+        for lines in [100, 10_000] {
+            let body: String = (0..lines).map(|line| format!("k{line}: v\r\n")).collect();
+            let texts: Vec<String> = (0..8)
+                .map(|typed| format!("\u{feff}a: {typed}\r\n{body}"))
+                .collect();
+            let current = texts.last().expect("a text").clone();
+            let mut echoes = Echoes::new(true);
+            for text in &texts {
+                echoes.sent(text);
+            }
+            let stored: Vec<String> = texts
+                .iter()
+                .rev()
+                .map(|text| text.trim_start_matches('\u{feff}').replace("\r\n", "\n"))
+                .collect();
+            let (_, reads) = counted(Work::TextRead, || {
+                for text in &stored {
+                    assert_ne!(echoes.received(text, &current, NONE), Echo::Apply);
+                }
+            });
+            assert!(
+                reads <= 2 * stored.len(),
+                "{lines} lines: {reads} texts read for {} echoes",
+                stored.len()
+            );
         }
     }
 

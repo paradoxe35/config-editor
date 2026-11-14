@@ -20,8 +20,10 @@ pub(super) fn hcl_parse(source: &str) -> Result<Value, ParseError> {
         };
         let line_count = source.split('\n').count().max(1);
         let (line, column) = (line.clamp(1, line_count), column.max(1));
+        let (column, message) = super::super::wide_integers::out_of_range(source, line, column)
+            .unwrap_or_else(|| (column, readable_error(&error.to_string())));
         ParseError {
-            message: super::super::wide_integers::out_of_range(source, line, column).unwrap_or_else(|| readable_error(&error.to_string())),
+            message,
             line: Some(line),
             column: Some(column),
         }

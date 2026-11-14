@@ -26,6 +26,7 @@ mod tags;
 mod limits;
 mod expansion;
 mod scalar_edit;
+mod stream_end;
 // The fold ranges (the `folding` feature).
 #[cfg(feature = "folding")]
 mod folding;
@@ -146,7 +147,10 @@ impl ConfigLanguage for YamlBehavior {
             }
             _ => source,
         };
-        yaml_parse(source).map(with_merge_keys).map_err(|mut error| {
+        yaml_parse(source)
+            .map(|value| stream_end::without_unwritten_break(source, value))
+            .map(with_merge_keys)
+            .map_err(|mut error| {
             // A second document has no line from the parser: mark its `---`.
             if error.line.is_none()
                 && let Some(index) = source
@@ -178,7 +182,8 @@ impl ConfigLanguage for YamlBehavior {
             // `nodelay: true,`): in the collection its parent writes.
             None => yaml_span_for_path(source, pointer)
                 .map(Span::from)
-                .or_else(|| super::super::codec::inline_location(self, source, pointer, true)),
+                .or_else(|| super::super::codec::inline_location(self, source, pointer, true))
+                .or_else(|| aliases::alias_key_span(source, pointer)),
         }
     }
 
@@ -405,7 +410,7 @@ impl ConfigLanguage for YamlBehavior {
     /// Values left empty at line ends (`key: `) and in flow maps
     /// (`{ cert: , key:  }`).
     fn empty_value_slots(&self, text: &str) -> Vec<usize> {
-        let mut slots = super::super::language::empty_slots_at_line_ends(text, &[": ", ":"]);
+        let mut slots = suggestions::line_end_slots(text);
         for (at, _) in text.match_indices(':') {
             let rest = &text[at + 1..];
             let spaces = rest.len() - rest.trim_start_matches(' ').len();

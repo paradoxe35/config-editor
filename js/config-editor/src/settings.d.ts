@@ -766,6 +766,18 @@ export interface EditorStrings {
    */
   unfoldedRanges?: string;
   /**
+   * Announced when a fold key (`Ctrl+Shift+[`, `Ctrl+K Ctrl+0`) finds nothing to fold.
+   *
+   * @default "Nothing to fold"
+   */
+  nothingToFold?: string;
+  /**
+   * Announced when an unfold key (`Ctrl+Shift+]`, `Ctrl+K Ctrl+J`) finds nothing to open.
+   *
+   * @default "Nothing to unfold"
+   */
+  nothingToUnfold?: string;
+  /**
    * The hover card's mark of a required key.
    *
    * @default "required"
@@ -1149,6 +1161,12 @@ export interface EditorStrings {
    * @default "{value} must not match {schema}"
    */
   mustNotMatch?: string;
+  /**
+   * An object holding all of the keys its `not` schema keeps apart (`not: {required: [...]}`): the first (`{key}`) and the others (`{others}`), each quoted, joined by `, `.
+   *
+   * @default "{key} can't be used together with {others}"
+   */
+  keysUsedTogether?: string;
   /**
    * A value that matches none of a schema's options (`{keyword}`: `oneOf` or `anyOf`), with why each fails (`{reasons}`, each worded by `option_needs`, `option_refuses` or `option_problem`, joined by `; `).
    *

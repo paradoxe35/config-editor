@@ -12,15 +12,17 @@ pub(super) fn toml_parse(source: &str) -> Result<Value, ParseError> {
             .map(|span| line_column(source, span.start))
             .unwrap_or((1, 1));
         let (line, column) = (line.clamp(1, line_count), column.max(1));
+        let (column, message) = super::super::wide_integers::out_of_range(source, line, column).unwrap_or_else(|| {
+            let message = error.message();
+            let message = if message.starts_with("cannot recurse further") {
+                super::super::nesting::too_deep(super::super::nesting::VALUES)
+            } else {
+                message.to_string()
+            };
+            (column, message)
+        });
         ParseError {
-            message: super::super::wide_integers::out_of_range(source, line, column).unwrap_or_else(|| {
-                let message = error.message();
-                if message.starts_with("cannot recurse further") {
-                    super::super::nesting::too_deep(super::super::nesting::VALUES)
-                } else {
-                    message.to_string()
-                }
-            }),
+            message,
             line: Some(line),
             column: Some(column),
         }

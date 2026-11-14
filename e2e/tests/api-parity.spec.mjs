@@ -189,6 +189,7 @@ const CONFIG_LANGUAGE = {
   reindent_on_type: { exempt: RUST_ONLY_REFINEMENT },
   repetition: { exempt: RUST_ONLY_REFINEMENT },
   lone_item: { exempt: RUST_ONLY_REFINEMENT },
+  repeated_keys: { exempt: RUST_ONLY_REFINEMENT },
   entry_started: { exempt: RUST_ONLY_REFINEMENT },
   lexical_state: { custom: 'multilineRanges' },
   saved_string_lines: { custom: 'multilineRanges' },
@@ -228,6 +229,8 @@ const CONFIG_LANGUAGE = {
   entries_apart: { exempt: SAVE_FORMS },
   entries_together: { exempt: SAVE_FORMS },
   aligned_lines: { exempt: SAVE_FORMS },
+  items_hold_unshown: { exempt: SAVE_FORMS },
+  holds_wide_integers: { exempt: SAVE_FORMS },
   unheld_numbers: { exempt: RUST_ONLY_REFINEMENT },
   edits_one_scalar: { exempt: 'a speed-up for locks away from an edit; without it (a custom language) every edit reads the document through `parse` while anything is locked' },
 };
@@ -455,6 +458,16 @@ function block(source, from) {
   throw new Error('unbalanced block');
 }
 
+/** The body of the top-level Rust item (`impl`, `struct`) starting at
+ * `from`, up to its closing brace at the start of a line: strings, chars
+ * and docs inside it hold braces that counting would trip on. */
+function rustBlock(source, from) {
+  const open = source.indexOf('{', from);
+  const close = source.indexOf('\n}\n', open);
+  if (open < 0 || close < 0) throw new Error(`no top-level Rust item at ${from}`);
+  return source.slice(open + 1, close + 1);
+}
+
 /** Names of the methods of `pub trait <name>` in `source`. */
 function traitMethods(source, name) {
   // Up to the closing brace at the start of a line: the docs hold braces.
@@ -468,7 +481,7 @@ function implMethods(source, type) {
   const names = new Set();
   const header = new RegExp(`^impl ${type} \\{`, 'gm');
   for (const match of source.matchAll(header)) {
-    for (const [, name] of block(source, match.index).matchAll(/^    pub (?:const )?fn (\w+)/gm)) names.add(name);
+    for (const [, name] of rustBlock(source, match.index).matchAll(/^    pub (?:const )?fn (\w+)/gm)) names.add(name);
   }
   return [...names];
 }
@@ -482,7 +495,7 @@ function componentProps(file = 'editor.rs', component = 'ConfigEditor') {
 
 /** Names of the `pub` fields of `pub struct <type> {` in `source`. */
 function structFields(source, type) {
-  const body = block(source, source.indexOf(`pub struct ${type} {`));
+  const body = rustBlock(source, source.indexOf(`pub struct ${type} {`));
   return [...body.matchAll(/^    pub (\w+): /gm)].map(([, name]) => name);
 }
 

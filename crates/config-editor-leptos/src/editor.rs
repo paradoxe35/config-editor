@@ -50,6 +50,7 @@ mod hover_focus;
 mod hover_path;
 mod hover_problems;
 mod input;
+mod item_sources;
 mod kept_focus;
 mod schema_checks;
 mod schema_formats;

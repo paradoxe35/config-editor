@@ -548,13 +548,7 @@ pub(super) fn existing_body_keys(
         return Some(keys.into_iter().collect());
     }
     let scan = analyze(source, cursor_byte);
-    let wanted: Vec<String> = path
-        .iter()
-        .map(|segment| match segment {
-            SchemaPathSegment::Key(key) => key.clone(),
-            SchemaPathSegment::ArrayItem(index) => index.to_string(),
-        })
-        .collect();
+    let wanted = body_wanted(path);
     let mut keys = HashSet::new();
     for attribute in &scan.attributes {
         // The attribute's container: its body's path plus the value-map chain
@@ -599,6 +593,33 @@ pub(super) fn existing_body_keys(
         keys.remove(&current);
     }
     Some(keys)
+}
+
+/// `path` as the scan names a body.
+fn body_wanted(path: &[SchemaPathSegment]) -> Vec<String> {
+    path.iter()
+        .map(|segment| match segment {
+            SchemaPathSegment::Key(key) => key.clone(),
+            SchemaPathSegment::ArrayItem(index) => index.to_string(),
+        })
+        .collect()
+}
+
+/// The types of the blocks without labels the body at `path` holds
+/// (`rule { … }`): another block of each may follow (see
+/// `ConfigLanguage::repeated_keys`).
+pub(super) fn repeated_block_types(
+    source: &str,
+    cursor_byte: usize,
+    path: &[SchemaPathSegment],
+) -> HashSet<String> {
+    let scan = analyze(source, cursor_byte.min(source.len()));
+    let wanted = body_wanted(path);
+    scan.headers
+        .iter()
+        .filter(|header| header.labels.is_empty() && body_path(&scan, header.parent) == wanted)
+        .map(|header| header.block_type.clone())
+        .collect()
 }
 
 /// The key or label being typed on a single line: the assignment key, the
@@ -690,6 +711,27 @@ pub(super) fn property_insert(
         return Some((insert, caret));
     }
     let caret = utf16(&insert);
+    Some((insert, caret))
+}
+
+/// One more block `key { … }` of a list of objects written as blocks,
+/// over the required children of its items.
+pub(super) fn another_block(
+    key: &str,
+    property: &Value,
+    root: &Value,
+    base_indent: &str,
+    unit: &str,
+) -> Option<(String, usize)> {
+    let items = array_branch(property, root)?.get("items")?;
+    let children: Vec<_> = required_children(&HclBehavior, items, root)
+        .into_iter()
+        .filter(|child| is_ident(child.key))
+        .collect();
+    let mut insert = format!("{} ", hcl::Identifier::new(key).ok()?);
+    let mut caret = None;
+    write_object(&children, true, base_indent, unit, &mut insert, &mut caret);
+    let caret = caret.map_or_else(|| utf16(&insert), |at| utf16(&insert[..at]));
     Some((insert, caret))
 }
 

@@ -101,19 +101,72 @@
   --config-editor-mono: "Cascadia Code", "SFMono-Regular", Consolas, "Liberation Mono", monospace;
 }
 
-.config-editor {
+/* The page's text properties are not inherited. The textarea takes none
+   of them, and the highlighted text over it must lay out as it does; the
+   rest of the editor reads the same on every page. Each is set to its
+   initial value (what a plain page gives), so nothing the page sets on
+   `body` or on the element the editor is in (alignment, spacing, wrapping,
+   decoration, emphasis, font features, stroke…) reaches inside. An
+   editor in a documents view is shielded as what it holds is (see below),
+   so its root rules name it with the shield too. */
+.config-editor,
+.config-editor-documents,
+:not(#\#) .config-editor-documents .config-editor {
+  display: block;
+  writing-mode: horizontal-tb;
+  text-orientation: mixed;
+  text-align: start;
+  text-align-last: auto;
+  text-justify: auto;
+  text-indent: 0;
+  text-transform: none;
+  text-shadow: none;
+  text-emphasis: none;
+  text-emphasis-position: over right;
+  text-underline-position: auto;
+  text-underline-offset: auto;
+  text-decoration-skip-ink: auto;
+  text-rendering: auto;
+  -webkit-text-size-adjust: auto;
+  text-size-adjust: auto;
+  text-autospace: normal;
+  text-spacing-trim: normal;
+  letter-spacing: normal;
+  word-spacing: normal;
+  white-space: normal;
+  text-wrap-style: auto;
+  word-break: normal;
+  overflow-wrap: normal;
+  line-break: auto;
+  hyphens: manual;
+  hyphenate-character: auto;
+  tab-size: 8;
+  font-kerning: auto;
+  font-variant: normal;
+  font-feature-settings: normal;
+  font-variation-settings: normal;
+  font-optical-sizing: auto;
+  font-size-adjust: none;
+  font-synthesis: weight style small-caps;
+  font-palette: normal;
+  -webkit-font-smoothing: auto;
+  -webkit-text-stroke: 0;
+  -webkit-text-fill-color: currentcolor;
+  -webkit-text-security: none;
+  paint-order: normal;
+  quotes: auto;
+  list-style: disc outside none;
+  caret-color: auto;
+  cursor: auto;
+}
+
+.config-editor,
+:not(#\#) .config-editor-documents .config-editor {
   position: relative;
   /* A whole number of pixels: fractional line heights round differently in the
      textarea and the overlay, and the gap grows with every line. */
   color: var(--config-editor-text);
   font: 13px/1.65 ui-monospace, var(--config-editor-mono);
-  /* The page's text spacing is not inherited: the textarea takes none of
-     it, and the highlighted text over it must lay out as it does. */
-  letter-spacing: normal;
-  word-spacing: normal;
-  text-indent: 0;
-  text-transform: none;
-  text-shadow: none;
 }
 
 .config-editor *,
@@ -123,18 +176,22 @@
 }
 
 /* The host shield. The page's own rules for bare elements, attributes or
-   `:not()` (`input { width: 100% }`, `span { margin: 2px }`, a framework's
+   `:not()` (`input { width: 100% }`, `div { padding: 1rem }`, a framework's
    `input:not([type=checkbox])` or `[type='text']`, loaded before the
-   editor or after) never reach the controls and text the editor draws:
-   each such element starts from the browser's own styles, and every rule
-   of the editor's for what is inside it carries `:not(#\#)` (an id's
-   weight that matches every element), so it outweighs the page's rules
-   but for ids and `!important`. Restyle the editor through its color
-   tokens and its roots (`.config-editor`, `.config-editor-documents`).
-   The toolbar and a host's own toolbar or footer (`ConfigEditorToolbar`,
-   `ConfigEditorFooter`) hold the page's elements: their contents keep the
-   page's look. */
-:where(.config-editor, .config-editor-documents) :is(input, button, textarea, select, span, a, code, kbd, pre, strong, em, b, i, small, p, h1, h2, h3, h4, ul, ol, li, label):where(:not(.config-editor__toolbar *, .config-editor.config-editor__status *)):not(#\#) {
+   editor or after) never reach what the editor draws: every element inside
+   its roots (and its `::before`, `::after` and placeholder) starts from the
+   browser's own styles, and every rule of the editor's for what is inside
+   it carries `:not(#\#)` (an id's weight that matches every element), so it
+   outweighs the page's rules but for ids and `!important`. Restyle the
+   editor through its color tokens and its roots (`.config-editor`,
+   `.config-editor-documents`). A host's own toolbar or footer
+   (`ConfigEditorToolbar`, `ConfigEditorFooter`, roots themselves) holds the
+   page's elements: their contents keep the page's look. An icon's shapes
+   keep their SVG attributes. */
+:where(.config-editor, .config-editor-documents) :where(:not(.config-editor.config-editor__toolbar *, .config-editor.config-editor__status *, svg *)):not(#\#),
+:where(.config-editor, .config-editor-documents) :where(:not(.config-editor.config-editor__toolbar *, .config-editor.config-editor__status *, svg *)):not(#\#)::before,
+:where(.config-editor, .config-editor-documents) :where(:not(.config-editor.config-editor__toolbar *, .config-editor.config-editor__status *, svg *)):not(#\#)::after,
+:where(.config-editor, .config-editor-documents) :where(:not(.config-editor.config-editor__toolbar *, .config-editor.config-editor__status *)):not(#\#)::placeholder {
   all: revert;
   box-sizing: border-box;
 }
@@ -143,9 +200,15 @@
    element of a set height, or a documents panel), the text area takes what
    the toolbar and footer leave, down to its minimum height; without one,
    the text sizes it. */
+/* Inline-level, as wide as the editor: the page's text decoration
+   (`body { text-decoration: underline }`) is drawn on every block inside
+   it but not inside an inline box (as on a textarea), so the frame keeps
+   it off the editor's text. */
 :not(#\#) .config-editor__frame {
   height: 100%;
-  display: flex;
+  width: 100%;
+  vertical-align: top;
+  display: inline-flex;
   flex-direction: column;
   min-height: 0;
   overflow: hidden;
@@ -189,7 +252,8 @@
   border-color: var(--config-editor-accent);
 }
 
-.config-editor__toolbar {
+.config-editor__toolbar,
+:not(#\#) .config-editor__frame .config-editor__toolbar {
   min-height: 36px;
   display: flex;
   flex-wrap: wrap;
@@ -205,7 +269,10 @@
 
 .config-editor__file,
 .config-editor__toolbar-meta,
-.config-editor__schema-state {
+.config-editor__schema-state,
+:not(#\#) .config-editor__frame .config-editor__file,
+:not(#\#) .config-editor__frame .config-editor__toolbar-meta,
+:not(#\#) .config-editor__frame .config-editor__schema-state {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -213,13 +280,15 @@
   min-width: 0;
 }
 
-.config-editor__file {
+.config-editor__file,
+:not(#\#) .config-editor__frame .config-editor__file {
   flex-wrap: nowrap;
   max-width: 100%;
   border-bottom: 1px solid var(--config-editor-accent);
 }
 /* A long name ends in an ellipsis (its title tells it whole). */
-.config-editor__file-name {
+.config-editor__file-name,
+:not(#\#) .config-editor__frame .config-editor__file-name {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -237,13 +306,18 @@
   font: 10px var(--config-editor-mono);
 }
 
-.config-editor__toolbar-meta { color: var(--config-editor-raised-muted); }
-.config-editor__schema-state { color: var(--config-editor-raised-muted); }
-.config-editor__schema-check { color: var(--config-editor-schema-check, var(--config-editor-added)); }
-.config-editor__language { font: 10px var(--config-editor-mono); }
+.config-editor__toolbar-meta,
+:not(#\#) .config-editor__frame .config-editor__toolbar-meta { color: var(--config-editor-raised-muted); }
+.config-editor__schema-state,
+:not(#\#) .config-editor__frame .config-editor__schema-state { color: var(--config-editor-raised-muted); }
+.config-editor__schema-check,
+:not(#\#) .config-editor__frame .config-editor__schema-check { color: var(--config-editor-schema-check, var(--config-editor-added)); }
+.config-editor__language,
+:not(#\#) .config-editor__frame .config-editor__language { font: 10px var(--config-editor-mono); }
 /* A separator between the schema state and the language, not before a
    language alone. */
-.config-editor__schema-state + .config-editor__language {
+.config-editor__schema-state + .config-editor__language,
+:not(#\#) .config-editor__frame .config-editor__schema-state + .config-editor__language {
   padding-left: 12px;
   border-left: 1px solid var(--config-editor-border);
 }
@@ -1102,6 +1176,8 @@
   color: var(--config-editor-raised-text);
   box-shadow: 0 4px 12px var(--config-editor-popup-shadow);
   font: 12px/1.4 ui-sans-serif, system-ui, sans-serif;
+  /* Its width (not its content's) sizes the query (`cqw`). */
+  container-type: inline-size;
 }
 
 :not(#\#) .config-editor__find[hidden],
@@ -1117,7 +1193,8 @@
 
 :not(#\#) .config-editor__find-field {
   min-width: 0;
-  flex: 1 1 150px;
+  max-width: 100%;
+  flex: 0 1 auto;
   display: flex;
   /* The match options go under the query when the widget is too narrow to
      leave it room to type in. */
@@ -1151,6 +1228,25 @@
   background: transparent;
   color: var(--config-editor-raised-text);
   font: 12px var(--config-editor-mono);
+}
+
+/* The query's width follows the widget's alone (never what wraps beside
+   it, so it never narrows as the window widens): on one row with the
+   count and the buttons, all the room they leave (from 100px); narrower,
+   100px while the row above them holds it, then all the row leaves the
+   match options. 79px: the field's options, border and padding; 225px:
+   those, the count and the buttons with their gaps; and the expand
+   button with its gap (none read-only, where it is hidden). */
+:not(#\#) .config-editor__find-field .config-editor__find-input {
+  --config-editor-find-expand: 28px;
+  flex: none;
+  width: max(
+    min(100px, 100cqw - 79px - var(--config-editor-find-expand)),
+    100cqw - 225px - var(--config-editor-find-expand)
+  );
+}
+:not(#\#) .config-editor__readonly .config-editor__find-field .config-editor__find-input {
+  --config-editor-find-expand: 0px;
 }
 
 :not(#\#) .config-editor__replace-input {
@@ -1199,6 +1295,14 @@
   background: var(--config-editor-control-bg);
   font: 12px/1 ui-sans-serif, system-ui, sans-serif;
 }
+
+/* Unavailable with no match (still focusable, and said so). */
+:not(#\#) .config-editor__find-button[aria-disabled="true"] {
+  color: var(--config-editor-control-disabled-text);
+  cursor: default;
+}
+:not(#\#) .config-editor__find-button[aria-disabled="true"]:hover { background: transparent; }
+:not(#\#) .config-editor__find-text-button[aria-disabled="true"]:hover { background: var(--config-editor-control-bg); }
 
 :not(#\#) .config-editor__find-expand { font-size: 15px; transition: transform 100ms ease; }
 :not(#\#) .config-editor__find-expand-open { transform: rotate(90deg); }
@@ -1532,7 +1636,8 @@
   white-space: nowrap;
 }
 
-.config-editor__status {
+.config-editor__status,
+:not(#\#) .config-editor__frame .config-editor__status {
   min-height: 28px;
   display: flex;
   align-items: center;
@@ -1565,7 +1670,8 @@
    on the left only when it fits whole beside them (else it wraps to a
    second row, cut off), never squeezed onto two lines. */
 @media (min-width: 541px) {
-  .config-editor__status {
+  .config-editor__status,
+  :not(#\#) .config-editor__frame .config-editor__status {
     height: 28px;
     overflow: hidden;
     flex-direction: row-reverse;
@@ -1578,7 +1684,8 @@
 }
 @media (max-width: 540px) {
   :not(#\#) .config-editor__hint { display: none; }
-  .config-editor__status { justify-content: flex-end; }
+  .config-editor__status,
+  :not(#\#) .config-editor__frame .config-editor__status { justify-content: flex-end; }
 }
 
 :not(#\#) .config-editor__diagnostic-status {
@@ -1851,14 +1958,17 @@
 }
 
 @media (max-width: 600px) {
-  .config-editor__toolbar { padding: 0 10px; }
+  .config-editor__toolbar,
+  :not(#\#) .config-editor__frame .config-editor__toolbar { padding: 0 10px; }
   :not(#\#) .config-editor__gutter {
     --config-editor-marker-column: 23px;
     --config-editor-gutter-padding: 10px;
   }
   /* The schema state as its check mark alone (its words still named). */
-  .config-editor__schema-state { font-size: 0; }
-  .config-editor__schema-check { font-size: 12px; }
+  .config-editor__schema-state,
+  :not(#\#) .config-editor__frame .config-editor__schema-state { font-size: 0; }
+  .config-editor__schema-check,
+  :not(#\#) .config-editor__frame .config-editor__schema-check { font-size: 12px; }
   :not(#\#) .config-editor__status-meta { gap: 5px; }
 }
 
@@ -1931,6 +2041,7 @@
    are on, the current problem in the tip, a secret's chip, a fold's
    problem mark) is drawn in system colors instead. */
 @media (forced-colors: active) {
+  :not(#\#) .config-editor__find-button[aria-disabled="true"] { color: GrayText; }
   :not(#\#) .config-editor__line-number-error::before,
   :not(#\#) .config-editor__diff-marker-added,
   :not(#\#) .config-editor__diff-marker-modified,

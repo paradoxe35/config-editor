@@ -106,6 +106,7 @@ impl EditorState {
             self.protect().trust_text();
         }
         let rewritten = self.write_text(edit.text.clone(), edit.folds.take());
+        self.note_view_edit(&edit, &origin);
         let rewritten = switching
             .is_some_and(|language| self.fold_fields(&folded_fields, language))
             || rewritten;

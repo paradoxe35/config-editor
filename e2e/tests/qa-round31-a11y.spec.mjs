@@ -84,7 +84,10 @@ function targets(page) {
     const out = [];
     for (const element of document.querySelectorAll('.config-editor *, .config-editor-documents *')) {
       if (!element.getClientRects().length || !isTarget(element) || exempt(element)) continue;
-      if (element.parentElement.closest('button, a[href], [role="tab"], [role="option"], .config-editor__gutter-content > div')) continue;
+      if (element.parentElement.closest('button, a[href], [role="tab"], [role="option"]')) continue;
+      // A line number's parts are the number's (exempt), but for its
+      // change markers, buttons of their own (QA 32, A32-3).
+      if (element.parentElement.closest('.config-editor__gutter-content > div') && !element.matches('button')) continue;
       if (getComputedStyle(element).visibility === 'hidden') continue;
       const box = element.getBoundingClientRect();
       let [left, top, right, bottom] = [box.left, box.top, box.right, box.bottom];
@@ -142,6 +145,31 @@ test.describe('every pointer target of an editor (A31-3)', () => {
     await page.keyboard.press('Control+Shift+BracketLeft');
     await expect(page.locator('.config-editor__fold-chip').first()).toBeVisible();
     await expectSized(page, 'a fold');
+  });
+
+  // QA 32, A32-3: change markers on adjacent lines (added, modified and
+  // removed) and fold chips on adjacent lines (every range folded).
+  test('change markers and fold chips on adjacent lines', async ({ page }) => {
+    await input(page).click();
+    await page.keyboard.press('Control+Home');
+    // Lines written above the first (modified and added markers, one per
+    // line), and a line removed further down.
+    await page.keyboard.insertText('x: 1\ny: 2\n');
+    await page.keyboard.press('Control+g');
+    await page.keyboard.type('10\n');
+    await page.keyboard.press('Control+Shift+k');
+    await expect(page.locator('.config-editor__diff-marker').nth(1)).toBeAttached();
+    await expect(page.locator('.config-editor__diff-deleted').first()).toBeAttached();
+    await page.locator('.config-editor__gutter').hover();
+    const markers = (await targets(page)).filter(([name]) => name.includes('diff-'));
+    expect(markers.length, 'change markers measured').toBeGreaterThanOrEqual(3);
+    await expectSized(page, 'adjacent change markers');
+    await page.keyboard.press('Control+k');
+    await page.keyboard.press('Control+0');
+    await expect(page.locator('.config-editor__fold-chip').nth(1)).toBeVisible();
+    const chips = (await targets(page)).filter(([name]) => name.includes('fold-chip'));
+    expect(chips.length, 'fold chips measured').toBeGreaterThan(1);
+    await expectSized(page, 'adjacent fold chips');
   });
 });
 

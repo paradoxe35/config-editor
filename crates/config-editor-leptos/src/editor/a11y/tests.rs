@@ -37,6 +37,7 @@ fn run(keys: &[(&str, Modifiers)], tab_moves_focus: bool, list: bool, popup: boo
         .map(|(key, modifiers)| {
             let context = Context {
                 tab_moves_focus,
+                toggles: true,
                 escaped,
                 list_open: list,
                 popup_open: popup || list,
@@ -189,6 +190,24 @@ fn tab_leaves_only_in_the_tab_mode_or_right_after_an_idle_escape() {
         }
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+/// QA 32, A32-1: where `Ctrl+M` does not work (a read-only editor), the
+/// key is not taken: no switch, no announcement.
+#[test]
+fn ctrl_m_switches_nothing_where_it_does_not_work() {
+    let context = Context {
+        toggles: false,
+        ..Context::default()
+    };
+    for key in ["m", "M"] {
+        assert_eq!(decide(key, ctrl(), context).0, Action::Pass, "{key}");
+    }
+    let context = Context {
+        toggles: true,
+        ..Context::default()
+    };
+    assert_eq!(decide("m", ctrl(), context).0, Action::Toggle);
 }
 
 #[test]

@@ -9,11 +9,11 @@ versions move together.
 
 ### Schema formats
 
-- Schemas in other formats than JSON Schema written as JSON, compiled into
-  JSON Schema by a `SchemaCompiler` wrapped in a `SchemaFormat` (Rust) or a
-  compiler registered with `registerSchemaFormat` (JavaScript); the format
-  is always named, never guessed. Built in: JSON Schema written in YAML
-  (`json-schema-yaml`).
+- Schemas in other formats than JSON Schema, compiled into JSON Schema by a
+  `SchemaCompiler` wrapped in a `SchemaFormat` (Rust) or a compiler
+  registered with `registerSchemaFormat` (JavaScript); the format is always
+  named, never guessed. Built in: OpenAPI and XSD; `json-schema` takes JSON
+  or YAML text.
 - The files a schema refers to come from the host (`SchemaResources`,
   `schemaResources`; `schemaImports` lists them): nothing is fetched.
 - A format may check what JSON Schema cannot hold beside it: a
@@ -70,6 +70,7 @@ WebAssembly.
   suggestions and hover included, from `separators` alone for flat formats
   such as `.env`, or through callbacks for nested ones).
 - One JSON Schema drives every language: they all parse into the same data.
+  The schema is given as JSON or YAML text.
 - The shared code knows no language's characters: brackets, separators,
   quotes, item markers, document markers and markup come from the language
   (`LanguageConfig`'s `map_brackets`, `list_brackets`, `item_separator`,

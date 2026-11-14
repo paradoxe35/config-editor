@@ -141,7 +141,10 @@ pub(super) fn property_completions(
     behavior: &dyn ConfigLanguage,
     choices: &ChoicesAt<'_>,
     instance: Option<&Value>,
+    read_repeated: &dyn Fn() -> HashSet<String>,
 ) -> Vec<Completion> {
+    let repeated = std::cell::OnceCell::new();
+    let repeated_keys = || repeated.get_or_init(read_repeated);
     let mut candidates = Vec::new();
     let branches: Vec<&Value> = schemas
         .iter()
@@ -180,7 +183,9 @@ pub(super) fn property_completions(
                 property
             };
             // A list key written by repetition can appear again: any list in
-            // XML, a list of objects as HCL blocks (never inside `{ … }`).
+            // XML; a list of objects as HCL blocks (never inside `{ … }`),
+            // once it is written so (not as one whole list).
+            let present = existing.is_some_and(|existing| existing.contains(key));
             let repeatable = match repetition {
                 Repetition::Elements => array_branch(property, root).is_some(),
                 Repetition::Blocks => {
@@ -188,10 +193,16 @@ pub(super) fn property_completions(
                         && array_branch(property, root)
                             .and_then(|array| array.get("items"))
                             .is_some_and(|items| object_branch(items, root).is_some())
+                        && (!present || repeated_keys().contains(key))
                 }
                 _ => false,
             };
-            if !repeatable && existing.is_some_and(|existing| existing.contains(key)) {
+            if !repeatable && present {
+                continue;
+            }
+            // A key a `not` keeps apart from keys written (`git` beside
+            // `path`): writing it would break the `not`.
+            if existing.is_some_and(|existing| excluded_by_not(key, &branches, existing, root)) {
                 continue;
             }
             let Some(score) = match_score(key, typed) else {
@@ -204,8 +215,12 @@ pub(super) fn property_completions(
                 } else {
                     0
                 };
+            let another = InsertContext {
+                another_item: present && repeatable,
+                ..*insert_context
+            };
             let Some((insert, cursor_offset)) =
-                behavior.property_insert(key, property, root, insert_context)
+                behavior.property_insert(key, property, root, &another)
             else {
                 continue;
             };
@@ -508,7 +523,8 @@ pub(crate) fn completions_in(
                 .entry_after
                 .as_deref()
                 .is_some_and(|word| !word.is_empty());
-        if !in_front && !renamed_elsewhere {
+        // A new list item (`[| { a = 1 }]`) renames nothing: no key is there.
+        if !in_front && !renamed_elsewhere && context.entry_wrap.is_none() {
             rename_key_with_value(option, source, cursor, behavior, &mut offsets);
         }
         // The key already written, the caret at its end and the key going on
@@ -793,6 +809,9 @@ pub(super) fn completions_for_context(
 
     // An empty document under a schema whose root is a list: its first
     // entry opens the list's first item.
+    if let Some(options) = root_values(context, &schemas, bundle, behavior) {
+        return options;
+    }
     if let Some((open, close, indent)) = context.root_item
         && context.value_key.is_none()
         && !schemas
@@ -871,7 +890,7 @@ pub(super) fn completions_for_context(
                     || type_includes(branch, "object")
             });
         if !has_object_properties {
-            return value_completions(
+            let mut options = value_completions(
                 &schemas,
                 &context.typed,
                 context.replace_start,
@@ -881,6 +900,8 @@ pub(super) fn completions_for_context(
                 force || unquoted(behavior, &context.typed).is_empty(),
                 behavior,
             );
+            separate_from_next_item(&mut options, source, cursor_byte, context, behavior);
+            return options;
         }
     }
 
@@ -929,10 +950,12 @@ pub(super) fn completions_for_context(
             position: context.position,
             path: &context.path,
             array_item: context.is_array_item,
+            another_item: false,
         },
         behavior,
         &choices,
         document.and_then(|document| value_at(document, &context.path)),
+        &|| behavior.repeated_keys(source, cursor_byte, &context.path),
     );
     // A key typed directly in an array starts a new object item, which needs
     // its delimiters: `[|]` becomes `[{ hosts = [] }]`, not `[hosts = []]`.
@@ -941,6 +964,7 @@ pub(super) fn completions_for_context(
             option.insert = format!("{open}{}{close}", option.insert);
             option.cursor_offset += open.encode_utf16().count();
         }
+        separate_from_next_item(&mut options, source, cursor_byte, context, behavior);
     }
     options
 }

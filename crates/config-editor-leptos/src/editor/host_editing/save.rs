@@ -3,6 +3,7 @@
 
 use leptos::prelude::*;
 
+use super::super::byte_order_mark;
 use super::super::codec;
 use super::super::languages::Language;
 use super::super::state::EditorState;
@@ -127,8 +128,11 @@ impl Language {
     /// host's: it reads, or all that stands in its way are numbers the
     /// editor cannot hold exactly that the language allows. The one gate
     /// for a shown editor's text and a `ConfigDocuments` document never
-    /// shown.
+    /// shown. A leading byte order mark is read past, as at every entry
+    /// point (see `byte_order_mark`): no language sees it.
     pub(crate) fn saves(self, text: &str) -> bool {
-        codec::saves_in_own_language(self.behavior(), text)
+        byte_order_mark::read(text, |text, _| {
+            codec::saves_in_own_language(self.behavior(), text)
+        })
     }
 }

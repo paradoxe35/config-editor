@@ -37,6 +37,7 @@ mod echoes;
 mod editor;
 mod editor_view;
 mod given;
+mod given_ranges;
 mod handle_calls;
 mod headless;
 mod host_diagnostics;

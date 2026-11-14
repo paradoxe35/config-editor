@@ -127,3 +127,39 @@ fn enter_before_a_closer_after_a_comma_opens_the_brackets() {
         (Language::JSON, "[1, 2‸]\n", "[1, 2\n‸]\n"),
     ]);
 }
+
+/// After a start tag written over lines (its attributes on lines of their
+/// own): the new line indents from the line the tag starts on, not from
+/// its last attribute line (QA `E32-6`), with tabs or spaces, its `>` at
+/// the end of an attribute line or on a line of its own, and between the
+/// tag and its end tag.
+#[test]
+fn enter_after_a_tag_over_lines_indents_from_its_first_line() {
+    check(&[
+        (
+            Language::XML,
+            "<beans>\n\t<bean id=\"a\"\n\t\tclass=\"b\">‸\n\t\t<p/>\n\t</bean>\n</beans>\n",
+            "<beans>\n\t<bean id=\"a\"\n\t\tclass=\"b\">\n\t\t‸\n\t\t<p/>\n\t</bean>\n</beans>\n",
+        ),
+        (
+            Language::XML,
+            "<project>\n    <plugin\n        groupId=\"g\"\n        artifactId=\"a\">‸\n    </plugin>\n</project>\n",
+            "<project>\n    <plugin\n        groupId=\"g\"\n        artifactId=\"a\">\n        ‸\n    </plugin>\n</project>\n",
+        ),
+        (
+            Language::XML,
+            "<r>\n  <a\n    x=\"1\"\n  >‸\n    <b/>\n  </a>\n</r>\n",
+            "<r>\n  <a\n    x=\"1\"\n  >\n    ‸\n    <b/>\n  </a>\n</r>\n",
+        ),
+        (
+            Language::XML,
+            "<r>\n  <a x=\"1\"\n     y=\"2\">‸</a>\n</r>\n",
+            "<r>\n  <a x=\"1\"\n     y=\"2\">\n    ‸\n  </a>\n</r>\n",
+        ),
+        (
+            Language::XML,
+            "<r>\n  <a x=\"1\"\n     y=\"2\"/>‸\n</r>\n",
+            "<r>\n  <a x=\"1\"\n     y=\"2\"/>\n  ‸\n</r>\n",
+        ),
+    ]);
+}

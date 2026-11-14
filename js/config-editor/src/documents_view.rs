@@ -448,10 +448,7 @@ impl ConfigDocuments {
         let owner = Owner::new();
         let mut kept = Kept::default();
         let listed = match field(&options, "documents") {
-            list if list.is_undefined() || list.is_null() => Listed {
-                documents: Vec::new(),
-                overrides: Vec::new(),
-            },
+            list if list.is_undefined() || list.is_null() => Listed::default(),
             list => owner.with(|| documents_from(&list, &settings, &mut kept))?,
         };
         let on_select = function_option(&options, "onSelect")?;
@@ -790,10 +787,7 @@ impl ConfigDocuments {
         // own settings laid over the new ones (checked before anything
         // changes).
         let listed = match given(&options, "documents") {
-            Some(list) if list.is_null() => Some(Listed {
-                documents: Vec::new(),
-                overrides: Vec::new(),
-            }),
+            Some(list) if list.is_null() => Some(Listed::default()),
             Some(list) => Some(self.owner.with(|| self.state.read(&list, &view))?),
             None => None,
         };

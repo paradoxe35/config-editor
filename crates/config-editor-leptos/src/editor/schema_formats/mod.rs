@@ -23,9 +23,6 @@ pub(super) mod json;
 pub(super) mod openapi;
 #[cfg(test)]
 mod openapi_tests;
-// Only JSON Schema written in YAML uses it so far.
-#[cfg(feature = "yaml")]
-pub(super) mod written_in;
 #[cfg(feature = "xsd")]
 mod xsd;
 
@@ -480,13 +477,9 @@ impl std::str::FromStr for LossEffect {
 pub struct SchemaFormat(&'static dyn SchemaCompiler);
 
 impl SchemaFormat {
-    /// JSON Schema written as JSON: the schema as it is.
+    /// JSON Schema, written as JSON or as YAML (feature `yaml`; Kubernetes
+    /// CRDs and many repositories keep theirs so): the schema as it is.
     pub const JSON_SCHEMA: SchemaFormat = SchemaFormat(&json::JsonSchema);
-
-    /// JSON Schema written as YAML (feature `yaml`), as Kubernetes CRDs and
-    /// many repositories keep theirs.
-    #[cfg(feature = "yaml")]
-    pub const JSON_SCHEMA_YAML: SchemaFormat = SchemaFormat(&super::languages::JSON_SCHEMA_IN_YAML);
 
     /// XML Schema (XSD 1.0; feature `xsd`), in the XML language's mapping:
     /// see the README's "Schema formats". Options: `root` (the one global
@@ -504,8 +497,6 @@ impl SchemaFormat {
     /// The built-in formats this build enables, in a stable order.
     pub const ALL: &'static [SchemaFormat] = &[
         SchemaFormat::JSON_SCHEMA,
-        #[cfg(feature = "yaml")]
-        SchemaFormat::JSON_SCHEMA_YAML,
         SchemaFormat::OPENAPI,
         #[cfg(feature = "xsd")]
         SchemaFormat::XSD,

@@ -132,7 +132,7 @@ a file instead (see
 | `on_sync_change`       | `Fn(bool)`                                   | —                     | Called with whether the text on screen is written back to the host's document: once on mount, then each time that changes. `false` while an `edit_as` edit cannot convert back (invalid text, a value `language` cannot hold or would read back differently, a read-only value changed: `EditorHandle::value` is `None` and `on_change` waits), whatever brought it there (typing, paste, cut, drop, undo, a switch, a reload, a new `value`); read after each typing pause. Always `true` in `language`. |
 | `on_schema_warning`    | `Fn(String)`                                 | console warning       | Called once per thing in `schema` the editor cannot use, such as a `patternProperties` regex its engine cannot compile.                                                                                                                                                                                                                                                                                                                                                                                   |
 | `baseline`             | `Signal<String>`                             | the document at mount | Text the diff gutter and the dirty flag compare against; set it to the saved text after saving. See [Saving](#saving-and-unsaved-edits).                                                                                                                                                                                                                                                                                                                                                                  |
-| `schema`               | `&str`, `String`, `Schema` or `SchemaSource` | —                     | JSON Schema (draft 2020-12 and earlier) for diagnostics, completion and hover. Pass a compiled `Schema` to share one across editors, or a `SchemaSource::Formatted` for a schema in another format (see [Schema formats](#schema-formats)).                                                                                                                                                                                                                                                               |
+| `schema`               | `&str`, `String`, `Schema` or `SchemaSource` | —                     | JSON Schema (draft 2020-12 and earlier) as JSON or YAML text (YAML with the `yaml` feature), for diagnostics, completion and hover. Pass a compiled `Schema` to share one across editors, or a `SchemaSource::Formatted` for a schema in another format (see [Schema formats](#schema-formats)).                                                                                                                                                                                                          |
 | `read_only`            | `bool` or a signal                           | `false`               | View mode: navigation, selection, highlighting, diagnostics, diffs and hover keep working. Switches live, completions included.                                                                                                                                                                                                                                                                                                                                                                           |
 | `read_only_reason`     | `String`, `Option<String>` or a signal       | —                     | Why the editor is read-only (a file the host manages, a missing permission), while `read_only` is on: the "Cannot edit in a read-only editor" notice says it when the user tries to edit (`Cannot edit in a read-only editor: {reason}`), and so does the text area's accessible description.                                                                                                                                                                                                             |
 | `file_name`            | `String`                                     | `untitled.<ext>`      | Name shown in the toolbar.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
@@ -365,7 +365,7 @@ they come.
 <!-- Generated from crates/config-editor-leptos/src/strings.rs by js/config-editor/tests/settings.rs; do not edit. Regenerate with `UPDATE_GENERATED=1 cargo test -p config-editor-js --test settings`. -->
 
 <details>
-<summary>Every text and its default (198 texts)</summary>
+<summary>Every text and its default (201 texts)</summary>
 
 | Field                           | Default                                                                                                                                     |                                                                                                                                                                                                                                                |
 | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -477,6 +477,8 @@ they come.
 | `unfolded_lines`                | `"Unfolded lines {first}–{last}"`                                                                                                           | Announced when the fold of lines `{first}` to `{last}` opens.                                                                                                                                                                                  |
 | `folded_ranges`                 | `"Folded {count} ranges"`                                                                                                                   | Announced when `{count}` ranges (two or more) fold at once.                                                                                                                                                                                    |
 | `unfolded_ranges`               | `"Unfolded {count} ranges"`                                                                                                                 | Announced when `{count}` folds (two or more) open at once.                                                                                                                                                                                     |
+| `nothing_to_fold`               | `"Nothing to fold"`                                                                                                                         | Announced when a fold key (`Ctrl+Shift+[`, `Ctrl+K Ctrl+0`) finds nothing to fold.                                                                                                                                                             |
+| `nothing_to_unfold`             | `"Nothing to unfold"`                                                                                                                       | Announced when an unfold key (`Ctrl+Shift+]`, `Ctrl+K Ctrl+J`) finds nothing to open.                                                                                                                                                          |
 | `required`                      | `"required"`                                                                                                                                | The hover card's mark of a required key.                                                                                                                                                                                                       |
 | `deprecated`                    | `"deprecated"`                                                                                                                              | The hover card's mark of a deprecated key.                                                                                                                                                                                                     |
 | `default_value`                 | `"Default"`                                                                                                                                 | The hover card's default row.                                                                                                                                                                                                                  |
@@ -541,6 +543,7 @@ they come.
 | `too_few_contained`             | `"{value} has fewer than {limit} items its \"contains\" schema allows"`                                                                     | A list (`{value}`) with fewer items its `contains` schema allows than its `minContains` (`{limit}`).                                                                                                                                           |
 | `too_many_contained`            | `"{value} has more than {limit} items its \"contains\" schema allows"`                                                                      | A list (`{value}`) with more items its `contains` schema allows than its `maxContains` (`{limit}`).                                                                                                                                            |
 | `must_not_match`                | `"{value} must not match {schema}"`                                                                                                         | A value its `not` schema (`{schema}`, as JSON) matches.                                                                                                                                                                                        |
+| `keys_used_together`            | `"{key} can't be used together with {others}"`                                                                                              | An object holding all of the keys its `not` schema keeps apart (`not: {required: [...]}`): the first (`{key}`) and the others (`{others}`), each quoted, joined by `, `.                                                                       |
 | `no_option_matches`             | `"matches none of the {keyword} options: {reasons}"`                                                                                        | A value that matches none of a schema's options (`{keyword}`: `oneOf` or `anyOf`), with why each fails (`{reasons}`, each worded by `option_needs`, `option_refuses` or `option_problem`, joined by `; `).                                     |
 | `several_options_match`         | `"matches more than one of the oneOf options ({options}); only one may match"`                                                              | A value that matches more than one of a `oneOf`'s options (`{options}`, their names joined by `, `).                                                                                                                                           |
 | `option_needs`                  | `"{option} needs \"{key}\""`                                                                                                                | An option (`{option}`) that needs a key the value does not have.                                                                                                                                                                               |
@@ -755,7 +758,7 @@ drop-ins, as VS Code-style tabs over one editor per document. Each
 `Document` has its own language (from its file name unless given), text,
 baseline, read-only state, `edit_as` language, schema and, optionally,
 settings, host problems and protected fields; documents with
-the same schema JSON share one compiled `Schema` (pass a compiled `Schema`
+the same schema text share one compiled `Schema` (pass a compiled `Schema`
 to share it with editors elsewhere).
 
 ```rust
@@ -1352,19 +1355,25 @@ in a [`SchemaFormat`] as a language is wrapped in a `Language`. The format is
 always given, never guessed from the text; `SchemaFormat::from_path` names
 the built-in format of a schema file by its extension.
 
-| Format                                | Name                 | Extensions                                     |
-| ------------------------------------- | -------------------- | ---------------------------------------------- |
-| `SchemaFormat::JSON_SCHEMA`           | `"json-schema"`      | `json`, `schema.json`                          |
-| `SchemaFormat::JSON_SCHEMA_YAML`      | `"json-schema-yaml"` | `yaml`, `yml`, `schema.yaml`                   |
-| `SchemaFormat::OPENAPI`               | `"openapi"`          | `openapi.json`, `openapi.yaml`, `swagger.json` |
-| `SchemaFormat::XSD` (feature `xsd`)   | `"xsd"`              | `xsd`                                          |
-| Your own: `SchemaFormat::new(&YOURS)` | its `info().name`    | its `info().extensions`                        |
+| Format                                          | Name              | Extensions                                                        |
+| ----------------------------------------------- | ----------------- | ----------------------------------------------------------------- |
+| `SchemaFormat::JSON_SCHEMA` (JSON or YAML text) | `"json-schema"`   | `json`, `schema.json`, `yaml`, `yml`, `schema.yaml`, `schema.yml` |
+| `SchemaFormat::OPENAPI`                         | `"openapi"`       | `openapi.json`, `openapi.yaml`, `swagger.json`                    |
+| `SchemaFormat::XSD` (feature `xsd`)             | `"xsd"`           | `xsd`                                                             |
+| Your own: `SchemaFormat::new(&YOURS)`           | its `info().name` | its `info().extensions`                                           |
 
 ```rust
 use config_editor_leptos::{SchemaFormat, SchemaResources, SchemaSource};
 
-// JSON Schema written in YAML (Kubernetes CRDs, many repositories):
-let schema = SchemaSource::formatted(SchemaFormat::JSON_SCHEMA_YAML, CRD_SCHEMA_YAML);
+// An OpenAPI document's named schema:
+let mut options = serde_json::Map::new();
+options.insert("schema".into(), "Server".into());
+let schema = SchemaSource::Formatted {
+    format: SchemaFormat::OPENAPI,
+    text: OPENAPI_YAML.to_string(),
+    resources: SchemaResources::new(),
+    options,
+};
 view! { <ConfigEditor language=Language::YAML schema=schema value=text /> }
 
 // With the files it refers to, and the format's options:
@@ -1781,7 +1790,7 @@ let language = Language::from_path("infra/main.tf");   // Some(Language::HCL)
 | ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `Language`                                 | A language handle: `YAML`, `JSON`, `TOML`, `HCL`, `XML`, `ALL`, `new(&'static dyn ConfigLanguage)`. Methods: `parse`, `serialize`, `convert`, `label`, `extensions`, `file_icon`, `default_file_name`, `from_path`; `FromStr` accepts names and extensions.                                       |
 | `Schema`                                   | A compiled JSON Schema: `compile`, `validate(language, text)`, `convert(from, text, to)`, `warnings()`. Cheap to clone and share.                                                                                                                                                                 |
-| `SchemaSource`                             | What the `schema` prop takes: JSON text or a `Schema`.                                                                                                                                                                                                                                            |
+| `SchemaSource`                             | What the `schema` prop takes: JSON or YAML text, or a `Schema`.                                                                                                                                                                                                                                   |
 | `FieldPath`, `TextPosition`, `TextRange`   | Paths (JSON pointers or segments) and one-based places in the text; `Language::range_of(text, path)` and `Language::path_at(text, position)` map between them.                                                                                                                                    |
 | `language::FoldRange`                      | A range that folds (0-based `start` stays visible, lines through `end` hide); `Language::fold_ranges(text)` lists them.                                                                                                                                                                           |
 | `check_syntax(language, text)`             | Syntax problems only.                                                                                                                                                                                                                                                                             |
@@ -2077,11 +2086,13 @@ being styled as an editor: give it the class `config-editor-theme` with
 and the rest inside it (the demo's page does). The `config-editor` class is
 the editor's own: on a wrapper it would also style the wrapper as one.
 
-The page's own rules for bare elements and attributes (a CSS framework's
-`input`, `button`, `[type='text']` or `span` rules, loaded before the
-editor or after) never reach the controls and text the editor draws: those
-start from the browser's own styles, and the preset's rules for them carry
-an id's weight. Restyle the editor through these tokens and its roots
+The page's own rules for bare elements, attributes or every element (a
+CSS framework's `input`, `div`, `[type='text']` or `*` rules, loaded before
+the editor or after) never reach what the editor draws: each element
+inside starts from the browser's own styles, and the preset's rules for
+them carry an id's weight. Nor do the text properties the page sets on
+`body` or on the editor's element (`text-align: center`, an underline,
+letter spacing, a tab size): the roots set each to its initial value. Restyle the editor through these tokens and its roots
 (`.config-editor`, `.config-editor-documents`).
 
 </details>

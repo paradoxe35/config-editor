@@ -113,13 +113,14 @@ impl SchemaFailure {
     }
 }
 
-/// The compiled schema, or why `schema_text` is no JSON Schema (worded by
-/// the `invalidSchema` text where it is shown).
+/// The compiled schema, or why `schema_text` (JSON, or YAML with the
+/// `yaml` feature) is no JSON Schema (worded by the `invalidSchema` text
+/// where it is shown).
 pub(super) fn build_schema(schema_text: &str) -> Result<SchemaBundle, String> {
     // A byte order mark (a file saved by an editor that writes one) is no
-    // part of the JSON.
+    // part of the schema.
     let schema_text = schema_text.strip_prefix('\u{feff}').unwrap_or(schema_text);
-    let schema = super::schema_formats::json::parse(schema_text).map_err(|error| error.0)?;
+    let schema = super::languages::read_schema_text(schema_text)?;
     build_compiled(schema, Vec::new(), Vec::new())
 }
 
@@ -343,17 +344,18 @@ impl std::fmt::Debug for Schema {
 }
 
 /// The `schema` of a [`ConfigEditor`](crate::ConfigEditor): a JSON Schema
-/// document, a schema in another [`SchemaFormat`], or a [`Schema`] compiled
-/// once and shared between editors.
+/// document (JSON or YAML text), a schema in another [`SchemaFormat`], or
+/// a [`Schema`] compiled once and shared between editors.
 ///
 /// Converts from `&str`, `String`, and `Schema`, so `schema=SCHEMA_JSON` and
 /// `schema=compiled.clone()` both work.
 #[derive(Clone, Debug)]
 #[non_exhaustive]
 pub enum SchemaSource {
-    /// A JSON Schema document, compiled when the editor mounts; a compile
-    /// error is shown inline.
-    Json(String),
+    /// A JSON Schema document as JSON text, or as YAML text (feature
+    /// `yaml`), compiled when the editor mounts; a compile error is shown
+    /// inline.
+    Text(String),
     /// A schema in `format` (with the files it refers to and the format's
     /// options), compiled when the editor mounts; a compile error is shown
     /// inline, and what the format loses is a schema warning.
@@ -384,14 +386,14 @@ impl SchemaSource {
 }
 
 impl From<&str> for SchemaSource {
-    fn from(json: &str) -> Self {
-        SchemaSource::Json(json.to_string())
+    fn from(text: &str) -> Self {
+        SchemaSource::Text(text.to_string())
     }
 }
 
 impl From<String> for SchemaSource {
-    fn from(json: String) -> Self {
-        SchemaSource::Json(json)
+    fn from(text: String) -> Self {
+        SchemaSource::Text(text)
     }
 }
 
@@ -438,7 +440,7 @@ impl SchemaSource {
     /// What it compiles from; `None` for a compiled schema.
     pub(crate) fn key(&self) -> Option<SchemaKey> {
         match self {
-            SchemaSource::Json(text) => Some(SchemaKey {
+            SchemaSource::Text(text) => Some(SchemaKey {
                 format: SchemaFormat::JSON_SCHEMA,
                 text: text.clone(),
                 resources: SchemaResources::new(),
@@ -461,7 +463,7 @@ impl SchemaSource {
 
     pub(super) fn resolve(self) -> Result<std::sync::Arc<SchemaBundle>, SchemaFailure> {
         match self {
-            SchemaSource::Json(json) => build_schema(&json)
+            SchemaSource::Text(json) => build_schema(&json)
                 .map(std::sync::Arc::new)
                 .map_err(SchemaFailure::JsonSchema),
             SchemaSource::Formatted {
@@ -482,14 +484,24 @@ impl SchemaSource {
 }
 
 impl Schema {
-    /// Compiles a JSON Schema document.
+    /// Compiles a JSON Schema document written as JSON, or as YAML
+    /// (feature `yaml`). A text that is JSON is read as JSON; one that is
+    /// not and does not start with `{` or `[` is read as YAML.
+    ///
+    /// ```
+    /// # #[cfg(feature = "yaml")] {
+    /// use config_editor_leptos::Schema;
+    /// let from_yaml = Schema::compile("properties:\n  listen: {type: integer}\n").unwrap();
+    /// assert!(from_yaml.warnings().is_empty());
+    /// # }
+    /// ```
     ///
     /// # Errors
     ///
-    /// Returns [`SchemaError`] when `schema_json` is not JSON or not a valid
-    /// schema.
-    pub fn compile(schema_json: &str) -> Result<Self, SchemaError> {
-        build_schema(schema_json)
+    /// Returns [`SchemaError`] when `schema_text` is neither JSON nor YAML,
+    /// or not a valid schema.
+    pub fn compile(schema_text: &str) -> Result<Self, SchemaError> {
+        build_schema(schema_text)
             .map(|bundle| Schema {
                 bundle: std::sync::Arc::new(bundle),
             })
@@ -508,7 +520,7 @@ impl Schema {
     /// use config_editor_leptos::{Schema, SchemaFormat, SchemaInput};
     /// let yaml = "properties:\n  listen: {type: integer}\n";
     /// let input = SchemaInput::new(yaml);
-    /// let schema = Schema::compile_as(SchemaFormat::JSON_SCHEMA_YAML, &input).unwrap();
+    /// let schema = Schema::compile_as(SchemaFormat::JSON_SCHEMA, &input).unwrap();
     /// assert_eq!(schema.json()["properties"]["listen"]["type"], "integer");
     /// # }
     /// ```
@@ -1025,7 +1037,7 @@ pub(super) fn validate_with(
                                                 || item
                                                     .as_array()
                                                     .is_some_and(|items| !items.is_empty());
-                                        let span = super::paths::problem_span(
+                                        let span = super::paths::schema_problem_span(
                                             behavior, source, &pointer, false, block,
                                         );
                                         let value = if secret(&pointer) {
@@ -1056,7 +1068,7 @@ pub(super) fn validate_with(
                                     .take(MAX_DIAGNOSTICS + 1)
                                     .map(|key| {
                                         let pointer = format!("{parent}/{}", escape_pointer(key));
-                                        let span = super::paths::problem_key_span(
+                                        let span = super::paths::schema_problem_key_span(
                                             behavior, source, &pointer,
                                         );
                                         let message = if behavior.text_key() == Some(key.as_str()) {
@@ -1083,17 +1095,19 @@ pub(super) fn validate_with(
                                     _ => false,
                                 };
                                 // A missing property is reported on the object's key.
-                                let location = super::paths::problem_span(
+                                let location = super::paths::schema_problem_span(
                                     behavior,
                                     source,
                                     &path,
                                     match error.kind() {
                                         ValidationErrorKind::Required { .. } => true,
-                                        // Which keys the object has decides it.
+                                        // Which keys the object has decides it,
+                                        // unless no option takes an object.
                                         ValidationErrorKind::AnyOf { .. }
                                         | ValidationErrorKind::OneOfNotValid { .. }
                                         | ValidationErrorKind::OneOfMultipleValid { .. } => {
                                             error.instance().is_object()
+                                                && !wording::every_option_wants_another_type(error)
                                         }
                                         _ => false,
                                     },
@@ -1245,7 +1259,7 @@ fn deprecation_warnings(
         .into_iter()
         .filter_map(|found| {
             // The key alone, struck through as VS Code does.
-            let span = super::paths::problem_key_span(behavior, source, &found.pointer)?;
+            let span = super::paths::schema_problem_key_span(behavior, source, &found.pointer)?;
             let message = match &found.message {
                 Some(instead) => fill(
                     &strings.key_deprecated_instead,

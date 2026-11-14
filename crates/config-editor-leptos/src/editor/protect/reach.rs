@@ -75,6 +75,34 @@ pub(super) fn reaches_none(
     before: &str,
     after: &str,
 ) -> Option<Shift> {
+    let on_lines = |lines: &Range<usize>| {
+        let touches = |range: &Range<usize>| range.start <= lines.end && range.end >= lines.start;
+        locks.iter().any(|lock| {
+            let hull = lock
+                .ranges
+                .iter()
+                .map(|range| range.start)
+                .min()
+                .zip(lock.ranges.iter().map(|range| range.end).max());
+            hull.is_some_and(|(low, high)| touches(&(low..high)))
+                || lock.key.as_ref().is_some_and(touches)
+                || lock.guards.iter().any(touches)
+        })
+    };
+    let reads = |path: &str| reads_a_lock(behavior, locks, path);
+    reaches_none_by(behavior, before, after, on_lines, reads)
+}
+
+/// [`reaches_none`] for what is held asked of `on_lines` (whether a held
+/// place is on the UTF-16 lines `first..last`, ends included) and `reads`
+/// (whether a path is, holds or is inside a held field).
+pub(super) fn reaches_none_by(
+    behavior: &dyn ConfigLanguage,
+    before: &str,
+    after: &str,
+    on_lines: impl Fn(&Range<usize>) -> bool,
+    reads: impl Fn(&str) -> bool,
+) -> Option<Shift> {
     let (start, old_end, new_end) = changed_bytes(before, after);
     let inserted = &after[start..new_end];
     if !behavior.edits_one_scalar(before, start..old_end, inserted) {
@@ -86,26 +114,14 @@ pub(super) fn reaches_none(
         .map_or(before.len(), |at| old_end + at);
     let first = utf16_len(&before[..line_start]);
     let last = first + utf16_len(&before[line_start..line_end]);
-    let touches = |range: &Range<usize>| range.start <= last && range.end >= first;
-    let reached = locks.iter().any(|lock| {
-        let hull = lock
-            .ranges
-            .iter()
-            .map(|range| range.start)
-            .min()
-            .zip(lock.ranges.iter().map(|range| range.end).max());
-        hull.is_some_and(|(low, high)| touches(&(low..high)))
-            || lock.key.as_ref().is_some_and(touches)
-            || lock.guards.iter().any(touches)
-    });
-    if reached {
+    if on_lines(&(first..last)) {
         return None;
     }
     let line = &before[line_start..line_end];
     let code = first + utf16_len(&line[..line.len() - line.trim_start().len()]);
     let read = || path_at(behavior, before, code).map(|path| path.to_pointer());
     let path = line_path(behavior, before, first, read)?;
-    if reads_a_lock(behavior, locks, &path) {
+    if reads(&path) {
         return None;
     }
     // The line after the edit writes the same path: the next key typed on

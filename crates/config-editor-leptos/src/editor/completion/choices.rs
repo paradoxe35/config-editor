@@ -68,12 +68,17 @@ pub(crate) fn object_choices<'a>(schema: &'a Value, root: &'a Value) -> Vec<Obje
                     let Some(options) = schema.get(keyword).and_then(Value::as_array) else {
                         continue;
                     };
-                    let objects: Vec<ObjectChoice<'a>> = options
+                    let objects: Vec<(&'a Value, ObjectChoice<'a>)> = options
                         .iter()
-                        .filter_map(|option| choice(option, root))
+                        .filter_map(|option| Some((option, choice(option, root)?)))
                         .collect();
-                    if objects.len() >= 2 {
-                        choices.extend(objects);
+                    match &objects[..] {
+                        // The one object option (beside a string, say) is
+                        // what an object is: its own choices are the
+                        // object's (`anyOf: [string, {allOf: [{anyOf}]}]`).
+                        [(option, _)] => steps.push(Step::Visit(option)),
+                        [] => {}
+                        _ => choices.extend(objects.into_iter().map(|(_, choice)| choice)),
                     }
                 }
                 continue;

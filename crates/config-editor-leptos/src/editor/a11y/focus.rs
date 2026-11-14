@@ -20,6 +20,9 @@ use super::super::state::EditorState;
 pub(super) struct Context {
     /// `Ctrl+M` mode is on.
     pub(super) tab_moves_focus: bool,
+    /// `Ctrl+M` works here (the keys table's `When` for it holds): not in
+    /// a read-only editor, whose Tab always leaves.
+    pub(super) toggles: bool,
     /// The previous key was an Escape with nothing to close.
     pub(super) escaped: bool,
     /// The suggestion list shows options.
@@ -57,7 +60,7 @@ pub(super) fn decide(key: &str, modifiers: Modifiers, context: Context) -> (Acti
         shift,
     } = modifiers;
     match key {
-        "m" | "M" if ctrl && !alt && !meta && !shift => (Action::Toggle, false),
+        "m" | "M" if ctrl && !alt && !meta && !shift && context.toggles => (Action::Toggle, false),
         // Shift for Shift+Tab, and the other modifiers alone, keep it.
         "Shift" | "Control" | "Alt" | "Meta" => (Action::Pass, context.escaped),
         "Escape" => (Action::Pass, !context.popup_open),
@@ -85,8 +88,11 @@ fn popup_open(state: EditorState) -> bool {
 /// taken (the Tab mode switched, or Tab leaving the editor).
 pub(in crate::editor) fn focus_keys(state: EditorState, event: &KeyboardEvent) -> bool {
     let a11y = state.a11y();
+    // The keys table is asked only for the key itself.
+    let toggle_key = event.ctrl_key() && matches!(event.key().as_str(), "m" | "M");
     let context = Context {
         tab_moves_focus: a11y.tab_moves_focus.get_untracked(),
+        toggles: toggle_key && super::shortcuts::works_now(state, "Ctrl+M"),
         escaped: a11y.escaped.get_value(),
         list_open: !state.completion().suggestions.with_untracked(Vec::is_empty),
         popup_open: popup_open(state),

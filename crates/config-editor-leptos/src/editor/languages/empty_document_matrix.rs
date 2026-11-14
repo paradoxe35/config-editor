@@ -102,6 +102,32 @@ fn the_first_key_under_a_list_root_opens_its_first_item() {
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
+/// A schema whose root is a list of values: each value its items allow is
+/// offered in an empty document, written as the list's first item.
+#[test]
+fn the_values_of_a_list_root_are_offered_as_its_first_item() {
+    let mut failures = Vec::new();
+    for (items, label, wanted) in [
+        (r#"{"enum":["a","b"]}"#, "b", json!(["b"])),
+        (r#"{"type":"boolean"}"#, "true", json!([true])),
+        (r#"{"const":3}"#, "3", json!([3])),
+    ] {
+        let schema = build_schema(&format!(r#"{{"type":"array","items":{items}}}"#)).unwrap();
+        for language in [Language::YAML, Language::JSON] {
+            for marked in ["|", "|\n", "\n|\n", "  |  "] {
+                let accepted = accept_marked(marked, label, &schema, language.behavior());
+                let read = language.parse(&accepted.replace('|', ""));
+                if read.as_ref().ok() != Some(&wanted) {
+                    failures.push(format!(
+                        "{language} {items} {marked:?}: {accepted:?} reads {read:?}"
+                    ));
+                }
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
 /// The caret before a closer on its own line (`{\n|}`): the entry goes on a
 /// line of its own inside, indented, the closer after it.
 #[test]

@@ -6,17 +6,29 @@ use super::*;
 /// current indentation.
 pub(super) fn newline_with_indent(source: &str, cursor: usize) -> String {
     let byte = utf16_to_byte_index(source, cursor);
-    let line_start = source[..byte].rfind('\n').map_or(0, |index| index + 1);
-    let indent: String = source[line_start..byte]
-        .chars()
-        .take_while(|character| matches!(character, ' ' | '\t'))
-        .collect();
+    let indent = line_indent(source, byte);
     let before = source[..byte].trim_end_matches([' ', '\t']);
     if before.ends_with('>') && !before.ends_with("/>") && is_open_tag_tail(source, byte) {
         format!("\n{indent}{}", indent_unit(source))
     } else {
         format!("\n{indent}")
     }
+}
+
+/// The indent a new line at byte `byte` starts from: its line's, or after
+/// a tag written over lines (`<bean id="a"` then `class="b">`) the line
+/// the tag starts on, not the attribute line it ends on (QA `E32-6`).
+fn line_indent(source: &str, byte: usize) -> String {
+    let before = source[..byte].trim_end_matches([' ', '\t']);
+    let from = match before.ends_with('>').then(|| before.rfind('<')).flatten() {
+        Some(tag_start) => tag_start,
+        None => byte,
+    };
+    let line_start = source[..from].rfind('\n').map_or(0, |index| index + 1);
+    source[line_start..]
+        .chars()
+        .take_while(|character| matches!(character, ' ' | '\t'))
+        .collect()
 }
 
 /// `</name>` when a `>` typed at `cursor` would finish the start tag `<name …`,
@@ -98,10 +110,7 @@ pub(super) fn is_open_tag_tail(source: &str, byte: usize) -> bool {
 pub(super) fn newline_insertion(source: &str, cursor: usize) -> (String, usize) {
     let byte = utf16_to_byte_index(source, cursor);
     let line_start = source[..byte].rfind('\n').map_or(0, |index| index + 1);
-    let indent: String = source[line_start..byte]
-        .chars()
-        .take_while(|character| matches!(character, ' ' | '\t'))
-        .collect();
+    let indent = line_indent(source, byte);
     // At the end of a line after a comment that follows code (`<a> <!-- c
     // -->`): as at the end of the code.
     let line_before = &source[line_start..byte];

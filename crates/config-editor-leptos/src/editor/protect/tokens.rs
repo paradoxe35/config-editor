@@ -24,6 +24,7 @@ use super::super::paths::{field_key, in_batch, path_at, units_at, with_spans};
 use super::super::work_count::{Work, note};
 use super::glued::written_alone;
 use super::marks::escape;
+use super::unplaced::{in_open_comment, runs_open, written_in};
 
 /// A token of the host's text: the field it stands in (or the text's
 /// comments), and how often that field's value (or the comments) hold it.
@@ -44,6 +45,14 @@ pub(crate) struct Known {
     /// The prints of the list items on the way to the field (see
     /// `follow_items`): the field follows its item when items shift.
     pub(crate) items: Vec<u64>,
+    /// Whether `field` is where the host's text writes the token. Not for
+    /// a token of a host text that does not parse whose field its reading
+    /// cannot tell (an opener left unclosed above it, a list, a comment,
+    /// carries the reading over it): it is taken as its line's whole value
+    /// (the line kept while the text is broken, see `whole_guard`), and its
+    /// field is read where it is once the text on screen parses (see
+    /// `unplaced::placed_where_written`).
+    pub(crate) placed: bool,
 }
 
 impl Known {
@@ -159,12 +168,12 @@ impl SecretMatcher {
         // Where each token is in `known`, by its field: a lookup per held
         // token, not a pass over the fields already holding it (one token
         // held in thousands of fields).
-        let mut by_place: std::collections::HashMap<(String, Option<String>), usize> =
+        let mut by_place: std::collections::HashMap<(String, Option<String>, bool), usize> =
             std::collections::HashMap::new();
         let mut add =
-            |token: &str, field: Option<String>, whole: Option<String>, items: Vec<u64>| {
+            |token: &str, field: Option<String>, whole: Option<String>, items: Vec<u64>, placed| {
                 note(Work::PlaceLookup);
-                let place = (token.to_string(), field.as_deref().map(field_key));
+                let place = (token.to_string(), field.as_deref().map(field_key), placed);
                 match by_place.get(&place) {
                     Some(index) => known[*index].count += 1,
                     None => {
@@ -175,6 +184,7 @@ impl SecretMatcher {
                             count: 1,
                             whole,
                             items,
+                            placed,
                         });
                     }
                 }
@@ -193,15 +203,35 @@ impl SecretMatcher {
                 self.each_held(&document, |token, pointer, whole| {
                     let items =
                         super::follow_items::item_prints_in(&document, pointer, &mut printed);
-                    add(
-                        token,
-                        Some(pointer.to_string()),
-                        whole.map(str::to_string),
-                        items,
-                    );
+                    let whole = whole.map(str::to_string);
+                    add(token, Some(pointer.to_string()), whole, items, true);
                 });
+                for range in found.iter().filter(|range| commented(range.start)) {
+                    add(&text[range.clone()], None, None, Vec::new(), true);
+                }
             }
-            Err(_) => {
+            Err(error) => {
+                // Read past where the text stops parsing, a token's field
+                // may be read wrong (an opener left unclosed before it):
+                // checked against where its value is written.
+                let broken_at = error.line.map(|line| (line, error.column.unwrap_or(1)));
+                let past_error = |start: usize| {
+                    broken_at.is_some_and(|at| at <= super::super::paths::line_column(text, start))
+                };
+                // A construct over lines left open (a list, a character
+                // data section) runs over the rest of the text, the token
+                // in it.
+                let constructs: Vec<Range<usize>> = behavior
+                    .multiline_constructs(text)
+                    .into_iter()
+                    .map(|construct| construct.range)
+                    .collect();
+                let in_open_construct =
+                    |start: usize| constructs.iter().any(|range| runs_open(text, range, start));
+                // A comment left open runs over the rest of the text: what
+                // it holds is no comment's, read as the text goes on.
+                let commented =
+                    |start: usize| commented(start) && !in_open_comment(text, &comments, start);
                 // Each token's field from one reading of the text, then
                 // the values of those fields read at once.
                 batched(behavior, text, || {
@@ -216,15 +246,26 @@ impl SecretMatcher {
                     pointers.dedup();
                     with_spans(behavior, text, &pointers, || {
                         for (range, pointer) in placed {
+                            let token = &text[range.clone()];
+                            // Not where the reading puts its field's value:
+                            // the reading went wrong before it.
+                            if past_error(range.start)
+                                || in_open_construct(range.start)
+                                || !written_in(behavior, text, &pointer, &range)
+                            {
+                                let whole = Some(token.to_string());
+                                add(token, Some(pointer), whole, Vec::new(), false);
+                                continue;
+                            }
                             let whole = written_alone(behavior, text, &pointer, range.clone());
-                            add(&text[range], Some(pointer), whole, Vec::new());
+                            add(token, Some(pointer), whole, Vec::new(), true);
                         }
                     });
                 });
+                for range in found.iter().filter(|range| commented(range.start)) {
+                    add(&text[range.clone()], None, None, Vec::new(), true);
+                }
             }
-        }
-        for range in found.iter().filter(|range| commented(range.start)) {
-            add(&text[range.clone()], None, None, Vec::new());
         }
         known
     }
@@ -632,6 +673,7 @@ mod tests {
                 count: 1,
                 whole: Some(TOKEN.to_string()),
                 items: Vec::new(),
+                placed: true,
             }]
         );
         // Shown as JSON: real in `a`, plain in `c`.

@@ -75,6 +75,17 @@ fn problems_of_every_kind_read_plainly_in_every_language() {
             r#"{"properties":{"s":{"not":{"type":"string"}}}}"#,
             r#"/s: "x" must not match {"type":"string"}"#,
         ),
+        // A `not` of required keys: the keys can't be used together.
+        (
+            "d:\n  git: g\n  path: p\n",
+            r#"{"properties":{"d":{"not":{"required":["git","path"]}}}}"#,
+            r#"/d: "git" can't be used together with "path""#,
+        ),
+        (
+            "d:\n  a: 1\n  b: 2\n  c: 3\n",
+            r##"{"definitions":{"abc":{"required":["a","b","c"]}},"properties":{"d":{"allOf":[{"not":{"$ref":"#/definitions/abc"}}]}}}"##,
+            r#"/d: "a" can't be used together with "b", "c""#,
+        ),
     ];
     let mut failures = Vec::new();
     for (yaml, schema, wanted) in cases {
@@ -186,4 +197,54 @@ fn a_schema_text_may_start_with_a_byte_order_mark() {
         Some(vec!["/a: 1 is not of type \"string\"".to_string()])
     );
     assert!(build_schema(schema).is_ok());
+}
+
+/// An object where no `oneOf`/`anyOf` option takes one is a wrong type,
+/// underlined as one: on the value where it starts on the key's line, on
+/// the key where it is a block below; an object an option takes but whose
+/// keys match none stays on the key, as a missing key does.
+#[test]
+fn an_object_no_option_takes_is_underlined_as_a_wrong_type() {
+    let types = r#"{"properties":{"o":{"anyOf":[{"type":"string"},{"type":"integer"}]},
+        "p":{"oneOf":[{"type":"string"},{"type":"integer"}]}}}"#;
+    let keys = r#"{"properties":{"o":{"oneOf":[{"required":["x"]},{"required":["y"]}]}}}"#;
+    type Case<'a> = (Language, &'a str, &'a str, &'a [(usize, usize)]);
+    let cases: &[Case<'_>] = &[
+        (
+            Language::JSON,
+            "{\n  \"o\": {\"a\": 1},\n  \"p\": {\"b\": 2}\n}\n",
+            types,
+            &[(2, 8), (3, 8)],
+        ),
+        (
+            Language::YAML,
+            "o: {a: 1}\np:\n  b: 2\n",
+            types,
+            &[(1, 4), (2, 1)],
+        ),
+        (
+            Language::HCL,
+            "o = { a = 1 }\np {\n  b = 2\n}\n",
+            types,
+            &[(1, 5), (2, 1)],
+        ),
+        (
+            Language::JSON,
+            "{\n  \"o\": {\"a\": 1}\n}\n",
+            keys,
+            &[(2, 3)],
+        ),
+    ];
+    let mut failures = Vec::new();
+    for (language, text, schema, wanted) in cases {
+        let found = Schema::compile(schema).unwrap().validate(*language, text);
+        let places: Vec<(usize, usize)> = found
+            .iter()
+            .filter_map(|problem| Some((problem.line?, problem.column?)))
+            .collect();
+        if places != *wanted {
+            failures.push(format!("{language} {text:?}: {found:?}"));
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
 }

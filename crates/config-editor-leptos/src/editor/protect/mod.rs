@@ -44,6 +44,7 @@ mod secrets;
 mod suggest;
 mod texts;
 mod tokens;
+mod unplaced;
 mod view;
 mod whole_guard;
 
@@ -136,6 +137,15 @@ mod browse_tests;
     feature = "xml"
 ))]
 mod copied_field_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod edge_insert_tests;
 #[cfg(all(
     test,
     feature = "yaml",
@@ -360,6 +370,15 @@ mod reach_tests;
     feature = "hcl",
     feature = "xml"
 ))]
+mod real_again_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
 mod repair_tests;
 #[cfg(all(
     test,
@@ -433,3 +452,12 @@ mod value_kept_tests;
     feature = "xml"
 ))]
 mod whole_guard_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod whole_scale_tests;

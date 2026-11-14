@@ -15,6 +15,10 @@ pub(crate) fn FindWidget(state: EditorState) -> impl IntoView {
     let search = state.search();
     let editable = move || !state.config().read_only.get();
     let invalid = move || search.results.with(|results| results.error.is_some());
+    // With no match, the buttons that step through or replace matches
+    // show and say they are unavailable, and do nothing; they keep the
+    // focus (a `disabled` button would drop it, as after "All").
+    let unavailable = move || no_matches(state).then_some("true");
     // A message that wraps the row ("Replaced 3 occurrences") moves the
     // button just pressed: it stays in view, at any zoom. The rows are
     // watched, not the widget: one capped to the window (see `room`) keeps
@@ -88,7 +92,8 @@ pub(crate) fn FindWidget(state: EditorState) -> impl IntoView {
                         class="config-editor__find-button"
                         aria-label=state.text(|strings| &strings.previous_match)
                         title=state.text(|strings| &strings.previous_match_title)
-                        on:click=move |_| search::step(state, true)
+                        aria-disabled=unavailable
+                        on:click=move |_| previous(state)
                     >
                         "↑"
                     </button>
@@ -97,7 +102,8 @@ pub(crate) fn FindWidget(state: EditorState) -> impl IntoView {
                         class="config-editor__find-button"
                         aria-label=state.text(|strings| &strings.next_match)
                         title=state.text(|strings| &strings.next_match_title)
-                        on:click=move |_| search::step(state, false)
+                        aria-disabled=unavailable
+                        on:click=move |_| next(state)
                     >
                         "↓"
                     </button>
@@ -133,7 +139,8 @@ pub(crate) fn FindWidget(state: EditorState) -> impl IntoView {
                     type="button"
                     class="config-editor__find-button config-editor__find-text-button"
                     title=state.text(|strings| &strings.replace_title)
-                    on:click=move |_| search::replace_current(state)
+                    aria-disabled=unavailable
+                    on:click=move |_| replace_one(state)
                 >
                     {state.text(|strings| &strings.replace)}
                 </button>
@@ -142,7 +149,8 @@ pub(crate) fn FindWidget(state: EditorState) -> impl IntoView {
                     class="config-editor__find-button config-editor__find-text-button"
                     aria-label=state.text(|strings| &strings.replace_all_label)
                     title=state.shortcut_text(|strings| &strings.replace_all_title)
-                    on:click=move |_| search::replace_all(state)
+                    aria-disabled=unavailable
+                    on:click=move |_| replace_every(state)
                 >
                     {state.text(|strings| &strings.replace_all)}
                 </button>
@@ -202,6 +210,40 @@ fn count_text(state: EditorState) -> String {
             .results
             .with(|results| search::count_label(strings, results, current, query_empty))
     })
+}
+
+/// Whether the query finds nothing (tracked): stepping and replacing are
+/// unavailable.
+fn no_matches(state: EditorState) -> bool {
+    state
+        .search()
+        .results
+        .with(|results| results.matches.is_empty())
+}
+
+/// The buttons' actions: nothing while there is no match.
+fn previous(state: EditorState) {
+    if !untrack(|| no_matches(state)) {
+        search::step(state, true);
+    }
+}
+
+fn next(state: EditorState) {
+    if !untrack(|| no_matches(state)) {
+        search::step(state, false);
+    }
+}
+
+fn replace_one(state: EditorState) {
+    if !untrack(|| no_matches(state)) {
+        search::replace_current(state);
+    }
+}
+
+fn replace_every(state: EditorState) {
+    if !untrack(|| no_matches(state)) {
+        search::replace_all(state);
+    }
 }
 
 fn query_input(state: EditorState, value: String) {

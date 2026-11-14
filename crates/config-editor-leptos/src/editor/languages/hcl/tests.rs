@@ -12,6 +12,7 @@ const INSERT_AT_ROOT: InsertContext<'static> = InsertContext {
     position: super::super::super::language::EntryPosition::Block,
     path: &[],
     array_item: false,
+    another_item: false,
 };
 use super::HclBehavior;
 use super::super::super::highlight::{TokenKind, runs};

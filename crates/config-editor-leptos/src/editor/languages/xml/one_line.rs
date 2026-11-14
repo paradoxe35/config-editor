@@ -24,10 +24,6 @@ fn one_line_paths(source: &str) -> HashSet<Vec<String>> {
     found
 }
 
-fn unindexed(path: &[Seg]) -> Vec<String> {
-    strings(path).into_iter().filter(|segment| crate::editor::language::pointer_index(segment).is_none()).collect()
-}
-
 /// The end tag's token of the element whose start tag is token `index`,
 /// when it holds a child element (and `true`, so the path is read).
 fn element_with_children(source: &str, tokens: &[Token], index: usize) -> Option<(usize, bool)> {

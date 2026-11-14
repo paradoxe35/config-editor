@@ -1,4 +1,5 @@
-//! JSON Schema written as JSON: the schema as it is.
+//! JSON Schema, written as JSON or YAML (see `read_schema_text`): the
+//! schema as it is.
 
 use serde_json::Value;
 
@@ -13,7 +14,7 @@ impl SchemaCompiler for JsonSchema {
         SchemaFormatInfo {
             name: "json-schema",
             label: "JSON Schema",
-            extensions: &["json", "schema.json"],
+            extensions: EXTENSIONS,
         }
     }
 
@@ -31,17 +32,20 @@ impl SchemaCompiler for JsonSchema {
     }
 }
 
-/// `text` as JSON, or why not: a document nested deeper than the reader
-/// goes says so in words.
+/// The file extensions: YAML's too where YAML is read.
+#[cfg(feature = "yaml")]
+const EXTENSIONS: &[&str] = &[
+    "json",
+    "schema.json",
+    "yaml",
+    "yml",
+    "schema.yaml",
+    "schema.yml",
+];
+#[cfg(not(feature = "yaml"))]
+const EXTENSIONS: &[&str] = &["json", "schema.json"];
+
+/// `text` as JSON or YAML, or why not.
 pub(crate) fn parse(text: &str) -> Result<Value, SchemaError> {
-    serde_json::from_str(text).map_err(|error| {
-        SchemaError(
-            if error.to_string().starts_with("recursion limit exceeded") {
-                "it nests objects and lists more than 128 levels deep, deeper than the editor reads"
-                    .to_string()
-            } else {
-                error.to_string()
-            },
-        )
-    })
+    crate::editor::languages::read_schema_text(text).map_err(SchemaError)
 }

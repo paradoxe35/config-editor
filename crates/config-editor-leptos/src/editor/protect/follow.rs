@@ -1,5 +1,7 @@
 //! The host's read-only ranges followed through an edit: before the text
-//! it replaced a range stays, after it the range shifts; inside it, the
+//! it replaced a range stays, after it the range shifts; text inserted at
+//! a range's edge goes outside it (before it at its start, after it at its
+//! end), so a line added above a locked one is free; inside it, the
 //! range's lines are looked for, whole, among the lines the edit wrote (a
 //! line command moved or copied them, a reorder pasted them), and the range
 //! goes where they are, at the same columns: the copy nearest where they
@@ -42,7 +44,9 @@ pub(super) fn follow_ranges(
 }
 
 /// A range after an edit replaced `region` with `inserted` units: before
-/// it stays, after it shifts, across it keeps what is left.
+/// it stays, after it shifts, across it keeps what is left. Text inserted
+/// at one of its edges stays outside it: at its start the range moves past
+/// it, at its end the range stops before it.
 fn shift(range: &Range<usize>, region: &Range<usize>, inserted: usize) -> Range<usize> {
     let map = |at: usize| {
         if at <= region.start {
@@ -53,7 +57,12 @@ fn shift(range: &Range<usize>, region: &Range<usize>, inserted: usize) -> Range<
             region.start + inserted
         }
     };
-    map(range.start)..map(range.end).max(map(range.start))
+    let start = if region.is_empty() && range.start == region.start {
+        range.start + inserted
+    } else {
+        map(range.start)
+    };
+    start..map(range.end).max(start)
 }
 
 /// Where `range`'s lines (of `old`) are among the lines of `new` holding

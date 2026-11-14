@@ -148,6 +148,10 @@ pub struct InsertContext<'a> {
     /// The entry is an array item: with [`EntryPosition::Name`], a TOML
     /// `[[array]]` header rather than a `[table]` one.
     pub array_item: bool,
+    /// The key is written already as items the language repeats
+    /// ([`ConfigLanguage::repeated_keys`]): the entry is one more item,
+    /// written the same way (another HCL block).
+    pub another_item: bool,
 }
 
 /// How a multi-line insert is laid out when the caret follows containers
@@ -687,6 +691,11 @@ pub struct CompletionContext {
     /// add to [`base_indent`](Self::base_indent). `None` (the default)
     /// offers nothing there.
     pub root_item: Option<(&'static str, &'static str, &'static str)>,
+    /// As [`root_item`](Self::root_item), for a root list of values
+    /// (strings, numbers, choices): what a value is written between as its
+    /// first item (JSON's `[\n  ` and `\n]\n`, YAML's `- `). `None` offers
+    /// nothing there.
+    pub root_value: Option<(&'static str, &'static str)>,
     /// An existing entry starts right after the caret (`lim|listen = 1`),
     /// and this is the word its key begins with. A suggestion ending in that
     /// word completes it (`inse|cure_plaintext`) and renames the key; any
@@ -1185,6 +1194,21 @@ pub trait ConfigLanguage: Send + Sync + 'static {
     ) -> Option<HashSet<String>> {
         let _ = (source, cursor_byte, path);
         None
+    }
+
+    /// The keys of [`existing_keys`](Self::existing_keys) written as the
+    /// items of a list the language writes by repeating them (HCL blocks:
+    /// `rule { … }` once or more), so another item may follow, written the
+    /// same way. A list written whole (`rule = [ … ]`) is no such key.
+    /// Default: none.
+    fn repeated_keys(
+        &self,
+        source: &str,
+        cursor_byte: usize,
+        path: &[SchemaPathSegment],
+    ) -> HashSet<String> {
+        let _ = (source, cursor_byte, path);
+        HashSet::new()
     }
 
     /// The text inserted for property `key` and the caret offset (UTF-16)
@@ -1959,6 +1983,24 @@ pub trait ConfigLanguage: Send + Sync + 'static {
     fn aligned_lines(&self, text: &str) -> Vec<usize> {
         let _ = text;
         Vec::new()
+    }
+
+    /// Whether the entries of `source` hold what no other language shows
+    /// (an XML element's `xsi:type`, its namespace declaration, its
+    /// name's prefix), so an Edit-as save over it reads which list item
+    /// is which from the user's edits (`item_sources`), not only from
+    /// values that read alike. Default: no, values tell.
+    fn items_hold_unshown(&self, source: &str) -> bool {
+        let _ = source;
+        false
+    }
+
+    /// Whether the language holds an integer past 64 bits as written (XML,
+    /// whose numbers are text): an Edit-as view saves one typed there as
+    /// its digits, as the view's own language saves it. Default: no, the
+    /// save waits.
+    fn holds_wide_integers(&self) -> bool {
+        false
     }
 
     /// The text for the `value` range of a [`OneLine`] now holding `value`

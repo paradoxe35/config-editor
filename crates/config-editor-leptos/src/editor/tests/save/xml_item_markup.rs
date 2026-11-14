@@ -2,8 +2,9 @@
 //! `xsi:nil`, namespace declarations) belongs to its element: a list
 //! edited in another view (items removed, added, copied, moved, all
 //! changed) saves each item's markup with that item's data, an item added
-//! gets none, and none moves to a neighbour (QA `E31-1`: deleting the
-//! second of three `<shape xsi:type=…>` gave the third the second's type).
+//! gets none but its siblings' namespace, and none moves to a neighbour
+//! (QA `E31-1`: deleting the second of three `<shape xsi:type=…>` gave the
+//! third the second's type).
 
 use crate::editor::Language;
 use crate::editor::save_matrix::{report, save_value};
@@ -137,11 +138,21 @@ fn list_edits_in_other_views_keep_each_items_markup_with_its_data() {
             for (label, slots) in OPERATIONS {
                 let expected: Vec<Vec<String>> = slots
                     .iter()
-                    .map(|slot| match slot {
+                    .enumerate()
+                    .map(|(at, slot)| match slot {
                         Slot::Kept(item) => kind.markup(*item),
                         // Given content, an item is no longer nil.
                         Slot::Changed(item) if kind.empty(*item) => Vec::new(),
                         Slot::Changed(item) => kind.markup(*item),
+                        // An item added is named in its siblings'
+                        // namespace: the one it copies, else the one at its
+                        // place (QA `E32-1`); it takes no other markup.
+                        Slot::Copy(item) if matches!(kind, Kind::DefaultNamespace) => {
+                            kind.markup(*item)
+                        }
+                        Slot::Fresh if matches!(kind, Kind::DefaultNamespace) => {
+                            kind.markup(at.min(2))
+                        }
                         Slot::Copy(_) | Slot::Fresh => Vec::new(),
                     })
                     .collect();
@@ -195,6 +206,39 @@ fn list_edits_in_other_views_keep_each_items_markup_with_its_data() {
                     }
                 }
             }
+        }
+    }
+    report(failures);
+}
+
+/// One edit removing an item and changing a neighbour (three items pasted
+/// over with two): the save writes and checks each item as the same host
+/// item, so it saves (QA `E32-4`: it waited, saying the value would be
+/// written in another form, as its stages read the changed item as one
+/// removed and one added).
+#[test]
+fn an_item_removed_beside_one_changed_saves_with_the_markup_kept() {
+    let mut failures = Vec::new();
+    let host = host(Kind::Type, false);
+    for edit in VIEWS {
+        let saved = save_value(Language::XML, edit, &host, &|value| {
+            value["root"]["item"] = json!([{"v": 1}, {"v": 7}]);
+        });
+        match saved {
+            Ok(saved) if item_markup(&saved) == [Kind::Type.markup(1), Kind::Type.markup(2)] => {}
+            other => failures.push(format!("via {edit}: {other:?}")),
+        }
+    }
+    let targets = format!(
+        "<nlog {XSI}>\n  <targets>\n    <target xsi:type=\"File\" name=\"logfile\" fileName=\"app.log\" />\n    <target xsi:type=\"Console\" name=\"console\" />\n    <target xsi:type=\"Null\" name=\"blackhole\" />\n  </targets>\n</nlog>\n"
+    );
+    for edit in VIEWS {
+        let saved = save_value(Language::XML, edit, &targets, &|value| {
+            value["nlog"]["targets"]["target"] =
+                json!([{"name": "logfile", "fileName": "app.log"}, {"name": "bh"}]);
+        });
+        if let Err(error) = saved {
+            failures.push(format!("targets via {edit}: {error}"));
         }
     }
     report(failures);

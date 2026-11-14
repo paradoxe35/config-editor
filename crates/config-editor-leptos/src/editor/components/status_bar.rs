@@ -91,12 +91,14 @@ fn hint_pieces(strings: &EditorStrings, touch: bool) -> Vec<HintPiece> {
     pieces
 }
 
-/// "Tab moves focus" while `Ctrl+M` is on; clicking it turns it off.
+/// "Tab moves focus" while `Ctrl+M` is on; clicking it turns it off. Not
+/// in a read-only editor, whose Tab always leaves.
 #[component]
 fn TabFocusStatus(state: EditorState) -> impl IntoView {
     let turn_off = move |_| toggle_tab_focus(state);
+    let shown = move || state.a11y().tab_moves_focus.get() && !state.config().read_only.get();
     move || {
-        state.a11y().tab_moves_focus.get().then(|| {
+        shown().then(|| {
             view! {
                 <button
                     type="button"

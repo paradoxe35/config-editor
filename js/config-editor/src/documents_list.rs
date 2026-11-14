@@ -42,6 +42,7 @@ const DOCUMENT_KEYS: &[&str] = &[
 
 /// What a list from JavaScript reads into: the documents, and each one's
 /// own `settings` as given (laid over the view's again when those change).
+#[derive(Default)]
 pub(crate) struct Listed {
     pub(crate) documents: Vec<Document>,
     pub(crate) overrides: Vec<(String, JsValue)>,
@@ -56,6 +57,8 @@ pub(crate) struct Kept {
     secrets: HashMap<String, SecretOptions>,
     pub(crate) texts: Given<String>,
     schemas: KeptSchemas,
+    /// Each document's `readOnlyRanges` as given (see `given_ranges`).
+    ranges: crate::given_ranges::Listed,
 }
 
 impl Kept {
@@ -63,6 +66,7 @@ impl Kept {
     pub(crate) fn abandon(&mut self) {
         self.texts.abandon();
         self.schemas.read.clear();
+        self.ranges.abandon();
     }
 }
 
@@ -118,7 +122,7 @@ fn warn_unclaimed(file_name: &str, fallback: Language) {
 }
 
 /// The documents JavaScript lists, as the component takes them. Schemas
-/// stay JSON text: the view compiles each distinct text once and shares it.
+/// stay text: the view compiles each distinct text once and shares it.
 ///
 /// A document's `settings` go over `view`; its `secrets` are built once per
 /// id, and its `schema` compiled once per text (a schema that does not
@@ -193,7 +197,7 @@ pub(crate) fn documents_from(
             ));
             document.edit_as_text = None;
         }
-        document = with_protection(document, &item, index, &mut kept.secrets)?;
+        document = with_protection(document, &item, index, kept)?;
         let own = field(&item, "settings");
         if !own.is_undefined() && !own.is_null() {
             if !own.is_object() || Array::is_array(&own) {
@@ -218,18 +222,21 @@ pub(crate) fn documents_from(
         .retain(|id, _| documents.iter().any(|document| document.id == *id));
     kept.texts.finish();
     kept.schemas.last = std::mem::take(&mut kept.schemas.read);
+    kept.ranges.finish();
     Ok(Listed {
         documents,
         overrides,
     })
 }
 
-/// A document's host problems, read-only fields and secrets.
+/// A document's host problems, read-only fields and secrets. Its ranges
+/// as given last, listed again with the text it holds, keep where its
+/// editor moved them (see `given_ranges`): they are not read again.
 fn with_protection(
     mut document: Document,
     item: &JsValue,
     index: usize,
-    secrets: &mut HashMap<String, SecretOptions>,
+    kept: &mut Kept,
 ) -> Result<Document, JsError> {
     let name = |key: &str| format!("documents[{index}].{key}");
     let diagnostics = field(item, "hostDiagnostics");
@@ -239,19 +246,27 @@ fn with_protection(
         document = document.host_diagnostics(list);
     }
     let paths = paths_from(&field(item, "readOnlyPaths"), &name("readOnlyPaths"))?;
-    let ranges = ranges_from(
-        &field(item, "readOnlyRanges"),
-        &document.value,
-        &name("readOnlyRanges"),
-    )?;
+    let given = field(item, "readOnlyRanges");
+    let held = kept.texts.held(&document.id, "value");
+    let ranges = match kept
+        .ranges
+        .again(&document.id, &given, held == Some(&document.value))
+    {
+        Some(ranges) => ranges,
+        None => {
+            let ranges = ranges_from(&given, &document.value, &name("readOnlyRanges"))?;
+            kept.ranges.read(&document.id, &given, ranges.clone());
+            ranges
+        }
+    };
     document = document.read_only_paths(paths).read_only_ranges(ranges);
     let given = field(item, "secrets");
     if !given.is_undefined() && !given.is_null() {
-        let options = match secrets.get(&document.id) {
+        let options = match kept.secrets.get(&document.id) {
             Some(options) => options.clone(),
             None => {
                 let options = secrets_from(&given, &name("secrets"))?;
-                secrets.insert(document.id.clone(), options.clone());
+                kept.secrets.insert(document.id.clone(), options.clone());
                 options
             }
         };
