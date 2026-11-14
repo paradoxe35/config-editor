@@ -23,6 +23,11 @@ const MAX_QUOTED_VALUE: usize = 80;
 /// Most options a "matches none of the options" message gives reasons for.
 const MAX_OPTIONS_LISTED: usize = 5;
 
+/// Most levels of options (an option's problem being that a value in it
+/// matches none of its own options) a message explains; deeper ones are
+/// named only, so a message stays short however deep the options go.
+const MAX_EXPLAINED_LEVELS: usize = 3;
+
 /// Longest description that names an untitled option; a longer one is cut.
 const MAX_OPTION_NAME: usize = 40;
 
@@ -37,6 +42,8 @@ pub(in crate::editor) struct Wording<'a> {
     /// The host's placeholders: an item holding one is told repeated in
     /// a list by no message (see `placeholders`).
     pub placeholders: &'a Fields,
+    /// How many levels of options the message being worded is inside.
+    pub levels: std::cell::Cell<usize>,
 }
 
 impl Wording<'_> {
@@ -118,25 +125,28 @@ impl Wording<'_> {
                 self.counted(error, &strings.too_many_keys, *limit)
             }
             ValidationErrorKind::UniqueItems => self.repeated(error),
-            ValidationErrorKind::Not { schema } => match self.kept_apart(error, schema) {
-                Some(keys) => {
-                    let quoted: Vec<String> = keys
-                        .into_iter()
-                        .map(|key| Value::from(key).to_string())
-                        .collect();
-                    match &quoted[..] {
-                        [key, other] => fill(
-                            &strings.keys_used_together,
-                            &[("key", key), ("other", other)],
-                        ),
-                        _ => fill(
-                            &strings.keys_all_used_together,
-                            &[("keys", &quoted.join(", "))],
-                        ),
+            ValidationErrorKind::Not { schema } => {
+                let schema = &*super::explanation::unwrapped(schema);
+                match self.kept_apart(error, schema) {
+                    Some(keys) => {
+                        let quoted: Vec<String> = keys
+                            .into_iter()
+                            .map(|key| Value::from(key).to_string())
+                            .collect();
+                        match &quoted[..] {
+                            [key, other] => fill(
+                                &strings.keys_used_together,
+                                &[("key", key), ("other", other)],
+                            ),
+                            _ => fill(
+                                &strings.keys_all_used_together,
+                                &[("keys", &quoted.join(", "))],
+                            ),
+                        }
                     }
+                    None => self.refused_by_not(error, schema, &value),
                 }
-                None => self.refused_by_not(error, schema, &value),
-            },
+            }
             _ => self.validators_words(error),
         }
     }
@@ -305,7 +315,7 @@ impl Wording<'_> {
     /// `not` keeps apart from it.
     fn kept_apart(&self, error: &ValidationError<'_>, schema: &Value) -> Option<Vec<String>> {
         use crate::editor::completion::{dependent_keys_kept_apart, keys_kept_apart};
-        let schema_path = error.schema_path().as_str();
+        let schema_path = super::explanation::original_path(error.schema_path().as_str());
         let mut segments = schema_path.rsplit('/');
         let trigger = match (segments.next(), segments.next(), segments.next()) {
             (Some("not"), Some(trigger), Some("dependentSchemas" | "dependencies")) => {
@@ -330,8 +340,8 @@ impl Wording<'_> {
     /// keyword the validator names) refuses: how many of its items the
     /// `contains` schema allows, against how many it wants.
     fn contains(&self, error: &ValidationError<'_>) -> String {
-        let schema_path = error.schema_path().as_str();
-        let (parent, keyword) = schema_path.rsplit_once('/').unwrap_or(("", schema_path));
+        let schema_path = super::explanation::original_path(error.schema_path().as_str());
+        let (parent, keyword) = schema_path.rsplit_once('/').unwrap_or(("", &schema_path));
         let limit = self
             .root
             .pointer(parent)
@@ -389,11 +399,20 @@ impl Wording<'_> {
         let path = error.instance_path().as_str();
         let names = self.option_names(error, branches.len());
         let typed = super::text_for_typed_option(error, branches);
+        let levels = self.levels.get();
+        self.levels.set(levels + 1);
         let mut reasons: Vec<String> = branches
             .iter()
             .zip(&names)
             .filter(|(branch, _)| typed || !super::wrong_type(branch, path))
             .filter_map(|(branch, name)| {
+                // Past the levels explained, or where the explanation did
+                // not reach: the option's name alone.
+                if levels >= MAX_EXPLAINED_LEVELS
+                    || branch.iter().any(super::explanation::unexplained)
+                {
+                    return Some(name.clone());
+                }
                 let errors: Vec<&ValidationError<'_>> =
                     branch.iter().flat_map(super::specific_errors).collect();
                 let at_path =
@@ -412,6 +431,7 @@ impl Wording<'_> {
                 Some(self.reason(name, first, path))
             })
             .collect();
+        self.levels.set(levels);
         if reasons.is_empty() {
             return None;
         }
@@ -493,7 +513,9 @@ impl Wording<'_> {
     fn option_names(&self, error: &ValidationError<'_>, count: usize) -> Vec<String> {
         let options = self
             .root
-            .pointer(error.schema_path().as_str())
+            .pointer(&super::explanation::original_path(
+                error.schema_path().as_str(),
+            ))
             .and_then(Value::as_array)
             .filter(|options| options.len() == count);
         let named: Vec<Option<String>> = (0..count)

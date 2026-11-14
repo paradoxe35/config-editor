@@ -231,6 +231,8 @@ mod option_document_reads;
     feature = "schema-validation"
 ))]
 mod option_nested_keys_work;
+#[cfg(all(feature = "json", feature = "schema-validation"))]
+mod schema_error_cost;
 #[cfg(all(
     feature = "yaml",
     feature = "json",
