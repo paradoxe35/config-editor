@@ -456,3 +456,22 @@ test.describe('the roots under a page\'s box rules', () => {
     }
   }
 });
+
+// --- Text properties set by rules for bare elements (QA 35, FW34-1). ----------
+
+// `#host div { letter-spacing; word-spacing }` and `#host * { text-transform }`
+// reach the root's own element; the drawn text and the textarea both read
+// the root's values, so a click on a character puts the caret on it.
+test.describe('the editor under a page rule for the divs it is in', () => {
+  test.skip(!built, 'the npm package is not built: cd js && npm run build');
+  for (const kind of ['editor', 'documents']) {
+    test(`${kind}: clicks land on the characters they hit`, async ({ page }) => {
+      await page.goto(VANILLA);
+      await page.waitForFunction(() => document.body.dataset.ready === 'true');
+      await page.evaluate(() => window.editor.destroy());
+      await addSheet(page, '#host div { letter-spacing: 2px; word-spacing: 6px; } #host * { text-transform: uppercase; }');
+      await mount(page, kind);
+      for (const [word, caret, expected] of await clicks(page)) expect(caret, word).toBe(expected);
+    });
+  }
+});

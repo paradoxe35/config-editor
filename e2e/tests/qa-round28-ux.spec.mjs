@@ -29,7 +29,7 @@ async function open(page, options) {
   await input(page).waitFor();
   // The editor at the page's top: a card on its first lines has no room
   // above.
-  await page.addStyleTag({ content: 'body > *:not(:has(.config-editor)) { display: none !important; } body { margin: 0; }' });
+  await page.addStyleTag({ content: 'body > *:not(:has(.config-editor)), main > *:not(:has(.config-editor)) { display: none !important; } body { margin: 0; }' });
   return errors;
 }
 
