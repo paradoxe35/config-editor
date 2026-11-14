@@ -1,10 +1,11 @@
 //! A leading byte order mark (`U+FEFF`) is no part of the document. The
 //! editor's text never holds it (`line_endings` keeps it for the host), and
 //! every public entry point that reads a text (`Language`'s and `Schema`'s
-//! methods, `check_syntax`) reads it through [`read`]: the text after the
-//! mark is what each language sees, and what comes back is placed in the
-//! text given (one column on in the first line, one UTF-16 unit on for an
-//! offset). No language and no shared code below the entry points knows of
+//! methods, `check_syntax`, the save gate `Language::saves` that a
+//! never-shown `ConfigDocuments` document is read by) reads it through
+//! [`read`]: the text after the mark is what each language sees, and what
+//! comes back is placed in the text given (one column on in the first line,
+//! one UTF-16 unit on for an offset). No language and no shared code below the entry points knows of
 //! the mark, so no offset is ever taken in one text and applied to the
 //! other (QA 31: XML element text with an emoji after a mark panicked a
 //! conversion).
@@ -160,7 +161,13 @@ macro_rules! unplaced {
     )+};
 }
 
-unplaced!(Value, Conversion, FieldPath, super::completion::HoverDocs);
+unplaced!(
+    bool,
+    Value,
+    Conversion,
+    FieldPath,
+    super::completion::HoverDocs
+);
 #[cfg(feature = "folding")]
 unplaced!(super::fold_ranges::FoldRange);
 

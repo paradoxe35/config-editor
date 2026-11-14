@@ -14,6 +14,15 @@
 use leptos::prelude::*;
 
 mod adding;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod bom_save_tests;
 mod components;
 mod conflicts;
 mod entries;
