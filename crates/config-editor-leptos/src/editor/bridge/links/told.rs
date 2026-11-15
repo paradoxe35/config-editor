@@ -6,7 +6,7 @@
 use super::super::super::item_sources::ItemSource;
 use super::super::super::language::ConfigLanguage;
 use super::super::super::parse_cache;
-use super::super::super::work_count::{Work, note};
+use super::super::super::work_count::{Work, note, note_many};
 use super::items::items;
 use super::{Link, Links, Source, content};
 use std::collections::{BTreeMap, HashMap};
@@ -57,6 +57,38 @@ fn same_keys(language: &dyn ConfigLanguage, before: &str, after: &str) -> bool {
     }
 }
 
+/// Whether a link's host text is the host's last text. Each comparison
+/// reads the whole text, and the links share a few host texts among all
+/// their items: each is compared once.
+struct LastHost<'a> {
+    previous: &'a str,
+    /// Each host text compared, by its address, and whether it is
+    /// `previous`; the links hold the texts while this lives.
+    compared: HashMap<*const u8, bool>,
+}
+
+impl<'a> LastHost<'a> {
+    fn new(previous: &'a str) -> Self {
+        LastHost {
+            previous,
+            compared: HashMap::new(),
+        }
+    }
+
+    fn is(&mut self, host: &Arc<str>) -> bool {
+        let previous = self.previous;
+        *self
+            .compared
+            .entry(Arc::as_ptr(host).cast::<u8>())
+            .or_insert_with(|| {
+                if host.len() == previous.len() {
+                    note_many(Work::HostTextCompared, host.len());
+                }
+                **host == *previous
+            })
+    }
+}
+
 impl Links {
     /// What the links tell a save of the view's text `text` (in
     /// `language`) over the host's last text `previous`: `None` when they
@@ -84,10 +116,11 @@ impl Links {
             return None;
         }
         let paired = self.paired(language, text)?;
+        let mut last = LastHost::new(previous);
         // The host text before the last most items come from.
         let mut earlier: Vec<(&Arc<str>, usize)> = Vec::new();
         for (_, source) in &paired {
-            if &*source.host == previous {
+            if last.is(&source.host) {
                 continue;
             }
             match earlier
@@ -105,7 +138,7 @@ impl Links {
         let items = paired
             .into_iter()
             .filter_map(|(pointer, source)| {
-                let told = if &*source.host == previous {
+                let told = if last.is(&source.host) {
                     ItemSource::Previous(source.pointer.clone())
                 } else if earlier
                     .as_ref()

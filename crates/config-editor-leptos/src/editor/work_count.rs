@@ -225,6 +225,15 @@ pub(crate) enum Work {
     /// (`bridge::links`): a link looked at by an edit's splice, or an item
     /// of the view paired with its links at a save.
     LinkStep,
+    /// A byte of a host text an item's link holds compared with the
+    /// host's last text, telling whether the link is to it (one note per
+    /// byte, see [`note_many`]).
+    HostTextCompared,
+    /// A byte of a whole YAML text scanned for an alias (`*`), asking
+    /// whether a key or value may be written through one (one note per
+    /// byte, see [`note_many`]).
+    #[cfg_attr(not(feature = "yaml"), allow(dead_code, reason = "only YAML notes it"))]
+    AliasScan,
 }
 
 impl Work {
@@ -277,6 +286,8 @@ impl Work {
             Self::OptionTried => 43,
             Self::LinkStep => 44,
             Self::ErrorCollected => 45,
+            Self::HostTextCompared => 46,
+            Self::AliasScan => 47,
         }
     }
 
@@ -329,12 +340,14 @@ impl Work {
         Self::OptionTried,
         Self::LinkStep,
         Self::ErrorCollected,
+        Self::HostTextCompared,
+        Self::AliasScan,
     ];
 }
 
 /// How many kinds of work there are.
 #[cfg(test)]
-const KINDS: usize = 46;
+const KINDS: usize = 48;
 
 #[cfg(test)]
 thread_local! {

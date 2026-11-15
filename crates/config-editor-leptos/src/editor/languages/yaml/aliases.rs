@@ -74,10 +74,22 @@ fn sharing(source: &str) -> std::rc::Rc<Sharing> {
     })
 }
 
+/// Whether `source` writes an alias (`*`) anywhere: a scan of the whole
+/// text, made once for a batch of lookups (each key's or value's lookup
+/// asks it, see `paths::batch_kept`).
+fn may_alias(source: &str) -> bool {
+    struct MayAlias(bool);
+    crate::editor::paths::batch_kept(source, || {
+        crate::editor::work_count::note_many(crate::editor::work_count::Work::AliasScan, source.len());
+        MayAlias(source.contains('*'))
+    })
+    .0
+}
+
 /// Where the key `pointer` names is written as an alias (`*k : 1`, `k`
 /// anchoring the key's text): the alias, in its map.
 pub(super) fn alias_key_span(source: &str, pointer: &str) -> Option<Span> {
-    if !source.contains('*') {
+    if !may_alias(source) {
         return None;
     }
     let (map, key) = pointer.rsplit_once('/')?;
@@ -101,7 +113,7 @@ pub(super) fn alias_key_span(source: &str, pointer: &str) -> Option<Span> {
 /// merge (`<<: *x`), through several in turn; `None` when it reads through
 /// none.
 pub(super) fn written_at(source: &str, pointer: &str) -> Option<String> {
-    if !source.contains('*') {
+    if !may_alias(source) {
         return None;
     }
     let sharing = sharing(source);

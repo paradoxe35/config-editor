@@ -1,8 +1,8 @@
 //! What the links of an Edit-as view's items cost: a Replace all over
-//! nested maps grows its work with the document only (QA `SP38-1`), a
-//! whole text pasted leaves no lasting work for the keys typed after it
-//! (QA `SP38-2`), and cut, paste and undo over and over keep no more than
-//! a fixed few records (QA `MEM38-1`).
+//! nested maps or many small lists grows its work with the document only
+//! (QA `SP38-1`, `SP38-3`), a whole text pasted leaves no lasting work for
+//! the keys typed after it (QA `SP38-2`), and cut, paste and undo over and
+//! over keep no more than a fixed few records (QA `MEM38-1`).
 
 use super::super::edit::Edit;
 use super::super::languages::Language;
@@ -25,11 +25,43 @@ fn replace(state: EditorState, (from, to): (usize, usize), typed: &str) {
     ));
 }
 
-/// The work (each kind) of a Replace all and its pause in a YAML view of
-/// a JSON host of `copies` copies of the large sample, each under a key
-/// of its own (QA `SP38-1`: `hsts: true` → `false` cost the document per
-/// change in nested maps).
-fn replace_all_work(copies: usize) -> Vec<usize> {
+/// The work (each kind) of a Replace all of `from` by `to` and its pause,
+/// in a YAML view of the JSON host `host`.
+fn replace_all_work(host: &str, from: &str, to: &str) -> Vec<usize> {
+    let mut editor = TestEditor::new(Language::JSON, host);
+    editor.edit_as = Some(Language::YAML);
+    let (_owner, state) = editor.mount();
+    let before = state.doc().text.get_untracked();
+    let after = before.replace(from, to);
+    let replaced = before.matches(from).count();
+    let ((), counts) = crate::editor::work_count::counted_all(|| {
+        let splices = crate::editor::bridge::links::Splice::per_line(&before, &after);
+        state.commit(Edit::new(before.clone(), (0, 0), after, 0).splicing(splices));
+        pause(state);
+    });
+    let saved = state.sync().host_text.get_value();
+    assert_eq!(
+        saved.matches(": true").count(),
+        host.matches(": true").count() - replaced,
+        "saved:\n{saved}"
+    );
+    counts.to_vec()
+}
+
+/// The kinds of work growing more than two and a half times from `small`
+/// to `large`, at twice its size.
+fn grown(small: &[usize], large: &[usize]) -> Vec<String> {
+    Work::ALL
+        .iter()
+        .zip(small.iter().zip(large))
+        .filter(|(_, (small, large))| **large > (**small).max(16) * 5 / 2)
+        .map(|(work, (small, large))| format!("{work:?}: {small} → {large}"))
+        .collect()
+}
+
+/// A JSON host of `copies` copies of the large sample, each under a key of
+/// its own.
+fn sample_copies(copies: usize) -> String {
     let sample: serde_json::Value = serde_json::from_str(include_str!(
         "../../../tests/fixtures/samples/tunnel.large.json"
     ))
@@ -37,37 +69,53 @@ fn replace_all_work(copies: usize) -> Vec<usize> {
     let host: serde_json::Map<String, serde_json::Value> = (0..copies)
         .map(|copy| (format!("copy{copy}"), sample.clone()))
         .collect();
-    let host = format!(
+    format!(
         "{}\n",
         serde_json::to_string_pretty(&host).expect("written")
-    );
-    let mut editor = TestEditor::new(Language::JSON, &host);
-    editor.edit_as = Some(Language::YAML);
-    let (_owner, state) = editor.mount();
-    let before = state.doc().text.get_untracked();
-    let after = before.replace("hsts: true", "hsts: false");
-    let ((), counts) = crate::editor::work_count::counted_all(|| {
-        let splices = crate::editor::bridge::links::Splice::per_line(&before, &after);
-        state.commit(Edit::new(before.clone(), (0, 0), after, 0).splicing(splices));
-        pause(state);
-    });
-    let saved = state.sync().host_text.get_value();
-    assert!(!saved.contains("\"hsts\": true"), "saved");
-    counts.to_vec()
+    )
 }
 
+/// A JSON host of `count` keys, each holding a list of two small maps.
+fn small_lists(count: usize) -> String {
+    let host: serde_json::Map<String, serde_json::Value> = (0..count)
+        .map(|at| {
+            (
+                format!("s{at}"),
+                serde_json::json!([{"en": true}, {"en": true}]),
+            )
+        })
+        .collect();
+    format!(
+        "{}\n",
+        serde_json::to_string_pretty(&host).expect("written")
+    )
+}
+
+/// P5: `hsts: true` → `false` over copies of the large sample (nested maps
+/// holding lists and maps); each item's link was compared with the host's
+/// whole text, so twice the copies cost four times the work.
 #[test]
 fn a_replace_all_over_nested_maps_costs_work_in_proportion() {
-    let (small, large) = (replace_all_work(1), replace_all_work(2));
-    let grown: Vec<String> = Work::ALL
-        .iter()
-        .zip(small.iter().zip(&large))
-        .filter(|(_, (small, large))| **large > (**small).max(16) * 5 / 2)
-        .map(|(work, (small, large))| format!("{work:?}: {small} → {large}"))
-        .collect();
+    let [small, large] =
+        [1, 2].map(|copies| replace_all_work(&sample_copies(copies), "hsts: true", "hsts: false"));
+    let grown = grown(&small, &large);
     assert!(
         grown.is_empty(),
         "twice the copies, more than twice the work: {grown:?}"
+    );
+}
+
+/// P5: a Replace all changing every item of many small lists; each key
+/// looked up by its spelling without the list's index scanned the whole
+/// text for an alias.
+#[test]
+fn a_replace_all_over_many_small_lists_costs_work_in_proportion() {
+    let [small, large] =
+        [200, 400].map(|count| replace_all_work(&small_lists(count), "en: true", "en: false"));
+    let grown = grown(&small, &large);
+    assert!(
+        grown.is_empty(),
+        "twice the lists, more than twice the work: {grown:?}"
     );
 }
 
