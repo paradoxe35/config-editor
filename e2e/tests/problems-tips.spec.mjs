@@ -71,7 +71,10 @@ const WITH_DOCS = [
 test.describe('the footer counts warnings apart from errors', () => {
   test('a value the XML view cannot show is a warning, not an error', async ({ page, baseURL }) => {
     await page.addInitScript(() => {
-      window.configEditorSample = 'listen: 1\nallow: []\n';
+      // `self.allow: []` meets the schema; XML writes no empty list. (A
+      // root `allow` would be unknown to the schema, and the view now shows
+      // the host's own problems too.)
+      window.configEditorSample = 'listen: 1\nself:\n  allow: []\n';
     });
     await page.goto(`${baseURL}?language=yaml&edit=xml&sample=page`);
     await page.locator('.config-editor__input').waitFor();
