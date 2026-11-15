@@ -552,7 +552,7 @@ test.describe('diagnostics', () => {
     await e.paste('insecure_plaintext: false\ninsecure_plaintext: true\n');
     await expect.poll(() => e.diagnosticCount()).toBe(1);
     const marker = page.locator('.config-editor__diagnostic-marker').first();
-    await expect(marker).toHaveAttribute('data-message', /duplicate/);
+    await expect(marker).toHaveAttribute('data-message', /written twice/);
     await expect(marker).toHaveAttribute('aria-label', /line 2/);
     await expect(page.locator('.config-editor__line-number-error')).toHaveText(['2']);
   });
