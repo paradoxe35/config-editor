@@ -360,6 +360,9 @@ mod aligned;
 // Keys and values written inline (`{ a = 1 }`, `[a, b]`), the building
 // blocks a language with such containers reads its lines with.
 pub(crate) mod inline;
+// Character columns of a line's tokens, counted once along the line.
+#[cfg(any(feature = "json", feature = "xml"))]
+mod columns;
 // An edit changing one scalar on its line, read off the line alone.
 #[cfg(any(
     feature = "json",

@@ -639,3 +639,25 @@ fn a_place_on_a_string_s_closing_line_is_in_its_field() {
         }
     }
 }
+
+/// The key under the pointer on a long line of inline keys
+/// (`t = { k0 = 1, k1 = 1, … }`) costs the line once: the pointer's byte
+/// was found again for each key (the line's square, P5). Timed, four times
+/// the keys: about four times as long, sixteen when quadratic.
+#[test]
+fn the_key_under_the_pointer_on_a_long_inline_table_costs_the_line_once() {
+    let line = |keys: usize| {
+        let entries: Vec<String> = (0..keys).map(|key| format!("k{key} = 1")).collect();
+        format!("t = {{ {} }}", entries.join(", "))
+    };
+    let (small, large) = (line(2500), line(10_000));
+    let last = |line: &String| line.chars().count() - 8;
+    let growth = crate::editor::test_timing::growth(5, (&small, &large), |line: &String| {
+        TomlBehavior.hover_key(line, last(line))
+    });
+    assert_eq!(
+        TomlBehavior.hover_key(&large, last(&large)).map(|(key, _)| key),
+        Some("k9999".to_string())
+    );
+    assert!(growth.ratio() < 8.0, "2500 keys, then 10000: {growth}");
+}

@@ -135,17 +135,30 @@ fn the_path_after_a_run_of_end_tags_reads_the_text_once() {
 }
 
 /// SP38-4: the path at a caret (and HCL's suggestion context) on a long
-/// HCL line of open lists (`a = [1, [1, …`) costs more than the line:
-/// about 10 times as long at four times the line (`path_at` 3 ms, then
-/// 31-39 ms).
+/// HCL line of open lists (`a = [1, [1, …`) cost about 10 times as long
+/// at four times the line: the keys on the line looked for its end once
+/// per entry.
 #[test]
-#[ignore = "SP38-4 open"]
 fn reading_a_long_hcl_line_of_open_lists_grows_with_it() {
     super::linear::replay(super::linear::LinearCase {
         language: "HCL",
         shape: super::linear::Shape::LongLine,
         breaker: 0,
         unit: 4,
+        carriage_returns: false,
+    });
+}
+
+/// A JSON line of many strings (`"a", "a", …`, not a valid document): the
+/// key under the pointer counted each string's column from the line's
+/// start, the line's square for the caret's path.
+#[test]
+fn reading_a_long_json_line_of_strings_grows_with_it() {
+    super::linear::replay(super::linear::LinearCase {
+        language: "JSON",
+        shape: super::linear::Shape::LongLine,
+        breaker: 0,
+        unit: 3,
         carriage_returns: false,
     });
 }

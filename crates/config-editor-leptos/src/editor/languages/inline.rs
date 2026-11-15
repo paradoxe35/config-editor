@@ -744,8 +744,13 @@ fn skip_blanks(code: &str, from: usize) -> usize {
     loop {
         from += code[from..].len() - code[from..].trim_start().len();
         let comment = code[from..].starts_with('#') || code[from..].starts_with("//");
+        if !comment || !is_comment_start(code, from) {
+            return from;
+        }
+        // The line's end looked for only past a comment: for every entry
+        // it is a read of the rest of a long line.
         let end = line_end(code, from);
-        if !comment || !is_comment_start(code, from) || end == code.len() {
+        if end == code.len() {
             return from;
         }
         from = end;
@@ -772,6 +777,21 @@ mod tests {
 
     fn key(name: &str) -> SchemaPathSegment {
         Key(name.to_string())
+    }
+
+    /// The keys of a long line of open lists (`a = [1, [1, …`, no line
+    /// break) cost the line once: each entry looked for the line's end,
+    /// reading the rest of the line for each (P5). Timed, four times the
+    /// line: about four times as long, sixteen when quadratic.
+    #[test]
+    fn the_keys_of_a_long_line_of_entries_cost_the_line_once() {
+        let line = |entries: usize| format!("a = {}", "[1, ".repeat(entries));
+        let (small, large) = (line(10_000), line(40_000));
+        let growth = crate::editor::test_timing::growth(5, (&small, &large), |code: &String| {
+            inline_keys(code, b'=')
+        });
+        assert!(growth.ratio() < 8.0, "10000 entries, then 40000: {growth}");
+        assert_eq!(inline_keys(&large, b'=').len(), 1);
     }
 
     #[test]

@@ -335,12 +335,13 @@ pub(super) fn property_insert(
 /// is followed by a colon. Returns the token, the unescaped key, and its start
 /// column.
 pub(super) fn key_at_column(line: &str, column: usize) -> Option<(Token, String, usize)> {
+    let mut columns = super::super::columns::Columns::new(line);
     tokenize(line).into_iter().find_map(|token| {
         if !matches!(token.kind, Kind::Str { closed: true }) {
             return None;
         }
-        let start_column = line[..token.start].chars().count();
-        let end_column = start_column + line[token.start..token.end].chars().count();
+        let start_column = columns.at(token.start);
+        let end_column = columns.at(token.end);
         let followed_by_colon = line[token.end..].trim_start().starts_with(':');
         if !(start_column..end_column).contains(&column) || !followed_by_colon {
             return None;

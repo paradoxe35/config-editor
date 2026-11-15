@@ -628,10 +628,12 @@ pub(super) fn key_at_column(line: &str, column: usize) -> Option<(String, usize)
         let end_column = line.trim_end().len();
         return (column >= start_column && column <= end_column).then_some((last, start_column));
     }
+    // The column's byte found once, not again for each key on the line.
+    let byte = byte_at_column(line, column);
     if let Some(entry) = inline_keys(code, b'=')
         .into_iter()
         .skip(1)
-        .find(|entry| (entry.start..entry.end).contains(&byte_at_column(line, column)))
+        .find(|entry| (entry.start..entry.end).contains(&byte))
     {
         let key = unquote_key(&line[entry.start..entry.end]);
         return Some((key, line[..entry.start].chars().count()));
