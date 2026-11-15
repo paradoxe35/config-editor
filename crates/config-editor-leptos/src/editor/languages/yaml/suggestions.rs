@@ -690,7 +690,10 @@ pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionConte
         .chars()
         .take_while(|character| character.is_alphanumeric() || matches!(character, '_' | '-'))
         .collect();
-    let replace_end_byte = if splits { cursor } else { replace_end_byte };
+    // The caret as the content sees it: at the content's start when it is in
+    // the dashes or indentation before it (`-‸ key: 1`).
+    let caret_byte = current_line_start + content_start + cursor_in_content;
+    let replace_end_byte = if splits { caret_byte } else { replace_end_byte };
     // A key typed in the indentation, between its parent's column and its
     // siblings' (`websocket:\n  path: /x\n ke|`): it is written at the
     // siblings' column, and an entry after it on the line goes to its own.
@@ -711,7 +714,7 @@ pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionConte
             replace_start: crate::editor::paths::units_at(source, current_line_start),
             // A lookup while a batch asks many places (a count of the text
             // before it for each was quadratic, QA 36).
-            replace_end: crate::editor::paths::units_at(source, if splits || entry_after_space { cursor + gap } else { replace_end_byte.min(source.len()) }),
+            replace_end: crate::editor::paths::units_at(source, if splits || entry_after_space { caret_byte + gap } else { replace_end_byte.min(source.len()) }),
             entry_prefix: siblings.clone(),
             entry_suffix: if splits || entry_after_space { format!("\n{siblings}") } else { String::new() },
             entry_after: (splits && gap == 0).then_some(word_after),

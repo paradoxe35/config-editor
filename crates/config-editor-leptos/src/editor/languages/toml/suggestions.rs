@@ -28,7 +28,9 @@ pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionConte
     // Inside a table header's brackets (`[web.lets|]`): complete that segment
     // with the tables under the segments before it.
     let header_text = code_before.trim_start();
-    if header_text.starts_with('[') && !header_text.trim_start_matches('[').contains(']') {
+    // The header's text runs up to the caret (not into a comment), so its
+    // parts are offsets back from the caret.
+    if header_text.starts_with('[') && !header_text.trim_start_matches('[').contains(']') && code_before.len() == before_caret.len() {
         let inner = header_text.trim_start_matches('[');
         let (parents, typed) = inner.rsplit_once('.').unwrap_or(("", inner));
         let parents: Vec<&str> = parents.split('.').map(str::trim).filter(|part| !part.is_empty()).collect();
@@ -43,8 +45,7 @@ pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionConte
         // closed and the existing one reopened after the new one.
         let name_after = source[cursor..word_end].to_string();
         let double = header_text.starts_with("[[");
-        let header_start = source[..cursor].rfind('[').map_or(0, |at| at + 1);
-        let segments_before = &source[header_start..cursor - typed.len()];
+        let segments_before = &source[cursor - inner.len()..cursor - typed.len()];
         let (close, open) = if double { ("]]", "[[") } else { ("]", "[") };
         return CompletionContext {
             path: header_path,

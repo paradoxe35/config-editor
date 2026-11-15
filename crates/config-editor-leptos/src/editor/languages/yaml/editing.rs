@@ -144,7 +144,7 @@ pub(super) fn newline_with_indent(source: &str, cursor: usize) -> String {
         if let Some(colon) = mapping_colon(content) {
             let value = content[colon + 1..].trim();
             if opens_children(value) {
-                return format!("\n{indent}{item_indent}{unit}");
+                return format!("\n{}", entries_indent(source, byte_index, &format!("{indent}{item_indent}"), &unit));
             }
             // Mapping inside a sequence item: the next key stays in the same item.
             return format!("\n{indent}{item_indent}");
@@ -154,10 +154,28 @@ pub(super) fn newline_with_indent(source: &str, cursor: usize) -> String {
     if let Some(colon) = mapping_colon(code) {
         let value = code[colon + 1..].trim();
         if opens_children(value) {
-            return format!("\n{indent}{unit}");
+            return format!("\n{}", entries_indent(source, byte_index, &indent, &unit));
         }
     }
     format!("\n{indent}")
+}
+
+/// Where the entries of a node opened on the caret's line (its content at
+/// `owner`'s width) are written: at the indentation of its first entry
+/// below when it has one (`pool:` over `    max: 2` gives four spaces in a
+/// file indented by two elsewhere), else one `unit` past `owner`.
+fn entries_indent(source: &str, caret: usize, owner: &str, unit: &str) -> String {
+    let line_end = source[caret..].find('\n').map_or(source.len(), |at| caret + at);
+    let below = source.get(line_end + 1..).unwrap_or_default().split('\n').find(|line| {
+        let content = line.trim_start_matches([' ', '\t']);
+        !content.trim().is_empty() && !content.starts_with('#')
+    });
+    match below {
+        Some(line) if line.len() - line.trim_start_matches([' ', '\t']).len() > owner.len() => {
+            line[..line.len() - line.trim_start_matches([' ', '\t']).len()].to_string()
+        }
+        _ => format!("{owner}{unit}"),
+    }
 }
 
 /// The indentation of the line Enter opens inside a scalar that may run over

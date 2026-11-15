@@ -719,8 +719,11 @@ fn end_tag_name_context(source: &str, cursor: usize) -> Option<CompletionContext
         tokens.iter().position(in_name)?
     };
     let end = &tokens[index];
-    let name_start = local_name_start(source, end).min(cursor.max(end.start + 2));
-    let name_end = name_start + token_name(source, end).len();
+    // The name ends where its local part does, wherever the caret starts
+    // it (`</‸a:é>` replaces through `é`, not a byte into it).
+    let local_start = local_name_start(source, end);
+    let name_start = local_start.min(cursor.max(end.start + 2));
+    let name_end = local_start + token_name(source, end).len();
     // Its start tag: the last one before it left open.
     let mut depth = 0usize;
     let open = tokens[..index].iter().rev().find(|token| match token.kind {

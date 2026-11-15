@@ -30,14 +30,6 @@ const KNOWN: &[Known] = &[
         class: "an undo step changes nothing",
         finding: "FE38-2 (LOW edge): an edit changing nothing is an undo step",
     },
-    // Ctrl+/ on an XML element holding a comment comments it whole (the
-    // inner comment escaped as `&#45;&#45;`); Ctrl+/ again comments each
-    // line again instead of taking the comment back.
-    Known {
-        properties: &["valid"],
-        class: "comment twice does not give the text back (XML)",
-        finding: "FE38-3 (MEDIUM normal use): an XML block holding a comment cannot be uncommented",
-    },
     // Ctrl+/ on a YAML comment line of prose (`# about 1` above a list
     // item) uncomments it into the item's text; Ctrl+/ again comments
     // the construct it now reads as (two lines), not the line.
@@ -65,51 +57,12 @@ const KNOWN: &[Known] = &[
         class: "move down then up does not give the text back",
         finding: FE38_5,
     },
-    // Enter after a YAML key whose entries are indented more than the
-    // file's unit (`pool:` over `    max: 2` in a two-space file) indents
-    // by the unit: the new entry breaks the block.
-    Known {
-        properties: &["valid"],
-        class: "Enter after a block's opening line, then a new entry, does not read (YAML)",
-        finding: "FE38-6 (MEDIUM normal use?): Enter under a YAML key indents by the file's unit, not by its entries",
-    },
-    // Ctrl+/ on a line of overlapping comment markers (`<!--->`) panics
-    // (`xml::editing::toggle_xml_comments` slices past the markers).
-    Known {
-        properties: &["undo-grouping", "undo-interleaved", "commands"],
-        class: "panic at editor/languages/xml/editing.rs",
-        finding: "FE38-7 (HIGH promise, crash): Ctrl+/ on `<!--->` panics",
-    },
-    // Suggestions in a TOML text whose header ends with a character of
-    // several bytes (`[clients.acmé]`, typed in an Edit-as TOML view)
-    // panic (`toml::style::key_places` cuts the character).
-    Known {
-        properties: &["undo-grouping", "undo-interleaved", "commands"],
-        class: "panic at editor/languages/toml/style.rs",
-        finding: "FE38-8 (HIGH promise, crash): a TOML header ending in a non-ASCII character panics the suggestions",
-    },
     // Enter after a top-level YAML entry below a block indented by eight
     // spaces indents the new line by eight.
     Known {
         properties: &["valid"],
         class: "Enter after an entry, then a new entry, does not read (YAML)",
         finding: "FE38-9 (LOW edge): Enter after a YAML entry below an eight-space block indents by eight",
-    },
-    // Suggestions accepted in an Edit-as TOML view of an HCL host, after
-    // a Backspace in a table's header line, panic
-    // (`toml::suggestions` slices the header backwards).
-    Known {
-        properties: &["undo-grouping", "undo-interleaved", "commands"],
-        class: "panic at editor/languages/toml/suggestions.rs",
-        finding: "FE38-10 (HIGH promise, crash): suggestions in a half-typed TOML header panic",
-    },
-    // Suggestions accepted one after another on a YAML key line panic in
-    // the renamed-key lookup (`completion::elsewhere::written_places`
-    // gets a backward range).
-    Known {
-        properties: &["undo-grouping", "undo-interleaved", "commands"],
-        class: "panic at editor/completion/elsewhere.rs",
-        finding: "FE38-11 (HIGH promise, crash): accepting suggestions in a row on a YAML key line panics",
     },
 ];
 

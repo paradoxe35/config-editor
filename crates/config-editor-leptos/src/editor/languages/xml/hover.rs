@@ -111,7 +111,8 @@ pub(super) fn element_hover_path(source: &str, line_index: usize, column: usize)
         Kind::OpenTag { name_end, .. } if token.start < byte && byte < name_end => Some((index, token.start + 1)),
         Kind::EndTag => {
             let start = token.start + 2;
-            let name_end = start + token_name(source, token).len();
+            // Its local name's end, past any prefix (`</a:b>`).
+            let name_end = local_name_start(source, token) + token_name(source, token).len();
             (start <= byte && byte < name_end).then_some((index, start))
         }
         _ => None,

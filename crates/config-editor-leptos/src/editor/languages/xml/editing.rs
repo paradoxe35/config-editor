@@ -292,6 +292,24 @@ fn xml_line_states(source: &str) -> (Vec<LineState>, Vec<usize>) {
     (starts, lowest)
 }
 
+/// Whether a trimmed line is one comment: its markers around its text,
+/// apart (`<!--->` opens one holding `->`, with no `-->` of its own).
+fn wrapped_in_comment(trimmed: &str) -> bool {
+    trimmed.len() >= "<!---->".len() && trimmed.starts_with("<!--") && trimmed.ends_with("-->")
+}
+
+/// The selection `start..end` (bytes) moved inside a comment's markers
+/// it starts or ends on (`‸<!-- a … b -->‸` gives `a … b`).
+fn inside_markers(source: &str, start: usize, end: usize) -> (usize, usize) {
+    let rest = &source[start..];
+    let lead = rest.len() - rest.trim_start_matches([' ', '\t']).len();
+    let start = if rest[lead..].starts_with("<!--") { start + lead + 4 } else { start };
+    let before = &source[..end];
+    let before = before.strip_suffix('\n').unwrap_or(before).trim_end_matches([' ', '\t', '\r']);
+    let end = if before.ends_with("-->") { before.len() - 3 } else { end };
+    (start, end.max(start))
+}
+
 pub(super) fn toggle_xml_comments(
     source: &str,
     selection_start: usize,
@@ -299,11 +317,13 @@ pub(super) fn toggle_xml_comments(
 ) -> Option<(String, usize, usize)> {
     let start = utf16_to_byte_index(source, selection_start);
     let end = utf16_to_byte_index(source, selection_end);
-    // Inside an existing comment spanning lines: remove that comment (a
-    // comment cannot contain another).
-    if let Some(open) = source[..start].rfind("<!--")
-        && !source[open..start].contains("-->")
-        && let Some(close) = source[end..].find("-->").map(|offset| end + offset)
+    // Inside an existing comment spanning lines, or over it whole with its
+    // markers (as the toggle that wrote it leaves the selection): remove
+    // that comment (a comment cannot contain another).
+    let (inside_start, inside_end) = inside_markers(source, start, end);
+    if let Some(open) = source[..inside_start].rfind("<!--")
+        && !source[open..inside_start].contains("-->")
+        && let Some(close) = source[inside_end..].find("-->").map(|offset| inside_end + offset)
         && source[open..close].contains('\n')
         // One comment from start to end, not two per-line ones.
         && !source[open + 4..close].contains("-->")
@@ -362,7 +382,7 @@ pub(super) fn toggle_xml_comments(
         .filter_map(|line| {
             let body = line.trim_end_matches('\n').trim_end_matches('\r');
             let trimmed = body.trim();
-            (!trimmed.is_empty()).then(|| trimmed.starts_with("<!--") && trimmed.ends_with("-->"))
+            (!trimmed.is_empty()).then(|| wrapped_in_comment(trimmed))
         })
         .all(|commented| commented);
     // Only unwrap when every selected line is wrapped on its own line; a
@@ -370,7 +390,7 @@ pub(super) fn toggle_xml_comments(
     if !uncomment
         && selected.iter().any(|line| {
             let trimmed = line.trim_end_matches('\n').trim_end_matches('\r').trim();
-            !trimmed.is_empty() && trimmed.starts_with("<!--") && trimmed.ends_with("-->")
+            wrapped_in_comment(trimmed)
         })
     {
         return wrap_xml_selection(source, start, end);
@@ -392,31 +412,35 @@ pub(super) fn toggle_xml_comments(
                 let before_close = &trimmed[..trimmed.len() - 3];
                 let close = 3 + usize::from(before_close.len() > open && before_close.ends_with(' '));
                 let raw = &trimmed[open..trimmed.len() - close];
-                let inner = unescape_comment_text(raw);
-                let inner = inner.as_str();
-                // The markers are separate edits, so a caret inside the line stays put.
+                let (inner, changes) = unescaped_comment_text(raw);
+                // The markers are separate edits, so a caret inside the line
+                // stays put; each unescape and the line's trailing blanks
+                // (dropped) are edits too.
+                let trailing = body.len() - indent_len - trimmed.len();
                 edits.push((offset + indent_len, open, 0));
-                for (at, _) in raw.match_indices(ESCAPED_DASHES) {
-                    edits.push((offset + indent_len + open + at, ESCAPED_DASHES.len(), 2));
+                for (at, removed, inserted) in changes {
+                    edits.push((offset + indent_len + open + at, removed, inserted));
                 }
                 edits.push((offset + indent_len + trimmed.len() - close, close, 0));
+                edits.push((offset + indent_len + trimmed.len(), trailing, 0));
                 updated.push_str(&line[..indent_len]);
-                updated.push_str(inner);
+                updated.push_str(&inner);
                 updated.push_str(&line[body.len()..]);
             } else {
                 let indent_len = body.len() - body.trim_start().len();
                 let trimmed = body.trim();
+                let trailing = body.len() - indent_len - trimmed.len();
+                let (escaped, changes) = escaped_comment_text(trimmed);
                 edits.push((offset + indent_len, 0, 5));
-                // Each escaped `--` grows the line (see `escape_comment_text`).
-                let mut from = 0;
-                while let Some(at) = trimmed[from..].find("--") {
-                    edits.push((offset + indent_len + from + at, 2, ESCAPED_DASHES.len()));
-                    from += at + 2;
+                // Each escape grows the line, the trailing blanks go.
+                for (at, removed, inserted) in changes {
+                    edits.push((offset + indent_len + at, removed, inserted));
                 }
                 edits.push((offset + indent_len + trimmed.len(), 0, 4));
+                edits.push((offset + indent_len + trimmed.len(), trailing, 0));
                 updated.push_str(&line[..indent_len]);
                 updated.push_str("<!-- ");
-                updated.push_str(&escape_comment_text(trimmed));
+                updated.push_str(&escaped);
                 updated.push_str(" -->");
                 updated.push_str(&line[body.len()..]);
             }
@@ -479,44 +503,65 @@ pub(super) fn wrap_xml_selection(source: &str, start: usize, end: usize) -> Opti
 /// holding a comment (`<!-- c -->`) or `--` stays valid XML.
 const ESCAPED_DASHES: &str = "&#45;&#45;";
 
-/// `text` to put inside a comment the editor writes.
-pub(super) fn escape_comment_text(text: &str) -> String {
-    // `&` starting what the unescape reads (`&#45;`, `&amp;`) is escaped
-    // too, so text already holding them comes back exactly.
-    let mut escaped = String::with_capacity(text.len());
-    let mut rest = text;
-    while let Some(character) = rest.chars().next() {
-        if rest.starts_with("--") {
-            escaped.push_str(ESCAPED_DASHES);
-            rest = &rest[2..];
-        } else if rest.starts_with("&#45;") || rest.starts_with("&amp;") {
-            escaped.push_str("&amp;");
-            rest = &rest[1..];
+/// A change at a byte of a text: (where, bytes removed, bytes inserted).
+type Change = (usize, usize, usize);
+
+/// `text` with what `step` replaces at the start of its rest (the bytes it
+/// takes and what it writes for them), and each replacement as a change.
+fn rewritten(text: &str, step: impl Fn(&str) -> Option<(usize, &'static str)>) -> (String, Vec<Change>) {
+    let mut out = String::with_capacity(text.len());
+    let mut changes = Vec::new();
+    let mut at = 0;
+    while let Some(character) = text[at..].chars().next() {
+        if let Some((taken, written)) = step(&text[at..]) {
+            changes.push((at, taken, written.len()));
+            out.push_str(written);
+            at += taken;
         } else {
-            escaped.push(character);
-            rest = &rest[character.len_utf8()..];
+            out.push(character);
+            at += character.len_utf8();
         }
     }
-    escaped
+    (out, changes)
+}
+
+/// `text` to put inside a comment the editor writes, and its changes.
+fn escaped_comment_text(text: &str) -> (String, Vec<Change>) {
+    // `&` starting what the unescape reads (`&#45;`, `&amp;`) is escaped
+    // too, so text already holding them comes back exactly.
+    rewritten(text, |rest| {
+        if rest.starts_with("--") {
+            Some((2, ESCAPED_DASHES))
+        } else if rest.starts_with("&#45;") || rest.starts_with("&amp;") {
+            Some((1, "&amp;"))
+        } else {
+            None
+        }
+    })
+}
+
+/// The text of a comment the editor wrote, as it was before, and its
+/// changes.
+fn unescaped_comment_text(text: &str) -> (String, Vec<Change>) {
+    rewritten(text, |rest| {
+        if rest.starts_with("&#45;") {
+            Some((5, "-"))
+        } else if rest.starts_with("&amp;") {
+            Some((5, "&"))
+        } else {
+            None
+        }
+    })
+}
+
+/// `text` to put inside a comment the editor writes.
+pub(super) fn escape_comment_text(text: &str) -> String {
+    escaped_comment_text(text).0
 }
 
 /// The text of a comment the editor wrote, as it was before.
 pub(super) fn unescape_comment_text(text: &str) -> String {
-    let mut plain = String::with_capacity(text.len());
-    let mut rest = text;
-    while let Some(character) = rest.chars().next() {
-        if let Some(after) = rest.strip_prefix("&#45;") {
-            plain.push('-');
-            rest = after;
-        } else if let Some(after) = rest.strip_prefix("&amp;") {
-            plain.push('&');
-            rest = after;
-        } else {
-            plain.push(character);
-            rest = &rest[character.len_utf8()..];
-        }
-    }
-    plain
+    unescaped_comment_text(text).0
 }
 
 /// The open attribute quote at the caret and whether it is in a comment:

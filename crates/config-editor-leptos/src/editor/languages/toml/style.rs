@@ -225,9 +225,11 @@ fn key_places(source: &str) -> KeyPlaces {
         if let Some((segments, _)) = parse_header(code) {
             if let Some(open) = code.find(|character: char| character != '[' && !character.is_whitespace())
                 && let Some(close) = code.rfind(|character: char| character != ']' && !character.is_whitespace())
+                // Through the last character, whole (`[clients.acmé]`).
+                && let Some(inner) = code.get(open..close + code[close..].chars().next().map_or(0, char::len_utf8))
             {
                 for depth in 0..segments.len() {
-                    if let Some((start, end)) = segment_range(&code[open..close + 1], depth) {
+                    if let Some((start, end)) = segment_range(inner, depth) {
                         found.entry(segments[..=depth].to_vec()).or_default().push((offset + open + start, offset + open + end));
                     }
                 }

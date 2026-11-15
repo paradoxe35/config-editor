@@ -12,6 +12,7 @@ mod commands;
 mod convert;
 mod docs;
 mod folds;
+mod hooks;
 mod known;
 mod replace;
 mod repros;

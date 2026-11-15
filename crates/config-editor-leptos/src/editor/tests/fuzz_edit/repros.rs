@@ -13,7 +13,6 @@ use crate::editor::test_state::TestEditor;
 
 /// FE38-7: Ctrl+/ on a line holding overlapping comment markers panics.
 #[test]
-#[ignore = "FE38-7 open"]
 fn toggling_an_xml_line_of_overlapping_comment_markers_does_not_panic() {
     for text in ["<!--->", "<!--->\n", "<a/>\n<!--->\n"] {
         let _ = Language::XML.behavior().toggle_comments(text, 0, 0);
@@ -23,7 +22,6 @@ fn toggling_an_xml_line_of_overlapping_comment_markers_does_not_panic() {
 /// FE38-8: suggestions in a TOML view whose header ends with a character
 /// of several bytes panic (`toml::style::key_places` cuts it in half).
 #[test]
-#[ignore = "FE38-8 open"]
 fn suggestions_beside_a_toml_header_ending_in_non_ascii_do_not_panic() {
     super::undo::replay(super::undo::UndoCase {
         host: Language::YAML,
@@ -68,7 +66,6 @@ fn moving_a_line_down_to_the_end_keeps_the_caret_in_the_text() {
 /// FE38-3: Ctrl+/ twice on an XML element holding a comment gives the
 /// text back.
 #[test]
-#[ignore = "FE38-3 open"]
 fn an_xml_element_holding_a_comment_is_commented_and_uncommented() {
     let text = "<a>1</a>\n<c>\n  <!-- n -->\n  <b>2</b>\n</c>\n";
     let behavior = Language::XML.behavior();
@@ -105,7 +102,6 @@ fn a_replace_changing_nothing_is_no_undo_step() {
 /// FE38-6: Enter after a YAML block's opening line indents to where its
 /// entries are written (four spaces in a file indented by two elsewhere).
 #[test]
-#[ignore = "FE38-6 open"]
 fn enter_after_a_yaml_key_indents_to_its_entries() {
     super::valid::replay(super::valid::ValidCase {
         language: Language::YAML,
@@ -153,7 +149,6 @@ fn a_yaml_comment_of_prose_is_uncommented_and_commented_back() {
 
 /// FE38-10: suggestions in a half-typed TOML header do not panic.
 #[test]
-#[ignore = "FE38-10 open"]
 fn suggestions_in_a_half_typed_toml_header_do_not_panic() {
     super::undo::replay(super::undo::UndoCase {
         host: Language::HCL,
@@ -174,10 +169,83 @@ fn suggestions_in_a_half_typed_toml_header_do_not_panic() {
     });
 }
 
+/// The hooks sweep: suggestions in an XML end tag whose local name, past
+/// a prefix, is a character of several bytes, the caret before the prefix.
+#[test]
+fn suggestions_before_a_prefixed_wide_end_tag_name_do_not_panic() {
+    super::hooks::replay(super::hooks::HookCase {
+        language: Language::XML,
+        text: "<b</:é".into(),
+        at: 5113420,
+    });
+}
+
+/// The scale run: Ctrl+/ in an Edit-as XML view after random edits
+/// with a character of several bytes in it.
+#[test]
+fn commenting_xml_lines_after_wide_typing_does_not_panic() {
+    super::undo::replay(super::undo::UndoCase {
+        host: Language::YAML,
+        view: Some(Language::XML),
+        schema: false,
+        text: "allow:\n  x_1:\n    a: false\n  name: web\n  allow:\n    - 24860\n    - host\nb: false\n".into(),
+        interleaved: false,
+        actions: vec![
+            Enter { at: 9288228 },
+            Tab {
+                at: 16399464,
+                to: 16399464,
+                shift: true,
+            },
+            Line {
+                at: 14993907,
+                to: 14993907,
+                command: 1,
+            },
+            LineBelow { at: 10680625 },
+            ReplaceAll {
+                query: "^ +",
+                with: "",
+                options: 7,
+            },
+            ReplaceOne {
+                query: "x_1",
+                with: "p",
+                options: 7,
+                index: 3,
+            },
+            ReplaceAll {
+                query: "[0-9]+",
+                with: "",
+                options: 7,
+            },
+            Enter { at: 11165439 },
+            ReplaceAll {
+                query: "e",
+                with: "$0-",
+                options: 1,
+            },
+            Type {
+                at: 12957977,
+                text: "é",
+            },
+            LineBelow { at: 12237063 },
+            Enter { at: 14723974 },
+            Type {
+                at: 7113092,
+                text: "{",
+            },
+            Comment {
+                at: 12577518,
+                to: 12577518,
+            },
+        ],
+    });
+}
+
 /// FE38-11: suggestions accepted in a row on a YAML key line do not
 /// panic.
 #[test]
-#[ignore = "FE38-11 open"]
 fn suggestions_accepted_in_a_row_do_not_panic() {
     super::undo::replay(super::undo::UndoCase {
         host: Language::YAML,
