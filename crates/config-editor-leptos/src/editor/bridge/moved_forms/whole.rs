@@ -176,7 +176,15 @@ fn write(
             }
             (now, written)
         }
-        _ => return None,
+        // An item its source writes sharing its line (in a map written
+        // inline), now on lines of its own (the save wrote its new
+        // container over lines): its source's text from its key to its
+        // value's end, over the same part of its place.
+        (Place::Lines(_), Place::Inline(was)) => {
+            let now = inline(host, text, &item.to)?;
+            let written = renamed(&was, &now)?;
+            (now, written)
+        }
     };
     (text.text[now.clone()] != written).then_some((now, written))
 }
@@ -326,14 +334,6 @@ pub(super) fn kept(
             now.is_none() || now == changed
         }
     };
-    // The outermost items (`moved` is in pointer order: an item before
-    // the ones inside it), all at once.
-    let mut outer: Vec<&Moved<'_>> = Vec::new();
-    for item in moved {
-        if !outer.last().is_some_and(|last| inside(&item.to, &last.to)) {
-            outer.push(item);
-        }
-    }
     // Each text's spans read once (see `paths::with_spans`).
     let spans_of = |text: &str, from: bool| -> Vec<String> {
         moved
@@ -394,13 +394,20 @@ pub(super) fn kept(
         let lines = Lines::of(&saved);
         moved.iter().map(|item| write(&lines, item)).collect()
     });
-    let inside_outer = |item: &Moved<'_>| outer.iter().any(|outer| std::ptr::eq(*outer, item));
-    let mut writes: Vec<(Range<usize>, String)> = moved
-        .iter()
-        .zip(&all_writes)
-        .filter(|(item, _)| inside_outer(item))
-        .filter_map(|(_, write)| write.clone())
-        .collect();
+    // The outermost items with a write, all at once (`moved` is in
+    // pointer order: an item before the ones inside it). An item inside
+    // one with none (a new map the links name, written anew) is written
+    // on its own.
+    let mut outer: Vec<&str> = Vec::new();
+    let mut writes: Vec<(Range<usize>, String)> = Vec::new();
+    for (item, write) in moved.iter().zip(&all_writes) {
+        if let Some(write) = write
+            && !outer.iter().any(|outer| inside(&item.to, outer))
+        {
+            outer.push(&item.to);
+            writes.push(write.clone());
+        }
+    }
     writes.sort_by_key(|(range, _)| std::cmp::Reverse(range.start));
     let apart = writes
         .windows(2)

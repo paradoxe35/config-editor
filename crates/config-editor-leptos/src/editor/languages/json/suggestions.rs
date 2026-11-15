@@ -304,13 +304,13 @@ pub(super) fn property_insert(
                 caret = Some(insert.len() - 1);
             }
         }
-    } else if let Some(branch) = object_branch(property, root) {
+    } else if object_branch(property, root).is_some() {
         match written_default(property, root)
             .filter(|value| !value.as_object().is_some_and(Map::is_empty))
         {
             Some(default) => insert.push_str(&json_text(default)),
             None => {
-                let children = required_children(&JsonBehavior, branch, root);
+                let children = required_children(&JsonBehavior, property, root);
                 if children.is_empty() {
                     insert.push_str("{}");
                     caret = Some(insert.len() - 1);

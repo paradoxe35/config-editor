@@ -35,9 +35,11 @@ pub(super) fn first_mismatch(
         return Some(Mismatch::Value("/".to_string()));
     };
     let mut read = host.spelled_like(saved.text, read, target);
+    // Only a text a reader takes for the number it stands for.
     for (pointer, text) in saved.as_text {
         if let (Some(slot), Some(number)) = (read.pointer_mut(pointer), target.pointer(pointer))
             && slot.as_str() == Some(text.as_str())
+            && super::typed_spellings::text_reads_as_number(text, number)
         {
             *slot = number.clone();
         }

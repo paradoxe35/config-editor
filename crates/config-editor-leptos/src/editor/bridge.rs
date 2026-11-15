@@ -309,6 +309,7 @@ impl Bridge {
                     unshown: &unshown,
                     repetition: self.edit.behavior().repetition(),
                     moves: moved,
+                    host_repetition: host.repetition(),
                 },
             )
             .map_err(|pointer| {

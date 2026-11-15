@@ -649,6 +649,24 @@ fn check_forms(
         let line = line_text(view_text, span.line)?;
         Some(characters(line, span.start_column - 1, span.end_column - 1))
     };
+    // A map the view holds (at `pointer`) with its keys in another order
+    // than the start held it (at `from`).
+    let reordered = |pointer: &str, from: &str| match (
+        start.value.pointer(from),
+        view_value.as_ref().and_then(|value| value.pointer(pointer)),
+    ) {
+        (Some(Value::Object(was)), Some(Value::Object(is))) => {
+            let order = |map: &serde_json::Map<String, Value>,
+                         other: &serde_json::Map<String, Value>| {
+                map.keys()
+                    .filter(|key| other.contains_key(*key))
+                    .cloned()
+                    .collect::<Vec<_>>()
+            };
+            order(was, is) != order(is, was)
+        }
+        _ => false,
+    };
     let users_own = |pointer: &str| {
         let respelled = now
             .pointer(pointer)
@@ -656,23 +674,7 @@ fn check_forms(
             && view_spans(pointer).is_some_and(|spelled| {
                 !spelled.trim().is_empty() && !start.shown_values.borrow().contains(spelled.trim())
             });
-        let reordered = match (
-            start.value.pointer(pointer),
-            view_value.as_ref().and_then(|value| value.pointer(pointer)),
-        ) {
-            (Some(Value::Object(was)), Some(Value::Object(is))) => {
-                let order = |map: &serde_json::Map<String, Value>,
-                             other: &serde_json::Map<String, Value>| {
-                    map.keys()
-                        .filter(|key| other.contains_key(*key))
-                        .cloned()
-                        .collect::<Vec<_>>()
-                };
-                order(was, is) != order(is, was)
-            }
-            _ => false,
-        };
-        respelled || reordered
+        respelled || reordered(pointer, pointer)
     };
     let before = &start.forms;
     // Anchors and aliases whose values all stay may not be written out.
@@ -785,8 +787,11 @@ fn check_forms(
             .iter()
             .filter_map(|other| before.get(other))
             .collect();
+        // A moved map whose keys the user put in another order is theirs.
+        let reordered_moved = candidates.iter().any(|from| reordered(&pointer, from));
         if !textless
             && !users_own(&pointer)
+            && !reordered_moved
             && !sources.is_empty()
             && !sources.contains(&form)
             && !sources.iter().any(|was| changed_anchor(was))

@@ -286,3 +286,46 @@ fn a_key_renamed_onto_a_typed_one_saves_as_the_view_reads_it() {
         json!({"size": true}),
     );
 }
+
+/// P1: a value no message may quote under one reading (a secret deep in
+/// one `anyOf` option) is not quoted under another (the other option
+/// reads its field as a list, so XML reads the element as a list of one).
+#[test]
+fn a_secret_one_option_marks_is_not_quoted_where_another_reads_a_list() {
+    holds_everywhere(
+        super::secrets::check,
+        json!({"properties": {"b": {"anyOf": [
+            {"properties": {"name": {"type": "object",
+                "properties": {"name": {"properties": {"name": {"writeOnly": true}}}}}}},
+            {"required": ["name"], "properties": {"name": {"type": "array",
+                "prefixItems": [{"type": "null"}]}}}]}}}),
+        json!({"b": {"name": {"name": {"name": "sekret1q676"}}}}),
+        Value::Null,
+    );
+}
+
+/// A fill writes the keys an `allOf` member requires, beside a member
+/// whose options say nothing of them.
+#[test]
+fn a_fill_writes_the_keys_an_all_of_member_requires() {
+    holds_everywhere(
+        super::fill::check,
+        json!({"properties": {"d": {"allOf": [{"anyOf": [{"properties": {}}]},
+            {"required": ["size"]}]}}}),
+        json!({"d": {"size": null}}),
+        Value::Null,
+    );
+}
+
+/// P2: a host block the schema reads as a list of one (HCL `x_two { … }`
+/// under `type: array`) does not make the save write a list where the
+/// view holds an object.
+#[test]
+fn a_block_read_as_a_list_of_one_does_not_make_an_object_a_list() {
+    holds_everywhere(
+        super::edit_as::check,
+        json!({"properties": {"x_two": {"type": "array"}}}),
+        json!({"b": false, "x_two": {"name": false}}),
+        json!({"b": false, "name": {"b": false}}),
+    );
+}

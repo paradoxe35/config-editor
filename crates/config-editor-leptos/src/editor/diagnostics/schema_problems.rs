@@ -5,6 +5,7 @@
 use jsonschema::error::{ValidationError, ValidationErrorKind};
 use serde_json::Value;
 
+use super::fields::Secrets;
 use super::specific::{Explanations, specific_errors};
 use super::{
     Diagnostic, Fields, MAX_DIAGNOSTICS, ProblemKey, SchemaBundle, Severity, accepted_pointers,
@@ -35,15 +36,7 @@ pub(super) fn found(
     strings: &EditorStrings,
 ) -> (Vec<(ProblemKey, Diagnostic)>, bool) {
     let placeholders = Fields::new(accepted_pointers(reading.document, accepted));
-    let secrets = Fields::new(if schema.has_marks {
-        crate::editor::protect::secret_pointers(
-            reading.document,
-            &schema.schema,
-            reading.behavior.repetition() != crate::editor::language::Repetition::None,
-        )
-    } else {
-        Vec::new()
-    });
+    let secrets = secrets(reading, schema);
     // Infinities and NaN are numbers to the schema (see `non_finite`).
     use crate::editor::codec::non_finite::{StandIn, for_validation};
     let validated = for_validation(reading.document, StandIn::Bounds);
@@ -287,4 +280,51 @@ pub(super) fn found(
             .collect::<Vec<_>>()
     });
     (found, complete)
+}
+
+/// The secrets of `reading`'s value the schema marks. Where the language
+/// writes a list of one as its item, the value read with every list of
+/// one as its item is walked too: a field one option reads as a list
+/// (so the reader made it one) is a secret's under another option, and
+/// its text is hidden wherever a message quotes it.
+fn secrets(reading: Reading<'_>, schema: &SchemaBundle) -> Secrets {
+    if !schema.has_marks {
+        return Secrets::new(&[]);
+    }
+    let repeats_arrays = reading.behavior.repetition() != crate::editor::language::Repetition::None;
+    let marked = |document: &Value| {
+        crate::editor::protect::secret_pointers(document, &schema.schema, repeats_arrays)
+    };
+    let mut readings = vec![(reading.document, marked(reading.document))];
+    let lone = repeats_arrays
+        .then(|| lone_items(reading.document))
+        .flatten();
+    if let Some(lone) = &lone {
+        readings.push((lone, marked(lone)));
+    }
+    Secrets::new(&readings)
+}
+
+/// `value` with each list of one read as its item, when it holds one.
+fn lone_items(value: &Value) -> Option<Value> {
+    fn holds_one(value: &Value) -> bool {
+        match value {
+            Value::Array(items) => items.len() == 1 || items.iter().any(holds_one),
+            Value::Object(map) => map.values().any(holds_one),
+            _ => false,
+        }
+    }
+    fn lone(value: &Value) -> Value {
+        match value {
+            Value::Array(items) if items.len() == 1 => lone(&items[0]),
+            Value::Array(items) => Value::Array(items.iter().map(lone).collect()),
+            Value::Object(map) => Value::Object(
+                map.iter()
+                    .map(|(key, child)| (key.clone(), lone(child)))
+                    .collect(),
+            ),
+            scalar => scalar.clone(),
+        }
+    }
+    holds_one(value).then(|| lone(value))
 }

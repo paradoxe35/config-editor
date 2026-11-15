@@ -322,8 +322,10 @@ fn spelled(
     } else {
         typed
     };
-    // A host whose values are all text holds a number as typed.
-    let reads = host.scalar_reads_as(typed, value) || host.scalars_are_text() && value.is_number();
+    // A host whose values are all text holds a number as typed, when a
+    // reader takes that text for the number (`4.10`, not TOML's `47_2`).
+    let reads = host.scalar_reads_as(typed, value)
+        || host.scalars_are_text() && text_reads_as_number(typed, value);
     (!typed.is_empty() && written != typed && reads).then(|| typed.to_string())
 }
 
@@ -347,4 +349,23 @@ fn unquoted<'a>(edit: &dyn ConfigLanguage, typed: &'a str) -> Option<&'a str> {
         .chars()
         .any(|character| matches!(character, '\\' | '\n') || flow.quote(character).is_some());
     plain.then_some(inner)
+}
+
+/// Whether `text`, a value of a host whose values are all text, is
+/// `number` written in decimal (`4.10`, `1e3`): what a reader takes for
+/// it where a number is wanted. Another language's spelling (`47_2`,
+/// `0x1F`) is other text there.
+pub(super) fn text_reads_as_number(text: &str, number: &Value) -> bool {
+    let Some(number) = number.as_number() else {
+        return false;
+    };
+    // An integer exactly (past 2^53 a float would take a neighbour too).
+    let integer = !number.is_f64();
+    crate::editor::decimal_text::decimal(text.trim(), integer).is_some_and(|read| {
+        match (integer, read.as_number()) {
+            (true, Some(read)) => read == number,
+            (false, Some(read)) => read.as_f64() == number.as_f64(),
+            _ => false,
+        }
+    })
 }

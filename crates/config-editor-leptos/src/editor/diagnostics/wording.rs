@@ -8,6 +8,7 @@
 use jsonschema::error::{ValidationError, ValidationErrorKind};
 use serde_json::Value;
 
+use super::fields::Secrets;
 use super::{Explanations, Fields};
 use crate::EditorStrings;
 use crate::strings::fill;
@@ -36,9 +37,9 @@ pub(in crate::editor) struct Wording<'a> {
     /// The schema the validator was built from (`$ref`s as pointers).
     pub root: &'a Value,
     pub strings: &'a EditorStrings,
-    /// The secret fields: a value one of them or inside one is never
-    /// quoted, and one holding one is quoted with each hidden.
-    pub secrets: &'a Fields,
+    /// The secrets: a value one of them or inside one is never quoted,
+    /// and one holding one is quoted with each hidden.
+    pub secrets: &'a Secrets,
     /// The host's placeholders: an item holding one is told repeated in
     /// a list by no message (see `placeholders`).
     pub placeholders: &'a Fields,
@@ -164,28 +165,23 @@ impl Wording<'_> {
     /// `value` (at `pointer`) as a message quotes it: "the secret value"
     /// for a secret field's, each secret inside it hidden, cut when long.
     pub(in crate::editor) fn value_at(&self, pointer: &str, value: &Value) -> String {
-        if self.secrets.holds(pointer) {
+        if self.secrets.holds(pointer, value) {
             return self.strings.secret_value.clone();
         }
-        if !self.secrets.any_within(pointer) {
+        if !self.secrets.touches(pointer, value) {
             return cut(&value.to_string());
         }
-        let mut hidden = value.clone();
-        for inner in self.secrets.within(pointer) {
-            if let Some(slot) = hidden.pointer_mut(&inner[pointer.len()..]) {
-                *slot = Value::from(SECRET_MARK);
-            }
-        }
-        cut(&hidden.to_string().replace(
-            &Value::from(SECRET_MARK).to_string(),
-            &self.strings.secret_value,
-        ))
+        let mark = Value::from(SECRET_MARK);
+        let hidden = self.secrets.hidden(pointer, value, &mark);
+        cut(&hidden
+            .to_string()
+            .replace(&mark.to_string(), &self.strings.secret_value))
     }
 
     /// Whether the value of `error` is a secret or holds one.
     fn holds_secret(&self, error: &ValidationError<'_>) -> bool {
-        let path = error.instance_path().as_str();
-        self.secrets.holds(path) || self.secrets.any_within(path)
+        self.secrets
+            .touches(error.instance_path().as_str(), error.instance())
     }
 
     /// The validator's own message for `error`, the value it starts with

@@ -138,6 +138,12 @@ pub(super) const KNOWN: &[Known] = &[
         class: "a fill writes a value its schema refuses (oneOf)",
         applies: |case| overlapping_one_of(&case.schema),
     },
+    Known {
+        finding: "FZ38-10",
+        property: "suggestions",
+        class: "a suggested key writes a value its schema refuses (oneOf)",
+        applies: |case| overlapping_one_of(&case.schema),
+    },
     // XML writes no list of lists, nor an empty list in one: the items of
     // an inner list are items of the outer one, and an empty one is not
     // written, so a secret after them is read at another index (`[[],
@@ -196,6 +202,15 @@ pub(super) const KNOWN: &[Known] = &[
     // An empty XML element (`<a/>`) is an empty object where an object may
     // be (`<cloudflare/>` starts one): where the schema also takes an empty
     // text there, a document written with that text reads otherwise.
+    // XML writes a list of one as its lone item: where no schema says
+    // the value is a list, it reads as that item (an object), which an
+    // object's keywords (`required`) judge, as they do not the list.
+    Known {
+        finding: "documented: XML reads a list of one as its item where no schema says list",
+        property: "validation",
+        class: "XML reads a valid document as an invalid one",
+        applies: |case| one_item_list(&case.doc) && !mentions_lists(&case.schema),
+    },
     Known {
         finding: "documented: an empty XML element reads as an empty object",
         property: "validation",
@@ -421,6 +436,27 @@ fn empty_text(value: &Value) -> bool {
 /// Whether `schema` marks some field deprecated.
 fn deprecates(schema: &Value) -> bool {
     schema.to_string().contains("\"deprecated\":true")
+}
+
+/// Whether `schema` says anything of a list (its type, its items).
+fn mentions_lists(schema: &Value) -> bool {
+    let mut found = false;
+    walk(schema, &mut |node| {
+        found |= node
+            .get("type")
+            .is_some_and(|kind| kind.to_string().contains("array"))
+            || [
+                "items",
+                "prefixItems",
+                "contains",
+                "minItems",
+                "maxItems",
+                "uniqueItems",
+            ]
+            .iter()
+            .any(|keyword| node.get(*keyword).is_some());
+    });
+    found
 }
 
 /// Whether `value` holds a list of one item.

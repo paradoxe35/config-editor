@@ -42,6 +42,10 @@ pub(super) struct View<'a> {
     /// Whether keys the edit holds in another order than it showed them
     /// were moved by the user, not by the edit language's writer.
     pub(super) moves: bool,
+    /// How the host repeats items for a list: one that writes a list of
+    /// one as its item (an HCL block) reads it as a list only where the
+    /// schema says so, under its key.
+    pub(super) host_repetition: Repetition,
 }
 
 /// Whether the keys `edited` holds in another order than `seen` were moved
@@ -212,6 +216,20 @@ fn merge_at(
                             host_value.clone()
                         } else {
                             merge_at(host_value, seen_value, value, &child(to), view)?
+                        };
+                        // A list of one a host that writes it as its item
+                        // (an HCL block) reads so under the old key's
+                        // schema is the item under the new key, where the
+                        // edit holds no list.
+                        let merged = match merged {
+                            Value::Array(mut items)
+                                if items.len() == 1
+                                    && view.host_repetition != Repetition::None
+                                    && !value.is_array() =>
+                            {
+                                items.remove(0)
+                            }
+                            merged => merged,
                         };
                         entries.push(((*to).clone(), merged));
                     }

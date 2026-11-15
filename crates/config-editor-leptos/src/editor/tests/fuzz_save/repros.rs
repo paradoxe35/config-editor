@@ -1930,3 +1930,62 @@ fn a_key_pasted_back_into_a_flow_map_keeps_its_spelling() {
         ],
     );
 }
+
+/// P2: a number typed in a spelling a text host reads as other text (TOML's `47_2`) is saved in the host's own form (`472`).
+#[test]
+fn a_number_spelled_as_a_text_host_cannot_read_saves_in_its_own_form() {
+    replay(
+        Language::XML,
+        Language::TOML,
+        "<root xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" xmlns:p=\"urn:p\">\n  <alpha>\n    <k1>\n      <item>b</item>\n    </k1>\n    <k2 xsi:type=\"File\" name=\"f\"/>\n    <k3>42</k3>\n  </alpha>\n  <beta>\n    <k5>42</k5>\n    <k6><![CDATA[x < y]]></k6> <!-- note 7 -->\n  </beta>\n  <gamma>\n    <k7>42</k7> <!-- note 9 -->\n    <k8 a=\"1\" b=\"x\"/>\n    <k9>\n      <item>b</item>\n    </k9>\n  </gamma>\n  <delta>\n    <p:k10>v</p:k10>\n    <k11><![CDATA[x < y]]></k11>\n  </delta>\n</root>\n",
+        &[
+            Op::Type {
+                line: 40,
+                column: 1001,
+                text: "7",
+            },
+            Op::Type {
+                line: 40,
+                column: 1001,
+                text: "_",
+            },
+        ],
+    );
+}
+
+/// P3: a table moved by renaming its TOML header (into a parent the host
+/// does not have) keeps its source's inline form.
+#[test]
+fn a_table_moved_by_renaming_its_header_keeps_its_inline_form() {
+    replay(
+        Language::HCL,
+        Language::TOML,
+        "terraform {\n  required_version = \">= 1.6\"\n  backend \"s3\" {\n    bucket = \"tf-state\"\n    key    = \"app/terraform.tfstate\"\n    region = \"eu-west-1\"\n  }\n}\nprovider \"aws\" {\n  region = var.region\n}\nprovider \"aws\" {\n  alias  = \"us\"\n  region = \"us-east-1\"\n}\nvariable \"region\" {\n  type    = string\n  default = \"eu-west-1\"\n  validation {\n    condition     = can(regex(\"^eu-\", var.region))\n    error_message = \"Only EU regions.\"\n  }\n}\nvariable \"subnets\" {\n  type = map(object({\n  }))\n  default = {\n    a = { cidr = \"10.0.1.0/24\", az = \"eu-west-1a\" }\n    b = { cidr = \"10.0.2.0/24\", az = \"eu-west-1b\" }\n  }\n}\nresource \"aws_security_group\" \"web\" {\n  dynamic \"ingress\" {\n    content {\n    }\n  }\n}\n",
+        &[
+            Op::DeleteLine { line: 19 },
+            Op::Type {
+                line: 25,
+                column: 8,
+                text: "x",
+            },
+        ],
+    );
+}
+
+/// P3: a map moved into another parent whose keys the user also put in
+/// another order is written in the order the user gave it.
+#[test]
+fn a_moved_map_whose_keys_the_user_reordered_keeps_their_order() {
+    replay(
+        Language::JSON,
+        Language::YAML,
+        "{\n  \"alpha\": {\n    \"k1\": null,\n    \"k2\": {\"x\": 1, \"y\": \"two\"},\n    \"k3\": [1, 2, 3],\n    \"k4\": \"plain\"\n  },\n  \"beta\": {\n    \"k5\": \"a\\u0041\",\n    \"k6\": true,\n    \"k7\": {\"x\": 1, \"y\": \"two\"},\n    \"k8\": \"a\\u0041\"\n  },\n  \"gamma\": {\n    \"k9\": {\"x\": 1, \"y\": \"two\"},\n    \"k10\": \"plain\"\n  },\n  \"delta\": {\n    \"k11\": \"a\\u0041\",\n    \"k12\": {\"x\": 1, \"y\": \"two\"},\n    \"k13\": [1, 2, 3]\n  }\n}\n",
+        &[
+            Op::MoveLine {
+                line: 26,
+                down: false,
+            },
+            Op::DeleteLine { line: 22 },
+        ],
+    );
+}
