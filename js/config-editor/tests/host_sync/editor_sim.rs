@@ -142,17 +142,18 @@ impl EditorSim {
         Ok(())
     }
 
-    /// `replaceValue(value)`.
-    fn replace_value(&mut self, value: &str) -> Outcome {
+    /// `replaceValue(value)`: whether it replaced the document.
+    fn replace_value(&mut self, value: &str) -> Result<bool, Failure> {
         if value == self.core.text {
-            return Ok(());
+            return Ok(false);
         }
         self.echoes.replaced(value);
         if !reads_as(value, &self.core.text) {
             let ranges = self.locks.replaced(value);
             self.core.set_given(ranges);
         }
-        self.core.host_value(value)
+        self.core.host_value(value)?;
+        Ok(true)
     }
 
     fn settle(&mut self) {
@@ -202,11 +203,16 @@ impl EditorSim {
             Act::Reset { kind, .. } => {
                 for text in self.host.resets(*kind, &self.core.text) {
                     let shown = self.core.text.clone();
-                    self.replace_value(&text)?;
+                    let replaced = self.replace_value(&text)?;
                     self.host.reset(&text, &shown);
-                    text.clone_into(&mut self.host.store);
-                    text.clone_into(&mut self.host.last_listed);
-                    self.host.lists(&text);
+                    // `false`: the document is that text already; the host
+                    // holds it once (its echo, if on its way), so it keeps
+                    // its store and lists nothing.
+                    if replaced {
+                        text.clone_into(&mut self.host.store);
+                        text.clone_into(&mut self.host.last_listed);
+                        self.host.lists(&text);
+                    }
                 }
             }
             Act::Own { edit, ranges, .. } => {

@@ -99,4 +99,191 @@ mod repros {
     use crate::model::ResetKind::*;
     use crate::run::Setup;
     use crate::run::View::*;
+
+    /// A reset to the text the editor holds (`false`: nothing replaced),
+    /// then a reset and typing: the host lists no text of its own for it.
+    #[test]
+    fn repro_editor_reverted_by_same_listing() {
+        assert_ok(
+            Setup {
+                view: Editor,
+                base: 1,
+                other: 0,
+                form: Lines,
+            },
+            &[
+                Act::MoveLine { line: 18613 },
+                Act::Reset {
+                    doc: 0,
+                    kind: Same,
+                    same_task: false,
+                },
+                Act::Deliver {
+                    doc: 1,
+                    pick: 0,
+                    dup: false,
+                    ranges: false,
+                    same_task: false,
+                },
+                Act::Reset {
+                    doc: 0,
+                    kind: Original,
+                    same_task: true,
+                },
+                Act::Type { at: 19343, ch: 'a' },
+                Act::Deliver {
+                    doc: 1,
+                    pick: 18008,
+                    dup: false,
+                    ranges: true,
+                    same_task: false,
+                },
+                Act::Deliver {
+                    doc: 0,
+                    pick: 0,
+                    dup: false,
+                    ranges: true,
+                    same_task: false,
+                },
+            ],
+        );
+    }
+
+    /// A lock on a line joined to the one above, an echo with its ranges,
+    /// then a reset to the original: the lock lands on its text.
+    #[test]
+    fn repro_editor_lock_off_at_reset() {
+        assert_ok(
+            Setup {
+                view: Editor,
+                base: 2,
+                other: 3,
+                form: Index,
+            },
+            &[
+                Act::Reset {
+                    doc: 1,
+                    kind: NewVersion(3400),
+                    same_task: false,
+                },
+                Act::Delete { at: 8993, len: 2 },
+                Act::Deliver {
+                    doc: 0,
+                    pick: 617,
+                    dup: false,
+                    ranges: true,
+                    same_task: true,
+                },
+                Act::Reset {
+                    doc: 0,
+                    kind: Original,
+                    same_task: false,
+                },
+            ],
+        );
+    }
+
+    /// A reset to the held text keeps the host's store: its echo, given
+    /// twice in a task after an older one, is no revert.
+    #[test]
+    fn repro_documents_reverted_by_same_listing() {
+        assert_ok(
+            Setup {
+                view: Documents,
+                base: 3,
+                other: 1,
+                form: Lines,
+            },
+            &[
+                Act::Type { at: 51612, ch: ' ' },
+                Act::Type { at: 29740, ch: 'a' },
+                Act::Deliver {
+                    doc: 0,
+                    pick: 7705,
+                    dup: false,
+                    ranges: true,
+                    same_task: false,
+                },
+                Act::Type { at: 48349, ch: ':' },
+                Act::Delete { at: 8282, len: 1 },
+                Act::Reset {
+                    doc: 0,
+                    kind: Same,
+                    same_task: false,
+                },
+                Act::Drop {
+                    doc: 0,
+                    pick: 19620,
+                },
+                Act::Type { at: 32855, ch: ':' },
+                Act::Own {
+                    doc: 1,
+                    edit: 21814,
+                    ranges: true,
+                    same_task: false,
+                },
+                Act::Deliver {
+                    doc: 0,
+                    pick: 0,
+                    dup: false,
+                    ranges: true,
+                    same_task: true,
+                },
+                Act::Deliver {
+                    doc: 0,
+                    pick: 0,
+                    dup: true,
+                    ranges: false,
+                    same_task: true,
+                },
+            ],
+        );
+    }
+
+    /// Blank lines typed around the lock, then a newer version: a line
+    /// diff aligns a blank line across the locked text; the lock stays on it.
+    #[test]
+    fn repro_documents_lock_off_at_new_version() {
+        assert_ok(
+            Setup {
+                view: Documents,
+                base: 1,
+                other: 0,
+                form: Lines,
+            },
+            &[
+                Act::Type { at: 36100, ch: ' ' },
+                Act::Enter { at: 48884 },
+                Act::Type { at: 3357, ch: 'b' },
+                Act::Enter { at: 29002 },
+                Act::Type { at: 25353, ch: 'a' },
+                Act::Type { at: 33386, ch: 'a' },
+                Act::Enter { at: 56736 },
+                Act::Type { at: 31499, ch: 'b' },
+                Act::Type { at: 32644, ch: 'x' },
+                Act::Type { at: 39831, ch: 'a' },
+                Act::Enter { at: 40736 },
+                Act::Type { at: 24962, ch: 'a' },
+                Act::Deliver {
+                    doc: 0,
+                    pick: 55128,
+                    dup: false,
+                    ranges: true,
+                    same_task: false,
+                },
+                Act::Deliver {
+                    doc: 0,
+                    pick: 27286,
+                    dup: false,
+                    ranges: true,
+                    same_task: false,
+                },
+                Act::Reset {
+                    doc: 0,
+                    kind: NewVersion(3529),
+                    same_task: false,
+                },
+            ],
+        );
+    }
 }

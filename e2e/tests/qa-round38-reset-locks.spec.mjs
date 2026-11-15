@@ -16,8 +16,8 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 // Every reset kind, for a `ConfigEditor` and a document of a
 // `ConfigDocuments` (shown, hidden, never shown), both range forms, with
 // and without echoes: the locked line is the one holding the locked text
-// (else the line aligned with it), it cannot change, and nothing else is
-// locked.
+// (else the line its text changed on, or, with nothing of it left, the
+// lines of its changed run), it cannot change, and nothing else is locked.
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const js = join(root, 'js');
@@ -84,6 +84,11 @@ const GIVEN_FOR_NEW_TEXT = { 'a reset, then the reset text with the ranges again
 /** The kinds whose text holds the locked line more than once: the lock
  * stays on the one the line diff keeps. */
 const KEPT_LINE = { 'the locked line written twice': 3 };
+
+/** The kinds where nothing of the locked text is left: the diff cannot
+ * tell where it went, so the whole lines of its changed run are locked
+ * (over-locked, never placed on a guess). */
+const OVER_LOCKED = { 'unrelated text': [1, 2, 3] };
 
 /** Mounts on the vanilla page a `ConfigEditor` (`where` 'editor') or a
  * `ConfigDocuments` whose document `b` holds `T` with its lock, `shown`,
@@ -201,6 +206,7 @@ for (const where of WHERE) {
             // line 3's key.)
             if (kind in GIVEN_FOR_NEW_TEXT && form === 'index') expect(locked, text).toContain(GIVEN_FOR_NEW_TEXT[kind]);
             else if (kind in GIVEN_FOR_NEW_TEXT) expect(locked, text).toEqual([GIVEN_FOR_NEW_TEXT[kind]]);
+            else if (kind in OVER_LOCKED) expect(locked, text).toEqual(OVER_LOCKED[kind]);
             else expect(locked, text).toEqual([KEPT_LINE[kind] ?? (holding >= 0 ? holding + 1 : FALLBACK_LINE)]);
             // What a save sends keeps the locked value.
             await page.evaluate(() => window.target().save());

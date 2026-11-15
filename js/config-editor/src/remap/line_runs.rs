@@ -178,7 +178,7 @@ fn in_order(pairs: &[(usize, usize)]) -> Vec<(usize, usize)> {
 
 /// The runs `old` and `new` differ in (Myers), or `None` past
 /// [`MAX_DEPTH`].
-fn myers(old: &[&str], new: &[&str]) -> Option<Vec<Run>> {
+pub(in crate::remap) fn myers<T: PartialEq>(old: &[T], new: &[T]) -> Option<Vec<Run>> {
     let (n, m) = (old.len() as isize, new.len() as isize);
     let max = (old.len() + new.len()).min(MAX_DEPTH) as isize;
     let offset = max + 1;

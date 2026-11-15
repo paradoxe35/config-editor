@@ -232,10 +232,10 @@ impl DocumentsSim {
     }
 
     /// `replaceValue(id, value)`.
-    fn replace_value(&mut self, index: usize, value: &str) -> Outcome {
+    fn replace_value(&mut self, index: usize, value: &str) -> Result<bool, Failure> {
         let id = self.docs[index].id.clone();
         if self.texts.get(&id).is_some_and(|known| known == value) {
-            return Ok(());
+            return Ok(false);
         }
         // `replaced_locks`, from the text the view knows.
         let ranges = self.texts.get(&id).and_then(|known| {
@@ -263,7 +263,7 @@ impl DocumentsSim {
         for doc in &mut self.docs {
             doc.sync()?;
         }
-        Ok(())
+        Ok(true)
     }
 
     /// `settle_all`.
@@ -343,12 +343,17 @@ impl DocumentsSim {
                 let shown = self.docs[index].shown().to_string();
                 for text in self.docs[index].host.resets(*kind, &shown) {
                     let shown = self.docs[index].shown().to_string();
-                    self.replace_value(index, &text)?;
+                    let replaced = self.replace_value(index, &text)?;
                     let host = &mut self.docs[index].host;
                     host.reset(&text, &shown);
-                    text.clone_into(&mut host.store);
-                    text.clone_into(&mut host.last_listed);
-                    host.lists(&text);
+                    // `false`: the document is that text already; the host
+                    // holds it once (its echo, if on its way), so it keeps
+                    // its store and lists nothing.
+                    if replaced {
+                        text.clone_into(&mut host.store);
+                        text.clone_into(&mut host.last_listed);
+                        host.lists(&text);
+                    }
                 }
             }
             Act::Own { doc, edit, .. } => {

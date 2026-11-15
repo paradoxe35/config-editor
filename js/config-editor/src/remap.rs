@@ -1,6 +1,9 @@
 //! Ranges a host gave for one text, moved to another: `readOnlyRanges` and
 //! host diagnostics computed for a text the user has typed past (an echo
-//! skipped, an update's `rangesFor`).
+//! skipped, an update's `rangesFor`), and the host's ranges carried into a
+//! text of its own (a reset). Read-only ranges go by what the diff knows
+//! (see `exact`: by line, then by character in each changed run, the safe
+//! whole lines where it cannot tell); diagnostics as follows.
 //!
 //! The two texts differ in stretches, any number of them (see
 //! `stretches`: their lines diffed, each changed run narrowed to the
@@ -16,8 +19,8 @@
 #[path = "remap/stretches.rs"]
 mod stretches;
 
-#[path = "remap/reset.rs"]
-mod reset;
+#[path = "remap/exact.rs"]
+mod exact;
 
 use config_editor_leptos::{DiagnosticTarget, HostDiagnostic, TextPosition, TextRange};
 
@@ -84,10 +87,6 @@ impl<'a> Remap<'a> {
         TextRange::new(start, self.position(range.end, true).max(start))
     }
 
-    pub(crate) fn ranges(&self, ranges: Vec<TextRange>) -> Vec<TextRange> {
-        ranges.into_iter().map(|range| self.range(range)).collect()
-    }
-
     /// Host diagnostics given for `from`, in `to` (by path or for the whole
     /// document: as they are).
     pub(crate) fn diagnostics(&self, diagnostics: Vec<HostDiagnostic>) -> Vec<HostDiagnostic> {
@@ -141,17 +140,19 @@ pub(crate) fn moved_between(
     if from == to {
         return (ranges, diagnostics);
     }
-    let remap = Remap::new(&from, &to);
-    (
-        ranges.map(|list| remap.ranges(list)),
-        diagnostics.map(|list| remap.diagnostics(list)),
-    )
+    let ranges = ranges.map(|list| {
+        let exact = exact::Exact::new(&from, &to, true);
+        list.into_iter()
+            .flat_map(|range| exact.carry(range).0)
+            .collect()
+    });
+    let diagnostics = diagnostics.map(|list| Remap::new(&from, &to).diagnostics(list));
+    (ranges, diagnostics)
 }
 
 /// Host `ranges` given for `from`, carried into `to`, a text of the host's
 /// own that replaces it (each read as the editor reads positions: see
-/// [`as_read`]): each locked line to the line holding its text there (see
-/// `reset`), not grown over what changed.
+/// [`as_read`]), as the diff knows them (see `exact`).
 pub(crate) fn carried(from: &str, to: &str, ranges: &[TextRange]) -> Vec<TextRange> {
     if ranges.is_empty() {
         return Vec::new();
@@ -160,8 +161,11 @@ pub(crate) fn carried(from: &str, to: &str, ranges: &[TextRange]) -> Vec<TextRan
     if from == to {
         return ranges.to_vec();
     }
-    let carry = reset::Carry::new(&from, &to);
-    ranges.iter().map(|range| carry.range(*range)).collect()
+    let exact = exact::Exact::new(&from, &to, false);
+    ranges
+        .iter()
+        .flat_map(|range| exact.carry(*range).0)
+        .collect()
 }
 
 #[cfg(test)]
