@@ -82,7 +82,31 @@ export function generate(r, { kind }, { userOnly = false } = {}) {
     // The host's echoes settle; the runner checks the host holds the text.
     [2, () => ({ k: 'pause' })],
     [3, () => ({ k: 'jump', at: round(r.next()), length: r.pick([0, 0, 1, 4, 12]) })],
+    // Selected text moved by mouse drag and drop.
+    [3, () => ({ k: 'dragMove', at: round(r.next()), length: r.pick([1, 3, 6, 14, 40]), x: round(r.next()), y: round(r.next()) })],
+    [2, () => ({ k: 'f8', shift: r.chance(0.35), n: r.int(1, 3) })],
+    [3, () => ({ k: 'hover', at: round(r.next()), column: round(r.next() * 0.45), into: r.chance(0.5), escape: r.chance(0.5) })],
+    [1, () => ({ k: 'suggestMouse', outside: r.chance(0.4), pick: r.int(0, 3) })],
   ];
+  if (kind === 'documents') {
+    // Copy from one document, paste into another: a secret placeholder
+    // most of the time, which the host gives the first document first
+    // (`load`) when host actions are on.
+    user.push([
+      5,
+      () => ({
+        k: 'crossCopy',
+        from: r.int(0, 2),
+        to: r.int(0, 2),
+        load: !userOnly && r.chance(0.6),
+        token: r.chance(0.7),
+        at: round(r.next()),
+        length: r.pick([1, 5, 14]),
+        at2: round(r.next()),
+        over: r.pick([0, 0, 1, 4]),
+      }),
+    ]);
+  }
   const host =
     kind === 'single'
       ? [
@@ -122,5 +146,7 @@ export function simplify(action) {
   if (action.k === 'ime' && action.steps.length > 1) return { ...action, steps: action.steps.slice(-1) };
   if (action.k === 'find' && action.replace !== null) return { ...action, replace: null, all: false };
   if (action.k === 'drag') return { k: 'click', x: action.x2, y: action.y2 };
+  if (action.k === 'hover' && (action.into || action.escape)) return { ...action, into: false, escape: false };
+  if (action.k === 'crossCopy' && action.load) return { ...action, load: false };
   return null;
 }

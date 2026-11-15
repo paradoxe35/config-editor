@@ -4,6 +4,8 @@
 //! XML elements and attributes, HCL labelled blocks, TOML tables.
 
 use crate::editor::Language;
+use crate::editor::declared_syntax::{DOT, DOT_BARE};
+use crate::editor::odd_syntax::ODD;
 
 /// A secret placeholder of the default pattern.
 pub(super) const TOKEN: &str = "«secret 0b1c»";
@@ -50,6 +52,10 @@ pub(super) const NAMES: &[&str] = &[
     "password",
     "key",
 ];
+
+/// The cases in the built-in languages: the first of `CASES`, the custom
+/// languages' after them.
+pub(super) const BUILT_IN: usize = 9;
 
 pub(super) const CASES: &[Case] = &[
     Case {
@@ -209,6 +215,118 @@ pub(super) const CASES: &[Case] = &[
             Anchor {
                 after: "user=\"app\"",
                 entry: |k| format!(" {k}=\"5\""),
+            },
+        ],
+    },
+    // Custom languages, which have no Edit-as: one on the trait (`:=`,
+    // `@` items, `;` comments) and one declared as a JavaScript host
+    // declares it (`key: value` lines, `<…>` maps and `*` items), with all
+    // of its syntax and with only comments and a separator.
+    Case {
+        label: "Odd block",
+        language: Language::new(&ODD),
+        text: "db :=\n  user := app\n  password := \"{v}\"\nport := 1\n",
+        pointer: "/db/password",
+        anchors: &[
+            Anchor {
+                after: "user := app",
+                entry: |k| format!("\n  {k} := x"),
+            },
+            Anchor {
+                after: "port := 1",
+                entry: |k| format!("\n{k} := 1"),
+            },
+            Anchor {
+                after: "db :=",
+                entry: |k| format!("\n  {k} := y"),
+            },
+        ],
+    },
+    Case {
+        label: "Odd list",
+        language: Language::new(&ODD),
+        text: "keys :=\n  @ \"{v}\"\n  @ other\nport := 1\n",
+        pointer: "/keys/0",
+        anchors: &[
+            Anchor {
+                after: "keys :=",
+                entry: |k| format!("\n  @ {k}"),
+            },
+            Anchor {
+                after: "@ other",
+                entry: |k| format!("\n  @ {k}"),
+            },
+            Anchor {
+                after: "port := 1",
+                entry: |k| format!("\n{k} := 2"),
+            },
+        ],
+    },
+    Case {
+        label: "Dot map",
+        language: Language::new(&DOT),
+        text: "db: <user: 'app'; password: '{v}'>\nport: 1\n",
+        pointer: "/db/password",
+        anchors: &[
+            Anchor {
+                after: "<user: 'app';",
+                entry: |k| format!(" {k}: 'x';"),
+            },
+            Anchor {
+                after: "port: 1",
+                entry: |k| format!("\n{k}: 2"),
+            },
+        ],
+    },
+    Case {
+        label: "Dot list",
+        language: Language::new(&DOT),
+        text: "keys:\n  * '{v}'\n  * 'other'\nport: 1\n",
+        pointer: "/keys/0",
+        anchors: &[
+            Anchor {
+                after: "keys:",
+                entry: |k| format!("\n  * '{k}'"),
+            },
+            Anchor {
+                after: "* 'other'",
+                entry: |k| format!("\n  * '{k}'"),
+            },
+            Anchor {
+                after: "port: 1",
+                entry: |k| format!("\n{k}: 2"),
+            },
+        ],
+    },
+    Case {
+        label: "DotBare flat",
+        language: Language::new(&DOT_BARE),
+        text: "user: 'app'\npassword: '{v}'\nport: 1\n",
+        pointer: "/password",
+        anchors: &[
+            Anchor {
+                after: "user: 'app'",
+                entry: |k| format!("\n{k}: 'x'"),
+            },
+            Anchor {
+                after: "port: 1",
+                entry: |k| format!("\n{k}: 2"),
+            },
+        ],
+    },
+    Case {
+        label: "DotBare list",
+        language: Language::new(&DOT_BARE),
+        text: "keys:\n  * '{v}'\n  * 'other'\nport: 1\n",
+        pointer: "/keys/0",
+        anchors: &[
+            Anchor {
+                after: "* 'other'",
+                entry: |k| format!("\n  * '{k}'"),
+            },
+            Anchor {
+                after: "port: 1",
+                entry: |k| format!("\n{k}: 2"),
             },
         ],
     },

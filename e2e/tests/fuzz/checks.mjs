@@ -1,6 +1,7 @@
 // What must hold after every step, judged from one snapshot (see
 // `pages.mjs`): the page against what the editor itself says. Each check
 // returns null or `{ check, detail }`.
+import { checkSecrets } from './secrets.mjs';
 
 // The textarea's text: the document with the lines inside closed folds cut
 // out (`startLine` stays, `startLine + 1 ..= endLine` hidden).
@@ -24,14 +25,14 @@ function lineAt(projected, taValue, offset) {
 }
 
 // Every failed check of `snap`: at most one per group (what the page
-// shows, locks and secrets, the caret), so a known caret class does not
-// hide a lock break after it.
+// shows, locks and secrets, secrets anywhere on the page, the caret), so
+// a known caret class does not hide a lock break after it.
 export function checkSnapshot(snap, run) {
   if (snap.missing) return [{ check: 'mounted', detail: 'no editor on screen' }];
   if (typeof snap.text !== 'string') return [{ check: 'api', detail: `text is ${short(snap.text)}` }];
   const projected = projection(snap.text, snap.folded);
   const numbers = snap.rows.map((row) => row.n);
-  return [checkView(snap, projected), checkHost(snap, run), checkCaret(snap, projected, numbers)].filter(Boolean);
+  return [checkView(snap, projected), checkHost(snap, run), checkSecrets(snap, run), checkCaret(snap, projected, numbers)].filter(Boolean);
 }
 
 function checkView(snap, projected) {
@@ -102,8 +103,12 @@ function checkHost(snap, run) {
     for (const secret of snap.value.match(/«[^»\n]*»?/g) ?? []) {
       if (!run.secrets.has(secret)) return { check: 'secret', detail: `${short(secret)} in ${short(snap.value)}` };
     }
-    if (snap.ownLanguage && snap.value !== snap.text) {
-      return { check: 'value-text', detail: `value ${short(snap.value)} text ${short(snap.text)}` };
+    // A lock reading otherwise holds the change, saying so (`saveHeld`):
+    // the value stays the last one the host heard.
+    const held = (snap.problems ?? []).some((problem) => problem.message.startsWith('Not saved: '));
+    if (snap.ownLanguage && snap.value !== snap.text && !held) {
+      // `unlocked`: the host took locks away earlier in the run.
+      return { check: 'value-text', detail: `value ${short(snap.value)} text ${short(snap.text)}`, unlocked: !!run.unlocked };
     }
   } else if (snap.value && snap.value.error) {
     return { check: 'api', detail: snap.value.error };

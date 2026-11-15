@@ -7,7 +7,7 @@ use leptos::prelude::*;
 use serde_json::Value;
 
 use super::actions::{QUERIES, REPLACEMENTS};
-use super::docs::{LANGUAGES, document, literal, smaller_documents};
+use super::docs::{CUSTOM, LANGUAGES, document, literal, smaller_documents};
 use super::runner::{Case, Failure, Rng, cases, run};
 use crate::editor::languages::Language;
 use crate::editor::paths::FieldPath;
@@ -31,8 +31,8 @@ pub(super) struct ReplaceCase {
 impl Case for ReplaceCase {
     fn code(&self) -> String {
         format!(
-            "#[test]\nfn replace_repro() {{\n    super::replace::replay(super::replace::ReplaceCase {{\n        language: Language::{},\n        text: {}.into(),\n        query: {:?},\n        with: {:?},\n        bits: {},\n        lock: {},\n    }});\n}}",
-            self.language.label(),
+            "#[test]\nfn replace_repro() {{\n    super::replace::replay(super::replace::ReplaceCase {{\n        language: {},\n        text: {}.into(),\n        query: {:?},\n        with: {:?},\n        bits: {},\n        lock: {},\n    }});\n}}",
+            super::docs::language_code(self.language),
             literal(&self.text),
             self.query,
             self.with,
@@ -85,8 +85,8 @@ fn scalar_pointers(value: &Value, at: String, out: &mut Vec<String>) {
     }
 }
 
-fn generate(rng: &mut Rng) -> Option<ReplaceCase> {
-    let language = *rng.pick(&LANGUAGES);
+fn generate(rng: &mut Rng, languages: &[Language]) -> Option<ReplaceCase> {
+    let language = *rng.pick(languages);
     let text = document(rng, language);
     let query = if rng.chance(30) {
         *rng.pick(&MORE_QUERIES)
@@ -332,9 +332,13 @@ pub(super) fn check(case: &ReplaceCase) -> Result<(), Failure> {
                 .ok()
                 .and_then(|value| value.pointer(lock).cloned())
         };
+        // The locked text kept, the parse reading it otherwise (a
+        // duplicate shadows it, it moved): fine while the editor holds the
+        // change, saying so.
         if let Some(locked) = read(&before)
             && language.parse(&after).is_ok()
             && read(&after) != Some(locked.clone())
+            && !state.changes_held()
         {
             return Err(Failure::new(
                 format!("Replace all changed a read-only value ({kind})"),
@@ -355,5 +359,20 @@ pub(super) fn replay(case: ReplaceCase) {
 
 #[test]
 fn replace_all_equals_the_model_under_random_patterns() {
-    run("replace", cases(800), &generate, &check);
+    run(
+        "replace",
+        cases(800),
+        &|rng| generate(rng, &LANGUAGES),
+        &check,
+    );
+}
+
+#[test]
+fn replace_all_equals_the_model_in_custom_languages() {
+    run(
+        "replace-custom",
+        cases(800),
+        &|rng| generate(rng, &CUSTOM),
+        &check,
+    );
 }

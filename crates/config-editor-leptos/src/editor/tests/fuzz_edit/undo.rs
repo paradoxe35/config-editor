@@ -10,7 +10,7 @@
 use leptos::prelude::*;
 
 use super::actions::{Action, Context, apply, caret_in_range, code, random_action};
-use super::docs::{LANGUAGES, document, literal, smaller_documents};
+use super::docs::{CUSTOM, LANGUAGES, document, literal, smaller_documents};
 use super::runner::{Case, Failure, Rng, cases, run};
 use crate::editor::history::UNDO_GROUPING_WINDOW_MS;
 use crate::editor::languages::Language;
@@ -30,7 +30,7 @@ pub(super) struct UndoCase {
 }
 
 fn language_code(language: Language) -> String {
-    format!("Language::{}", language.label())
+    super::docs::language_code(language)
 }
 
 impl Case for UndoCase {
@@ -98,16 +98,26 @@ impl Case for UndoCase {
     }
 }
 
-fn generate(rng: &mut Rng, interleaved: bool) -> Option<UndoCase> {
-    let host = *rng.pick(&LANGUAGES);
-    let view = rng
-        .chance(35)
-        .then(|| *rng.pick(&LANGUAGES))
-        .filter(|view| *view != host);
+/// A case in one of `languages`; Edit-as views and switches only among
+/// the built-in ones (`views`).
+fn generate(
+    rng: &mut Rng,
+    languages: &[Language],
+    interleaved: bool,
+    views: bool,
+) -> Option<UndoCase> {
+    let host = *rng.pick(languages);
+    let view = if views {
+        rng.chance(35)
+            .then(|| *rng.pick(&LANGUAGES))
+            .filter(|view| *view != host)
+    } else {
+        None
+    };
     let text = document(rng, host);
     let count = 4 + rng.below(20);
     let actions = (0..count)
-        .map(|_| random_action(rng, interleaved, true))
+        .map(|_| random_action(rng, interleaved, views))
         .collect();
     Some(UndoCase {
         host,
@@ -342,7 +352,7 @@ fn undo_all_and_redo_all_give_back_the_texts_under_random_edits() {
     run(
         "undo-interleaved",
         cases(300),
-        &|rng| generate(rng, true),
+        &|rng| generate(rng, &LANGUAGES, true, true),
         &check,
     );
 }
@@ -352,7 +362,27 @@ fn undo_steps_follow_the_documented_grouping_under_random_edits() {
     run(
         "undo-grouping",
         cases(300),
-        &|rng| generate(rng, false),
+        &|rng| generate(rng, &LANGUAGES, false, true),
+        &check,
+    );
+}
+
+#[test]
+fn undo_all_and_redo_all_give_back_the_texts_in_custom_languages() {
+    run(
+        "undo-interleaved-custom",
+        cases(300),
+        &|rng| generate(rng, &CUSTOM, true, false),
+        &check,
+    );
+}
+
+#[test]
+fn undo_steps_follow_the_documented_grouping_in_custom_languages() {
+    run(
+        "undo-grouping-custom",
+        cases(300),
+        &|rng| generate(rng, &CUSTOM, false, false),
         &check,
     );
 }

@@ -33,7 +33,7 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use leptos::prelude::*;
 
 use acts::{Act, draw, make, pause};
-use cases::{CASES, LOCKS, value};
+use cases::{BUILT_IN, CASES, LOCKS, value};
 use checks::{Check, leaks, original, safe};
 use mount::{Setup, mount};
 use rng::{Rng, env_or, shrink};
@@ -149,8 +149,10 @@ fn run(setup: &Setup, acts: &[Act]) -> Result<(), Step> {
     check_all("end")
 }
 
+/// A setup on a case in the built-in languages, edited as another
+/// language some of the time.
 fn draw_setup(rng: &mut Rng) -> Setup {
-    let case = rng.below(CASES.len());
+    let case = rng.below(BUILT_IN);
     let language = CASES[case].language;
     let others = [
         Language::YAML,
@@ -175,6 +177,17 @@ fn draw_setup(rng: &mut Rng) -> Setup {
     }
 }
 
+/// A setup on a case in a custom language, shown in its own (custom
+/// languages have no Edit-as).
+fn draw_custom_setup(rng: &mut Rng) -> Setup {
+    Setup {
+        case: BUILT_IN + rng.below(CASES.len() - BUILT_IN),
+        lock: LOCKS[rng.below(LOCKS.len())],
+        host: None,
+        pairs: rng.chance(50),
+    }
+}
+
 struct Found {
     hits: usize,
     seed: u64,
@@ -183,7 +196,12 @@ struct Found {
     detail: String,
 }
 
-fn explore(cases: u64, steps: usize, first: u64) -> BTreeMap<Class, Found> {
+fn explore(
+    cases: u64,
+    steps: usize,
+    first: u64,
+    draw_setup: fn(&mut Rng) -> Setup,
+) -> BTreeMap<Class, Found> {
     let mut found: BTreeMap<Class, Found> = BTreeMap::new();
     for seed in first..first + cases {
         let mut rng = Rng::new(seed);
@@ -248,10 +266,27 @@ fn assert_ok(setup: &Setup, acts: &[Act]) {
 
 #[test]
 fn random_edits_keep_every_protection_and_take_ordinary_edits() {
-    let cases = env_or("PROTECT_FUZZ_CASES", 400);
+    explore_and_report(400, draw_setup);
+}
+
+#[test]
+fn random_edits_keep_every_protection_and_take_ordinary_edits_in_custom_languages() {
+    explore_and_report(2000, draw_custom_setup);
+}
+
+/// Runs `default` cases (or `PROTECT_FUZZ_CASES`) drawn by `draw_setup`
+/// and fails listing every class no known finding explains.
+fn explore_and_report(default: u64, draw_setup: fn(&mut Rng) -> Setup) {
+    let cases = env_or("PROTECT_FUZZ_CASES", default);
     let steps = env_or("PROTECT_FUZZ_STEPS", 12) as usize;
     let first = env_or("PROTECT_FUZZ_SEED", 1);
-    let found = explore(cases, steps, first);
+    let started = std::time::Instant::now();
+    let found = explore(cases, steps, first, draw_setup);
+    eprintln!(
+        "protect fuzz: {cases} runs of {steps} steps, {} class(es), {:.1}s",
+        found.len(),
+        started.elapsed().as_secs_f64()
+    );
     let mut new = Vec::new();
     for (class, found) in &found {
         let line = format!(
@@ -321,6 +356,183 @@ fn a_secret_item_moved_under_a_scalar_never_glues_its_placeholder() {
                 line: 44715,
                 command: 1,
             },
+        ],
+    );
+}
+
+/// GP38-1: in Dot's one-line map, a `,` typed into the placeholder's key
+/// and an entry typed before it leave the placeholder in that entry's
+/// value with text beside it, and the host hears it.
+#[test]
+#[ignore = "GP38-1: open"]
+fn a_placeholder_in_a_declared_one_line_map_never_glues_into_the_entry_before() {
+    let setup = Setup {
+        case: 11,
+        lock: cases::Lock::Secret,
+        host: None,
+        pairs: false,
+    };
+    assert_ok(
+        &setup,
+        &[
+            Act::Type {
+                at: 38498,
+                text: 10,
+            },
+            Act::Entry {
+                anchor: 0,
+                name: 8,
+                paste: false,
+            },
+        ],
+    );
+}
+
+/// GP38-2: after entries, cuts and a line moved in Odd's list, a `,` typed
+/// inside the placeholder's quotes is taken.
+#[test]
+#[ignore = "GP38-2: open"]
+fn a_placeholder_in_a_custom_list_item_never_takes_text_inside_its_quotes() {
+    let setup = Setup {
+        case: 10,
+        lock: cases::Lock::Secret,
+        host: None,
+        pairs: true,
+    };
+    assert_ok(
+        &setup,
+        &[
+            Act::Entry {
+                anchor: 0,
+                name: 0,
+                paste: true,
+            },
+            Act::Entry {
+                anchor: 3,
+                name: 4,
+                paste: true,
+            },
+            Act::Entry {
+                anchor: 0,
+                name: 0,
+                paste: false,
+            },
+            Act::Cut { line: 42428 },
+            Act::Cut { line: 49829 },
+            Act::Line {
+                line: 50594,
+                command: 2,
+            },
+            Act::Type {
+                at: 19495,
+                text: 10,
+            },
+        ],
+    );
+}
+
+/// GP38-3: a new entry typed before the placeholder's entry in Dot's
+/// one-line map is refused at its closing `;`.
+#[test]
+#[ignore = "GP38-3: open"]
+fn a_new_entry_typed_before_a_secret_in_a_declared_one_line_map_is_taken() {
+    let setup = Setup {
+        case: 11,
+        lock: cases::Lock::Secret,
+        host: None,
+        pairs: false,
+    };
+    assert_ok(
+        &setup,
+        &[Act::Entry {
+            anchor: 2,
+            name: 5,
+            paste: false,
+        }],
+    );
+}
+
+/// GP38-1: a `:` typed into a DotBare key (`pass:word: '«…»'`) after a line
+/// moved makes the placeholder part of `pass`'s value with text beside it.
+#[test]
+#[ignore = "GP38-1: open"]
+fn a_placeholder_in_a_declared_language_never_glues_when_a_colon_splits_its_key() {
+    let setup = Setup {
+        case: 13,
+        lock: cases::Lock::Secret,
+        host: None,
+        pairs: true,
+    };
+    assert_ok(
+        &setup,
+        &[
+            Act::Line {
+                line: 28794,
+                command: 2,
+            },
+            Act::Type { at: 58344, text: 4 },
+        ],
+    );
+}
+
+/// GP38-2: in Odd, a key renamed (`pa1ssword`), its line copied and an
+/// entry added, a `-` typed after `:=` glues the placeholder.
+#[test]
+#[ignore = "GP38-2: open"]
+fn a_placeholder_in_a_custom_block_never_glues_after_its_key_is_renamed() {
+    let setup = Setup {
+        case: 9,
+        lock: cases::Lock::Secret,
+        host: None,
+        pairs: true,
+    };
+    assert_ok(
+        &setup,
+        &[
+            Act::Type { at: 40974, text: 1 },
+            Act::Line {
+                line: 21613,
+                command: 3,
+            },
+            Act::Entry {
+                anchor: 2,
+                name: 2,
+                paste: false,
+            },
+            Act::Type {
+                at: 57200,
+                text: 11,
+            },
+        ],
+    );
+}
+
+/// GP38-3: cutting a duplicate of Dot's one-line map line (holding no
+/// locked value) is refused.
+#[test]
+#[ignore = "GP38-3: open"]
+fn a_duplicate_one_line_map_line_holding_no_locked_value_can_be_cut() {
+    let setup = Setup {
+        case: 11,
+        lock: cases::Lock::Path,
+        host: None,
+        pairs: false,
+    };
+    assert_ok(
+        &setup,
+        &[
+            Act::Line {
+                line: 3694,
+                command: 2,
+            },
+            Act::Type { at: 32739, text: 5 },
+            Act::Entry {
+                anchor: 0,
+                name: 13,
+                paste: false,
+            },
+            Act::NewValue,
+            Act::Cut { line: 36204 },
         ],
     );
 }

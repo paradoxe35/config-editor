@@ -5,7 +5,9 @@
 use serde_json::{Map, Value, json};
 
 use super::runner::Rng;
+use crate::editor::declared_syntax::{DOT, DOT_BARE};
 use crate::editor::languages::Language;
+use crate::editor::odd_syntax::ODD;
 use crate::editor::save_properties::hosts;
 
 pub(super) const LANGUAGES: [Language; 5] = [
@@ -15,6 +17,25 @@ pub(super) const LANGUAGES: [Language; 5] = [
     Language::HCL,
     Language::XML,
 ];
+
+/// Custom languages, which have no Edit-as: one implemented on the trait
+/// (`odd_syntax`) and two declared as a JavaScript host declares one, with
+/// all of their syntax and with only comments and a separator.
+pub(super) const CUSTOM: [Language; 3] = [
+    Language::new(&ODD),
+    Language::new(&DOT),
+    Language::new(&DOT_BARE),
+];
+
+/// `language` as Rust a pasted repro compiles.
+pub(super) fn language_code(language: Language) -> String {
+    match language.label() {
+        "Odd" => "super::docs::CUSTOM[0]".into(),
+        "Dot" => "super::docs::CUSTOM[1]".into(),
+        "DotBare" => "super::docs::CUSTOM[2]".into(),
+        label => format!("Language::{label}"),
+    }
+}
 
 const KEYS: [&str; 10] = [
     "name", "port", "host", "mode", "web", "tls", "allow", "a", "b", "x_1",
@@ -95,6 +116,13 @@ pub(super) fn document(rng: &mut Rng, language: Language) -> String {
         .into_iter()
         .find(|(host, _)| *host == language)
         .map(|(_, text)| text.to_string())
+        .or_else(|| {
+            // A custom language, which has no written host.
+            Language::JSON
+                .convert("{\"name\": \"web\", \"port\": 80}\n", language)
+                .ok()
+                .map(|conversion| conversion.text)
+        })
         .expect("a host in every language")
 }
 

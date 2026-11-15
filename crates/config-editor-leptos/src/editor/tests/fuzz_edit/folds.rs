@@ -7,7 +7,7 @@
 use leptos::prelude::*;
 
 use super::actions::{Action, Context, QUERIES, apply, code, random_action};
-use super::docs::{LANGUAGES, document, line_of, literal, smaller_documents};
+use super::docs::{CUSTOM, LANGUAGES, document, line_of, literal, smaller_documents};
 use super::replace::model_matches;
 use super::runner::{Case, Failure, Rng, cases, run};
 use crate::editor::commands::offset_at;
@@ -27,8 +27,8 @@ pub(super) struct FoldCase {
 impl Case for FoldCase {
     fn code(&self) -> String {
         format!(
-            "#[test]\nfn folds_repro() {{\n    use super::actions::Action::*;\n    super::folds::replay(super::folds::FoldCase {{\n        language: Language::{},\n        text: {}.into(),\n        query: ({:?}, {}),\n        actions: vec![\n{}\n        ],\n    }});\n}}",
-            self.language.label(),
+            "#[test]\nfn folds_repro() {{\n    use super::actions::Action::*;\n    super::folds::replay(super::folds::FoldCase {{\n        language: {},\n        text: {}.into(),\n        query: ({:?}, {}),\n        actions: vec![\n{}\n        ],\n    }});\n}}",
+            super::docs::language_code(self.language),
             literal(&self.text),
             self.query.0,
             self.query.1,
@@ -60,8 +60,8 @@ impl Case for FoldCase {
     }
 }
 
-fn generate(rng: &mut Rng) -> Option<FoldCase> {
-    let language = *rng.pick(&LANGUAGES);
+fn generate(rng: &mut Rng, languages: &[Language]) -> Option<FoldCase> {
+    let language = *rng.pick(languages);
     let text = document(rng, language);
     let actions = (0..4 + rng.below(16))
         .map(|_| {
@@ -201,5 +201,20 @@ pub(super) fn replay(case: FoldCase) {
 
 #[test]
 fn folds_find_and_go_to_line_follow_random_edits() {
-    run("folds", cases(300), &generate, &check);
+    run(
+        "folds",
+        cases(300),
+        &|rng| generate(rng, &LANGUAGES),
+        &check,
+    );
+}
+
+#[test]
+fn folds_find_and_go_to_line_follow_random_edits_in_custom_languages() {
+    run(
+        "folds-custom",
+        cases(300),
+        &|rng| generate(rng, &CUSTOM),
+        &check,
+    );
 }

@@ -14,6 +14,7 @@ mod docs;
 mod folds;
 mod hooks;
 mod known;
+mod leaks;
 mod replace;
 mod repros;
 mod rich;

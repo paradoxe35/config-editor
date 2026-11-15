@@ -4,7 +4,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { generate, generateLock, simplify } from './actions.mjs';
-import { YAML_DOCS } from './corpus.mjs';
+import { TOKENS, YAML_DOCS } from './corpus.mjs';
 import { checkSnapshot } from './checks.mjs';
 import { knownClass } from './known.mjs';
 import { PAGES, installProbe, pageUrl, snapshot } from './pages.mjs';
@@ -38,19 +38,26 @@ function withLimit(promise, what, ms = STEP_LIMIT_MS) {
   return Promise.race([promise, limit]).finally(() => clearTimeout(timer));
 }
 
-// The run's host model: the locks it gave (per document) and the secrets
-// in the texts it set.
+// The run's host model: the locks it gave (per document), the secret
+// placeholders it gives (`secrets`) and those in the text it last set on
+// each document (`given`).
 function hostModel(page, cdp, kind, name, strict) {
   const locks = new Map();
+  const given = new Map();
   const key = (id) => id ?? '';
   return {
     name,
     strict,
     noted: new Map(),
+    // How often each new action did what it is for (the run's coverage).
+    coverage: new Map(),
+    reached(what) {
+      this.coverage.set(what, (this.coverage.get(what) ?? 0) + 1);
+    },
     page,
     cdp,
     kind,
-    secrets: new Set(['«secret 3f2a»']),
+    secrets: new Set(TOKENS),
     hostReplaced: false,
     footer: true,
     setLock(id, slot, lock) {
@@ -70,6 +77,21 @@ function hostModel(page, cdp, kind, name, strict) {
     },
     forgetLocks(id) {
       locks.delete(key(id));
+    },
+    // The host sets `text` on the document `id`: its placeholders are the
+    // ones the document was given.
+    give(id, text) {
+      given.set(key(id), new Set(TOKENS.filter((token) => text.includes(token))));
+    },
+    givenOf(id) {
+      return given.get(key(id)) ?? new Set();
+    },
+    // The placeholders other documents were given and `id` was not.
+    givenElsewhere(id) {
+      const own = given.get(key(id)) ?? new Set();
+      const out = new Set();
+      for (const [other, tokens] of given) if (other !== key(id)) for (const token of tokens) if (!own.has(token)) out.add(token);
+      return out;
     },
     locksOf(id) {
       return Object.values(locks.get(key(id)) ?? {}).filter(Boolean);
@@ -178,7 +200,7 @@ export async function runSequence(browser, name, query, actions, { strict = proc
   // A known class found by a check that ends the sequence (host, undo,
   // errors, hang) is noted too.
   if (result.failure && !pickFailure(run, [result.failure])) result.failure = null;
-  return { ...result, noted: Object.fromEntries(run.noted) };
+  return { ...result, noted: Object.fromEntries(run.noted), coverage: Object.fromEntries(run.coverage) };
 }
 
 async function runSteps(run, context, page, errors, kind, actions) {
@@ -190,11 +212,14 @@ async function runSteps(run, context, page, errors, kind, actions) {
       if (!opening.has(state.id ?? '')) opening.set(state.id ?? '', state.value);
     };
     await remember();
+    // An action that edits another document than the one it starts on
+    // notes that one's opening text before it edits.
+    run.remember = remember;
     const touched = new Set();
     for (let step = 0; step < actions.length; step += 1) {
       const action = actions[step];
       try {
-        if (action.k === 'tab' || action.k === 'tabKey') {
+        if (action.k === 'tab' || action.k === 'tabKey' || action.k === 'crossCopy') {
           if (!(await withLimit(settle(page), `settling before step ${step}`))) {
             const state = await page.evaluate(() => JSON.stringify([window.__fz.editor()?.value, window.__fz.host()]));
             return {

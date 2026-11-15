@@ -31,7 +31,17 @@ export const YAML_DOCS = [
   LONG,
 ];
 
-export const TOML_DOCS = ['[limits]\nmax_pending = 512\n', 'title = "x"\n[server]\nport = 1\nname = "日本"\n', ''];
+// The secret placeholders the host gives (the same token in two documents
+// stands for each one's own secret).
+export const TOKENS = ['«secret 3f2a»', '«secret 9b1c»'];
+
+export const TOML_DOCS = [
+  '[limits]\nmax_pending = 512\n',
+  'title = "x"\n[server]\nport = 1\nname = "日本"\n',
+  '',
+  '[clients.acme]\nsecret = "«secret 3f2a»"\n',
+  '[clients.web]\nsecret = "«secret 9b1c»"\nmax_connections = 2\n',
+];
 export const JSON_DOCS = ['{\n  "clients": {}\n}\n', '{\n  "a": [1, 2],\n  "b": {"c": "😀"}\n}\n', '{}\n'];
 
 export function docsFor(language) {

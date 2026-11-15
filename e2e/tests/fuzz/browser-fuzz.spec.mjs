@@ -7,8 +7,12 @@ import { runSequence, sequenceFor, shrink, writeRepro } from './runner.mjs';
 // clipboard, IME and host sequences on every example page, checking after
 // each step that the page shows what the editor says (text, folds, rows in
 // view, the caret's line), that the host hears the document, that locked
-// and secret text stays, that undo gives back the opening text and that
-// nothing throws or hangs.
+// and secret text stays, that no secret placeholder the host did not give
+// shows anywhere on the page or the clipboard, that undo gives back the
+// opening text and that nothing throws or hangs. The pointer actions
+// (drag and drop, hover cards, the suggestion list by mouse), F8 and
+// copies between documents check what they did (see `pointer.mjs`,
+// `secrets.mjs`); the summary line counts how often each reached its case.
 //
 // FUZZ_BROWSER_RUNS: sequences per page (default 16: about 2 minutes in all on 2 workers here, 3-4 on CI);
 // FUZZ_BROWSER_STEPS: actions per sequence (default 20);
@@ -32,12 +36,14 @@ test.describe('browser fuzz', () => {
       test.setTimeout(RUNS * 45_000 + 240_000);
       const unknown = [];
       const counts = {};
+      const coverage = {};
       const started = Date.now();
       for (let run = 0; run < RUNS; run += 1) {
         const seed = SEED + run;
         const { query, actions } = sequenceFor(name, seed, STEPS);
         const result = await runSequence(browser, name, query, actions);
         for (const [id, count] of Object.entries(result.noted)) counts[id] = (counts[id] ?? 0) + count;
+        for (const [what, count] of Object.entries(result.coverage)) coverage[what] = (coverage[what] ?? 0) + count;
         const noted = Object.keys(result.noted).join(',');
         if (!result.failure) {
           console.log(`[fuzz] ${name} seed ${seed}: ok${noted ? ` (known: ${noted})` : ''}`);
@@ -75,7 +81,9 @@ test.describe('browser fuzz', () => {
         if (!known) unknown.push({ seed, failure: final.failure, file });
       }
       const seconds = Math.round((Date.now() - started) / 1000);
-      console.log(`[fuzz] ${name}: ${RUNS} sequences of ${STEPS} in ${seconds} s; failures ${JSON.stringify(counts)}`);
+      console.log(
+        `[fuzz] ${name}: ${RUNS} sequences of ${STEPS} in ${seconds} s; failures ${JSON.stringify(counts)}; reached ${JSON.stringify(coverage)}`,
+      );
       info.annotations.push({ type: 'fuzz', description: `${RUNS} sequences, ${JSON.stringify(counts)}` });
       expect(unknown, 'new failure classes (see the repros; list them in known.mjs)').toEqual([]);
     });

@@ -3,9 +3,12 @@
 // `run` is the sequence's state: the page, its CDP session and the host
 // model (the locks given, the extra props passed).
 
-const DOC_LANGUAGE = { main: 'yaml', limits: 'toml', clients: 'json' };
+import { dragMove, f8, hover, suggestMouse } from './pointer.mjs';
+import { clipboardTokens, crossCopy } from './secrets.mjs';
 
-async function focusText(page) {
+export const DOC_LANGUAGE = { main: 'yaml', limits: 'toml', clients: 'json' };
+
+export async function focusText(page) {
   await page.evaluate(() => {
     const root = window.__fz.root();
     const input = root?.querySelector('.config-editor__input');
@@ -14,7 +17,7 @@ async function focusText(page) {
 }
 
 // The visible part of the editor's text area, in page pixels.
-async function textBox(page) {
+export async function textBox(page) {
   return page.evaluate(() => {
     const input = window.__fz.root()?.querySelector('.config-editor__input');
     if (!input) return null;
@@ -27,7 +30,7 @@ async function textBox(page) {
   });
 }
 
-const at = (box, fx, fy) => ({ x: box.x + 2 + fx * (box.width - 4), y: box.y + 2 + fy * (box.height - 4) });
+export const at = (box, fx, fy) => ({ x: box.x + 2 + fx * (box.width - 4), y: box.y + 2 + fy * (box.height - 4) });
 
 // Settles the host: its value follows the editor's (late echoes included).
 export async function settle(page, ms = 1500) {
@@ -49,7 +52,7 @@ export async function settle(page, ms = 1500) {
   return false;
 }
 
-async function host(page, call, arg) {
+export async function host(page, call, arg) {
   return page.evaluate(
     ([call, arg]) => {
       const fz = window.__fz;
@@ -136,6 +139,22 @@ export function lockIndices(value, { at: fraction, length, line }) {
   return end > start ? { start, end } : null;
 }
 
+// Null when the clipboard holds what a copy of `want` (`fz.selected()`
+// before it) puts there, else the `copy` failure.
+export async function copyFits(page, want) {
+  const got = await page.evaluate(() => navigator.clipboard.readText());
+  const fits = want.rest
+    ? got.startsWith(want.text) && (want.rest.startsWith(got) || `${want.rest}\n`.startsWith(got))
+    : want.line
+      ? got === want.text || got === `${want.text}\n`
+      : got === want.text;
+  if (fits) return null;
+  return {
+    check: 'copy',
+    detail: `copied ${JSON.stringify(got).slice(0, 120)}, selection ${JSON.stringify(want.text).slice(0, 120)}`,
+  };
+}
+
 export async function perform(run, action) {
   const { page } = run;
   switch (action.k) {
@@ -159,19 +178,10 @@ export async function perform(run, action) {
         : null;
       await page.keyboard.press(action.key);
       await page.waitForTimeout(40);
+      const wrong = await clipboardTokens(run);
+      if (wrong) return wrong;
       if (!want || !want.text) return;
-      const got = await page.evaluate(() => navigator.clipboard.readText());
-      const fits = want.rest
-        ? got.startsWith(want.text) && (want.rest.startsWith(got) || `${want.rest}\n`.startsWith(got))
-        : want.line
-          ? got === want.text || got === `${want.text}\n`
-          : got === want.text;
-      if (!fits)
-        return {
-          check: 'copy',
-          detail: `copied ${JSON.stringify(got).slice(0, 120)}, selection ${JSON.stringify(want.text).slice(0, 120)}`,
-        };
-      return;
+      return copyFits(page, want);
     }
     case 'chord':
       await focusText(page);
@@ -284,6 +294,7 @@ export async function perform(run, action) {
       await settle(page);
       if (run.kind === 'single') {
         const ranges = run.keepLocks(null, action.text);
+        run.give(null, action.text);
         return host(page, 'singleValue', { ...action, ranges });
       }
       const id = await page.evaluate(() => window.__fz.activeId());
@@ -291,6 +302,7 @@ export async function perform(run, action) {
       const docs = docsFor(DOC_LANGUAGE[id] ?? 'yaml');
       const text = docs[action.pick % docs.length];
       const ranges = run.keepLocks(id, text);
+      run.give(id, text);
       return host(page, 'docValue', { text, how: action.how, ranges });
     }
     case 'echo':
@@ -324,6 +336,7 @@ export async function perform(run, action) {
     }
     case 'unlock': {
       run.locked = true;
+      run.unlocked = true;
       const id = await page.evaluate(() => window.__fz.activeId());
       run.forgetLocks(id);
       return host(
@@ -348,6 +361,16 @@ export async function perform(run, action) {
       await focusText(page);
       await page.keyboard.press(action.key);
       return;
+    case 'dragMove':
+      return dragMove(run, action);
+    case 'f8':
+      return f8(run, action);
+    case 'hover':
+      return hover(run, action);
+    case 'suggestMouse':
+      return suggestMouse(run, action);
+    case 'crossCopy':
+      return crossCopy(run, action);
     default:
       throw new Error(`unknown action ${action.k}`);
   }

@@ -8,7 +8,7 @@
 use leptos::prelude::*;
 
 use super::actions::TYPED;
-use super::docs::{LANGUAGES, document, literal, selection, units};
+use super::docs::{CUSTOM, LANGUAGES, document, literal, selection, units};
 use super::runner::{Case, Failure, Rng, cases, run};
 use crate::editor::keys::line_edit::LineCommand;
 use crate::editor::keys::lines::{Command, run as run_command};
@@ -30,8 +30,8 @@ pub(super) struct CommandCase {
 impl Case for CommandCase {
     fn code(&self) -> String {
         format!(
-            "#[test]\nfn command_repro() {{\n    super::commands::replay(super::commands::CommandCase {{\n        language: Language::{},\n        text: {}.into(),\n        at: {},\n        to: {},\n        command: {},\n    }});\n}}",
-            self.language.label(),
+            "#[test]\nfn command_repro() {{\n    super::commands::replay(super::commands::CommandCase {{\n        language: {},\n        text: {}.into(),\n        at: {},\n        to: {},\n        command: {},\n    }});\n}}",
+            super::docs::language_code(self.language),
             literal(&self.text),
             self.at,
             self.to,
@@ -85,8 +85,8 @@ const BITS: [&str; 10] = [
     "<!--", "-->", "<!-->", "<!--->", "-", "#", "//", "/*", "*/", "\n",
 ];
 
-fn generate(rng: &mut Rng) -> Option<CommandCase> {
-    let language = *rng.pick(&LANGUAGES);
+fn generate(rng: &mut Rng, languages: &[Language]) -> Option<CommandCase> {
+    let language = *rng.pick(languages);
     let mut text = document(rng, language);
     for _ in 0..rng.below(6) {
         let piece = if rng.chance(50) {
@@ -185,5 +185,20 @@ pub(super) fn replay(case: CommandCase) {
 
 #[test]
 fn comment_and_line_commands_never_panic_and_keep_the_selection_in_the_text() {
-    run("commands", cases(800), &generate, &check);
+    run(
+        "commands",
+        cases(800),
+        &|rng| generate(rng, &LANGUAGES),
+        &check,
+    );
+}
+
+#[test]
+fn comment_and_line_commands_keep_the_selection_in_the_text_in_custom_languages() {
+    run(
+        "commands-custom",
+        cases(800),
+        &|rng| generate(rng, &CUSTOM),
+        &check,
+    );
 }

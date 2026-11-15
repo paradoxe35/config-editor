@@ -6,7 +6,7 @@
 //! and ranges read backwards from half-typed text, are the class this
 //! guards (FE38-7, FE38-8, FE38-10, FE38-11).
 
-use super::docs::{LANGUAGES, document, literal, offset, units};
+use super::docs::{CUSTOM, LANGUAGES, document, literal, offset, units};
 use super::runner::{Case, Failure, Rng, cases, run};
 use crate::TextPosition;
 use crate::editor::completion::{schema_hover, schema_suggestions};
@@ -23,8 +23,8 @@ pub(super) struct HookCase {
 impl Case for HookCase {
     fn code(&self) -> String {
         format!(
-            "#[test]\nfn hook_repro() {{\n    super::hooks::replay(super::hooks::HookCase {{\n        language: Language::{},\n        text: {}.into(),\n        at: {},\n    }});\n}}",
-            self.language.label(),
+            "#[test]\nfn hook_repro() {{\n    super::hooks::replay(super::hooks::HookCase {{\n        language: {},\n        text: {}.into(),\n        at: {},\n    }});\n}}",
+            super::docs::language_code(self.language),
             literal(&self.text),
             self.at,
         )
@@ -108,8 +108,8 @@ const HALF: [&str; 34] = [
     ",",
 ];
 
-fn generate(rng: &mut Rng) -> Option<HookCase> {
-    let language = *rng.pick(&LANGUAGES);
+fn generate(rng: &mut Rng, languages: &[Language]) -> Option<HookCase> {
+    let language = *rng.pick(languages);
     let mut text = document(rng, language);
     for _ in 0..1 + rng.below(8) {
         let piece = if rng.chance(50) {
@@ -217,5 +217,15 @@ pub(super) fn replay(case: HookCase) {
 
 #[test]
 fn language_hooks_never_panic_on_half_typed_text_of_wide_characters() {
-    run("hooks", cases(60), &generate, &check);
+    run("hooks", cases(60), &|rng| generate(rng, &LANGUAGES), &check);
+}
+
+#[test]
+fn language_hooks_never_panic_on_half_typed_text_in_custom_languages() {
+    run(
+        "hooks-custom",
+        cases(60),
+        &|rng| generate(rng, &CUSTOM),
+        &check,
+    );
 }
