@@ -1131,7 +1131,7 @@
 :not(#\#):not(#\#) .config-editor__goto .config-editor__goto-input:focus { border-color: var(--config-editor-focus-ring); }
 
 /* Lined up with the field's text (its border and padding). */
-:not(#\#):not(#\#) .config-editor__goto-hint { padding: 0 7px; }
+:not(#\#):not(#\#) .config-editor__goto-hint { padding: 0 7px; min-width: 0; overflow-wrap: anywhere; }
 
 /* Find matches sit under the textarea and the highlighted text, like the
    selection, so the text keeps its colors. */
@@ -1337,10 +1337,13 @@
 
 :not(#\#):not(#\#) .config-editor__find-count {
   min-width: 64px;
-  flex: none;
+  max-width: 100%;
+  /* Short counts keep their size; a long result or translation wraps inside
+     the widget instead of being cut. */
+  flex: 0 1 auto;
   padding: 0 2px;
   color: var(--config-editor-raised-muted);
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 
 :not(#\#):not(#\#) .config-editor__find-count-empty { color: var(--config-editor-status-error); }
