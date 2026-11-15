@@ -334,7 +334,13 @@ fn broken(
     for back in 1..suffix {
         // The last line has no ending; the ones above it keep theirs.
         let (old_line, new_line) = (&old[old.len() - 1 - back], &new[new.len() - 1 - back]);
-        if old_line.1 != new_line.1 && (old_line.1 != "\r" || lone_cr) {
+        // An empty LF line the edit brings right after a lone CR cannot keep
+        // both endings (`\r` then `\n` reads as one CRLF: a line lost), so
+        // `line_endings` writes it CRLF: the one change no text avoids.
+        let after_lone_cr = new.len() >= back + 2 && new[new.len() - 2 - back].1 == "\r";
+        let joined =
+            after_lone_cr && new_line.0.is_empty() && old_line.1 == "\n" && new_line.1 == "\r\n";
+        if old_line.1 != new_line.1 && (old_line.1 != "\r" || lone_cr) && !joined {
             return Some((
                 "a line the edit left alone changes its line ending",
                 format!(

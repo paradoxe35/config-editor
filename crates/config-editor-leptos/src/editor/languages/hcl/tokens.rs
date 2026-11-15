@@ -78,7 +78,9 @@ pub(super) fn scan_token(source: &str, index: usize) -> (usize, Kind, bool) {
     if rest.starts_with("<<")
         && let Some(end) = heredoc_end(source, index)
     {
-        return (end, Kind::Heredoc, source[index..end].contains('\n'));
+        // It ends at its delimiter: what follows on that line is on the
+        // heredoc's last line, not after a line break.
+        return (end, Kind::Heredoc, false);
     }
     if rest.starts_with("${") || rest.starts_with("%{") {
         return (template_end(source, index), Kind::Template, false);
@@ -146,7 +148,8 @@ pub(super) fn string_end(source: &str, start: usize) -> (usize, bool) {
 }
 
 /// Byte end of the heredoc opening at `start` (`<<MARKER` / `<<-MARKER`),
-/// through the terminator line. Returns `None` when the opener has no marker,
+/// just past the marker on its terminator line (see
+/// [`super::heredoc::terminator_end`]). Returns `None` when the opener has no marker,
 /// so the caller falls back to punctuation tokens.
 pub(super) fn heredoc_end(source: &str, start: usize) -> Option<usize> {
     let mut rest = &source[start + 2..];
@@ -156,7 +159,7 @@ pub(super) fn heredoc_end(source: &str, start: usize) -> Option<usize> {
     rest = rest.trim_start_matches([' ', '\t']);
     let marker_len = rest
         .chars()
-        .take_while(|character| character.is_ascii_alphanumeric() || *character == '_')
+        .take_while(|character| super::heredoc::continues_name(*character))
         .map(char::len_utf8)
         .sum::<usize>();
     if marker_len == 0 {
@@ -171,8 +174,8 @@ pub(super) fn heredoc_end(source: &str, start: usize) -> Option<usize> {
         let line_end = source[cursor..]
             .find('\n')
             .map_or(source.len(), |offset| cursor + offset);
-        if source[cursor..line_end].trim() == marker {
-            return Some(line_end.min(source.len()) + usize::from(line_end < source.len()));
+        if let Some(end) = super::heredoc::terminator_end(&source[cursor..line_end], marker) {
+            return Some(cursor + end);
         }
         if line_end == source.len() {
             break;

@@ -19,6 +19,21 @@ pub(super) fn free_delimiter(header: &str, terminator: &str, text: &str) -> Opti
     Some((format!("{mark}{free}"), format!("{indent}{free}")))
 }
 
+/// Whether `character` continues an HCL name (a heredoc's delimiter).
+pub(super) fn continues_name(character: char) -> bool {
+    character.is_alphanumeric() || matches!(character, '_' | '-')
+}
+
+/// Where the heredoc terminator `line` ends a heredoc delimited by
+/// `marker`: the byte offset just past the marker, when the line holds,
+/// after spaces and tabs, the marker with no name character after it. The
+/// parser ends a heredoc there and reads the rest of the line on as code
+/// (`  EOT]` closes a list, `EOT,` goes on to the next item).
+pub(super) fn terminator_end(line: &str, marker: &str) -> Option<usize> {
+    let after = line.trim_start_matches([' ', '\t']).strip_prefix(marker)?;
+    (!after.starts_with(continues_name)).then_some(line.len() - after.len())
+}
+
 /// Whether `template` (a string's raw template text) holds a template
 /// sequence: an interpolation or directive (`${`, `%{`) not escaped.
 pub(super) fn has_sequence(template: &str) -> bool {
@@ -152,6 +167,38 @@ mod tests {
             let source = format!("v = {}\n", super::quoted(text));
             let value: serde_json::Value = hcl::from_str(&source).unwrap();
             assert_eq!(value["v"], text, "{source}");
+        }
+    }
+
+    /// A heredoc's terminator may share its line with code (`EOT]`,
+    /// `EOT,`), as the parser reads it: the values after it, items of
+    /// repeated blocks included, are found where they are written (P1:
+    /// read-only locks and problems are placed on these spans).
+    #[test]
+    fn values_after_a_heredoc_ending_mid_line_are_found_where_written() {
+        use super::super::parse::{hcl_parse, hcl_value_span, written_at};
+        let heredocs = [
+            "web = [<<-EOT\n  ind\n  EOT]\n",
+            "web = [<<EOT\nind\nEOT ]\n",
+            "web = [<<EOT\nind\nEOT, \"b\"]\n",
+            "web = [\n  <<EOT\nind\nEOT\n  ,\"b\"\n]\n",
+            "web = upper(<<EOT\nind\nEOT)\n",
+            "web = { k = <<EOT\nind\nEOT }\n",
+            "web = <<EOT\nEOT is not the end\nEOT\n",
+            "web = <<EOT-X\nEOT\nEOT-X\n",
+        ];
+        let blocks = "port {\n  b_2 = 1\n  x = <<EOT\nline\nEOT\n}\nport {\n  b_2 = -5\n}\nlast = 7\n";
+        for heredoc in heredocs {
+            for nested in [false, true] {
+                let body = format!("{heredoc}{blocks}");
+                let (source, prefix) = if nested { (format!("a {{\n{body}}}\n"), "/a") } else { (body, "") };
+                hcl_parse(&source).unwrap_or_else(|error| panic!("{source}: {error:?}"));
+                for (pointer, written) in [("port/0/b_2", "1"), ("port/1/b_2", "-5"), ("last", "7")] {
+                    let pointer = format!("{prefix}/{pointer}");
+                    let span = hcl_value_span(&source, &pointer).unwrap_or_else(|| panic!("{pointer} in {source}"));
+                    assert_eq!(written_at(&source, span).as_deref(), Some(written), "{pointer} in {source}");
+                }
+            }
         }
     }
 

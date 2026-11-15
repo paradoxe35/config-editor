@@ -297,8 +297,8 @@ pub(super) fn token_kind(
     }
 }
 
-/// Lines inside heredocs' bodies: between `<<MARKER` / `<<-MARKER` and the
-/// line holding only the marker.
+/// Lines inside heredocs' bodies: between `<<MARKER` / `<<-MARKER` and its
+/// terminator line (see `super::heredoc::terminator_end`).
 pub(super) fn heredoc_bodies(source: &str) -> Vec<std::ops::Range<usize>> {
     let lines: Vec<&str> = source.split('\n').collect();
     let mut bodies = Vec::new();
@@ -307,7 +307,7 @@ pub(super) fn heredoc_bodies(source: &str) -> Vec<std::ops::Range<usize>> {
         if let Some(marker) = heredoc_marker(lines[index]) {
             let first = index + 1;
             let mut end = first;
-            while end < lines.len() && lines[end].trim() != marker {
+            while end < lines.len() && super::heredoc::terminator_end(lines[end], marker).is_none() {
                 end += 1;
             }
             if end > first {
@@ -329,7 +329,7 @@ fn heredoc_marker(line: &str) -> Option<&str> {
         return None;
     }
     let rest = code[at + 2..].strip_prefix('-').unwrap_or(&code[at + 2..]).trim();
-    (!rest.is_empty() && rest.chars().all(|character| character.is_ascii_alphanumeric() || character == '_'))
+    (!rest.is_empty() && rest.chars().all(super::heredoc::continues_name))
         .then_some(rest)
 }
 

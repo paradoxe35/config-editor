@@ -162,3 +162,32 @@ fn reading_a_long_json_line_of_strings_grows_with_it() {
         carriage_returns: false,
     });
 }
+
+/// A cut of the lines between a lone-CR line and an empty LF line, both
+/// left alone, makes them neighbours: `\r` then `\n` would read as one CRLF
+/// (a line lost), so the empty line is written CRLF, every other line
+/// keeping its ending.
+#[test]
+fn an_empty_line_cut_up_to_a_lone_cr_keeps_every_other_ending() {
+    use super::endings::Step;
+    super::endings::replay(super::endings::EndingsCase {
+        language: "HCL",
+        view: None,
+        text: "\u{feff}port = [\r  \"a b\",\r\n  null\r]\ré = [\r  true,\n  \"a b\"\n]\n".into(),
+        steps: vec![
+            Step::Type {
+                at: 13630323,
+                text: " ",
+            },
+            Step::Enter { at: 1952466 },
+            Step::Type {
+                at: 3946099,
+                text: " ",
+            },
+            Step::Cut {
+                at: 6181502,
+                to: 14302226,
+            },
+        ],
+    });
+}

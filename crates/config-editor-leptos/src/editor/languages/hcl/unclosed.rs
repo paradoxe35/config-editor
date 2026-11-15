@@ -119,13 +119,14 @@ fn heredoc_word(text: &str) -> Option<(String, usize)> {
     Some((word.to_string(), consumed))
 }
 
-/// Where in `text` (after a heredoc's opening line) a line holding only
-/// `word` ends it: the offset past that line's start.
+/// Where in `text` (after a heredoc's opening line) its terminator line
+/// ends it: the offset just past `word` there (see
+/// [`super::heredoc::terminator_end`]).
 fn heredoc_end(text: &str, word: &str) -> Option<usize> {
     let mut offset = 0;
     for line in text.split_inclusive('\n') {
-        if line.trim() == word {
-            return Some(offset + line.len());
+        if let Some(end) = super::heredoc::terminator_end(line, word) {
+            return Some(offset + end);
         }
         offset += line.len();
     }

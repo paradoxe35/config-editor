@@ -180,6 +180,85 @@ fn a_path_under_recursive_options_costs_one_step_per_level() {
     );
 }
 
+/// A keyword of one kind of value (a list's, an object's) says nothing of
+/// a value of another kind, and lists and objects are checked by it.
+#[test]
+fn keywords_of_one_kind_of_value_pass_every_other_kind() {
+    let root = json!({});
+    let cases = [
+        (
+            json!({"contains": {"const": "a"}, "items": {}}),
+            json!("f"),
+            Some(true),
+        ),
+        (
+            json!({"contains": {"const": "a"}}),
+            json!(["b", "a"]),
+            Some(true),
+        ),
+        (
+            json!({"contains": {"const": "a"}}),
+            json!(["b"]),
+            Some(false),
+        ),
+        (
+            json!({"contains": {"const": "a"}, "minContains": 2}),
+            json!(["a", "b"]),
+            Some(false),
+        ),
+        (
+            json!({"contains": {"const": "a"}, "minContains": 0}),
+            json!([]),
+            Some(true),
+        ),
+        (
+            json!({"contains": {"const": "a"}, "maxContains": 1}),
+            json!(["a", "a"]),
+            Some(false),
+        ),
+        (json!({"uniqueItems": true}), json!(3), Some(true)),
+        (json!({"uniqueItems": true}), json!([1, 1]), None),
+        (
+            json!({"propertyNames": {"maxLength": 1}}),
+            json!({"ab": 1}),
+            Some(false),
+        ),
+        (
+            json!({"propertyNames": {"maxLength": 1}}),
+            json!("ab"),
+            Some(true),
+        ),
+        (
+            json!({"dependentRequired": {"a": ["b"]}}),
+            json!({"a": 1}),
+            Some(false),
+        ),
+        (
+            json!({"dependentRequired": {"a": ["b"]}}),
+            json!({"a": 1, "b": 2}),
+            Some(true),
+        ),
+        (json!({"unevaluatedItems": false}), json!({}), Some(true)),
+        (
+            json!({"unevaluatedProperties": false}),
+            json!([]),
+            Some(true),
+        ),
+        (
+            json!({"unevaluatedProperties": false}),
+            json!({"a": 1}),
+            None,
+        ),
+    ];
+    for (schema, value, expected) in cases {
+        assert_eq!(
+            decides(&schema, &value, &root),
+            expected,
+            "{schema} for {value}"
+        );
+    }
+}
+
 #[test]
 fn draft_07_refs_stand_alone_when_values_are_checked() {
     let root = json!({

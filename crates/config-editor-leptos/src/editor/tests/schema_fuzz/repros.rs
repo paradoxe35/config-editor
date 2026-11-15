@@ -92,6 +92,35 @@ fn a_lone_element_under_untyped_list_keywords_reads_as_itself_in_an_xml_view() {
     );
 }
 
+/// List keywords with no `type` (`contains`, `uniqueItems`, `items`) say
+/// nothing of a value that is no list, however deep the options they are
+/// written in: a lone XML element under them reads as its text.
+#[test]
+fn a_lone_element_under_untyped_list_keywords_reads_as_itself_at_any_option_depth() {
+    let list = json!({"contains": {"const": "fast"}, "items": {}});
+    let unique =
+        json!({"uniqueItems": true, "minContains": 2, "contains": {}, "prefixItems": [{}]});
+    let wrapped = |schema: &Value, keyword: &str, depth: usize| {
+        let mut schema = json!({"properties": {"b": schema}});
+        for _ in 0..depth {
+            schema = json!({keyword: [schema]});
+        }
+        json!({"$defs": {"d": schema}, "properties": {"size": {"$ref": "#/$defs/d"}}})
+    };
+    for inner in [&list, &unique] {
+        for keyword in ["anyOf", "oneOf", "allOf"] {
+            for depth in 0..4 {
+                holds_everywhere(
+                    super::validation::check,
+                    wrapped(inner, keyword, depth),
+                    json!({"size": {"b": "f"}}),
+                    Value::Null,
+                );
+            }
+        }
+    }
+}
+
 /// FZ38-16: text typed in an XML view that an applicator types (`allOf`
 /// a string over a host's boolean) saves as the view reads it. (Text left
 /// as the view showed it saves nothing: an unchanged view keeps its host.)

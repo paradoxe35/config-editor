@@ -4,9 +4,11 @@
 //!
 //! The decision is cheap and never wrong, not a validation: the keywords a
 //! condition is written with (`const`, `enum`, `type`, `required`,
-//! `properties`, `patternProperties`, `additionalProperties`, dependent
-//! schemas, items, `pattern`, bounds, the combinators) are checked, and a
-//! condition using anything else is undecided (both branches are offered).
+//! `properties`, `patternProperties`, `additionalProperties`,
+//! `propertyNames`, dependent schemas and keys, items, `contains`,
+//! `pattern`, bounds, the combinators) are checked, a keyword of one kind
+//! of value passes every other kind, and a condition using anything else
+//! is undecided (both branches are offered).
 
 use super::node::{Entry, Node};
 use super::{item_schema, named_properties, ref_target, refs_stand_alone};
@@ -197,6 +199,57 @@ fn decide(schema: &Value, value: &Value, root: &Value, depth: usize) -> Option<b
                     }
                     _ => Some(true),
                 },
+                // How many items match (at least one unless `minContains`
+                // says otherwise, at most `maxContains`).
+                "contains" => match value {
+                    Value::Array(items) => {
+                        let bound = |keyword: &str| members.get(keyword).and_then(Value::as_u64);
+                        let mut matched = 0;
+                        for item in items {
+                            if decide(argument, item, root, depth + 1)? {
+                                matched += 1;
+                            }
+                        }
+                        Some(
+                            matched >= bound("minContains").unwrap_or(1)
+                                && bound("maxContains").is_none_or(|most| matched <= most),
+                        )
+                    }
+                    _ => Some(true),
+                },
+                // Read with `contains`, and nothing without it.
+                "minContains" | "maxContains" => Some(true),
+                "propertyNames" => match value {
+                    Value::Object(present) => all(present
+                        .keys()
+                        .map(|key| decide(argument, &Value::String(key.clone()), root, depth + 1))),
+                    _ => Some(true),
+                },
+                "dependentRequired" => match value {
+                    Value::Object(present) => Some(
+                        argument
+                            .as_object()?
+                            .iter()
+                            .filter(|(key, _)| present.contains_key(*key))
+                            .all(|(_, keys)| {
+                                keys.as_array()
+                                    .into_iter()
+                                    .flatten()
+                                    .filter_map(Value::as_str)
+                                    .all(|key| present.contains_key(key))
+                            }),
+                    ),
+                    _ => Some(true),
+                },
+                // Telling items apart (`1` is `1.0`) is not cheap: undecided
+                // for a list.
+                "uniqueItems" => {
+                    (!value.is_array() || *argument != Value::Bool(true)).then_some(true)
+                }
+                // What other keywords leave of a list or an object: nothing of
+                // another value, else undecided here.
+                "unevaluatedItems" => (!value.is_array()).then_some(true),
+                "unevaluatedProperties" => (!value.is_object()).then_some(true),
                 "pattern" => match value {
                     Value::String(text) => pattern_decides(argument.as_str()?, text),
                     _ => Some(true),

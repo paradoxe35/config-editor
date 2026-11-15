@@ -4,6 +4,7 @@
 
 use serde_json::{Value, json};
 
+use super::documents::SECRET;
 use super::reference::walk;
 use super::runner::Case;
 use crate::editor::Language;
@@ -110,7 +111,17 @@ pub(super) const KNOWN: &[Known] = &[
         finding: "FZ38-10",
         property: "edit_as",
         class: "a save reads otherwise than the view",
-        applies: |case| contradicting_all_of(&case.schema),
+        applies: |case| meets_nothing(&case.schema),
+    },
+    // A required key no value meets (`a: {enum: []}`, or `x_a: {const: 0}`
+    // under a pattern typing `x_` keys strings) has no fill the schema
+    // takes: whatever is written there (or left out) is refused, and the
+    // problem names it.
+    Known {
+        finding: "documented: a field no value meets has no fill its schema takes",
+        property: "fill",
+        class: "a fill writes a value its schema refuses (",
+        applies: |case| meets_nothing(&case.schema),
     },
     // FZ38-10 too: `oneOf` options a value of one kind meets twice (`{}`
     // beside `{type: object}`): the object a fill writes for the required
@@ -127,13 +138,16 @@ pub(super) const KNOWN: &[Known] = &[
         class: "a fill writes a value its schema refuses (oneOf)",
         applies: |case| overlapping_one_of(&case.schema),
     },
-    // XML writes no list of lists: a secret in an item of an inner list
-    // is read in another place than its schema marks.
+    // XML writes no list of lists, nor an empty list in one: the items of
+    // an inner list are items of the outer one, and an empty one is not
+    // written, so a secret after them is read at another index (`[[],
+    // "s"]` reads `["s"]`), one its schema need not mark. The editor
+    // hides what the schema marks where the value is read.
     Known {
         finding: "documented: XML writes no list of lists",
         property: "secrets",
-        class: "a problem message quotes a value holding a secret",
-        applies: |case| case.language == Language::XML && nested_list(&case.doc),
+        class: "a problem message ",
+        applies: |case| case.language == Language::XML && secret_past_inner_list(&case.doc),
     },
     // `codec::conform_arrays`: an HCL block where the schema wants a list
     // is one item of it (`c {}` reads `[{}]`), as HCL writes lists of
@@ -241,19 +255,20 @@ fn asks_list_items(schema: &Value) -> bool {
     found
 }
 
-/// Whether some `allOf` of `schema` lists values (`enum`, `const`) none of
-/// which another member's `type` allows, or a schema lists none at all
-/// (`enum: []`).
-fn contradicting_all_of(schema: &Value) -> bool {
+/// Whether some value of `schema` is one no value meets: a schema listing
+/// none (`enum: []`), or schemas applying to one value together (a schema,
+/// its `allOf` members and an always-taken `then`; a property's schemas
+/// from those, by name and by each pattern its key matches) that type it
+/// apart or list only values another one's `type` refuses
+/// (`allOf: [{enum: [true]}, {type: string}]`; `properties: {x_a:
+/// {const: 0}}` beside `patternProperties: {^x_: {type: string}}`).
+fn meets_nothing(schema: &Value) -> bool {
     let mut found = false;
     walk(schema, &mut |node| {
         found |= node
             .get("enum")
             .and_then(Value::as_array)
             .is_some_and(Vec::is_empty);
-        // A property two schemas applying together type apart (its own
-        // `properties` beside an `allOf` member's or an always-taken
-        // `then`'s).
         let always = node
             .get("if")
             .is_some_and(|condition| *condition == json!({}) || *condition == json!(true));
@@ -266,72 +281,76 @@ fn contradicting_all_of(schema: &Value) -> bool {
             )
             .chain(node.get("then").filter(|_| always))
             .collect();
-        let typed = |source: &Value, key: &str| {
-            source
-                .get("properties")?
-                .get(key)?
-                .get("type")?
-                .as_str()
-                .map(str::to_string)
-        };
-        for source in &together {
-            for key in source
-                .get("properties")
-                .and_then(Value::as_object)
-                .into_iter()
-                .flat_map(|properties| properties.keys())
-            {
-                let types: Vec<String> = together
-                    .iter()
-                    .filter_map(|other| typed(other, key))
-                    .collect();
-                found |= types.iter().any(|one| {
-                    types.iter().any(|other| {
-                        one != other
-                            && !matches!(
-                                (one.as_str(), other.as_str()),
-                                ("number", "integer") | ("integer", "number")
-                            )
-                    })
-                });
-            }
-        }
-        let Some(members) = node.get("allOf").and_then(Value::as_array) else {
-            return;
-        };
-        let listed: Vec<&Value> = members
+        found |= apart(&together);
+        let keys: std::collections::BTreeSet<&String> = together
             .iter()
-            .flat_map(|member| {
-                member.get("const").into_iter().chain(
-                    member
-                        .get("enum")
-                        .and_then(Value::as_array)
+            .filter_map(|source| source.get("properties").and_then(Value::as_object))
+            .flat_map(|properties| properties.keys())
+            .collect();
+        for key in keys {
+            let applying: Vec<&Value> = together
+                .iter()
+                .flat_map(|source| {
+                    let named = source.get("properties").and_then(|named| named.get(key));
+                    let patterned = source
+                        .get("patternProperties")
+                        .and_then(Value::as_object)
                         .into_iter()
-                        .flatten(),
-                )
-            })
-            .collect();
-        let types: Vec<&str> = members
-            .iter()
-            .filter_map(|member| member.get("type").and_then(Value::as_str))
-            .collect();
-        let kind = |value: &Value| match value {
-            Value::Null => "null",
-            Value::Bool(_) => "boolean",
-            Value::Number(_) => "number",
-            Value::String(_) => "string",
-            Value::Array(_) => "array",
-            Value::Object(_) => "object",
-        };
-        found |= !listed.is_empty()
-            && types.iter().any(|wanted| {
-                listed.iter().all(|value| {
-                    let have = kind(value);
-                    have != *wanted && !(have == "number" && *wanted == "integer")
+                        .flatten()
+                        .filter(|(pattern, _)| {
+                            crate::editor::completion::pattern_decides(pattern, key) == Some(true)
+                        })
+                        .map(|(_, schema)| schema);
+                    named.into_iter().chain(patterned)
                 })
-            });
+                .collect();
+            found |= apart(&applying);
+        }
     });
     found
+}
+
+/// Whether `schemas`, applying to one value together, type it apart, or
+/// one lists only values another one's `type` refuses.
+fn apart(schemas: &[&Value]) -> bool {
+    let types: Vec<&str> = schemas
+        .iter()
+        .filter_map(|schema| schema.get("type").and_then(Value::as_str))
+        .collect();
+    let meets = |have: &str, wanted: &str| {
+        have == wanted || matches!((have, wanted), ("number" | "integer", "number" | "integer"))
+    };
+    if types
+        .iter()
+        .any(|one| types.iter().any(|other| !meets(one, other)))
+    {
+        return true;
+    }
+    let kind = |value: &Value| match value {
+        Value::Null => "null",
+        Value::Bool(_) => "boolean",
+        Value::Number(_) => "number",
+        Value::String(_) => "string",
+        Value::Array(_) => "array",
+        Value::Object(_) => "object",
+    };
+    schemas.iter().any(|lister| {
+        let listed: Vec<&Value> = lister
+            .get("const")
+            .into_iter()
+            .chain(
+                lister
+                    .get("enum")
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten(),
+            )
+            .collect();
+        !listed.is_empty()
+            && types
+                .iter()
+                .any(|wanted| listed.iter().all(|value| !meets(kind(value), wanted)))
+    })
 }
 
 /// Whether some `oneOf` of `schema` has an option allowing anything
@@ -369,13 +388,23 @@ fn respelled_number(host: &Value, typed: &Value) -> bool {
     }
 }
 
-/// Whether `value` holds a list inside a list.
-fn nested_list(value: &Value) -> bool {
+/// Whether `value` holds a secret in or after an inner list of a list,
+/// where XML reads it at another index.
+fn secret_past_inner_list(value: &Value) -> bool {
+    let holds_secret = |item: &Value| {
+        let mut found = false;
+        walk(item, &mut |node| {
+            found |= node.as_str().is_some_and(|text| text.starts_with(SECRET));
+        });
+        found
+    };
     let mut found = false;
     walk(value, &mut |node| {
-        found |= node
-            .as_array()
-            .is_some_and(|items| items.iter().any(Value::is_array));
+        if let Some(items) = node.as_array()
+            && let Some(first) = items.iter().position(Value::is_array)
+        {
+            found |= items[first..].iter().any(holds_secret);
+        }
     });
     found
 }
@@ -426,4 +455,56 @@ pub(super) fn excused(property: &str, class: &str, case: &Case) -> Option<&'stat
             known.property == property && class.starts_with(known.class) && (known.applies)(case)
         })
         .map(|known| known.finding)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn case(language: Language, schema: Value, doc: Value) -> Case {
+        Case {
+            language,
+            pick: 0,
+            schema,
+            doc,
+            other: Value::Null,
+        }
+    }
+
+    /// Fields no value meets, and secrets XML reads at another index, are
+    /// allowed; the same shapes with a value to meet, or the secret before
+    /// any inner list, are not.
+    #[test]
+    fn allowances_reach_exactly_their_shapes() {
+        let fill = |schema: Value| {
+            excused(
+                "fill",
+                "a fill writes a value its schema refuses (type)",
+                &case(Language::JSON, schema, json!({})),
+            )
+        };
+        let empty_enum = json!({"properties": {"c": {"allOf": [
+            {"properties": {"b": {"required": ["a"], "allOf": [{"properties": {"a": {"type": "integer"}}}]}}, "required": ["b"]},
+            {"properties": {"b": {"properties": {"a": {"enum": []}}}}}]}}});
+        let patterned = |listed: Value| {
+            json!({"$defs": {"d0": {"properties": {"x_one": {"const": listed}}, "required": ["x_one"],
+                "patternProperties": {"^x_": {"type": "string"}}}}, "properties": {"size": {"$ref": "#/$defs/d0"}}})
+        };
+        assert!(fill(empty_enum).is_some());
+        assert!(fill(patterned(json!(0))).is_some());
+        assert!(fill(patterned(json!("zero"))).is_none());
+        assert!(fill(json!({"properties": {"x_one": {"const": 0}}, "patternProperties": {"^y_": {"type": "string"}}})).is_none());
+
+        let secret = |language: Language, doc: Value| {
+            excused(
+                "secrets",
+                "a problem message holds a secret",
+                &case(language, json!({}), doc),
+            )
+        };
+        assert!(secret(Language::XML, json!({"size": [[], "sekret1q477"]})).is_some());
+        assert!(secret(Language::XML, json!({"name": [{}, [false, "sekret1q625"]]})).is_some());
+        assert!(secret(Language::XML, json!({"size": ["sekret1q477", []]})).is_none());
+        assert!(secret(Language::JSON, json!({"size": [[], "sekret1q477"]})).is_none());
+    }
 }
