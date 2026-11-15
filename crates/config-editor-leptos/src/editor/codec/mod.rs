@@ -24,13 +24,13 @@ use compare::{canonical_number, comment_start, comparable};
 #[cfg(test)]
 #[allow(unused_imports, reason = "the save property tests read through it")]
 pub(super) use emptied_items::without_emptied;
-pub(super) use key_order::{patch_key_order, same_order, written_in_its_map};
+pub(super) use key_order::{own_lines, patch_key_order, same_order, written_in_its_map};
 pub(super) use lines::patch_structure;
 pub(super) use moves::stages as move_stages;
 pub use non_finite::{float_of, float_value, string_of, string_value};
 pub(super) use removed_items::patch_removed_items;
 pub(super) use renames::{patch_renames, patch_scalar_to_container, with_renames_undone};
-pub(super) use reorder::{patch_reorder, unmoved_comments};
+pub(super) use reorder::{patch_reorder, unmoved_comments, with_comma_of};
 pub(super) use steps::steps;
 
 use super::completion::conform_arrays;

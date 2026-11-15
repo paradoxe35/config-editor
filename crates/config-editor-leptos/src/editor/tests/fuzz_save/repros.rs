@@ -32,7 +32,6 @@ fn fz38_1_1() {
 }
 
 #[test]
-#[ignore = "open: FZ38-4"]
 fn fz38_4_1() {
     replay(
         Language::HCL,
@@ -102,7 +101,6 @@ fn fz38_1_2() {
 }
 
 #[test]
-#[ignore = "open: FZ38-4"]
 fn fz38_4_2() {
     replay(
         Language::XML,
@@ -201,7 +199,6 @@ fn fz38_4_4() {
 }
 
 #[test]
-#[ignore = "open: FZ38-4"]
 fn fz38_4_5() {
     replay(
         Language::YAML,
@@ -310,7 +307,6 @@ fn fz38_4_7() {
 }
 
 #[test]
-#[ignore = "open: FZ38-12"]
 fn fz38_12_1() {
     replay(
         Language::JSON,
@@ -636,7 +632,6 @@ fn e38_1_2() {
 }
 
 #[test]
-#[ignore = "open: E38-1"]
 fn e38_1_3() {
     replay(
         Language::YAML,
@@ -737,7 +732,6 @@ fn fz38_16_1() {
 }
 
 #[test]
-#[ignore = "open: FZ38-3"]
 fn fz38_3_1() {
     replay(
         Language::HCL,
@@ -808,7 +802,6 @@ fn fz38_3_2() {
 }
 
 #[test]
-#[ignore = "open: FZ38-10"]
 fn fz38_10_1() {
     replay(
         Language::HCL,
@@ -828,7 +821,6 @@ fn fz38_10_1() {
 }
 
 #[test]
-#[ignore = "open: FZ38-10"]
 fn fz38_10_2() {
     replay(
         Language::XML,
@@ -848,7 +840,6 @@ fn fz38_10_2() {
 }
 
 #[test]
-#[ignore = "open: FZ38-10"]
 fn fz38_10_3() {
     replay(
         Language::XML,
@@ -869,7 +860,6 @@ fn fz38_10_3() {
 }
 
 #[test]
-#[ignore = "open: FZ38-4"]
 fn fz38_4_22() {
     replay(
         Language::YAML,
@@ -1031,6 +1021,30 @@ fn fz38_1_11() {
                 line: 0,
                 column: 1001,
                 text: "x",
+            },
+        ],
+    );
+}
+
+/// P2: a `-` typed before a list item's `{` in an HCL view makes the
+/// item a string, which a TOML array of tables cannot hold: the save
+/// that writes the array inline would drop the comment above its header,
+/// so it waits.
+#[test]
+fn sv38_18_1() {
+    replay(
+        Language::TOML,
+        Language::HCL,
+        "[package]\nname = \"demo\"\nversion = \"0.1.0\" # bump on release\nedition = \"2021\"\nauthors = ['Ann <ann@example.com>']\n[dependencies]\nserde = { version = \"1\", features = [\"derive\"] }\ntokio = { version = \"1.38\", features = [\"rt\", \"macros\"] } # runtime\nlog = \"0.4\"\n[profile.release]\nopt-level = 3\nlto = true\ncodegen-units = 0x1\n# binaries\n[[bin]]\nname = \"cli\"\npath = \"src/cli.rs\"\n[[bin]]\nname = \"server\"\n",
+        &[
+            Op::Enter {
+                line: 0,
+                column: 1000,
+            },
+            Op::Type {
+                line: 42,
+                column: 1001,
+                text: "-",
             },
         ],
     );

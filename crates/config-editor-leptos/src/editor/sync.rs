@@ -912,6 +912,10 @@ pub(super) fn switch_to(state: EditorState, next: Language) {
                 remember_synced_as(state, next, converted.clone(), host_text_before.clone());
                 state.sync().synced_edit.set_value(converted.clone());
                 state.sync().synced.notify();
+                // The new view is the host's text shown: in sync, whatever
+                // the last pause made of a text since undone.
+                note_conversion_problems(state, Vec::new());
+                state.note_in_sync(true);
                 state.sync().shown_cache.set_value(Some((
                     next,
                     host_text_before.clone(),

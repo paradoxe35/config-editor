@@ -179,28 +179,66 @@ fn moved_entries(
 }
 
 /// The lines (0-based, end exclusive) of the entry at `pointer` (a key
-/// of a map): the comment lines right above its key, the key's line, and the
-/// lines its value runs on (a block scalar, a container to where it
-/// closes, or the lines indented under the key where indentation is
-/// structure). `None` when the key shares its line with something before
-/// it, or is written in another map (a key a YAML merge brings in).
+/// of a map, or an item of a list written without one): the comment lines
+/// right above its key (or its value, after the language's item marker),
+/// the key's line, and the lines its value runs on (a block scalar, a
+/// container to where it closes, or the lines indented under the key
+/// where indentation is structure). `None` when the key shares its line
+/// with something before it, or is written in another map (a key a YAML
+/// merge brings in).
 fn entry_lines(
     language: &dyn ConfigLanguage,
     text: &str,
     lines: &[&str],
     pointer: &str,
 ) -> Option<Range<usize>> {
-    let span = paths::memo_key_span(language, text, pointer)?;
-    let line = span.line.checked_sub(1)?;
-    let name = byte_range(text, span)?;
-    if !written_at_its_place(language, text, pointer, name.start)? {
-        return None;
+    if let Some(span) = paths::memo_key_span(language, text, pointer) {
+        let name = byte_range(text, span)?;
+        if !written_at_its_place(language, text, pointer, name.start)? {
+            return None;
+        }
     }
-    let line_start = text[..name.start].rfind('\n').map_or(0, |at| at + 1);
-    let opens = key_markup_start(language, text, name.start).unwrap_or(name.start);
-    if !text[line_start..opens.min(name.start)].trim().is_empty() {
-        return None;
-    }
+    own_lines(language, text, lines, pointer)
+}
+
+/// [`entry_lines`] where the key the text writes for `pointer` is taken
+/// as its own (the check costs a walk to the key): a caller that reads
+/// back what it writes there.
+pub(in super::super) fn own_lines(
+    language: &dyn ConfigLanguage,
+    text: &str,
+    lines: &[&str],
+    pointer: &str,
+) -> Option<Range<usize>> {
+    let line = match paths::memo_key_span(language, text, pointer) {
+        Some(span) => {
+            let name = byte_range(text, span)?;
+            let line_start = text[..name.start].rfind('\n').map_or(0, |at| at + 1);
+            let opens = key_markup_start(language, text, name.start).unwrap_or(name.start);
+            if !text[line_start..opens.min(name.start)].trim().is_empty() {
+                return None;
+            }
+            span.line.checked_sub(1)?
+        }
+        None => {
+            // A list item: its value first on its line, after the item
+            // marker the language writes.
+            let (_, index) = pointer.rsplit_once('/')?;
+            index.parse::<usize>().ok()?;
+            let span = paths::memo_value_span(language, text, pointer)?;
+            let value = byte_range(text, span)?;
+            let line_start = text[..value.start].rfind('\n').map_or(0, |at| at + 1);
+            let before = text[line_start..value.start].trim();
+            let marker_only = before.is_empty()
+                || super::super::flow_syntax::Flow::of(language)
+                    .after_item_marker(before)
+                    .is_some_and(|rest| rest.trim().is_empty());
+            if !marker_only {
+                return None;
+            }
+            span.line.checked_sub(1)?
+        }
+    };
     let mut last = line;
     // A value over lines (a block scalar, a heredoc) ends where it ends,
     // the line break after it no line of its (a heredoc's span runs

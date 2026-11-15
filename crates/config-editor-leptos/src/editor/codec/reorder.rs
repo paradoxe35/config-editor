@@ -164,7 +164,11 @@ fn in_own_element(language: &dyn ConfigLanguage, before: &str, whole: &str) -> b
 
 /// The item line `moved`, with a comma after its value exactly when the
 /// line of the place it moves to (`slot`) has one.
-pub(super) fn with_comma_of(language: &dyn ConfigLanguage, moved: &str, slot: &str) -> String {
+pub(in super::super) fn with_comma_of(
+    language: &dyn ConfigLanguage,
+    moved: &str,
+    slot: &str,
+) -> String {
     let Some(separator) = Flow::of(language).separator() else {
         return moved.to_string();
     };

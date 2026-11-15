@@ -210,12 +210,41 @@ impl Links {
                     .cmp(&left.end)
                     .then(depth(&left.source.pointer).cmp(&depth(&right.source.pointer)))
             });
-            paired.extend(
-                items
-                    .into_iter()
-                    .map(|(_, pointer)| pointer)
-                    .zip(links.iter().map(|link| link.source.clone())),
-            );
+            // A link ending where an item ends is that item's. Items
+            // ending alike are each inside the one before (a TOML
+            // `[a.b]` header writes `a` and `a/b`): their links pair the
+            // innermost first, since an outer one with no text of its own
+            // has no link a cut could have left. The rest pair by place.
+            let mut item_used = vec![false; items.len()];
+            let mut link_used = vec![false; links.len()];
+            for (index, (end, _)) in items.iter().enumerate() {
+                if item_used[index] || items[..index].iter().any(|(other, _)| other == end) {
+                    continue;
+                }
+                let alike: Vec<usize> = (index..items.len())
+                    .filter(|at| items[*at].0 == *end)
+                    .collect();
+                let ending: Vec<usize> = (0..links.len())
+                    .filter(|at| !link_used[*at] && links[*at].end == *end)
+                    .collect();
+                for (item, link) in alike.iter().rev().zip(ending.iter().rev()) {
+                    paired.push((items[*item].1.clone(), links[*link].source.clone()));
+                    item_used[*item] = true;
+                    link_used[*link] = true;
+                }
+            }
+            let left: Vec<&String> = items
+                .iter()
+                .zip(&item_used)
+                .filter(|(_, used)| !**used)
+                .map(|((_, pointer), _)| pointer)
+                .collect();
+            let unused = links
+                .iter()
+                .zip(&link_used)
+                .filter(|(_, used)| !**used)
+                .map(|(link, _)| link.source.clone());
+            paired.extend(left.into_iter().cloned().zip(unused));
         }
         Some(paired)
     }

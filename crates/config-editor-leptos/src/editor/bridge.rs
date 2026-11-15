@@ -21,6 +21,7 @@ type ItemMap = HashMap<String, ItemSource>;
 mod collapsed;
 mod emptied_quotes;
 mod host_strings;
+mod kept_comments;
 pub(super) mod links;
 #[cfg(all(
     test,
@@ -194,6 +195,9 @@ impl Bridge {
                 .to_string()
         });
         let items = told.map(|told| &told.items).zip(earlier.as_deref());
+        // The host's last text as it was given, whose comments the save
+        // keeps (the patches below may start from a respelled copy).
+        let host_previous = previous_host;
         if edit_text.trim().is_empty() {
             return Ok(Conversion {
                 text: String::new(),
@@ -584,6 +588,31 @@ impl Bridge {
             }
             None => conversion,
         };
+        // Nor does it drop a comment of what the edit left alone (see
+        // `kept_comments`), unless the user deleted it in the view.
+        let shown_words = shown
+            .as_ref()
+            .map(|shown| kept_comments::comment_words(self.edit.behavior(), &shown.text))
+            .unwrap_or_default();
+        let deleted = |words: &str| {
+            shown_words.iter().any(|shown| shown == words)
+                && !kept_comments::comment_words(self.edit.behavior(), edit_text)
+                    .iter()
+                    .any(|now| now == words)
+        };
+        if let Some((pointer, words)) = kept_comments::first_lost(
+            host,
+            (host_previous, &conversion.text),
+            (&old, intended),
+            items.map(|(items, _)| items),
+            &deleted,
+        ) {
+            return Err(ConvertError::Unsupported(format!(
+                "this edit would drop the comment `{words}` of a line it leaves as it was: make it editing as {} (at {pointer})",
+                self.host.label()
+            ))
+            .into());
+        }
         // Nor does what is written read back otherwise, or keys in another
         // order than the user moved them to.
         let saved = read_back::Saved {

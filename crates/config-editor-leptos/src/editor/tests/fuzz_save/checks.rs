@@ -92,14 +92,16 @@ pub(super) struct Start {
     pub(super) text: String,
     value: Value,
     forms: HashMap<String, String>,
-    /// The comments, with the pointer each belongs to.
-    comments: Vec<(String, Option<String>)>,
+    /// The comments, with the items of the line each belongs to.
+    comments: Vec<(String, Vec<String>)>,
     /// The comments the first view shows.
     shown_comments: Vec<String>,
     /// The text the session's views showed, each switch's added.
     shown: String,
     /// The views' texts at each save since: what the user wrote.
     written: std::cell::RefCell<String>,
+    /// The items a save so far did not leave alone.
+    gone: std::cell::RefCell<std::collections::HashSet<String>>,
 }
 
 impl Start {
@@ -119,6 +121,7 @@ impl Start {
             shown_comments: comment_bodies(view, view_text),
             shown: view_text.to_string(),
             written: Default::default(),
+            gone: Default::default(),
         })
     }
 }
@@ -312,25 +315,31 @@ pub(super) fn comment_bodies(language: Language, text: &str) -> Vec<String> {
         .collect()
 }
 
-/// Each comment of `text` with the pointer it belongs to: the deepest one
-/// written on its line, else on the next line writing one.
-fn owned_comments(language: Language, text: &str, value: &Value) -> Vec<(String, Option<String>)> {
+/// Each comment of `text` with the items of the line it belongs to: its
+/// own line when code is written before it there (or after it, on its
+/// last line); else the next line writing an item, unless the comment is
+/// indented deeper than that line (it ends the block above) or no line
+/// below writes one: then the last line above writing one.
+fn owned_comments(language: Language, text: &str, value: &Value) -> Vec<(String, Vec<String>)> {
     let all = pointers(value);
     let wanted: Vec<String> = all.iter().map(|(pointer, _)| pointer.clone()).collect();
     let behavior = language.behavior();
     let keys = behavior.key_spans(text, &wanted);
     let values = behavior.value_spans(text, &wanted);
-    let lines: Vec<(usize, &String)> = wanted
-        .iter()
-        .zip(keys.iter().zip(values.iter()))
-        .filter_map(|(pointer, (key, at))| Some((key.or(*at)?.line, pointer)))
-        .collect();
-    let deepest = |line: usize| {
-        lines
-            .iter()
-            .filter(|(at, _)| *at == line)
-            .max_by_key(|(_, pointer)| pointer.matches('/').count())
-            .map(|(_, pointer)| (*pointer).clone())
+    // The items written on each line (from 1).
+    let mut on_line: std::collections::BTreeMap<usize, Vec<String>> = Default::default();
+    for (pointer, (key, at)) in wanted.iter().zip(keys.iter().zip(values.iter())) {
+        let mut lines: Vec<usize> = key.iter().chain(at.iter()).map(|span| span.line).collect();
+        lines.sort_unstable();
+        lines.dedup();
+        for line in lines {
+            on_line.entry(line).or_default().push(pointer.clone());
+        }
+    }
+    let lines: Vec<&str> = text.split('\n').collect();
+    let indent = |line: usize| {
+        let text = lines.get(line - 1).copied().unwrap_or("");
+        text.len() - text.trim_start().len()
     };
     behavior
         .comments(text)
@@ -340,18 +349,59 @@ fn owned_comments(language: Language, text: &str, value: &Value) -> Vec<(String,
             if words.is_empty() {
                 return None;
             }
-            let line = text[..range.start].matches('\n').count() + 1;
-            let owner = deepest(line).or_else(|| {
-                let next = lines
-                    .iter()
-                    .map(|(at, _)| *at)
-                    .filter(|at| *at > line)
-                    .min()?;
-                deepest(next)
-            });
-            Some((words, owner))
+            let first = text[..range.start].matches('\n').count() + 1;
+            let last = text[..range.end].matches('\n').count() + 1;
+            let line_start = text[..range.start].rfind('\n').map_or(0, |at| at + 1);
+            let line_end = text[range.end..]
+                .find('\n')
+                .map_or(text.len(), |at| range.end + at);
+            let owner = if !text[line_start..range.start].trim().is_empty() {
+                Some(first)
+            } else if !text[range.end..line_end].trim().is_empty() {
+                Some(last)
+            } else {
+                let above = on_line.range(..first).next_back().map(|(line, _)| *line);
+                match on_line.range(last + 1..).next().map(|(line, _)| *line) {
+                    Some(below) if indent(first) > indent(below) => above.or(Some(below)),
+                    Some(below) => Some(below),
+                    None => above,
+                }
+            };
+            let items = owner
+                .and_then(|line| on_line.get(&line))
+                .cloned()
+                .unwrap_or_default();
+            Some((words, items))
         })
         .collect()
+}
+
+/// Whether the save (reading `now`) leaves the item at `pointer` of
+/// `start` alone, at the same pointer: a scalar or list item (and each
+/// list item holding it) holding what it held, a map or list still one.
+fn left_alone(start: &Value, now: &Value, pointer: &str) -> bool {
+    let in_list = |pointer: &str| {
+        pointer
+            .rsplit_once('/')
+            .and_then(|(parent, _)| start.pointer(parent))
+            .is_some_and(Value::is_array)
+    };
+    let mut prefix = pointer;
+    loop {
+        if in_list(prefix) && start.pointer(prefix) != now.pointer(prefix) {
+            return false;
+        }
+        match prefix.rfind('/') {
+            Some(at) if at > 0 => prefix = &prefix[..at],
+            _ => break,
+        }
+    }
+    match (start.pointer(pointer), now.pointer(pointer)) {
+        (Some(Value::Object(_)), Some(Value::Object(_)))
+        | (Some(Value::Array(_)), Some(Value::Array(_))) => true,
+        (Some(Value::Object(_) | Value::Array(_)), _) | (None, _) => false,
+        (was, is) => was == is,
+    }
 }
 
 /// What the host holds: the last text `on_change` told it.
@@ -607,14 +657,22 @@ fn check_comments(
     let kept = comment_bodies(start.host, saved);
     let shown = comment_bodies(view, view_text);
     for (words, owner) in &start.comments {
+        // An item a save took away (removed, renamed, its line edited) is
+        // no longer left alone: an undo or paste brings the item back,
+        // not the comment its edit dropped.
+        let mut gone = start.gone.borrow_mut();
+        for pointer in owner {
+            if !left_alone(&start.value, now, pointer) {
+                gone.insert(pointer.clone());
+            }
+        }
+        let left_alone = !owner.is_empty() && owner.iter().all(|pointer| !gone.contains(pointer));
+        drop(gone);
         if kept.contains(words) {
             continue;
         }
         let first_shown = start.shown_comments.contains(words);
         let still_shown = shown.contains(words);
-        let left_alone = owner
-            .as_ref()
-            .is_some_and(|owner| start.value.pointer(owner) == now.pointer(owner));
         // Deleted from a view that showed it: the user's own edit.
         let deleted = first_shown && view.label() != "JSON" && !still_shown;
         let wanted = still_shown || (left_alone && !deleted);

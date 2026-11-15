@@ -178,6 +178,14 @@ fn replay(host: Language, view: Language, text: &str, ops: &[Op]) {
         ops: ops.to_vec(),
     };
     if let Err(broke) = run(&case) {
+        if setting("FUZZ_TRACE").is_some() {
+            println!(
+                "== broke: view {:?}:\n{}--- saved:\n{}",
+                broke.failure.view.map(|view| view.label()),
+                broke.failure.view_text,
+                broke.failure.saved
+            );
+        }
         panic!(
             "step {}: {:?} {}\n{}",
             broke.step, broke.failure.broken, broke.failure.was, broke.failure.detail

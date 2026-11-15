@@ -63,23 +63,7 @@ const KNOWN: &[Known] = &[
         finding: "FZ38-4 a value whose block, table or element changes (renamed, its header deleted, or a line moved across a header) is rewritten",
         applies: |case, broke| {
             (kinds(broke, &[Broken::Form]) && broke.failure.new_parent)
-                || (kinds(broke, &[Broken::Comment, Broken::Form]) && renamed(case, broke))
-        },
-    },
-    Known {
-        finding: "FZ38-11 a cut and paste or a line move in a view drops host comments",
-        applies: |case, broke| {
-            kinds(broke, &[Broken::Comment])
-                && steps(case, broke, |op| {
-                    matches!(op, Op::Cut { .. } | Op::Paste { .. } | Op::MoveLine { .. })
-                })
-        },
-    },
-    Known {
-        finding: "FZ38-12 a whole-text paste in a view rewrites untouched values",
-        applies: |case, broke| {
-            kinds(broke, &[Broken::Form, Broken::Comment])
-                && steps(case, broke, |op| matches!(op, Op::PasteWhole { .. }))
+                || (kinds(broke, &[Broken::Form]) && renamed(case, broke))
         },
     },
     Known {
@@ -90,10 +74,9 @@ const KNOWN: &[Known] = &[
         },
     },
     Known {
-        finding: "FZ38-6 an undo after a save rewrites untouched entries (comments, spellings, one-line or block)",
+        finding: "FZ38-6 an undo after a save rewrites untouched entries (spellings, one-line or block)",
         applies: |case, broke| {
-            kinds(broke, &[Broken::Comment, Broken::Form])
-                && steps(case, broke, |op| *op == Op::Undo)
+            kinds(broke, &[Broken::Form]) && steps(case, broke, |op| *op == Op::Undo)
         },
     },
     Known {
@@ -128,10 +111,15 @@ const KNOWN: &[Known] = &[
         applies: |_, broke| kinds(broke, &[Broken::Form]) && broke.failure.moved,
     },
     Known {
-        finding: "FZ38-10 a switch leaves the save waiting with no problem shown",
+        finding: "SV38-19 a label typed onto an HCL block (`spec x{`) saves a YAML host's map as a list",
         applies: |case, broke| {
-            kinds(broke, &[Broken::SilentWait])
-                && steps(case, broke, |op| matches!(op, Op::Switch { .. }))
+            case.host == Language::YAML
+                && broke.failure.view == Some(Language::HCL)
+                && kinds(broke, &[Broken::Meaning])
+                && broke.failure.view_text.lines().any(|line| {
+                    let head = line.trim().trim_end_matches('{');
+                    line.trim_end().ends_with('{') && head.split_whitespace().count() >= 2
+                })
         },
     },
 ];
