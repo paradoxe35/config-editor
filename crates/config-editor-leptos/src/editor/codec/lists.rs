@@ -4,7 +4,7 @@
 
 use super::super::flow_syntax::Flow;
 use super::super::language::ConfigLanguage;
-use super::{comment_start, comparable};
+use super::comment_start;
 use serde_json::Value;
 
 /// `text` (the host's `[` … `]`, over several lines) holding `items`, or
@@ -68,14 +68,14 @@ pub(super) fn rewrite_list_lines(
     }
     // Comments after the last item stay at the end.
     let closing_comments = above;
-    // One line per item, each the item it was (a one-line object or list
-    // item is trusted by its place; the read-back checks it).
+    // One line per item, each the item it was, however written (`0x50`
+    // for 80; a one-line object or list item is trusted by its place; the
+    // read-back checks it).
     let one_per_line = old.len() == before.len()
         && old.iter().zip(before).all(|(line, item)| {
             item.is_object()
                 || item.is_array()
-                || comparable(language, line.code)
-                    == comparable(language, &language.format_value(item))
+                || super::flow::same_written(language, line.code, item)
         });
     if !one_per_line {
         return None;

@@ -116,6 +116,13 @@ pub(crate) fn also_for(value: &Value) {
     });
 }
 
+/// The sources told for the save being made, over whichever text a step
+/// of it patches: for a caller that reads each item's source text itself
+/// ([`ItemSources::followed`], [`ItemSources::origin`]).
+pub(crate) fn told_to_save() -> Option<Rc<ItemSources>> {
+    CURRENT.with(|current| current.borrow().clone())
+}
+
 /// The sources told for a save over `previous` of a value `holds` says is
 /// one of theirs.
 pub(crate) fn told(previous: &str, holds: impl Fn(&Value) -> bool) -> Option<Rc<ItemSources>> {

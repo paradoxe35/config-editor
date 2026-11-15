@@ -99,13 +99,30 @@ pub(super) fn restyle(
             }
         }
         Value::Array(values) => {
+            // Every item still written keeps its text, matched in order
+            // before any is written anew: an item added before others
+            // takes none of their places (QA 38: `[0x50, 0x1bb]` with 99
+            // added between became `[0x50, 99, 443]`).
             let mut used = vec![false; items.len()];
+            let mut matches = vec![None; values.len()];
+            let mut from = 0;
             for (index, child) in values.iter().enumerate() {
-                let reused = (0..items.len())
+                let found = (from..items.len())
+                    .chain(0..from)
                     .find(|at| !used[*at] && same_written(language, items[*at].1, child));
-                match reused {
+                if let Some(at) = found {
+                    used[at] = true;
+                    matches[index] = Some(at);
+                    from = at + 1;
+                }
+            }
+            let mut used = vec![false; items.len()];
+            for at in matches.iter().flatten() {
+                used[*at] = true;
+            }
+            for (index, child) in values.iter().enumerate() {
+                match matches[index] {
                     Some(at) => {
-                        used[at] = true;
                         let (before, text, after) = items[at];
                         place(&mut out, before, text.to_string(), after);
                     }
@@ -161,7 +178,7 @@ fn item_text(language: &dyn ConfigLanguage, value: &Value, written: &str) -> Str
 
 /// Whether `written` already writes `value` (however a number is spelled:
 /// `7.835e3` for 7835).
-fn same_written(language: &dyn ConfigLanguage, written: &str, value: &Value) -> bool {
+pub(super) fn same_written(language: &dyn ConfigLanguage, written: &str, value: &Value) -> bool {
     let formatted = language.format_value(value);
     comparable(language, written) == comparable(language, &formatted)
         || (!value.is_object() && !value.is_array() && language.scalar_reads_as(written, value))

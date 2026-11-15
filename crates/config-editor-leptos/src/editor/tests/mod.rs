@@ -116,6 +116,22 @@ mod line_breaks;
     feature = "hcl",
     feature = "xml"
 ))]
+mod inline_forms_moved;
+#[cfg(all(
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod inline_items_kept;
+#[cfg(all(
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
 mod large_edit_work;
 #[cfg(all(
     feature = "yaml",

@@ -12,6 +12,8 @@ use super::escape;
 use serde_json::Value;
 use std::ops::Range;
 
+mod moved;
+
 /// What the line patch sees: the host and both values with markers in place
 /// of the kept containers, and each marker's original text.
 pub(super) struct Kept {
@@ -73,7 +75,9 @@ fn marker(index: usize) -> String {
     format!("config-editor-kept-{index}-end")
 }
 
-/// The kept containers of `previous`, or `None` when it has none.
+/// The kept containers of `previous`, and those an edit moved or copied
+/// from where a host text wrote them on one line (see [`moved`]), or
+/// `None` when there are none.
 pub(super) fn hide(
     language: &dyn ConfigLanguage,
     previous: &str,
@@ -83,6 +87,17 @@ pub(super) fn hide(
     if previous.contains("config-editor-kept-") {
         return None;
     }
+    let kept = hide_in_place(language, previous, old, new);
+    moved::with_moved(language, previous, old, new, kept)
+}
+
+/// [`hide`] of the containers where `previous` writes them.
+fn hide_in_place(
+    language: &dyn ConfigLanguage,
+    previous: &str,
+    old: &Value,
+    new: &Value,
+) -> Option<Kept> {
     // Lines holding a whole bracketed or tagged container: only a container
     // whose values all sit on one of them is located (a span lookup parses
     // the host, too slow to do for every container of a large one).
