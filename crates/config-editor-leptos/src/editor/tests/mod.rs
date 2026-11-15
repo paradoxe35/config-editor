@@ -240,6 +240,14 @@ mod schema_options;
 mod schema_walk;
 // Counts the suggestions' work in every language.
 #[cfg(all(
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod deep_option_completion_work;
+#[cfg(all(
     feature = "folding",
     feature = "yaml",
     feature = "json",

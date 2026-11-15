@@ -396,11 +396,21 @@ pub(crate) fn schema_at_path_read<'a, 'd>(
                 .collect();
             next.extend(items);
         }
-        schemas = next;
+        schemas = distinct(next);
         if schemas.is_empty() {
             break;
         }
     }
+    schemas
+}
+
+/// `schemas` with each one kept once, in order. The options of a
+/// recursive `anyOf` sharing a key (`c: {$ref: node}` in each) lead to the
+/// same schemas again at every level: kept twice, each level would double
+/// the walk below it.
+fn distinct(mut schemas: Vec<&Value>) -> Vec<&Value> {
+    let mut seen: HashSet<*const Value> = HashSet::new();
+    schemas.retain(|schema| seen.insert(std::ptr::from_ref(*schema)));
     schemas
 }
 
