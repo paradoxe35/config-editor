@@ -112,20 +112,27 @@ const WARM_UP: usize = 200;
 /// Cycles measured after the warm-up.
 const CYCLES: usize = 300;
 
-/// The live allocations (count, bytes) `CYCLES` more cycles add to an
-/// editor of `host` shown as `view` after the warm-up.
-fn kept(host_language: Language, view: Language) -> (isize, isize) {
+/// The live allocations (count, bytes) each of two runs of `CYCLES` more
+/// cycles adds to an editor of `host` shown as `view` after the warm-up. A
+/// leak adds in both runs; a process-wide cache another test fills or frees
+/// meanwhile shows in one run at most.
+fn kept(host_language: Language, view: Language) -> [(isize, isize); 2] {
     let mut editor = TestEditor::new(host_language, host(host_language));
     editor.edit_as = Some(view);
     let (_owner, state) = editor.mount();
     (0..WARM_UP).for_each(|at| cycle(state, at));
-    let before = live();
+    let start = live();
     (WARM_UP..WARM_UP + CYCLES).for_each(|at| cycle(state, at));
-    let after = live();
+    let middle = live();
+    (WARM_UP + CYCLES..WARM_UP + 2 * CYCLES).for_each(|at| cycle(state, at));
+    let end = live();
     let saved = state.sync().host_text.get_value();
-    let last = format!("k{}", WARM_UP + CYCLES);
+    let last = format!("k{}", WARM_UP + 2 * CYCLES);
     assert!(saved.contains(&last), "{host_language} as {view}: {saved}");
-    (after.0 - before.0, after.1 - before.1)
+    [
+        (middle.0 - start.0, middle.1 - start.1),
+        (end.0 - middle.0, end.1 - middle.1),
+    ]
 }
 
 #[test]
@@ -138,22 +145,22 @@ fn a_key_moved_and_renamed_over_and_over_keeps_no_memory_in_every_host_and_view(
             }
             // On a thread of its own: what other tests left in this
             // thread's caches neither counts nor fills them meanwhile.
-            let (count, bytes) = std::thread::Builder::new()
+            let runs = std::thread::Builder::new()
                 .stack_size(16 << 20)
                 .spawn(move || kept(host_language, view))
                 .expect("a thread")
                 .join()
                 .expect("the cycles ran");
-            eprintln!(
-                "{host_language} as {view}: {count} allocations, {bytes} bytes kept over {CYCLES} cycles"
-            );
-            // Anything kept per cycle is CYCLES allocations or more. The few
-            // allowed here are process-wide caches the other tests running
-            // at the same time share (first filled by this thread, freed by
-            // another); alone this measures 0 allocations, 133 bytes.
-            if count > 3 || bytes > 1024 {
+            eprintln!("{host_language} as {view}: kept over {CYCLES} cycles, twice: {runs:?}");
+            // Anything kept per cycle is CYCLES allocations or more in each
+            // run. A few allocations or bytes in one run are a shared cache
+            // (alone this measures 0 allocations, 133 bytes, once).
+            if runs
+                .iter()
+                .all(|(count, bytes)| *count > 3 || *bytes > 1024)
+            {
                 failures.push(format!(
-                    "{host_language} as {view}: {count} allocations, {bytes} bytes kept over {CYCLES} cycles"
+                    "{host_language} as {view}: kept over {CYCLES} cycles, twice: {runs:?}"
                 ));
             }
         }
