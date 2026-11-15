@@ -186,6 +186,17 @@ mod nothing_to_fold;
 mod own_problems;
 #[cfg(all(feature = "yaml", feature = "protect"))]
 mod problem_cap;
+#[cfg(all(
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml",
+    feature = "protect",
+    feature = "search",
+    feature = "schema-validation"
+))]
+mod protect_fuzz;
 #[cfg(feature = "yaml")]
 mod reveal_range;
 // Counts every kind of edit in every language and view, so it needs every
