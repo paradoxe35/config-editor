@@ -1387,3 +1387,89 @@ fn user_spelled_2() {
         ],
     );
 }
+
+/// P3: a TOML header moved into a multi-line string is text there, so the keys after it keep their links and forms (a YAML `!!str` tag).
+#[test]
+fn sw38_4_1() {
+    replay(
+        Language::YAML,
+        Language::HCL,
+        "alpha:\n  k1: |\n    line one\n    line two\n  k2: !!str 5\nbeta:\n  k3: [a, 'b', 3] # note 3\n  k4: 'single'\n",
+        &[
+            Op::Switch { to: 2 },
+            Op::MoveLine {
+                line: 30,
+                down: true,
+            },
+        ],
+    );
+}
+
+/// P3: a TOML header moved into a multi-line string is text there, so the keys after it keep their links and forms (a YAML `!!str` tag).
+#[test]
+fn sw38_4_2() {
+    replay(
+        Language::YAML,
+        Language::TOML,
+        "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: web # the app\n  labels: {app: web, tier: \"front\"}\nspec:\n  replicas: 0x3\n  selector:\n      app: web\n      containers:\n        - name: web\n          image: \"nginx:1.25\"\n          args: [--port, '8080']\n          env:\n            - name: GREETING\n              value: |\n                world\n            - name: LEVEL\n              value: !!str 3\n          resources:\n            limits: {cpu: 500m, memory: 128Mi}\n",
+        &[
+            Op::Cut {
+                line: 23,
+                how: Take::Line,
+            },
+            Op::Paste {
+                line: 43,
+                how: Put::OverBlank,
+            },
+        ],
+    );
+}
+
+/// P3: a TOML header moved into a multi-line string is text there, so the keys after it keep their links and forms (a YAML `!!str` tag).
+#[test]
+fn sw38_4_3() {
+    replay(
+        Language::HCL,
+        Language::TOML,
+        "alpha {\n  k1 = <<EOT\nhello\nEOT\n  k2 = var.name\n  k3 = var.on ? 1 : 2\n}\nbeta {\n  k4 = true # note 4\n  k5 = var.name # note 5\n  k6 = \"plain\" # note 7\n  k7 = [1, 2]\n}\ngamma {\n  k8 = true\n  k9 {\n    inner = var.x\n  }\n}\n",
+        &[
+            Op::Cut {
+                line: 3,
+                how: Take::Entry,
+            },
+            Op::Paste {
+                line: 27,
+                how: Put::Before,
+            },
+        ],
+    );
+}
+
+/// The user's own value: a key whose value a paste over another line made, cut and pasted again, is written as that save wrote it.
+#[test]
+fn user_made_1() {
+    replay(
+        Language::JSON,
+        Language::YAML,
+        "{\n  \"alpha\": {\n    \"k1\": \"plain\",\n    \"k2\": \"a\\u0041\"\n  },\n  \"beta\": {\n    \"k3\": true,\n    \"k4\": {\"x\": 1, \"y\": \"two\"},\n    \"k5\": true,\n    \"k6\": 1e3\n  },\n  \"gamma\": {\n    \"k7\": [\n      {\"name\": \"one\"},\n      {\"name\": \"two\"}\n    ],\n    \"k8\": 1e3,\n    \"k9\": \"plain\",\n    \"k10\": true\n  },\n  \"delta\": {\n    \"k11\": 1.50,\n    \"k12\": [1, 2, 3],\n    \"k13\": [1, 2, 3]\n  }\n}\n",
+        &[
+            Op::Copy {
+                line: 56,
+                how: Take::Entry,
+            },
+            Op::Paste {
+                line: 46,
+                how: Put::OverLine,
+            },
+            Op::Pause,
+            Op::Cut {
+                line: 46,
+                how: Take::Text,
+            },
+            Op::Paste {
+                line: 40,
+                how: Put::OverBlank,
+            },
+        ],
+    );
+}

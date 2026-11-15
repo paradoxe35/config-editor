@@ -290,3 +290,29 @@ fn suggestions_accepted_in_a_row_do_not_panic() {
         ],
     });
 }
+
+/// SW38-5: an indent, Enter and Shift+Tab in an HCL view leave an empty
+/// link: each link stays a range of the text after an edit.
+#[test]
+fn an_indent_enter_and_outdent_in_a_view_keep_every_link_in_the_text() {
+    super::undo::replay(super::undo::UndoCase {
+        host: Language::JSON,
+        view: Some(Language::HCL),
+        schema: false,
+        text: "{\n  \"listen\": 1,\n  \"tcp\": {\"nodelay\": true},\n  \"self\": {\n    \"allow\": [\"a\", \"b\", \"c\"]\n  },\n  \"clients\": {\n    \"acme\": {\n      \"secret\": \"s1\",\n      \"max_connections\": 2\n    },\n    \"beta\": {\n      \"secret\": \"s2\"\n    }\n  },\n  \"limits\": {\n    \"max_pending\": 5\n  }\n}\n".into(),
+        interleaved: true,
+        actions: vec![
+            Indent {
+                at: 11403920,
+                to: 11053544,
+                outdent: false,
+            },
+            Enter { at: 2674138 },
+            Tab {
+                at: 7422702,
+                to: 10870560,
+                shift: true,
+            },
+        ],
+    });
+}

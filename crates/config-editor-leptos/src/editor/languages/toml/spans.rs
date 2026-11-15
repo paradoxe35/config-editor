@@ -155,6 +155,7 @@ fn walk_keys(source: &str, sink: &mut impl Sink) {
     note(Work::DocumentRead);
     let lines: Vec<&str> = source.lines().collect();
     let tables = table_paths(&lines);
+    let in_string = super::editing::in_string_lines(&lines);
     // The containers written over lines, read once when one is met.
     let mut statements = None;
     let mut offset = 0;
@@ -164,6 +165,9 @@ fn walk_keys(source: &str, sink: &mut impl Sink) {
         }
         let line_offset = offset;
         offset += line.len() + 1;
+        if in_string[index] {
+            continue;
+        }
         let (code, _) = split_toml_comment(line);
         if let Some((key, start, end)) = key_assignment(code) {
             let table = path_strings(&tables[index]);
@@ -292,12 +296,17 @@ fn walk_values(source: &str, sink: &mut impl Sink) {
     let mut tables = Tables::default();
     let mut table: Vec<String> = Vec::new();
     let mut offset = 0;
-    for line in source.lines() {
+    let lines: Vec<&str> = source.lines().collect();
+    let in_string = super::editing::in_string_lines(&lines);
+    for (line, in_string) in lines.into_iter().zip(in_string) {
         if sink.done() {
             break;
         }
         let line_offset = offset;
         offset += line.len() + 1;
+        if in_string {
+            continue;
+        }
         if line.trim_start().starts_with('[') {
             let (code, _) = split_toml_comment(line);
             if let Some((segments, is_array)) = parse_header(code) {

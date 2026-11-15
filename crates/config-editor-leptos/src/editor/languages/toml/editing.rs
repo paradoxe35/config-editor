@@ -116,6 +116,29 @@ pub(super) fn multi_line_string_bodies(source: &str) -> Vec<std::ops::Range<usiz
     bodies
 }
 
+/// For each of `lines`, whether it is text of a multi-line string (after
+/// the line opening it, through the line closing it): no header or key is
+/// written there (`[alpha]` moved into a `"""` string is text).
+pub(super) fn in_string_lines(lines: &[&str]) -> Vec<bool> {
+    let mut inside = Vec::with_capacity(lines.len());
+    let mut open: Option<&'static str> = None;
+    for line in lines {
+        match open {
+            Some(delimiter) => {
+                inside.push(true);
+                if let Some(at) = closing_delimiter(line, delimiter) {
+                    open = opens_unclosed_string(&line[at + 3..]);
+                }
+            }
+            None => {
+                inside.push(false);
+                open = opens_unclosed_string(line);
+            }
+        }
+    }
+    inside
+}
+
 /// The delimiter of a triple-quoted string `code` opens and leaves open.
 fn opens_unclosed_string(code: &str) -> Option<&'static str> {
     let mut quote: Option<char> = None;

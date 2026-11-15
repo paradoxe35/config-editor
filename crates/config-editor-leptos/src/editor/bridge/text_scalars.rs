@@ -16,18 +16,62 @@ use serde_json::Value;
 /// Where `schema` allows the view's reading of a value and not the host's
 /// type of it (`8` typed over `"auto"` for "an integer ≥ 1 or `auto`"),
 /// the view's reading is saved: what the view validated.
+///
+/// So is a value the merge kept as the host held it where the view reads
+/// it otherwise (`edited`): a key renamed onto one the schema types (the
+/// host's string `"true"` under a key whose schema is `boolean`) is saved
+/// as the view means it.
 pub(super) fn in_host_types(
     old: &Value,
-    seen: &Value,
+    (seen, edited): (&Value, &Value),
     value: Value,
     schema: Option<&Value>,
 ) -> Result<Value, String> {
     let mut retyped = Vec::new();
     let mut value = in_host_types_at(old, Some(seen), value, "", &mut retyped)?;
     if let Some(schema) = schema {
+        read_otherwise(&value, (seen, edited), &mut String::new(), &mut retyped);
         schema_readings::keep(&mut value, retyped, schema);
     }
     Ok(value)
+}
+
+/// Each scalar of `value` the view reads otherwise in `edited` (at the
+/// same pointer), with the view's reading, where the edit wrote it (the
+/// view showed no such reading there, in `seen`): an untouched value
+/// keeps the host's text.
+fn read_otherwise(
+    value: &Value,
+    (seen, edited): (&Value, &Value),
+    at: &mut String,
+    out: &mut Retyped,
+) {
+    let length = at.len();
+    match (value, edited) {
+        (Value::Object(map), Value::Object(theirs)) => {
+            for (key, child) in map {
+                if let Some(other) = theirs.get(key) {
+                    at.push('/');
+                    at.push_str(&key.replace('~', "~0").replace('/', "~1"));
+                    read_otherwise(child, (seen, other), at, out);
+                    at.truncate(length);
+                }
+            }
+        }
+        (Value::Array(items), Value::Array(theirs)) => {
+            for (index, (child, other)) in items.iter().zip(theirs).enumerate() {
+                at.push('/');
+                at.push_str(&index.to_string());
+                read_otherwise(child, (seen, other), at, out);
+                at.truncate(length);
+            }
+        }
+        (Value::Object(_) | Value::Array(_), _) | (_, Value::Object(_) | Value::Array(_)) => {}
+        (value, other) if value != other && seen.pointer(at) != Some(other) => {
+            out.push((at.clone(), other.clone()));
+        }
+        _ => {}
+    }
 }
 
 /// Values the host's type changed: each one's pointer and the view's

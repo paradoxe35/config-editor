@@ -274,3 +274,15 @@ fn a_secret_of_a_lone_xml_item_is_not_quoted() {
         Value::Null,
     );
 }
+
+/// P2: a key renamed in an XML view onto one whose schema types its text
+/// (`name: "true"` made `size`, a boolean) saves as the view reads it.
+#[test]
+fn a_key_renamed_onto_a_typed_one_saves_as_the_view_reads_it() {
+    holds_everywhere(
+        super::edit_as::check,
+        json!({"properties": {"size": {"type": "boolean"}}}),
+        json!({"name": "true"}),
+        json!({"size": true}),
+    );
+}

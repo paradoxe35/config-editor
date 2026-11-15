@@ -260,9 +260,10 @@ pub(super) fn table_paths(lines: &[&str]) -> Vec<Vec<SchemaPathSegment>> {
     let mut paths = Vec::with_capacity(lines.len() + 1);
     let mut tables = Tables::default();
     paths.push(tables.path.clone());
-    for line in lines {
+    let in_string = super::editing::in_string_lines(lines);
+    for (line, in_string) in lines.iter().zip(in_string) {
         let (code, _) = split_toml_comment(line);
-        if let Some((segments, is_array)) = parse_header(code) {
+        if !in_string && let Some((segments, is_array)) = parse_header(code) {
             tables.enter(&segments, is_array);
         }
         paths.push(tables.path.clone());

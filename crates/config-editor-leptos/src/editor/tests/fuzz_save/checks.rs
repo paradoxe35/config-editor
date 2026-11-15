@@ -101,6 +101,8 @@ pub(super) struct Start {
     shown_comments: Vec<String>,
     /// The text the session's views showed, each switch's added.
     shown: String,
+    /// The names a save so far held a value under that the start did not.
+    made: std::cell::RefCell<std::collections::HashSet<String>>,
     /// The scalars a save so far held otherwise than the start.
     changed: std::cell::RefCell<std::collections::HashSet<String>>,
     /// Each value's text as a view showed it (at the start, each switch).
@@ -130,6 +132,7 @@ impl Start {
             shown: view_text.to_string(),
             written: Default::default(),
             changed: Default::default(),
+            made: Default::default(),
             shown_values: std::cell::RefCell::new(value_texts(view, view_text)),
             synced: std::cell::RefCell::new(vec![(view, view_text.to_string(), text.to_string())]),
         })
@@ -719,6 +722,26 @@ fn check_forms(
             }
         }
     }
+    // A new key an earlier save held with a value the session did not start
+    // with under that name (the user made it: a line pasted over another
+    // joined their values) may be where a later value of that name comes
+    // from: its form is the one that save wrote, not the start's.
+    let made_before = start.made.borrow().clone();
+    {
+        let mut made = start.made.borrow_mut();
+        for (pointer, value) in pointers(now) {
+            if value.is_object() || value.is_array() {
+                continue;
+            }
+            let name = named(&pointer);
+            let started = pointers(&start.value)
+                .into_iter()
+                .any(|(other, held)| held == value && named(&other) == name);
+            if !started && start.value.pointer(&pointer).is_none() {
+                made.insert(name);
+            }
+        }
+    }
     for (pointer, value) in pointers(now) {
         let Some(form) = after.get(&pointer) else {
             continue;
@@ -744,6 +767,9 @@ fn check_forms(
         }
         // Moved or copied: from where the same key held the same value.
         let name = named(&pointer);
+        if made_before.contains(&name) {
+            continue;
+        }
         let candidates: Vec<String> = pointers(&start.value)
             .into_iter()
             .filter(|(other, held)| *held == value && named(other) == name)

@@ -304,13 +304,13 @@ impl Bridge {
                     self.host.label()
                 ))
             })?,
-            None => edited,
+            None => edited.clone(),
         };
         // A view that writes every scalar as text (XML) only guesses types:
         // the edited values keep the host's.
         let value = match &seen {
             Some(seen) if self.edit.behavior().scalars_are_text() => {
-                text_scalars::in_host_types(&old, seen, value, self.shape()).map_err(|pointer| {
+                text_scalars::in_host_types(&old, (seen, &edited), value, self.shape()).map_err(|pointer| {
                     ConvertError::Unsupported(format!(
                         "{} reads an empty element here, and {} holds no empty number or boolean: the edit is saved once it holds a value again (at {pointer})",
                         self.edit.label(),

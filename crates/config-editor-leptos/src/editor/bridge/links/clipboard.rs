@@ -89,7 +89,8 @@ fn placed(text: &str, links: Vec<Link>) -> Option<(String, Vec<Placed>)> {
     Some((shape.key, links))
 }
 
-/// `links` put on `text`, a text of the same shape.
+/// `links` put on `text`, a text of the same shape: a link whose text
+/// was only blanks there (placed on one point of the shape) is no item's.
 fn put(shape: &Shape, links: &[Placed]) -> Vec<Link> {
     links
         .iter()
@@ -98,6 +99,7 @@ fn put(shape: &Shape, links: &[Placed]) -> Vec<Link> {
             end: shape.offset(link.end),
             source: link.source.clone(),
         })
+        .filter(|link| link.start < link.end)
         .collect()
 }
 
