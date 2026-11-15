@@ -24,7 +24,14 @@
 //! those answers explain nothing. So the option is
 //! `{"allOf": [{MARK: n}, {"if": {KEYWORD: n}, "then": …, "else": …}]}`:
 //! [`MARK`] is only read when errors are collected, right before
-//! [`KEYWORD`] (see [`Asked`]).
+//! [`KEYWORD`] (see [`Asked`]); [`LEFT`], right after the option's
+//! errors.
+//!
+//! A `$ref` target reached again for the same value is explained once in
+//! each option's explanation too (see [`refs`]), and every explanation
+//! spends a budget linear in the document (see [`bound`]): past it, the
+//! problems say they are incomplete. A schema this validator cannot be
+//! built from is explained by [`bounded`], under the same budget.
 
 use std::cell::{Cell, RefCell};
 use std::collections::HashSet;
@@ -33,7 +40,14 @@ use jsonschema::error::{ValidationError, ValidationErrorKind};
 use jsonschema::{Keyword, Validator};
 use serde_json::{Map, Value, json};
 
+#[cfg(test)]
+use crate::editor::work_count::note_many;
 use crate::editor::work_count::{Work, note};
+
+mod bound;
+mod refs;
+
+pub(super) use refs::is_stop;
 
 /// The keyword each option of the explaining validator asks first.
 const KEYWORD: &str = "x-config-editor-explained";
@@ -41,9 +55,16 @@ const KEYWORD: &str = "x-config-editor-explained";
 /// The keyword read right before [`KEYWORD`] when errors are collected.
 const MARK: &str = "x-config-editor-asked";
 
+/// The keyword read right after an option's errors are collected.
+const LEFT: &str = "x-config-editor-left";
+
 /// An option (its number in the schema) and a value of the document (its
 /// address).
 type Asking = (u64, usize);
+
+/// A `$ref`'s definition (its number), a value of the document (its
+/// address), and the option explaining it (`None`: the document).
+type Referred = (u64, usize, Option<Asking>);
 
 thread_local! {
     /// The option and value whose errors are being collected, between
@@ -52,6 +73,11 @@ thread_local! {
     /// Each option and value explained, during the one validation running
     /// on this thread.
     static EXPLAINED: RefCell<HashSet<Asking>> = RefCell::new(HashSet::new());
+    /// The options whose errors are being collected, the innermost last.
+    static EXPLAINING: RefCell<Vec<Asking>> = const { RefCell::new(Vec::new()) };
+    /// Each `$ref` target and value explained, in each option's
+    /// explanation, during the one validation running on this thread.
+    static REFERRED: RefCell<HashSet<Referred>> = RefCell::new(HashSet::new());
 }
 
 /// The number an option's keywords hold.
@@ -92,13 +118,60 @@ impl<'i> Keyword<'i> for Explained {
             // Only whether the option holds the value: either answer does.
             return true;
         }
+        EXPLAINING.with(|explaining| explaining.borrow_mut().push(asking));
+        if EXPLAINED.with(|explained| explained.borrow().contains(&asking)) || !bound::spend() {
+            return false;
+        }
         EXPLAINED.with(|explained| explained.borrow_mut().insert(asking))
     }
 }
 
+/// The [`LEFT`] keyword: its option's errors are collected.
+struct Left;
+
+impl<'i> Keyword<'i> for Left {
+    fn validate(&self, _instance: &'i Value) -> Result<(), ValidationError<'i>> {
+        EXPLAINING.with(|explaining| explaining.borrow_mut().pop());
+        Ok(())
+    }
+
+    fn is_valid(&self, _instance: &'i Value) -> bool {
+        true
+    }
+}
+
+/// The [`refs::KEYWORD`] keyword: whether its `$ref`'s target explains its
+/// value. Only when its errors are collected (see [`Asked`]), for a value
+/// that is an object or a list, and the target never explained the value
+/// before in the explanation of the same option (and the budget allows
+/// it).
+struct Referring(u64);
+
+impl<'i> Keyword<'i> for Referring {
+    fn validate(&self, _instance: &'i Value) -> Result<(), ValidationError<'i>> {
+        Ok(())
+    }
+
+    fn is_valid(&self, instance: &'i Value) -> bool {
+        let value = std::ptr::from_ref(instance) as usize;
+        if ASKED.with(Cell::take) != Some((self.0, value)) {
+            return true;
+        }
+        if !(instance.is_object() || instance.is_array()) {
+            return true;
+        }
+        let option = EXPLAINING.with(|explaining| explaining.borrow().last().copied());
+        let referred = (self.0, value, option);
+        if REFERRED.with(|known| known.borrow().contains(&referred)) || !bound::spend() {
+            return false;
+        }
+        REFERRED.with(|known| known.borrow_mut().insert(referred))
+    }
+}
+
 /// The explaining validator for `schema` (as the main validator is built
-/// from it), or `None` when it does not build (the main one then explains,
-/// unbounded). A draft-04 or -06 schema is read as draft-07, the first
+/// from it), or `None` when it does not build (then [`bounded`]
+/// explains). A draft-04 or -06 schema is read as draft-07, the first
 /// draft with `if`, when it has no keyword draft-07 reads otherwise.
 pub(super) fn build(schema: &Value) -> Option<Validator> {
     let mut copy = schema.clone();
@@ -127,13 +200,41 @@ pub(super) fn build(schema: &Value) -> Option<Validator> {
             *draft = "http://json-schema.org/draft-07/schema#".to_string();
         }
     }
-    wrap(&mut copy, "", &mut 0);
+    let mut count = 0;
+    wrap(&mut copy, "", &mut count);
+    refs::wrap(&mut copy, &mut count, refs::Form::Explained);
     jsonschema::options()
         .with_keyword(MARK, |_, value, _| {
             Ok(Box::new(Asked(option_number(value))))
         })
         .with_keyword(KEYWORD, |_, value, _| {
             Ok(Box::new(Explained(option_number(value))))
+        })
+        .with_keyword(LEFT, |_, _, _| Ok(Box::new(Left)))
+        .with_keyword(refs::KEYWORD, |_, value, _| {
+            Ok(Box::new(Referring(option_number(value))))
+        })
+        .with_keyword(refs::SPENT, |_, value, _| {
+            Ok(Box::new(bound::Spent(option_number(value))))
+        })
+        .build(&copy)
+        .ok()
+}
+
+/// The validator that says why a document is invalid for a schema the
+/// explaining one cannot be built from (in its own draft, which may have
+/// no `if`): each `$ref` target explained each time it is reached, while
+/// the budget lasts (see [`refs::Form::Stopping`]). `None` when it does
+/// not build either.
+pub(super) fn bounded(schema: &Value) -> Option<Validator> {
+    let mut copy = schema.clone();
+    refs::wrap(&mut copy, &mut 0, refs::Form::Stopping);
+    jsonschema::options()
+        .with_keyword(MARK, |_, value, _| {
+            Ok(Box::new(Asked(option_number(value))))
+        })
+        .with_keyword(refs::STOP, |_, value, _| {
+            Ok(Box::new(bound::Stop(option_number(value))))
         })
         .build(&copy)
         .ok()
@@ -151,15 +252,64 @@ fn mentions_key(value: &Value, keys: &[&str]) -> bool {
     }
 }
 
-/// The errors of `value` under `validator` (an explaining one), each
-/// value of the document explained once by each option.
-pub(super) fn errors<'v>(validator: &'v Validator, value: &'v Value) -> Vec<ValidationError<'v>> {
+/// The errors of `value` under `validator` (an explaining one, or a
+/// [`bounded`] one), each value of the document explained once by each
+/// option, and whether they are all its errors: not when the budget ran
+/// out (see [`bound`]).
+pub(super) fn errors<'v>(
+    validator: &'v Validator,
+    value: &'v Value,
+) -> (Vec<ValidationError<'v>>, bool) {
+    bound::start(value);
     EXPLAINED.with(|explained| explained.borrow_mut().clear());
+    REFERRED.with(|referred| referred.borrow_mut().clear());
+    EXPLAINING.with(|explaining| explaining.borrow_mut().clear());
     ASKED.with(|asked| asked.set(None));
-    let errors = validator.iter_errors(value).collect();
+    // A bounded validator's options before `$ref`s, at the top: their
+    // target's errors in their place, as the validator gives them.
+    let errors = without_stops(validator.iter_errors(value));
+    #[cfg(test)]
+    note_many(Work::ErrorCollected, collected(&errors));
     // Not kept between validations: the addresses mean nothing after.
     EXPLAINED.with(|explained| *explained.borrow_mut() = HashSet::new());
+    REFERRED.with(|referred| *referred.borrow_mut() = HashSet::new());
+    (errors, !bound::stopped())
+}
+
+/// `errors`, each option a bounded validator adds before a `$ref` (see
+/// [`is_stop`]) replaced by its target's errors (inside other options,
+/// `specific` reads them so).
+fn without_stops<'v>(
+    errors: impl IntoIterator<Item = ValidationError<'v>>,
+) -> Vec<ValidationError<'v>> {
+    let mut kept = Vec::new();
+    for error in errors {
+        if !is_stop(&error) {
+            kept.push(error);
+            continue;
+        }
+        if let ValidationErrorKind::AnyOf { mut context } = error.into_parts().kind {
+            kept.extend(without_stops(context.swap_remove(1)));
+        }
+    }
+    kept
+}
+
+/// How many errors `errors` holds, its options' errors included.
+#[cfg(test)]
+fn collected(errors: &[ValidationError<'_>]) -> usize {
     errors
+        .iter()
+        .map(|error| {
+            1 + match error.kind() {
+                ValidationErrorKind::AnyOf { context }
+                | ValidationErrorKind::OneOfNotValid { context } => {
+                    context.iter().map(|branch| collected(branch)).sum()
+                }
+                _ => 0,
+            }
+        })
+        .sum()
 }
 
 /// Keywords whose value is data, not schemas: left as written.
@@ -231,8 +381,9 @@ fn wrap(value: &mut Value, at: &str, count: &mut u64) {
 /// `option` (the option numbered `number`), once placed at the pointer
 /// `then`, asking [`KEYWORD`] first:
 /// `{"allOf": [{MARK: number}, {"if": {KEYWORD: number}, "then": option,
-/// "else": {"not": {"not": option}}}]}`, the `else` naming the option by
-/// a `$ref` (a copy would double the schema at each level of options).
+/// "else": {"not": {"not": option}}}, {LEFT: number}]}`, the `else`
+/// naming the option by a `$ref` (a copy would double the schema at each
+/// level of options).
 fn wrapped(option: Value, then: &str, number: u64) -> Value {
     let mut asking = Map::new();
     asking.insert("if".to_string(), json!({ KEYWORD: number }));
@@ -241,7 +392,7 @@ fn wrapped(option: Value, then: &str, number: u64) -> Value {
         "else".to_string(),
         json!({"not": {"not": {"$ref": format!("#{}", fragment(then))}}}),
     );
-    json!({"allOf": [{ MARK: number }, Value::Object(asking)]})
+    json!({"allOf": [{ MARK: number }, Value::Object(asking), { LEFT: number }]})
 }
 
 /// `schema` (a part of the explaining validator's schema, as a `not`

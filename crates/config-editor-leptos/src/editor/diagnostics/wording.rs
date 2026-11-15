@@ -635,10 +635,13 @@ fn expected_type_names(
     let mut types: Vec<String> = Vec::new();
     for branch in branches {
         let mut typed = false;
-        for nested in branch.iter().filter(|nested| {
-            matches!(nested.kind(), ValidationErrorKind::Type { .. })
-                && nested.instance_path().as_str() == path
-        }) {
+        for nested in super::own_errors(branch, path)
+            .into_iter()
+            .filter(|nested| {
+                matches!(nested.kind(), ValidationErrorKind::Type { .. })
+                    && nested.instance_path().as_str() == path
+            })
+        {
             typed = true;
             for name in listed_types(&nested.to_string())? {
                 if !types.contains(&name) {

@@ -331,6 +331,10 @@ mod option_document_reads;
 ))]
 mod option_nested_keys_work;
 #[cfg(all(feature = "json", feature = "schema-validation"))]
+mod schema_error_bound;
+#[cfg(all(feature = "json", feature = "schema-validation"))]
+mod schema_error_collection;
+#[cfg(all(feature = "json", feature = "schema-validation"))]
 mod schema_error_cost;
 #[cfg(all(
     feature = "schema-validation",

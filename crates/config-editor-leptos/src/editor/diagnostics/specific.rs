@@ -115,11 +115,34 @@ fn read<'e>(
     }
 }
 
+/// The errors of `branch` (an option's errors for the value at `path`),
+/// the option a bounded validator adds before a `$ref` to that value (see
+/// [`explanation::is_stop`]) read as its target's errors: what the option
+/// says of the value itself (one for a value deeper down is read where it
+/// is shown, see [`Picker`]).
+pub(super) fn own_errors<'x>(
+    branch: &'x [ValidationError<'x>],
+    path: &str,
+) -> Vec<&'x ValidationError<'x>> {
+    let mut own = Vec::with_capacity(branch.len());
+    for error in branch {
+        match error.kind() {
+            ValidationErrorKind::AnyOf { context }
+                if explanation::is_stop(error) && error.instance_path().as_str() == path =>
+            {
+                own.extend(own_errors(&context[1], path));
+            }
+            _ => own.push(error),
+        }
+    }
+    own
+}
+
 /// Whether `branch` (an option's errors) wants another type for the value
 /// at `path` (`null` for an object; `1.5` for an option of text and a
 /// list of words, whatever else it says): the value was not meant for it.
 pub(super) fn wrong_type(branch: &[ValidationError<'_>], path: &str) -> bool {
-    branch.iter().any(|nested| {
+    own_errors(branch, path).into_iter().any(|nested| {
         matches!(nested.kind(), ValidationErrorKind::Type { .. })
             && nested.instance_path().as_str() == path
     })
@@ -137,7 +160,7 @@ pub(super) fn text_for_typed_option(
     error.instance().is_string()
         && branches.iter().any(|branch| {
             wrong_type(branch, path)
-                && branch.iter().any(|nested| {
+                && own_errors(branch, path).into_iter().any(|nested| {
                     wording::listed_types(&nested.to_string()).is_some_and(|types| {
                         types.iter().any(|name| {
                             matches!(name.as_str(), "\"number\"" | "\"integer\"" | "\"boolean\"")
@@ -231,6 +254,16 @@ impl<'x> Picker<'x, '_> {
         let Some(branches) = self.explanations.branches(error) else {
             return itself;
         };
+        if explanation::is_stop(error) {
+            // The option a bounded validator adds before a `$ref`: the
+            // target's errors, as if written there.
+            let (deepest, last_deepest) = self.deepest(branches[1]);
+            return Pick {
+                shown: Shown::Option(1),
+                deepest,
+                last_deepest,
+            };
+        }
         let path = error.instance_path().as_str();
         // Text where an option wants a number: the error itself, worded as
         // every option (the number one too), not the text option's alone.
@@ -239,21 +272,8 @@ impl<'x> Picker<'x, '_> {
         }
         // How deep each branch's deepest error shown is, and the last
         // that deep.
-        let resolved: Vec<(usize, Option<&'x ValidationError<'x>>)> = branches
-            .iter()
-            .map(|branch| {
-                let mut deepest = (0, None);
-                for nested in branch.iter() {
-                    let pick = self.pick(nested);
-                    if pick.last_deepest.is_some()
-                        && (deepest.1.is_none() || pick.deepest >= deepest.0)
-                    {
-                        deepest = (pick.deepest, pick.last_deepest);
-                    }
-                }
-                deepest
-            })
-            .collect();
+        let resolved: Vec<(usize, Option<&'x ValidationError<'x>>)> =
+            branches.iter().map(|branch| self.deepest(branch)).collect();
         let explained =
             |branch: &[ValidationError<'_>]| !branch.iter().any(explanation::unexplained);
         let any_explained = branches.iter().any(|branch| explained(branch));
@@ -294,6 +314,22 @@ impl<'x> Picker<'x, '_> {
             },
             _ => itself,
         }
+    }
+
+    /// How deep the deepest error shown for `branch` (an option's errors)
+    /// is (0 for none), and the last error shown that deep.
+    fn deepest(
+        &self,
+        branch: &'x [ValidationError<'x>],
+    ) -> (usize, Option<&'x ValidationError<'x>>) {
+        let mut deepest = (0, None);
+        for nested in branch {
+            let pick = self.pick(nested);
+            if pick.last_deepest.is_some() && (deepest.1.is_none() || pick.deepest >= deepest.0) {
+                deepest = (pick.deepest, pick.last_deepest);
+            }
+        }
+        deepest
     }
 
     /// Appends the errors shown for `error` (picked) to `shown`.

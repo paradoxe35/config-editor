@@ -239,17 +239,6 @@ pub(super) const KNOWN: &[Known] = &[
         class: "a problem message quotes a value holding a secret",
         applies: |_| true,
     },
-    // FZ38-3 (new): a recursive node that is `allOf` (or overlapping
-    // options) of members each holding the node, with an error at every
-    // level: the validator's errors grow as members^depth, and the
-    // editor's validation reads every one (`explanation::errors` collects
-    // `iter_errors`): 0.8 s at depth 11, out of memory at 16 (2 KB).
-    Known {
-        finding: "FZ38-3",
-        property: "work",
-        class: "validate: its time grows faster than the document",
-        applies: |case| !deprecates(&case.schema),
-    },
     // FZ38-4 (new): the deprecation warnings under a recursive
     // `oneOf`/`anyOf` holding a deprecated field: their walk of the
     // options doubles with each level (BranchWalk 607 / 4654 / 36925 at

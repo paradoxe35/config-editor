@@ -22,7 +22,7 @@ mod placeholders;
 #[cfg(feature = "schema-validation")]
 mod specific;
 #[cfg(feature = "schema-validation")]
-use specific::{Explanations, specific_errors, text_for_typed_option, wrong_type};
+use specific::{Explanations, own_errors, specific_errors, text_for_typed_option, wrong_type};
 #[cfg(feature = "schema-validation")]
 mod unevaluated;
 #[cfg(feature = "schema-validation")]
@@ -72,6 +72,21 @@ pub(super) fn capped(mut diagnostics: Vec<Diagnostic>, strings: &EditorStrings) 
     diagnostics
 }
 
+/// `diagnostics` (capped) with the note that the check stopped early, so
+/// more problems may follow: the note that the list was cut, reworded,
+/// or one like it (the footer's count of errors says "+").
+#[cfg(feature = "schema-validation")]
+fn incomplete(mut diagnostics: Vec<Diagnostic>, strings: &EditorStrings) -> Vec<Diagnostic> {
+    diagnostics.retain(|diagnostic| diagnostic.code.as_deref() != Some(MORE_PROBLEMS_CODE));
+    diagnostics.push(Diagnostic {
+        message: strings.problems_incomplete.clone(),
+        severity: Severity::Error,
+        code: Some(MORE_PROBLEMS_CODE.to_string()),
+        ..Diagnostic::default()
+    });
+    diagnostics
+}
+
 /// Milliseconds after the last keystroke before revalidating, so half-typed
 /// states do not flash squiggles.
 pub(super) const DIAGNOSTICS_DEBOUNCE_MS: i32 = 250;
@@ -103,29 +118,41 @@ pub(super) struct SchemaBundle {
     /// build.
     #[cfg(feature = "schema-validation")]
     explainer: std::sync::OnceLock<Option<jsonschema::Validator>>,
+    /// The validator that says why when the explaining one does not
+    /// build (see [`explanation::bounded`]).
+    #[cfg(feature = "schema-validation")]
+    bounded: std::sync::OnceLock<Option<jsonschema::Validator>>,
 }
 
 #[cfg(feature = "schema-validation")]
 impl SchemaBundle {
     /// Why `value` is invalid: none when it is valid; else the errors of
     /// the explaining validator, each value explained a bounded number of
-    /// times (see [`explanation`]).
-    fn errors<'v>(&'v self, value: &'v Value) -> Vec<ValidationError<'v>> {
+    /// times (see [`explanation`]), and whether they are all: not when
+    /// their budget ran out.
+    fn errors<'v>(&'v self, value: &'v Value) -> (Vec<ValidationError<'v>>, bool) {
         if self.validator.is_valid(value) {
-            return Vec::new();
+            return (Vec::new(), true);
         }
         let explained = self
             .explainer
             .get_or_init(|| explanation::build(&self.validated_schema))
             .as_ref()
-            .map(|explainer| explanation::errors(explainer, value))
-            .unwrap_or_default();
-        if explained.is_empty() {
-            // The explaining validator read the schema otherwise (a draft
-            // read as another): the main one says why.
-            return self.validator.iter_errors(value).collect();
+            .map(|explainer| explanation::errors(explainer, value));
+        if let Some(explained) = explained.filter(|(errors, _)| !errors.is_empty()) {
+            return explained;
         }
-        explained
+        // The explaining validator does not build, or read the schema
+        // otherwise (a draft read as another): one in the schema's own
+        // draft says why, under the same budget; the validator collects
+        // every error before it gives the first, so none collects them
+        // unbounded.
+        self.bounded
+            .get_or_init(|| explanation::bounded(&self.validated_schema))
+            .as_ref()
+            .map_or((Vec::new(), false), |bounded| {
+                explanation::errors(bounded, value)
+            })
     }
 }
 
@@ -172,6 +199,8 @@ pub(super) fn build_schema(schema_text: &str) -> Result<SchemaBundle, String> {
         validated_schema,
         #[cfg(feature = "schema-validation")]
         explainer: std::sync::OnceLock::new(),
+        #[cfg(feature = "schema-validation")]
+        bounded: std::sync::OnceLock::new(),
     })
 }
 
@@ -784,10 +813,14 @@ pub(super) fn validate_with(
         // The errors shown (enough for the cap), then where each is
         // written: the spans of their values read at once (see
         // `paths::with_spans`), not a read of the document each.
-        let main = schema.errors(&validated);
+        let (main, mut complete) = schema.errors(&validated);
         let further: Vec<(StandIn, Vec<ValidationError<'_>>)> = further
             .iter()
-            .map(|(pass, value)| (*pass, schema.errors(value)))
+            .map(|(pass, value)| {
+                let (errors, all) = schema.errors(value);
+                complete &= all;
+                (*pass, errors)
+            })
             .collect();
         // Each option's first explanation, in each validation.
         let explanations = Explanations::new(
@@ -1021,7 +1054,12 @@ pub(super) fn validate_with(
         // In the order they are written (the validator finds them in the
         // schema's order); one with no place first.
         diagnostics.sort_by_key(|diagnostic| (diagnostic.line, diagnostic.column));
-        return capped(diagnostics, strings);
+        let diagnostics = capped(diagnostics, strings);
+        return if complete {
+            diagnostics
+        } else {
+            incomplete(diagnostics, strings)
+        };
     }
     deprecated
 }

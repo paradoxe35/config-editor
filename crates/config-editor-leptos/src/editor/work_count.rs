@@ -213,6 +213,14 @@ pub(crate) enum Work {
         allow(dead_code, reason = "only schema validation notes it")
     )]
     OptionTried,
+    /// One error the validator collected for the explanation of a
+    /// document's problems (one in a `oneOf`/`anyOf` option's errors
+    /// included), before the ones shown are picked.
+    #[cfg_attr(
+        not(all(test, feature = "schema-validation")),
+        allow(dead_code, reason = "only schema validation's tests note it")
+    )]
+    ErrorCollected,
     /// A step following the items of an Edit-as view through its edits
     /// (`bridge::item_trail`): a place of an insert weighed for a cut
     /// item's lines (or against a place taken), or an item of the view
@@ -269,6 +277,7 @@ impl Work {
             Self::ErrorVisit => 42,
             Self::OptionTried => 43,
             Self::TrailStep => 44,
+            Self::ErrorCollected => 45,
         }
     }
 
@@ -320,12 +329,13 @@ impl Work {
         Self::ErrorVisit,
         Self::OptionTried,
         Self::TrailStep,
+        Self::ErrorCollected,
     ];
 }
 
 /// How many kinds of work there are.
 #[cfg(test)]
-const KINDS: usize = 45;
+const KINDS: usize = 46;
 
 #[cfg(test)]
 thread_local! {

@@ -100,6 +100,10 @@ pub struct EditorStrings {
     pub problems_cut: String,
     /// The problem that says the list was cut, after `{count}` problems.
     pub problems_more: String,
+    /// The problem that says the schema check stopped early, so more
+    /// problems may follow than are listed (a schema whose explanation
+    /// would grow faster than the document).
+    pub problems_incomplete: String,
     /// After the problem count when the problems have more underlines
     /// than are drawn; `{count}` is how many are (the most serious first).
     pub underlines_cut: String,
@@ -607,6 +611,7 @@ impl Default for EditorStrings {
             problems_hint_touch: text("tap underlined text"),
             problems_cut: text("only the editor's first {count} are shown"),
             problems_more: text("Only the first {count} problems are shown; more follow."),
+            problems_incomplete: text("The schema check stopped early; more problems may follow."),
             underlines_cut: text("only {count} underlines are drawn, the most serious first"),
             changes_one: text("{count} change"),
             changes_other: text("{count} changes"),

@@ -214,6 +214,12 @@ export interface EditorStrings {
    */
   problemsMore?: string;
   /**
+   * The problem that says the schema check stopped early, so more problems may follow than are listed (a schema whose explanation would grow faster than the document).
+   *
+   * @default "The schema check stopped early; more problems may follow."
+   */
+  problemsIncomplete?: string;
+  /**
    * After the problem count when the problems have more underlines than are drawn; `{count}` is how many are (the most serious first).
    *
    * @default "only {count} underlines are drawn, the most serious first"

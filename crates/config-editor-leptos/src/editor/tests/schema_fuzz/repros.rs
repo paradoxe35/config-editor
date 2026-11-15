@@ -49,7 +49,6 @@ fn a_problem_on_an_object_holding_a_secret_does_not_quote_it() {
 }
 
 #[test]
-#[ignore = "FZ38-3"]
 fn validation_under_recursive_all_of_members_grows_with_the_document() {
     holds_everywhere(
         super::work::check,

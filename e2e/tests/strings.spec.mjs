@@ -48,6 +48,7 @@ const ELSEWHERE = {
   errorsOther: 'as warningsOther',
   problemsCut: 'needs more than 20 problems: status_bar tests',
   problemsMore: 'as problemsCut',
+  problemsIncomplete: 'needs a schema whose explanation outgrows its budget: schema_error_bound tests',
   underlinesCut: 'needs more than 200 underlines: problem_summary tests and the qa-round20-ux spec',
   foldedProblemOne: 'a fold hiding a host problem: folding tests and the qa-round20-ux spec',
   foldedProblemOther: 'as foldedProblemOne (two problems: folding tests)',
