@@ -8,7 +8,7 @@
 use jsonschema::error::{ValidationError, ValidationErrorKind};
 use serde_json::Value;
 
-use super::Fields;
+use super::{Explanations, Fields};
 use crate::EditorStrings;
 use crate::strings::fill;
 
@@ -44,6 +44,9 @@ pub(in crate::editor) struct Wording<'a> {
     pub placeholders: &'a Fields,
     /// How many levels of options the message being worded is inside.
     pub levels: std::cell::Cell<usize>,
+    /// Each option's first explanation, for the places it was not
+    /// explained again.
+    pub explanations: &'a Explanations<'a>,
 }
 
 impl Wording<'_> {
@@ -54,14 +57,15 @@ impl Wording<'_> {
         // Written as JSON only when the message quotes it.
         let value = std::cell::LazyCell::new(|| self.value(error));
         match error.kind() {
-            ValidationErrorKind::AnyOf { context } => {
-                expected_types(error, context, &value, strings)
-                    .or_else(|| self.none_matches(error, context, "anyOf"))
-                    .unwrap_or_else(|| self.validators_words(error))
-            }
-            ValidationErrorKind::OneOfNotValid { context } => {
-                expected_types(error, context, &value, strings)
-                    .or_else(|| self.none_matches(error, context, "oneOf"))
+            ValidationErrorKind::AnyOf { .. } | ValidationErrorKind::OneOfNotValid { .. } => {
+                let keyword = if matches!(error.kind(), ValidationErrorKind::AnyOf { .. }) {
+                    "anyOf"
+                } else {
+                    "oneOf"
+                };
+                let branches = self.explanations.branches(error).unwrap_or_default();
+                expected_types(error, &branches, &value, strings)
+                    .or_else(|| self.none_matches(error, &branches, keyword))
                     .unwrap_or_else(|| self.validators_words(error))
             }
             ValidationErrorKind::OneOfMultipleValid { context } => {
@@ -393,7 +397,7 @@ impl Wording<'_> {
     fn none_matches(
         &self,
         error: &ValidationError<'_>,
-        branches: &[Vec<ValidationError<'_>>],
+        branches: &[&[ValidationError<'_>]],
         keyword: &str,
     ) -> Option<String> {
         let path = error.instance_path().as_str();
@@ -413,8 +417,10 @@ impl Wording<'_> {
                 {
                     return Some(name.clone());
                 }
-                let errors: Vec<&ValidationError<'_>> =
-                    branch.iter().flat_map(super::specific_errors).collect();
+                let errors: Vec<&ValidationError<'_>> = branch
+                    .iter()
+                    .flat_map(|nested| super::specific_errors(self.explanations, nested))
+                    .collect();
                 let at_path =
                     |error: &&&ValidationError<'_>| error.instance_path().as_str() == path;
                 let first = errors
@@ -594,7 +600,7 @@ fn unexpected(error: &ValidationError<'_>) -> Option<String> {
 /// text, `1.5` for `integer` or `"auto"`).
 fn expected_types(
     error: &ValidationError<'_>,
-    branches: &[Vec<ValidationError<'_>>],
+    branches: &[&[ValidationError<'_>]],
     value: &str,
     strings: &EditorStrings,
 ) -> Option<String> {
@@ -605,15 +611,17 @@ fn expected_types(
     ))
 }
 
-/// Whether `error` (an `anyOf` or a `oneOf` none of whose options match)
-/// is only that every option wants another type for the value: a problem
-/// with the value, not with which keys an object has.
-pub(in crate::editor) fn every_option_wants_another_type(error: &ValidationError<'_>) -> bool {
-    match error.kind() {
-        ValidationErrorKind::AnyOf { context } | ValidationErrorKind::OneOfNotValid { context } => {
-            expected_type_names(error, context).is_some()
-        }
-        _ => false,
+impl Wording<'_> {
+    /// Whether `error` (an `anyOf` or a `oneOf` none of whose options match)
+    /// is only that every option wants another type for the value: a problem
+    /// with the value, not with which keys an object has.
+    pub(in crate::editor) fn every_option_wants_another_type(
+        &self,
+        error: &ValidationError<'_>,
+    ) -> bool {
+        self.explanations
+            .branches(error)
+            .is_some_and(|branches| expected_type_names(error, &branches).is_some())
     }
 }
 
@@ -621,7 +629,7 @@ pub(in crate::editor) fn every_option_wants_another_type(error: &ValidationError
 /// another type for the value.
 fn expected_type_names(
     error: &ValidationError<'_>,
-    branches: &[Vec<ValidationError<'_>>],
+    branches: &[&[ValidationError<'_>]],
 ) -> Option<Vec<String>> {
     let path = error.instance_path().as_str();
     let mut types: Vec<String> = Vec::new();

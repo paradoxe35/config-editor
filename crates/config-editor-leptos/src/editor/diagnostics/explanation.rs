@@ -9,17 +9,25 @@
 //! times, ran out of memory and stopped the page.
 //!
 //! This validator is built from a copy of the schema where each option
-//! asks first whether its value may still be explained (the [`KEYWORD`]
-//! keyword: at most [`TRIES_PER_VALUE`] times for each value of the
-//! document): while it may, the option is the option, with every error;
-//! past that, the option is the same schema twice negated, which holds the
-//! same values but says only that it does not match (an [`unexplained`]
-//! error). Which values an option holds never changes, only how much is
-//! said about the ones it refuses, so the work is linear in the
-//! document's size.
+//! asks first whether it may explain its value (the [`KEYWORD`] keyword):
+//! each option explains each value of the document once, the first time
+//! the validator collects its errors. Then the option is the option, with
+//! every error; after, the option is the same schema twice negated, which
+//! holds the same values but says only that it does not match (an
+//! [`unexplained`] error; `specific::Explanations` reads the first
+//! explanation for it). Which values an option holds never changes, only
+//! how much is said about the ones it refuses, so the work is linear in
+//! the document's size, however many chains of options reach a value.
+//!
+//! The validator also asks an option whether it holds a value without
+//! collecting errors (an `anyOf` first asks whether any option holds it);
+//! those answers explain nothing. So the option is
+//! `{"allOf": [{MARK: n}, {"if": {KEYWORD: n}, "then": …, "else": …}]}`:
+//! [`MARK`] is only read when errors are collected, right before
+//! [`KEYWORD`] (see [`Asked`]).
 
-use std::cell::RefCell;
-use std::collections::HashMap;
+use std::cell::{Cell, RefCell};
+use std::collections::HashSet;
 
 use jsonschema::error::{ValidationError, ValidationErrorKind};
 use jsonschema::{Keyword, Validator};
@@ -30,20 +38,47 @@ use crate::editor::work_count::{Work, note};
 /// The keyword each option of the explaining validator asks first.
 const KEYWORD: &str = "x-config-editor-explained";
 
-/// How many times one value of a document is tried by an option for its
-/// explanation: far more than a value meets in a schema with options that
-/// exclude each other (a union of dozens of kinds), a bound for one that
-/// meets the same options again on each level.
-const TRIES_PER_VALUE: u32 = 256;
+/// The keyword read right before [`KEYWORD`] when errors are collected.
+const MARK: &str = "x-config-editor-asked";
+
+/// An option (its number in the schema) and a value of the document (its
+/// address).
+type Asking = (u64, usize);
 
 thread_local! {
-    /// How many times each value (by its address) was tried by an option,
-    /// during the one validation running on this thread.
-    static TRIES: RefCell<HashMap<usize, u32>> = RefCell::new(HashMap::new());
+    /// The option and value whose errors are being collected, between
+    /// [`MARK`] and [`KEYWORD`].
+    static ASKED: Cell<Option<Asking>> = const { Cell::new(None) };
+    /// Each option and value explained, during the one validation running
+    /// on this thread.
+    static EXPLAINED: RefCell<HashSet<Asking>> = RefCell::new(HashSet::new());
 }
 
-/// The [`KEYWORD`] keyword: whether its value may still be explained.
-struct Explained;
+/// The number an option's keywords hold.
+fn option_number(value: &Value) -> u64 {
+    value.as_u64().unwrap_or(0)
+}
+
+/// The [`MARK`] keyword: the errors of its option are being collected
+/// (the validator reads a keyword's `validate` only then).
+struct Asked(u64);
+
+impl<'i> Keyword<'i> for Asked {
+    fn validate(&self, instance: &'i Value) -> Result<(), ValidationError<'i>> {
+        let value = std::ptr::from_ref(instance) as usize;
+        ASKED.with(|asked| asked.set(Some((self.0, value))));
+        Ok(())
+    }
+
+    fn is_valid(&self, _instance: &'i Value) -> bool {
+        true
+    }
+}
+
+/// The [`KEYWORD`] keyword: whether its option explains its value. Only
+/// when the option's errors are collected (see [`Asked`]) and the option
+/// never explained the value before.
+struct Explained(u64);
 
 impl<'i> Keyword<'i> for Explained {
     fn validate(&self, _instance: &'i Value) -> Result<(), ValidationError<'i>> {
@@ -52,14 +87,12 @@ impl<'i> Keyword<'i> for Explained {
 
     fn is_valid(&self, instance: &'i Value) -> bool {
         note(Work::OptionTried);
-        TRIES.with(|tries| {
-            let mut tries = tries.borrow_mut();
-            let count = tries
-                .entry(std::ptr::from_ref(instance) as usize)
-                .or_insert(0);
-            *count += 1;
-            *count <= TRIES_PER_VALUE
-        })
+        let asking = (self.0, std::ptr::from_ref(instance) as usize);
+        if ASKED.with(Cell::take) != Some(asking) {
+            // Only whether the option holds the value: either answer does.
+            return true;
+        }
+        EXPLAINED.with(|explained| explained.borrow_mut().insert(asking))
     }
 }
 
@@ -94,9 +127,14 @@ pub(super) fn build(schema: &Value) -> Option<Validator> {
             *draft = "http://json-schema.org/draft-07/schema#".to_string();
         }
     }
-    wrap(&mut copy, "");
+    wrap(&mut copy, "", &mut 0);
     jsonschema::options()
-        .with_keyword(KEYWORD, |_, _, _| Ok(Box::new(Explained)))
+        .with_keyword(MARK, |_, value, _| {
+            Ok(Box::new(Asked(option_number(value))))
+        })
+        .with_keyword(KEYWORD, |_, value, _| {
+            Ok(Box::new(Explained(option_number(value))))
+        })
         .build(&copy)
         .ok()
 }
@@ -114,12 +152,13 @@ fn mentions_key(value: &Value, keys: &[&str]) -> bool {
 }
 
 /// The errors of `value` under `validator` (an explaining one), each
-/// value of the document explained a bounded number of times.
+/// value of the document explained once by each option.
 pub(super) fn errors<'v>(validator: &'v Validator, value: &'v Value) -> Vec<ValidationError<'v>> {
-    TRIES.with(|tries| tries.borrow_mut().clear());
+    EXPLAINED.with(|explained| explained.borrow_mut().clear());
+    ASKED.with(|asked| asked.set(None));
     let errors = validator.iter_errors(value).collect();
     // Not kept between validations: the addresses mean nothing after.
-    TRIES.with(|tries| *tries.borrow_mut() = HashMap::new());
+    EXPLAINED.with(|explained| *explained.borrow_mut() = HashSet::new());
     errors
 }
 
@@ -137,11 +176,9 @@ const NAMED: [&str; 6] = [
 ];
 
 /// Wraps each option of each `oneOf` and `anyOf` in `value` (a schema or
-/// a list of them, at the JSON pointer `at` of its resource):
-/// `{"if": {KEYWORD: true}, "then": option, "else": {"not": {"not": option}}}`,
-/// the `else` naming the option by a `$ref` (a copy would double the
-/// schema at each level of options).
-fn wrap(value: &mut Value, at: &str) {
+/// a list of them, at the JSON pointer `at` of its resource), numbering
+/// them on from `count` (see [`wrapped`]).
+fn wrap(value: &mut Value, at: &str, count: &mut u64) {
     match value {
         Value::Object(members) => {
             // A schema with its own `$id` starts a resource: `#/…` inside
@@ -159,7 +196,7 @@ fn wrap(value: &mut Value, at: &str) {
                 if NAMED.contains(&key.as_str()) {
                     if let Value::Object(named) = member {
                         for (name, schema) in named.iter_mut() {
-                            wrap(schema, &format!("{here}/{}", escape(name)));
+                            wrap(schema, &format!("{here}/{}", escape(name)), count);
                         }
                     }
                     continue;
@@ -172,34 +209,39 @@ fn wrap(value: &mut Value, at: &str) {
                                 .all(|option| option.is_object() || option.is_boolean()) =>
                     {
                         for (index, option) in options.iter_mut().enumerate() {
-                            let then = format!("{here}/{index}/then");
-                            wrap(option, &then);
-                            *option = wrapped(std::mem::take(option), &then);
+                            let then = format!("{here}/{index}/allOf/1/then");
+                            wrap(option, &then, count);
+                            *count += 1;
+                            *option = wrapped(std::mem::take(option), &then, *count);
                         }
                     }
-                    _ => wrap(member, &here),
+                    _ => wrap(member, &here, count),
                 }
             }
         }
         Value::Array(items) => {
             for (index, item) in items.iter_mut().enumerate() {
-                wrap(item, &format!("{at}/{index}"));
+                wrap(item, &format!("{at}/{index}"), count);
             }
         }
         _ => {}
     }
 }
 
-/// `option`, once placed at the pointer `then`, asking [`KEYWORD`] first.
-fn wrapped(option: Value, then: &str) -> Value {
-    let mut members = Map::new();
-    members.insert("if".to_string(), json!({ KEYWORD: true }));
-    members.insert("then".to_string(), option);
-    members.insert(
+/// `option` (the option numbered `number`), once placed at the pointer
+/// `then`, asking [`KEYWORD`] first:
+/// `{"allOf": [{MARK: number}, {"if": {KEYWORD: number}, "then": option,
+/// "else": {"not": {"not": option}}}]}`, the `else` naming the option by
+/// a `$ref` (a copy would double the schema at each level of options).
+fn wrapped(option: Value, then: &str, number: u64) -> Value {
+    let mut asking = Map::new();
+    asking.insert("if".to_string(), json!({ KEYWORD: number }));
+    asking.insert("then".to_string(), option);
+    asking.insert(
         "else".to_string(),
         json!({"not": {"not": {"$ref": format!("#{}", fragment(then))}}}),
     );
-    Value::Object(members)
+    json!({"allOf": [{ MARK: number }, Value::Object(asking)]})
 }
 
 /// `schema` (a part of the explaining validator's schema, as a `not`
@@ -214,14 +256,18 @@ pub(super) fn unwrapped(schema: &Value) -> std::borrow::Cow<'_, Value> {
 }
 
 fn unwrap(value: &mut Value) {
-    if let Value::Object(members) = value
-        && members
-            .get("if")
-            .and_then(|test| test.get(KEYWORD))
-            .is_some()
-        && let Some(option) = members.remove("then")
+    if let Some(option) = value
+        .get_mut("allOf")
+        .and_then(|all| all.get_mut(1))
+        .filter(|asking| {
+            asking
+                .get("if")
+                .and_then(|test| test.get(KEYWORD))
+                .is_some()
+        })
+        .and_then(|asking| asking.get_mut("then"))
     {
-        *value = option;
+        *value = std::mem::take(option);
         unwrap(value);
         return;
     }
@@ -252,11 +298,11 @@ fn fragment(pointer: &str) -> String {
 }
 
 /// The segments of a schema path that make an option of the explaining
-/// validator's schema: `anyOf`/`oneOf`, the option's index, and `then`
-/// (explained) or `else` (not).
+/// validator's schema: `anyOf`/`oneOf`, the option's index, `allOf/1`
+/// (see [`wrapped`]) and `then` (explained) or `else` (not).
 fn option_at<'s>(segments: &[&'s str]) -> Option<&'s str> {
     match segments {
-        [keyword, index, branch, ..]
+        [keyword, index, "allOf", "1", branch, ..]
             if matches!(*keyword, "anyOf" | "oneOf")
                 && !index.is_empty()
                 && index.bytes().all(|byte| byte.is_ascii_digit()) =>
@@ -268,7 +314,7 @@ fn option_at<'s>(segments: &[&'s str]) -> Option<&'s str> {
 }
 
 /// `path`, a schema path of the explaining validator, as a path of the
-/// schema it was built from: without each option's `then`.
+/// schema it was built from: without each option's `allOf/1/then`.
 pub(super) fn original_path(path: &str) -> std::borrow::Cow<'_, str> {
     if !path.contains("/then") {
         return std::borrow::Cow::Borrowed(path);
@@ -280,7 +326,7 @@ pub(super) fn original_path(path: &str) -> std::borrow::Cow<'_, str> {
         kept.push(segments[index]);
         if option_at(&segments[index..]) == Some("then") {
             kept.push(segments[index + 1]);
-            index += 3;
+            index += 5;
         } else {
             index += 1;
         }
@@ -289,15 +335,15 @@ pub(super) fn original_path(path: &str) -> std::borrow::Cow<'_, str> {
 }
 
 /// Whether `error` is an option that refused its value without saying
-/// why: its value was explained enough times elsewhere.
+/// why: it explained the value before.
 pub(super) fn unexplained(error: &ValidationError<'_>) -> bool {
     if !matches!(error.kind(), ValidationErrorKind::Not { .. }) {
         return false;
     }
-    let segments: Vec<&str> = error.schema_path().as_str().rsplit('/').take(4).collect();
+    let segments: Vec<&str> = error.schema_path().as_str().rsplit('/').take(6).collect();
     matches!(
         segments.as_slice(),
-        ["not", "else", index, "anyOf" | "oneOf"]
+        ["not", "else", "1", "allOf", index, "anyOf" | "oneOf"]
             if !index.is_empty() && index.bytes().all(|byte| byte.is_ascii_digit())
     )
 }
@@ -309,18 +355,25 @@ mod tests {
     #[test]
     fn an_explained_options_path_reads_as_the_schemas() {
         assert_eq!(
-            original_path("/$defs/node/anyOf/0/then/properties/all/items/anyOf/2/then/type"),
+            original_path(
+                "/$defs/node/anyOf/0/allOf/1/then/properties/all/items/anyOf/2/allOf/1/then/type"
+            ),
             "/$defs/node/anyOf/0/properties/all/items/anyOf/2/type"
         );
         // An option's own `then` stays.
         assert_eq!(
-            original_path("/oneOf/1/then/then/minimum"),
+            original_path("/oneOf/1/allOf/1/then/then/minimum"),
             "/oneOf/1/then/minimum"
         );
         // A property named `anyOf` is no option.
         assert_eq!(
             original_path("/properties/anyOf/then/type"),
             "/properties/anyOf/then/type"
+        );
+        // An option's own `allOf` stays.
+        assert_eq!(
+            original_path("/anyOf/0/allOf/1/then/allOf/1/then/type"),
+            "/anyOf/0/allOf/1/then/type"
         );
     }
 

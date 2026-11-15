@@ -165,3 +165,104 @@ fn the_explanation_names_the_wrong_value_in_a_rule_tree() {
         "/rule/all/0/all/0/all/0/eq: \"notint\" is not of type \"integer\""
     );
 }
+
+/// Options that do not exclude each other, each holding a list of nodes.
+fn listed() -> SchemaBundle {
+    let node = json!({"anyOf": [
+        {"type": "object", "properties": {
+            "v": {"anyOf": [{"type": "integer"}, {"type": "string"}]},
+            "c": {"type": "array", "items": {"$ref": "#/$defs/node"}}}},
+        {"type": "object", "properties": {
+            "v": {"anyOf": [{"type": "boolean"}, {"type": "string"}]},
+            "c": {"type": "array", "items": {"$ref": "#/$defs/node"}}}}]});
+    build_schema(
+        &json!({"type": "object", "properties": {"root": {"$ref": "#/$defs/node"}},
+            "$defs": {"node": node}})
+        .to_string(),
+    )
+    .unwrap()
+}
+
+/// `depth` nodes of [`overlapping`] around one another, each with an
+/// object for its `v`, which no option allows.
+fn wrong_at_every_level(depth: usize) -> Value {
+    let mut node = json!({"v": {"x": 1}});
+    for _ in 0..depth {
+        node = json!({"c": node, "v": {"x": 1}});
+    }
+    json!({ "root": node })
+}
+
+/// `depth` nodes of [`listed`] in lists of one, each with an object for
+/// its `v`, which no option allows.
+fn listed_wrong_at_every_level(depth: usize) -> Value {
+    let mut node = json!({"v": {"x": 1}});
+    for _ in 0..depth {
+        node = json!({"v": {"x": 1}, "c": [node]});
+    }
+    json!({ "root": node })
+}
+
+/// How many values `value` holds, itself too.
+fn values(value: &Value) -> usize {
+    1 + match value {
+        Value::Object(members) => members.values().map(values).sum(),
+        Value::Array(items) => items.iter().map(values).sum(),
+        _ => 0,
+    }
+}
+
+/// A wrong value at every level of recursive options that do not exclude
+/// each other (SC38-3): each value was explained by up to 256 chains of
+/// options, each explanation holding the errors of the values below it,
+/// so the time grew with the depth times the values below (1.2 s a key at
+/// 120 levels). Each option now explains each value once: the work for
+/// each value of the document stays the same at any depth, in every
+/// language (at each depth it reads: TOML and HCL read 120 levels of
+/// tables as too deep).
+#[test]
+fn wrong_values_at_every_level_of_overlapping_options_cost_the_same_work_per_value() {
+    for (what, schema, document, depths) in [
+        (
+            "overlapping options",
+            overlapping(),
+            wrong_at_every_level as fn(usize) -> Value,
+            [30, 60, 120],
+        ),
+        (
+            "options holding lists",
+            listed(),
+            listed_wrong_at_every_level,
+            [15, 30, 60],
+        ),
+    ] {
+        for &language in Language::ALL {
+            for (index, depth) in depths.into_iter().enumerate() {
+                let document = document(depth);
+                let (problems, work) = checked(&schema, language, &document);
+                assert_eq!(problems.len(), 1, "{what}, {language:?}: {problems:?}");
+                let message = &problems[0].message;
+                if index == depths.len() - 1 && !message.starts_with("/root: ") {
+                    // Deeper than the language reads.
+                    assert_eq!(work, 0, "{what}, {language:?}: {message}");
+                    continue;
+                }
+                assert!(
+                    message.starts_with("/root: ") && message.chars().count() < 4000,
+                    "{what}, {language:?}: {message}"
+                );
+                let values = values(&document);
+                assert!(
+                    work <= WORK_PER_VALUE * values,
+                    "{what}, {language:?}, depth {depth}: work {work} for {values} values"
+                );
+            }
+        }
+    }
+}
+
+/// The most work [`checked`] counts for each value of a document whose
+/// values are all wrong (options tried and errors read): about 230 for
+/// [`overlapping`], 20 for [`listed`]; 1000 to 2200 when each value was
+/// explained by up to 256 chains of options.
+const WORK_PER_VALUE: usize = 400;

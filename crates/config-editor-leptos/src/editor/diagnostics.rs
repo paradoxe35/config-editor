@@ -20,6 +20,10 @@ mod meta_wording;
 #[cfg(feature = "schema-validation")]
 mod placeholders;
 #[cfg(feature = "schema-validation")]
+mod specific;
+#[cfg(feature = "schema-validation")]
+use specific::{Explanations, specific_errors, text_for_typed_option, wrong_type};
+#[cfg(feature = "schema-validation")]
 mod unevaluated;
 #[cfg(feature = "schema-validation")]
 mod wording;
@@ -763,10 +767,6 @@ pub(super) fn validate_with(
         } else {
             Vec::new()
         });
-        // A problem judging a placeholder's unknown value is none.
-        let judged = |error: &ValidationError<'_>| {
-            placeholders::judges_placeholder(error, &placeholders, &schema.schema)
-        };
         // Infinities and NaN are numbers to the schema (see `non_finite`).
         use super::codec::non_finite::{StandIn, for_validation};
         let validated = for_validation(&document, StandIn::Bounds);
@@ -784,10 +784,24 @@ pub(super) fn validate_with(
         // The errors shown (enough for the cap), then where each is
         // written: the spans of their values read at once (see
         // `paths::with_spans`), not a read of the document each.
-        let mut tops = Vec::new();
+        let main = schema.errors(&validated);
+        let further: Vec<(StandIn, Vec<ValidationError<'_>>)> = further
+            .iter()
+            .map(|(pass, value)| (*pass, schema.errors(value)))
+            .collect();
+        // Each option's first explanation, in each validation.
+        let explanations = Explanations::new(
+            std::iter::once(main.as_slice())
+                .chain(further.iter().map(|(_, errors)| errors.as_slice())),
+        );
+        // A problem judging a placeholder's unknown value is none.
+        let judged = |error: &ValidationError<'_>| {
+            placeholders::judges_placeholder(error, &placeholders, &schema.schema, &explanations)
+        };
+        let mut tops: Vec<&ValidationError<'_>> = Vec::new();
         let mut shown = 0;
-        for top in schema.errors(&validated) {
-            shown += specific_errors(&top)
+        for top in &main {
+            shown += specific_errors(&explanations, top)
                 .iter()
                 .filter(|error| !judged(error))
                 .count();
@@ -798,21 +812,21 @@ pub(super) fn validate_with(
         }
         let mut found: std::collections::HashSet<(String, String)> = tops
             .iter()
-            .flat_map(|top| specific_errors(top))
+            .flat_map(|top| specific_errors(&explanations, top))
             .map(|error| {
                 let keyword = error.kind().keyword().to_string();
                 (error.instance_path().as_str().to_string(), keyword)
             })
             .collect();
-        for (pass, value) in &further {
-            for error in schema.errors(value) {
+        for (pass, errors) in &further {
+            for error in errors {
                 let key = (
                     error.instance_path().as_str().to_string(),
                     error.kind().keyword().to_string(),
                 );
                 if shown <= MAX_DIAGNOSTICS
                     && pass.reports(error.instance(), error.kind())
-                    && !judged(&error)
+                    && !judged(error)
                     && found.insert(key)
                 {
                     shown += 1;
@@ -822,7 +836,7 @@ pub(super) fn validate_with(
         }
         let pointers: Vec<String> = tops
             .iter()
-            .flat_map(|top| specific_errors(top))
+            .flat_map(|top| specific_errors(&explanations, top))
             .map(|error| error.instance_path().as_str().to_string())
             .collect();
         let repeats_arrays = behavior.repetition() != super::language::Repetition::None;
@@ -830,7 +844,8 @@ pub(super) fn validate_with(
             &schema.schema,
             &validated,
             repeats_arrays,
-            tops.iter().flat_map(|top| specific_errors(top)),
+            tops.iter()
+                .flat_map(|top| specific_errors(&explanations, top)),
         );
         let wording = wording::Wording {
             root: &schema.schema,
@@ -838,11 +853,12 @@ pub(super) fn validate_with(
             secrets: &secrets,
             placeholders: &placeholders,
             levels: std::cell::Cell::new(0),
+            explanations: &explanations,
         };
         let mut diagnostics = super::paths::with_spans(behavior, source, &pointers, || {
             tops.iter()
                 .flat_map(|top| {
-                    specific_errors(top)
+                    specific_errors(&explanations, top)
                         .into_iter()
                         .flat_map(|error| {
                             let path = error.instance_path().as_str().to_string();
@@ -962,7 +978,7 @@ pub(super) fn validate_with(
                                         | ValidationErrorKind::OneOfNotValid { .. }
                                         | ValidationErrorKind::OneOfMultipleValid { .. } => {
                                             error.instance().is_object()
-                                                && !wording::every_option_wants_another_type(error)
+                                                && !wording.every_option_wants_another_type(error)
                                         }
                                         _ => false,
                                     },
@@ -1107,106 +1123,6 @@ fn deprecation_warnings(
             })
         })
         .collect()
-}
-
-/// Whether `branch` (an option's errors) wants another type for the value
-/// at `path` (`null` for an object; `1.5` for an option of text and a
-/// list of words, whatever else it says): the value was not meant for it.
-#[cfg(feature = "schema-validation")]
-fn wrong_type(branch: &[ValidationError<'_>], path: &str) -> bool {
-    branch.iter().any(|nested| {
-        matches!(nested.kind(), ValidationErrorKind::Type { .. })
-            && nested.instance_path().as_str() == path
-    })
-}
-
-/// Whether the value of a combinator's `error` is text and an option
-/// refuses it only for its type, wanting a number or a boolean (options
-/// chosen by type: a number, or an expression string): the value may be
-/// meant for either.
-#[cfg(feature = "schema-validation")]
-fn text_for_typed_option(
-    error: &ValidationError<'_>,
-    branches: &[Vec<ValidationError<'_>>],
-) -> bool {
-    let path = error.instance_path().as_str();
-    error.instance().is_string()
-        && branches.iter().any(|branch| {
-            wrong_type(branch, path)
-                && branch.iter().any(|nested| {
-                    wording::listed_types(&nested.to_string()).is_some_and(|types| {
-                        types.iter().any(|name| {
-                            matches!(name.as_str(), "\"number\"" | "\"integer\"" | "\"boolean\"")
-                        })
-                    })
-                })
-        })
-}
-
-/// The errors to show for `error`: inside `anyOf`/`oneOf`, every error of the
-/// branch the value was meant for. A branch that fails only because
-/// the value has another type (`null` for an object) is skipped, so a typo in
-/// an object reports the typo rather than "not valid under any of the schemas".
-/// When several options remain and none reaches deeper into the value than
-/// the others (the value got further into it), the error itself is shown:
-/// it is worded as the options, each with what it misses. An option the
-/// explanation did not reach (see [`explanation::unexplained`]) is meant
-/// only when no other is. Each error inside is read once.
-#[cfg(feature = "schema-validation")]
-fn specific_errors<'e, 'a>(error: &'e ValidationError<'a>) -> Vec<&'e ValidationError<'a>> {
-    super::work_count::note(super::work_count::Work::ErrorVisit);
-    let branches = match error.kind() {
-        ValidationErrorKind::AnyOf { context } | ValidationErrorKind::OneOfNotValid { context } => {
-            context
-        }
-        _ => return vec![error],
-    };
-    let path = error.instance_path().as_str();
-    // Text where an option wants a number: the error itself, worded as
-    // every option (the number one too), not the text option's alone.
-    if text_for_typed_option(error, branches) {
-        return vec![error];
-    }
-    let depth = |error: &ValidationError<'_>| error.instance_path().as_str().matches('/').count();
-    // Each branch's errors to show, and how deep the deepest is.
-    let resolved: Vec<(Vec<&'e ValidationError<'a>>, usize)> = branches
-        .iter()
-        .map(|branch| {
-            let errors: Vec<_> = branch.iter().flat_map(specific_errors).collect();
-            let deepest = errors.iter().map(|error| depth(error)).max().unwrap_or(0);
-            (errors, deepest)
-        })
-        .collect();
-    let explained =
-        |branch: &Vec<ValidationError<'_>>| !branch.iter().any(explanation::unexplained);
-    let any_explained = branches.iter().any(explained);
-    let meant: Vec<(usize, usize)> = branches
-        .iter()
-        .enumerate()
-        .filter(|(_, branch)| !wrong_type(branch, path) && (explained(branch) || !any_explained))
-        .map(|(index, _)| (index, resolved[index].1))
-        .collect();
-    // The branch the value was meant for: every one of its errors is shown,
-    // so a second problem is not hidden behind the first.
-    if let Some(&(index, deepest)) = meant.iter().max_by_key(|(_, deepest)| *deepest) {
-        let alone = meant.len() == 1
-            || (deepest > depth(error)
-                && meant.iter().filter(|(_, other)| *other == deepest).count() == 1);
-        return if alone && explained(&branches[index]) {
-            resolved[index].0.clone()
-        } else {
-            vec![error]
-        };
-    }
-    // Without one, only a deeper error says more than "wrong type".
-    match resolved
-        .iter()
-        .flat_map(|(errors, _)| errors)
-        .max_by_key(|nested| depth(nested))
-    {
-        Some(deepest) if depth(deepest) > depth(error) => vec![*deepest],
-        _ => vec![error],
-    }
 }
 
 #[cfg(feature = "schema-validation")]
