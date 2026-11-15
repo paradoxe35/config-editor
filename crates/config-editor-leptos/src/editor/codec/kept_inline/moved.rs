@@ -17,9 +17,9 @@ struct Brought<'a> {
     to: &'a str,
     /// Its pointer in the host text it came from.
     from: &'a str,
-    /// Which text that is: the host text the edits were followed from
-    /// (else the session's first).
-    followed: bool,
+    /// Which text that is: the host's last text (else the earlier one
+    /// the links name).
+    in_previous: bool,
 }
 
 /// `kept` (the containers kept where the host writes them) with each map
@@ -50,7 +50,7 @@ pub(super) fn with_moved(
         .map(|(to, source)| Brought {
             to,
             from: source.pointer(),
-            followed: matches!(source, ItemSource::Previous(_)),
+            in_previous: matches!(source, ItemSource::Previous(_)),
         })
         .collect();
     if brought.is_empty() {
@@ -58,15 +58,15 @@ pub(super) fn with_moved(
     }
     brought.sort_by(|left, right| left.to.cmp(right.to));
     let mut marks: Vec<(&str, String)> = Vec::new();
-    for followed in [true, false] {
-        let text = if followed {
-            sources.followed.as_str()
+    for in_previous in [true, false] {
+        let text = if in_previous {
+            sources.previous.as_str()
         } else {
             sources.origin.as_str()
         };
         let here: Vec<&Brought<'_>> = brought
             .iter()
-            .filter(|item| item.followed == followed)
+            .filter(|item| item.in_previous == in_previous)
             .collect();
         if here.is_empty() {
             continue;

@@ -101,6 +101,13 @@ pub(super) fn replace(state: EditorState, (from, to): (usize, usize), typed: &st
     ));
 }
 
+/// Bytes `from..to` of the view's text copied (as Ctrl+C does): the
+/// clipboard's record keeps their items' links.
+pub(super) fn copy(state: EditorState, (from, to): (usize, usize)) {
+    let text = state.doc().text.get_untracked();
+    state.note_copied(&text[from..to], (units(&text[..from]), units(&text[..to])));
+}
+
 /// How the key's line is cut.
 #[derive(Clone, Copy, Debug)]
 enum Cut {
@@ -143,7 +150,7 @@ fn cut(state: EditorState, name: &str, how: Cut) -> String {
     let lines = before[from..to].to_string();
     match how {
         Cut::Line => replace(state, (from, to), ""),
-        Cut::Copy => {}
+        Cut::Copy => copy(state, (from, to)),
         Cut::Text => {
             let indent = lines.len() - lines.trim_start().len();
             let end = from + lines.trim_end().len();

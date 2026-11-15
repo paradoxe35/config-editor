@@ -124,7 +124,7 @@ fn work(
     };
     state.commit(Edit::new(before, selection, text, caret));
     let (((), steps), reads) = counted(Work::DocumentRead, || {
-        counted(Work::TrailStep, || pause(state))
+        counted(Work::LinkStep, || pause(state))
     });
     let saved = state.sync().host_text.get_value();
     assert_eq!(

@@ -22,10 +22,11 @@ pub(super) fn told_places(old: &[Value], new: &[Value], told: &[Told]) -> Vec<Op
     }
     let mut placed = vec![None; new.len()];
     let mut taken = vec![false; old.len()];
+    // An item told twice is the host item and a copy of it: both are it
+    // (a copy keeps its form, as a moved item does).
     for (index, told) in told.iter().enumerate() {
         if let Told::At(place) = told
             && *place < old.len()
-            && !taken[*place]
         {
             placed[index] = Some(*place);
             taken[*place] = true;

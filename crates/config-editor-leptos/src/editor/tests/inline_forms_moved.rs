@@ -8,7 +8,7 @@
 use super::super::languages::Language;
 use super::super::test_state::TestEditor;
 use super::moved_forms::{key_line, line_offset, pause};
-use super::moved_forms_again::{entry_range, replace};
+use super::moved_forms_again::{copy, entry_range, replace};
 use crate::editor::save_matrix::report;
 use crate::editor::work_count::{Work, counted_all};
 use leptos::prelude::*;
@@ -67,7 +67,8 @@ enum How {
     Copied,
     /// Copied, a pause, pasted.
     CopiedAfterPause,
-    /// The whole view replaced with its text, the key moved.
+    /// The whole view replaced with its text from outside the editor, the
+    /// key moved.
     WholePaste,
 }
 
@@ -85,11 +86,15 @@ fn moved(kind: &Kind, view: Language, how: How) -> Result<(), String> {
     let (_owner, state) = editor.mount();
     let text = state.doc().text.get_untracked();
     let (from, to) = entry_range(&text, "d");
-    let mut lines = text[from..to].to_string();
-    // A JSON view's entry pasted before another one ends in a comma.
-    if view == Language::JSON && !lines.trim_end().ends_with(',') {
-        lines = format!("{},\n", lines.trim_end());
-    }
+    let cut_lines = text[from..to].to_string();
+    // A JSON view's entry pasted before another one ends in a comma: in
+    // a paste of the whole view, as written; else typed after the paste.
+    let comma = view == Language::JSON && !cut_lines.trim_end().ends_with(',');
+    let lines = if comma && matches!(how, How::WholePaste) {
+        format!("{},\n", cut_lines.trim_end())
+    } else {
+        cut_lines.clone()
+    };
     let moving = !matches!(how, How::Copied | How::CopiedAfterPause);
     let cut = |text: &str| -> String {
         let mut text = format!("{}{}", &text[..from], &text[to..]);
@@ -133,12 +138,20 @@ fn moved(kind: &Kind, view: Language, how: How) -> Result<(), String> {
                     replace(state, (end, end + 1), "");
                 }
             }
+            if !moving {
+                copy(state, (from, to));
+            }
             if matches!(how, How::MovedAfterPause | How::CopiedAfterPause) {
                 pause(state);
             }
             let text = state.doc().text.get_untracked();
             let at = line_offset(&text, key_line(&text, "z"));
-            replace(state, (at, at), &deeper(&text, at));
+            let pasted = deeper(&text, at);
+            replace(state, (at, at), &pasted);
+            if comma {
+                let end = at + pasted.trim_end().len();
+                replace(state, (end, end), ",");
+            }
         }
     }
     pause(state);
@@ -151,6 +164,23 @@ fn moved(kind: &Kind, view: Language, how: How) -> Result<(), String> {
         ));
     }
     let expected = host(kind, !moving, true);
+    // A whole text pasted from outside the editor carries no links: the
+    // table it moves is a new value, written in the host's own form if
+    // that reads back the same; every other value keeps its text.
+    if matches!(how, How::WholePaste) {
+        let read = |text: &str| kind.host.behavior().parse(text).ok();
+        let unmoved = host(kind, false, false);
+        let kept = unmoved
+            .lines()
+            .filter(|line| !line.trim().is_empty())
+            .all(|line| saved.contains(line));
+        if read(&saved) != read(&expected) || !kept {
+            return Err(format!(
+                "saved:\n{saved}\nexpected the data of:\n{expected}"
+            ));
+        }
+        return Ok(());
+    }
     if saved != expected {
         return Err(format!("saved:\n{saved}\nexpected:\n{expected}"));
     }

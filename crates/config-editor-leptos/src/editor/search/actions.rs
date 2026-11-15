@@ -4,6 +4,7 @@
 
 use leptos::prelude::*;
 
+use super::super::bridge::links::Splice;
 use super::super::edit::Edit;
 use super::super::input::flush_input;
 use super::super::keyboard::utf16_to_byte_index;
@@ -251,7 +252,9 @@ pub(in crate::editor) fn replace_all(state: EditorState) {
         .textarea()
         .map_or((0, 0), |element| textarea_selection(&element));
     let caret = utf16(&replaced.text, replaced.first.end);
-    if !state.commit(Edit::new(before, selection, replaced.text, caret)) {
+    // Each line's change its own (an Edit-as view's items keep their links).
+    let splices = Splice::per_line(&before, &replaced.text);
+    if !state.commit(Edit::new(before, selection, replaced.text, caret).splicing(splices)) {
         return;
     }
     let count = replaced.count;

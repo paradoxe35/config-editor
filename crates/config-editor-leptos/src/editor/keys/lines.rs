@@ -10,6 +10,7 @@
 use leptos::prelude::*;
 use web_sys::KeyboardEvent;
 
+use super::super::bridge::links::Splice;
 use super::super::commands::indent_lines_through;
 use super::super::edit::Edit;
 use super::super::fold_ranges::FoldRange;
@@ -102,7 +103,11 @@ pub(in crate::editor) fn run(
                 } else {
                     edit.selection
                 };
-                let made = Edit::new(text, selection, edit.text, caret).selecting_from(anchor);
+                let splices =
+                    Splice::lines(&text, &edit.text, &edit.pieces).map(|splice| vec![splice]);
+                let made = Edit::new(text, selection, edit.text, caret)
+                    .selecting_from(anchor)
+                    .splicing(splices);
                 state.commit(with_folds(made, &folds, edit.folds));
             }
         }
@@ -180,7 +185,10 @@ fn indent(
         (selection_start, selection_end)
     };
     let made = if updated != text {
-        let made = Edit::new(text, (start, end), updated, caret).selecting_from(anchor);
+        let splices = Splice::per_line(&text, &updated);
+        let made = Edit::new(text, (start, end), updated, caret)
+            .selecting_from(anchor)
+            .splicing(splices);
         let kept = folds.clone();
         state.commit(with_folds(made, &folds, kept))
     } else {

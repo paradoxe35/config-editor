@@ -116,6 +116,14 @@ mod line_breaks;
     feature = "hcl",
     feature = "xml"
 ))]
+mod copied_items;
+#[cfg(all(
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
 mod inline_forms_moved;
 #[cfg(all(
     feature = "yaml",
@@ -140,6 +148,14 @@ mod large_edit_work;
     feature = "hcl",
     feature = "xml"
 ))]
+mod link_costs;
+#[cfg(all(
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
 mod moved_form_checks;
 #[cfg(all(
     feature = "yaml",
@@ -149,6 +165,15 @@ mod moved_form_checks;
     feature = "xml"
 ))]
 mod moved_forms;
+// Random editing sessions checked against the save promise.
+#[cfg(all(
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod fuzz_save;
 #[cfg(all(
     feature = "yaml",
     feature = "json",

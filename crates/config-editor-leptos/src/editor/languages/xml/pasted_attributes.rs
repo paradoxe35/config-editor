@@ -8,23 +8,26 @@
 use super::convert::{AttributePaths, attribute_paths};
 use crate::editor::item_sources::{self, ItemSource};
 use crate::editor::language::{pointer_index, pointer_segments};
-use serde_json::Value;
 
 /// `attributes` (the paths `previous` writes as attributes) with those of
 /// each element of `value` told pasted back from the session's first
 /// text, or moved from another element of `previous`, at the path it is
 /// pasted to.
-pub(super) fn with_pasted_back(mut attributes: AttributePaths, previous: &str, value: &Value) -> AttributePaths {
-    let Some(sources) = item_sources::told(previous, |held| held == value) else {
+pub(super) fn with_pasted_back(mut attributes: AttributePaths, previous: &str) -> AttributePaths {
+    // Each step of a save made in several is told too: an element moved
+    // over one the save removes is written in a step of its own.
+    let Some(sources) = item_sources::told_to_save() else {
         return attributes;
     };
     let first = sources.holds_origin_items().then(|| attribute_paths(&sources.origin));
+    // The host's last text, where the moved elements were.
+    let last = (sources.previous != previous).then(|| attribute_paths(&sources.previous));
     let before = attributes.clone();
     for (pointer, source) in &sources.items {
         let (from, to) = (element_path(source.pointer()), element_path(pointer));
         let held = match source {
             ItemSource::Origin(_) => first.as_ref(),
-            ItemSource::Previous(_) => (from != to).then_some(&before),
+            ItemSource::Previous(_) => (from != to).then_some(last.as_ref().unwrap_or(&before)),
         };
         let Some(held) = held else { continue };
         for path in held {

@@ -3,23 +3,33 @@
 //! cannot hold (the save waited) and a JSON or HCL host would hold as
 //! another value than the container it was. Where the host held a map or
 //! a list and the view writes no value there, the save keeps it, empty; a
-//! null the user wrote (`deps: null`, `deps: ~`) stays one.
+//! null the user wrote (`deps: null`, `deps: ~`) stays one; and so does
+//! one whose entries are still in the view, as text another line took
+//! (a line moved between a key and its list, QA `FZ38-2`): the links of
+//! the view's items tell (`held`).
 
 use super::super::language::ConfigLanguage;
 use serde_json::{Map, Value};
+use std::collections::HashSet;
 
 /// `value` (the view's edit) with each null the view writes no value for,
 /// where `old` (the host's value) holds a map or a list, an empty one.
 pub(super) fn kept(
     edit: &dyn ConfigLanguage,
     edit_text: &str,
-    old: &Value,
+    (old, held): (&Value, Option<&HashSet<String>>),
     mut value: Value,
 ) -> Value {
     let mut emptied = Vec::new();
     find(&value, old, &mut String::new(), &mut emptied);
+    // An entry of it the view still links to: not deleted.
+    let entries_held = |pointer: &str| {
+        let inside = format!("{pointer}/");
+        held.is_some_and(|held| held.iter().any(|source| source.starts_with(&inside)))
+    };
     for pointer in emptied {
         if !writes_value(edit, edit_text, &pointer)
+            && !entries_held(&pointer)
             && let Some(slot) = value.pointer_mut(&pointer)
         {
             *slot = match old.pointer(&pointer) {
@@ -88,20 +98,20 @@ mod tests {
         let text = "a:\n  deps:\n  n: null\n  s:\n";
         let value = json!({"a": {"deps": null, "n": null, "s": null}});
         assert_eq!(
-            kept(yaml, text, &old, value),
+            kept(yaml, text, (&old, None), value),
             json!({"a": {"deps": {}, "n": null, "s": null}})
         );
         let lists = json!({"a": {"arr": [1], "n": [2]}});
         let text = "a:\n  arr:\n  n: ~\n";
         let value = json!({"a": {"arr": null, "n": null}});
         assert_eq!(
-            kept(yaml, text, &lists, value),
+            kept(yaml, text, (&lists, None), value),
             json!({"a": {"arr": [], "n": null}})
         );
         let text = "a:\n  deps: # gone\n  n: ~\n  s:\n";
         let value = json!({"a": {"deps": null, "n": null, "s": null}});
         assert_eq!(
-            kept(yaml, text, &old, value),
+            kept(yaml, text, (&old, None), value),
             json!({"a": {"deps": {}, "n": null, "s": null}})
         );
     }
@@ -122,8 +132,14 @@ mod tests {
             }
             value.insert("m0".into(), json!(null));
             let text = text.replacen("m0:\n  x: 0\n", "m0:\n", 1);
-            let (kept, work) =
-                counted_all(|| kept(Language::YAML.behavior(), &text, &old.into(), value.into()));
+            let (kept, work) = counted_all(|| {
+                kept(
+                    Language::YAML.behavior(),
+                    &text,
+                    (&old.into(), None),
+                    value.into(),
+                )
+            });
             assert_eq!(kept.pointer("/m0"), Some(&json!({})));
             work
         };

@@ -1,6 +1,6 @@
-//! A key or item an Edit-as edit moved (cut and pasted, in one save or
-//! across a pause, a switch, the host's language: `item_trail` tells
-//! which) is written in the form the host wrote it in where it was cut
+//! A key or item an Edit-as edit moved or copied (cut or copied and
+//! pasted, a line moved or copied, in one save or across a pause, a
+//! switch, the host's language: its link tells which, see `links`) is written in the form the host wrote it in where it was cut
 //! from, which no view shows: an HCL expression or heredoc, a TOML
 //! datetime or hex number, a YAML tag or quoting (QA `E36-1`). Each of
 //! its scalars the save wrote otherwise, reading the same, takes its
@@ -13,7 +13,10 @@ use super::super::item_sources::ItemSource;
 use super::super::language::{ConfigLanguage, Span};
 use super::super::work_count::{Work, note};
 use super::ItemMap;
+
+mod whole;
 use serde_json::Value;
+use std::collections::HashSet;
 use std::ops::Range;
 
 /// A host text an item was cut from, and its value.
@@ -54,23 +57,21 @@ struct Respelled<'a> {
     needed: bool,
 }
 
-/// The items `items` tells were moved: pasted back from the session's
-/// first text (`origin`), or from another map or list of the host's
-/// last text (`previous`; in their own one, the patches keep their
-/// lines). An item inside another moved is that one's.
+/// The items `items` tells are somewhere else than where their source
+/// was: pasted back from an earlier host text (`origin`), or from another
+/// place of the host's last text (`previous`: another map or list, a map
+/// renamed, a table its header no longer starts, another place in its
+/// list, a copy). Where the patches kept an item's text, there is nothing
+/// to write back; where they wrote it anew (its container changed), its
+/// source's text is written back. Each, inside another one too, is
+/// paired from its own source, not its parent's.
 fn moved<'a>(items: &ItemMap, previous: Source<'a>, origin: Option<Source<'a>>) -> Vec<Moved<'a>> {
-    let parent = |pointer: &str| {
-        pointer
-            .rsplit_once('/')
-            .map_or("", |(parent, _)| parent)
-            .to_string()
-    };
     let mut moved: Vec<Moved<'_>> = items
         .iter()
         .filter_map(|(to, source)| {
             let (from, source) = match source {
                 ItemSource::Origin(from) => (from, origin?),
-                ItemSource::Previous(from) if parent(from) != parent(to) => (from, previous),
+                ItemSource::Previous(from) if from != to => (from, previous),
                 ItemSource::Previous(_) => return None,
             };
             Some(Moved {
@@ -81,18 +82,7 @@ fn moved<'a>(items: &ItemMap, previous: Source<'a>, origin: Option<Source<'a>>) 
         })
         .collect();
     moved.sort_by(|left, right| left.to.cmp(&right.to));
-    let mut outer: Vec<Moved<'_>> = Vec::with_capacity(moved.len());
-    for item in moved {
-        let inside = outer.last().is_some_and(|last| {
-            item.to
-                .strip_prefix(&last.to)
-                .is_some_and(|rest| rest.starts_with('/'))
-        });
-        if !inside {
-            outer.push(item);
-        }
-    }
-    outer
+    moved
 }
 
 /// The scalars under `to` in the save that hold what they held under
@@ -102,7 +92,7 @@ fn pairs(
     saved: &Value,
     held: &Value,
     (to, from): (String, String),
-    item: usize,
+    (item, own): (usize, &HashSet<String>),
     out: &mut Vec<Pair>,
 ) {
     match (saved, held) {
@@ -111,23 +101,31 @@ fn pairs(
                 if let Some(was) = held.get(key) {
                     let key = key.replace('~', "~0").replace('/', "~1");
                     let (to, from) = (format!("{to}/{key}"), format!("{from}/{key}"));
+                    // An item with a source of its own is paired from it.
+                    if own.contains(&to) {
+                        continue;
+                    }
                     out.push(Pair {
                         to: to.clone(),
                         from: from.clone(),
                         item,
                         key: true,
                     });
-                    pairs(child, was, (to, from), item, out);
+                    pairs(child, was, (to, from), (item, own), out);
                 }
             }
         }
         (Value::Array(saved), Value::Array(held)) => {
             for (index, (child, was)) in saved.iter().zip(held).enumerate() {
+                let to = format!("{to}/{index}");
+                if own.contains(&to) {
+                    continue;
+                }
                 pairs(
                     child,
                     was,
-                    (format!("{to}/{index}"), format!("{from}/{index}")),
-                    item,
+                    (to, format!("{from}/{index}")),
+                    (item, own),
                     out,
                 );
             }
@@ -282,7 +280,75 @@ pub(super) fn kept(
     (previous, origin): (Source<'_>, Option<Source<'_>>),
     shape: Option<&Value>,
 ) -> Result<String, String> {
+    let saved = relocated(host, saved, intended, items, (previous, origin), shape)?;
+    // An item left where it was, holding what it held, that the save wrote
+    // anew all the same (a list item's first entry removed: the next one
+    // written onto the item's first line, QA `FZ38-8`): written back as
+    // it was, where that reads the same. Not one inside an item moved,
+    // which is that item's.
     let moved = moved(items, previous, origin);
+    let inside = |inner: &str| {
+        moved.iter().any(|item| {
+            inner
+                .strip_prefix(item.to.as_str())
+                .is_some_and(|rest| rest.is_empty() || rest.starts_with('/'))
+        })
+    };
+    let mut unmoved: Vec<Moved<'_>> = items
+        .iter()
+        .filter_map(|(to, source)| match source {
+            ItemSource::Previous(from)
+                if from == to
+                    && !inside(to)
+                    && intended.pointer(to).is_some()
+                    && intended.pointer(to) == previous.value.pointer(from) =>
+            {
+                Some(Moved {
+                    to: to.clone(),
+                    from: from.clone(),
+                    source: previous,
+                })
+            }
+            _ => None,
+        })
+        .collect();
+    if unmoved.is_empty() {
+        return Ok(saved);
+    }
+    unmoved.sort_by(|left, right| left.to.cmp(&right.to));
+    let Some(before) = codec::read(host, &saved, shape).ok() else {
+        return Ok(saved);
+    };
+    Ok(whole::kept(
+        host,
+        (saved, previous.text),
+        &before,
+        &unmoved,
+        shape,
+    ))
+}
+
+/// [`kept`] for the items somewhere else than their source.
+fn relocated(
+    host: &dyn ConfigLanguage,
+    saved: String,
+    intended: &Value,
+    items: &ItemMap,
+    (previous, origin): (Source<'_>, Option<Source<'_>>),
+    shape: Option<&Value>,
+) -> Result<String, String> {
+    let moved = moved(items, previous, origin);
+    if moved.is_empty() {
+        return Ok(saved);
+    }
+    let read = |text: &str| codec::read(host, text, shape).ok();
+    let Some(before) = read(&saved) else {
+        return Ok(saved);
+    };
+    // Each item written whole as its source wrote it, where it reads the
+    // same there; what is left, scalar by scalar.
+    let saved = whole::kept(host, (saved, previous.text), &before, &moved, shape);
+    let own: HashSet<String> = moved.iter().map(|item| item.to.clone()).collect();
     let mut found = Vec::new();
     for (index, item) in moved.iter().enumerate() {
         let (Some(now), Some(was)) = (
@@ -296,7 +362,11 @@ pub(super) fn kept(
             let (parent, _) = pointer.rsplit_once('/').unwrap_or_default();
             value.pointer(parent).is_some_and(Value::is_object)
         };
-        if entry(intended, &item.to) && entry(item.source.value, &item.from) {
+        let key = |pointer: &str| pointer.rsplit_once('/').map(|(_, key)| key.to_string());
+        if entry(intended, &item.to)
+            && entry(item.source.value, &item.from)
+            && key(&item.to) == key(&item.from)
+        {
             found.push(Pair {
                 to: item.to.clone(),
                 from: item.from.clone(),
@@ -308,7 +378,7 @@ pub(super) fn kept(
             now,
             was,
             (item.to.clone(), item.from.clone()),
-            index,
+            (index, &own),
             &mut found,
         );
     }
@@ -328,10 +398,6 @@ pub(super) fn kept(
     {
         respelled.retain(|respelled| respelled.needed);
     }
-    let read = |text: &str| codec::read(host, text, shape).ok();
-    let Some(before) = read(&saved) else {
-        return Ok(saved);
-    };
     let written = |text: &str, respelled: &Respelled<'_>, reindent: bool| {
         if reindent {
             let indent = line_indent(text, respelled.range.start);

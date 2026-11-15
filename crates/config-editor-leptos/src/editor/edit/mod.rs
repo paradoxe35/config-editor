@@ -71,6 +71,7 @@ pub(super) use pipeline::{Stage, take_trace};
 
 use leptos::prelude::*;
 
+use super::bridge::links::Splice;
 use super::fold_ranges::FoldRange;
 use super::history::{Selection, Snapshot};
 use super::input::{UNKNOWN_SELECTION, edit_range};
@@ -96,6 +97,10 @@ pub(super) struct Edit {
     /// The closed folds after the edit, when it says (a line command
     /// moving folded lines whole); else they follow the change.
     pub(super) folds: Option<Vec<FoldRange>>,
+    /// What the edit replaced, when it says (a line command, an indent, a
+    /// Replace all): an Edit-as view's items follow it (see
+    /// `bridge::links`); else it is read off the selection or the caret.
+    pub(super) splices: Option<Vec<Splice>>,
 }
 
 /// Where the selection goes after an edit.
@@ -135,6 +140,7 @@ impl Edit {
             origin: Origin::Command,
             language: None,
             folds: None,
+            splices: None,
         }
     }
 
@@ -164,6 +170,26 @@ impl Edit {
     pub(super) fn folding(mut self, folds: Vec<FoldRange>) -> Self {
         self.folds = Some(folds);
         self
+    }
+
+    /// Says what the edit replaced (see [`Self::splices`]).
+    pub(super) fn splicing(mut self, splices: Option<Vec<Splice>>) -> Self {
+        self.splices = splices;
+        self
+    }
+
+    /// What the edit replaced, in bytes of the text before (see
+    /// [`Self::splices`]).
+    pub(super) fn replaced_splices(&self) -> Vec<Splice> {
+        match &self.splices {
+            // As said, unless the edit was made otherwise (widened).
+            Some(splices)
+                if Splice::make(&self.before, splices).as_deref() == Some(self.text.as_str()) =>
+            {
+                splices.clone()
+            }
+            _ => Splice::of(&self.before, &self.text, self.selection, self.caret()),
+        }
     }
 
     /// Leaves the scroll position alone (an edit made with the mouse, where
@@ -203,6 +229,7 @@ impl Edit {
             origin: Origin::Input { kind, time },
             language: None,
             folds: None,
+            splices: None,
         }
     }
 
@@ -222,6 +249,7 @@ impl Edit {
             origin: if redo { Origin::Redo } else { Origin::Undo },
             language: to.language,
             folds: to.folds,
+            splices: None,
         }
     }
 
@@ -242,6 +270,7 @@ impl Edit {
             origin,
             language: None,
             folds: None,
+            splices: None,
         }
     }
 

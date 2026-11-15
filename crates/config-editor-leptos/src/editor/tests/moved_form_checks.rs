@@ -8,6 +8,7 @@ use super::super::languages::Language;
 use super::super::state::EditorState;
 use super::super::test_state::TestEditor;
 use super::moved_forms::{key_line, line_offset, paste, pause, units};
+use super::moved_forms_again::copy;
 use crate::editor::work_count::{Work, counted};
 use leptos::prelude::*;
 
@@ -87,11 +88,12 @@ fn a_moved_key_is_kept_with_the_same_work_at_any_size() {
 }
 
 /// A typing pause that moved nothing (a value typed) reads no item of the
-/// view: its save does the work of a save told nothing, at any size, and
-/// the trail goes on from where it began.
+/// view: its links tell the save nothing, its save does the work of a save
+/// told nothing, at any size.
 #[test]
 fn a_typed_value_is_saved_without_reading_the_items() {
-    use crate::editor::bridge::{Bridge, item_trail::Trail};
+    use crate::editor::bridge::Bridge;
+    use crate::editor::bridge::links::{Clipboard, Links, Splice};
     let work = |count: usize| {
         let fillers: String = (0..count)
             .map(|at| format!("  k{at} = var.v{at}\n"))
@@ -101,23 +103,28 @@ fn a_typed_value_is_saved_without_reading_the_items() {
         let shown = bridge.to_edit(&host).expect("shown").text;
         let at = shown.find("mid: 1").expect("mid") + "mid: 1".len();
         let typed = format!("{}2{}", &shown[..at], &shown[at..]);
-        let mut trail = Trail::starting(&shown);
-        trail.note(&shown, &typed, units(&shown[..at]) + 1);
-        let reads = |trail: Option<(&Trail, &str)>| {
-            counted(Work::DocumentRead, || {
-                let _ = bridge.to_host_traced(&typed, &host, &host, trail);
-            })
-            .1
-        };
-        let (told, untold) = (reads(Some((&trail, &host))), reads(None));
-        let (saved, next) = bridge.to_host_traced(&typed, &host, &host, Some((&trail, &host)));
+        let mut links = Links::fresh(&host, &shown);
+        let caret = units(&shown[..at]) + 1;
+        let splices = Splice::of(&shown, &typed, (caret - 1, caret - 1), caret);
+        let ((), read) = counted(Work::DocumentRead, || {
+            links.edited(
+                Language::YAML.behavior(),
+                &shown,
+                &splices,
+                &mut Clipboard::default(),
+            );
+            assert!(
+                links
+                    .told(Language::YAML.behavior(), &typed, &host, false)
+                    .is_none()
+            );
+        });
+        assert_eq!(read, 0, "the links read the items");
+        let saved = bridge.to_host_linked(&typed, &host, &host, None);
         assert!(saved.expect("saved").contains("mid = 12"));
-        assert!(next.begins_on(&typed) && next.start() == Some(shown.as_str()));
-        (told, untold)
+        read
     };
-    let (told, untold) = work(20);
-    assert_eq!(told, untold);
-    assert_eq!((told, untold), work(400));
+    assert_eq!(work(20), work(400));
 }
 
 /// The pause saving a copied key compares it alone with the items it may
@@ -132,7 +139,9 @@ fn a_copied_key_is_kept_with_the_same_work_at_any_size() {
         let (_owner, state) = editor.mount();
         let text = state.doc().text.get_untracked();
         let line = key_line(&text, "sub");
-        let lines = text[line_offset(&text, line)..line_offset(&text, line + 1)].to_string();
+        let range = (line_offset(&text, line), line_offset(&text, line + 1));
+        let lines = text[range.0..range.1].to_string();
+        copy(state, range);
         paste(state, &lines, "other", false);
         let ((((), compared), leaves), reads) = counted(Work::DocumentRead, || {
             counted(Work::MovedLeaf, || {
@@ -170,6 +179,7 @@ fn many_copied_keys_are_kept_with_work_in_proportion() {
             line_offset(&text, key_line(&text, "b")),
         );
         let lines = text[from..to].to_string();
+        copy(state, (from, to));
         paste(state, &lines, "other", false);
         let ((), compared) = counted(Work::ItemComparison, || pause(state));
         let saved = state.sync().host_text.get_value();

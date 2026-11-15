@@ -221,11 +221,10 @@ pub(crate) enum Work {
         allow(dead_code, reason = "only schema validation's tests note it")
     )]
     ErrorCollected,
-    /// A step following the items of an Edit-as view through its edits
-    /// (`bridge::item_trail`): a place of an insert weighed for a cut
-    /// item's lines (or against a place taken), or an item of the view
-    /// looked for among the ones followed or cut.
-    TrailStep,
+    /// A step keeping the links of an Edit-as view's items
+    /// (`bridge::links`): a link looked at by an edit's splice, or an item
+    /// of the view paired with its links at a save.
+    LinkStep,
 }
 
 impl Work {
@@ -276,7 +275,7 @@ impl Work {
             Self::MovedLeaf => 41,
             Self::ErrorVisit => 42,
             Self::OptionTried => 43,
-            Self::TrailStep => 44,
+            Self::LinkStep => 44,
             Self::ErrorCollected => 45,
         }
     }
@@ -328,7 +327,7 @@ impl Work {
         Self::MovedLeaf,
         Self::ErrorVisit,
         Self::OptionTried,
-        Self::TrailStep,
+        Self::LinkStep,
         Self::ErrorCollected,
     ];
 }

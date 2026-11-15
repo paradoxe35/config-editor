@@ -4,6 +4,7 @@
 use leptos::prelude::*;
 use wasm_bindgen::JsCast;
 
+use super::bridge::links::Splice;
 use super::commands::{copied_lines, line_range};
 use super::completion::should_auto_trigger;
 use super::components::HoverCard;
@@ -693,6 +694,11 @@ fn copy_line(state: EditorState, event: &web_sys::ClipboardEvent, cut: bool) {
     state.snap_to_tokens();
     let (start, end) = textarea_selection(&element);
     if start != end {
+        let selected = state.doc().text.with_untracked(|text| {
+            let units: Vec<u16> = text.encode_utf16().collect();
+            String::from_utf16_lossy(&units[start.min(units.len())..end.min(units.len())])
+        });
+        state.note_copied(&selected, (start, end));
         copy_across_folds(state, event, (start, end), cut);
         return;
     }
@@ -713,6 +719,7 @@ fn copy_line(state: EditorState, event: &web_sys::ClipboardEvent, cut: bool) {
         return;
     }
     event.prevent_default();
+    state.note_copied(&line, (line_start, line_end));
     state.typing().copied_line.set_value(Some(line));
     // In a read-only editor the cut is refused, and says so.
     if !cut {
@@ -733,12 +740,10 @@ fn copy_line(state: EditorState, event: &web_sys::ClipboardEvent, cut: bool) {
     let ends_with_newline =
         updated.encode_utf16().nth(next_line.1.wrapping_sub(1)) == Some(u16::from(b'\n'));
     let caret = (next_line.0 + column).min(next_line.1 - usize::from(ends_with_newline));
-    state.commit(Edit::new(
-        text,
-        (start, end),
-        updated,
-        caret.max(next_line.0),
-    ));
+    let splices = Splice::of(&text, &updated, (removed_start, line_end), caret);
+    state.commit(
+        Edit::new(text, (start, end), updated, caret.max(next_line.0)).splicing(Some(splices)),
+    );
 }
 
 /// Copy or cut of a selection across a fold takes the hidden lines too:
@@ -802,7 +807,8 @@ fn paste_line(state: EditorState, event: &web_sys::ClipboardEvent) {
     let (line_start, _) = line_range(&text, start);
     let (updated, _) = replace_selection(&text, line_start, line_start, &pasted);
     let caret = start + pasted.encode_utf16().count();
-    state.commit(Edit::new(text, (start, end), updated, caret));
+    let splices = Splice::of(&text, &updated, (line_start, line_start), caret);
+    state.commit(Edit::new(text, (start, end), updated, caret).splicing(Some(splices)));
 }
 
 #[cfg(test)]

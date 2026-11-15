@@ -3,6 +3,7 @@
 
 use leptos::prelude::*;
 
+use super::super::bridge::links::Links;
 use super::super::fold_ranges::FoldRange;
 use super::super::history::{Selection, Snapshot};
 use super::super::languages::Language;
@@ -109,7 +110,7 @@ impl EditorState {
             self.protect().trust_text();
         }
         let rewritten = self.write_text(edit.text.clone(), edit.folds.take());
-        self.note_view_edit(&edit, &origin);
+        let links = self.note_view_edit(&edit, &origin, language_before);
         let rewritten = switching
             .is_some_and(|language| self.fold_fields(&folded_fields, language))
             || rewritten;
@@ -120,7 +121,7 @@ impl EditorState {
         let after = self.place_selection(&edit, rewritten, kept);
 
         trace(Stage::Record);
-        self.record(&edit, changed, after, language_before, said_folds);
+        self.record(&edit, (changed, links), after, language_before, said_folds);
         if origin.is_checked() {
             self.note_applied(&edit);
         } else {
@@ -237,11 +238,12 @@ impl EditorState {
     }
 
     /// The undo history, by origin; `after` is the selection the edit left,
-    /// `folds` the folds closed before and after a command that said them.
+    /// `folds` the folds closed before and after a command that said them,
+    /// `links` the links of the text before (see `bridge::links`).
     fn record(
         &self,
         edit: &Edit,
-        changed: bool,
+        (changed, links): (bool, Links),
         after: Selection,
         language: Language,
         folds: Option<(Vec<FoldRange>, Vec<FoldRange>)>,
@@ -251,6 +253,7 @@ impl EditorState {
             selection: edit.replaced(after.0),
             language: None,
             folds: None,
+            links: links.clone(),
         };
         let history = self.doc().history;
         match &edit.origin {
@@ -271,10 +274,10 @@ impl EditorState {
                 }
             }
             Origin::Undo => history.update(|history| {
-                history.undo(edit.before.clone());
+                history.undo_with(edit.before.clone(), links.clone());
             }),
             Origin::Redo => history.update(|history| {
-                history.redo(edit.before.clone());
+                history.redo_with(edit.before.clone(), links.clone());
             }),
             Origin::Switch => match edit.language {
                 // Its own step, undone into the language it left.

@@ -7,7 +7,8 @@ use leptos::prelude::*;
 
 use std::sync::Arc;
 
-use super::bridge::{self, Bridge, item_trail};
+use super::bridge::links::{Clipboard, Links};
+use super::bridge::{self, Bridge};
 use super::codec;
 use super::diagnostics::{DIAGNOSTICS_DEBOUNCE_MS, SchemaBundle};
 use super::edit::{Edit, Origin};
@@ -71,9 +72,13 @@ pub(super) struct SyncState {
     /// Edit-as problems of the last save (values the host cannot keep, a
     /// save refused).
     pub(super) conversion_problems: RwSignal<Vec<EditAsProblem>>,
-    /// The edits made to the text on screen since its last Edit-as save,
-    /// which tell the save which item of the host each item is.
-    pub(super) trail: StoredValue<item_trail::Trail>,
+    /// Each item of the text on screen's link to the host item it came
+    /// from, kept by the edits (see `bridge::links`): they tell a save
+    /// which item of the host each item is.
+    pub(super) links: StoredValue<Links>,
+    /// Text copied or cut with the links of its items: a paste of it
+    /// takes them.
+    pub(super) clipboard: StoredValue<Clipboard>,
     /// The host's line endings, kept for what it hears (see `line_endings`).
     pub(super) line_endings: LineEndings,
     /// Whether the text on screen is written back to the host's text: false
@@ -102,6 +107,7 @@ impl SyncState {
         let mut shown = host_text.clone();
         let mut synced = None;
         let mut in_sync = true;
+        let mut opening_shown = false;
         if let Some(bridge) = Bridge::new(host_language, edit_language, schema.get_value()) {
             match bridge.to_edit(&host_text) {
                 Ok(conversion) => {
@@ -124,6 +130,7 @@ impl SyncState {
                         .is_ok();
                 pending = None;
                 load_problems = Vec::new();
+                opening_shown = synced.as_deref() != Some(opening.as_str());
                 shown = opening;
             }
         }
@@ -156,8 +163,13 @@ impl SyncState {
                 synced.clone(),
             ))),
             session_host: StoredValue::new(host_text.clone()),
+            links: StoredValue::new(if opening_shown {
+                Links::default()
+            } else {
+                Links::fresh(&host_text, &synced)
+            }),
+            clipboard: StoredValue::new(Clipboard::default()),
             host_text: StoredValue::new(host_text),
-            trail: StoredValue::new(item_trail::Trail::starting(&synced)),
             synced_edit: StoredValue::new(synced),
             synced: Trigger::new(),
             synced_hosts: StoredValue::new(Vec::new()),
@@ -226,6 +238,7 @@ impl EditorState {
     /// (`on_change` hears it); in another, the conversion finds the host text
     /// it was saved as.
     pub(super) fn show_language(&self, language: Language, edit: &Edit) {
+        self.take_text_as_host(&edit.before);
         self.sync().pending_switch.set(None);
         self.hide_hover();
         self.close_suggestions();
@@ -252,47 +265,125 @@ impl EditorState {
         self.problems().diagnosed_text.set(edit.text.clone());
     }
 
-    /// Keeps `edit` in the trail of edits since the last Edit-as save: an
-    /// edit of the user's (typed, a command, undo, redo) as the edit it
-    /// is; a text the host or a switch replaced the document with as the
-    /// trail's new start.
-    pub(super) fn note_view_edit(&self, edit: &Edit, origin: &Origin) {
+    /// The links of the text on screen's items follow `edit` (see
+    /// `bridge::links`): an edit of the user's as the splices it made, an
+    /// undo or redo back to the links its step kept, a text the host or a
+    /// switch put on screen as the items of the host's text (or, unsaved
+    /// edits converted, as the items at the same pointers). Returns the
+    /// links before it, for the undo step.
+    pub(super) fn note_view_edit(&self, edit: &Edit, origin: &Origin, left: Language) -> Links {
+        let before = self.sync().links.get_value();
         if edit.before == edit.text {
-            return;
+            return before;
         }
-        let shown_as_host =
-            self.sync().edit_language.get_untracked() == self.config().host_language;
+        let language = self.sync().edit_language.get_untracked();
         let saved = self
             .sync()
             .synced_edit
             .with_value(|synced| *synced == edit.text);
-        // A new session: the host's own text (a new value, or typed in the
-        // host's language, or undone back into it: see `show_language`).
-        let new_session =
-            *origin == Origin::HostValue || (shown_as_host && edit.origin != Origin::Switch);
-        let users = matches!(
-            origin,
-            Origin::Command | Origin::Input { .. } | Origin::Undo | Origin::Redo
-        );
-        self.sync().trail.update_value(|trail| {
-            if new_session {
-                *trail = if saved {
-                    item_trail::Trail::starting(&edit.text)
-                } else {
-                    item_trail::Trail::default()
-                };
-            } else if users {
-                trail.note(&edit.before, &edit.text, edit.caret());
-            } else if saved {
-                // A switch (to another view, or the host's language and
-                // back): the session's items are known still.
-                trail.restart(&edit.text);
-            } else {
-                // Unsaved edits converted (a switch whose save waits):
-                // what they did to the items is not known.
-                trail.forget_edits();
-            }
+        let next = if language == self.config().host_language {
+            // The host's own text: no view, no links.
+            Links::default()
+        } else if matches!(edit.origin, Origin::Undo | Origin::Redo) {
+            self.doc()
+                .history
+                .with_untracked(|history| {
+                    let step = if edit.origin == Origin::Undo {
+                        history.next_undo()
+                    } else {
+                        history.next_redo()
+                    };
+                    step.filter(|step| step.value == edit.text)
+                        .map(|step| step.links.clone())
+                })
+                .unwrap_or_default()
+        } else if matches!(origin, Origin::Command | Origin::Input { .. }) {
+            let mut links = before.clone();
+            self.sync().clipboard.update_value(|clipboard| {
+                links.edited(
+                    language.behavior(),
+                    &edit.before,
+                    &edit.replaced_splices(),
+                    clipboard,
+                );
+            });
+            links
+        } else if saved {
+            // A switch, or the host's text: its items, each the host's.
+            self.sync()
+                .host_text
+                .with_value(|host| Links::fresh(host, &edit.text))
+        } else if *origin == Origin::Switch && left != self.config().host_language {
+            // Unsaved edits converted: each item at the same pointer.
+            let mut links = before.clone();
+            links.converted(
+                left.behavior(),
+                &edit.before,
+                language.behavior(),
+                &edit.text,
+            )
+        } else {
+            Links::default()
+        };
+        self.sync().links.set_value(next);
+        before
+    }
+
+    /// What the links of the text on screen, `text` in `language`, tell
+    /// `bridge`'s save over the host's last text `previous` (see
+    /// `links::Links::told`); a host whose items hold what no view shows
+    /// (XML markup) is told even after typing only.
+    fn told(
+        &self,
+        bridge: &Bridge,
+        language: Language,
+        text: &str,
+        previous: &str,
+    ) -> Option<bridge::links::Told> {
+        let identity = bridge.host.behavior().items_hold_unshown(previous);
+        let mut links = self.sync().links.get_value();
+        let told = links.told(language.behavior(), text, previous, identity);
+        self.sync().links.set_value(links);
+        told
+    }
+
+    /// While the host's own language is on screen, its text is the host's
+    /// (each edit reached `on_change` at once): `text`, the text on screen,
+    /// is the host's last text, the one a view's next save patches, once
+    /// the language on screen is left (QA `FZ38-1`: a line moved in the
+    /// host's language, then a switch, saved the view over the text before
+    /// the move). Kept only then, not at each key.
+    pub(super) fn take_text_as_host(&self, text: &str) {
+        if self.sync().edit_language.get_untracked() != self.config().host_language
+            || self.sync().host_text.with_value(|host| host == text)
+        {
+            return;
+        }
+        self.sync().host_text.set_value(text.to_string());
+        self.sync().synced_edit.set_value(text.to_string());
+        self.sync().session_host.set_value(text.to_string());
+        self.sync().synced.notify();
+    }
+
+    /// `text` (UTF-16 `start..end` of the text on screen) copied or cut:
+    /// the clipboard's record of it keeps its items' links.
+    pub(super) fn note_copied(&self, text: &str, (start, end): (usize, usize)) {
+        if self.bridge().is_none() {
+            return;
+        }
+        let language = self.behavior();
+        let mut links = self.sync().links.get_value();
+        let copied = self.doc().text.with_untracked(|current| {
+            let (start, end) = (
+                super::keyboard::utf16_to_byte_index(current, start),
+                super::keyboard::utf16_to_byte_index(current, end),
+            );
+            links.copied((language, current), start, end)
         });
+        self.sync().links.set_value(links);
+        self.sync()
+            .clipboard
+            .update_value(|clipboard| clipboard.copied(text, copied));
     }
 
     /// Records whether the text on screen is written back to the host's
@@ -374,10 +465,7 @@ pub(super) fn take_host_value(state: EditorState, external: String) {
     };
     state.sync().synced_edit.set_value(edit.clone());
     // A new session, though the view's text may read the same.
-    state
-        .sync()
-        .trail
-        .set_value(item_trail::Trail::starting(&edit));
+    state.sync().links.set_value(Links::fresh(&external, &edit));
     state.sync().synced.notify();
     state.sync().synced_hosts.update_value(Vec::clear);
     state.note_in_sync(true);
@@ -534,56 +622,21 @@ pub(super) fn convert_now(state: EditorState, text: String, language: Language) 
                 .map(|(_, _, host)| host.clone())
         });
         let hosts_own = known.is_some();
-        let follows = state.sync().trail.with_value(|trail| {
-            state
-                .sync()
-                .synced_edit
-                .with_value(|synced| trail.begins_on(synced))
-        });
-        // The host text saved for the view's text the trail starts on.
-        let followed = state.sync().trail.with_value(|trail| {
-            let start = trail.start()?;
-            state.sync().synced_hosts.with_value(|saved| {
-                saved
-                    .iter()
-                    .rev()
-                    .find(|(known, edit, _)| *known == language && edit == start)
-                    .map(|(_, _, host)| host.clone())
-            })
-        });
-        let (result, trail) = state.sync().trail.with_value(|trail| match known {
-            // Its items are the session's first view's only when it is
-            // that view's host text.
-            Some(host) if host == origin => (Ok(host), trail.at_origin(&text)),
-            // What the edits tell still holds: an item cut back to a text
-            // saved before (a key pasted this session cut again) is the
-            // item it was where a paste brings it (QA `E37-1`).
-            Some(host) => {
-                let traced = (follows && trail.wants_trace())
-                    .then(|| trail.trace(language.behavior(), &text))
-                    .flatten();
-                let next = match traced {
-                    Some(trace) => trace.saved,
-                    None => trail.unknown_from(&text),
-                };
-                (Ok(host), next)
-            }
-            None if follows && followed.is_some() => bridge.to_host_traced(
-                &text,
-                &previous,
-                &origin,
-                trail
-                    .start()
-                    .zip(followed.as_deref())
-                    .map(|(_, host)| (trail, host)),
-            ),
-            // Edits followed from another text than the one saved tell
-            // nothing of this save's items: their values do.
+        // The links are the text on screen's.
+        let on_screen = state.doc().text.with_untracked(|current| *current == text)
+            && state.sync().edit_language.get_untracked() == language;
+        let result = match known {
+            Some(host) => Ok(host),
             None => {
-                let (result, _) = bridge.to_host_traced(&text, &previous, &origin, None);
-                (result, trail.unknown_from(&text))
+                // Which host item each item is, as the edits kept it; a
+                // host whose items hold what no view shows (XML markup)
+                // reads it even when only typed.
+                let told = on_screen
+                    .then(|| state.told(&bridge, language, &text, &previous))
+                    .flatten();
+                bridge.to_host_linked(&text, &previous, &origin, told.as_ref())
             }
-        });
+        };
         // However the edit got there, a save never changes a read-only
         // value: it is refused like any other unsafe save. A text the host
         // itself had is its own to restore.
@@ -596,7 +649,9 @@ pub(super) fn convert_now(state: EditorState, text: String, language: Language) 
         note_conversion_problems(state, bridge.problems(&text, &result));
         state.note_in_sync(result.is_ok());
         if let Ok(saved) = result {
-            state.sync().trail.set_value(trail);
+            if on_screen {
+                state.sync().links.set_value(Links::fresh(&saved, &text));
+            }
             state.sync().synced_edit.set_value(text);
             state.sync().synced.notify();
             if saved != state.sync().host_text.get_value() {
@@ -675,7 +730,13 @@ fn save_pending(state: EditorState) {
         .session_host
         .try_get_value()
         .unwrap_or_default();
-    if let Ok(saved) = bridge.to_host_since(&text, &host, &origin)
+    // Told which item is which by the links, as a pause's save is.
+    let told = state
+        .sync()
+        .links
+        .try_get_value()
+        .and_then(|_| state.told(&bridge, edit, &text, &host));
+    if let Ok(saved) = bridge.to_host_linked(&text, &host, &origin, told.as_ref())
         && saved != host
         && state.check_host_save(&host, &saved).is_ok()
         && let Some(on_change) = state.sync().host_on_change
@@ -765,6 +826,7 @@ impl EditorState {
 }
 
 pub(super) fn switch_to(state: EditorState, next: Language) {
+    state.take_text_as_host(&state.doc().text.get_untracked());
     let current = state.sync().edit_language.get_untracked();
     let host = state.config().host_language;
     // Either language unable to write documents: the switch could never
@@ -812,9 +874,17 @@ pub(super) fn switch_to(state: EditorState, next: Language) {
             .bridge_to(current)
             .filter(|_| next == state.config().host_language)
         {
-            Some(bridge) => bridge
-                .to_host_since(&text, &host_text, &state.sync().session_host.get_value())
-                .and_then(|saved| state.check_host_save(&host_text, &saved).map(|()| saved)),
+            Some(bridge) => {
+                let told = state.told(&bridge, current, &text, &host_text);
+                bridge
+                    .to_host_linked(
+                        &text,
+                        &host_text,
+                        &state.sync().session_host.get_value(),
+                        told.as_ref(),
+                    )
+                    .and_then(|saved| state.check_host_save(&host_text, &saved).map(|()| saved))
+            }
             None => state.config().schema.with_value(|schema| {
                 codec::convert(
                     &text,

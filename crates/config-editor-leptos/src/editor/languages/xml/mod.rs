@@ -391,7 +391,7 @@ impl ConfigLanguage for XmlBehavior {
         }
         let framing = previous.map(xml_framing).unwrap_or_default();
         let attributes = previous
-            .map(|previous| pasted_attributes::with_pasted_back(attribute_paths(previous), previous, value))
+            .map(|previous| pasted_attributes::with_pasted_back(attribute_paths(previous), previous))
             .unwrap_or_default();
         let old = previous.filter(|_| !attributes.is_empty()).and_then(|previous| xml_parse(previous).ok());
         if let Some(reason) = attribute_values::first_container_attribute(value, old.as_ref(), &attributes) {
@@ -444,7 +444,7 @@ impl ConfigLanguage for XmlBehavior {
         Ok(match previous {
             Some(previous) => {
                 let host = crate::editor::parse_cache::parsed(self, previous);
-                let sources = crate::editor::item_sources::told(previous, |held| held == value);
+                let sources = crate::editor::item_sources::told(previous);
                 let origin = sources.as_ref().filter(|sources| sources.holds_origin_items()).map(|sources| sources.origin.as_str());
                 let first = origin.map(|origin| crate::editor::parse_cache::parsed(self, origin));
                 let identity = identity::Identity::of(host.as_ref().as_ref().ok(), value)

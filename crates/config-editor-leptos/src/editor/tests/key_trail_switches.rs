@@ -156,9 +156,15 @@ fn paste(state: EditorState, view: Language, lines: &str, place: Place) -> Optio
             lines.to_string(),
         ),
         Place::End if view == Language::JSON => {
+            // A comma typed after the last key, the lines pasted after it,
+            // and their own comma deleted.
             let close = line_offset(&before, entry_lines(view, &before, "d").1) - 1;
-            let last = lines.trim_end().strip_suffix(',').expect("a middle key");
-            (close, format!(",\n{last}"))
+            type_at(state, (close, close), ",");
+            let at = close + 2;
+            type_at(state, (at, at), lines);
+            let comma = at + lines.trim_end().len() - 1;
+            type_at(state, (comma, comma + 1), "");
+            return Some(());
         }
         Place::End => (
             line_offset(&before, entry_lines(view, &before, "d").1),
@@ -170,6 +176,20 @@ fn paste(state: EditorState, view: Language, lines: &str, place: Place) -> Optio
     let caret = start + units(&inserted);
     state.commit(Edit::new(before, (start, start), text, caret));
     Some(())
+}
+
+/// Bytes `from..to` of the view's text replaced by `typed`.
+fn type_at(state: EditorState, (from, to): (usize, usize), typed: &str) {
+    let before = state.doc().text.get_untracked();
+    let text = format!("{}{typed}{}", &before[..from], &before[to..]);
+    let start = units(&before[..from]);
+    let caret = start + units(typed);
+    state.commit(Edit::new(
+        before.clone(),
+        (start, units(&before[..to])),
+        text,
+        caret,
+    ));
 }
 
 fn between(state: EditorState, view: Language, step: Between) {

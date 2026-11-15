@@ -216,9 +216,24 @@ fn paste(state: EditorState, lines: &str, sibling: &str, table: &str) {
     let before = state.doc().text.get_untracked();
     let (at, inserted) = match lines.strip_prefix('[') {
         Some(header) => {
-            let (name, rest) = header.split_once(']').expect("a table header");
-            let key = name.rsplit('.').next().unwrap_or(name);
-            (before.len(), format!("[{table}.{key}]{rest}"))
+            // Pasted at the end, its header then made to name `table`, as
+            // typed.
+            let (name, _) = header.split_once(']').expect("a table header");
+            let parent = name.rsplit_once('.').map_or("", |(parent, _)| parent);
+            let at = before.len();
+            let text = format!("{before}{lines}");
+            let start = units(&before);
+            state.commit(Edit::new(
+                before,
+                (start, start),
+                text.clone(),
+                start + units(lines),
+            ));
+            let (from, to) = (at + 1, at + 1 + parent.len());
+            let renamed = format!("{}{table}{}", &text[..from], &text[to..]);
+            let (from, to) = (units(&text[..from]), units(&text[..to]));
+            state.commit(Edit::new(text, (from, to), renamed, from + units(table)));
+            return;
         }
         None => {
             let shown: Vec<&str> = before.lines().collect();
@@ -273,7 +288,17 @@ fn an_element_moved_keeps_its_namespace() {
                 editor.edit_as = Some(view);
                 let (_owner, state) = editor.mount();
                 let lines = match step {
-                    Between::Copied => copy(view, &state.doc().text.get_untracked(), case.key),
+                    Between::Copied => {
+                        // As Ctrl+C copies them.
+                        let text = state.doc().text.get_untracked();
+                        let (start, end) = entry_lines(view, &text, case.key);
+                        let (from, to) = (line_offset(&text, start), line_offset(&text, end));
+                        state.note_copied(
+                            &text[from..to],
+                            (units(&text[..from]), units(&text[..to])),
+                        );
+                        copy(view, &text, case.key)
+                    }
                     _ => cut(state, view, case.key),
                 };
                 match step {

@@ -8,6 +8,7 @@
 //! leaves closed (a line command moving closed folds) keeps the folds of
 //! both sides, so undo and redo close them again.
 
+use super::bridge::links::Links;
 use super::fold_ranges::FoldRange;
 use super::languages::Language;
 
@@ -26,6 +27,9 @@ pub(super) struct Snapshot {
     /// The folds closed in `value`, for a step that said them (a line
     /// command); `None` for every other step: the folds follow the change.
     pub(super) folds: Option<Vec<FoldRange>>,
+    /// The links of `value`'s items to the host's, in an Edit-as view
+    /// (see `bridge::links`): undo and redo put them back with the text.
+    pub(super) links: Links,
 }
 
 #[derive(Clone, Debug)]
@@ -196,13 +200,15 @@ impl EditHistory {
         self.undo.push(step);
         // The newest steps that fit in both budgets.
         let mut bytes = 0;
+        let mut newer: Option<&Links> = None;
         let kept = self
             .undo
             .iter()
             .rev()
             .take(MAX_STEPS)
             .take_while(|step| {
-                bytes += step.before.value.len();
+                bytes += step.before.value.len() + step.before.links.bytes(newer);
+                newer = Some(&step.before.links);
                 bytes <= MAX_BYTES
             })
             .count()
@@ -243,8 +249,10 @@ impl EditHistory {
             let map = |offset: usize| rebase::mapped(&after_old, &after_new, offset);
             step.after = (map(step.after.0), map(step.after.1));
             let before = std::mem::replace(&mut step.before.value, rebased.clone());
-            // The host's change moved the lines the folds were said on.
+            // The host's change moved the lines the folds were said on, and
+            // the items the links are on.
             (step.before.folds, step.after_folds) = (None, None);
+            step.before.links = Links::default();
             let (start, end) = step.before.selection;
             step.before.selection = (
                 rebase::mapped(&before, &rebased, start),
@@ -257,7 +265,13 @@ impl EditHistory {
     }
 
     /// The state before the newest step, given the current text.
+    #[cfg(test)]
     pub(super) fn undo(&mut self, current: String) -> Option<Snapshot> {
+        self.undo_with(current, Links::default())
+    }
+
+    /// [`Self::undo`] from `current` with the links `links`.
+    pub(super) fn undo_with(&mut self, current: String, links: Links) -> Option<Snapshot> {
         let step = self.undo.pop()?;
         self.redo.push(Step {
             before: Snapshot {
@@ -265,6 +279,7 @@ impl EditHistory {
                 selection: step.after,
                 language: step.after_language,
                 folds: step.after_folds,
+                links,
             },
             after: step.before.selection,
             after_language: step.before.language,
@@ -304,7 +319,13 @@ impl EditHistory {
     }
 
     /// The state after the newest undone step, given the current text.
+    #[cfg(test)]
     pub(super) fn redo(&mut self, current: String) -> Option<Snapshot> {
+        self.redo_with(current, Links::default())
+    }
+
+    /// [`Self::redo`] from `current` with the links `links`.
+    pub(super) fn redo_with(&mut self, current: String, links: Links) -> Option<Snapshot> {
         let step = self.redo.pop()?;
         self.undo.push(Step {
             before: Snapshot {
@@ -312,6 +333,7 @@ impl EditHistory {
                 selection: step.after,
                 language: step.after_language,
                 folds: step.after_folds,
+                links,
             },
             after: step.before.selection,
             after_language: step.before.language,
@@ -332,6 +354,7 @@ mod tests {
             selection: (caret, caret),
             language: None,
             folds: None,
+            links: Links::default(),
         }
     }
 
@@ -368,6 +391,7 @@ mod tests {
             selection: (from, to),
             language: None,
             folds: None,
+            links: Links::default(),
         };
         history.record_input(
             composing("name: に", 6, 7),
@@ -450,6 +474,7 @@ mod tests {
             selection: (0, 9),
             language: None,
             folds: None,
+            links: Links::default(),
         };
         history.record_action(before.clone(), (0, 13));
         assert_eq!(history.undo("  a: 1\n  b: 2".into()), Some(before));
@@ -460,6 +485,7 @@ mod tests {
                 selection: (0, 13),
                 language: None,
                 folds: None,
+                links: Links::default(),
             })
         );
     }
@@ -474,6 +500,7 @@ mod tests {
             selection: (0, 0),
             language: Some(Language::YAML),
             folds: None,
+            links: Links::default(),
         };
         history.record_switch(yaml.clone(), (4, 4), Language::JSON);
         assert_eq!(history.undo("{\"a\": 1}\n".into()), Some(yaml));

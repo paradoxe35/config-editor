@@ -10,7 +10,7 @@
 
 use crate::editor::Language;
 use crate::editor::bridge::Bridge;
-use crate::editor::bridge::item_trail::Trail;
+use crate::editor::bridge::links::{Clipboard, Links, Splice};
 use crate::editor::save_matrix::report;
 
 const XSI: &str = "xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\"";
@@ -84,26 +84,25 @@ fn session(
         .to_edit(host)
         .map_err(|error| error.to_string())?
         .text;
-    let mut trail = Trail::starting(&view);
+    let mut links = Links::fresh(host, &view);
+    let mut clipboard = Clipboard::default();
     let mut saved = host.to_string();
-    // The host text saved for the view's text the trail starts on.
-    let mut followed = saved.clone();
     let mut steps = steps(&view);
     steps.push(Step::Pause);
     for step in steps {
         match step {
             Step::Edit(next, caret) => {
-                trail.note(&view, &next, caret);
+                let splices = Splice::of(&view, &next, (usize::MAX, usize::MAX), caret);
+                links.edited(edit.behavior(), &view, &splices, &mut clipboard);
                 view = next;
             }
             Step::Pause => {
-                let (result, next) =
-                    bridge.to_host_traced(&view, &saved, host, Some((&trail, &followed)));
-                saved = result.map_err(|error| format!("{error:?}"))?;
-                if next.start() == Some(view.as_str()) {
-                    followed = saved.clone();
-                }
-                trail = next;
+                let identity = Language::XML.behavior().items_hold_unshown(&saved);
+                let told = links.told(edit.behavior(), &view, &saved, identity);
+                saved = bridge
+                    .to_host_linked(&view, &saved, host, told.as_ref())
+                    .map_err(|error| format!("{error:?}"))?;
+                links = Links::fresh(&saved, &view);
             }
         }
     }

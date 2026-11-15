@@ -27,6 +27,10 @@ pub(in crate::editor) struct LineEdit {
     pub(in crate::editor) text: String,
     pub(in crate::editor) selection: (usize, usize),
     pub(in crate::editor) folds: Vec<FoldRange>,
+    /// The lines moved or copied: the first in the text before, how many,
+    /// and the first in the text after (an Edit-as view's items go with
+    /// them, see `bridge::links`).
+    pub(in crate::editor) pieces: Vec<(usize, usize, usize)>,
 }
 
 /// `text` as lines: those before the last newline (or all of them), and
@@ -241,6 +245,7 @@ pub(in crate::editor) fn line_edit(
                     text,
                     selection: (at, at),
                     folds: folds.to_vec(),
+                    pieces: Vec::new(),
                 })
             }
             _ => None,
@@ -262,7 +267,8 @@ pub(in crate::editor) fn line_edit(
         )
     };
     // The new lines, how far the selection's lines move, and the folds.
-    let (new_lines, by, new_folds): (Vec<String>, isize, Vec<FoldRange>) = match command {
+    let (new_lines, by, new_folds, pieces): (Vec<String>, isize, Vec<FoldRange>, _) = match command
+    {
         LineCommand::Move { down: false } => {
             if first == 0 {
                 return None;
@@ -296,7 +302,8 @@ pub(in crate::editor) fn line_edit(
                     fold => *fold,
                 })
                 .collect();
-            (new_lines, -(over as isize), folds)
+            let pieces = vec![(first, size, above), (above, over, above + size)];
+            (new_lines, -(over as isize), folds, pieces)
         }
         LineCommand::Move { down: true } => {
             if last + 1 >= count {
@@ -328,7 +335,8 @@ pub(in crate::editor) fn line_edit(
                     fold => *fold,
                 })
                 .collect();
-            (new_lines, over as isize, folds)
+            let pieces = vec![(first, size, first + over), (last + 1, over, first)];
+            (new_lines, over as isize, folds, pieces)
         }
         LineCommand::Copy { down } => {
             let new_lines = [owned(&lines[..=last]), block, owned(&lines[last + 1..])].concat();
@@ -341,7 +349,13 @@ pub(in crate::editor) fn line_edit(
                     fold => vec![*fold],
                 })
                 .collect();
-            (new_lines, if down { size as isize } else { 0 }, folds)
+            let pieces = vec![(first, size, first), (first, size, last + 1)];
+            (
+                new_lines,
+                if down { size as isize } else { 0 },
+                folds,
+                pieces,
+            )
         }
         LineCommand::Delete => {
             let new_lines = [owned(&lines[..first]), owned(&lines[last + 1..])].concat();
@@ -358,6 +372,7 @@ pub(in crate::editor) fn line_edit(
                     text: String::new(),
                     selection: (0, 0),
                     folds,
+                    pieces: Vec::new(),
                 });
             }
             let mut joined = new_lines.join("\n");
@@ -372,6 +387,7 @@ pub(in crate::editor) fn line_edit(
                 text: joined,
                 selection: (at, at),
                 folds,
+                pieces: Vec::new(),
             });
         }
     };
@@ -389,5 +405,6 @@ pub(in crate::editor) fn line_edit(
         text: joined,
         selection,
         folds: new_folds,
+        pieces,
     })
 }

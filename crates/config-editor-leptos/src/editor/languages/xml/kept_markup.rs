@@ -10,7 +10,7 @@
 //! `E35-1`: views show both alike).
 
 use super::attribute_layout::{Tag, filled, markup_attributes};
-use super::identity::{self, Host, Identity};
+use super::identity::{Host, Identity};
 use super::namespace_scopes::{Binding, InScope, binding, declared};
 use super::*;
 
@@ -167,7 +167,7 @@ pub(super) fn changed_markup(language: &XmlBehavior, previous: &str, patched: &s
     // Its attributes are then all a save can change: only an attribute
     // or a child taking the other form (no parse, no element compared
     // while none does).
-    let pasted_back = || crate::editor::item_sources::told(previous, |_| true).is_some_and(|sources| sources.holds_origin_items());
+    let pasted_back = || crate::editor::item_sources::told(previous).is_some_and(|sources| sources.holds_origin_items());
     let attributes_only = !host.marked && !pasted_back();
     if attributes_only && !host.attributed {
         return None;
@@ -181,7 +181,7 @@ pub(super) fn changed_markup(language: &XmlBehavior, previous: &str, patched: &s
     let (Ok(old), Ok(new)) = (old.as_ref(), new.as_ref()) else {
         return None;
     };
-    let sources = crate::editor::item_sources::told(previous, |held| identity::alike(held, new));
+    let sources = crate::editor::item_sources::told(previous);
     let origin = sources.as_ref().filter(|sources| sources.holds_origin_items()).map(|sources| sources.origin.clone());
     let first_value = origin.as_deref().map(|origin| crate::editor::parse_cache::parsed(language, origin));
     let first = origin.as_deref().map(HostElements::of);

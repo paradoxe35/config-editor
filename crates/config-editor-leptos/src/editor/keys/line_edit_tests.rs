@@ -33,6 +33,7 @@ fn run_units(
         text,
         selection,
         mut folds,
+        ..
     } = line_edit(
         &text,
         (start, end),

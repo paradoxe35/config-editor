@@ -3,6 +3,7 @@
 use leptos::prelude::*;
 use web_sys::KeyboardEvent;
 
+use super::super::bridge::links::Splice;
 use super::super::commands::{indent_lines, line_range, tab_insert};
 use super::super::completion::next_stop;
 use super::super::edit::Edit;
@@ -165,7 +166,12 @@ fn indent_block(
         (selection_start, selection_end)
     };
     let made = if updated != text {
-        state.commit(Edit::new(text, (start, end), updated, caret).selecting_from(anchor))
+        let splices = Splice::per_line(&text, &updated);
+        state.commit(
+            Edit::new(text, (start, end), updated, caret)
+                .selecting_from(anchor)
+                .splicing(splices),
+        )
     } else {
         state.note_caret(caret);
         true

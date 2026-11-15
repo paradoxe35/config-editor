@@ -42,7 +42,11 @@ fn paste(state: EditorState, inserted: &str, before_line: &str) {
 }
 
 fn pause(state: EditorState) {
-    convert_now(state, state.doc().text.get_untracked(), Language::YAML);
+    convert_now(
+        state,
+        state.doc().text.get_untracked(),
+        state.sync().edit_language.get_untracked(),
+    );
 }
 
 #[test]
@@ -163,44 +167,45 @@ fn an_item_deleted_then_switched_away_before_the_pause_keeps_each_items_markup()
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
-/// Edits followed from a text the host was never saved as (a trail a
-/// switch began on unsaved edits) tell no save its items: the items'
-/// values do, so none takes another's `xsi:type` by place.
+/// A view whose links are not known (none kept) tells no save its items:
+/// the items' values do, so none takes another's `xsi:type` by place.
 #[test]
-fn a_trail_begun_on_an_unsaved_text_tells_no_save() {
+fn a_view_with_no_links_tells_no_save() {
     let sizes = [1u32, 2, 3];
     for deleted in [0usize, 1] {
         let (_owner, state) = deleted_in(Language::YAML, &sizes, deleted);
-        let now = state.doc().text.get_untracked();
         state
             .sync()
-            .trail
-            .set_value(super::super::bridge::item_trail::Trail::starting(&now));
+            .links
+            .set_value(super::super::bridge::links::Links::default());
         pause(state);
         let saved = state.sync().host_text.get_value();
         assert_eq!(saved, shapes(&left(&sizes, Some(deleted))));
     }
 }
 
-/// A switch whose save of the unsaved edits waits converts them into the
-/// next view: the trail then knows nothing of their items.
+/// A switch converting unsaved edits (an item deleted) keeps each item's
+/// link on the item at the same pointer of the next view: the save after
+/// it keeps each remaining item's own `xsi:type`.
 #[test]
-fn a_switch_converting_unsaved_edits_drops_the_trail() {
-    let mut editor = TestEditor::new(Language::XML, &shapes(&left(&[1, 2], None)));
-    editor.edit_as = Some(Language::YAML);
-    let (_owner, state) = editor.mount();
-    let converted = "shapes:\n  shape:\n    - size: 2\n".to_string();
-    // As the switch commits it, the host's text not saved.
-    let before = state.doc().text.get_untracked();
-    let switch = Edit::switching(before, converted.clone(), Language::JSON, (0, 0), None);
-    state.commit(switch);
-    assert!(
-        !state
-            .sync()
-            .trail
-            .with_value(|trail| trail.begins_on(&converted)),
-        "the trail begins on a text never saved"
-    );
+fn a_switch_converting_unsaved_edits_keeps_the_links() {
+    for sizes in [[1u32, 2, 3], [1, 1, 1]] {
+        let (_owner, state) = deleted_in(Language::YAML, &sizes, 0);
+        let before = state.doc().text.get_untracked();
+        let value = Language::YAML
+            .behavior()
+            .parse(&before)
+            .expect("the view reads");
+        let converted = format!(
+            "{}\n",
+            serde_json::to_string_pretty(&value).expect("written")
+        );
+        let switch = Edit::switching(before, converted, Language::JSON, (0, 0), None);
+        state.commit(switch);
+        pause(state);
+        let saved = state.sync().host_text.get_value();
+        assert_eq!(saved, shapes(&left(&sizes, Some(0))), "{sizes:?}");
+    }
 }
 
 /// QA `E33-4`: an item deleted and saved, `edit_as` switched, then the

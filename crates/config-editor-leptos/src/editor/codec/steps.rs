@@ -2,7 +2,9 @@
 //! split into steps the line-preserving patches can each make: every value
 //! change first, then one structural change at a time.
 
+use super::super::item_sources::ItemSources;
 use serde_json::{Map, Value};
+use std::collections::HashMap;
 
 /// The values between `old` and `new`, ending with `new`: `old` with its
 /// changed scalars set, then with each container whose keys or length
@@ -14,7 +16,19 @@ pub(in super::super) fn steps(old: &Value, new: &Value) -> Vec<Value> {
         steps.push(scalars);
     }
     let mut current = steps.last().cloned().unwrap_or_else(|| old.clone());
-    while let Some(next) = one_structural_step(&current, new) {
+    // The keys the edit brought from elsewhere (cut and pasted, its links
+    // tell) are added first, while each is still where it came from: the
+    // save writes it from there, in its host's form (QA `E38-2`: an XML
+    // element with markup pasted over another's line was written in a
+    // step after its source was gone, its markup lost).
+    if let Some(sources) = super::super::item_sources::told_to_save() {
+        let brought = with_brought(&current, new, "", &sources);
+        if brought != current && brought != *new {
+            steps.push(brought.clone());
+            current = brought;
+        }
+    }
+    while let Some(next) = one_structural_step(&current, new, "") {
         steps.push(next.clone());
         current = next;
         if steps.len() > 64 {
@@ -57,7 +71,7 @@ fn with_scalar_changes(old: &Value, new: &Value) -> Value {
 /// `current` with its first container that differs from `target` in keys or
 /// length made like it (keys kept with their current values), or with a
 /// value that changed kind replaced; `None` when they are equal.
-fn one_structural_step(current: &Value, target: &Value) -> Option<Value> {
+fn one_structural_step(current: &Value, target: &Value, pointer: &str) -> Option<Value> {
     if current == target {
         return None;
     }
@@ -76,7 +90,8 @@ fn one_structural_step(current: &Value, target: &Value) -> Option<Value> {
                 return Some(Value::Object(rebuilt));
             }
             for (key, value) in left {
-                if let Some(next) = one_structural_step(value, &right[key]) {
+                let child = format!("{pointer}/{}", super::escape(key));
+                if let Some(next) = one_structural_step(value, &right[key], &child) {
                     let mut map = left.clone();
                     map.insert(key.clone(), next);
                     return Some(Value::Object(map));
@@ -86,7 +101,8 @@ fn one_structural_step(current: &Value, target: &Value) -> Option<Value> {
         }
         (Value::Array(left), Value::Array(right)) if left.len() == right.len() => {
             for (index, value) in left.iter().enumerate() {
-                if let Some(next) = one_structural_step(value, &right[index]) {
+                let child = format!("{pointer}/{index}");
+                if let Some(next) = one_structural_step(value, &right[index], &child) {
                     let mut items = left.clone();
                     items[index] = next;
                     return Some(Value::Array(items));
@@ -95,6 +111,71 @@ fn one_structural_step(current: &Value, target: &Value) -> Option<Value> {
             None
         }
         _ => Some(target.clone()),
+    }
+}
+
+/// `current` (at `pointer` of the save) with each key `target` gains that
+/// the edit brought from elsewhere (its link, in `sources`, names no key
+/// the map loses: no rename) added where `target` has it, the keys the map
+/// loses still where they were.
+fn with_brought(current: &Value, target: &Value, pointer: &str, sources: &ItemSources) -> Value {
+    match (current, target) {
+        (Value::Object(left), Value::Object(right)) => {
+            let lost: Vec<(usize, &String)> = left
+                .keys()
+                .enumerate()
+                .filter(|(_, key)| !right.contains_key(*key))
+                .collect();
+            let renamed = |from: &str| {
+                from.rsplit_once('/').is_some_and(|(parent, key)| {
+                    parent == pointer && lost.iter().any(|(_, lost)| super::escape(lost) == key)
+                })
+            };
+            let brought = |key: &String| {
+                !left.contains_key(key)
+                    && sources
+                        .items
+                        .get(&format!("{pointer}/{}", super::escape(key)))
+                        .is_some_and(|source| !renamed(source.pointer()))
+            };
+            let places: HashMap<&String, usize> = left
+                .keys()
+                .enumerate()
+                .map(|(place, key)| (key, place))
+                .collect();
+            let mut out = Map::new();
+            let mut next_lost = 0;
+            for (key, value) in right {
+                if let Some(&place) = places.get(key) {
+                    while next_lost < lost.len() && lost[next_lost].0 < place {
+                        let lost_key = lost[next_lost].1;
+                        out.insert(lost_key.clone(), left[lost_key].clone());
+                        next_lost += 1;
+                    }
+                    let child = format!("{pointer}/{}", super::escape(key));
+                    out.insert(
+                        key.clone(),
+                        with_brought(&left[key], value, &child, sources),
+                    );
+                } else if brought(key) {
+                    out.insert(key.clone(), value.clone());
+                }
+            }
+            for (_, lost_key) in &lost[next_lost..] {
+                out.insert((*lost_key).clone(), left[*lost_key].clone());
+            }
+            Value::Object(out)
+        }
+        (Value::Array(left), Value::Array(right)) if left.len() == right.len() => Value::Array(
+            left.iter()
+                .zip(right)
+                .enumerate()
+                .map(|(index, (item, wanted))| {
+                    with_brought(item, wanted, &format!("{pointer}/{index}"), sources)
+                })
+                .collect(),
+        ),
+        _ => current.clone(),
     }
 }
 
