@@ -31,7 +31,7 @@ pub fn language_keeps(
     if language.repetition() != Repetition::None {
         conform(
             &mut read,
-            &AtPath::Schema(property),
+            &Entry::schema(property),
             root,
             language.repetition(),
             0,

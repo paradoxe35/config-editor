@@ -7,7 +7,6 @@
 //! of its pattern's letters, an object or list with one of those inside),
 //! so the list is no error the moment it is written.
 
-use super::conditions::decides;
 use super::fill::{Filler, MAX_FILL_DEPTH, RESERVED_ITEMS};
 use super::*;
 

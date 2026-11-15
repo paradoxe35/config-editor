@@ -14,12 +14,12 @@
 
 use serde_json::Value;
 
+use super::super::applies::Applies;
 use super::super::codec;
-use super::super::completion::schema_at_path;
 use super::super::language::{ConfigLanguage, Repetition};
 use super::super::paths::{FieldPath, path_at};
 use super::locate::{Extent, LineIndex, extent};
-use super::marks::read_only_reason;
+use super::marks::read_only_in;
 use super::texts::Reason;
 
 /// Lines of a text read line by line at most (each line's path is read
@@ -239,6 +239,7 @@ pub(super) fn marked(
     written: &[Written],
 ) -> Vec<(String, Reason)> {
     let repeats = behavior.repetition() != Repetition::None;
+    let applies = Applies::blind(schema, repeats);
     let mut marked: Vec<(String, Reason)> = Vec::new();
     let mut seen: Vec<&str> = Vec::new();
     for field in written {
@@ -249,8 +250,8 @@ pub(super) fn marked(
         let path = FieldPath::from(field.pointer.as_str());
         let segments = path.segments();
         for depth in 1..=segments.len() {
-            let schemas = schema_at_path(schema, &segments[..depth], repeats);
-            if let Some(reason) = read_only_reason(&schemas, schema) {
+            let branches = applies.at(&segments[..depth]).branches();
+            if let Some(reason) = read_only_in(&branches) {
                 let pointer = FieldPath::from(segments[..depth].to_vec()).to_pointer();
                 if !marked.iter().any(|(known, _)| *known == pointer) {
                     marked.push((pointer, reason.map_or(Reason::Field, Reason::Given)));

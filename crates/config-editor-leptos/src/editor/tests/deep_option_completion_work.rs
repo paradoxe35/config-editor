@@ -31,13 +31,14 @@ fn schema(options: usize) -> SchemaBundle {
 }
 
 /// `root` holding `depth` levels of `v: q` and `c`, the deepest object
-/// `v: 3` and a key `a` being typed (the caret `|` after it).
+/// `v: q` too (text every option allows, so none is matched) and a key `a`
+/// being typed (the caret `|` after it).
 fn text(language: Language, depth: usize) -> String {
     let mut inner = match language.label() {
-        "JSON" => "\"v\": 3, \"a|\"".to_string(),
-        "XML" => "<v>3</v><a|".to_string(),
+        "JSON" => "\"v\": \"q\", \"a|\"".to_string(),
+        "XML" => "<v>q</v><a|".to_string(),
         "TOML" => String::new(),
-        "HCL" => "v = 3\na|".to_string(),
+        "HCL" => "v = \"q\"\na|".to_string(),
         _ => String::new(),
     };
     match language.label() {
@@ -49,7 +50,7 @@ fn text(language: Language, depth: usize) -> String {
                 lines.push(format!("{indent}c:"));
                 indent.push_str("  ");
             }
-            lines.push(format!("{indent}v: 3"));
+            lines.push(format!("{indent}v: q"));
             lines.push(format!("{indent}a|"));
             lines.join("\n") + "\n"
         }
@@ -60,7 +61,7 @@ fn text(language: Language, depth: usize) -> String {
                 tables.push(format!("[{table}]\nv = \"q\""));
                 table.push_str(".c");
             }
-            tables.push(format!("[{table}]\nv = 3\na|"));
+            tables.push(format!("[{table}]\nv = \"q\"\na|"));
             tables.join("\n") + "\n"
         }
         label => {

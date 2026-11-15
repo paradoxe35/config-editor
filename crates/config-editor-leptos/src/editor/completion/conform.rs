@@ -4,6 +4,7 @@
 //! as the type of an option it fits (`<workers>4</workers>` is the number
 //! for "an integer or `auto`", `<v>1.3</v>` the string a `const` lists).
 
+use super::super::applies::{listed, scalar_text};
 use super::*;
 
 /// Reads `value` the way `schema` expects for a language that writes arrays
@@ -11,23 +12,27 @@ use super::*;
 /// where only an array is allowed becomes a one-item array (a single XML
 /// `<dns>` element is `dns: [...]`), and XML text is typed by the schema.
 pub(crate) fn conform_arrays(value: &mut Value, schema: &Value, repetition: Repetition) {
-    conform(value, &AtPath::Schema(schema), schema, repetition, 0);
+    conform(value, &Entry::schema(schema), schema, repetition, 0);
 }
 
 /// [`conform_arrays`] where `at` is what applies to `value` (every
 /// subschema at its path combined): read as they allow.
 pub(super) fn conform(
     value: &mut Value,
-    at: &AtPath<'_>,
+    at: &Entry<'_>,
     root: &Value,
     repetition: Repetition,
     depth: usize,
 ) {
-    if depth > 64 || at.leaves().is_empty() {
+    if depth > 64 || at.is_empty() {
         return;
     }
     // An object decides the conditionals it is under (`if kind is a`).
-    let applied = at.applied(value.is_object().then_some(&*value), root);
+    let applied = Here::walk(
+        at.clone(),
+        root,
+        Seen::value(value.is_object().then_some(&*value)),
+    );
     let branches = applied.branches();
     let wants_array = branches.iter().any(|branch| {
         branch.get("items").is_some()
@@ -51,7 +56,7 @@ pub(super) fn conform(
         Value::Object(map) => map.keys().cloned().map(SchemaPathSegment::Key).collect(),
         _ => return,
     };
-    let children: Vec<AtPath<'_>> = segments
+    let children: Vec<Entry<'_>> = segments
         .iter()
         .map(|segment| applied.child(segment))
         .collect();
@@ -77,7 +82,7 @@ pub(super) fn conform(
 /// the text; and empty text (an empty element, read as `{}`, or an empty
 /// attribute) is the empty string where the schema wants text, else
 /// `null` where it allows that.
-fn read_text(value: &mut Value, at: &AtPath<'_>, branches: &[&Value], root: &Value) {
+fn read_text(value: &mut Value, at: &Entry<'_>, branches: &[&Value], root: &Value) {
     let allowed = |candidate: &Value| {
         branches.iter().any(|branch| {
             accepts(branch, candidate)
@@ -96,7 +101,7 @@ fn read_text(value: &mut Value, at: &AtPath<'_>, branches: &[&Value], root: &Val
         Value::String(text) => {
             // Text the schema takes as it is stays text (`007` for "an
             // integer or a string").
-            let fits = |candidate: &Value| at.decides(candidate, root) == Some(true);
+            let fits = |candidate: &Value| at.accepts(candidate, root) == Some(true);
             if let Some(typed) = text_literal(text)
                 && allowed(&typed)
                 && !fits(&Value::String(text.clone()))
@@ -150,7 +155,7 @@ fn whole(value: &Value) -> Option<Value> {
 fn read_as_text(
     value: &Value,
     text: &str,
-    at: &AtPath<'_>,
+    at: &Entry<'_>,
     branches: &[&Value],
     root: &Value,
 ) -> bool {
@@ -159,7 +164,7 @@ fn read_as_text(
     if listed.contains(&&text) && !listed.contains(&value) {
         return true;
     }
-    let fits = |candidate: &Value| at.decides(candidate, root) == Some(true);
+    let fits = |candidate: &Value| at.accepts(candidate, root) == Some(true);
     if fits(value) {
         return false;
     }
@@ -172,24 +177,4 @@ fn read_as_text(
             .iter()
             .any(|branch| type_includes(branch, "string"))
             || (!listed.is_empty() && listed.iter().all(|allowed| allowed.is_string())))
-}
-
-/// The values `branch` lists as the only ones allowed (`const`, `enum`).
-pub(super) fn listed(branch: &Value) -> impl Iterator<Item = &Value> {
-    branch.get("const").into_iter().chain(
-        branch
-            .get("enum")
-            .and_then(Value::as_array)
-            .into_iter()
-            .flatten(),
-    )
-}
-
-/// A scalar as XML text writes it.
-pub(super) fn scalar_text(value: &Value) -> String {
-    match value {
-        Value::Null => "null".to_string(),
-        Value::String(text) => text.clone(),
-        other => other.to_string(),
-    }
 }

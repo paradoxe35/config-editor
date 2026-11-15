@@ -21,7 +21,7 @@ pub(super) fn numeric_example_as_number(value: Value, numeric_allowed: bool) -> 
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn value_completions(
-    schemas: &[&Value],
+    branches: &[&Value],
     typed: &str,
     start: usize,
     end: usize,
@@ -37,12 +37,11 @@ pub(super) fn value_completions(
     let null_writable = behavior
         .serialize(&serde_json::json!({ "value": null }), None)
         .is_ok();
-    let numeric_allowed = schemas
+    let numeric_allowed = branches
         .iter()
-        .flat_map(|schema| resolve_branches(schema, root))
         .any(|branch| type_includes(branch, "integer") || type_includes(branch, "number"));
-    for schema in schemas {
-        for branch in resolve_branches(schema, root) {
+    {
+        for &branch in branches {
             let description = branch
                 .get("description")
                 .and_then(Value::as_str)
@@ -89,34 +88,13 @@ pub(super) fn value_completions(
     sorted_completions(candidates)
 }
 
-/// The keys a branch certain to apply declares `false` (`properties: {b:
-/// false}`, the `else` an `if` takes saying `url: false`) or otherwise
-/// admitting nothing ([`admits_nothing`]: `{not: {}}`): no value of theirs
-/// is valid, so they are not offered. A `oneOf`/`anyOf` option
-/// counts only once matched; a conditional only where the document
-/// decides it (`instance`, read only when some branch declares a key so).
-fn forbidden_keys<'a, 'i>(
-    schemas: &[&'a Value],
-    branches: &[&'a Value],
-    root: &'a Value,
-    instance: &dyn Fn() -> Option<&'i Value>,
-    choices: &ChoicesAt<'_>,
-) -> HashSet<&'a str> {
-    let declares_false = |branch: &&Value| {
-        branch
-            .get("properties")
-            .and_then(Value::as_object)
-            .is_some_and(|properties| properties.values().any(admits_nothing))
-    };
-    // Most schemas have none: no second walk then.
-    if !branches.iter().any(declares_false) {
-        return HashSet::new();
-    }
-    let instance = instance();
-    schemas
+/// The keys a schema certain to apply (`certain`, see [`Here::certain`])
+/// declares `false` (`properties: {b: false}`, the `else` an `if` takes
+/// saying `url: false`) or otherwise admitting nothing ([`admits_nothing`]:
+/// `{not: {}}`): no value of theirs is valid, so they are not offered.
+fn forbidden_keys<'a>(certain: &[&'a Value]) -> HashSet<&'a str> {
+    certain
         .iter()
-        .flat_map(|schema| certain_branches(schema, root, instance))
-        .filter(|branch| choices.of(branch).is_none_or(|(_, matched)| matched))
         .filter_map(|branch| branch.get("properties").and_then(Value::as_object))
         .flat_map(|properties| {
             properties
@@ -166,12 +144,11 @@ pub(super) fn default_selection(
     unselected
 }
 
-/// The keys offered for the object described by `schemas`; `instance`
-/// reads its value off the document, only where a conditional is there for
-/// it to decide.
+/// The keys offered for the object `here` is what applies to (walked for
+/// its keys and value).
 #[allow(clippy::too_many_arguments)]
-pub(super) fn property_completions<'i>(
-    schemas: &[&Value],
+pub(super) fn property_completions(
+    here: &Here<'_>,
     typed: &str,
     start: usize,
     end: usize,
@@ -180,34 +157,23 @@ pub(super) fn property_completions<'i>(
     repetition: Repetition,
     insert_context: &InsertContext<'_>,
     behavior: &dyn ConfigLanguage,
-    choices: &ChoicesAt<'_>,
-    instance: &dyn Fn() -> Option<&'i Value>,
     read_repeated: &dyn Fn() -> HashSet<String>,
 ) -> Vec<Completion> {
-    // Keys are typed into an object: one with nothing in it yet (a new
-    // YAML item `- `, which reads as null) is the empty object, so an
-    // `if` requiring a key is not taken.
-    let empty = Value::Object(serde_json::Map::new());
-    let instance = || instance().map(|value| if value.is_null() { &empty } else { value });
     let repeated = std::cell::OnceCell::new();
     let repeated_keys = || repeated.get_or_init(read_repeated);
     let mut candidates = Vec::new();
-    let branches: Vec<&Value> = schemas
-        .iter()
-        .flat_map(|schema| branches_read(schema, root, &instance))
-        .collect();
-    let forbidden = forbidden_keys(schemas, &branches, root, &instance, choices);
-    for branch in &branches {
+    let object = ObjectAt::of(here);
+    let choices = &object.choices;
+    let branches = &object.branches;
+    let forbidden = forbidden_keys(&object.certain);
+    // A key of `oneOf`/`anyOf` options names them (the matched one alone
+    // when it has the key); once an option matches, another option's keys
+    // are not offered (adding one would leave it).
+    for branch in &here.offered() {
         let Some(properties) = branch.get("properties").and_then(Value::as_object) else {
             continue;
         };
-        // A key of `oneOf`/`anyOf` options names them (the matched one
-        // alone when it has the key); once an option matches, another
-        // option's keys are not offered (adding one would leave it).
-        let choice = choices.of(branch);
-        if choices.matched.is_some() && choice.is_some_and(|(_, matched)| !matched) {
-            continue;
-        }
+        let choice = choices.of_branch(branch);
         let bonus = if choice.is_some_and(|(_, matched)| matched) {
             MATCHED_CHOICE_BONUS
         } else {
@@ -221,7 +187,7 @@ pub(super) fn property_completions<'i>(
         for (key, property) in properties {
             // A key this branch only names is described where another
             // declares it: its type, its docs, what accepting it writes.
-            let Some(info) = key_info(key, &branches, choices, root) else {
+            let Some(info) = key_info(key, &object) else {
                 continue;
             };
             let property = if names_only(property) {
@@ -249,7 +215,7 @@ pub(super) fn property_completions<'i>(
             }
             // A key a `not` keeps apart from keys written (`git` beside
             // `path`): writing it would break the `not`.
-            if existing.is_some_and(|existing| excluded_by_not(key, &branches, existing, root)) {
+            if existing.is_some_and(|existing| excluded_by_not(key, branches, existing, root)) {
                 continue;
             }
             let Some(score) = match_score(key, typed) else {
@@ -709,18 +675,38 @@ fn known_key(
     key: &str,
     behavior: &dyn ConfigLanguage,
 ) -> bool {
-    schema_at_path(
-        &bundle.schema,
-        path,
-        behavior.repetition() != Repetition::None,
-    )
-    .iter()
-    .any(|schema| {
-        object_branch(schema, &bundle.schema)
-            .and_then(|branch| branch.get("properties"))
+    declares(&blind_branches(bundle, path, behavior), key)
+}
+
+/// The schemas at `path`, whatever the document holds.
+fn blind_branches<'a>(
+    bundle: &'a SchemaBundle,
+    path: &[SchemaPathSegment],
+    behavior: &dyn ConfigLanguage,
+) -> Vec<&'a Value> {
+    Applies::blind(&bundle.schema, behavior.repetition() != Repetition::None)
+        .at(path)
+        .branches()
+}
+
+/// Whether one of `branches` names `key` as a property.
+fn declares(branches: &[&Value], key: &str) -> bool {
+    branches.iter().any(|branch| {
+        branch
+            .get("properties")
             .and_then(Value::as_object)
             .is_some_and(|properties| properties.contains_key(key))
     })
+}
+
+/// Whether a schema among `branches` describes an object.
+fn has_object(branches: &[&Value]) -> bool {
+    branches.iter().any(|branch| describes_object(branch))
+}
+
+/// Whether a schema among `branches` describes an array.
+fn has_array(branches: &[&Value]) -> bool {
+    branches.iter().any(|branch| describes_array(branch))
 }
 
 /// Whether the word after the caret (`cp` of `t|cp`) is the rest of the key
@@ -743,19 +729,8 @@ fn replaces_word_after_caret(
     }) else {
         return false;
     };
-    let schemas = schema_at_path(
-        &bundle.schema,
-        &context.path,
-        behavior.repetition() != Repetition::None,
-    );
-    let known = |name: &str| {
-        schemas.iter().any(|schema| {
-            object_branch(schema, &bundle.schema)
-                .and_then(|branch| branch.get("properties"))
-                .and_then(Value::as_object)
-                .is_some_and(|properties| properties.contains_key(name))
-        })
-    };
+    let branches = blind_branches(bundle, &context.path, behavior);
+    let known = |name: &str| declares(&branches, name);
     // A JSON key's typed part starts with its quote.
     let whole = format!(
         "{}{word}",
@@ -856,7 +831,21 @@ pub(super) fn completions_for_context(
         cursor_byte,
         behavior,
     };
-    completions_around(&around, context, force, bundle)
+    // A schema the document decides (a conditional, `oneOf`/`anyOf`
+    // options) reads it, where a step of the path is decided by it.
+    let document = || {
+        if bundle.has_conditionals {
+            around.document()
+        } else {
+            None
+        }
+    };
+    let applies = Applies::new(
+        &bundle.schema,
+        behavior.repetition() != Repetition::None,
+        &document,
+    );
+    completions_around(&around, &applies, context, force, bundle)
 }
 
 /// The document around the caret ([`document_around`]: a parse of the
@@ -875,49 +864,27 @@ impl Around<'_> {
             .get_or_init(|| document_around(self.source, self.cursor_byte, self.behavior))
             .as_ref()
     }
-
-    /// The object at `path` in it.
-    fn object(&self, path: &[SchemaPathSegment]) -> Option<serde_json::Map<String, Value>> {
-        value_at(self.document()?, path)?.as_object().cloned()
-    }
 }
 
 fn completions_around(
     around: &Around<'_>,
+    applies: &Applies<'_, '_>,
     context: &CompletionContext,
     force: bool,
     bundle: &SchemaBundle,
 ) -> Vec<Completion> {
     let (source, cursor_byte, behavior) = (around.source, around.cursor_byte, around.behavior);
-    // A schema the document decides (a conditional, `oneOf`/`anyOf`
-    // options) reads it, where a step of the path is decided by it.
-    let document = || {
-        if bundle.has_conditionals {
-            around.document()
-        } else {
-            None
-        }
-    };
-    let schemas = schema_at_path_read(
-        &bundle.schema,
-        &context.path,
-        behavior.repetition() != Repetition::None,
-        &document,
-    );
-
+    let here = applies.at(&context.path);
+    let branches = here.branches();
     // An empty document under a schema whose root is a list: its first
     // entry opens the list's first item.
-    if let Some(options) = root_values(context, &schemas, bundle, behavior) {
+    if let Some(options) = root_values(context, &branches, applies, behavior) {
         return options;
     }
     if let Some((open, close, indent)) = context.root_item
         && context.value_key.is_none()
-        && !schemas
-            .iter()
-            .any(|schema| object_branch(schema, &bundle.schema).is_some())
-        && schemas
-            .iter()
-            .any(|schema| array_branch(schema, &bundle.schema).is_some())
+        && !has_object(&branches)
+        && has_array(&branches)
     {
         let item = CompletionContext {
             path: vec![SchemaPathSegment::ArrayItem(0)],
@@ -926,7 +893,7 @@ fn completions_around(
             root_item: None,
             ..context.clone()
         };
-        return completions_around(around, &item, force, bundle);
+        return completions_around(around, applies, &item, force, bundle);
     }
     if let Some(key) = context.value_key.as_deref() {
         // A number being typed is the user's own value: suggesting a longer
@@ -935,15 +902,10 @@ fn completions_around(
         if !force && !typed_value.is_empty() && typed_value.parse::<f64>().is_ok() {
             return Vec::new();
         }
-        let value_schemas = schema_at_path_read(
-            &bundle.schema,
-            &path_with_key(&context.path, key),
-            behavior.repetition() != Repetition::None,
-            &document,
-        );
+        let value_branches = applies.at(&path_with_key(&context.path, key)).branches();
         let leading = if context.value_needs_space { " " } else { "" };
         let mut options = value_completions(
-            &value_schemas,
+            &value_branches,
             &context.typed,
             context.replace_start,
             context.replace_end,
@@ -955,10 +917,7 @@ fn completions_around(
         if !force && unquoted(behavior, &context.typed).is_empty() {
             options.retain(|option| option.label != "null");
         }
-        let object_value = value_schemas
-            .iter()
-            .any(|schema| object_branch(schema, &bundle.schema).is_some());
-        if context.value_or_children && (options.is_empty() || object_value) {
+        if context.value_or_children && (options.is_empty() || has_object(&value_branches)) {
             let children = CompletionContext {
                 path: path_with_key(&context.path, key),
                 value_key: None,
@@ -966,23 +925,19 @@ fn completions_around(
                 explicit_entry_start: true,
                 ..context.clone()
             };
-            return completions_around(around, &children, force, bundle);
+            return completions_around(around, applies, &children, force, bundle);
         }
         return options;
     }
-
     if context.is_array_item {
-        let has_object_properties = schemas
-            .iter()
-            .flat_map(|schema| resolve_branches(schema, &bundle.schema))
-            .any(|branch| {
-                branch.get("properties").is_some()
-                    || branch.get("patternProperties").is_some()
-                    || type_includes(branch, "object")
-            });
+        let has_object_properties = branches.iter().any(|branch| {
+            branch.get("properties").is_some()
+                || branch.get("patternProperties").is_some()
+                || type_includes(branch, "object")
+        });
         if !has_object_properties {
             let mut options = value_completions(
-                &schemas,
+                &branches,
                 &context.typed,
                 context.replace_start,
                 context.replace_end,
@@ -995,7 +950,6 @@ fn completions_around(
             return options;
         }
     }
-
     let query = unquoted(behavior, &context.typed);
     if query.is_empty() && !force && !context.explicit_entry_start {
         return Vec::new();
@@ -1011,24 +965,21 @@ fn completions_around(
     {
         return Vec::new();
     }
-
     if context.no_properties {
         return Vec::new();
     }
     let existing_keys = behavior.existing_keys(source, cursor_byte, &context.path);
-    let choices = ChoicesAt::new(
-        &schemas,
-        &bundle.schema,
-        existing_keys.as_ref().unwrap_or(&HashSet::new()),
-        || around.object(&context.path),
-    );
+    // Keys are typed into an object: its options are narrowed by the keys
+    // its text has, and by its value where the document gives it.
+    let no_keys = HashSet::new();
+    let object = applies.at_object(&context.path, existing_keys.as_ref().unwrap_or(&no_keys));
     let unit = indent_unit(source);
     let base_indent = context
         .block
         .as_ref()
         .map_or(context.base_indent.as_str(), |block| block.indent.as_str());
     let mut options = property_completions(
-        &schemas,
+        &object,
         query,
         context.replace_start,
         context.replace_end,
@@ -1044,8 +995,6 @@ fn completions_around(
             another_item: false,
         },
         behavior,
-        &choices,
-        &|| document().and_then(|document| value_at(document, &context.path)),
         &|| behavior.repeated_keys(source, cursor_byte, &context.path),
     );
     // A key typed directly in an array starts a new object item, which needs

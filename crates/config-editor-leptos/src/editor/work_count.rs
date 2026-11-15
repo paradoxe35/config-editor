@@ -151,8 +151,8 @@ pub(crate) enum Work {
     /// allowed made lists; one note per byte of its text, see
     /// [`note_many`]), as a host that repeats keys for lists reads a text.
     ConformedBytes,
-    /// A schema's branches resolved (`completion::branches_for`): its
-    /// references, combinators and conditionals walked.
+    /// A schema's applicators walked for one value (`applies`): its
+    /// reference, combinators, conditionals and dependent schemas.
     BranchWalk,
     /// A byte of a text passed from its top to find where a UTF-16 offset
     /// is (`keyboard::utf16_to_byte_index`, outside a batch that splits

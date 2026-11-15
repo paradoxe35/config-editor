@@ -95,30 +95,17 @@ fn before_item(
 /// item (see `CompletionContext::root_value`). `None` elsewhere.
 pub(super) fn root_values(
     context: &CompletionContext,
-    schemas: &[&Value],
-    bundle: &SchemaBundle,
+    branches: &[&Value],
+    applies: &Applies<'_, '_>,
     behavior: &dyn ConfigLanguage,
 ) -> Option<Vec<Completion>> {
     let (open, close) = context.root_value.filter(|_| context.value_key.is_none())?;
-    let root = &bundle.schema;
-    let objects = |schemas: &[&Value]| {
-        schemas
-            .iter()
-            .any(|schema| object_branch(schema, root).is_some())
-    };
-    if objects(schemas)
-        || !schemas
-            .iter()
-            .any(|schema| array_branch(schema, root).is_some())
-    {
+    let root = applies.root();
+    let objects = |branches: &[&Value]| branches.iter().any(|branch| describes_object(branch));
+    if objects(branches) || !branches.iter().any(|branch| describes_array(branch)) {
         return None;
     }
-    let items = schema_at_path_in(
-        root,
-        &[SchemaPathSegment::ArrayItem(0)],
-        behavior.repetition() != Repetition::None,
-        None,
-    );
+    let items = applies.at(&[SchemaPathSegment::ArrayItem(0)]).branches();
     if objects(&items) {
         return None;
     }

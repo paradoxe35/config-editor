@@ -1,0 +1,344 @@
+//! What a schema says applies at one path of one document: every schema
+//! that applies there combined. All of them: the base `properties` entry,
+//! `allOf` (through `$ref`), the `then`/`else` the document's `if` takes,
+//! dependent schemas, `patternProperties`, `additionalProperties`, the
+//! item schemas; and one of a `oneOf`/`anyOf`'s options, narrowed by the
+//! document where it tells which. Every reader of a schema (suggestions,
+//! hover, XML typing, the quick check, fills, locks) asks this module, so
+//! they agree on every shape.
+//!
+//! An [`Entry`] is what applies to a value before the applicators of its
+//! schemas are walked; a [`Here`] the same walked for the value. A walk
+//! takes each schema once (shared where met again), and an [`Applies`]
+//! session keeps each step of a path, so a path costs one walk per step.
+
+mod accepts;
+mod choices;
+mod document;
+mod expand;
+mod narrow;
+mod node;
+mod query;
+mod step;
+
+pub(crate) use accepts::{decides, mentions_conditionals};
+pub(crate) use choices::{ChoiceHover, Choices};
+pub(crate) use document::{Next, each_value};
+pub(crate) use narrow::{listed, scalar_text};
+pub(crate) use node::{Entry, Walked};
+
+use crate::editor::language::SchemaPathSegment;
+use expand::Expand;
+use node::Tree;
+use serde_json::Value;
+use std::cell::RefCell;
+use std::collections::{HashMap, HashSet};
+use std::rc::Rc;
+
+/// What is known of the value schemas are walked for.
+#[derive(Clone, Copy, Default)]
+pub(crate) struct Seen<'i> {
+    /// The value, where the document gives it.
+    pub(crate) value: Option<&'i Value>,
+    /// The keys the text has, for an object whose value the document does
+    /// not give (a key being typed into a text that does not parse): the
+    /// value is an object with them.
+    pub(crate) keys: Option<&'i HashSet<String>>,
+}
+
+impl<'i> Seen<'i> {
+    pub(crate) fn value(value: Option<&'i Value>) -> Self {
+        Self { value, keys: None }
+    }
+
+    /// Whether the object has `key` (true while that is unknown).
+    fn has_key(&self, key: &str) -> bool {
+        match (self.value, self.keys) {
+            (Some(Value::Object(members)), _) if members.contains_key(key) => true,
+            (_, Some(keys)) => keys.contains(key),
+            (Some(_), None) => false,
+            (None, None) => true,
+        }
+    }
+}
+
+/// What applies to one value, its applicators walked.
+#[derive(Clone, Debug)]
+pub(crate) struct Here<'s> {
+    root: &'s Value,
+    entry: Entry<'s>,
+    tree: Tree<'s>,
+}
+
+impl<'s> Here<'s> {
+    /// What applies to a value of `schema` alone, the value unknown.
+    pub(crate) fn of(schema: &'s Value, root: &'s Value) -> Self {
+        Self::walk(Entry::schema(schema), root, Seen::default())
+    }
+
+    /// `entry` walked for the value `seen`.
+    pub(crate) fn walk(entry: Entry<'s>, root: &'s Value, seen: Seen<'_>) -> Self {
+        let ref_alone = refs_stand_alone(root);
+        let tree = Expand::new(root, ref_alone, seen).entry(&entry);
+        Self { root, entry, tree }
+    }
+
+    /// [`Self::walk`] where the value is read (`value`) only when
+    /// something walked is decided by it: most schemas have nothing so.
+    fn walk_read<'i>(entry: Entry<'s>, root: &'s Value, value: &dyn Fn() -> Seen<'i>) -> Self {
+        let ref_alone = refs_stand_alone(root);
+        let mut blind = Expand::new(root, ref_alone, Seen::default());
+        let tree = blind.entry(&entry);
+        let tree = if blind.decidable {
+            let seen = value();
+            if seen.value.is_some() || seen.keys.is_some() {
+                Expand::new(root, ref_alone, seen).entry(&entry)
+            } else {
+                tree
+            }
+        } else {
+            tree
+        };
+        Self { root, entry, tree }
+    }
+
+    /// The same schemas walked again for the value `seen`.
+    pub(crate) fn rewalk(&self, seen: Seen<'_>) -> Self {
+        Self::walk(self.entry.clone(), self.root, seen)
+    }
+
+    pub(crate) fn root(&self) -> &'s Value {
+        self.root
+    }
+
+    /// What applied before the walk: the schemas the path leads to.
+    pub(crate) fn entry(&self) -> &Entry<'s> {
+        &self.entry
+    }
+
+    /// The schemas the path leads to (each standing for all it applies).
+    pub(crate) fn schemas(&self) -> Vec<&'s Value> {
+        self.entry.schemas()
+    }
+
+    /// Every schema applying, once, in order: each option of a
+    /// `oneOf`/`anyOf`, both branches of an `if` not decided.
+    pub(crate) fn branches(&self) -> Vec<&'s Value> {
+        query::leaves(&self.tree, Walked::Any)
+    }
+
+    /// The schemas certain to apply: not a branch of an `if` the value
+    /// does not decide, nor an option it is not known to be in.
+    pub(crate) fn certain(&self) -> Vec<&'s Value> {
+        query::leaves(&self.tree, Walked::Certain)
+    }
+
+    /// The schemas the value may still be read by: no option it is not
+    /// in, only the matched one of options where one is.
+    pub(crate) fn offered(&self) -> Vec<&'s Value> {
+        query::leaves(&self.tree, Walked::Offered)
+    }
+
+    /// The `oneOf`/`anyOf` options of the object here.
+    pub(crate) fn choices(&self) -> Choices<'s> {
+        Choices::of(&self.tree)
+    }
+
+    /// What applies to the child `segment`, before its walk.
+    pub(crate) fn child(&self, segment: &SchemaPathSegment) -> Entry<'s> {
+        step::child(&self.entry, &self.tree, segment)
+    }
+
+    /// [`Self::child`] as the schemas name it: an item where they name
+    /// none is nothing (not the value read as its own one item).
+    pub(crate) fn child_named(&self, segment: &SchemaPathSegment) -> Entry<'s> {
+        step::child_only(&self.tree, segment)
+    }
+}
+
+/// One reading of a schema against one document: what applies at each
+/// path asked, each step of a path walked once for the session.
+pub(crate) struct Applies<'s, 'd> {
+    root: &'s Value,
+    /// With it a key naming an array is one of its items as well (each XML
+    /// `<dns>` element is one entry of `dns`).
+    repeats_arrays: bool,
+    /// The document, read only at a step it decides (a parse of the
+    /// whole text, which most steps of most paths need none of).
+    document: &'d dyn Fn() -> Option<&'d Value>,
+    steps: RefCell<HashMap<Vec<SchemaPathSegment>, Rc<Here<'s>>>>,
+}
+
+fn no_document<'d>() -> Option<&'d Value> {
+    None
+}
+
+impl<'s, 'd> Applies<'s, 'd> {
+    pub(crate) fn new(
+        root: &'s Value,
+        repeats_arrays: bool,
+        document: &'d dyn Fn() -> Option<&'d Value>,
+    ) -> Self {
+        Self {
+            root,
+            repeats_arrays,
+            document,
+            steps: RefCell::new(HashMap::new()),
+        }
+    }
+
+    /// A session without a document: what the schema says whatever is
+    /// written.
+    pub(crate) fn blind(root: &'s Value, repeats_arrays: bool) -> Self {
+        Self::new(root, repeats_arrays, &no_document)
+    }
+
+    pub(crate) fn root(&self) -> &'s Value {
+        self.root
+    }
+
+    /// The document's value at `path`.
+    pub(crate) fn value_at(&self, path: &[SchemaPathSegment]) -> Option<&'d Value> {
+        (self.document)().and_then(|document| value_at(document, path))
+    }
+
+    /// What applies at `path`, walked for the document's value there.
+    pub(crate) fn at(&self, path: &[SchemaPathSegment]) -> Rc<Here<'s>> {
+        if let Some(known) = self.steps.borrow().get(path) {
+            return known.clone();
+        }
+        let here = match path.split_last() {
+            None => Here::walk_read(Entry::schema(self.root), self.root, &|| {
+                Seen::value(self.value_at(&[]))
+            }),
+            Some((segment, parent)) => {
+                let parent_here = self.at(parent);
+                let entry = self.step(&parent_here, segment, path);
+                Here::walk_read(entry, self.root, &|| Seen::value(self.value_at(path)))
+            }
+        };
+        let here = Rc::new(here);
+        self.steps.borrow_mut().insert(path.to_vec(), here.clone());
+        here
+    }
+
+    /// [`Self::at`] for an object with `keys` (those its text has): its
+    /// options narrowed by them where the document does not give it.
+    pub(crate) fn at_object(&self, path: &[SchemaPathSegment], keys: &HashSet<String>) -> Here<'s> {
+        let here = self.at(path);
+        let empty = Value::Object(serde_json::Map::new());
+        let value = self
+            .value_at(path)
+            .map(|value| if value.is_null() { &empty } else { value });
+        here.rewalk(Seen {
+            value,
+            keys: Some(keys),
+        })
+    }
+
+    /// The child `segment` of `parent`, at `path`: with `repeats_arrays`
+    /// a key naming an array is one of its items too.
+    fn step(
+        &self,
+        parent: &Here<'s>,
+        segment: &SchemaPathSegment,
+        path: &[SchemaPathSegment],
+    ) -> Entry<'s> {
+        let next = parent.child(segment);
+        if !self.repeats_arrays || !matches!(segment, SchemaPathSegment::Key(_)) || next.is_empty()
+        {
+            return next;
+        }
+        let walked = Here::walk_read(next.clone(), self.root, &|| {
+            Seen::value(self.value_at(path))
+        });
+        let items = step::child_only(&walked.tree, &SchemaPathSegment::ArrayItem(0));
+        if items.is_empty() {
+            return next;
+        }
+        Entry(node::any(vec![next.0, items.0]))
+    }
+}
+
+/// The value at `path` in a parsed document: a step written as an index
+/// names an item of an array and the key of its digits in an object. An
+/// item of something the document has as one value (an XML element written
+/// once) is that value.
+pub(crate) fn value_at<'v>(document: &'v Value, path: &[SchemaPathSegment]) -> Option<&'v Value> {
+    path.iter()
+        .try_fold(document, |value, segment| match value {
+            Value::Array(items) => items.get(segment.as_index()?),
+            Value::Object(members) => members
+                .get(&*segment.as_key())
+                .or_else(|| (*segment == SchemaPathSegment::ArrayItem(0)).then_some(value)),
+            _ => (*segment == SchemaPathSegment::ArrayItem(0)).then_some(value),
+        })
+}
+
+/// The schema a `$ref` names in `root`: a `#` JSON pointer, its tokens
+/// percent-decoded. (References by `$id` or `$anchor` are rewritten to
+/// pointers when the schema is built, see `ui_refs`.)
+pub(crate) fn ref_target<'a>(reference: &str, root: &'a Value) -> Option<&'a Value> {
+    let pointer = reference.strip_prefix('#')?;
+    root.pointer(pointer)
+        .or_else(|| root.pointer(&crate::editor::ui_refs::percent_decoded(pointer)))
+}
+
+/// Whether the keywords beside a `$ref` are ignored: up to draft-07, which
+/// the root's `$schema` names.
+pub(crate) fn refs_stand_alone(root: &Value) -> bool {
+    root.get("$schema")
+        .and_then(Value::as_str)
+        .is_some_and(|dialect| {
+            ["draft-03", "draft-04", "draft-06", "draft-07"]
+                .iter()
+                .any(|draft| dialect.contains(draft))
+        })
+}
+
+pub(crate) fn type_includes(schema: &Value, expected: &str) -> bool {
+    match schema.get("type") {
+        Some(Value::String(schema_type)) => schema_type == expected,
+        Some(Value::Array(types)) => types.iter().any(|schema_type| schema_type == expected),
+        _ => false,
+    }
+}
+
+/// The schema of item `index` of an array of `schema`: its tuple position
+/// (`prefixItems`, or up to draft-07 an `items` list), else the schema of
+/// the other items (`items`, or after a draft-07 tuple `additionalItems`).
+pub(crate) fn item_schema(schema: &Value, index: usize) -> Option<&Value> {
+    let tuple = |keyword: &str| schema.get(keyword).and_then(Value::as_array);
+    if let Some(positions) = tuple("prefixItems") {
+        return positions
+            .get(index)
+            .or_else(|| schema.get("items").filter(|items| items.is_object()));
+    }
+    if let Some(positions) = tuple("items") {
+        return positions.get(index).or_else(|| {
+            schema
+                .get("additionalItems")
+                .filter(|items| items.is_object())
+        });
+    }
+    schema.get("items").filter(|items| items.is_object())
+}
+
+/// The schemas `schema` gives the key `key` by name: its property and the
+/// patterns matching it.
+pub(crate) fn named_properties<'a>(schema: &'a Value, key: &str) -> Vec<&'a Value> {
+    let property = schema
+        .get("properties")
+        .and_then(|properties| properties.get(key));
+    let patterns = schema
+        .get("patternProperties")
+        .and_then(Value::as_object)
+        .into_iter()
+        .flatten()
+        .filter(|(pattern, _)| crate::editor::completion::pattern_matches(pattern, key))
+        .map(|(_, property)| property);
+    property.into_iter().chain(patterns).collect()
+}
+
+#[cfg(test)]
+mod tests;

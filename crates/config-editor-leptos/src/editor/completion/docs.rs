@@ -40,13 +40,15 @@ pub(crate) fn docs_url(schema: &Value, root: &Value) -> Option<String> {
 
 /// The `x-docs-url` of the value at JSON `pointer` (its property's, or an
 /// item's), so a problem there links to its docs as the hover does.
-/// `repeats_arrays` as in [`schema_at_path`].
+/// `repeats_arrays` as in [`Applies`].
 pub(crate) fn docs_url_at(root: &Value, pointer: &str, repeats_arrays: bool) -> Option<String> {
     let path: Vec<SchemaPathSegment> = crate::editor::language::pointer_segments(pointer)
         .into_iter()
         .map(SchemaPathSegment::from_pointer_segment)
         .collect();
-    schema_at_path(root, &path, repeats_arrays)
+    Applies::blind(root, repeats_arrays)
+        .at(&path)
+        .schemas()
         .into_iter()
         .find_map(|schema| docs_url(schema, root))
 }
@@ -163,83 +165,32 @@ pub(crate) struct DeprecatedKey {
 /// document order.
 pub(crate) fn deprecated_keys(document: &Value, root: &Value, limit: usize) -> Vec<DeprecatedKey> {
     let mut found = Vec::new();
-    find_deprecated(
-        document,
-        &[root],
-        root,
-        &mut String::new(),
-        &mut found,
-        limit,
-        0,
-    );
+    each_value(document, root, true, &mut |visit| {
+        if found.len() >= limit {
+            return Next::Stop;
+        }
+        let Some(SchemaPathSegment::Key(key)) = visit.segment else {
+            return Next::Into;
+        };
+        let branches = visit.here.branches();
+        if branches
+            .iter()
+            .any(|branch| branch.get("deprecated").and_then(Value::as_bool) == Some(true))
+        {
+            found.push(DeprecatedKey {
+                pointer: visit.pointer.to_string(),
+                key: key.clone(),
+                message: branches.iter().find_map(|branch| {
+                    branch
+                        .get("deprecationMessage")
+                        .and_then(Value::as_str)
+                        .map(str::to_string)
+                }),
+            });
+        }
+        Next::Into
+    });
     found
-}
-
-fn find_deprecated(
-    value: &Value,
-    schemas: &[&Value],
-    root: &Value,
-    pointer: &mut String,
-    found: &mut Vec<DeprecatedKey>,
-    limit: usize,
-    depth: usize,
-) {
-    if depth > 64 || schemas.is_empty() {
-        return;
-    }
-    let length = pointer.len();
-    match value {
-        Value::Object(map) => {
-            for (key, child) in map {
-                if found.len() >= limit {
-                    return;
-                }
-                let segment = SchemaPathSegment::Key(key.clone());
-                let child_schemas: Vec<&Value> = schemas
-                    .iter()
-                    .flat_map(|schema| child_schemas(schema, root, &segment))
-                    .collect();
-                pointer.push('/');
-                pointer.push_str(&key.replace('~', "~0").replace('/', "~1"));
-                if child_schemas
-                    .iter()
-                    .any(|schema| is_deprecated(schema, root))
-                {
-                    found.push(DeprecatedKey {
-                        pointer: pointer.clone(),
-                        key: key.clone(),
-                        message: child_schemas
-                            .iter()
-                            .find_map(|schema| deprecation_message(schema, root)),
-                    });
-                }
-                find_deprecated(
-                    child,
-                    &child_schemas,
-                    root,
-                    pointer,
-                    found,
-                    limit,
-                    depth + 1,
-                );
-                pointer.truncate(length);
-            }
-        }
-        Value::Array(items) => {
-            for (index, item) in items.iter().enumerate() {
-                let segment = SchemaPathSegment::ArrayItem(index);
-                let item_schemas: Vec<&Value> = schemas
-                    .iter()
-                    .flat_map(|schema| child_schemas(schema, root, &segment))
-                    .collect();
-                pointer.push('/');
-                pointer.push_str(&index.to_string());
-                find_deprecated(item, &item_schemas, root, pointer, found, limit, depth + 1);
-                pointer.truncate(length);
-            }
-        }
-        _ => {}
-    }
 }
 
 #[cfg(test)]

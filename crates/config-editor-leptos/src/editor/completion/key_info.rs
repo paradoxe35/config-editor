@@ -13,22 +13,40 @@ pub(crate) struct KeyInfo<'a> {
     /// Its type: the one the `oneOf`/`anyOf` options offering it give it
     /// where they describe it, else its schema's.
     pub(crate) type_label: String,
-    /// Whether the object requires it: one of its own branches does, not
-    /// only one of its options (a key one option requires is optional when
-    /// another option is taken).
+    /// Whether the object requires it: a schema certain to apply to it
+    /// does, not one of its options (a key one option requires is optional
+    /// when another option is taken, "at least one of").
     pub(crate) required: bool,
 }
 
-/// What is said of `key` of the object whose schema branches (for its
-/// value, see `branches_for`) are `branches`, `choices` its options;
-/// `None` when no branch names it.
-pub(crate) fn key_info<'a>(
-    key: &str,
-    branches: &[&'a Value],
-    choices: &ChoicesAt<'a>,
-    root: &'a Value,
-) -> Option<KeyInfo<'a>> {
-    let declared: Vec<&'a Value> = branches
+/// What applies to an object, read once for what is said of its keys.
+pub(crate) struct ObjectAt<'a> {
+    /// Every schema applying to it.
+    pub(crate) branches: Vec<&'a Value>,
+    /// Those certain to apply (see [`Here::certain`]).
+    pub(crate) certain: Vec<&'a Value>,
+    /// Its `oneOf`/`anyOf` options.
+    pub(crate) choices: Choices<'a>,
+    pub(crate) root: &'a Value,
+}
+
+impl<'a> ObjectAt<'a> {
+    pub(crate) fn of(here: &Here<'a>) -> Self {
+        Self {
+            branches: here.branches(),
+            certain: here.certain(),
+            choices: here.choices(),
+            root: here.root(),
+        }
+    }
+}
+
+/// What is said of `key` of the object `object`; `None` when no schema
+/// of it names the key.
+pub(crate) fn key_info<'a>(key: &str, object: &ObjectAt<'a>) -> Option<KeyInfo<'a>> {
+    let (choices, root) = (&object.choices, object.root);
+    let declared: Vec<&'a Value> = object
+        .branches
         .iter()
         .filter_map(|branch| branch.get("properties")?.get(key))
         .collect();
@@ -48,9 +66,10 @@ pub(crate) fn key_info<'a>(
     } else {
         type_label_of_all(&typed_by, root, "property")
     };
-    let required = branches
+    let required = object
+        .certain
         .iter()
-        .filter(|branch| choices.of(branch).is_none())
+        .filter(|branch| choices.of_branch(branch).is_none())
         .any(|branch| {
             branch
                 .get("required")

@@ -12,6 +12,7 @@ use leptos::prelude::*;
 use crate::reactive::{Kept, size_observer, window_listener};
 
 mod a11y;
+mod applies;
 mod bridge;
 mod byte_order_mark;
 mod caret_tip;

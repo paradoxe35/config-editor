@@ -197,9 +197,11 @@ fn value_hover(
     let repeats = behavior.repetition() != Repetition::None;
     let parsed = conditional_document(source, bundle, behavior);
     let document = parsed.as_deref().and_then(|parsed| parsed.as_ref().ok());
-    let doc = schema_at_path_in(root, &path, repeats, document)
+    let read = || document;
+    let doc = Applies::new(root, repeats, &read)
+        .at(&path)
+        .branches()
         .into_iter()
-        .flat_map(|schema| resolve_branches(schema, root))
         .find_map(|branch| {
             schema_value_candidates(branch, false)
                 .into_iter()
@@ -270,34 +272,20 @@ fn property_hover(
     let repeats = behavior.repetition() != Repetition::None;
     let parsed = conditional_document(source, bundle, behavior);
     let document = parsed.as_deref().and_then(|parsed| parsed.as_ref().ok());
-    let at = |path: &[SchemaPathSegment]| document.and_then(|document| value_at(document, path));
-    // A key of `oneOf`/`anyOf` options of the object holding it: the
-    // option it is in (or those offering it), and its schema there. What
-    // is said of it is what its suggestion says (see `key_info`).
-    let parents = schema_at_path_in(root, parent, repeats, document);
-    let parent_choices =
-        ChoicesAt::in_object(&parents, root, || object_at(source, parent, behavior));
-    let parent_branches: Vec<&Value> = parents
-        .iter()
-        .flat_map(|schema| branches_for(schema, root, at(parent)))
-        .collect();
-    let in_matched = |schemas| match &property[property.len() - 1] {
-        SchemaPathSegment::Key(name) => {
-            in_matched_option(schemas, name, &parent_branches, &parent_choices)
-        }
-        SchemaPathSegment::ArrayItem(_) => schemas,
-    };
+    let read = || document;
+    let applies = Applies::new(root, repeats, &read);
+    // The object holding the key, with its `oneOf`/`anyOf` options (the
+    // one it is in, or those offering the key): what is said of the key
+    // is what its suggestion says (see `key_info`). A key of an option the
+    // object is not in is not that option's (the step leaves it out).
+    let parent_object = ObjectAt::of(&applies.at_object(parent, &HashSet::new()));
     let owners = if property.len() < path.len() {
-        in_matched(schema_at_path_in(root, property, repeats, document))
+        applies.at(property).schemas()
     } else {
         Vec::new()
     };
-    let schemas = schema_at_path_in(root, path, repeats, document);
-    let schemas = if owners.is_empty() {
-        in_matched(schemas)
-    } else {
-        schemas
-    };
+    let here = applies.at(path);
+    let schemas = here.schemas();
     if schemas.is_empty() {
         return None;
     }
@@ -305,9 +293,11 @@ fn property_hover(
     // The `oneOf`/`anyOf` options of the field's object: an option other
     // than the matched one documents nothing here, and the matched one's
     // title and description are its own row (`choice`), not the field's.
-    let options = ChoicesAt::in_object(&schemas, root, || object_at(source, path, behavior));
-    let not_other_option = |branch: &&Value| !matches!(options.of(branch), Some((_, false)));
-    let branches: Vec<&Value> = branches_of(&documented, root, at(path))
+    let options = here.choices();
+    let not_other_option = |branch: &&Value| !matches!(options.of_branch(branch), Some((_, false)));
+    let instance = Seen::value(applies.value_at(path));
+    let field_branches = here.branches();
+    let branches: Vec<&Value> = walked(&documented, root, instance)
         .into_iter()
         .filter(not_other_option)
         .collect();
@@ -315,9 +305,9 @@ fn property_hover(
     // than once (its property and each pattern matching it), as validation
     // applies them all.
     let named: Vec<&Value> = match path.last() {
-        Some(SchemaPathSegment::Key(name)) if owners.is_empty() => parents
+        Some(SchemaPathSegment::Key(name)) if owners.is_empty() => parent_object
+            .branches
             .iter()
-            .flat_map(|schema| branches_for(schema, root, at(parent)))
             .map(|branch| named_properties(branch, name))
             .find(|named| named.len() > 1)
             .unwrap_or_default(),
@@ -328,7 +318,7 @@ fn property_hover(
         let each = |name: &str| {
             let mut texts: Vec<String> = Vec::new();
             for schema in &named {
-                let own = field_own(&options, &branches_of(&[*schema], root, at(path)));
+                let own = field_own(&options, &walked(&[*schema], root, instance));
                 if let Some(text) = text_of(&own, name).filter(|text| !texts.contains(text)) {
                     texts.push(text);
                 }
@@ -346,8 +336,13 @@ fn property_hover(
             .filter(|&&owner| !schemas.iter().any(|&item| std::ptr::eq(owner, item)))
             .copied()
             .collect();
-        let list = branches_of(&lists, root, at(property));
-        let items = field_own(&options, &branches_of(&schemas, root, at(path)));
+        let list = Here::walk(
+            Entry::any_of(&lists),
+            root,
+            Seen::value(applies.value_at(property)),
+        )
+        .branches();
+        let items = field_own(&options, &field_branches);
         let (title, description) = (text_of(&list, "title"), text_of(&list, "description"));
         let own = |name: &str, list: &Option<String>| {
             text_of(&items, name).filter(|text| Some(text) != list.as_ref())
@@ -362,8 +357,9 @@ fn property_hover(
             (item != ValueDoc::default()).then_some(item),
         )
     };
-    let default = branches_of(&schemas, root, at(path))
-        .into_iter()
+    let default = field_branches
+        .iter()
+        .copied()
         .filter(not_other_option)
         .find_map(|branch| branch.get("default"))
         .map(value_label);
@@ -382,7 +378,7 @@ fn property_hover(
         }
     }
     examples.truncate(5);
-    let info = key_info(&key, &parent_branches, &parent_choices, root);
+    let info = key_info(&key, &parent_object);
     let required = info.as_ref().is_some_and(|info| info.required);
     let type_label = if let Some(list) = owners.first() {
         schema_type_label(list, root, "property")
@@ -395,7 +391,7 @@ fn property_hover(
     };
     let choice = options
         .hover()
-        .or_else(|| parent_choices.key_hover(&key))
+        .or_else(|| parent_object.choices.key_hover(&key))
         // The option's description when it is not the property's own.
         .and_then(|choice| match choice {
             ChoiceHover::Matched(mut doc) => {
@@ -426,52 +422,23 @@ fn property_hover(
     })
 }
 
-/// Of the schemas of a key `name` more than one `oneOf`/`anyOf` option
-/// of its object (`branches`, `choices`) names, the matched option's (all
-/// of them when that leaves none): it documents the key, as its
-/// suggestion does.
-fn in_matched_option<'a>(
-    schemas: Vec<&'a Value>,
-    name: &str,
-    branches: &[&Value],
-    choices: &ChoicesAt<'_>,
-) -> Vec<&'a Value> {
-    let others: Vec<&Value> = branches
-        .iter()
-        .filter(|branch| matches!(choices.of(branch), Some((_, false))))
-        .flat_map(|branch| named_properties(branch, name))
-        .collect();
-    let kept: Vec<&'a Value> = schemas
-        .iter()
-        .filter(|schema| !others.iter().any(|other| std::ptr::eq(*other, **schema)))
-        .copied()
-        .collect();
-    if kept.is_empty() { schemas } else { kept }
+/// Every schema applying to a value of one of `schemas`, the value `seen`.
+fn walked<'a>(schemas: &[&'a Value], root: &'a Value, seen: Seen<'_>) -> Vec<&'a Value> {
+    Here::walk(Entry::any_of(schemas), root, seen).branches()
 }
 
-/// The branches outside every option of `options`: the field's own.
-fn field_own<'a>(options: &ChoicesAt<'_>, branches: &[&'a Value]) -> Vec<&'a Value> {
+/// The schemas of `branches` outside every option of `options`: the
+/// field's own.
+fn field_own<'a>(options: &Choices<'_>, branches: &[&'a Value]) -> Vec<&'a Value> {
     branches
         .iter()
-        .filter(|branch| options.of(branch).is_none())
+        .filter(|branch| options.of_branch(branch).is_none())
         .copied()
-        .collect()
-}
-
-/// The branches of `schemas` for `instance` (see [`branches_for`]).
-fn branches_of<'a>(
-    schemas: &[&'a Value],
-    root: &'a Value,
-    instance: Option<&Value>,
-) -> Vec<&'a Value> {
-    schemas
-        .iter()
-        .flat_map(|schema| branches_for(schema, root, instance))
         .collect()
 }
 
 /// The parsed document, when the schema has conditionals its values
-/// decide (see [`branches_for`]); not read otherwise.
+/// decide (see `applies`); not read otherwise.
 fn conditional_document(
     source: &str,
     bundle: &SchemaBundle,

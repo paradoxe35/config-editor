@@ -2,7 +2,7 @@
 //! (`8` for "an integer ≥ 1 or `auto`"), saved as read where the host's
 //! type of them is one the schema does not allow.
 
-use super::super::completion::at_path;
+use super::super::applies::Applies;
 use super::super::language::{SchemaPathSegment, pointer_segments};
 use serde_json::Value;
 
@@ -14,8 +14,15 @@ pub(super) fn keep(value: &mut Value, retyped: Vec<(String, Value)>, schema: &Va
         let path = path_in(value, &pointer);
         // Every subschema at the path: the base property, the `allOf` and
         // `then` beside it, one of the options.
-        let at = at_path(schema, &path, value);
-        let takes = |candidate: &Value| at.decides(candidate, schema);
+        let at = {
+            let document = &*value;
+            let whole = || Some(document);
+            Applies::new(schema, false, &whole)
+                .at(&path)
+                .entry()
+                .clone()
+        };
+        let takes = |candidate: &Value| at.accepts(candidate, schema);
         let Some(typed) = value.pointer(&pointer) else {
             continue;
         };

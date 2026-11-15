@@ -108,7 +108,7 @@ fn sets_of<'a>(branch: &'a Value, root: &'a Value) -> Vec<Vec<&'a str>> {
     sets
 }
 
-/// Whether one of `branches` (an object's, see `branches_for`) keeps
+/// Whether one of `branches` (the schemas applying to an object) keeps
 /// `key` apart from the `written` keys: some set holding it has every
 /// other key written.
 pub(crate) fn excluded_by_not(

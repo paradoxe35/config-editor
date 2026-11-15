@@ -3,10 +3,7 @@
 
 mod accept;
 mod around;
-mod at_path;
 mod candidates;
-mod choices;
-mod conditions;
 mod conform;
 mod docs;
 mod elsewhere;
@@ -31,10 +28,7 @@ mod window;
 
 pub(crate) use accept::*;
 pub(crate) use around::document_around;
-pub(crate) use at_path::{AtPath, at_path};
 pub(crate) use candidates::*;
-pub(crate) use choices::*;
-pub(crate) use conditions::{decides, mentions_conditionals};
 use conform::conform;
 pub(crate) use conform::conform_arrays;
 pub(crate) use docs::*;
@@ -48,7 +42,7 @@ pub(crate) use headless::{schema_hover, schema_suggestions};
 pub(crate) use hover::*;
 use kept::filled_past_caret;
 pub use kept::{kept_const, kept_default, language_keeps};
-use key_info::{key_info, names_only};
+use key_info::{ObjectAt, key_info, names_only};
 use list_items::{root_values, separate_from_next_item};
 pub(crate) use live::{CompletionState, Sources, SuggestionPlace};
 pub(crate) use matching::*;
@@ -63,6 +57,10 @@ pub(crate) use window::*;
 pub use schema::{array_branch, object_branch, placeholder, schema_const, schema_default};
 pub use stops::schema_example;
 
+pub(crate) use super::applies::{
+    Applies, ChoiceHover, Choices, Entry, Here, Next, Seen, decides, each_value,
+    mentions_conditionals, named_properties, ref_target, type_includes,
+};
 use super::commands::indent_unit;
 use super::diagnostics::SchemaBundle;
 use super::keyboard::{replace_selection, utf16_to_byte_index};
@@ -73,6 +71,7 @@ use super::metrics::read_editor_metrics;
 use super::positioning::{POPUP_MARGIN, PopupFrame};
 use super::state::EditorState;
 use super::typing::Closer;
+pub(crate) use patterns::{pattern_decides, pattern_matches};
 use serde_json::Value;
 use std::collections::HashSet;
 use wasm_bindgen::JsCast;

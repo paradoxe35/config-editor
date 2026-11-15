@@ -1,5 +1,6 @@
-//! Walking a JSON Schema: types, defaults, branches and the schema at a
-//! document path (reading values to the shapes it expects is `conform`).
+//! What one schema says of a value, read from the applicability model
+//! (`applies`): types, defaults, the object and array branches, the values
+//! it suggests (reading values to the shapes it expects is `conform`).
 
 use super::*;
 
@@ -78,7 +79,7 @@ pub(super) fn type_label_of_all(schemas: &[&Value], root: &Value, fallback: &str
     }
 }
 
-pub(super) fn json_type_name(value: &Value) -> &'static str {
+pub(crate) fn json_type_name(value: &Value) -> &'static str {
     match value {
         Value::Null => "null",
         Value::Bool(_) => "boolean",
@@ -87,14 +88,6 @@ pub(super) fn json_type_name(value: &Value) -> &'static str {
         Value::String(_) => "string",
         Value::Array(_) => "array",
         Value::Object(_) => "object",
-    }
-}
-
-pub(super) fn type_includes(schema: &Value, expected: &str) -> bool {
-    match schema.get("type") {
-        Some(Value::String(schema_type)) => schema_type == expected,
-        Some(Value::Array(types)) => types.iter().any(|schema_type| schema_type == expected),
-        _ => false,
     }
 }
 
@@ -169,424 +162,42 @@ pub fn schema_const<'a>(schema: &'a Value, root: &'a Value) -> Option<&'a Value>
 
 /// The branch of a property schema that describes an object, if any.
 pub fn object_branch<'a>(schema: &'a Value, root: &'a Value) -> Option<&'a Value> {
-    resolve_branches(schema, root).into_iter().find(|branch| {
-        branch.get("properties").is_some()
-            || branch.get("patternProperties").is_some()
-            || branch.get("additionalProperties").is_some()
-            || branch.get("unevaluatedProperties").is_some()
-            || type_includes(branch, "object")
-    })
+    resolve_branches(schema, root)
+        .into_iter()
+        .find(|branch| describes_object(branch))
 }
 
 /// The branch of a property schema that describes an array, if any.
 pub fn array_branch<'a>(schema: &'a Value, root: &'a Value) -> Option<&'a Value> {
-    resolve_branches(schema, root).into_iter().find(|branch| {
-        branch.get("items").is_some()
-            || branch.get("prefixItems").is_some()
-            || type_includes(branch, "array")
-    })
+    resolve_branches(schema, root)
+        .into_iter()
+        .find(|branch| describes_array(branch))
+}
+
+/// Whether one schema (a branch) describes an object.
+pub(super) fn describes_object(branch: &Value) -> bool {
+    branch.get("properties").is_some()
+        || branch.get("patternProperties").is_some()
+        || branch.get("additionalProperties").is_some()
+        || branch.get("unevaluatedProperties").is_some()
+        || type_includes(branch, "object")
+}
+
+/// Whether one schema (a branch) describes an array.
+pub(super) fn describes_array(branch: &Value) -> bool {
+    branch.get("items").is_some()
+        || branch.get("prefixItems").is_some()
+        || type_includes(branch, "array")
 }
 
 /// The branches of `schema`: itself and every schema applying to the same
-/// value, through `$ref`, `anyOf`/`oneOf`/`allOf`, `if`/`then`/`else` and
-/// `dependentSchemas`, the value unknown (both of a conditional's
-/// branches, every dependent schema; see [`branches_for`]).
+/// value (through `$ref`, `anyOf`/`oneOf`/`allOf`, `if`/`then`/`else` and
+/// `dependentSchemas`), the value unknown: what the applicability model
+/// ([`Here::of`]) says of a value of `schema` alone.
 pub(crate) fn resolve_branches<'a>(schema: &'a Value, root: &'a Value) -> Vec<&'a Value> {
-    branches_for(schema, root, None)
+    Here::of(schema, root).branches()
 }
 
-/// [`resolve_branches`] for `instance`, the value the schema describes
-/// when the document gives it: a conditional takes the branch its `if`
-/// decides for it (both while the value does not decide), and a dependent
-/// schema applies when the object has its key. Each schema is walked once,
-/// so a reference cycle ends and a chain of references has no length
-/// limit. Up to draft-07 a `$ref` stands alone: the keywords beside it are
-/// ignored, as the validator ignores them.
-pub(crate) fn branches_for<'a>(
-    schema: &'a Value,
-    root: &'a Value,
-    instance: Option<&Value>,
-) -> Vec<&'a Value> {
-    walk_branches(schema, root, instance, true)
-}
-
-/// [`branches_for`] without the branches a conditional only may take: a
-/// `then`/`else` only where its `if` decides for `instance`. What these
-/// say holds for the value whatever is written next (a key one declares
-/// `false` cannot be written).
-pub(crate) fn certain_branches<'a>(
-    schema: &'a Value,
-    root: &'a Value,
-    instance: Option<&Value>,
-) -> Vec<&'a Value> {
-    walk_branches(schema, root, instance, false)
-}
-
-fn walk_branches<'a>(
-    schema: &'a Value,
-    root: &'a Value,
-    instance: Option<&Value>,
-    undecided: bool,
-) -> Vec<&'a Value> {
-    enum Step<'a> {
-        Visit(&'a Value),
-        Emit(&'a Value),
-    }
-    crate::editor::work_count::note(crate::editor::work_count::Work::BranchWalk);
-    let ref_alone = refs_stand_alone(root);
-    let mut seen: HashSet<*const Value> = HashSet::new();
-    let mut branches = Vec::new();
-    let mut steps = vec![Step::Visit(schema)];
-    while let Some(step) = steps.pop() {
-        let schema = match step {
-            Step::Emit(schema) => {
-                branches.push(schema);
-                continue;
-            }
-            Step::Visit(schema) => schema,
-        };
-        if !seen.insert(std::ptr::from_ref(schema)) {
-            continue;
-        }
-        let target = schema
-            .get("$ref")
-            .and_then(Value::as_str)
-            .and_then(|reference| ref_target(reference, root));
-        // Pushed last first: the walk takes the target's branches, the
-        // schema, then its applicators in order.
-        let mut next: Vec<Step<'a>> = Vec::new();
-        if let Some(target) = target {
-            next.push(Step::Visit(target));
-        }
-        if !(ref_alone && schema.get("$ref").is_some()) {
-            next.push(Step::Emit(schema));
-            for keyword in ["anyOf", "oneOf", "allOf"] {
-                for option in schema
-                    .get(keyword)
-                    .and_then(Value::as_array)
-                    .into_iter()
-                    .flatten()
-                {
-                    next.push(Step::Visit(option));
-                }
-            }
-            next.extend(conditional_branches(schema, root, instance, undecided).map(Step::Visit));
-            next.extend(dependent_schemas(schema, instance).map(Step::Visit));
-        }
-        steps.extend(next.into_iter().rev());
-    }
-    branches
-}
-
-/// The schema a `$ref` names in `root`: a `#` JSON pointer, its tokens
-/// percent-decoded. (References by `$id` or `$anchor` are rewritten to
-/// pointers when the schema is built, see `ui_refs`.)
-pub(crate) fn ref_target<'a>(reference: &str, root: &'a Value) -> Option<&'a Value> {
-    let pointer = reference.strip_prefix('#')?;
-    root.pointer(pointer)
-        .or_else(|| root.pointer(&super::super::ui_refs::percent_decoded(pointer)))
-}
-
-/// Whether the keywords beside a `$ref` are ignored: up to draft-07, which
-/// the root's `$schema` names.
-pub(super) fn refs_stand_alone(root: &Value) -> bool {
-    root.get("$schema")
-        .and_then(Value::as_str)
-        .is_some_and(|dialect| {
-            ["draft-03", "draft-04", "draft-06", "draft-07"]
-                .iter()
-                .any(|draft| dialect.contains(draft))
-        })
-}
-
-/// The `then`/`else` of `schema`'s `if` that apply to `instance`: the one
-/// the `if` decides, or (`undecided`) both while it does not.
-fn conditional_branches<'a>(
-    schema: &'a Value,
-    root: &'a Value,
-    instance: Option<&Value>,
-    undecided: bool,
-) -> impl Iterator<Item = &'a Value> {
-    let condition = schema.get("if");
-    let decided = condition.and_then(|condition| {
-        instance.and_then(|instance| super::conditions::decides(condition, instance, root))
-    });
-    let takes = |branch: bool| match decided {
-        Some(decided) => decided == branch,
-        None => undecided,
-    };
-    let then = schema
-        .get("then")
-        .filter(|_| condition.is_some() && takes(true));
-    let otherwise = schema
-        .get("else")
-        .filter(|_| condition.is_some() && takes(false));
-    then.into_iter().chain(otherwise)
-}
-
-/// The dependent schemas of `schema` (`dependentSchemas`, and draft-07's
-/// `dependencies` given as schemas) that apply to `instance`: those whose
-/// key the object has, or all of them while the value is unknown.
-fn dependent_schemas<'a>(
-    schema: &'a Value,
-    instance: Option<&Value>,
-) -> impl Iterator<Item = &'a Value> {
-    ["dependentSchemas", "dependencies"]
-        .into_iter()
-        .filter_map(|keyword| schema.get(keyword).and_then(Value::as_object))
-        .flatten()
-        .filter(|(_, dependent)| dependent.is_object() || dependent.is_boolean())
-        .filter(move |(key, _)| match instance {
-            None => true,
-            Some(Value::Object(members)) => members.contains_key(key.as_str()),
-            Some(_) => false,
-        })
-        .map(|(_, dependent)| dependent)
-}
-
-/// The schemas `path` leads to from the root. With `repeats_arrays` a key
-/// naming an array is one of its items as well (each XML `<dns>` element is
-/// one entry of `dns`).
-pub(crate) fn schema_at_path<'a>(
-    root: &'a Value,
-    path: &[SchemaPathSegment],
-    repeats_arrays: bool,
-) -> Vec<&'a Value> {
-    schema_at_path_in(root, path, repeats_arrays, None)
-}
-
-/// [`schema_at_path`] through `document`, the parsed document when there is
-/// one: each step's conditionals are decided by the value there (see
-/// [`branches_for`]), and a key of an object in one of its `oneOf`/`anyOf`
-/// options is that option's alone (see [`chosen_children`]).
-pub(crate) fn schema_at_path_in<'a>(
-    root: &'a Value,
-    path: &[SchemaPathSegment],
-    repeats_arrays: bool,
-    document: Option<&Value>,
-) -> Vec<&'a Value> {
-    schema_at_path_read(root, path, repeats_arrays, &|| document)
-}
-
-/// [`schema_at_path_in`] with the document read (`document`) only at a
-/// step it decides: a conditional, or a key of an object in `oneOf`/`anyOf`
-/// options. Reading it is a parse of the whole text, and most steps of most
-/// paths need none.
-pub(crate) fn schema_at_path_read<'a, 'd>(
-    root: &'a Value,
-    path: &[SchemaPathSegment],
-    repeats_arrays: bool,
-    document: &dyn Fn() -> Option<&'d Value>,
-) -> Vec<&'a Value> {
-    let mut schemas = vec![root];
-    for (depth, segment) in path.iter().enumerate() {
-        let instance = || document().and_then(|document| value_at(document, &path[..depth]));
-        let mut next: Vec<&Value> = schemas
-            .iter()
-            .flat_map(|schema| chosen_children(schema, root, segment, &instance))
-            .collect();
-        // An item of something the schema has as one value (a block or an
-        // element written twice): each copy is that value.
-        if next.is_empty() && matches!(segment, SchemaPathSegment::ArrayItem(_)) {
-            next = schemas.clone();
-        }
-        if repeats_arrays && matches!(segment, SchemaPathSegment::Key(_)) {
-            let instance = || document().and_then(|document| value_at(document, &path[..=depth]));
-            let items: Vec<&Value> = next
-                .iter()
-                .flat_map(|schema| {
-                    children_of(
-                        &branches_read(schema, root, &instance),
-                        &SchemaPathSegment::ArrayItem(0),
-                    )
-                })
-                .collect();
-            next.extend(items);
-        }
-        schemas = distinct(next);
-        if schemas.is_empty() {
-            break;
-        }
-    }
-    schemas
-}
-
-/// `schemas` with each one kept once, in order. The options of a
-/// recursive `anyOf` sharing a key (`c: {$ref: node}` in each) lead to the
-/// same schemas again at every level: kept twice, each level would double
-/// the walk below it.
-fn distinct(mut schemas: Vec<&Value>) -> Vec<&Value> {
-    let mut seen: HashSet<*const Value> = HashSet::new();
-    schemas.retain(|schema| seen.insert(std::ptr::from_ref(*schema)));
-    schemas
-}
-
-/// [`branches_for`] with `instance` read only when a conditional among
-/// the branches is there for it to decide: without one, the branches are
-/// the same whatever the value.
-pub(crate) fn branches_read<'a, 'd>(
-    schema: &'a Value,
-    root: &'a Value,
-    instance: &dyn Fn() -> Option<&'d Value>,
-) -> Vec<&'a Value> {
-    let branches = branches_for(schema, root, None);
-    if !branches.iter().any(|branch| is_conditional(branch)) {
-        return branches;
-    }
-    branches_for(schema, root, instance())
-}
-
-/// Whether the value decides which of `schema`'s own applicators apply:
-/// an `if`, or a dependent schema.
-fn is_conditional(schema: &Value) -> bool {
-    schema.get("if").is_some()
-        || ["dependentSchemas", "dependencies"].iter().any(|keyword| {
-            schema
-                .get(*keyword)
-                .and_then(Value::as_object)
-                .is_some_and(|dependents| {
-                    dependents
-                        .values()
-                        .any(|dependent| dependent.is_object() || dependent.is_boolean())
-                })
-        })
-}
-
-/// [`child_schemas_in`], where `instance` is an object in one of the
-/// `oneOf`/`anyOf` options of `schema` ([`ChoicesAt::in_read_object`]):
-/// the key's schemas in the other options are left out, so a nested
-/// object offers the keys of the matched option's object only (`kind: b`
-/// → `sub:` offers `sb`, not `sa`). The value is read only where a
-/// conditional or such options are there to decide.
-fn chosen_children<'a, 'd>(
-    schema: &'a Value,
-    root: &'a Value,
-    segment: &SchemaPathSegment,
-    instance: &dyn Fn() -> Option<&'d Value>,
-) -> Vec<&'a Value> {
-    let branches = branches_read(schema, root, instance);
-    if !matches!(segment, SchemaPathSegment::Key(_)) {
-        return children_of(&branches, segment);
-    }
-    let choices = ChoicesAt::in_read_object(&[schema], root, || {
-        instance().and_then(Value::as_object).cloned()
-    });
-    if choices.matched.is_none() {
-        return children_of(&branches, segment);
-    }
-    let chosen: Vec<&Value> = branches
-        .into_iter()
-        .filter(|branch| !matches!(choices.of(branch), Some((_, false))))
-        .collect();
-    children_of(&chosen, segment)
-}
-
-/// The schemas of one child (a key or an array item) of a value of `schema`.
-pub(crate) fn child_schemas<'a>(
-    schema: &'a Value,
-    root: &'a Value,
-    segment: &SchemaPathSegment,
-) -> Vec<&'a Value> {
-    child_schemas_in(schema, root, segment, None)
-}
-
-/// [`child_schemas`] of `instance`, the value of `schema` when known.
-pub(crate) fn child_schemas_in<'a>(
-    schema: &'a Value,
-    root: &'a Value,
-    segment: &SchemaPathSegment,
-    instance: Option<&Value>,
-) -> Vec<&'a Value> {
-    children_of(&branches_for(schema, root, instance), segment)
-}
-
-/// The schemas of one child (a key or an array item) of a value whose
-/// schema's branches are `branches` (see [`branches_for`]): a walk taking
-/// every child of one value resolves its branches once.
-pub(super) fn children_of<'a>(
-    branches: &[&'a Value],
-    segment: &SchemaPathSegment,
-) -> Vec<&'a Value> {
-    let mut next = Vec::new();
-    for branch in branches {
-        let named = named_properties(branch, &segment.as_key());
-        let item = segment
-            .as_index()
-            .and_then(|index| item_schema(branch, index));
-        match segment {
-            // An index names an item of an array, and in an object the key
-            // of its digits when the object names that key.
-            SchemaPathSegment::ArrayItem(_) => match item {
-                Some(item) => next.push(item),
-                None => next.extend(named),
-            },
-            SchemaPathSegment::Key(_) if !named.is_empty() => next.extend(named),
-            // A key written as an index (`FieldPath::key("1")`) reads as one
-            // in an array.
-            SchemaPathSegment::Key(_) => match item {
-                Some(item) => next.push(item),
-                None => next.extend(
-                    branch
-                        .get("additionalProperties")
-                        .filter(|additional| additional.is_object()),
-                ),
-            },
-        }
-    }
-    // What no branch evaluates is the `unevaluatedProperties` (or
-    // `unevaluatedItems`) schema's.
-    if next.is_empty() {
-        let keyword = match segment {
-            SchemaPathSegment::Key(_) => "unevaluatedProperties",
-            SchemaPathSegment::ArrayItem(_) => "unevaluatedItems",
-        };
-        next.extend(
-            branches
-                .iter()
-                .filter_map(|branch| branch.get(keyword))
-                .filter(|unevaluated| unevaluated.is_object()),
-        );
-    }
-    next
-}
-
-/// The schema of item `index` of an array of `branch`: its tuple position
-/// (`prefixItems`, or up to draft-07 an `items` list), else the schema of
-/// the other items (`items`, or after a draft-07 tuple `additionalItems`).
-pub(crate) fn item_schema(branch: &Value, index: usize) -> Option<&Value> {
-    let tuple = |keyword: &str| branch.get(keyword).and_then(Value::as_array);
-    if let Some(positions) = tuple("prefixItems") {
-        return positions
-            .get(index)
-            .or_else(|| branch.get("items").filter(|items| items.is_object()));
-    }
-    if let Some(positions) = tuple("items") {
-        return positions.get(index).or_else(|| {
-            branch
-                .get("additionalItems")
-                .filter(|items| items.is_object())
-        });
-    }
-    branch.get("items").filter(|items| items.is_object())
-}
-
-/// The schemas `branch` gives the key `key` by name: its property and the
-/// patterns matching it.
-pub(crate) fn named_properties<'a>(branch: &'a Value, key: &str) -> Vec<&'a Value> {
-    let property = branch
-        .get("properties")
-        .and_then(|properties| properties.get(key));
-    let patterns = branch
-        .get("patternProperties")
-        .and_then(Value::as_object)
-        .into_iter()
-        .flatten()
-        .filter(|(pattern, _)| patterns::pattern_matches(pattern, key))
-        .map(|(_, property)| property);
-    property.into_iter().chain(patterns).collect()
-}
-
-/// Whether one resolved branch allows `value`'s kind as it is.
 pub(super) fn accepts(branch: &Value, value: &Value) -> bool {
     match value {
         Value::Object(_) => {
@@ -694,29 +305,5 @@ mod label_tests {
             schema_type_label(&listed, &root, "property"),
             "integer | string"
         );
-    }
-}
-
-#[cfg(test)]
-mod pattern_timing {
-    use super::*;
-
-    #[test]
-    #[ignore = "timing, run by hand"]
-    fn pattern_lookup_timing() {
-        let schema = serde_json::json!({
-            "patternProperties": {
-                "^[a-z][a-z0-9_]*$": {"type": "string"},
-                "^x-[A-Za-z0-9-]+$": {"type": "string"},
-                "^[A-Z_]{2,}$": {"type": "integer"}
-            }
-        });
-        let segment = SchemaPathSegment::Key("listen_port".to_string());
-        let start = std::time::Instant::now();
-        let mut found = 0;
-        for _ in 0..10_000 {
-            found += child_schemas(&schema, &schema, &segment).len();
-        }
-        eprintln!("10000 lookups: {:?} ({found})", start.elapsed());
     }
 }

@@ -14,7 +14,7 @@ use std::collections::HashSet;
 use jsonschema::error::{ValidationError, ValidationErrorKind};
 use serde_json::Value;
 
-use super::super::completion::{branches_for, item_schema, named_properties, schema_at_path_in};
+use super::super::applies::{Applies, item_schema, named_properties};
 use super::super::language::SchemaPathSegment;
 
 pub(super) struct Unevaluated<'a> {
@@ -65,15 +65,10 @@ impl<'a> Unevaluated<'a> {
     fn branches(&self, path: &str) -> (Vec<&'a Value>, Option<&'a Value>) {
         let segments = SchemaPathSegment::from_pointer(path);
         let instance = self.document.pointer(path);
-        let branches = schema_at_path_in(
-            self.root,
-            &segments,
-            self.repeats_arrays,
-            Some(self.document),
-        )
-        .into_iter()
-        .flat_map(|schema| branches_for(schema, self.root, instance))
-        .collect();
+        let document = || Some(self.document);
+        let branches = Applies::new(self.root, self.repeats_arrays, &document)
+            .at(&segments)
+            .branches();
         (branches, instance)
     }
 

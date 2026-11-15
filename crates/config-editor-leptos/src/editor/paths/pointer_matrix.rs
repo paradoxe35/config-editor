@@ -224,7 +224,7 @@ fn schema_lookups_resolve_index_like_keys_and_indices() {
 
 #[test]
 fn values_resolve_index_like_keys_and_indices() {
-    use super::super::completion::value_at;
+    use super::super::applies::value_at;
     let document = json!({"m": {"1": "one", "01": "zero-one"}, "list": ["v0", "v1"]});
     let at = |pointer: &str| value_at(&document, FieldPath::from(pointer).segments()).cloned();
     let cases = [
