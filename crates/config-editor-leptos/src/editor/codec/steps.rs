@@ -38,6 +38,75 @@ pub(in super::super) fn steps(old: &Value, new: &Value) -> Vec<Value> {
     if steps.len() < 2 { Vec::new() } else { steps }
 }
 
+/// `old` with the keys renamed that the save's links tell were renamed in
+/// `new`, each holding what it held; `None` when they tell none.
+pub(in super::super) fn renamed_by_links(old: &Value, new: &Value) -> Option<Value> {
+    let sources = super::super::item_sources::told_to_save()?;
+    let renamed = with_told_renames(old, new, "", &sources);
+    (renamed != *old).then_some(renamed)
+}
+
+/// `current` (at `pointer` of the save) with each key renamed that the
+/// save's links tell was (a key `target` gains whose source is a key of
+/// this map it loses, in the host's last text), holding the value it held,
+/// in its place.
+fn with_told_renames(
+    current: &Value,
+    target: &Value,
+    pointer: &str,
+    sources: &ItemSources,
+) -> Value {
+    match (current, target) {
+        (Value::Object(left), Value::Object(right)) => {
+            // Each lost key's new name.
+            let mut new_names: HashMap<&String, &String> = HashMap::new();
+            for key in right.keys().filter(|key| !left.contains_key(*key)) {
+                let to = format!("{pointer}/{}", super::escape(key));
+                let Some(super::super::item_sources::ItemSource::Previous(from)) =
+                    sources.items.get(&to)
+                else {
+                    continue;
+                };
+                let Some((parent, old)) = from.rsplit_once('/') else {
+                    continue;
+                };
+                if parent != pointer {
+                    continue;
+                }
+                if let Some(old) = left
+                    .keys()
+                    .find(|lost| !right.contains_key(*lost) && super::escape(lost) == old)
+                {
+                    new_names.entry(old).or_insert(key);
+                }
+            }
+            Value::Object(
+                left.iter()
+                    .map(|(key, value)| {
+                        let name = new_names.get(key).copied().unwrap_or(key);
+                        let child = format!("{pointer}/{}", super::escape(name));
+                        let value = match right.get(name) {
+                            Some(wanted) => with_told_renames(value, wanted, &child, sources),
+                            None => value.clone(),
+                        };
+                        (name.clone(), value)
+                    })
+                    .collect(),
+            )
+        }
+        (Value::Array(left), Value::Array(right)) if left.len() == right.len() => Value::Array(
+            left.iter()
+                .zip(right)
+                .enumerate()
+                .map(|(index, (item, wanted))| {
+                    with_told_renames(item, wanted, &format!("{pointer}/{index}"), sources)
+                })
+                .collect(),
+        ),
+        _ => current.clone(),
+    }
+}
+
 /// `old` with every scalar `new` changes where the shape stays (same keys,
 /// same list lengths) set to `new`'s.
 fn with_scalar_changes(old: &Value, new: &Value) -> Value {

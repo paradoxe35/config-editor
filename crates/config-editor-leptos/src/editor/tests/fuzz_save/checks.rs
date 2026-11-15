@@ -26,6 +26,9 @@ pub(super) enum Broken {
     Comment,
     /// The save waits with no problem shown.
     SilentWait,
+    /// A view back to a text shown or saved before saves another host
+    /// text than that one stood for.
+    NotRestored,
     /// The editor panicked.
     Panic,
 }
@@ -100,8 +103,9 @@ pub(super) struct Start {
     shown: String,
     /// The views' texts at each save since: what the user wrote.
     written: std::cell::RefCell<String>,
-    /// The items a save so far did not leave alone.
-    gone: std::cell::RefCell<std::collections::HashSet<String>>,
+    /// Each view text shown or saved in sync, with its language and the
+    /// host text it stands for: a view back to one saves that text.
+    synced: std::cell::RefCell<Vec<(Language, String, String)>>,
 }
 
 impl Start {
@@ -121,7 +125,7 @@ impl Start {
             shown_comments: comment_bodies(view, view_text),
             shown: view_text.to_string(),
             written: Default::default(),
-            gone: Default::default(),
+            synced: std::cell::RefCell::new(vec![(view, view_text.to_string(), text.to_string())]),
         })
     }
 }
@@ -143,7 +147,13 @@ impl Start {
     }
 
     /// A switch shows the comments `view_text` writes.
-    pub(super) fn seen(&mut self, view: Language, view_text: &str) {
+    /// `host_text`: the host's text the view stands for, when in sync.
+    pub(super) fn seen(&mut self, view: Language, view_text: &str, host_text: Option<&str>) {
+        if let Some(host_text) = host_text {
+            self.synced
+                .borrow_mut()
+                .push((view, view_text.to_string(), host_text.to_string()));
+        }
         self.shown_comments = comment_bodies(view, view_text);
         self.shown.push_str(view_text);
     }
@@ -514,6 +524,32 @@ fn check_save(state: EditorState, start: &Start, held: &HostCopy) -> Result<(), 
         WRITTEN.fetch_add(1, Ordering::Relaxed);
     }
     let saved = held.lock().unwrap().clone();
+    // GetPut: a view back to a text it showed or saved (an undo) saves
+    // the host text that text stood for, exactly.
+    if view != host {
+        let stood_for = start
+            .synced
+            .borrow()
+            .iter()
+            .rev()
+            .find(|(language, text, _)| *language == view && *text == view_text)
+            .map(|(_, _, host_text)| host_text.clone());
+        if let Some(stood_for) = stood_for
+            && stood_for != saved
+        {
+            let mut failure = Failure::new(
+                Broken::NotRestored,
+                "",
+                "the view is back to a text it had, the host is not",
+            );
+            failure.now = stood_for;
+            return Err(failure);
+        }
+        start
+            .synced
+            .borrow_mut()
+            .push((view, view_text.clone(), saved.clone()));
+    }
     let Ok(now) = host.parse(&saved) else {
         // Typed in the host's language: the user's own text; or the empty
         // document, shown empty.
@@ -533,10 +569,16 @@ fn check_save(state: EditorState, start: &Start, held: &HostCopy) -> Result<(), 
     };
     if view != host {
         let bridge = Bridge::new(host, view, None).expect("two languages");
-        let shown = bridge
-            .to_edit(&saved)
-            .ok()
-            .and_then(|conversion| view.parse(&conversion.text).ok());
+        // An empty host is shown as an empty view: it holds what the
+        // host reads it as (a view emptied to `{}` saves an empty host).
+        let shown = if saved.trim().is_empty() && !view_text.trim().is_empty() {
+            Some(now.clone())
+        } else {
+            bridge
+                .to_edit(&saved)
+                .ok()
+                .and_then(|conversion| view.parse(&conversion.text).ok())
+        };
         let meant = view.parse(&view_text).ok();
         // XML writes a list of one as its item.
         let xml = host.label() == "XML" || view.label() == "XML";
@@ -625,12 +667,23 @@ fn check_forms(
         }
         // Moved or copied: from where the same key held the same value.
         let name = named(&pointer);
-        let sources: Vec<&String> = pointers(&start.value)
+        let candidates: Vec<String> = pointers(&start.value)
             .into_iter()
             .filter(|(other, held)| *held == value && named(other) == name)
-            .filter_map(|(other, _)| before.get(&other))
+            .map(|(other, _)| other)
             .collect();
-        if !sources.is_empty()
+        // A source with no text of its own (a key a YAML merge brings in)
+        // has no form to keep: P3 writes it in the host's default form,
+        // which the read back checks.
+        let textless = candidates
+            .iter()
+            .any(|other| !before.contains_key(other) && !is_empty_container(value));
+        let sources: Vec<&String> = candidates
+            .iter()
+            .filter_map(|other| before.get(other))
+            .collect();
+        if !textless
+            && !sources.is_empty()
             && !sources.contains(&form)
             && !sources.iter().any(|was| changed_anchor(was))
         {
@@ -657,20 +710,13 @@ fn check_comments(
     let kept = comment_bodies(start.host, saved);
     let shown = comment_bodies(view, view_text);
     for (words, owner) in &start.comments {
-        // An item a save took away (removed, renamed, its line edited) is
-        // no longer left alone: an undo or paste brings the item back,
-        // not the comment its edit dropped.
-        let mut gone = start.gone.borrow_mut();
-        for pointer in owner {
-            if !left_alone(&start.value, now, pointer) {
-                gone.insert(pointer.clone());
-            }
-        }
-        let left_alone = !owner.is_empty() && owner.iter().all(|pointer| !gone.contains(pointer));
-        drop(gone);
         if kept.contains(words) {
             continue;
         }
+        let left_alone = !owner.is_empty()
+            && owner
+                .iter()
+                .all(|pointer| left_alone(&start.value, now, pointer));
         let first_shown = start.shown_comments.contains(words);
         let still_shown = shown.contains(words);
         // Deleted from a view that showed it: the user's own edit.
@@ -685,4 +731,11 @@ fn check_comments(
         }
     }
     Ok(())
+}
+
+/// Whether `value` is a map or list holding nothing (which `forms` leaves
+/// out).
+fn is_empty_container(value: &Value) -> bool {
+    value.as_object().is_some_and(|map| map.is_empty())
+        || value.as_array().is_some_and(|items| items.is_empty())
 }

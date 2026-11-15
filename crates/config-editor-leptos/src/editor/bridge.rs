@@ -276,6 +276,13 @@ impl Bridge {
             && seen
                 .as_ref()
                 .is_some_and(|seen| read_back::reorders(seen, &edited));
+        // Which host item each item is, as the edit made it, told to the
+        // merge, the writes and the checks that follow.
+        let _told = item_sources::tell(items.map(|(items, earlier)| ItemSources {
+            previous: previous_host.to_string(),
+            origin: earlier.to_string(),
+            items: items.clone(),
+        }));
         let value = match &seen {
             // An edit where the view could not show the host's value (an
             // XML view of nested or empty lists) that does not map back onto
@@ -328,13 +335,6 @@ impl Bridge {
         // Each changed value in the host's own form (a TOML datetime read
         // back normalized), or the reason the save waits.
         let value = host_scalars(host, previous_host, &old, value)?;
-        // Which host item each item is, as the edit made it, told to the
-        // writes and checks that follow.
-        let _told = item_sources::tell(items.map(|(items, earlier)| ItemSources {
-            previous: previous_host.to_string(),
-            origin: earlier.to_string(),
-            items: items.clone(),
-        }));
         let rendered = codec::render(&value, host, Some(previous_host), self.shape())?;
         // The host's text is patched to read back exactly as a full render
         // would (losses included), so its comments and formatting survive: a
@@ -469,26 +469,41 @@ impl Bridge {
                 ))
                 .into());
             }
-            Ok(precise(previous, old, target)
-                // Several edits in one save: one step at a time.
-                .or_else(|| {
-                    let steps = codec::steps(old, target);
-                    if steps.is_empty() {
-                        return None;
-                    }
-                    let (mut text, mut current) = (previous.to_string(), old.clone());
-                    for step in steps {
-                        text = precise(&text, &current, &step)
-                            .or_else(|| structure(&text, &current, &step))?;
-                        current = step;
-                    }
-                    // A step reads the host's forms from the text the one
-                    // before wrote: a value one step removes and another
-                    // adds elsewhere (an HCL expression moved to another
-                    // block) is written anew in a form that reads the same.
-                    // The whole save made at once keeps it.
-                    host.changed_form(previous, &text).is_none().then_some(text)
-                })
+            // Several edits in one save: one step at a time.
+            let stepwise = |previous: &str, old: &serde_json::Value| {
+                let steps = codec::steps(old, target);
+                if steps.is_empty() {
+                    return None;
+                }
+                let (mut text, mut current) = (previous.to_string(), old.clone());
+                for step in steps {
+                    text = precise(&text, &current, &step)
+                        .or_else(|| structure(&text, &current, &step))?;
+                    current = step;
+                }
+                Some(text)
+            };
+            let whole_or_steps = |previous: &str, old: &serde_json::Value| {
+                precise(previous, old, target).or_else(|| stepwise(previous, old))
+            };
+            // Keys the links tell were renamed are renamed in place first
+            // (a patch of the whole edit would write a renamed map anew),
+            // then the rest is saved.
+            let renamed = codec::renamed_by_links(old, target)
+                .filter(|renamed| renamed != target)
+                .and_then(|renamed| {
+                    let text = precise(previous, old, &renamed)?;
+                    whole_or_steps(&text, &renamed)
+                });
+            // A step reads the host's forms from the text the one before
+            // wrote: a value one step removes and another adds elsewhere
+            // (an HCL expression moved to another block) is written anew
+            // in a form that reads the same. The whole save made at once
+            // keeps it.
+            let patched = renamed
+                .or_else(|| whole_or_steps(previous, old))
+                .filter(|text| host.changed_form(previous, text).is_none());
+            Ok(patched
                 .or_else(|| structure(previous, old, target))
                 // Block items no line patch tells apart (tagged maps)
                 // removed whole.

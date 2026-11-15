@@ -2,6 +2,7 @@
 //! language showed of it.
 
 use super::super::codec::{canonical, same_order};
+use super::super::item_sources::ItemSource;
 use super::super::language::{ConfigLanguage, Repetition};
 use serde_json::{Map, Value};
 
@@ -168,10 +169,24 @@ fn merge_at(
             // too (a Replace All over a key and the values inside it): the
             // same entry renamed, its values merged as the host holds them
             // (QA `E33-2`).
+            // Not where the links tell the old entry went inside the new
+            // one (a block's label typed before its body: a level added,
+            // no rename).
+            let told = super::super::item_sources::told_to_save();
+            let nested = |old: &str, key: &str| {
+                told.as_ref().is_some_and(|told| {
+                    let (old, key) = (child(old), format!("{}/", child(key)));
+                    told.items.iter().any(|(to, source)| {
+                        matches!(source, ItemSource::Previous(from) if *from == old)
+                            && to.starts_with(&key)
+                    })
+                })
+            };
             if seen.len() == edited.len() && !gone.is_empty() {
                 for ((old, _), (key, _)) in seen.iter().zip(edited) {
                     note(Work::MergeKeyVisit);
-                    let renames = host.contains_key(old)
+                    let renames = !nested(old, key)
+                        && host.contains_key(old)
                         && !edited.contains_key(old)
                         && !host.contains_key(key)
                         && !renamed_to.contains_key(old)

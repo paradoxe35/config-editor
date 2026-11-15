@@ -125,13 +125,9 @@ pub(super) fn split_toml_comment(line: &str) -> (&str, Option<&str>) {
                 continue;
             }
             quote = Some(character);
-        } else if character == '#'
-            && (index == 0
-                || line[..index]
-                    .chars()
-                    .next_back()
-                    .is_some_and(char::is_whitespace))
-        {
+        } else if character == '#' {
+            // Outside a string a `#` starts a comment, right after a
+            // value too (`n = 1#c` reads `1`).
             return (&line[..index], Some(&line[index..]));
         }
     }

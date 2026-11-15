@@ -378,8 +378,17 @@ fn shifted(
                 break;
             }
             // Its first character removed (its key, its header, its
-            // opening tag): no longer the item it was.
+            // opening tag): no longer the item it was. A removal from its
+            // start keeps its head with the removed text (a header cut
+            // and pasted back heads the item again).
             if a < s || a == s && b > s {
+                if a == s && b - a > 1 {
+                    removed[index].push(Link {
+                        start: 0,
+                        end: b - a,
+                        source: link.source.clone(),
+                    });
+                }
                 alive = false;
                 break;
             }

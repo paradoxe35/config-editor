@@ -280,6 +280,25 @@ pub(super) fn kept(
     (previous, origin): (Source<'_>, Option<Source<'_>>),
     shape: Option<&Value>,
 ) -> Result<String, String> {
+    // The view's pointers as the host spells them: a view that writes a
+    // list of one as its item (XML) names `/l/x` for the host's `/l/0/x`.
+    let items: ItemMap = items
+        .iter()
+        .map(|(to, source)| {
+            let to = as_written(intended, to);
+            let source = match source {
+                ItemSource::Previous(from) => {
+                    ItemSource::Previous(as_written(previous.value, from))
+                }
+                ItemSource::Origin(from) => ItemSource::Origin(match origin {
+                    Some(origin) => as_written(origin.value, from),
+                    None => from.clone(),
+                }),
+            };
+            (to, source)
+        })
+        .collect();
+    let items = &items;
     let saved = relocated(host, saved, intended, items, (previous, origin), shape)?;
     // An item left where it was, holding what it held, that the save wrote
     // anew all the same (a list item's first entry removed: the next one
@@ -431,4 +450,40 @@ fn relocated(
         }
     }
     Ok(text)
+}
+
+/// `pointer` as `value` holds it: where `value` has a list of one and the
+/// pointer names no index in it, the index `0` put in (a view that writes
+/// a list of one as its item names it without one); `pointer` itself when
+/// it names nothing there either way.
+fn as_written(value: &Value, pointer: &str) -> String {
+    if value.pointer(pointer).is_some() {
+        return pointer.to_string();
+    }
+    let mut out = String::new();
+    let mut at = value;
+    for segment in pointer.split('/').skip(1) {
+        if let Value::Array(items) = at
+            && items.len() == 1
+            && segment.parse::<usize>().is_err()
+        {
+            out.push_str("/0");
+            at = &items[0];
+        }
+        out.push('/');
+        out.push_str(segment);
+        let child = match at {
+            Value::Object(map) => map.get(&segment.replace("~1", "/").replace("~0", "~")),
+            Value::Array(items) => segment
+                .parse::<usize>()
+                .ok()
+                .and_then(|index| items.get(index)),
+            _ => None,
+        };
+        match child {
+            Some(child) => at = child,
+            None => return pointer.to_string(),
+        }
+    }
+    out
 }

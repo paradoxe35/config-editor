@@ -678,7 +678,6 @@ fn fz38_4_21() {
 }
 
 #[test]
-#[ignore = "open: FZ38-8"]
 fn fz38_8_1() {
     replay(
         Language::YAML,
@@ -780,9 +779,10 @@ fn fz38_2_3() {
     );
 }
 
+/// P2: a `#` typed right after a TOML value starts a comment, which the
+/// save does not write into the value.
 #[test]
-#[ignore = "open: FZ38-3"]
-fn fz38_3_2() {
+fn fz38_13_1() {
     replay(
         Language::XML,
         Language::TOML,
@@ -1047,5 +1047,187 @@ fn sv38_18_1() {
                 text: "-",
             },
         ],
+    );
+}
+
+/// P2: an undo past a save brings an item back with the comment lines its source has above it.
+#[test]
+fn fz38_6_1() {
+    replay(
+        Language::HCL,
+        Language::TOML,
+        "# note 4\nalpha {\n  k1 \"label\" {\n    inner = 1\n  }\n  k2 = local.count + 1 # note 2\n  k3 = local.count + 1\n  k4 {\n    inner = var.x\n  }\n}\nbeta {\n  k5 = 1.5 # note 5\n  k6 = aws_subnet.main.id\n  k7 = aws_subnet.main.id # note 7\n}\n",
+        &[
+            Op::Cut {
+                line: 14,
+                how: Take::Entry,
+            },
+            Op::Type {
+                line: 10,
+                column: 1000,
+                text: "0",
+            },
+            Op::ReplaceAll {
+                pick: 55,
+                suffix: "2",
+            },
+            Op::Pause,
+            Op::Undo,
+        ],
+    );
+}
+
+/// P2: an undo past a save brings an item back with the comment lines its source has above it.
+#[test]
+fn fz38_6_2() {
+    replay(
+        Language::HCL,
+        Language::TOML,
+        "alpha {\n  k1 = true # note 2\n  k2 = aws_subnet.main.id # note 4\n  k3 = \"web-${var.env}\"\n  k4 = <<EOT\nhello\nEOT\n}\nbeta {\n  k5 = aws_subnet.main.id\n  k6 = var.on ? 1 : 2\n  k7 = true\n}\n# note 9\ngamma {\n}\n",
+        &[
+            Op::Cut {
+                line: 13,
+                how: Take::Text,
+            },
+            Op::Pause,
+            Op::Paste {
+                line: 30,
+                how: Put::Before,
+            },
+        ],
+    );
+}
+
+/// P2: an undo past a save brings an item back with the comment lines its source has above it.
+#[test]
+fn fz38_6_3() {
+    replay(
+        Language::HCL,
+        Language::YAML,
+        "alpha {\n  k1 = \"plain\" # note 1\n  k2 { one = true }\n}\nbeta {\n  k3 = [1, 2] # note 3\n  k4 = var.name\n  k5 = 1.5\n  k6 = var.name\n}\n# note 7\ngamma {\n  k7 = upper(var.name)\n  k8 \"label\" {\n    inner = 1\n  }\n  k9 = upper(var.name) # note 6\n}\ndelta {\n  k10 = var.name\n  k11 = var.name # note 9\n}\n",
+        &[
+            Op::Cut {
+                line: 31,
+                how: Take::Entry,
+            },
+            Op::Pause,
+            Op::Paste {
+                line: 40,
+                how: Put::OverBlank,
+            },
+        ],
+    );
+}
+
+/// P2: a table header cut and pasted back heads its item again, which keeps the comment above it.
+#[test]
+fn fz38_6_4() {
+    replay(
+        Language::HCL,
+        Language::TOML,
+        "alpha {\n  k1 = true # note 2\n  k2 = aws_subnet.main.id # note 4\n  k3 = \"web-${var.env}\"\n  k4 = <<EOT\nhello\nEOT\n}\nbeta {\n  k5 = aws_subnet.main.id\n  k6 = var.on ? 1 : 2\n  k7 = true\n}\n# note 9\ngamma {\n  k10 = true\n}\n",
+        &[
+            Op::Cut {
+                line: 13,
+                how: Take::Text,
+            },
+            Op::Pause,
+            Op::Paste {
+                line: 30,
+                how: Put::Before,
+            },
+        ],
+    );
+}
+
+/// P2: a table header cut and pasted back heads its item again, which keeps the comment above it.
+#[test]
+fn fz38_6_5() {
+    replay(
+        Language::HCL,
+        Language::TOML,
+        "alpha {\n  k1 { one = true } # note 1\n  k2 = \"plain\"\n  k3 = var.on ? 1 : 2 # note 2\n  k4 = [1, 2] # note 3\n}\n# note 9\nbeta {\n  k7 = \"plain\" # note 8\n}\ngamma {\n  k8 {\n  }\n}\n",
+        &[
+            Op::Cut {
+                line: 8,
+                how: Take::Text,
+            },
+            Op::Pause,
+            Op::Paste {
+                line: 14,
+                how: Put::OverLine,
+            },
+        ],
+    );
+}
+
+/// P3: a map renamed and edited in one save is renamed in place, its lines kept.
+#[test]
+fn fz38_4_31() {
+    replay(
+        Language::JSON,
+        Language::YAML,
+        "{\n  \"alpha\": {\n    \"k2\": [\n      {\"name\": \"two\"}\n    ],\n    \"k3\": [1, 2, 3],\n    \"k8\": \"a\\u0041\"\n  },\n  \"delta\": {\n  }\n}\n",
+        &[
+            Op::Type {
+                line: 6,
+                column: 1000,
+                text: "x",
+            },
+            Op::ReplaceAll {
+                pick: 2,
+                suffix: "_x",
+            },
+        ],
+    );
+}
+
+/// P3: a map renamed and edited in one save is renamed in place, its lines kept.
+#[test]
+fn fz38_4_32() {
+    replay(
+        Language::JSON,
+        Language::HCL,
+        "{\n  \"alpha\": {\n    \"k1\": {\"x\": 1, \"y\": \"two\"},\n    \"k2\": \"a\\u0041\"\n  },\n  \"beta\": {\n    \"k3\": [\n      {\"name\": \"one\"},\n      {\"name\": \"two\"}\n    ],\n    \"k4\": 1.50\n  },\n  \"gamma\": {\n    \"k5\": 1e3,\n    \"k6\": 1.50,\n    \"k7\": true,\n    \"k8\": [\n      {\"name\": \"one\"},\n      {\"name\": \"two\"}\n    ]\n  }\n}\n",
+        &[
+            Op::PasteWhole { line: 55 },
+            Op::Type {
+                line: 58,
+                column: 38,
+                text: "x",
+            },
+        ],
+    );
+}
+
+/// P2: a list item's entry the save writes after the item's marker keeps its form (a view that writes a list of one as its item).
+#[test]
+fn fz38_8_2() {
+    replay(
+        Language::YAML,
+        Language::XML,
+        "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: web # the app\n  labels: {app: web, tier: \"front\"}\nspec:\n  replicas: 0x3\n  selector:\n    matchLabels:\n      app: web\n  template:\n    spec:\n      containers:\n        - name: web\n          image: \"nginx:1.25\"\n",
+        &[
+            Op::Cut {
+                line: 19,
+                how: Take::Text,
+            },
+            Op::Undo,
+        ],
+    );
+}
+
+/// P2: a label typed onto an HCL block (`spec x{`) adds a level, not a rename: the save writes a map, not a list of one.
+#[test]
+fn sv38_19_1() {
+    replay(
+        Language::YAML,
+        Language::HCL,
+        "kind: Deployment\nmetadata:\n  name: web # the app\n  labels: {app: web, tier: \"front\"}\nspec:\n  replicas: 0x3\n  selector:\n    matchLabels:\n      app: web\n  template:\n    spec:\n      containers:\n            - name: GREETING\n",
+        &[Op::Type {
+            line: 21,
+            column: 1001,
+            text: "x",
+        }],
     );
 }

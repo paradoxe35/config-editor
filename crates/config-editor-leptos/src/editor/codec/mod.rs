@@ -31,7 +31,7 @@ pub use non_finite::{float_of, float_value, string_of, string_value};
 pub(super) use removed_items::patch_removed_items;
 pub(super) use renames::{patch_renames, patch_scalar_to_container, with_renames_undone};
 pub(super) use reorder::{patch_reorder, unmoved_comments, with_comma_of};
-pub(super) use steps::steps;
+pub(super) use steps::{renamed_by_links, steps};
 
 use super::completion::conform_arrays;
 use super::flow_syntax::Flow;

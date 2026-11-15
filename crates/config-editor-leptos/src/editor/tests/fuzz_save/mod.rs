@@ -141,7 +141,9 @@ fn run(case: &Case) -> Result<bool, Broke> {
             if language == case.host {
                 start.rebase(&text);
             } else if matches!(op, Op::Switch { .. }) {
-                start.seen(language, &text);
+                let in_sync = state.sync().in_sync.get_untracked();
+                let host_text = held.lock().unwrap().clone();
+                start.seen(language, &text, in_sync.then_some(host_text.as_str()));
             }
         }
         ops::pause(state);
