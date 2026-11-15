@@ -524,13 +524,15 @@ pub(super) fn check(case: &LiveCase) -> Result<(), Failure> {
         // A field held because the text reads it otherwise than the host's
         // text did (a path named after the user renamed its key) is known
         // to the live editor only: a fresh one never saw the host's text.
-        let held: Vec<String> = state.strings_untracked(|strings| {
-            state
-                .protect()
-                .held_problems(&after, strings)
-                .into_iter()
-                .map(|problem| problem.message)
-                .collect()
+        let held: Vec<String> = untrack(|| {
+            state.strings_untracked(|strings| {
+                state
+                    .protect()
+                    .held_problems(&after, strings)
+                    .into_iter()
+                    .map(|problem| problem.message)
+                    .collect()
+            })
         });
         live.problems.retain(|(.., message)| {
             !held.contains(message) || new.problems.iter().any(|(.., known)| known == message)

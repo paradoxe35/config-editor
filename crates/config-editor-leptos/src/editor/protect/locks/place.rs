@@ -187,6 +187,53 @@ impl<'r, 'a> Placer<'r, 'a> {
         });
     }
 
+    /// The fields a host range covered in the text before, no longer
+    /// covered now (the range's text moved away) but still inside one of
+    /// `ranges` (the host's, as now placed), that read as pinned
+    /// again (a copy of the text put back there): still the host's locked
+    /// paths, so a change there holds the save as before (those reading
+    /// otherwise are held, see [`Self::held_left`]).
+    pub(super) fn covered_before(
+        &self,
+        covered: &[(String, Reason)],
+        ranges: &[Lock],
+    ) -> Vec<(String, Reason)> {
+        let (Some(before), Some(document)) = (self.before, &self.reading.document) else {
+            return Vec::new();
+        };
+        // Its lock, followed here, inside a host range now (not one the
+        // host's new ranges no longer cover).
+        let in_range = |pointer: &str| {
+            self.moved(pointer).is_some_and(|lock| {
+                lock.ranges.iter().all(|stretch| {
+                    ranges
+                        .iter()
+                        .filter(|range| range.pointer.is_none())
+                        .any(|range| {
+                            range
+                                .ranges
+                                .iter()
+                                .any(|host| host.start <= stretch.start && stretch.end <= host.end)
+                        })
+                })
+            })
+        };
+        before
+            .locks
+            .iter()
+            .filter(|lock| lock.reason == Reason::Range)
+            .filter_map(|lock| lock.pointer.as_ref())
+            .filter(|pointer| !covered.iter().any(|(known, _)| known == *pointer))
+            .filter(|pointer| in_range(pointer))
+            .filter(|pointer| {
+                before.pins.iter().any(|(known, value)| {
+                    known == *pointer && lookup(document, pointer) == Some(value)
+                })
+            })
+            .map(|pointer| (pointer.clone(), Reason::Range))
+            .collect()
+    }
+
     /// The fields held that `placed` (the fields placed) leaves out (moved
     /// away, no longer marked where they are now), each with the reason
     /// it was locked for in the text before.

@@ -105,6 +105,17 @@ fn shown(state: EditorState) -> String {
     state.doc().text.get_untracked()
 }
 
+/// Whether UTF-16 `range` of the text on screen holds text a lock keeps.
+fn cuts_locked(state: EditorState, range: std::ops::Range<usize>) -> bool {
+    state.protect().protected.with_untracked(|protected| {
+        protected.locks.iter().any(|lock| {
+            lock.ranges
+                .iter()
+                .any(|locked| locked.start < range.end && range.start < locked.end)
+        })
+    })
+}
+
 fn utf16(text: &str, byte: usize) -> usize {
     text[..byte].encode_utf16().count()
 }
@@ -247,6 +258,11 @@ pub(super) fn make(setup: &Setup, mounted: &Mounted, act: &Act) -> Result<(), (C
         Act::Cut { line } => {
             let (start, end) = line_span(&before, *line as usize % lines);
             if before[start..end].contains(protected) || start == end {
+                return Ok(());
+            }
+            // Locked text stays locked wherever it went (a read-only item's
+            // line moved out of its list): cutting it is refused.
+            if cuts_locked(state, utf16(&before, start)..utf16(&before, end)) {
                 return Ok(());
             }
             let expected = format!("{}{}", &before[..start], &before[end..]);

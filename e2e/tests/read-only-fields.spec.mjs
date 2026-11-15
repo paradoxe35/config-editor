@@ -110,12 +110,16 @@ test.describe('read-only fields', () => {
     await expectUnchanged(page, before, 'Set by your plan');
   });
 
-  test('commenting a read-only line is refused; commenting another line works', async ({ page }) => {
+  test('commenting a read-only line is held; commenting another line works', async ({ page }) => {
     const ed = editor(page);
-    const before = await ed.value();
+    const before = await saved(page).textContent();
     await clickInto(page, 'srv-42', 1);
     await page.keyboard.press('Control+/');
-    await expectUnchanged(page, before, 'Assigned by the server');
+    // Taken and held: the locked line commented out reads no `id`, so the
+    // save waits with the reason, and the host never gets the text.
+    await expect.poll(ed.value).toContain('# id: srv-42');
+    await expect(page.locator('.config-editor__diagnostic-marker[data-message*="no longer reads as the host gave it"]')).not.toHaveCount(0);
+    await expect(saved(page)).toHaveText(before);
     await clickInto(page, 'listen', 1);
     await page.keyboard.press('Control+/');
     await expect.poll(ed.value).toContain('# listen: 7835');
@@ -363,6 +367,8 @@ test.describe('saving with a read-only value changed in Edit-as (vanilla.html)',
     });
     expect(sent).toBe(0);
     await expect(page.locator('#saved')).not.toContainText('tuQnnel');
-    await expect(page.locator('.config-editor__diagnostic-marker[data-message*="read-only"]')).toHaveCount(1);
+    // The reason shows (the save held for the field reading otherwise than
+    // the host's text).
+    await expect(page.locator('.config-editor__diagnostic-marker[data-message*="read-only"]')).not.toHaveCount(0);
   });
 });

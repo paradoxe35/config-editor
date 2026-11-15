@@ -56,6 +56,18 @@ fn holds(value: &Value, token: &str) -> bool {
     }
 }
 
+/// The path a token is read at in `document`: where the text writes it
+/// (`path`, the root when none), cut back to the field the document has
+/// (a list's items read where the parse makes them one scalar: the lines
+/// still say `/keys/1`, the document holds `/keys`).
+fn read_at(document: &Value, path: Option<super::super::super::paths::FieldPath>) -> String {
+    let mut pointer = path.map_or_else(String::new, |path| path.to_pointer());
+    while !pointer.is_empty() && field_value(document, &pointer).is_none() {
+        pointer.truncate(pointer.rfind('/').unwrap_or(0));
+    }
+    pointer
+}
+
 /// The strings inside `value` (at `pointer`) holding `token`, with their
 /// pointers.
 fn strings_holding<'v>(
@@ -189,8 +201,7 @@ impl Placeholders<'_> {
                 })
                 .find_map(|((range, units), _)| {
                     let token = &after[range.clone()];
-                    let pointer = path_at(behavior, after, *units)
-                        .map_or_else(String::new, |path| path.to_pointer());
+                    let pointer = read_at(document, path_at(behavior, after, *units));
                     let value = field_value(document, &pointer)?;
                     let text = value.as_str()?;
                     (self.index.in_field(token, &pointer).is_none()
@@ -212,8 +223,7 @@ impl Placeholders<'_> {
                 .filter(|(range, _)| range.end <= start || range.start >= new_end)
                 .filter_map(|(range, units)| {
                     let token = &after[range.clone()];
-                    let pointer = path_at(behavior, after, *units)
-                        .map_or_else(String::new, |path| path.to_pointer());
+                    let pointer = read_at(document, path_at(behavior, after, *units));
                     if self.index.in_field(token, &pointer).is_some()
                         || held(field_value(document, &pointer), token) != Held::Glued
                     {

@@ -278,6 +278,24 @@ impl Covered {
     }
 }
 
+/// Whether a locked field's own key is written at the start of another
+/// line too, after its indent (a second `limits:` or `id =`).
+fn locked_key_again(protected: &Protected) -> bool {
+    let units: Vec<u16> = protected.text.encode_utf16().collect();
+    let starts: Vec<&str> = protected.text.lines().map(str::trim_start).collect();
+    protected.locks.iter().any(|lock| {
+        let Some(key) = lock.key.as_ref().filter(|key| key.end <= units.len()) else {
+            return false;
+        };
+        let key = String::from_utf16_lossy(&units[key.clone()]);
+        let written = |line: &&str| {
+            line.strip_prefix(key.as_str())
+                .is_some_and(|rest| !rest.starts_with(|c: char| c.is_alphanumeric() || c == '_'))
+        };
+        !key.trim().is_empty() && starts.iter().filter(|line| written(line)).count() > 1
+    })
+}
+
 /// The fields the host's `ranges` (UTF-16 offsets) cover in its own `host`
 /// text, written in `language` (none when it does not parse): what they
 /// lock while editing as another language.
@@ -379,6 +397,7 @@ impl EditorState {
             .map_err(|blocked: Blocked| {
                 self.strings_untracked(|strings| blocked.message(strings))
             })?;
+
         match self.glued_by(&edit.before, &edit.text) {
             Some(pointer) => {
                 Err(self.strings_untracked(|strings| glued_message(strings, &pointer)))
@@ -502,13 +521,20 @@ impl EditorState {
         self.protect().ranges.set(placed);
     }
 
-    /// Whether a locked field reads otherwise than pinned in the text on
-    /// screen (see `locks::Protected::held`): its change events, value and
-    /// save wait until it reads as pinned again.
+    /// Whether the text on screen may not reach the host, by any route
+    /// (change events, the value, a save): a locked field reads otherwise
+    /// than pinned (see `locks::Protected::held`), or the text does not
+    /// parse and holds locks. (Text beside a placeholder given whole is
+    /// refused at the keystroke; the save checks it again.)
     pub(crate) fn changes_held(&self) -> bool {
-        self.protect()
-            .protected
-            .with_untracked(|protected| !protected.held.is_empty())
+        // A text that does not parse writing a locked key again (a YAML key
+        // written twice does not parse, and a reader taking the last would
+        // read another value); one leaving its locked text alone is the
+        // user's half-typed text.
+        self.protect().protected.with_untracked(|protected| {
+            !protected.held.is_empty()
+                || (protected.document.is_none() && locked_key_again(protected))
+        }) || self.unplaced_waits().is_some()
     }
 
     /// Why a save of the text on screen waits, when it does: it holds text

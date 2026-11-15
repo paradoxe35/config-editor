@@ -39,6 +39,8 @@ pub(super) struct Edited<'a> {
     /// into the lock; the caret tells where it went.
     pub(super) region: Range<usize>,
     pub(super) new_region: Range<usize>,
+    /// Whether the caret placed `region` (else a diff of the texts did).
+    placed: bool,
     parsed: OnceCell<Option<Value>>,
     unchanged: OnceCell<Option<[Vec<bool>; 2]>>,
     reformat: OnceCell<bool>,
@@ -58,13 +60,23 @@ impl<'a> Edited<'a> {
     ) -> Self {
         let old: Vec<u16> = before.encode_utf16().collect();
         let new: Vec<u16> = after.encode_utf16().collect();
-        let prefix = old.iter().zip(&new).take_while(|(a, b)| a == b).count();
-        let suffix = old
+        let mut prefix = old.iter().zip(&new).take_while(|(a, b)| a == b).count();
+        let mut suffix = old
             .iter()
             .rev()
             .zip(new.iter().rev())
             .take_while(|(a, b)| a == b)
             .count();
+        let mut placed = false;
+        if caret.is_none() {
+            let tail = suffix.min(old.len() - prefix).min(new.len() - prefix);
+            let (slid, kept) = super::super::carry::slid_to_line_start(&old, &new, prefix, tail);
+            // Only when it slid: the texts' whole common ends are kept
+            // otherwise (they may overlap).
+            if slid != prefix {
+                (prefix, suffix) = (slid, kept);
+            }
+        }
         let lines = LineIndex::new(before);
         let tail = suffix
             .min(old.len() - prefix.min(old.len()))
@@ -72,7 +84,9 @@ impl<'a> Edited<'a> {
         let mut region = prefix.min(old.len())..old.len() - tail;
         let mut new_region = prefix.min(new.len())..new.len() - tail;
         // Placed by the caret: the texts agree before the inserted text
-        // starts and after it ends.
+        // starts and after it ends. The texts kept around it are then those
+        // before and after that place (one of two like lines deleted: the
+        // one the caret says, which the host's ranges follow too).
         if let Some(from) = caret.and_then(|caret| caret.checked_sub(new_region.len()))
             && from <= prefix
             && from + region.len() <= old.len()
@@ -80,6 +94,9 @@ impl<'a> Edited<'a> {
         {
             region = from..from + region.len();
             new_region = from..from + new_region.len();
+            prefix = from;
+            suffix = old.len() - region.end;
+            placed = true;
         }
         Edited {
             behavior,
@@ -94,6 +111,7 @@ impl<'a> Edited<'a> {
             lines,
             region,
             new_region,
+            placed,
             parsed: OnceCell::new(),
             unchanged: OnceCell::new(),
             reformat: OnceCell::new(),
@@ -118,6 +136,19 @@ impl<'a> Edited<'a> {
     /// for it.
     pub(super) fn kept(&self, range: &Range<usize>) -> bool {
         let inside = range.start < self.region.start && self.region.end < range.end;
+        // Its text taken away whole and not written again (one of two like
+        // lines deleted where the caret says): no line diff keeps it.
+        // (Only where the caret placed the edit: a diff of the texts alone
+        // may say any of the alike stretches went.)
+        let covered =
+            self.placed && self.region.start <= range.start && range.end <= self.region.end;
+        if covered && !range.is_empty() {
+            let text = &self.old[range.clone()];
+            let written = &self.new[self.new_region.clone()];
+            if !written.windows(text.len()).any(|window| window == text) {
+                return false;
+            }
+        }
         kept(
             range,
             &self.old,

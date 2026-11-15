@@ -130,14 +130,19 @@ for (const [language, { after, keys, typed }] of Object.entries(EXTEND)) {
     setupEditor(test, `?schema=protected${language === 'yaml' ? '' : `&language=${language}`}`);
 
     test('takes no new key, typed one key at a time', async ({ page }) => {
-      const before = await saved(page).textContent();
       const text = await editor(page).value();
       await caretTo(page, text.indexOf(after) + after.length);
       for (const key of keys) await page.keyboard.press(key);
       await page.keyboard.type(typed);
       await page.waitForTimeout(300);
-      expect(await editor(page).value()).not.toContain('extra');
-      await expect(saved(page)).toHaveText(before);
+      // Taken and held where the key lands past the block's last line (no
+      // keystroke is refused for how the parse reads it): the reason shows.
+      if ((await editor(page).value()).includes('extra')) {
+        await expect(page.locator('.config-editor__diagnostic-marker[data-message*="no longer reads as the host gave it"]')).not.toHaveCount(0);
+      }
+      // The host may hear the half-typed line (its locked values as they
+      // were), never the key.
+      await expect(saved(page)).not.toHaveText(/^\s*"?extra"?\s*[:=][ \t]*\S/m);
     });
   });
 }
@@ -154,11 +159,9 @@ test.describe('toml: a read-only table', () => {
       await caretTo(page, at === 'end' ? text.length : 0);
       await page.keyboard.type(typed);
       await page.waitForTimeout(300);
-      // A keystroke that would make the key name the locked table is
-      // refused: what is left names another one.
-      const now = await editor(page).value();
-      expect(now).not.toContain('[limits.sub]');
-      expect(now).not.toContain('limits.extra');
+      // Taken and held: the text may write the key into the locked table
+      // (no keystroke is refused for how the parse reads it), and the host
+      // never gets it.
       await expect(saved(page)).not.toContainText('[limits.sub]');
       await expect(saved(page)).not.toContainText('limits.extra');
     }
@@ -168,16 +171,18 @@ test.describe('toml: a read-only table', () => {
 test.describe('yaml: a duplicate of a read-only key', () => {
   setupEditor(test, '?schema=protected');
 
-  test('is refused at the end of the document', async ({ page }) => {
+  test('is held at the end of the document', async ({ page }) => {
     const text = await editor(page).value();
     await caretTo(page, text.length);
     await page.keyboard.type('limits:\n  max: 99\nid: other\n');
     await page.waitForTimeout(300);
-    // The keystroke making each a second key is refused.
-    for (const text of [await editor(page).value(), await saved(page).textContent()]) {
-      expect(text.match(/^limits:/gm)).toHaveLength(1);
-      expect(text.match(/^id:/gm)).toHaveLength(1);
-    }
+    // Taken: the text may write each a second time (no keystroke is refused
+    // for how the parse reads it). YAML takes no key twice, so the text does
+    // not parse, the error says why, and the host hears nothing of it.
+    await expect(page.locator('.config-editor__diagnostic-marker[data-message*="written twice"]')).not.toHaveCount(0);
+    const sent = await saved(page).textContent();
+    expect(sent.match(/^limits:/gm)).toHaveLength(1);
+    expect(sent.match(/^id:/gm)).toHaveLength(1);
   });
 });
 

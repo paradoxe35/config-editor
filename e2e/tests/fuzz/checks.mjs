@@ -104,8 +104,11 @@ function checkHost(snap, run) {
       if (!run.secrets.has(secret)) return { check: 'secret', detail: `${short(secret)} in ${short(snap.value)}` };
     }
     // A lock reading otherwise holds the change, saying so (`saveHeld`):
-    // the value stays the last one the host heard.
-    const held = (snap.problems ?? []).some((problem) => problem.message.startsWith('Not saved: '));
+    // the value stays the last one the host heard. So does a text that does
+    // not parse writing a locked key again (the error shown).
+    const held =
+      (snap.problems ?? []).some((problem) => problem.message.startsWith('Not saved: ')) ||
+      (run.locksOf(snap.activeId).length > 0 && snap.errored);
     if (snap.ownLanguage && snap.value !== snap.text && !held) {
       // `unlocked`: the host took locks away earlier in the run.
       return { check: 'value-text', detail: `value ${short(snap.value)} text ${short(snap.text)}`, unlocked: !!run.unlocked };

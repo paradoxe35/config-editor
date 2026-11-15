@@ -215,7 +215,9 @@ pub(crate) fn protect(
     );
     placer.hold_unpinned();
     placer.release_covered(&covered_fields);
+    let kept = placer.covered_before(&covered_fields, &protected.locks);
     marked.extend(covered_fields);
+    marked.extend(kept);
     let outermost = fields::outermost(&reading, &marked);
     // Every field's spans read in one pass of the document, not each
     // field's in a pass of its own.

@@ -4,7 +4,7 @@
 //! refused, however a line diff of the two texts would pair their lines.
 
 use super::super::Language;
-use super::guard::check;
+use super::guard::{check, check_at};
 use super::locks::{Sources, protect};
 
 const TEXT: &str = "# Tunnel server configuration\nlisten: 7835\npublic_address: tunnel.example.com\ninsecure_plaintext: false\n";
@@ -59,4 +59,68 @@ fn a_line_moved_above_a_range_ending_the_text_leaves_its_line_break() {
     let before = format!("{TEXT}tls: true");
     let moved = TEXT.replacen(locked, "tls: true\ninsecure_plaintext: false", 1);
     assert!(!taken(&before, locked, &moved));
+}
+
+#[test]
+fn a_line_cut_above_a_locked_one_alike_in_its_start_is_taken() {
+    // `password2: x` cut above the locked `password: hunter2`: the texts
+    // share `  password` on both sides of it.
+    let before = "db:\n  user: app\n  password2: x\n  password: hunter2\n";
+    let after = "db:\n  user: app\n  password: hunter2\n";
+    let paths = [super::super::paths::FieldPath::from("/db/password")];
+    let behavior = Language::YAML.behavior();
+    let protected = protect(
+        behavior,
+        before,
+        Sources {
+            paths: &paths,
+            ..Sources::default()
+        },
+    );
+    let at = before.find("  password2").expect("the line");
+    let caret = before[..at].encode_utf16().count();
+    for caret in [None, Some(caret)] {
+        let result = check_at(behavior, None, &protected, (before, after), caret);
+        assert!(result.is_ok(), "caret {caret:?}: {result:?}");
+    }
+}
+
+#[test]
+fn of_two_like_lines_the_ranges_own_deleted_is_refused() {
+    // A copy of the range's line pasted below it, then the range's own line
+    // deleted (Ctrl+Shift+K there): the texts read alike whichever goes,
+    // the caret says which one did, and the host's range follows it.
+    let line = "insecure_plaintext: false\n";
+    let before = format!("{TEXT}{line}");
+    let start = TEXT.len() - line.len();
+    let units = |byte: usize| before[..byte].encode_utf16().count();
+    // The range over the line, its line break left out.
+    let range = units(start)..units(TEXT.len() - 1);
+    let behavior = Language::YAML.behavior();
+    let protected = protect(
+        behavior,
+        &before,
+        Sources {
+            ranges: std::slice::from_ref(&range),
+            ..Sources::default()
+        },
+    );
+    let after = TEXT.to_string();
+    let own = check_at(
+        behavior,
+        None,
+        &protected,
+        (&before, &after),
+        Some(range.start),
+    );
+    assert!(own.is_err(), "the range's own line deleted");
+    // The copy deleted (the caret on its line): taken.
+    let copy = check_at(
+        behavior,
+        None,
+        &protected,
+        (&before, &after),
+        Some(range.end + 1),
+    );
+    assert!(copy.is_ok(), "the copy deleted");
 }

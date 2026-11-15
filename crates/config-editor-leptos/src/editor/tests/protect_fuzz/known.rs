@@ -13,22 +13,6 @@ pub(super) struct Known {
 
 pub(super) const KNOWN: &[Known] = &[
     Known {
-        finding: "SPANS-4: a field a host range covers reads otherwise, not held, in a few \
-                  shapes (Edit-as views, a new value or a line moved in TOML or XML)",
-        applies: |class| is(class, Check::LockChanged, &[], &[Lock::Range]),
-    },
-    Known {
-        finding: "SPANS-8: a readOnly YAML list item moved out of its list still keeps its \
-                  text (cutting it is refused)",
-        applies: |class| is(class, Check::OverRefusal, &["YAML list"], &[Lock::Schema]),
-    },
-    Known {
-        finding: "SPANS-9 (P1): in a YAML view, a character typed at a list item's line \
-                  start that makes the list one scalar passes, gluing a placeholder \
-                  below (1 run in 10000)",
-        applies: |class| class.edit_as && is(class, Check::Glued, &["YAML list"], &[Lock::Secret]),
-    },
-    Known {
         finding: "GP38-1 (P1, MEDIUM): in a declared language (Dot, DotBare: fields found \
                   on their lines), a placeholder an edit moves off its field (a `:` typed \
                   into its key, its list item made a key, a one-line map's entry run into \

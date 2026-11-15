@@ -374,5 +374,12 @@ export function snapshot() {
     locked: [...root.querySelectorAll('.config-editor__locked')].map((span) => span.textContent),
     problems: fz.problems[activeId ?? ''] ?? null,
     pageTokens: fz.pageTokens(),
+    // An error shown (a text that does not parse: one writing a locked key
+    // again does not reach the host until it parses).
+    errored: [...root.querySelectorAll('.config-editor__diagnostic-marker')].some(
+      (marker) =>
+        !marker.classList.contains('config-editor__diagnostic-marker-warning') &&
+        !marker.classList.contains('config-editor__diagnostic-marker-info'),
+    ),
   };
 }

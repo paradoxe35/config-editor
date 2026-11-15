@@ -28,7 +28,8 @@
 //! event and the value wait with the `saveHeld` reason, until the text
 //! reads it as pinned again. A field the language cannot locate (it gives
 //! no spans) has its value for a span: an edit whose text parses with
-//! another value is refused.
+//! another value is refused, and while the text does not parse, one taking
+//! away its value's text (as written) is.
 //!
 //! Formatting inside a locked span stays free: whitespace between its
 //! tokens (a space after `:` or `=`, re-indenting where indentation carries
@@ -59,7 +60,7 @@ use block::written_inside;
 use closing::only_closes;
 use content::{glued_to_content, written_string_changed};
 use edit::Edited;
-use pins::unplaced_hold;
+use pins::{unplaced_hold, unplaced_text_cut};
 
 /// An edit that would change a locked field, and why it is locked.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -119,11 +120,14 @@ pub(crate) fn check_at(
     }
     let edit = Edited::new(behavior, reading_schema, protected, before, after, caret);
     spans_kept(&edit)?;
-    if !protected.unplaced.is_empty()
-        && let Some(edited) = edit.parsed()
-        && let Some(reason) = unplaced_hold(edited, protected)
-    {
-        return Err(refused(reason));
+    if !protected.unplaced.is_empty() {
+        let reason = match edit.parsed() {
+            Some(edited) => unplaced_hold(edited, protected),
+            None => unplaced_text_cut(protected, before, after),
+        };
+        if let Some(reason) = reason {
+            return Err(refused(reason));
+        }
     }
     Ok(())
 }

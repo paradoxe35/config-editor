@@ -207,24 +207,31 @@ fn first_refused(steps: &[&str]) -> Option<usize> {
     None
 }
 
-/// Without spans nothing locates a value while the text does not parse:
-/// edits there go through, and the edit that makes the text parse again is
-/// refused when a locked value reads otherwise (it is never heard).
+/// Without spans a locked value's text is its span while the text does
+/// not parse: an edit taking it away whole (changing it, deleting its
+/// line, gluing onto it) is refused at once; one leaving it whole (a space
+/// after it, a duplicate of its key) goes through, and the repair making
+/// the text read it otherwise is refused (it is never heard).
 #[test]
 fn a_locked_value_holds_through_broken_text_without_spans() {
     let broken = "# c\nID=srv-1\nNAMEa\nPORT=80\n";
-    let cases: [(&str, &[&str]); 5] = [
+    // Each case's steps, and the index of the step refused (the steps, then
+    // the repair).
+    let cases: [(&str, &[&str], usize); 5] = [
         (
             "edit a locked value while another line is broken",
             &[broken, "# c\nID=srv-19\nNAMEa\nPORT=80\n"],
+            1,
         ),
         (
             "edit a host-locked value while another line is broken",
             &[broken, "# c\nID=srv-1\nNAMEa\nPORT=8\n"],
+            1,
         ),
         (
             "delete a locked line while another is broken",
             &[broken, "# c\nNAMEa\nPORT=80\n"],
+            1,
         ),
         (
             "a space after a locked value, then a new value",
@@ -233,27 +240,26 @@ fn a_locked_value_holds_through_broken_text_without_spans() {
                 "# c\nID=srv-1 \nNAMEa\nPORT=80\n",
                 "# c\nID=srv-2 \nNAMEa\nPORT=80\n",
             ],
+            2,
         ),
         (
             "a duplicate of a locked key while broken",
             &[broken, "# c\nID=srv-1\nNAMEa\nPORT=80\nID=evil\n"],
+            2,
         ),
     ];
-    let failures: Vec<&str> = cases
+    let failures: Vec<String> = cases
         .iter()
-        .filter(|(_, steps)| {
+        .filter_map(|(name, steps, expected)| {
             let last = steps[steps.len() - 1];
             let mut all: Vec<&str> = steps.to_vec();
             let repaired = last.replace("NAMEa", "NAME=a");
             all.push(&repaired);
-            first_refused(&all) != Some(all.len() - 1)
+            let refused = first_refused(&all);
+            (refused != Some(*expected)).then(|| format!("{name}: refused at {refused:?}"))
         })
-        .map(|(name, _)| *name)
         .collect();
-    assert!(
-        failures.is_empty(),
-        "not refused at the repair: {failures:?}"
-    );
+    assert!(failures.is_empty(), "{failures:?}");
 }
 
 #[test]
@@ -337,17 +343,12 @@ fn a_save_waits_for_a_text_that_parses_without_spans() {
             .is_some_and(|tip| tip.contains("/PORT") || tip.contains("/ID")),
         "the reason shows: {tip:?}"
     );
-    // No span locates the value while the text does not parse: the
-    // change goes through, and the repair is refused until it is undone.
+    // The value's text is its span while the text does not parse: a
+    // change to it is refused at once, and the repair keeps the locks.
     assert!(
-        change(state, "ID=srv-1", "ID=srv-2"),
-        "no span while broken"
+        !change(state, "ID=srv-1", "ID=srv-2"),
+        "a locked value changed while broken"
     );
-    assert!(
-        !change(state, "NAMEa", "NAME=b"),
-        "the repair changing a locked value is refused"
-    );
-    assert!(change(state, "ID=srv-2", "ID=srv-1"), "changed back");
     assert!(
         change(state, "NAMEa", "NAME=b"),
         "the repair keeps the locks"

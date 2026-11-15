@@ -35,6 +35,39 @@ struct LineMoves<'a> {
     to_new: Vec<Option<usize>>,
 }
 
+/// An edit inserting or deleting text only (the texts alike but for it,
+/// `prefix` and `suffix` units kept), slid back over the text it repeats
+/// to start at a line start when it can: a line pasted above one that
+/// starts alike (`password2: x` above `password: hunter2`) is that line,
+/// not a piece starting inside the line below, so the spans after it stay
+/// on their own text. Otherwise as given.
+pub(super) fn slid_to_line_start(
+    old: &[u16],
+    new: &[u16],
+    prefix: usize,
+    suffix: usize,
+) -> (usize, usize) {
+    let (removed, inserted) = (old.len() - prefix - suffix, new.len() - prefix - suffix);
+    let (text, len) = match (removed, inserted) {
+        (0, 0) => return (prefix, suffix),
+        (0, len) => (new, len),
+        (len, 0) => (old, len),
+        _ => return (prefix, suffix),
+    };
+    let line_start = |at: usize| at == 0 || text[at - 1] == u16::from(b'\n');
+    if line_start(prefix) {
+        return (prefix, suffix);
+    }
+    let mut at = prefix;
+    while at > 0 && text[at - 1] == text[at - 1 + len] {
+        at -= 1;
+        if line_start(at) {
+            return (at, suffix + (prefix - at));
+        }
+    }
+    (prefix, suffix)
+}
+
 impl<'a> Moves<'a> {
     pub(super) fn new(before: &'a str, after: &'a str) -> Self {
         let old: Vec<u16> = before.encode_utf16().collect();
@@ -48,6 +81,7 @@ impl<'a> Moves<'a> {
             .count()
             .min(old.len() - prefix)
             .min(new.len() - prefix);
+        let (prefix, suffix) = slid_to_line_start(&old, &new, prefix, suffix);
         Moves {
             before,
             after,

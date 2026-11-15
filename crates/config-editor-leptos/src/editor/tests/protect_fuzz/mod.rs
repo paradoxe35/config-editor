@@ -536,3 +536,34 @@ fn a_duplicate_one_line_map_line_holding_no_locked_value_can_be_cut() {
         ],
     );
 }
+
+/// Seed 3395: in a YAML view, a key typed at a list item's line start
+/// makes the list one scalar running over the items below; the lines still
+/// read the placeholder's item path, the document holds the scalar with
+/// it and other text: refused.
+#[test]
+fn a_list_made_one_scalar_by_a_typed_key_never_glues_a_placeholder() {
+    let setup = Setup {
+        case: 1,
+        lock: cases::Lock::Secret,
+        host: Some(Language::HCL),
+        pairs: true,
+    };
+    assert_ok(
+        &setup,
+        &[
+            Act::Entry {
+                anchor: 3,
+                name: 12,
+                paste: false,
+            },
+            Act::Entry {
+                anchor: 3,
+                name: 1,
+                paste: true,
+            },
+            Act::Pause,
+            Act::Type { at: 21715, text: 6 },
+        ],
+    );
+}
