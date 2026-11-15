@@ -3,7 +3,7 @@
 use serde_json::Value;
 
 use super::super::super::codec::non_finite;
-use super::super::super::language::{ConfigLanguage, ParseError};
+use super::super::super::language::ParseError;
 use super::super::wide_integers::unheld_all;
 use super::super::yaml::YamlBehavior;
 
@@ -15,11 +15,11 @@ pub(super) fn read(text: &str) -> Result<Value, String> {
         return Err(format!("{}, only comments", super::NO_SCHEMA));
     }
     let normalized = text.replace("\r\n", "\n").replace('\r', "\n");
-    let value = match YamlBehavior.parse(&normalized) {
+    let value = match YamlBehavior.parse_raw(&normalized) {
         Ok(value) => value,
         Err(error) => match as_floats(&normalized, &error) {
             Some(widened) => YamlBehavior
-                .parse(&widened)
+                .parse_raw(&widened)
                 .map_err(|error| worded(&normalized, &error))?,
             None => return Err(worded(&normalized, &error)),
         },
@@ -87,7 +87,9 @@ fn worded(text: &str, error: &ParseError) -> String {
         Some(name) => format!(
             "no anchor &{name} for the alias *{name}: a plain * starts an alias in YAML, so quote a key or value that starts with *"
         ),
-        None => hinted(message, line_of(text, error.line)).unwrap_or_else(|| lower_first(message)),
+        None if message.starts_with("duplicate key ") => message.to_string(),
+        None => hinted(message, line_of(text, error.line))
+            .unwrap_or_else(|| lower_first(&super::super::yaml::words::plain(message))),
     };
     match (error.line, error.column) {
         (Some(line), Some(column)) => super::located(&message, line, column),

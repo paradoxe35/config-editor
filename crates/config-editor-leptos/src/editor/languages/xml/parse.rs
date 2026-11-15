@@ -111,7 +111,7 @@ pub(super) fn build_value(source: &str) -> Result<Value, ParseError> {
                     return Err(syntax_error(
                         source,
                         open.start,
-                        format!("<{}> is never closed: {error}", open.name),
+                        format!("<{0}> is never closed: its end tag </{0}> is missing, or a tag after it is cut off", open.name),
                     ));
                 }
                 return Err(syntax_error(source, position, error.to_string()));
@@ -210,7 +210,7 @@ pub(super) fn build_value(source: &str) -> Result<Value, ParseError> {
         return Err(syntax_error(
             source,
             open.start,
-            format!("unclosed tag \"{}\"", open.name),
+            format!("<{0}> is never closed: its end tag </{0}> is missing", open.name),
         ));
     }
 
@@ -479,7 +479,7 @@ pub(super) fn bad_character_reference(name: &str) -> Option<String> {
 pub(super) fn syntax_error(source: &str, byte: usize, message: impl Into<String>) -> ParseError {
     let (line, column) = line_column(source, byte.min(source.len()));
     ParseError {
-        message: message.into(),
+        message: super::words::plain(&message.into()),
         line: Some(line),
         column: Some(column),
     }

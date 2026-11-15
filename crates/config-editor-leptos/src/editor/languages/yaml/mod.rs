@@ -8,6 +8,7 @@
 
 
 mod parse;
+pub(in crate::editor::languages) mod words;
 mod suggestions;
 mod hover;
 mod indent_above;
@@ -67,46 +68,10 @@ use std::collections::HashSet;
 
 pub(super) struct YamlBehavior;
 
-/// Why a text of several YAML documents (`---` between them) is not read.
-const MULTI_DOCUMENT: &str = "This text holds more than one YAML document (a line --- starts one, a line ... ends one): the editor reads one document per file. Keep one, or split them into files";
-
-
-impl ConfigLanguage for YamlBehavior {
-    fn edits_one_scalar(&self, source: &str, range: std::ops::Range<usize>, inserted: &str) -> bool {
-        scalar_edit::edits_one_scalar(self, source, range, inserted)
-    }
-
-    /// The specification allows any number: one past what the editor
-    /// holds saves (see `wide_integers`).
-    fn unheld_numbers(&self, source: &str, error: &ParseError) -> Vec<std::ops::Range<usize>> {
-        super::wide_integers::unheld_all(source, error)
-    }
-
-    fn info(&self) -> LanguageInfo {
-        LanguageInfo {
-            label: "YAML",
-            icon: "Y",
-            extensions: &["yaml", "yml"],
-        }
-    }
-
-    fn config(&self) -> LanguageConfig {
-        LanguageConfig {
-            line_comments: &["#"],
-            block_comment: None,
-            brackets: &[('{', '}'), ('[', ']')],
-            separators: &[":"],
-            quotes: &["\"", "'"],
-            literal_quotes: &["'"],
-            map_brackets: Some(('{', '}')),
-            list_brackets: Some(('[', ']')),
-            item_separator: Some(','),
-            item_marker: Some("-"),
-            written_separator: Some(": "),
-        }
-    }
-
-    fn parse(&self, source: &str) -> Result<Value, ParseError> {
+impl YamlBehavior {
+    /// `parse` with the reader's own messages (see `words`), for a caller
+    /// that words them itself.
+    pub(in crate::editor::languages) fn parse_raw(&self, source: &str) -> Result<Value, ParseError> {
         // A lone carriage return breaks a line, as CRLF does (YAML 1.2's
         // line breaks): read as LF, as the editor holds the text, so a file
         // with them reads the same headless (a comment line ending in one
@@ -175,6 +140,51 @@ impl ConfigLanguage for YamlBehavior {
             Some(error) => Err(error),
             None => Ok(value),
         })
+    }
+}
+
+
+/// Why a text of several YAML documents (`---` between them) is not read.
+const MULTI_DOCUMENT: &str = "This text holds more than one YAML document (a line --- starts one, a line ... ends one): the editor reads one document per file. Keep one, or split them into files";
+
+
+impl ConfigLanguage for YamlBehavior {
+    fn edits_one_scalar(&self, source: &str, range: std::ops::Range<usize>, inserted: &str) -> bool {
+        scalar_edit::edits_one_scalar(self, source, range, inserted)
+    }
+
+    /// The specification allows any number: one past what the editor
+    /// holds saves (see `wide_integers`).
+    fn unheld_numbers(&self, source: &str, error: &ParseError) -> Vec<std::ops::Range<usize>> {
+        super::wide_integers::unheld_all(source, error)
+    }
+
+    fn info(&self) -> LanguageInfo {
+        LanguageInfo {
+            label: "YAML",
+            icon: "Y",
+            extensions: &["yaml", "yml"],
+        }
+    }
+
+    fn config(&self) -> LanguageConfig {
+        LanguageConfig {
+            line_comments: &["#"],
+            block_comment: None,
+            brackets: &[('{', '}'), ('[', ']')],
+            separators: &[":"],
+            quotes: &["\"", "'"],
+            literal_quotes: &["'"],
+            map_brackets: Some(('{', '}')),
+            list_brackets: Some(('[', ']')),
+            item_separator: Some(','),
+            item_marker: Some("-"),
+            written_separator: Some(": "),
+        }
+    }
+
+    fn parse(&self, source: &str) -> Result<Value, ParseError> {
+        self.parse_raw(source).map_err(words::told)
     }
 
     fn key_span(&self, source: &str, pointer: &str) -> Option<Span> {

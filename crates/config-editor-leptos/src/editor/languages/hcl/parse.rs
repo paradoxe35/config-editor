@@ -20,8 +20,17 @@ pub(super) fn hcl_parse(source: &str) -> Result<Value, ParseError> {
         };
         let line_count = source.split('\n').count().max(1);
         let (line, column) = (line.clamp(1, line_count), column.max(1));
-        let (column, message) = super::super::wide_integers::out_of_range(source, line, column)
-            .unwrap_or_else(|| (column, readable_error(&error.to_string())));
+        let (line, column, message) = match super::super::wide_integers::out_of_range(source, line, column) {
+            Some((column, message)) => (line, column, message),
+            None => {
+                let raw = error.to_string();
+                if raw.contains("invalid nesting depth") {
+                    (line, column, readable_error(&raw))
+                } else {
+                    super::words::plain(source, line, column, &raw)
+                }
+            }
+        };
         ParseError {
             message,
             line: Some(line),

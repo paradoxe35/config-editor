@@ -17,7 +17,7 @@ pub(super) fn toml_parse(source: &str) -> Result<Value, ParseError> {
             let message = if message.starts_with("cannot recurse further") {
                 super::super::nesting::too_deep(super::super::nesting::VALUES)
             } else {
-                message.to_string()
+                super::words::plain(source, line, column, message)
             };
             (column, message)
         });

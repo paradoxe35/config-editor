@@ -79,7 +79,7 @@ fn mismatched_tags_are_a_parse_error_with_a_position() {
 #[test]
 fn unclosed_tags_are_a_parse_error_at_the_open_tag() {
     let error = parse_error("<server>\n  <host>");
-    assert!(error.message.contains("unclosed"), "{}", error.message);
+    assert!(error.message.contains("never closed"), "{}", error.message);
     assert_eq!(error.line, Some(2));
     assert_eq!(error.column, Some(3));
 }

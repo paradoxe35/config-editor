@@ -221,7 +221,7 @@ fn duplicate_mapping_keys_are_reported_on_the_repeated_line() {
     );
     assert_eq!(errors.len(), 1);
     assert_eq!(errors[0].line, Some(2));
-    assert!(errors[0].message.contains("duplicate"));
+    assert!(errors[0].message.contains("written twice"));
 }
 
 #[test]
@@ -233,7 +233,7 @@ fn duplicate_keys_are_detected_in_flow_mappings_and_quoted_forms() {
         let errors = validate_yaml(source, None, None, true);
         assert_eq!(errors.len(), 1, "{source}");
         assert_eq!(errors[0].line, Some(expected_line), "{source}");
-        assert!(errors[0].message.contains("duplicate"), "{source}");
+        assert!(errors[0].message.contains("written twice"), "{source}");
     }
 }
 

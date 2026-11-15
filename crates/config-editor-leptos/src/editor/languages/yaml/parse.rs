@@ -1,6 +1,7 @@
 //! Parsing to a JSON value, and the source spans of keys and values.
 
 use super::*;
+use super::words;
 
 pub(super) fn yaml_parse(source: &str) -> Result<Value, ParseError> {
     let mut parser_config = match super::limits::parser_config(source) {
@@ -81,6 +82,11 @@ pub(super) fn yaml_parse(source: &str) -> Result<Value, ParseError> {
                 }
             }
         }
+        // A value its tag cannot hold has no place of its own: the tag's.
+        let (line, column) = match (line, column, words::tag_place(source, &message)) {
+            (None, None, Some((line, column))) => (Some(line), Some(column)),
+            (line, column, _) => (line, column),
+        };
         ParseError {
             message,
             line,

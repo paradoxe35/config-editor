@@ -260,6 +260,14 @@ mod pairs_matrix;
 #[cfg(all(
     test,
     feature = "yaml",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod parse_words_matrix;
+#[cfg(all(
+    test,
+    feature = "yaml",
     feature = "json",
     feature = "toml",
     feature = "hcl",

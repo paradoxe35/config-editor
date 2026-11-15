@@ -14,6 +14,8 @@
 mod tokens;
 mod scan;
 mod parse;
+mod unclosed;
+mod words;
 mod suggestions;
 mod hover;
 mod editing;

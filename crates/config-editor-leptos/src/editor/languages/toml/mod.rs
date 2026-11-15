@@ -14,6 +14,7 @@ mod style;
 mod constructs;
 mod multiline;
 mod parse;
+mod words;
 mod spans;
 mod lines;
 mod suggestions;
