@@ -6,8 +6,10 @@ use leptos::prelude::*;
 use super::paths::{
     FieldPath, TextPosition, TextRange, field_range, lines, offset_of, path_at, units_at,
 };
+use super::protect::DocumentPlaceholders;
 use super::state::EditorState;
 use crate::reactive::later::Alive;
+use std::sync::Arc;
 
 /// A handle on a mounted [`ConfigEditor`](crate::ConfigEditor), for paths
 /// and positions: where a field is written, which field a position is on,
@@ -39,6 +41,9 @@ pub struct EditorHandle {
     /// The text the editor opens with in place of the host's (a
     /// `ConfigDocuments` document's `edit_as_text`), taken when it mounts.
     opening: StoredValue<Option<String>>,
+    /// The placeholders of every editor of a `ConfigDocuments` view, taken
+    /// when the editor mounts (see `protect::foreign`).
+    foreign: StoredValue<Option<Signal<Arc<Vec<DocumentPlaceholders>>>>>,
 }
 
 impl Default for EditorHandle {
@@ -63,6 +68,7 @@ impl EditorHandle {
             state: RwSignal::new(None),
             show: StoredValue::new(None),
             opening: StoredValue::new(None),
+            foreign: StoredValue::new(None),
         }
     }
 
@@ -89,6 +95,28 @@ impl EditorHandle {
     /// The text to open with, once.
     pub(super) fn take_opening(self) -> Option<String> {
         self.opening.try_update_value(std::mem::take).flatten()
+    }
+
+    /// The editor mounting next with this handle reads the placeholders of
+    /// a documents view's editors from `placeholders` (a signal the
+    /// mounting view owns).
+    pub(crate) fn share_placeholders(self, placeholders: Signal<Arc<Vec<DocumentPlaceholders>>>) {
+        let _ = self.foreign.try_set_value(Some(placeholders));
+    }
+
+    /// The placeholders of a documents view's editors, once.
+    pub(super) fn take_foreign(self) -> Option<Signal<Arc<Vec<DocumentPlaceholders>>>> {
+        self.foreign.try_update_value(std::mem::take).flatten()
+    }
+
+    /// The real placeholders of the editor, once mounted (`source`: its
+    /// document's file name). Tracked.
+    pub(crate) fn placeholders(self, source: String) -> Option<DocumentPlaceholders> {
+        let state = self.state.try_get().flatten()?;
+        if !state.is_alive() {
+            return None;
+        }
+        state.protect().own_placeholders(source)
     }
 
     /// The language on screen.

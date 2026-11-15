@@ -254,6 +254,11 @@ export function installProbe({ kind, vanilla }) {
       return tokens.some(([from, to]) => start > from && start < to && (column === from || column === to));
     };
     if (listed.some((problem) => columns.some((column) => on(problem, column)))) return null;
+    // The walk visits the problems with no place last (the footer shows
+    // them): the caret stays, and the announcement names the one reached.
+    const said = fz.root()?.querySelector('.config-editor__announcement')?.textContent ?? '';
+    const unplaced = (fz.problems[fz.activeId() ?? ''] ?? []).filter((problem) => !problem.line);
+    if (unplaced.some((problem) => problem.message && said.replace(/ +$/, '').endsWith(problem.message))) return null;
     const places = listed.map((problem) => [problem.line, problem.column, problem.endLine ?? null, problem.endColumn ?? null]);
     return `caret at ${caret.line}:${caret.column}, problems at ${JSON.stringify(places).slice(0, 200)}`;
   };

@@ -133,14 +133,7 @@ pub(super) fn next_problem(state: EditorState, event: &KeyboardEvent) -> bool {
     event.prevent_default();
     // Right after an edit the problems are those of the text before the
     // typing pause: check the text as it is now first.
-    let text = state.doc().text.get_untracked();
-    if state
-        .problems()
-        .diagnosed_text
-        .with_untracked(|diagnosed| *diagnosed != text)
-    {
-        state.problems().diagnosed_text.set(text);
-    }
+    state.check_text_now();
     let here = state.doc().caret.get_untracked();
     let problems = state.problems();
     let stops = problems.walk.get_untracked();

@@ -17,6 +17,7 @@ use super::super::paths::{FieldPath, TextRange};
 use super::super::secret_options::SecretOptions;
 use super::super::state::EditorState;
 use super::follow::follow_ranges;
+use super::foreign::DocumentPlaceholders;
 use super::glued::{first_glued, glued_in_save, glued_message};
 use super::guard::{Blocked, check_at};
 use super::host_ranges::{HostRanges, offsets};
@@ -47,6 +48,9 @@ pub(crate) struct ProtectInit {
     pub(crate) paths: Option<Signal<Vec<FieldPath>>>,
     pub(crate) ranges: Option<Signal<Vec<TextRange>>>,
     pub(crate) secrets: Option<SecretOptions>,
+    /// The placeholders of the other editors of a documents view (see
+    /// `foreign`).
+    pub(crate) foreign: Option<Signal<Arc<Vec<DocumentPlaceholders>>>>,
 }
 
 /// The bookkeeping of one editor's protection.
@@ -84,6 +88,9 @@ pub(crate) struct ProtectState {
     pub(crate) marks: StoredValue<Marks>,
     /// Secret placeholders (see `secrets`).
     pub(crate) secrets: SecretState,
+    /// The placeholders of the other editors of a documents view, this
+    /// one's own among them (see `foreign`).
+    pub(crate) foreign: Signal<Arc<Vec<DocumentPlaceholders>>>,
 }
 
 /// What the memo of locks reads.
@@ -100,6 +107,7 @@ impl ProtectState {
         let paths = init.paths.unwrap_or_default();
         let ranges = init.ranges.unwrap_or_default();
         let secrets = init.secrets.unwrap_or_default();
+        let foreign = init.foreign.unwrap_or_default();
         if let Err(error) = secrets.check_placeholder() {
             // Also a document problem: no token is a placeholder meanwhile.
             leptos::logging::error!("config-editor: secrets.placeholder: {error}");
@@ -187,6 +195,7 @@ impl ProtectState {
             tip: RwSignal::new(None),
             marks,
             secrets,
+            foreign,
         }
     }
 

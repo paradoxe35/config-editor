@@ -51,8 +51,15 @@ impl<'r, 'a> Placer<'r, 'a> {
     pub(super) fn new(reading: &'r Reading<'a>, previous: Option<&'a Protected>) -> Self {
         let carried = previous.filter(|_| reading.document.is_none());
         let before = previous.filter(|_| reading.document.is_some());
+        // The host's own text reads every field as the host gave it: nothing
+        // is held there (a field locked only while an edit covered it
+        // with a range, gone again, included).
+        let hosts_own = previous
+            .and_then(|previous| previous.origin.as_deref())
+            .is_some_and(|origin| origin == reading.text);
         // Held through a text that does not parse, as pinned.
         let held = match (before, carried, &reading.document) {
+            _ if hosts_own => Vec::new(),
             (Some(before), _, Some(document)) => held_pins(before, document),
             (_, Some(carried), None) => carried
                 .pins

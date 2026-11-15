@@ -87,6 +87,11 @@ pub(crate) fn moved_placeholder(strings: &EditorStrings, pointer: &str, owner: &
     )
 }
 
+/// One of another document's placeholders (`source`: its file name).
+pub(crate) fn foreign_placeholder(strings: &EditorStrings, source: &str) -> String {
+    fill(&strings.foreign_placeholder, &[("source", &source)])
+}
+
 /// A copy of one of the host's placeholders in its own field, past those
 /// the host wrote there.
 pub(crate) fn extra_placeholder(strings: &EditorStrings, pointer: &str) -> String {

@@ -258,6 +258,7 @@ fn mount(
             paths: Some(props.paths.into()),
             ranges: Some(props.ranges.into()),
             secrets: None,
+            foreign: None,
         },
         on_save: None,
         on_baseline_conflict: None,

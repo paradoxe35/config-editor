@@ -115,6 +115,7 @@ pub use host_editing::{BaselineConflict, SaveRequest};
 pub use language::ParseError;
 pub use languages::{Language, UnknownLanguage};
 pub use paths::{FieldPath, TextPosition, TextRange};
+pub(crate) use protect::DocumentPlaceholders;
 pub use secret_options::SecretOptions;
 pub use theme::{EditorTheme, ThemeColor, ThemeColors, UnknownTheme};
 
@@ -351,6 +352,7 @@ pub fn ConfigEditor(
             paths: read_only_paths,
             ranges: read_only_ranges,
             secrets,
+            foreign: handle.and_then(EditorHandle::take_foreign),
         },
         on_save,
         on_baseline_conflict,

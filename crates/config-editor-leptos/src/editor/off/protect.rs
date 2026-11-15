@@ -27,7 +27,13 @@ pub(super) struct ProtectInit {
     pub(super) paths: Option<Signal<Vec<FieldPath>>>,
     pub(super) ranges: Option<Signal<Vec<TextRange>>>,
     pub(super) secrets: Option<SecretOptions>,
+    #[allow(dead_code, reason = "the same input as protection's, unread here")]
+    pub(super) foreign: Option<Signal<Arc<Vec<DocumentPlaceholders>>>>,
 }
+
+/// Another editor's placeholders: none in this build.
+#[derive(Clone, PartialEq)]
+pub(crate) struct DocumentPlaceholders;
 
 /// What protection would read.
 #[allow(dead_code, reason = "the same inputs as protection's, unread here")]
@@ -90,6 +96,10 @@ impl ProtectState {
 
     pub(super) fn accepted_tokens(&self) -> Vec<(String, String)> {
         Vec::new()
+    }
+
+    pub(super) fn own_placeholders(&self, _source: String) -> Option<DocumentPlaceholders> {
+        None
     }
 
     pub(super) fn has_placeholders(&self) -> bool {

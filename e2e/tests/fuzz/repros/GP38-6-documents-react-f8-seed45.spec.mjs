@@ -3,7 +3,7 @@ import { replay } from '../runner.mjs';
 
 // Shrunk by the browser fuzz from seed 45 on documents-react.
 // Fails the `f8` check after step 3: after F8 1: caret at 3:1, problems at [[1,1,null,13],[2,1,null,9]]
-test.fixme('GP38-6 documents-react: f8 (seed 45)', async ({ browser }) => {
+test('GP38-6 documents-react: f8 (seed 45)', async ({ browser }) => {
   await replay(
     browser,
     'documents-react',

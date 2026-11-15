@@ -800,16 +800,53 @@ fn switch_languages(state: EditorState, host: Host) {
     }
     Effect::new(move |_| {
         state.problems().diagnosed_text.track();
-        // Not on a step back through undo: the switch would end redo, and
-        // the steps the user may redo would be lost. The next edit (which
-        // ends redo anyway) makes it.
-        if state.doc().history.with_untracked(EditHistory::can_redo) {
+        retry_pending_switch(state);
+    });
+}
+
+/// Tries a switch still waiting for the document to convert, after the
+/// typing pause. Not on a step back through undo: the switch would end
+/// redo, and the steps the user may redo would be lost. The next edit
+/// (which ends redo anyway) makes it.
+fn retry_pending_switch(state: EditorState) {
+    if state.doc().history.with_untracked(EditHistory::can_redo) {
+        return;
+    }
+    if let Some(next) = state.sync().pending_switch.get_untracked() {
+        switch_to(state, next);
+    }
+}
+
+impl EditorState {
+    /// Does the typing pause's work for the text on screen now, so the
+    /// problems are those of this text (F8 walks them at once): checks it,
+    /// tries a switch still waiting, and converts an edit-as edit, whose
+    /// problems (where it does not convert back) are placed on this text,
+    /// not on the one before the last keys.
+    pub(super) fn check_text_now(&self) {
+        let state = *self;
+        let text = state.doc().text.get_untracked();
+        if state
+            .problems()
+            .diagnosed_text
+            .with_untracked(|diagnosed| *diagnosed == text)
+        {
             return;
         }
-        if let Some(next) = state.sync().pending_switch.get_untracked() {
-            try_switch(next);
+        state.problems().diagnosed_text.set(text);
+        retry_pending_switch(state);
+        // A switch made shows another text.
+        let text = state.doc().text.get_untracked();
+        if state
+            .problems()
+            .diagnosed_text
+            .with_untracked(|diagnosed| *diagnosed != text)
+        {
+            state.problems().diagnosed_text.set(text.clone());
         }
-    });
+        let language = state.sync().edit_language.get_untracked();
+        convert_now(state, text, language);
+    }
 }
 
 impl EditorState {

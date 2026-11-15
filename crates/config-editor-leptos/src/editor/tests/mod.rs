@@ -414,6 +414,8 @@ mod suggestion_scale;
 ))]
 mod unevaluated_beside_errors;
 mod utf16_offsets;
+#[cfg(all(feature = "yaml", feature = "hcl"))]
+mod walk_after_keys;
 #[cfg(all(
     feature = "schema-validation",
     feature = "yaml",

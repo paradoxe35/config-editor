@@ -29,6 +29,7 @@ mod components;
 mod copied;
 mod follow;
 mod follow_items;
+mod foreign;
 mod glued;
 mod guard;
 mod hooks;
@@ -52,6 +53,7 @@ mod view;
 mod whole_guard;
 
 pub(super) use components::ProtectTipView;
+pub(crate) use foreign::DocumentPlaceholders;
 pub(crate) use glued::glued_message;
 #[cfg(feature = "schema-validation")]
 pub(crate) use hooks::secret_pointers;
@@ -222,6 +224,15 @@ mod follow_items_tests;
     feature = "hcl",
     feature = "xml"
 ))]
+mod foreign_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
 mod glued_broken_host_tests;
 #[cfg(all(
     test,
@@ -268,6 +279,8 @@ mod guard_scale_tests;
     feature = "xml"
 ))]
 mod held_tests;
+#[cfg(all(test, feature = "yaml"))]
+mod held_undo_tests;
 #[cfg(all(
     test,
     feature = "yaml",

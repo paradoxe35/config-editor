@@ -10,6 +10,7 @@ use super::model::{CloseRequest, Document};
 use super::plan::{Fate, SchemaCache, Setup, active_after, reconcile};
 use super::tab_names::TabNames;
 use crate::EditorStrings;
+use crate::editor::DocumentPlaceholders;
 use crate::reactive::{Relay, detached_owner, later};
 use crate::{
     Diagnostic, EditorHandle, EditorSettings, FieldPath, HostDiagnostic, Language, SaveRequest,
@@ -290,6 +291,11 @@ pub(super) struct Follows {
     /// Every tab's file name: what a tab shows of its own depends on the
     /// others' (see `tab_names`).
     pub(super) names: Relay<Arc<TabNames>>,
+    /// The real placeholders of every mounted editor: the view owns which
+    /// placeholders exist across its documents, and each editor flags
+    /// another document's written in it (see the editor's
+    /// `protect::foreign`).
+    pub(super) placeholders: Relay<Arc<Vec<DocumentPlaceholders>>>,
 }
 
 /// Where the focus goes when a document is selected.
@@ -388,6 +394,18 @@ impl Documents {
                     Arc::new(settings.with(|settings| settings.strings.clone()))
                 }),
                 names: Relay::new(move || tab_names.get()),
+                placeholders: Relay::new(move || {
+                    let placeholders = entries.with(|entries| {
+                        entries
+                            .iter()
+                            .filter_map(|entry| {
+                                let source = entry.file_name.try_get()?;
+                                entry.handle.placeholders(source)
+                            })
+                            .collect()
+                    });
+                    Arc::new(placeholders)
+                }),
             },
             root: NodeRef::new(),
             strip: NodeRef::new(),

@@ -278,7 +278,9 @@ fn carried_past(
     sources: Sources<'_>,
 ) -> Option<Protected> {
     let previous = sources.previous?;
-    if !same_sources(previous, sources) || previous.text == text {
+    // Back to the host's own text, nothing held is carried: it is read.
+    let hosts_own = !previous.held.is_empty() && previous.origin.as_deref() == Some(text);
+    if !same_sources(previous, sources) || previous.text == text || hosts_own {
         return None;
     }
     let shift = out_of_reach(behavior, previous, &previous.text, text)?;

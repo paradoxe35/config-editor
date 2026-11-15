@@ -1036,6 +1036,12 @@ export interface EditorStrings {
    */
   movedPlaceholder?: string;
   /**
+   * One of another document's placeholders (in a documents view), `{source}` its file name.
+   *
+   * @default "This placeholder stands for a secret of {source}, not of this document; here it is plain text"
+   */
+  foreignPlaceholder?: string;
+  /**
    * One of the host's placeholders written in its own field more often than the host gave it there: a copy of it.
    *
    * @default "{pointer}: this placeholder is in this field already; another copy of it is plain text"

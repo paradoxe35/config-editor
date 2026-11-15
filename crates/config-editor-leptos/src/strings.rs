@@ -425,6 +425,9 @@ pub struct EditorStrings {
     pub unknown_placeholder: String,
     /// One of the host's placeholders outside the field it stands in.
     pub moved_placeholder: String,
+    /// One of another document's placeholders (in a documents view),
+    /// `{source}` its file name.
+    pub foreign_placeholder: String,
     /// One of the host's placeholders written in its own field more often
     /// than the host gave it there: a copy of it.
     pub extra_placeholder: String,
@@ -774,6 +777,9 @@ impl Default for EditorStrings {
             ),
             moved_placeholder: text(
                 "{pointer}: this placeholder stands for the secret of {owner}, not this field's; here it is plain text",
+            ),
+            foreign_placeholder: text(
+                "This placeholder stands for a secret of {source}, not of this document; here it is plain text",
             ),
             extra_placeholder: text(
                 "{pointer}: this placeholder is in this field already; another copy of it is plain text",

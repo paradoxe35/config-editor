@@ -139,6 +139,15 @@ impl SecretMatcher {
         found
     }
 
+    /// Whether `other` finds the same tokens in every text: the same
+    /// pattern, and no host check (a check is a function, never compared).
+    pub(crate) fn finds_as(&self, other: &SecretMatcher) -> bool {
+        self.is_placeholder.is_none()
+            && other.is_placeholder.is_none()
+            && self.pattern.as_ref().map(|pattern| pattern.as_str())
+                == other.pattern.as_ref().map(|pattern| pattern.as_str())
+    }
+
     /// [`Self::find`] in a piece of text (a string of the parsed document),
     /// not remembered.
     pub(crate) fn find_in(&self, text: &str) -> Vec<Range<usize>> {

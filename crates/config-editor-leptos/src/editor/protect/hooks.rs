@@ -11,6 +11,7 @@ use super::super::completion::{Completion, SuggestionPlace};
 use super::super::diagnostics::{Diagnostic, Severity};
 use super::super::language::ConfigLanguage;
 use super::super::line_rows::MarkedLines;
+use super::foreign::{DocumentPlaceholders, foreign_placeholders};
 use super::glued::glued_placeholders;
 use super::live::ProtectState;
 use super::problems::unknown_placeholders;
@@ -75,9 +76,21 @@ impl ProtectState {
         self.secrets.known_tokens()
     }
 
-    /// Whether the host gave any placeholder. Tracked.
+    /// Whether the host gave any placeholder, or another document of a
+    /// documents view did. Tracked.
     pub(crate) fn has_placeholders(&self) -> bool {
         self.secrets.known.with(|known| !known.is_empty())
+            || self.foreign.with(|foreign| !foreign.is_empty())
+    }
+
+    /// This editor's real placeholders, as the other editors of a
+    /// documents view read them (`source`: its document's file name).
+    /// Tracked.
+    pub(crate) fn own_placeholders(&self, source: String) -> Option<DocumentPlaceholders> {
+        let matcher = self.secrets.matcher.get_value();
+        self.secrets
+            .known
+            .with(|known| DocumentPlaceholders::new(source, matcher, known))
     }
 
     /// The document problem (an error) saying the host's placeholder pattern
@@ -98,8 +111,9 @@ impl ProtectState {
         })
     }
 
-    /// A warning on each placeholder of `text` that is not real: one of the
-    /// host's out of its own field, or one the host did not give in a field
+    /// A warning on each placeholder of `text` that is not real: one of
+    /// another document's (see `foreign`), one of the host's out of its own
+    /// field, or one the host did not give in a field
     /// `schema` marks secret. `on_screen`: `text` is the text on screen,
     /// whose real placeholders are followed through every edit (and stand
     /// while it does not parse). Tracked.
@@ -118,9 +132,20 @@ impl ProtectState {
                 } else {
                     Vec::new()
                 };
+                let foreign = self
+                    .foreign
+                    .with(|others| foreign_placeholders(text, matcher, known, others, strings));
                 let mut problems = unknown_placeholders(
                     behavior, text, matcher, known, &followed, schema, strings,
                 );
+                // Another document's token in a secret field is that, not
+                // a token no host gave.
+                let flagged: std::collections::HashSet<_> = foreign
+                    .iter()
+                    .map(|other| (other.line, other.column))
+                    .collect();
+                problems.retain(|problem| !flagged.contains(&(problem.line, problem.column)));
+                problems.extend(foreign);
                 problems.extend(glued_placeholders(behavior, text, known, strings));
                 problems
             })
