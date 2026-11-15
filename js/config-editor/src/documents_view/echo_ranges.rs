@@ -5,7 +5,7 @@
 
 use config_editor_leptos::{Document, TextRange};
 
-use crate::given_ranges::{Again, stay};
+use crate::host_locks::{Again, stay};
 use crate::remap::{moved_between, reads_as};
 
 /// The listed `document`'s text was read as an echo, `applies` or not
@@ -15,17 +15,18 @@ use crate::remap::{moved_between, reads_as};
 /// text's places) move to it, but for ranges that stay where its editor
 /// moved them. Returns the ranges its editor is given when they are not
 /// the ones the list read (the next list compares with these, see
-/// `given_ranges::Listed::kept`): those its editor was given before, or
-/// the ones read in the listed text moved to `current`.
+/// `host_locks::Listed::took`): those its editor was given before, or
+/// the ones read in the listed text moved to `current`; and whether its
+/// editor keeps the ranges it was given before (they stayed).
 pub(crate) fn take(
     document: &mut Document,
     current: &str,
     again: Option<Again>,
     applies: bool,
-) -> Option<Vec<TextRange>> {
+) -> (Option<Vec<TextRange>>, bool) {
     // The ranges given last, with a text that does not replace the
     // document's (an echo, or that text as the editor reads it), stay
-    // where its editor moved them (see `given_ranges`).
+    // where its editor moved them (see `host_locks`).
     let replaces = applies && !reads_as(&document.value, current);
     let mut kept = None;
     let ranges_stay = match again {
@@ -42,7 +43,7 @@ pub(crate) fn take(
         // with it, they are not read in its places (QA 35, HO35-1).
         kept = Some(document.read_only_ranges.clone());
     }
-    kept
+    (kept, ranges_stay)
 }
 
 /// The listed `document`'s text is an echo: it keeps `current`, and the

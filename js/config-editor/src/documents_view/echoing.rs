@@ -5,13 +5,14 @@
 use std::collections::HashSet;
 
 use config_editor_leptos::js_support::flush_pending_input;
-use leptos::prelude::{GetValue, UpdateValue, WithValue};
+use leptos::prelude::{GetValue, UpdateValue, WithUntracked, WithValue};
 use wasm_bindgen::JsValue;
 
 use super::State;
 use super::echo_ranges::take;
 use crate::documents_list::Listed;
 use crate::echoes::{Echo, Echoes};
+use crate::host_locks::Again;
 use crate::mount::call_host_with;
 use crate::settle;
 
@@ -32,7 +33,20 @@ impl State {
         if !self.echoing {
             return (resend, settles);
         }
-        let mut ranges_kept = Vec::new();
+        // What each document's editor did with the ranges listed (see
+        // `host_locks::Listed::took`).
+        let mut took = Vec::new();
+        let shown_ranges = |id: &str| {
+            self.documents
+                .try_with_untracked(|documents| {
+                    documents
+                        .iter()
+                        .find(|document| document.id == id)
+                        .map(|document| document.read_only_ranges.clone())
+                })
+                .flatten()
+                .unwrap_or_default()
+        };
         let _ = self.echoes.try_update_value(|echoes| {
             {
                 // The documents no longer listed: one lookup each.
@@ -57,11 +71,28 @@ impl State {
                     };
                     echo.at(now);
                     let echo = echo.received(&document.value, current, flushed);
-                    let again = listed.ranges_again.remove(&document.id);
+                    let mut again = listed.ranges_again.remove(&document.id);
                     let applies = echo == Echo::Apply;
-                    if let Some(ranges) = take(document, current, again, applies) {
-                        ranges_kept.push((document.id.clone(), ranges));
+                    // Ranges listed with a text from before the host's last
+                    // reset are for a text it replaced: the shown ones stay
+                    // (see `Echoes::before_reset`), and the same ones listed
+                    // next are read in their text.
+                    let before_reset = !applies
+                        && echoes
+                            .get(&document.id)
+                            .is_some_and(|echo| echo.before_reset(&document.value));
+                    if before_reset {
+                        document.read_only_ranges = shown_ranges(&document.id);
+                        again = Some(Again::Stayed);
                     }
+                    let (kept, stayed) = take(document, current, again, applies);
+                    took.push((
+                        document.id.clone(),
+                        current.clone(),
+                        kept,
+                        stayed,
+                        before_reset,
+                    ));
                     if applies {
                         continue;
                     }
@@ -73,13 +104,11 @@ impl State {
             })
         });
         // The next list compares with the ranges the editors kept.
-        if !ranges_kept.is_empty() {
-            let _ = self.kept.try_update_value(|kept| {
-                for (id, ranges) in ranges_kept {
-                    kept.ranges.kept(&id, ranges);
-                }
-            });
-        }
+        let _ = self.kept.try_update_value(|kept| {
+            for (id, current, ranges, stayed, before_reset) in took {
+                kept.locks.took(&id, &current, ranges, stayed, before_reset);
+            }
+        });
         (resend, settles)
     }
 

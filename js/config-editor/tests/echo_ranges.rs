@@ -12,8 +12,8 @@ mod remap;
 
 // Its lists of ranges given are for the library.
 #[allow(dead_code)]
-#[path = "../src/given_ranges.rs"]
-mod given_ranges;
+#[path = "../src/host_locks.rs"]
+mod host_locks;
 
 #[path = "../src/documents_view/echo_ranges.rs"]
 mod echo_ranges;

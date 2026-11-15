@@ -3,7 +3,7 @@
 use config_editor_leptos::{Document, TextPosition, TextRange};
 
 use super::take;
-use crate::given_ranges::Again;
+use crate::host_locks::Again;
 
 /// A language's sample: its file name, text, the range locking its last
 /// field (as `rangeOf` gives it, by lines), the text a line is typed
@@ -91,7 +91,7 @@ fn ranges_that_stay_are_not_moved_from_an_echo() {
         for echo in &texts {
             let applies = echo == current;
             let mut document = Document::new("m", file, echo.clone()).read_only_ranges(vec![lock]);
-            let kept = take(&mut document, current, Some(Again::Stayed), applies);
+            let kept = take(&mut document, current, Some(Again::Stayed), applies).0;
             assert_eq!(kept, None, "{file} {echo:?}");
             assert_eq!(document.read_only_ranges, vec![lock], "{file} {echo:?}");
             assert_eq!(document.value, *current, "{file} {echo:?}");
@@ -111,7 +111,7 @@ fn ranges_read_in_an_echo_give_way_to_the_ones_given() {
         let current = texts.last().expect("typed");
         for echo in &texts[..texts.len() - 1] {
             let mut document = Document::new("m", file, echo.clone()).read_only_ranges(vec![read]);
-            let kept = take(&mut document, current, Some(Again::Read(vec![lock])), false);
+            let kept = take(&mut document, current, Some(Again::Read(vec![lock])), false).0;
             assert_eq!(kept, Some(vec![lock]), "{file} {echo:?}");
             assert_eq!(document.read_only_ranges, vec![lock], "{file} {echo:?}");
             assert_eq!(document.value, *current, "{file} {echo:?}");
@@ -119,7 +119,7 @@ fn ranges_read_in_an_echo_give_way_to_the_ones_given() {
         // The host's own text: the ranges read in it.
         let mut document =
             Document::new("m", file, sample.text.to_string()).read_only_ranges(vec![read]);
-        let kept = take(&mut document, current, Some(Again::Read(vec![lock])), true);
+        let kept = take(&mut document, current, Some(Again::Read(vec![lock])), true).0;
         assert_eq!(kept, None, "{file}");
         assert_eq!(document.read_only_ranges, vec![read], "{file}");
         assert_eq!(document.value, sample.text, "{file}");

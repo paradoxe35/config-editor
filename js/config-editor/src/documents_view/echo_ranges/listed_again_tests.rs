@@ -2,7 +2,7 @@
 //! the user typed past, listed again (the same echo twice, two echoes
 //! giving the same ranges, three lists, older echoes after the newest),
 //! with typing between the lists. The list as a
-//! documents view reads it (`given_ranges::Listed`, then [`take`]), and
+//! documents view reads it (`host_locks::Listed`, then [`take`]), and
 //! the editor as it takes its ranges (only ranges that differ from the
 //! ones it was given replace the ones it moved), over every language,
 //! ranges by lines and by index, and typing above, next to and below the
@@ -12,7 +12,7 @@ use config_editor_leptos::{Document, TextPosition, TextRange};
 
 use super::take;
 use super::tests::SAMPLES;
-use crate::given_ranges::{Again, Listed, stay};
+use crate::host_locks::Listed;
 use crate::remap::moved_between;
 
 /// How the host writes its ranges (what a list is compared by).
@@ -110,7 +110,15 @@ struct View<'a> {
 impl<'a> View<'a> {
     fn new(file: &'a str, first: &'a str, lock: TextRange, form: Form) -> Self {
         let mut listed = Listed::default();
-        listed.read("m", Some(print(lock, first, form)), vec![lock]);
+        listed
+            .list::<()>(
+                "m",
+                Some(print(lock, first, form)),
+                first,
+                || true,
+                |_| Ok(vec![lock]),
+            )
+            .expect("listed");
         listed.finish();
         Self {
             first,
@@ -138,17 +146,15 @@ impl<'a> View<'a> {
         let given = print(range, echo, self.form);
         // As `documents_list::with_protection` reads it: an echo does not
         // replace the editor's text.
-        let replaces = false;
-        let (ranges, again) = match self.listed.again("m", Some(&given)) {
-            Some(ranges) if stay(true, replaces) => (ranges, Some(Again::Stayed)),
-            last => (vec![range], last.map(Again::Read)),
-        };
-        self.listed.read("m", Some(given), ranges.clone());
+        let (ranges, again) = self
+            .listed
+            .list::<()>("m", Some(given), echo, || false, |_| Ok(vec![range]))
+            .expect("listed");
         self.listed.finish();
         let mut document = Document::new("m", self.file, echo.to_string()).read_only_ranges(ranges);
-        if let Some(kept) = take(&mut document, &self.text, again, false) {
-            self.listed.kept("m", kept);
-        }
+        let (kept, stayed) = take(&mut document, &self.text, again, false);
+        self.listed.took("m", &self.text, kept, stayed, false);
+        self.listed.taken();
         assert_eq!(document.value, self.text);
         if document.read_only_ranges != self.given {
             self.given.clone_from(&document.read_only_ranges);

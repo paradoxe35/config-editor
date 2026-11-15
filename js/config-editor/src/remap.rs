@@ -16,6 +16,9 @@
 #[path = "remap/stretches.rs"]
 mod stretches;
 
+#[path = "remap/reset.rs"]
+mod reset;
+
 use config_editor_leptos::{DiagnosticTarget, HostDiagnostic, TextPosition, TextRange};
 
 use crate::text_lines::TextLines;
@@ -143,6 +146,22 @@ pub(crate) fn moved_between(
         ranges.map(|list| remap.ranges(list)),
         diagnostics.map(|list| remap.diagnostics(list)),
     )
+}
+
+/// Host `ranges` given for `from`, carried into `to`, a text of the host's
+/// own that replaces it (each read as the editor reads positions: see
+/// [`as_read`]): each locked line to the line holding its text there (see
+/// `reset`), not grown over what changed.
+pub(crate) fn carried(from: &str, to: &str, ranges: &[TextRange]) -> Vec<TextRange> {
+    if ranges.is_empty() {
+        return Vec::new();
+    }
+    let (from, to) = (as_read(from), as_read(to));
+    if from == to {
+        return ranges.to_vec();
+    }
+    let carry = reset::Carry::new(&from, &to);
+    ranges.iter().map(|range| carry.range(*range)).collect()
 }
 
 #[cfg(test)]

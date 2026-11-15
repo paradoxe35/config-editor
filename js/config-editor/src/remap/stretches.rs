@@ -11,7 +11,7 @@
 use std::ops::Range;
 
 #[path = "line_runs.rs"]
-pub(super) mod line_runs;
+pub(in crate::remap) mod line_runs;
 
 /// One stretch two texts differ in, as UTF-16 offsets: `from` in the first
 /// text became `to` in the second. Stretches come in text order, with

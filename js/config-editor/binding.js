@@ -411,8 +411,8 @@ export class EditorBinding extends Binding {
       return;
     }
     this.guard((editor) => {
-      if (editor.value === value) return;
-      editor.replaceValue(value);
+      // A reset to the document as it is changes nothing, and is not reported.
+      if (!editor.replaceValue(value)) return;
       // The host's state follows the reset: it is reported like an edit,
       // and its echo is recognised like one.
       this.#sync.sent(value);
@@ -583,6 +583,8 @@ export class DocumentsBinding extends Binding {
       return false;
     }
     return this.ask((view) => {
+      // A reset to the text the document holds changes nothing, and is not
+      // reported: the parent's list holds it once.
       if (!view.replaceValue(id, value)) return false;
       // The parent's list follows, as after an edit.
       this.props.onChange?.(id, value);

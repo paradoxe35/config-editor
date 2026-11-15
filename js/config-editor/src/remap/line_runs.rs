@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use std::ops::Range;
 
 /// A run of `old` lines and the run of `new` lines it became.
-pub(super) type Run = (Range<usize>, Range<usize>);
+pub(in crate::remap) type Run = (Range<usize>, Range<usize>);
 
 /// Gaps up to this many lines (both texts together) go to Myers without
 /// looking for anchors: its search costs at most this many lines' worth
@@ -42,7 +42,7 @@ fn note(lines: usize) {
 }
 
 /// The runs `old` and `new` differ in, in order, none touching another.
-pub(super) fn line_runs(old: &[&str], new: &[&str]) -> Vec<Run> {
+pub(in crate::remap) fn line_runs(old: &[&str], new: &[&str]) -> Vec<Run> {
     let mut runs: Vec<Run> = Vec::new();
     let mut budget = ANCHOR_BUDGET * (old.len() + new.len());
     // Gaps left to diff, the next one last.

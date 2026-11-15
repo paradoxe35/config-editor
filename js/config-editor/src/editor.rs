@@ -14,14 +14,15 @@ use wasm_bindgen::prelude::*;
 use crate::echoes::{self, Echo, Echoes};
 use crate::handle_calls;
 use crate::host_diagnostics::host_diagnostics_from;
+use crate::host_locks::{HostLocks, print, stay};
 use crate::languages::{language_named, writable_edit_as};
 use crate::mount::{self, IN_CALLBACK, Latest, Setup, State, call_host};
 use crate::options::{
     EDITOR_OPTIONS, EDITOR_REMOUNT_OPTIONS, bool_option, function_option, string_option,
     warn_unknown_options,
 };
-use crate::protect::{paths_from, ranges_from, secrets_from};
-use crate::remap::moved_between;
+use crate::protect::{paths_from, ranges_from, ranges_in, secrets_from};
+use crate::remap::{moved_between, reads_as};
 use crate::settings::{settings_from, settings_result};
 use crate::settle;
 use crate::told::{self, Told};
@@ -59,8 +60,9 @@ pub struct ConfigEditor {
     reentry: crate::reentry::Reentry,
     /// The options it cannot change, as given (see `update`).
     built_from: crate::update::BuiltFrom,
-    /// The `readOnlyRanges` given last (see `given_ranges`).
-    ranges_given: crate::given_ranges::Given,
+    /// The host's `readOnlyRanges`, as given, in the text they name places
+    /// in (see `host_locks`).
+    locks: RefCell<HostLocks>,
 }
 
 /// The unmount handle, reactive owner, and element of an editor.
@@ -243,7 +245,7 @@ impl ConfigEditor {
             handle: EditorHandle::new(),
             host_diagnostics: RwSignal::new(host_diagnostics),
             read_only_paths: RwSignal::new(read_only_paths),
-            read_only_ranges: RwSignal::new(read_only_ranges),
+            read_only_ranges: RwSignal::new(read_only_ranges.clone()),
             told: StoredValue::new_local(Told::default()),
             echoes: StoredValue::new_local({
                 let mut given = Echoes::new(echoes);
@@ -252,6 +254,7 @@ impl ConfigEditor {
             }),
             settle: StoredValue::new_local(Timer::default()),
         });
+        let setup_value = value.clone();
         let setup = Setup {
             language,
             value,
@@ -281,7 +284,12 @@ impl ConfigEditor {
             id: std::cell::Cell::new(Some(id)),
             reentry: crate::reentry::Reentry::default(),
             built_from: crate::update::BuiltFrom::of(&options, editor_fixed(language)),
-            ranges_given: crate::given_ranges::Given::new(&field(&options, "readOnlyRanges")),
+            locks: RefCell::new(HostLocks::given(
+                print(&field(&options, "readOnlyRanges")),
+                ranges_for.as_deref().unwrap_or(&setup_value),
+                &setup_value,
+                read_only_ranges,
+            )),
         })
     }
 
@@ -316,7 +324,7 @@ impl ConfigEditor {
     /// `rangesFor`, else `value` (an echo included), else the document,
     /// and are moved from that text to the document; `readOnlyRanges` equal
     /// to the last ones, given with no new text, stay where the editor
-    /// moved them (see `given_ranges`). The text `onChange` gave last, given
+    /// moved them (see `host_locks`). The text `onChange` gave last, given
     /// while an edit still held is sent first, keeps the document.
     /// `language`, `schema`, `fileName`, `className`,
     /// `secrets` and `echoes` are what the editor is built from: they throw (create
@@ -403,12 +411,12 @@ impl ConfigEditor {
         let settings = settings_change(&current, &options)?;
         // The ranges given last, given again with no `rangesFor`, stay where
         // the editor moved them while the document stays the text it holds
-        // (see `given_ranges`): not read again.
+        // (see `host_locks`): not read again.
         let ranges_given = given(&options, "readOnlyRanges");
+        let ranges_print = ranges_given.as_ref().and_then(print);
         let ranges_again = ranges_for.is_none()
-            && ranges_given
-                .as_ref()
-                .is_some_and(|list| self.ranges_given.same(list));
+            && ranges_given.is_some()
+            && self.locks.borrow().again(ranges_print.as_deref()).is_some();
         // Ranges are checked in the text they were given for (moved to the
         // document once it is known, below).
         let (mut host_diagnostics, mut read_only_ranges) = {
@@ -443,8 +451,11 @@ impl ConfigEditor {
                 .transpose()?;
             let read_only_ranges = ranges_given
                 .as_ref()
-                .filter(|_| !ranges_again || !crate::given_ranges::stay(true, replaces()))
-                .map(|list| ranges_from(list, host_text, "readOnlyRanges"))
+                .filter(|_| !ranges_again || !stay(true, replaces()))
+                .map(|list| {
+                    let locks = self.locks.borrow();
+                    ranges_in(list, host_text, Some(locks.came_with()), "readOnlyRanges")
+                })
                 .transpose()?;
             (host_diagnostics, read_only_ranges)
         };
@@ -488,26 +499,56 @@ impl ConfigEditor {
                 .unwrap_or(Echo::Apply)
         });
         let shown = value.as_ref().filter(|_| echo == Some(Echo::Apply));
-        // The ranges given last, with a text that does not apply (an echo
-        // skipped, a text older than the typing), stay where they are too.
-        if crate::given_ranges::stay(ranges_again, shown.is_some()) {
+        // Ranges given with a text from before the host's last reset are
+        // for a text it replaced: the shown ones stay (see
+        // `Echoes::before_reset`), and the same ones given next are read
+        // in their text.
+        let before_reset = shown.is_none()
+            && value.as_deref().is_some_and(|value| {
+                state
+                    .echoes
+                    .try_with_value(|echoes| echoes.before_reset(value))
+                    .unwrap_or(false)
+            });
+        if before_reset {
             read_only_ranges = None;
         }
-        if let Some(list) = &ranges_given {
-            self.ranges_given.remember(list);
+        // The ranges given last, with a text that does not apply (an echo
+        // skipped, a text older than the typing), stay where they are too.
+        if stay(ranges_again, shown.is_some()) {
+            read_only_ranges = None;
         }
-        // Ranges given for another text than the document are moved to it.
-        if host_diagnostics.is_some() || read_only_ranges.is_some() {
+        // Ranges given for another text than the document are moved to it,
+        // and kept as given with the document they name places in;
+        // without them, a text of the host's own that replaces the document
+        // is handed them carried there (see `host_locks`).
+        {
             let latest = self.latest.lock().unwrap_or_else(PoisonError::into_inner);
             let document = shown.map_or(latest.as_str(), String::as_str);
             let host_text = ranges_for
                 .as_deref()
                 .or(value.as_deref())
                 .unwrap_or(document);
-            if host_text != document {
+            if (host_diagnostics.is_some() || read_only_ranges.is_some()) && host_text != document {
                 (read_only_ranges, host_diagnostics) =
                     moved_between(host_text, document, read_only_ranges, host_diagnostics);
             }
+            let mut locks = self.locks.borrow_mut();
+            if before_reset {
+                locks.forget();
+            } else if ranges_given.is_some() && read_only_ranges.is_none() {
+                // Given again, they stayed: they came with this text.
+                locks.came(host_text);
+            } else if let Some(ranges) = &read_only_ranges {
+                *locks = HostLocks::given(ranges_print, host_text, document, ranges.clone());
+            } else if let Some(value) = shown.filter(|value| !reads_as(value, &latest)) {
+                read_only_ranges = Some(locks.replaced(value));
+            }
+        }
+        // Its ranges before its text: a new text places the ranges it comes
+        // with, never the ones given for the text it replaces.
+        if let Some(ranges) = read_only_ranges {
+            let _ = state.read_only_ranges.try_set(ranges);
         }
         if echo == Some(Echo::Apply)
             && let Some(value) = value
@@ -539,9 +580,6 @@ impl ConfigEditor {
         }
         if let Some(paths) = read_only_paths {
             let _ = state.read_only_paths.try_set(paths);
-        }
-        if let Some(ranges) = read_only_ranges {
-            let _ = state.read_only_ranges.try_set(ranges);
         }
         let added = told::added(callbacks.iter().map(|(name, change, slot)| {
             (
@@ -600,37 +638,38 @@ impl ConfigEditor {
     /// that has not come back yet for its echo; this never does (a revert to
     /// such a text). Echoes still on their way are skipped when they come.
     /// The caret stays on the same text when possible, and the read-only
-    /// ranges on the text they cover; `onChange` does not hear it.
+    /// ranges on the text they cover (see `host_locks`); `onChange` does
+    /// not hear it. Returns whether it replaced the document: `false` when
+    /// it is that text already (a second Discard: nothing changes, and a
+    /// framework binding reports nothing), or the host gave a newer one
+    /// meanwhile.
     #[wasm_bindgen(js_name = replaceValue)]
     pub fn replace_value(
         &self,
         #[wasm_bindgen(unchecked_param_type = "string")] value: JsValue,
-    ) -> Result<(), JsError> {
+    ) -> Result<bool, JsError> {
         let value = text_arg(&value, "value")?;
         self.reentry.note("value");
         let newer = self
             .reentry
             .flush(config_editor_leptos::flush_pending_edits);
         // A text the host gave from `onChange` meanwhile is newer.
-        if self.id.get().is_none() || newer.contains("value") {
-            return Ok(());
+        if self.id.get().is_none() || newer.contains("value") || value == self.latest_text() {
+            return Ok(false);
         }
         // The host's own text: what it holds, no echo to wait for.
         let _ = self
             .state
             .echoes
             .try_update_value(|echoes| echoes.replaced(&value));
-        // The locks go with the text they cover (see `reset_ranges`).
-        let given = self.state.read_only_ranges;
-        if let Some(ranges) =
-            crate::reset_ranges::moved_to(&self.state.handle, &self.latest_text(), &value, || {
-                given.try_get_untracked().unwrap_or_default()
-            })
-        {
+        // The locks go with the text they cover, carried from the ranges
+        // as given (see `host_locks`), before the text they belong to.
+        if !reads_as(&value, &self.latest_text()) {
+            let ranges = self.locks.borrow_mut().replaced(&value);
             let _ = self.state.read_only_ranges.try_set(ranges);
         }
         self.show(value);
-        Ok(())
+        Ok(true)
     }
 
     /// The unified diff (`diff -u`) of the baseline against the document,

@@ -169,7 +169,9 @@ export interface ConfigDocumentsHandle {
   /**
    * Replaces the text of the document `id`, always (a revert or a reset to a
    * text the user just passed through), and reports it through `onChange`
-   * for the parent's list; `false` when there is no such document.
+   * for the parent's list. Returns whether it replaced the text: `false`
+   * when there is no such document or it holds that text already (nothing
+   * is reported then).
    */
   setValue(id: string, value: string): boolean;
 }

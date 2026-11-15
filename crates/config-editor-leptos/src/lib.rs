@@ -185,14 +185,6 @@ pub mod js_support {
         handle.path_at_offset(offset)
     }
 
-    /// The read-only ranges of the editor of `handle` where the edits since
-    /// they were given moved them, as positions in the host's text; `None`
-    /// before it mounts. A host text that replaces the document without
-    /// new ranges (`replaceValue`) gets them moved from there.
-    pub fn read_only_ranges_now(handle: &crate::EditorHandle) -> Option<Vec<crate::TextRange>> {
-        handle.read_only_ranges_now()
-    }
-
     /// Makes the view of `handle` take `documents` (the list just given to
     /// its `documents` signal) now, not once its effects run, so the
     /// active id and every query answer for the new list at once.

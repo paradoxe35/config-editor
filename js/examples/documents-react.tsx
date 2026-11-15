@@ -21,7 +21,14 @@ const initialFiles: DocumentSpec[] = [
 ];
 
 function App() {
-  const [files, setFiles] = useState(initialFiles);
+  const [files, setFilesState] = useState(initialFiles);
+  // The list as last set, rendered or not: what the next render lists, so a
+  // hook reading it works its ranges out on the text it lists them with.
+  const latest = useRef(initialFiles);
+  const setFiles = (change: (list: DocumentSpec[]) => DocumentSpec[]) => {
+    latest.current = change(latest.current);
+    setFilesState(latest.current);
+  };
   const [log, setLog] = useState<string[]>([]);
   const tabs = useRef<ConfigDocumentsHandle>(null);
   // For tests: the view's settings (`setViewSettings`), a document's own
@@ -35,7 +42,7 @@ function App() {
     currentFiles: () => DocumentSpec[];
   };
   hooks.setViewSettings = setSettings;
-  hooks.currentFiles = () => files;
+  hooks.currentFiles = () => latest.current;
   hooks.documentsHandle = tabs;
   const note = (line: string) => setLog((lines) => [...lines, line]);
   const update = (id: string, change: Partial<DocumentSpec>) =>

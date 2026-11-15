@@ -207,6 +207,7 @@ impl State {
     }
 
     fn show(&self, listed: Listed) {
+        let _ = self.kept.try_update_value(|kept| kept.locks.taken());
         remember_texts(self.texts, &listed.documents);
         // A document closed takes what its editor reported with it: a
         // document listed again with its id is a new one.
@@ -215,6 +216,25 @@ impl State {
         });
         let _ = self.overrides.try_set_value(listed.overrides);
         let _ = self.documents.try_set(listed.documents);
+    }
+}
+
+impl State {
+    /// The ranges of the document `id` in `value`, a text of the host's own
+    /// replacing `current`: carried from the ones given (see
+    /// `host_locks`); `None` when it is `current`.
+    fn replaced_locks(
+        &self,
+        id: &str,
+        current: &str,
+        value: &str,
+    ) -> Option<Vec<config_editor_leptos::TextRange>> {
+        if crate::remap::reads_as(current, value) {
+            return None;
+        }
+        self.kept
+            .try_update_value(|kept| kept.locks.get_mut(id).map(|locks| locks.replaced(value)))
+            .flatten()
     }
 }
 
@@ -687,8 +707,11 @@ impl ConfigDocuments {
     /// back yet is its echo; this never is (a revert to such a text). List
     /// the document with that text from then on. Its editor keeps the
     /// caret on the same text when possible, and its read-only ranges on
-    /// the text they cover; `onChange` does not hear it.
-    /// `false` when no document has that id.
+    /// the text they cover (see `host_locks`); `onChange` does not hear it.
+    /// Returns whether it replaced the text: `false` when no document has
+    /// that id, when the document holds that text already (a second
+    /// Discard: nothing changes, and a framework binding reports nothing),
+    /// or when the host gave it a newer one meanwhile.
     #[wasm_bindgen(js_name = replaceValue)]
     pub fn replace_value(
         &self,
@@ -708,16 +731,33 @@ impl ConfigDocuments {
         // The host gave the document a text (or the list) from `onChange`
         // meanwhile: newer than this call.
         if newer.contains(&key) || newer.contains("documents") {
-            return Ok(true);
+            return Ok(false);
         }
-        let _ = self.state.texts.try_update_value(|texts| {
-            if let Some(known) = texts.get_mut(&id) {
-                known.value.clone_from(&value);
-            }
-        });
-        self.state.given(&id, &value);
+        // An editor still to open with an Edit-as text opens first: its
+        // text converts and is sent now, before the reset replaces it (QA
+        // 38, H38-4: converted after it, the value read back was that
+        // text's).
         let edits = self.edits();
-        let ranges = self.ranges_moved_to(&id, &value, &edits);
+        // The text it held: the host's, or the last edit's (see `Texts`).
+        if self
+            .state
+            .texts_of(&id)
+            .is_some_and(|known| known.value == value)
+        {
+            return Ok(false);
+        }
+        let ranges = self
+            .state
+            .texts
+            .try_update_value(|texts| {
+                texts.get_mut(&id).and_then(|known| {
+                    let ranges = self.state.replaced_locks(&id, &known.value, &value);
+                    known.value.clone_from(&value);
+                    ranges
+                })
+            })
+            .flatten();
+        self.state.given(&id, &value);
         let _ = self.state.documents.try_update(|documents| {
             keep_edits(documents, &edits);
             if let Some(document) = documents.iter_mut().find(|document| document.id == id) {
@@ -727,13 +767,6 @@ impl ConfigDocuments {
                 }
             }
         });
-        // A list giving the same ranges again compares with these.
-        if let Some(ranges) = ranges {
-            let _ = self
-                .state
-                .kept
-                .try_update_value(|kept| kept.ranges.kept(&id, ranges));
-        }
         if let Some(documents) = self.state.documents.try_get_untracked() {
             self.owner.with(|| {
                 config_editor_leptos::js_support::take_documents(&self.state.handle, &documents);
@@ -925,33 +958,6 @@ impl ConfigDocuments {
         let (resend, settles) = resend;
         self.state.tell_again(resend, settles);
         Ok(())
-    }
-
-    /// The read-only ranges of the document `id` moved to `value`, the
-    /// text `replaceValue` gives it (see `reset_ranges`): from the text its
-    /// editor holds (`edits`), else the one listed.
-    fn ranges_moved_to(
-        &self,
-        id: &str,
-        value: &str,
-        edits: &HashMap<String, Edited>,
-    ) -> Option<Vec<config_editor_leptos::TextRange>> {
-        let (listed, given) = self
-            .state
-            .documents
-            .try_with_untracked(|documents| {
-                documents
-                    .iter()
-                    .find(|document| document.id == id)
-                    .map(|document| (document.value.clone(), document.read_only_ranges.clone()))
-            })
-            .flatten()?;
-        let current = edits
-            .get(id)
-            .and_then(|edited| edited.value.clone())
-            .unwrap_or(listed);
-        let handle = self.state.handle.editor(id)?;
-        crate::reset_ranges::moved_to(&handle, &current, value, || given)
     }
 
     /// What each open document holds that its list may not say, for

@@ -138,6 +138,11 @@ impl Entry {
     /// Takes the host's new values for a document whose editor stays.
     fn update(&self, documents: Documents, document: &Document) {
         set_if_changed(self.file_name, &document.file_name);
+        // Its ranges before its text: a new text places the ranges it comes
+        // with, never the ones given for the text it replaces (QA 38: a
+        // reset's text placed the old ranges first, and their lock stayed
+        // beside the new one).
+        set_if_changed(self.read_only_ranges, &document.read_only_ranges);
         // A host lists every document again after each keystroke: only one
         // whose text or baseline changed is compared again for being dirty.
         let mut changed = set_if_changed(self.value, &document.value);
@@ -161,7 +166,6 @@ impl Entry {
         set_if_changed(self.settings, &document.settings);
         set_if_changed(self.host_diagnostics, &document.host_diagnostics);
         set_if_changed(self.read_only_paths, &document.read_only_paths);
-        set_if_changed(self.read_only_ranges, &document.read_only_ranges);
         // Its dirty state now, as its editor will report it once it has
         // shown the new text (a `saveAll` in the same task acts on it).
         if changed {

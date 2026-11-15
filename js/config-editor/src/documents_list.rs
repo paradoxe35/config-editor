@@ -8,11 +8,11 @@ use js_sys::{Array, Object};
 use wasm_bindgen::prelude::*;
 
 use crate::given::Given;
-use crate::given_ranges::Again;
 use crate::host_diagnostics::host_diagnostics_from;
+use crate::host_locks::Again;
 use crate::languages::{language_for_path, language_named, writable_edit_as};
 use crate::options::{bool_option, warn_unknown_keys};
-use crate::protect::{paths_from, ranges_from, secrets_from};
+use crate::protect::{paths_from, ranges_in, secrets_from};
 use crate::settings::{setting_keys, settings_over};
 use crate::values::{field, optional_text, text_arg};
 
@@ -43,7 +43,7 @@ pub(crate) struct Listed {
     pub(crate) documents: Vec<Document>,
     pub(crate) overrides: Vec<(String, JsValue)>,
     /// The documents listed with the ranges given last (see
-    /// `given_ranges`), and what became of those ranges.
+    /// `host_locks`), and what became of those ranges.
     pub(crate) ranges_again: HashMap<String, Again>,
 }
 
@@ -56,8 +56,8 @@ pub(crate) struct Kept {
     secrets: HashMap<String, SecretOptions>,
     pub(crate) texts: Given<String>,
     schemas: Given<(String, Schema)>,
-    /// Each document's `readOnlyRanges` as given (see `given_ranges`).
-    pub(crate) ranges: crate::given_ranges::Listed,
+    /// Each document's `readOnlyRanges` as given (see `host_locks`).
+    pub(crate) locks: crate::host_locks::Listed,
 }
 
 impl Kept {
@@ -65,7 +65,7 @@ impl Kept {
     pub(crate) fn abandon(&mut self) {
         self.texts.abandon();
         self.schemas.abandon();
-        self.ranges.abandon();
+        self.locks.abandon();
     }
 }
 
@@ -108,7 +108,7 @@ fn warn_unclaimed(file_name: &str, fallback: Language) {
 /// value)` says whether the text `value` will replace what the editor of
 /// document `id` holds: not that text, an echo, nor the text the host
 /// listed last (its ranges given again are read in it only then, see
-/// `given_ranges`).
+/// `host_locks`).
 pub(crate) fn documents_from(
     list: &JsValue,
     view: &EditorSettings,
@@ -210,7 +210,7 @@ pub(crate) fn documents_from(
         .retain(|id, _| documents.iter().any(|document| document.id == *id));
     kept.texts.finish();
     kept.schemas.finish();
-    kept.ranges.finish();
+    kept.locks.finish();
     Ok(Listed {
         documents,
         overrides,
@@ -221,7 +221,7 @@ pub(crate) fn documents_from(
 /// A document's host problems, read-only fields and secrets. Its ranges
 /// as given last, listed again with a text that does not replace the one
 /// it holds (that text, an echo), keep where its editor moved them (see
-/// `given_ranges`): they are not read again, nor checked, in a text they
+/// `host_locks`): they are not read again, nor checked, in a text they
 /// were not given for (QA 34, HO34-1). Listed with a text that replaces
 /// it, they are read in it, and the ones its editor was given are
 /// returned too (see [`Again`]).
@@ -241,19 +241,13 @@ fn with_protection(
     }
     let paths = paths_from(&field(item, "readOnlyPaths"), &name("readOnlyPaths"))?;
     let given = field(item, "readOnlyRanges");
-    let print = crate::given_ranges::print(&given);
-    let (ranges, again) = match kept.ranges.again(&document.id, print.as_deref()) {
-        Some(ranges)
-            if crate::given_ranges::stay(true, replaces(&document.id, &document.value)) =>
-        {
-            (ranges, Some(Again::Stayed))
-        }
-        last => (
-            ranges_from(&given, &document.value, &name("readOnlyRanges"))?,
-            last.map(Again::Read),
-        ),
-    };
-    kept.ranges.read(&document.id, print, ranges.clone());
+    let (ranges, again) = kept.locks.list(
+        &document.id,
+        crate::host_locks::print(&given),
+        &document.value,
+        || replaces(&document.id, &document.value),
+        |before| ranges_in(&given, &document.value, before, &name("readOnlyRanges")),
+    )?;
     document = document.read_only_paths(paths).read_only_ranges(ranges);
     let given = field(item, "secrets");
     if !given.is_undefined() && !given.is_null() {

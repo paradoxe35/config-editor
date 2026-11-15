@@ -212,6 +212,9 @@ pub(crate) struct Echoes {
     /// The document's print, while known (the text sent, given or shown
     /// last).
     document: Option<Print>,
+    /// When the host's last reset (`replaceValue`) was sent, until the host
+    /// gives that text or one sent after it (see [`Echoes::before_reset`]).
+    reset: Option<u64>,
 }
 
 impl Echoes {
@@ -270,8 +273,27 @@ impl Echoes {
             self.last_given = Some(print);
             if self.document != Some(print) {
                 self.send(print);
+                self.reset = self.order.last_key_value().map(|(serial, _)| *serial);
             }
         }
+    }
+
+    /// Whether `value`, which did not apply, is a text the host held before
+    /// its last reset, which it has not given back yet: ranges worked out
+    /// on it are for a text the reset replaced, and are not moved into the
+    /// document as if the reset were an edit (QA 38, FW38-1: moved across
+    /// it, a lock grew over the line above it, and typing there was
+    /// refused until the host gave the reset back). The shown ranges,
+    /// carried into the reset's text, stay.
+    pub(crate) fn before_reset(&self, value: &str) -> bool {
+        let Some(reset) = self.reset.filter(|_| self.on) else {
+            return false;
+        };
+        let print = Print::of(value);
+        !self
+            .copies
+            .get(&print)
+            .is_some_and(|copies| copies.iter().any(|sent| sent.serial >= reset))
     }
 
     /// The editor sent `text`, the document, to the host (its `onChange`).
@@ -368,6 +390,9 @@ impl Echoes {
             self.copies.remove(&print);
         }
         self.order.remove(&sent.serial);
+        if self.reset.is_some_and(|reset| sent.serial >= reset) {
+            self.reset = None;
+        }
         if self.came_back.is_none_or(|back| sent.serial > back) {
             self.came_back = Some(sent.serial);
             self.returns.push_back((self.now, sent.serial));
@@ -428,6 +453,7 @@ impl Echoes {
                 // echoes.
                 if !same {
                     self.forget_before(flushed);
+                    self.reset = None;
                 }
                 self.document = Some(print);
                 return Echo::Apply;
@@ -471,7 +497,7 @@ impl Echoes {
 
     /// Whether [`Echoes::received`] would take `value` for a text that
     /// replaces the document `current`, without taking it: ranges given
-    /// with it are read in it only then (see `crate::given_ranges`).
+    /// with it are read in it only then (see `crate::host_locks`).
     pub(crate) fn replaces(&mut self, value: &str, current: &str) -> bool {
         let print = Print::of(value);
         !self.same(value, print, current) && (!self.on || self.kind(print) == Kind::Own)
@@ -1106,6 +1132,7 @@ mod tests {
             last_given: echoes.last_given,
             last_listed: echoes.last_listed,
             document: echoes.document,
+            reset: echoes.reset,
         }
     }
 
@@ -1851,5 +1878,48 @@ mod tests {
             assert!(!replaces);
             assert!(reads <= 2, "{lines} lines: {reads} texts read");
         }
+    }
+
+    /// QA 38, FW38-1: after a reset, the texts the host held before it
+    /// (an echo still to come, the text it listed last given again) are
+    /// from before the reset until the host gives the reset's text or one
+    /// typed after it; the host's own text ends it too; without echoes
+    /// nothing is.
+    #[test]
+    fn texts_from_before_a_reset_are_told_until_the_host_gives_it_back() {
+        let (loaded, typed, reset, after) = ("a: 1\n", "a: 12\n", "b: 1\n", "b: 12\n");
+        for gives_back in [reset, after] {
+            let mut echoes = Echoes::new(true);
+            echoes.given(loaded);
+            echoes.sent(typed);
+            assert!(!echoes.before_reset(loaded));
+            echoes.replaced(reset);
+            if gives_back == after {
+                echoes.sent(after);
+            }
+            let current = gives_back;
+            assert!(echoes.before_reset(loaded), "the text listed last");
+            assert!(echoes.before_reset(typed), "an echo sent before the reset");
+            assert!(!echoes.before_reset(reset));
+            assert_ne!(echoes.received(typed, current, NONE), Echo::Apply);
+            assert!(echoes.before_reset(loaded));
+            echoes.received(gives_back, current, NONE);
+            assert!(!echoes.before_reset(loaded), "{gives_back:?} given back");
+            assert!(!echoes.before_reset(typed));
+        }
+        // The host's own text ends it.
+        let mut echoes = Echoes::new(true);
+        echoes.given(loaded);
+        echoes.replaced(reset);
+        assert_eq!(echoes.received("c: 1\n", reset, NONE), Echo::Apply);
+        assert!(!echoes.before_reset(loaded));
+        // A reset to the document as it is, and a host without echoes: none.
+        let mut echoes = Echoes::new(true);
+        echoes.given(loaded);
+        echoes.replaced(loaded);
+        assert!(!echoes.before_reset(typed));
+        let mut echoes = Echoes::new(false);
+        echoes.replaced(reset);
+        assert!(!echoes.before_reset(loaded));
     }
 }

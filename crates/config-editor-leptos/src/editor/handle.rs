@@ -91,13 +91,6 @@ impl EditorHandle {
         self.opening.try_update_value(std::mem::take).flatten()
     }
 
-    /// The host's read-only ranges where the edits since moved them, in
-    /// the host's text (see `EditorState::host_ranges_now`); `None` before
-    /// the editor mounts.
-    pub(crate) fn read_only_ranges_now(self) -> Option<Vec<crate::TextRange>> {
-        Some(self.editor()?.host_ranges_now())
-    }
-
     /// The language on screen.
     pub(crate) fn language_on_screen(self) -> Option<crate::Language> {
         self.editor()?.sync().edit_language.try_get_untracked()
