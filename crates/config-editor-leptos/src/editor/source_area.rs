@@ -9,7 +9,7 @@ use wasm_bindgen::JsValue;
 use std::sync::Arc;
 
 use super::projection::{Projection, Side};
-use super::state::EditorState;
+use super::state::{EditorState, directed_selection};
 
 /// The textarea, with offsets and lines in the document's terms.
 #[derive(Clone)]
@@ -85,23 +85,26 @@ impl SourceArea {
         self.element.selection_direction()
     }
 
-    /// Selects document offsets `start..end`, first opening the folds that
-    /// hide either end: whatever moves the caret shows where it went.
+    /// Selects document offsets `start..end` (the caret at `end`), first
+    /// opening the folds that hide either end: whatever moves the caret
+    /// shows where it went.
     pub(crate) fn set_selection_range(&self, start: u32, end: u32) -> Result<(), JsValue> {
-        self.state.reveal_offsets(start as usize, end as usize);
-        self.element
-            .set_selection_range(self.to_view(start), self.to_view(end))
+        self.set_selection_range_with_direction(start, end, "forward")
     }
 
     /// Selects document offsets `start..end` without opening any fold (a
     /// selection put back as it was, such as after a refused edit; an end
     /// inside a fold goes to its edge).
     pub(crate) fn restore_selection(&self, start: u32, end: u32) -> Result<(), JsValue> {
-        self.element
-            .set_selection_range(self.to_view(start), self.to_view(end))
+        let moved = self
+            .element
+            .set_selection_range(self.to_view(start), self.to_view(end));
+        self.follow_caret();
+        moved
     }
 
-    /// [`set_selection_range`](Self::set_selection_range) with a direction.
+    /// [`set_selection_range`](Self::set_selection_range) with a direction:
+    /// the caret at `start` when it is `"backward"`.
     pub(crate) fn set_selection_range_with_direction(
         &self,
         start: u32,
@@ -109,11 +112,27 @@ impl SourceArea {
         direction: &str,
     ) -> Result<(), JsValue> {
         self.state.reveal_offsets(start as usize, end as usize);
-        self.element.set_selection_range_with_direction(
+        let moved = self.element.set_selection_range_with_direction(
             self.to_view(start),
             self.to_view(end),
             direction,
-        )
+        );
+        self.follow_caret();
+        moved
+    }
+
+    /// The caret: the selection's end that moves (its start when the
+    /// selection is backward), in document offsets.
+    pub(crate) fn caret(&self) -> usize {
+        directed_selection(self).1
+    }
+
+    /// Records the textarea's caret as the editor's (the active line, the
+    /// caret's path). The one place the caret is noted from the textarea:
+    /// every selection the editor sets passes here, and so does every
+    /// selection the browser makes (a key, a click, its own edit).
+    pub(crate) fn follow_caret(&self) {
+        self.state.note_caret(self.caret());
     }
 
     /// Focuses the text area without scrolling the page (see [`crate::focus`]).

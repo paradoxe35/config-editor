@@ -149,7 +149,7 @@ impl EditorState {
                 .text
                 .with_untracked(|text| reveal_offset(&area, text, caret, self.view().scroll_y));
         }
-        self.note_caret(caret);
+        area.follow_caret();
     }
 
     /// The 0-based line of UTF-16 `offset`.

@@ -57,7 +57,6 @@ pub(super) fn smart_home(state: EditorState, event: &KeyboardEvent) -> bool {
         .doc()
         .text
         .with_untracked(|text| reveal_offset(&element, text, target, state.view().scroll_y));
-    state.note_caret(target);
     true
 }
 
@@ -90,7 +89,6 @@ pub(super) fn keep_placeholder(state: EditorState, event: &KeyboardEvent) -> boo
         end + rest[..skip].encode_utf16().count()
     });
     let _ = element.set_selection_range(end as u32, end as u32);
-    state.doc().caret.set(end);
     state.close_suggestions();
     if key == "Tab" {
         event.prevent_default();

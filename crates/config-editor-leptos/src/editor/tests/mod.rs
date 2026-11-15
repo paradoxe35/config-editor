@@ -25,6 +25,8 @@ mod bom_edits;
     feature = "xml"
 ))]
 mod broken_document_suggestions;
+#[cfg(feature = "yaml")]
+mod caret_through_host_values;
 #[cfg(all(
     feature = "yaml",
     feature = "json",

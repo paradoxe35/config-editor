@@ -348,7 +348,6 @@ fn show_current(state: EditorState) {
     });
     state.forget_typing_aids();
     state.close_suggestions();
-    state.note_caret(end);
 }
 
 fn selected_text(state: EditorState) -> Option<String> {

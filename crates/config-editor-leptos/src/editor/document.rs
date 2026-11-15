@@ -68,7 +68,10 @@ impl EditorState {
         self.doc().indent.set_value(unit);
     }
 
-    /// Records where the caret is, without touching the textarea.
+    /// Records where the caret is, without touching the textarea: the only
+    /// writer of `caret` and `current_line`. With a textarea, the caret is
+    /// its selection's moving end, noted through `SourceArea` whenever the
+    /// selection is set or read back (see `SourceArea::follow_caret`).
     pub(super) fn note_caret(&self, offset: usize) {
         self.doc().caret.set(offset);
         self.doc().current_line.set(
@@ -80,13 +83,12 @@ impl EditorState {
 
     /// Puts the caret at `offset` in the textarea, in view, and records it.
     pub(super) fn place_caret(&self, offset: usize) {
-        if let Some(element) = self.textarea() {
-            let _ = element.set_selection_range(offset as u32, offset as u32);
-            self.doc().text.with_untracked(|text| {
+        match self.textarea() {
+            Some(element) => self.doc().text.with_untracked(|text| {
                 set_caret_visible(&element, text, offset, self.view().scroll_y)
-            });
+            }),
+            None => self.note_caret(offset),
         }
-        self.note_caret(offset);
     }
 
     /// Focuses the editor with the caret at `line`:`column`, scrolled into
@@ -114,7 +116,6 @@ impl EditorState {
         self.doc()
             .text
             .with_untracked(|text| reveal_offset(&element, text, start, self.view().scroll_y));
-        self.note_caret(start);
         self.close_suggestions();
         self.hide_hover();
         Some(())

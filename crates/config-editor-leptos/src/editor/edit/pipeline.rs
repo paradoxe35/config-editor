@@ -8,7 +8,7 @@ use super::super::fold_ranges::FoldRange;
 use super::super::history::{Selection, Snapshot};
 use super::super::languages::Language;
 use super::super::positioning::set_caret_visible;
-use super::super::state::{EditorState, textarea_selection};
+use super::super::state::{EditorState, directed_selection, select, textarea_selection};
 use super::super::sync::map_through_change;
 use super::{After, Edit, Origin};
 
@@ -28,7 +28,8 @@ pub(in crate::editor) enum Stage {
 /// read-only field gives.
 type Refusal = Option<String>;
 
-/// The textarea's selection and scroll position before a host value.
+/// The textarea's selection (anchor, caret) and scroll position before a
+/// host value.
 type KeptView = (Selection, i32, i32);
 
 impl EditorState {
@@ -101,7 +102,7 @@ impl EditorState {
         }
         let kept = match edit.after {
             After::Mapped => self.textarea().map(|area| {
-                let selection = textarea_selection(&area);
+                let selection = directed_selection(&area);
                 (selection, area.scroll_top(), area.scroll_left())
             }),
             _ => None,
@@ -161,10 +162,12 @@ impl EditorState {
         }
         self.show_text();
         let (start, end) = edit.replaced(edit.caret());
-        if let Some(area) = self.textarea() {
-            let _ = area.restore_selection(start as u32, end as u32);
+        match self.textarea() {
+            Some(area) => {
+                let _ = area.restore_selection(start as u32, end as u32);
+            }
+            None => self.note_caret(start),
         }
-        self.note_caret(start);
         let Some(reason) = reason else {
             self.note_read_only();
             return;
@@ -176,8 +179,9 @@ impl EditorState {
         }
     }
 
-    /// Puts the selection where the edit leaves it, and records the caret.
-    /// Returns the selection left, for the undo step.
+    /// Puts the selection where the edit leaves it; the caret is recorded
+    /// from the textarea (`SourceArea::follow_caret`), or from the edit
+    /// without one. Returns the selection left, for the undo step.
     fn place_selection(&self, edit: &Edit, rewritten: bool, kept: Option<KeptView>) -> Selection {
         let area = self.textarea();
         match edit.after {
@@ -186,34 +190,38 @@ impl EditorState {
                 caret,
                 reveal,
             } => {
-                self.note_caret(caret);
                 let (start, end) = (anchor.min(caret), anchor.max(caret));
-                if let Some(area) = area {
-                    if reveal {
-                        self.doc().text.with_untracked(|text| {
-                            set_caret_visible(&area, text, caret, self.view().scroll_y)
-                        });
-                    }
-                    // The text between the anchor and the caret stays
-                    // selected.
-                    let _ = area.set_selection_range(start as u32, end as u32);
+                let Some(area) = area else {
+                    self.note_caret(caret);
+                    return (start, end);
+                };
+                if reveal {
+                    self.doc().text.with_untracked(|text| {
+                        set_caret_visible(&area, text, caret, self.view().scroll_y)
+                    });
                 }
+                // The text between the anchor and the caret stays selected,
+                // the caret at its own end.
+                select(&area, start, end, caret < anchor);
                 (start, end)
             }
             After::Typed { selection, forced } => {
                 // A rewritten textarea lost the selection the browser left.
-                let after = match area {
+                match area {
                     Some(area) => {
                         if rewritten || forced {
                             let _ =
                                 area.set_selection_range(selection.0 as u32, selection.1 as u32);
+                        } else {
+                            area.follow_caret();
                         }
                         textarea_selection(&area)
                     }
-                    None => selection,
-                };
-                self.note_caret(after.0);
-                after
+                    None => {
+                        self.note_caret(selection.0);
+                        selection
+                    }
+                }
             }
             After::Mapped => {
                 // The caret stays on the same text and the view where it
@@ -221,19 +229,28 @@ impl EditorState {
                 // later `prop:value` (identical text) leaves the selection
                 // alone, and the scroll position writing the value moved
                 // is put back.
-                let (Some(area), Some(((start, end), top, left))) = (area, kept) else {
-                    return (0, 0);
-                };
                 let map = |offset: usize| map_through_change(&edit.before, &edit.text, offset);
-                let (start, end) = (map(start), map(end));
-                let _ = area.set_selection_range(start as u32, end as u32);
+                let (Some(area), Some(((anchor, caret), top, left))) = (area, kept) else {
+                    let caret = map(self.doc().caret.get_untracked());
+                    self.note_caret(caret);
+                    return (caret, caret);
+                };
+                let (anchor, caret) = (map(anchor), map(caret));
+                let (start, end) = (anchor.min(caret), anchor.max(caret));
+                select(&area, start, end, caret < anchor);
                 area.set_scroll_top(top);
                 area.set_scroll_left(left);
                 self.view().scroll_x.set(f64::from(area.scroll_left()));
                 self.view().scroll_y.set(f64::from(area.scroll_top()));
                 (start, end)
             }
-            After::Kept => (0, 0),
+            After::Kept => {
+                // The text changed under the caret: its line and path too.
+                if let Some(area) = area {
+                    area.follow_caret();
+                }
+                (0, 0)
+            }
         }
     }
 

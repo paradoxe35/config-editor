@@ -7,22 +7,6 @@
 // then passes: drop the `fixme`).
 export const KNOWN = [
   {
-    id: 'BR38-1',
-    severity: 'LOW',
-    check: 'selection-head',
-    summary:
-      'With a forward selection (Shift+Down, a drag down) the editor takes the selection start for the caret: the active line, the breadcrumb (onPathChange / currentPath) stay on the anchor line while the caret is on another.',
-    cause: 'crates/config-editor-leptos/src/editor/input.rs (selection sync and key_up note_caret(start))',
-  },
-  {
-    id: 'BR38-2',
-    severity: 'LOW',
-    check: 'caret',
-    summary:
-      'After the host replaces the text (value prop, replaceValue) the textarea selection is mapped but the editor does not record the caret: no line (or the old one) is marked active and currentPath answers for the old caret, until the caret moves.',
-    cause: 'crates/config-editor-leptos/src/editor/edit/pipeline.rs (place_selection, After::Mapped sets the selection without note_caret)',
-  },
-  {
     id: 'BR38-3',
     severity: 'HIGH',
     check: 'lock',
@@ -43,15 +27,6 @@ export const KNOWN = [
       'P1: after a cut that empties the text, a host replaceValue with a secret placeholder and an indent (Ctrl+]), the placeholder is no longer marked (its mark goes on the next render) and typing over part of it goes in: «secret 3f2a» becomes «sec#3f2a».',
     cause:
       'crates/config-editor-leptos/src/editor/protect (secrets.rs / follow.rs: the placeholder spans are not followed through the indent after the replace, so neither snap_to_tokens nor the guard knows the placeholder)',
-  },
-  {
-    id: 'BR38-6',
-    severity: 'MEDIUM',
-    check: 'textarea',
-    summary:
-      'P4 (timing-dependent): while editing as XML with late echoes (?random), an IME commit ends up in the textarea but not in the document (textarea "日本", text "\\n"), and stays so: what the user sees is not what the editor holds or sends.',
-    cause:
-      'crates/config-editor-leptos/src/ime.rs / editor/input.rs (composition end vs the Edit-as typing pause and a late echo resetting the textarea): likely, not confirmed',
   },
 ];
 

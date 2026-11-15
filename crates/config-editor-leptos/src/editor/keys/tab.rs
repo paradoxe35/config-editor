@@ -173,7 +173,6 @@ fn indent_block(
                 .splicing(splices),
         )
     } else {
-        state.note_caret(caret);
         true
     };
     // Keep the block selected, in the same direction (a refused edit

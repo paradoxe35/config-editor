@@ -6,7 +6,7 @@ import { replay } from '../runner.mjs';
 // in 30 replays alone. Fails the `textarea` check after the last step: textarea "日本"
 // but the editor's text (folds cut) "\n": the IME commit is in the textarea, not
 // in the document.
-test.fixme('BR38-6 svelte: textarea (seed 3206)', async ({ browser }) => {
+test('BR38-6 svelte: textarea (seed 3206)', async ({ browser }) => {
   for (let run = 0; run < 20; run += 1) {
     await replay(
       browser,

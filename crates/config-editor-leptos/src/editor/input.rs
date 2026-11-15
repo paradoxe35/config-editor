@@ -179,10 +179,15 @@ pub(super) fn input(state: EditorState, event: &web_sys::Event) {
         state.show_text();
         return;
     }
-    let input_type = event
-        .dyn_ref::<web_sys::InputEvent>()
+    let input_event = event.dyn_ref::<web_sys::InputEvent>();
+    let input_type = input_event
         .map(web_sys::InputEvent::input_type)
         .unwrap_or_default();
+    if state.typing().composing.get_value()
+        && !input_event.is_some_and(web_sys::InputEvent::is_composing)
+    {
+        end_composition_unannounced(state);
+    }
     let (latest, latest_selection) = target_textarea(state, event)
         .map(|element| (element.value(), textarea_selection(&element)))
         .unwrap_or_else(|| (state.doc().text.get_untracked(), (0, 0)));
@@ -229,6 +234,20 @@ pub(super) fn input(state: EditorState, event: &web_sys::Event) {
             .push(later::guarded(state, flush_input))
     });
     later::soon(state, |_| flush_pending_input());
+}
+
+/// The composition is over without a `compositionend`: an input that is
+/// not part of it came. Chrome ends a composition this way when the
+/// textarea's text is rewritten under it (a host value arriving while the
+/// user composes), and the commit then arrives as plain `insertText`. The
+/// composed text not committed went with the rewrite, so the input held
+/// for the composition is dropped: what follows is typing on the text the
+/// textarea shows, and is applied as such (P4: the commit is never held
+/// back waiting for an end that does not come).
+fn end_composition_unannounced(state: EditorState) {
+    state.typing().composing.set_value(false);
+    state.typing().input_burst.set_value(None);
+    state.doc().history.update(EditHistory::seal);
 }
 
 thread_local! {
@@ -484,8 +503,7 @@ pub(super) fn click(state: EditorState, event: &web_sys::MouseEvent) {
     state.forget_typing_aids();
     state.hide_shown_problem();
     if let Some(element) = target_textarea(state, event) {
-        let (position, _) = textarea_selection(&element);
-        state.note_caret(position);
+        element.follow_caret();
         state.completion().active.set(0);
         state.close_suggestions();
         state.hide_hover();
@@ -554,15 +572,14 @@ fn selection_change(state: EditorState) {
     let Some(element) = state.textarea() else {
         return;
     };
-    let (start, _) = textarea_selection(&element);
-    if start != state.doc().caret.get_untracked() {
+    if element.caret() != state.doc().caret.get_untracked() {
         if state.completion().requested.get_untracked()
             && state.completion().suggestions.with_untracked(Vec::is_empty)
         {
             state.close_suggestions();
             state.completion().explicit.set(false);
         }
-        state.note_caret(start);
+        element.follow_caret();
     }
 }
 
@@ -587,8 +604,8 @@ pub(super) fn key_up(state: EditorState, event: &web_sys::KeyboardEvent) {
     if start != end && state.completion().requested.get_untracked() {
         state.close_suggestions();
     }
-    if start != state.doc().caret.get_untracked() {
-        state.note_caret(start);
+    if element.caret() != state.doc().caret.get_untracked() {
+        element.follow_caret();
     }
     // Caret navigation never shows suggestions. ArrowUp/Down move inside an
     // open list instead (handled on keydown).

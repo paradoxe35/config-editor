@@ -192,7 +192,6 @@ fn indent(
         let kept = folds.clone();
         state.commit(with_folds(made, &folds, kept))
     } else {
-        state.note_caret(caret);
         true
     };
     if made && let Some(element) = state.textarea() {

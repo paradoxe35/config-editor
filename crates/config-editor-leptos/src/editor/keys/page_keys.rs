@@ -83,7 +83,6 @@ pub(super) fn page(state: EditorState, event: &KeyboardEvent) -> bool {
         .text
         .with_untracked(|text| reveal_offset(&area, text, target, state.view().scroll_y));
     reveal_in_page(&area, target, metrics.padding_top, line_height);
-    state.note_caret(target);
     true
 }
 

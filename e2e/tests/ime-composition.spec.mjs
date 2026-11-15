@@ -132,3 +132,40 @@ test.describe('a composition is applied once, when it ends', () => {
     await expect.poll(() => value(page)).toBe(text);
   });
 });
+
+// P4: a host value arriving while the user composes rewrites the textarea
+// under the composition; Chrome then ends it without a `compositionend`,
+// and the commit arrives as plain typing. It lands on the host's new text,
+// and so does what is typed after it (not left in the textarea only, with
+// the editor waiting for an end that never comes).
+test.describe('a host value during a composition', () => {
+  test.skip(!built, 'js packages not built: run `npm run build` in js/');
+
+  const cases = [
+    { name: 'replaceValue', options: {}, set: 'window.qa.replaceValue("b: 2\\n")', yaml: true },
+    { name: 'a value prop', options: {}, set: 'window.qa.update({ value: "b: 2\\n" })', yaml: true },
+    { name: 'replaceValue, edited as XML', options: { editAs: 'xml' }, set: 'window.qa.replaceValue("b: 2\\n")', yaml: false },
+  ];
+  for (const { name, options, set, yaml } of cases) {
+    test(`${name}: the commit and the typing after it land on the new text`, async ({ page }) => {
+      const cdp = await mount(page, { language: 'yaml', value: 'a: 1\n', ...options });
+      const text = () => page.evaluate(() => window.qa.text);
+      const textarea = () => input(page).inputValue();
+      const before = await text();
+      await caretAt(page, before.length);
+      // In this order: the composition starts, the host's value comes, the
+      // composition is committed.
+      await cdp.send('Input.imeSetComposition', { text: 'にほん', selectionStart: 3, selectionEnd: 3 });
+      await page.evaluate(set);
+      const replaced = await text();
+      expect(replaced).not.toBe(before);
+      await cdp.send('Input.insertText', { text: '日本' });
+      await expect.poll(text).toBe(`${replaced}日本`);
+      expect(await textarea()).toBe(await text());
+      await page.keyboard.type('z');
+      await expect.poll(text).toBe(`${replaced}日本z`);
+      expect(await textarea()).toBe(await text());
+      if (yaml) await expect.poll(() => value(page)).toBe('b: 2\n日本z');
+    });
+  }
+});

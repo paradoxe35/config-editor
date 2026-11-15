@@ -23,7 +23,6 @@ pub(super) fn request(state: EditorState, event: &KeyboardEvent) -> bool {
     });
     if let Some((element, end)) = selected {
         let _ = element.set_selection_range(end, end);
-        state.note_caret(end as usize);
         // The selected word is to be replaced: every key is offered.
         state.completion().replace_word.set(true);
     }
@@ -77,7 +76,6 @@ pub(super) fn step_past_unchanged(state: EditorState, event: &KeyboardEvent) -> 
     }
     if let Some(element) = state.textarea() {
         let _ = element.set_selection_range(caret as u32, caret as u32);
-        state.doc().caret.set(caret);
     }
     state.close_suggestions();
     // Text after the caret on its line (`nodelay| = true`) would be split
