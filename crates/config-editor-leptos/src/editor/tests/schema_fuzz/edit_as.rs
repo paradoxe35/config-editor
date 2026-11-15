@@ -2,7 +2,7 @@
 //! of another host, or another view of an XML host) saves as the view
 //! reads it: the host reads back the values the view showed, typed as the
 //! schema decides (QA 37/38's SC37-1 and SC38-2 class), and the host has
-//! a problem exactly when the view does.
+//! a problem exactly when the view shows one.
 
 use super::documents::{Shape, document};
 use super::random::Rng;
@@ -58,9 +58,12 @@ pub(super) fn check(case: &Case) -> Verdict {
         return Verdict::Skipped;
     };
     let bridge = Bridge::new(host, edit, Some(both.editor.bundle.clone())).unwrap();
-    if bridge.to_edit(&host_text).is_err() {
-        return Verdict::Skipped;
-    }
+    // The view shows the host's problems too while it cannot show the
+    // host exactly.
+    let inexact = match bridge.to_edit(&host_text) {
+        Ok(shown) => !shown.losses.is_empty(),
+        Err(_) => return Verdict::Skipped,
+    };
     // What XML cannot write is no value to type in an XML view.
     // Nor are a host's values the XML view cannot show (kept as they are
     // by its saves) part of what it reads.
@@ -133,7 +136,7 @@ pub(super) fn check(case: &Case) -> Verdict {
         };
         return Verdict::Fails(failure(class, seen("")));
     }
-    let view_problems = both.problems(edit, &typed);
+    let view_problems = both.view_problems((edit, &typed), (host, &saved), inexact);
     let host_problems = both.problems(host, &saved);
     if view_problems.is_empty() != host_problems.is_empty() {
         return Verdict::Fails(failure(

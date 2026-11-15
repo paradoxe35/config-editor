@@ -501,7 +501,27 @@ pub(super) fn unexplained(error: &ValidationError<'_>) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{fragment, original_path};
+    use serde_json::json;
+
+    use super::{bounded, build, errors, fragment, original_path};
+
+    /// Both validators stop at the budget for a node whose recursion runs
+    /// only through `$recursiveRef`, three members deep at each level.
+    #[test]
+    fn a_recursion_through_recursive_ref_stops_at_the_budget_in_both_validators() {
+        let member =
+            |key: &str| json!({"required": [key], "properties": {"c": {"$recursiveRef": "#"}}});
+        let schema = json!({"$schema": "https://json-schema.org/draft/2019-09/schema",
+            "$recursiveAnchor": true, "allOf": [member("m"), member("d"), member("e")]});
+        let mut document = json!({});
+        for _ in 0..16 {
+            document = json!({ "c": document });
+        }
+        for validator in [build(&schema).unwrap(), bounded(&schema).unwrap()] {
+            let (found, complete) = errors(&validator, &document);
+            assert!(!complete && !found.is_empty() && found.len() < 200_000);
+        }
+    }
 
     #[test]
     fn an_explained_options_path_reads_as_the_schemas() {

@@ -225,6 +225,13 @@ pub(crate) enum Work {
     /// header; one note per byte, see [`note_many`]).
     #[cfg_attr(not(feature = "toml"), allow(dead_code, reason = "only TOML notes it"))]
     ItemLinesBytes,
+    /// A host's text checked by the schema for the problems its Edit-as
+    /// view cannot see (`diagnostics::host_reading`).
+    #[cfg_attr(
+        not(feature = "schema-validation"),
+        allow(dead_code, reason = "only schema validation notes it")
+    )]
+    HostChecked,
 }
 
 impl Work {
@@ -278,6 +285,7 @@ impl Work {
             Self::HostTextCompared => 44,
             Self::AliasScan => 45,
             Self::ItemLinesBytes => 46,
+            Self::HostChecked => 47,
         }
     }
 
@@ -331,12 +339,13 @@ impl Work {
         Self::HostTextCompared,
         Self::AliasScan,
         Self::ItemLinesBytes,
+        Self::HostChecked,
     ];
 }
 
 /// How many kinds of work there are.
 #[cfg(test)]
-const KINDS: usize = 47;
+const KINDS: usize = 48;
 
 #[cfg(test)]
 thread_local! {

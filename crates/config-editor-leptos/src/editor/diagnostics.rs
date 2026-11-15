@@ -1,9 +1,7 @@
 use super::byte_order_mark;
 use super::language::ConfigLanguage;
 #[cfg(feature = "schema-validation")]
-use super::language::Span;
-#[cfg(feature = "schema-validation")]
-use jsonschema::error::{ValidationError, ValidationErrorKind};
+use jsonschema::error::ValidationError;
 use serde_json::Value;
 
 use crate::EditorStrings;
@@ -11,6 +9,10 @@ use crate::strings::{default_strings, fill};
 
 #[cfg(feature = "schema-validation")]
 mod fields;
+mod host_reading;
+pub(super) use host_reading::{ProblemKey, host_problems, with_host_problems};
+#[cfg(feature = "schema-validation")]
+mod schema_problems;
 #[cfg(feature = "schema-validation")]
 use fields::Fields;
 #[cfg(feature = "schema-validation")]
@@ -75,7 +77,6 @@ pub(super) fn capped(mut diagnostics: Vec<Diagnostic>, strings: &EditorStrings) 
 /// `diagnostics` (capped) with the note that the check stopped early, so
 /// more problems may follow: the note that the list was cut, reworded,
 /// or one like it (the footer's count of errors says "+").
-#[cfg(feature = "schema-validation")]
 fn incomplete(mut diagnostics: Vec<Diagnostic>, strings: &EditorStrings) -> Vec<Diagnostic> {
     diagnostics.retain(|diagnostic| diagnostic.code.as_deref() != Some(MORE_PROBLEMS_CODE));
     diagnostics.push(Diagnostic {
@@ -715,11 +716,34 @@ pub(super) fn validate_with(
     accepted: &[(String, String)],
     strings: &EditorStrings,
 ) -> Vec<Diagnostic> {
+    validate_keyed(
+        source,
+        schema,
+        schema_error,
+        enabled,
+        behavior,
+        accepted,
+        strings,
+    )
+    .0
+}
+
+/// [`validate_with`], and the value and keyword of each schema problem
+/// found (see [`ProblemKey`]).
+pub(super) fn validate_keyed(
+    source: &str,
+    schema: Option<&SchemaBundle>,
+    schema_error: Option<&str>,
+    enabled: bool,
+    behavior: &dyn ConfigLanguage,
+    accepted: &[(String, String)],
+    strings: &EditorStrings,
+) -> (Vec<Diagnostic>, Vec<ProblemKey>) {
     if !enabled {
-        return Vec::new();
+        return (Vec::new(), Vec::new());
     }
     if source.trim().is_empty() {
-        return Vec::new();
+        return (Vec::new(), Vec::new());
     }
 
     let document: Value =
@@ -758,7 +782,7 @@ pub(super) fn validate_with(
                     let width = quoted + word + closing;
                     (width > 1).then_some(column + width)
                 });
-                return vec![Diagnostic {
+                let problem = Diagnostic {
                     line: error.line.or(fallback.map(|span| span.line)),
                     column: error.column.or(fallback.map(|span| span.start_column)),
                     end_column: word_end
@@ -767,19 +791,21 @@ pub(super) fn validate_with(
                     message: error.message,
                     severity: Severity::Error,
                     ..Diagnostic::default()
-                }];
+                };
+                return (vec![problem], Vec::new());
             }
         };
 
     if let Some(error) = schema_error {
-        return vec![Diagnostic {
+        let problem = Diagnostic {
             line: None,
             column: None,
             end_column: None,
             message: schema_message(strings, error),
             severity: Severity::Error,
             ..Diagnostic::default()
-        }];
+        };
+        return (vec![problem], Vec::new());
     }
 
     let deprecated = schema
@@ -790,260 +816,17 @@ pub(super) fn validate_with(
     let _ = accepted;
     #[cfg(feature = "schema-validation")]
     if let Some(schema) = schema {
-        let placeholders = Fields::new(accepted_pointers(&document, accepted));
-        let secrets = Fields::new(if schema.has_marks {
-            super::protect::secret_pointers(
-                &document,
-                &schema.schema,
-                behavior.repetition() != crate::editor::language::Repetition::None,
-            )
-        } else {
-            Vec::new()
-        });
-        // Infinities and NaN are numbers to the schema (see `non_finite`).
-        use super::codec::non_finite::{StandIn, for_validation};
-        let validated = for_validation(&document, StandIn::Bounds);
-        let restore = matches!(validated, std::borrow::Cow::Owned(_));
-        // No one stand-in fails every check an infinity or NaN fails: the
-        // other passes add the checks they stand for.
-        let further: Vec<(StandIn, std::borrow::Cow<'_, Value>)> = if restore {
-            StandIn::ALL[1..]
-                .iter()
-                .map(|pass| (*pass, for_validation(&document, *pass)))
-                .collect()
-        } else {
-            Vec::new()
+        let reading = schema_problems::Reading {
+            document: &document,
+            behavior,
         };
-        // The errors shown (enough for the cap), then where each is
-        // written: the spans of their values read at once (see
-        // `paths::with_spans`), not a read of the document each.
-        let (main, mut complete) = schema.errors(&validated);
-        let further: Vec<(StandIn, Vec<ValidationError<'_>>)> = further
-            .iter()
-            .map(|(pass, value)| {
-                let (errors, all) = schema.errors(value);
-                complete &= all;
-                (*pass, errors)
-            })
+        let (found, complete) =
+            schema_problems::found(reading, source, behavior, schema, accepted, strings);
+        let keys = found.iter().map(|(key, _)| key.clone()).collect();
+        let mut diagnostics: Vec<Diagnostic> = found
+            .into_iter()
+            .map(|(_, diagnostic)| diagnostic)
             .collect();
-        // Each option's first explanation, in each validation.
-        let explanations = Explanations::new(
-            std::iter::once(main.as_slice())
-                .chain(further.iter().map(|(_, errors)| errors.as_slice())),
-        );
-        // A problem judging a placeholder's unknown value is none.
-        let judged = |error: &ValidationError<'_>| {
-            placeholders::judges_placeholder(error, &placeholders, &schema.schema, &explanations)
-        };
-        let mut tops: Vec<&ValidationError<'_>> = Vec::new();
-        let mut shown = 0;
-        for top in &main {
-            shown += specific_errors(&explanations, top)
-                .iter()
-                .filter(|error| !judged(error))
-                .count();
-            tops.push(top);
-            if shown > MAX_DIAGNOSTICS {
-                break;
-            }
-        }
-        let mut found: std::collections::HashSet<(String, String)> = tops
-            .iter()
-            .flat_map(|top| specific_errors(&explanations, top))
-            .map(|error| {
-                let keyword = error.kind().keyword().to_string();
-                (error.instance_path().as_str().to_string(), keyword)
-            })
-            .collect();
-        for (pass, errors) in &further {
-            for error in errors {
-                let key = (
-                    error.instance_path().as_str().to_string(),
-                    error.kind().keyword().to_string(),
-                );
-                if shown <= MAX_DIAGNOSTICS
-                    && pass.reports(error.instance(), error.kind())
-                    && !judged(error)
-                    && found.insert(key)
-                {
-                    shown += 1;
-                    tops.push(error);
-                }
-            }
-        }
-        let pointers: Vec<String> = tops
-            .iter()
-            .flat_map(|top| specific_errors(&explanations, top))
-            .map(|error| error.instance_path().as_str().to_string())
-            .collect();
-        let repeats_arrays = behavior.repetition() != super::language::Repetition::None;
-        let unevaluated = unevaluated::Unevaluated::new(
-            &schema.schema,
-            &validated,
-            repeats_arrays,
-            tops.iter()
-                .flat_map(|top| specific_errors(&explanations, top)),
-        );
-        let wording = wording::Wording {
-            root: &schema.schema,
-            strings,
-            secrets: &secrets,
-            placeholders: &placeholders,
-            levels: std::cell::Cell::new(0),
-            explanations: &explanations,
-        };
-        let mut diagnostics = super::paths::with_spans(behavior, source, &pointers, || {
-            tops.iter()
-                .flat_map(|top| {
-                    specific_errors(&explanations, top)
-                        .into_iter()
-                        .flat_map(|error| {
-                            let path = error.instance_path().as_str().to_string();
-                            if judged(error) {
-                                return Vec::new();
-                            }
-                            // The schema's docs for the value (`x-docs-url`):
-                            // its problem links to them, as its hover does.
-                            let docs = super::completion::docs_url_at(
-                                &schema.schema,
-                                &path,
-                                repeats_arrays,
-                            );
-                            let message = wording.message(error);
-                            let message = if restore {
-                                super::codec::non_finite::restore_in_message(&message)
-                            } else {
-                                message
-                            };
-                            let message = if path.is_empty() {
-                                message
-                            } else {
-                                format!("{path}: {message}")
-                            };
-                            // Each unknown key gets its own marker and message, so every
-                            // one is underlined and reachable with F8.
-                            // Each item a list refuses gets its own marker
-                            // where it is written, as an item `items: false`
-                            // refuses does.
-                            let refused_items = match error.kind() {
-                                ValidationErrorKind::AdditionalItems { limit } => Some(
-                                    (*limit..error.instance().as_array().map_or(0, Vec::len))
-                                        .collect(),
-                                ),
-                                ValidationErrorKind::UnevaluatedItems { unexpected } => {
-                                    Some(unevaluated.refused_items(&path, unexpected))
-                                }
-                                _ => None,
-                            };
-                            let locations: Vec<(Option<Span>, String)> = if let Some(indices) =
-                                refused_items
-                            {
-                                indices
-                                    .into_iter()
-                                    .take(MAX_DIAGNOSTICS + 1)
-                                    .filter_map(|index| {
-                                        let item = error.instance().as_array()?.get(index)?.clone();
-                                        let pointer = format!("{path}/{index}");
-                                        let block =
-                                            item.as_object().is_some_and(|map| !map.is_empty())
-                                                || item
-                                                    .as_array()
-                                                    .is_some_and(|items| !items.is_empty());
-                                        let span = super::paths::schema_problem_span(
-                                            behavior, source, &pointer, false, block,
-                                        );
-                                        let value = wording.value_at(&pointer, &item);
-                                        let message = format!(
-                                            "{pointer}: {}",
-                                            super::false_schema::message(&value)
-                                        );
-                                        Some((span, message))
-                                    })
-                                    .collect()
-                            } else if let Some(unexpected) = match error.kind() {
-                                ValidationErrorKind::AdditionalProperties { unexpected } => {
-                                    Some(unexpected.iter().collect::<Vec<_>>())
-                                }
-                                ValidationErrorKind::UnevaluatedProperties { unexpected } => {
-                                    Some(unevaluated.refused_keys(&path, unexpected))
-                                }
-                                _ => None,
-                            } {
-                                let parent = error.instance_path().as_str();
-                                // Only as many as can be shown are located: each is a scan.
-                                unexpected
-                                    .into_iter()
-                                    .take(MAX_DIAGNOSTICS + 1)
-                                    .map(|key| {
-                                        let pointer = format!("{parent}/{}", escape_pointer(key));
-                                        let span = super::paths::schema_problem_key_span(
-                                            behavior, source, &pointer,
-                                        );
-                                        let message = if behavior.text_key() == Some(key.as_str()) {
-                                            // XML mixed content: text beside child elements.
-                                            strings.text_not_allowed.clone()
-                                        } else {
-                                            fill(&strings.key_not_allowed, &[("key", key)])
-                                        };
-                                        // At the root, no pointer, as for the others.
-                                        let message = if parent.is_empty() {
-                                            message
-                                        } else {
-                                            format!("{parent}: {message}")
-                                        };
-                                        (span, message)
-                                    })
-                                    .collect()
-                            } else {
-                                // A non-empty object or list may be written as an
-                                // indented block below its key.
-                                let written_as_block = match error.instance().as_ref() {
-                                    serde_json::Value::Object(map) => !map.is_empty(),
-                                    serde_json::Value::Array(items) => !items.is_empty(),
-                                    _ => false,
-                                };
-                                // A missing property is reported on the object's key.
-                                let location = super::paths::schema_problem_span(
-                                    behavior,
-                                    source,
-                                    &path,
-                                    match error.kind() {
-                                        ValidationErrorKind::Required { .. } => true,
-                                        // Which keys the object has decides it,
-                                        // unless no option takes an object.
-                                        ValidationErrorKind::AnyOf { .. }
-                                        | ValidationErrorKind::OneOfNotValid { .. }
-                                        | ValidationErrorKind::OneOfMultipleValid { .. } => {
-                                            error.instance().is_object()
-                                                && !wording.every_option_wants_another_type(error)
-                                        }
-                                        _ => false,
-                                    },
-                                    written_as_block,
-                                );
-                                vec![(location, message)]
-                            };
-                            locations
-                                .into_iter()
-                                .map(|(location, message)| {
-                                    let location = location.or_else(|| behavior.first_span(source));
-                                    Diagnostic {
-                                        line: location.map(|location| location.line),
-                                        column: location.map(|location| location.start_column),
-                                        end_column: location.map(|location| location.end_column),
-                                        message,
-                                        severity: Severity::Error,
-                                        docs_url: docs.clone(),
-                                        ..Diagnostic::default()
-                                    }
-                                })
-                                .collect::<Vec<_>>()
-                        })
-                        .collect::<Vec<_>>()
-                })
-                .take(MAX_DIAGNOSTICS + 1)
-                .collect::<Vec<_>>()
-        });
         // A key two keywords refuse (`additionalProperties` in one place,
         // `unevaluatedProperties` in another) is one problem.
         let mut seen = std::collections::HashSet::new();
@@ -1059,13 +842,14 @@ pub(super) fn validate_with(
         // schema's order); one with no place first.
         diagnostics.sort_by_key(|diagnostic| (diagnostic.line, diagnostic.column));
         let diagnostics = capped(diagnostics, strings);
-        return if complete {
+        let diagnostics = if complete {
             diagnostics
         } else {
             incomplete(diagnostics, strings)
         };
+        return (diagnostics, keys);
     }
-    deprecated
+    (deprecated, Vec::new())
 }
 
 /// Pointers of the values of `document` that are one of `accepted`: each

@@ -4,7 +4,9 @@
 //! explaining validator (see `diagnostics::explanation`): the plain one
 //! explained a recursive `allOf` node once for every chain of members
 //! above it, 3^depth times, which took seconds 12 levels down and ran
-//! out of memory at 16.
+//! out of memory at 16. A 2019-09 node whose recursion runs only through
+//! `$recursiveRef` did the same on every path: its sites named no
+//! definition that spends the budget (see `explanation::refs`).
 
 use serde_json::{Value, json};
 
@@ -32,6 +34,24 @@ fn draft_04_all_of() -> SchemaBundle {
         &json!({"$schema": "http://json-schema.org/draft-04/schema#",
             "type": "object", "properties": {"root": {"$ref": "#/definitions/node"}},
             "definitions": {"node": {"allOf": [member("m"), member("d"), member("e")]}}})
+        .to_string(),
+    )
+    .unwrap()
+}
+
+/// The same node in draft 2019-09, its recursion only through
+/// `$recursiveRef` (whose value may only be `#`, so no rewrite of it
+/// bounds the work).
+fn recursive_ref_all_of() -> SchemaBundle {
+    let member = |key: &str| {
+        json!({"type": "object", "required": [key], "properties": {
+            key: {"type": "integer"}, "id": {"type": "string"},
+            "c": {"$recursiveRef": "#"}}})
+    };
+    build_schema(
+        &json!({"$schema": "https://json-schema.org/draft/2019-09/schema",
+            "$recursiveAnchor": true,
+            "allOf": [member("m"), member("d"), member("e")]})
         .to_string(),
     )
     .unwrap()
@@ -78,6 +98,38 @@ fn a_recursive_all_of_without_an_explaining_validator_stops_at_the_bound() {
                 problems.len() > 3 && collected < 200_000,
                 "{language:?}, depth {depth}: {collected} errors, {problems:?}"
             );
+        }
+    }
+}
+
+#[test]
+fn a_recursion_only_through_recursive_ref_stops_at_the_bound() {
+    let schema = recursive_ref_all_of();
+    let incomplete = &default_strings().problems_incomplete;
+    for &language in Language::ALL {
+        for depth in DEPTHS {
+            let started = std::time::Instant::now();
+            let text = serialize(language.behavior(), &document(depth)["root"], None).unwrap();
+            let (problems, collected) = counted(Work::ErrorCollected, || {
+                validate(&text, Some(&schema), None, true, language.behavior())
+            });
+            let elapsed = started.elapsed();
+            assert!(
+                elapsed < std::time::Duration::from_secs(4),
+                "{language:?}, depth {depth}: {elapsed:?}"
+            );
+            assert!(
+                problems.len() > 3 && collected < 200_000,
+                "{language:?}, depth {depth}: {collected} errors, {problems:?}"
+            );
+            if depth == 16 {
+                assert!(
+                    problems.iter().any(|problem| problem.code.as_deref()
+                        == Some(MORE_PROBLEMS_CODE)
+                        && &problem.message == incomplete),
+                    "{language:?}, depth {depth}: {problems:?}"
+                );
+            }
         }
     }
 }

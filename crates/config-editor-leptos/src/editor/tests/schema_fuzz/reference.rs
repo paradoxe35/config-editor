@@ -5,7 +5,9 @@ use serde_json::Value;
 
 use crate::editor::Language;
 use crate::editor::codec;
-use crate::editor::diagnostics::{Diagnostic, Schema, Severity};
+use crate::editor::diagnostics::{
+    Diagnostic, Schema, Severity, host_problems, validate_keyed, with_host_problems,
+};
 
 /// The editor's compiled schema and the reference validator, both from
 /// `schema`; `None` when either refuses it.
@@ -40,6 +42,50 @@ impl Both {
     pub(super) fn problems(&self, language: Language, text: &str) -> Vec<Diagnostic> {
         self.editor
             .validate(language, text)
+            .into_iter()
+            .filter(|problem| problem.severity == Severity::Error)
+            .collect()
+    }
+
+    /// The errors an Edit-as view in `edit` shows for its text `view`,
+    /// whose host in `host` holds `host_text`: the view's own, and while
+    /// it cannot show the host exactly (`inexact`), the host's it does not
+    /// have (as the editor finds them, see `diagnostics::host_reading`).
+    pub(super) fn view_problems(
+        &self,
+        (edit, view): (Language, &str),
+        (host, host_text): (Language, &str),
+        inexact: bool,
+    ) -> Vec<Diagnostic> {
+        let strings = crate::strings::default_strings();
+        let bundle = &self.editor.bundle;
+        let (own, keys) = validate_keyed(
+            view,
+            Some(bundle),
+            None,
+            true,
+            edit.behavior(),
+            &[],
+            strings,
+        );
+        let host = inexact
+            .then(|| {
+                host_problems(
+                    host_text,
+                    host.behavior(),
+                    view,
+                    edit.behavior(),
+                    bundle,
+                    &[],
+                    strings,
+                )
+            })
+            .flatten();
+        let shown = match &host {
+            Some(host) => with_host_problems(&own, &keys, host, view, strings),
+            None => own,
+        };
+        shown
             .into_iter()
             .filter(|problem| problem.severity == Severity::Error)
             .collect()

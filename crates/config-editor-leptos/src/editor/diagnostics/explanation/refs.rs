@@ -20,12 +20,15 @@
 //! (whose addresses are their own; a key under `propertyNames` is a text
 //! made for the check) are kept; a scalar's errors are few.
 //!
-//! Left as written: the references under `not` (whose schema a problem
-//! words, see `unwrapped`), and `$recursiveRef`s (which may only name
-//! `#`). In a schema with a `$dynamicRef` or `$recursiveRef`, whose
-//! target depends on the way there, a target is explained each time it
-//! is reached ([`Form::Counted`]). Every form spends the budget of
-//! `bound` for each explanation.
+//! A `$recursiveRef` may only name `#`, so it is not pointed elsewhere:
+//! it moves into its definition as written, the site naming the
+//! definition by a `$ref` (a `$ref` in one resource enters no other, so
+//! it resolves the same there). Left as written: the references under
+//! `not` (whose schema a problem words, see `unwrapped`). In a schema
+//! with a `$dynamicRef` or `$recursiveRef`, whose target depends on the
+//! way there, a target is explained each time it is reached
+//! ([`Form::Counted`]). Every form spends the budget of `bound` for each
+//! explanation.
 
 use std::collections::HashMap;
 
@@ -61,10 +64,11 @@ pub(super) enum Form {
     Stopping,
 }
 
-/// Points each `$ref` of `schema` (each `$dynamicRef` too, but in
-/// [`Form::Explained`]) at a definition explaining its target as `form`
-/// says, numbering them on from `count`. [`Form::Explained`] is
-/// [`Form::Counted`] for a schema with a dynamic reference.
+/// Points each `$ref` of `schema` (each `$dynamicRef` and
+/// `$recursiveRef` too, but in [`Form::Explained`]) at a definition
+/// explaining its target as `form` says, numbering them on from
+/// `count`. [`Form::Explained`] is [`Form::Counted`] for a schema with a
+/// dynamic reference.
 pub(super) fn wrap(schema: &mut Value, count: &mut u64, form: Form) {
     let form = if form == Form::Explained && mentions_key(schema, &["$dynamicRef", "$recursiveRef"])
     {
@@ -98,8 +102,8 @@ pub(in crate::editor::diagnostics) fn is_stop(error: &ValidationError<'_>) -> bo
     matches!(segments.as_slice(), ["anyOf", "1", "allOf", name] if name.starts_with(NAME))
 }
 
-/// The definition, numbered `number`, of `reference` (`$ref` or
-/// `$dynamicRef`) to `target`, in `form`.
+/// The definition, numbered `number`, of `reference` (`$ref`,
+/// `$dynamicRef` or `$recursiveRef`) to `target`, in `form`.
 fn definition(form: Form, reference: &str, target: &str, number: u64) -> Value {
     let to_target = json!({ reference: target });
     match form {
@@ -162,6 +166,44 @@ impl Walk<'_> {
         }
     }
 
+    /// Moves the `$recursiveRef` of `members` into its definition: the
+    /// schema names it by its `$ref`, or by a `$ref` in its `allOf` when
+    /// it has a `$ref` of its own.
+    fn recursive_to_definition(
+        &mut self,
+        members: &mut Map<String, Value>,
+        definitions: &mut Definitions,
+    ) {
+        let Some(Value::String(target)) = members.get("$recursiveRef") else {
+            return;
+        };
+        let target = target.clone();
+        let pointer = self.named(definitions, "$recursiveRef", &target);
+        let to_definition = json!({ "$ref": pointer });
+        if !members.contains_key("$ref") {
+            // In place, keeping the order of the keywords.
+            let held: Vec<(String, Value)> = std::mem::take(members)
+                .into_iter()
+                .map(|(key, member)| {
+                    if key == "$recursiveRef" {
+                        ("$ref".to_string(), to_definition["$ref"].clone())
+                    } else {
+                        (key, member)
+                    }
+                })
+                .collect();
+            members.extend(held);
+            return;
+        }
+        members.remove("$recursiveRef");
+        match members.get_mut("allOf") {
+            Some(Value::Array(all)) => all.push(to_definition),
+            _ => {
+                members.insert("allOf".to_string(), json!([to_definition]));
+            }
+        }
+    }
+
     fn visit(&mut self, value: &mut Value, definitions: &mut Definitions, resource_root: bool) {
         match value {
             Value::Object(members) => {
@@ -192,6 +234,10 @@ impl Walk<'_> {
                         continue;
                     }
                     self.visit(member, definitions, false);
+                }
+                // After the others: its `$ref` names a definition already.
+                if self.form != Form::Explained {
+                    self.recursive_to_definition(members, definitions);
                 }
             }
             Value::Array(items) => {
@@ -294,6 +340,64 @@ mod tests {
             definitions["x-config-editor-ref-2"]["allOf"][1]["then"],
             json!({"$dynamicRef": "#node"})
         );
-        assert_eq!(schema["properties"]["r"]["$recursiveRef"], "#");
+        assert_eq!(
+            schema["properties"]["r"],
+            json!({"$ref": "#/$defs/x-config-editor-ref-3"})
+        );
+        assert_eq!(
+            definitions["x-config-editor-ref-3"]["allOf"][1]["then"],
+            json!({"$recursiveRef": "#"})
+        );
+    }
+
+    #[test]
+    fn a_recursive_reference_beside_a_ref_is_named_in_its_all_of() {
+        let mut schema = json!({"$recursiveAnchor": true, "properties": {"r":
+            {"$ref": "#/$defs/n", "$recursiveRef": "#", "allOf": [{"type": "object"}]}},
+            "$defs": {"n": {}}});
+        wrap(&mut schema, &mut 0, Form::Stopping);
+        let site = &schema["properties"]["r"];
+        assert_eq!(site["$ref"], "#/$defs/x-config-editor-ref-1");
+        assert!(site.get("$recursiveRef").is_none());
+        assert_eq!(
+            site["allOf"],
+            json!([{"type": "object"}, {"$ref": "#/$defs/x-config-editor-ref-2"}])
+        );
+        assert_eq!(
+            schema["$defs"]["x-config-editor-ref-2"]["allOf"][1]["anyOf"][1],
+            json!({"$recursiveRef": "#"})
+        );
+    }
+
+    /// A `$recursiveRef` moved into its definition still reaches the
+    /// outermost `$recursiveAnchor`: a tree extended by another resource
+    /// checks its nodes by the extension.
+    #[test]
+    fn a_moved_recursive_reference_resolves_as_written() {
+        let schema = json!({"$schema": "https://json-schema.org/draft/2019-09/schema",
+            "$id": "https://example.test/strict", "$recursiveAnchor": true,
+            "$ref": "tree", "unevaluatedProperties": false,
+            "$defs": {"tree": {"$id": "https://example.test/tree", "$recursiveAnchor": true,
+                "type": "object",
+                "properties": {"data": true, "kids": {"type": "array",
+                    "items": {"$recursiveRef": "#"}}}}}});
+        let plain = jsonschema::validator_for(&schema).unwrap();
+        let explaining = super::super::build(&schema).unwrap();
+        let bounded = super::super::bounded(&schema).unwrap();
+        for document in [
+            json!({"kids": [{"data": 1}]}),
+            json!({"kids": [{"data": 1, "extra": 2}]}),
+            json!({"kids": [{"kids": [{"extra": 2}]}]}),
+            json!({"kids": [{"kids": 3}]}),
+        ] {
+            let valid = plain.is_valid(&document);
+            assert_eq!(explaining.is_valid(&document), valid, "{document}");
+            assert_eq!(bounded.is_valid(&document), valid, "{document}");
+            let (errors, _) = super::super::errors(&explaining, &document);
+            assert_eq!(errors.is_empty(), valid, "{document}");
+            let (errors, _) = super::super::errors(&bounded, &document);
+            assert_eq!(errors.is_empty(), valid, "{document}");
+        }
+        assert!(!plain.is_valid(&json!({"kids": [{"extra": 2}]})));
     }
 }

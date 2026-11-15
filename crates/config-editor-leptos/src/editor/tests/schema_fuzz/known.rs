@@ -121,15 +121,6 @@ pub(super) const KNOWN: &[Known] = &[
         class: "a fill leaves out a required child",
         applies: |case| overlapping_one_of(&case.schema),
     },
-    // A host value the XML view leaves as shown keeps its host text (P2),
-    // and its problem: the view reads its own text by the schema (`"8"`
-    // under `type: number` reads 8 there), so it does not show that one.
-    Known {
-        finding: "documented: an untouched host value keeps its text and its problem",
-        property: "edit_as",
-        class: "the view and its saved host disagree on problems",
-        applies: |case| untouched_text(&case.doc, &case.other),
-    },
     Known {
         finding: "FZ38-10",
         property: "fill",
@@ -356,23 +347,6 @@ fn overlapping_one_of(schema: &Value) -> bool {
             });
     });
     found
-}
-
-/// Whether `typed` leaves a text of `host` that reads as a number,
-/// boolean or `null` (`"8"`) as it is.
-fn untouched_text(host: &Value, typed: &Value) -> bool {
-    match (host, typed) {
-        (Value::String(text), Value::String(same)) => {
-            text == same
-                && serde_json::from_str::<Value>(text.trim()).is_ok_and(|read| !read.is_string())
-        }
-        (Value::Object(host), Value::Object(typed)) => host.iter().any(|(key, value)| {
-            typed
-                .get(key)
-                .is_some_and(|typed| untouched_text(value, typed))
-        }),
-        _ => false,
-    }
 }
 
 /// Whether `typed` writes, where `host` holds a number, text spelling a

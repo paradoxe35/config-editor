@@ -7,8 +7,11 @@ use std::sync::Arc;
 
 use leptos::prelude::*;
 
-use super::diagnostics::{Diagnostic, SchemaBundle, capped, shift_diagnostics, validate_with};
-use super::edit_as::EditAsProblem;
+use super::diagnostics::{
+    Diagnostic, SchemaBundle, capped, host_problems, shift_diagnostics, validate_keyed,
+    with_host_problems,
+};
+use super::edit_as::{EditAsProblem, EditAsText};
 use super::host_diagnostics::{
     DiagnosticTarget, HostDiagnostic, HostTargets, RangeText, merge as merge_host,
     place as place_host,
@@ -104,14 +107,16 @@ impl ProblemsState {
         let host_text = sync.host_text;
         let (load_problems, conversion_problems) = (sync.load_problems, sync.conversion_problems);
         let line_endings = sync.line_endings;
-        let validated = Memo::new(move |_| {
+        let (synced, synced_edit) = (sync.synced, sync.synced_edit);
+        let host_schema = schema.clone();
+        let checked = Memo::new(move |_| {
             let enabled = enabled.get();
             // The host's placeholders stand for the current secrets.
             let accepted = protect.accepted_tokens();
             let behavior = edit_language.get().behavior();
             strings.with(|strings| {
-                let mut found = diagnosed_text.with(|text| {
-                    validate_with(
+                let (mut found, keys) = diagnosed_text.with(|text| {
+                    validate_keyed(
                         text,
                         schema.as_deref(),
                         schema_error.as_deref(),
@@ -128,7 +133,7 @@ impl ProblemsState {
                     && let Some(problem) =
                         diagnosed_text.with(|text| line_endings.rejected_break(text))
                 {
-                    return vec![problem];
+                    return (vec![problem], Vec::new());
                 }
                 if enabled {
                     let worded = |problems: &Vec<EditAsProblem>| -> Vec<Diagnostic> {
@@ -161,7 +166,51 @@ impl ProblemsState {
                         }));
                     }
                 }
-                found
+                (found, keys)
+            })
+        });
+        // The host's own schema problems while the view cannot show its
+        // text exactly (see `diagnostics::host_reading`): checked each time
+        // the host's text changes, placed in the view's text it matches.
+        let host_checked = Memo::new(move |_| {
+            synced.track();
+            let edit = edit_language.get();
+            let schema = host_schema
+                .as_deref()
+                .filter(|_| enabled.get() && edit != host_language)?;
+            let inexact = load_problems.with(|problems| {
+                problems
+                    .iter()
+                    .any(|problem| matches!(problem.text, EditAsText::EditCannotShow { .. }))
+            });
+            if !inexact {
+                return None;
+            }
+            let accepted = protect.accepted_tokens();
+            let view = synced_edit.get_value();
+            strings.with(|strings| {
+                host_text.with_value(|host| {
+                    host_problems(
+                        host,
+                        host_language.behavior(),
+                        &view,
+                        edit.behavior(),
+                        schema,
+                        &accepted,
+                        strings,
+                    )
+                })
+            })
+        });
+        let validated = Memo::new(move |_| {
+            checked.with(|(own, keys)| {
+                host_checked.with(|host| match host {
+                    Some(host) => strings.with(|strings| {
+                        diagnosed_text
+                            .with(|text| with_host_problems(own, keys, host, text, strings))
+                    }),
+                    None => own.clone(),
+                })
             })
         });
         // The host's problems, placed on the text validation saw; a new list
