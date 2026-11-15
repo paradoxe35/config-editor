@@ -934,7 +934,10 @@ tabs.edit_as("main", Language::TOML);
   list's accessible name, default "Open files"), `initial_active`.
 - **Per document, as on `ConfigEditor`:** `host_diagnostics`,
   `read_only_paths` and `read_only_ranges` (updated in place when the list
-  changes) and `secrets` (read when its editor mounts).
+  changes; ranges listed again keep where the edits moved them, but with
+  another `read_only_ranges_version`, which a host bumps when it gives
+  them anew for its current text) and `secrets` (read when its editor
+  mounts).
 
 ```rust
 use config_editor_leptos::{Document, EditorSettings, FieldPath, HostDiagnostic, Severity};

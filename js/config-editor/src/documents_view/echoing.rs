@@ -108,6 +108,10 @@ impl State {
             for (id, current, ranges, stayed, before_reset) in took {
                 kept.locks.took(&id, &current, ranges, stayed, before_reset);
             }
+            // Each document's ranges as the handing they now are.
+            for document in &mut listed.documents {
+                document.read_only_ranges_version = kept.locks.version(&document.id, false);
+            }
         });
         (resend, settles)
     }

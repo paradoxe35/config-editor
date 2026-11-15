@@ -248,6 +248,7 @@ fn with_protection(
         || replaces(&document.id, &document.value),
         |before| ranges_in(&given, &document.value, before, &name("readOnlyRanges")),
     )?;
+    document.read_only_ranges_version = kept.locks.version(&document.id, true);
     document = document.read_only_paths(paths).read_only_ranges(ranges);
     let given = field(item, "secrets");
     if !given.is_undefined() && !given.is_null() {

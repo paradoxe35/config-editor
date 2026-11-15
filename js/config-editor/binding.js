@@ -207,6 +207,10 @@ export class EditorBinding extends Binding {
   #reset = null;
   // Each live prop as last applied.
   #applied = {};
+  // The bound value each positional prop (`readOnlyRanges`,
+  // `hostDiagnostics`) was given with, when its list last changed: its
+  // places are in that text, sent along as `rangesFor`, on a re-mount too.
+  #givenFor = {};
   #followPath = (path) => this.props.onPathChange?.(path);
   #save = (value, language) => this.props.onSave?.(value, language);
 
@@ -237,9 +241,18 @@ export class EditorBinding extends Binding {
     const value = this.#reset ?? this.#carried?.value ?? props.value ?? props.defaultValue ?? "";
     const baseline = props.baseline ?? this.#carried?.baseline ?? value;
     this.#carried = { value, baseline };
-    // Ranges are in the bound value: on a document carried past it, they
-    // are moved from it to the document.
-    const rangesFor = props.value === undefined || value === props.value ? undefined : props.value;
+    // Ranges are in the text they were given with (the bound value when
+    // their list last changed, or now for a new list): on a document
+    // carried past it, they are moved from it to the document, never read
+    // again in a text they were not given for.
+    const givenFor = (name) =>
+      this.#applied[name] === JSON.stringify(props[name] ?? []) && name in this.#givenFor
+        ? this.#givenFor[name]
+        : props.value;
+    const textFor = givenFor("readOnlyRanges");
+    const rangesFor = textFor === undefined || textFor === value ? undefined : textFor;
+    // Diagnostics given with another text come with the first update.
+    const diagnostics = givenFor("hostDiagnostics") === textFor ? props.hostDiagnostics : undefined;
     return new ConfigEditor(element, {
       ...settings,
       value,
@@ -263,7 +276,7 @@ export class EditorBinding extends Binding {
       onChangeSummary: (summary) => this.props.onChangeSummary?.(summary),
       onProblems: (problems) => this.props.onProblems?.(problems),
       onPathChange: props.onPathChange ? this.#followPath : undefined,
-      hostDiagnostics: props.hostDiagnostics,
+      hostDiagnostics: diagnostics,
       readOnlyPaths: props.readOnlyPaths,
       readOnlyRanges: props.readOnlyRanges,
       rangesFor,
@@ -361,12 +374,18 @@ export class EditorBinding extends Binding {
     if (changed("readOnlyReason", props.readOnlyReason ?? null)) update.readOnlyReason = props.readOnlyReason ?? null;
     for (const name of ["hostDiagnostics", "readOnlyPaths", "readOnlyRanges"]) {
       const list = JSON.stringify(props[name] ?? []);
+      // A new list is given with the bound value now.
+      if (this.#applied[name] !== list) this.#givenFor[name] = value;
       if (changed(name, list)) update[name] = JSON.parse(list);
     }
-    // Ranges are in the bound value, which may be an echo the user typed
-    // past: the editor maps them from it to the document.
+    // Ranges are in the bound value they were given with, which may be an
+    // echo the user typed past: the editor maps them from it to the
+    // document (also when a re-mount sends them again).
     const ranged = (key) => key === "hostDiagnostics" || key === "readOnlyRanges";
-    const rangesFor = (key) => (ranged(key) && value !== undefined ? { rangesFor: value } : {});
+    const rangesFor = (key) => {
+      const text = this.#givenFor[key] ?? value;
+      return ranged(key) && text !== undefined ? { rangesFor: text } : {};
+    };
     const followsPath = props.onPathChange !== undefined;
     if (changed("followsPath", followsPath)) update.onPathChange = followsPath ? this.#followPath : null;
     // `Ctrl+S` is the editor's only while `onSave` is set.

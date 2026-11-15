@@ -36,34 +36,6 @@ export const KNOWN = [
       'crates/config-editor-leptos/src/editor/protect/guard/edit.rs (kept() falls back to lines_kept / kept_by_one_diff: a line diff keeps every locked line, so the stretch between or after them is not judged)',
   },
   {
-    id: 'BR38-4',
-    severity: 'HIGH',
-    check: 'lock-marks',
-    pages: ['react', 'vue', 'svelte'],
-    summary:
-      "P1: a framework component that re-mounts (fileName, language, schema, secrets change) places the host's readOnlyRanges afresh in the current document, not in the text they were given with: after an edit above a lock the lock covers other text and the locked value becomes editable.",
-    cause:
-      'js/config-editor/binding.js (create(): rangesFor is undefined once the bound value has caught up, so the ranges are read in the current text)',
-  },
-  {
-    id: 'BR38-4',
-    severity: 'HIGH',
-    check: 'mounted',
-    pages: ['react', 'vue', 'svelte'],
-    summary:
-      'The same re-mount, when the stale ranges reach past the end of the current text: the new editor fails to mount ("readOnlyRanges[0]: end is past the text\'s end") and the page shows no editor.',
-    cause: 'js/config-editor/binding.js (create(), rangesFor)',
-  },
-  {
-    id: 'BR38-4',
-    severity: 'HIGH',
-    check: 'errors',
-    pages: ['react', 'vue', 'svelte'],
-    match: ({ detail }) => /readOnlyRanges\[\d+\]: end \(\d+\) is past the text's end/.test(detail),
-    summary: 'The failed re-mount of BR38-4 as the binding logs it.',
-    cause: 'js/config-editor/binding.js (create(), rangesFor)',
-  },
-  {
     id: 'BR38-5',
     severity: 'HIGH',
     check: 'secret',
@@ -80,24 +52,6 @@ export const KNOWN = [
       'P4 (timing-dependent): while editing as XML with late echoes (?random), an IME commit ends up in the textarea but not in the document (textarea "日本", text "\\n"), and stays so: what the user sees is not what the editor holds or sends.',
     cause:
       'crates/config-editor-leptos/src/ime.rs / editor/input.rs (composition end vs the Edit-as typing pause and a late echo resetting the textarea): likely, not confirmed',
-  },
-  {
-    id: 'BR38-7',
-    severity: 'HIGH',
-    check: 'lock',
-    pages: ['documents', 'documents-react', 'documents-vue', 'documents-svelte'],
-    summary:
-      "P1: in a ConfigDocuments view, a document's new readOnlyRanges (given after an earlier lock, a copied line and an accepted suggestion) are not enforced: the line they lock is not marked and typing inside it goes in.",
-    cause:
-      "js/config-editor/src/host_locks.rs (a document's ranges given again are placed or followed from the earlier lock's text, not the listed value), with editor/protect/host_ranges.rs",
-  },
-  {
-    id: 'BR38-7',
-    severity: 'HIGH',
-    check: 'lock-marks',
-    pages: ['documents', 'documents-react', 'documents-vue', 'documents-svelte'],
-    summary: 'The same: the lock the host gave last is not marked where it is.',
-    cause: 'js/config-editor/src/host_locks.rs',
   },
 ];
 

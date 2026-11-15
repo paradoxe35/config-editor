@@ -48,6 +48,8 @@ pub(super) struct Entry {
     pub(super) host_diagnostics: RwSignal<Vec<HostDiagnostic>>,
     pub(super) read_only_paths: RwSignal<Vec<FieldPath>>,
     pub(super) read_only_ranges: RwSignal<Vec<TextRange>>,
+    /// Which giving of them they are (see `Document::read_only_ranges_version`).
+    pub(super) read_only_ranges_version: StoredValue<u64>,
     /// Taken when the editor mounts.
     pub(super) secrets: SecretOptions,
     /// The text differs from the baseline: from the editor once mounted,
@@ -95,6 +97,7 @@ impl Entry {
             host_diagnostics: RwSignal::new(document.host_diagnostics.clone()),
             read_only_paths: RwSignal::new(document.read_only_paths.clone()),
             read_only_ranges: RwSignal::new(document.read_only_ranges.clone()),
+            read_only_ranges_version: StoredValue::new(document.read_only_ranges_version),
             secrets: document.secrets.clone().unwrap_or_default(),
             dirty: RwSignal::new(dirty),
             conflicted: RwSignal::new(false),
@@ -142,7 +145,17 @@ impl Entry {
         // with, never the ones given for the text it replaces (QA 38: a
         // reset's text placed the old ranges first, and their lock stayed
         // beside the new one).
-        set_if_changed(self.read_only_ranges, &document.read_only_ranges);
+        // A listing is the ranges and the giving they belong to: another
+        // giving at the same positions (for another text) is placed anew
+        // (QA 38, BR38-7: a new lock at an old lock's first positions was
+        // taken for it, and its line could be edited).
+        if self.read_only_ranges_version.get_value() == document.read_only_ranges_version {
+            set_if_changed(self.read_only_ranges, &document.read_only_ranges);
+        } else {
+            self.read_only_ranges_version
+                .set_value(document.read_only_ranges_version);
+            self.read_only_ranges.set(document.read_only_ranges.clone());
+        }
         // A host lists every document again after each keystroke: only one
         // whose text or baseline changed is compared again for being dirty.
         let mut changed = set_if_changed(self.value, &document.value);

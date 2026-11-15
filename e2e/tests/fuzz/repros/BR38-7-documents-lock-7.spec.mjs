@@ -3,7 +3,7 @@ import { replay } from '../runner.mjs';
 
 // Shrunk by the browser fuzz on documents.
 // Fails the `lock` check after step 5: locked "insecure_plaintext: \n" gone from "listen: 7835\ninsecurQQe_plaintext: \nlisten: 7835\npublic_address: tunnel.example.com\n"
-test.fixme('BR38-7 documents: lock', async ({ browser }) => {
+test('BR38-7 documents: lock', async ({ browser }) => {
   await replay(
     browser,
     'documents',

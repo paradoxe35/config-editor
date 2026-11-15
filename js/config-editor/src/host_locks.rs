@@ -86,6 +86,23 @@ pub(crate) struct HostLocks {
     /// editor was handed from them.
     text: Rc<str>,
     ranges: Vec<TextRange>,
+    /// Which handing of them this is: each new one (given, followed to a
+    /// text, carried into a reset's) has its own, so the view places them
+    /// anew even at the positions handed before (for another text).
+    version: u64,
+}
+
+thread_local! {
+    /// The last handing's version.
+    static VERSIONS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+/// A version no handing had.
+fn next_version() -> u64 {
+    VERSIONS.with(|last| {
+        last.set(last.get() + 1);
+        last.get()
+    })
 }
 
 impl HostLocks {
@@ -115,7 +132,13 @@ impl HostLocks {
             came_with,
             text,
             ranges,
+            version: next_version(),
         }
+    }
+
+    /// Which handing of them this is (see `Document::read_only_ranges_version`).
+    pub(crate) fn version(&self) -> u64 {
+        self.version
     }
 
     /// The ranges, when `print` is their JSON and no text of the host's own
@@ -131,6 +154,7 @@ impl HostLocks {
 
     /// The editor was handed them followed to `text`, as `ranges`.
     pub(crate) fn followed(&mut self, text: &str, ranges: Vec<TextRange>) {
+        self.version = next_version();
         self.text = if ranges.is_empty() {
             Rc::from("")
         } else {
@@ -146,6 +170,7 @@ impl HostLocks {
     /// on it, not on the one the last ones came with.
     pub(crate) fn replaced(&mut self, text: &str) -> Vec<TextRange> {
         self.print = None;
+        self.version = next_version();
         self.came(text);
         carried(&self.text, text, &self.ranges)
     }
@@ -218,6 +243,13 @@ impl Listed {
         };
         self.read.insert(id.to_string(), locks);
         Ok((ranges, again))
+    }
+
+    /// The version of document `id`'s ranges, in the list being read
+    /// (`read`) or the last one.
+    pub(crate) fn version(&self, id: &str, read: bool) -> u64 {
+        let list = if read { &self.read } else { &self.last };
+        list.get(id).map_or(0, HostLocks::version)
     }
 
     /// The view took document `id`'s listed text as an echo or not (see

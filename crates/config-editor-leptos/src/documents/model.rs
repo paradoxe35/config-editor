@@ -84,8 +84,14 @@ pub struct Document {
     /// `read_only_paths`; update live.
     pub read_only_paths: Vec<FieldPath>,
     /// Stretches of this document's text the user cannot change, as the
-    /// editor's `read_only_ranges`; update live.
+    /// editor's `read_only_ranges`; update live: ranges listed as before
+    /// keep where the editor moved them with the user's edits.
     pub read_only_ranges: Vec<TextRange>,
+    /// Which giving of [`read_only_ranges`](Self::read_only_ranges) this
+    /// is: listed with another version, they are a new listing (ranges for
+    /// another text) and are placed where they say, even at the positions
+    /// listed before. Left as it is (`0`), the ranges alone tell.
+    pub read_only_ranges_version: u64,
     /// Secret placeholders, as the editor's `secrets`. Read when the editor
     /// mounts (the first time the document is shown, or at once when it
     /// is listed with an [`edit_as_text`](Self::edit_as_text)).
@@ -117,6 +123,7 @@ impl Document {
             host_diagnostics: Vec::new(),
             read_only_paths: Vec::new(),
             read_only_ranges: Vec::new(),
+            read_only_ranges_version: 0,
             secrets: None,
         }
     }

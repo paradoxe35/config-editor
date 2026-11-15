@@ -228,12 +228,16 @@ impl State {
         id: &str,
         current: &str,
         value: &str,
-    ) -> Option<Vec<config_editor_leptos::TextRange>> {
+    ) -> Option<(Vec<config_editor_leptos::TextRange>, u64)> {
         if crate::remap::reads_as(current, value) {
             return None;
         }
         self.kept
-            .try_update_value(|kept| kept.locks.get_mut(id).map(|locks| locks.replaced(value)))
+            .try_update_value(|kept| {
+                kept.locks
+                    .get_mut(id)
+                    .map(|locks| (locks.replaced(value), locks.version()))
+            })
             .flatten()
     }
 }
@@ -762,8 +766,9 @@ impl ConfigDocuments {
             keep_edits(documents, &edits);
             if let Some(document) = documents.iter_mut().find(|document| document.id == id) {
                 document.value = value;
-                if let Some(ranges) = &ranges {
+                if let Some((ranges, version)) = &ranges {
                     document.read_only_ranges.clone_from(ranges);
+                    document.read_only_ranges_version = *version;
                 }
             }
         });
