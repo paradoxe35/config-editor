@@ -249,6 +249,19 @@ mod secret_inside_messages;
     feature = "xml"
 ))]
 mod kept_defaults;
+// Random edit sequences reach every optional feature but diffs and
+// schema validation.
+#[cfg(all(
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml",
+    feature = "folding",
+    feature = "search",
+    feature = "protect"
+))]
+mod fuzz_edit;
 mod save;
 #[cfg(all(feature = "yaml", feature = "schema-validation"))]
 mod schema_options;

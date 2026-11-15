@@ -31,6 +31,11 @@ use actions::{
     step, toggle_option,
 };
 use matcher::{SearchMatch, SearchOptions};
+// The random editing tests make Replace through the widget's own action
+// (in the builds with every language).
+#[cfg(test)]
+#[allow(unused_imports, reason = "used by the random editing tests")]
+pub(super) use actions::replace_current as replace_one_match;
 
 use leptos::prelude::*;
 
