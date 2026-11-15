@@ -49,6 +49,48 @@ fn check(
     }
 }
 
+/// [`check`] for an edit the host cannot write as the view holds it: the
+/// save waits on the value, in every view.
+fn check_waits(
+    failures: &mut Vec<String>,
+    name: &str,
+    host: Language,
+    host_text: &str,
+    pointer: &str,
+    list: &str,
+) {
+    for view in [
+        Language::YAML,
+        Language::JSON,
+        Language::TOML,
+        Language::HCL,
+        Language::XML,
+    ] {
+        let Some(bridge) = Bridge::new(host, view, None) else {
+            continue;
+        };
+        let Ok(shown) = bridge.to_edit(host_text) else {
+            continue;
+        };
+        let mut value = codec::read(view.behavior(), &shown.text, None).unwrap();
+        *value.pointer_mut(pointer).unwrap() = serde_json::from_str::<Value>(list).unwrap();
+        let edited = codec::serialize(view.behavior(), &value, Some(&shown.text)).unwrap();
+        // A view that writes no empty list or map there (TOML, XML) no
+        // longer holds the key: removing it is the view's value.
+        let held = codec::read(view.behavior(), &edited, None)
+            .is_ok_and(|read| read.pointer(pointer).is_some());
+        if !held {
+            continue;
+        }
+        if let Ok(saved) = bridge.to_host(&edited, host_text) {
+            failures.push(format!(
+                "{name} via {}: saved, not waiting:\n{saved}",
+                view.label()
+            ));
+        }
+    }
+}
+
 #[test]
 fn comments_follow_items_moved_while_edited_added_or_removed() {
     let mut failures = Vec::new();
@@ -268,11 +310,13 @@ fn comments_follow_the_items_of_a_list_that_starts_the_document() {
     assert!(failures.is_empty(), "{}", failures.join("\n\n"));
 }
 
-/// M23-E2: every repeated HCL block or TOML `[[table]]` removed (the list
-/// emptied) goes with its comments, as XML's repeated elements do: no
-/// `tag = []` attribute for a block type, no comment left behind.
+/// M23-E2, revised by QA `FZ38-3`: every repeated HCL block or TOML
+/// `[[table]]` removed leaves the view holding an empty list, which the
+/// host does not write (no `tag = []` attribute for a block type): the
+/// save waits, rather than drop the key the view still holds. Deleting the
+/// key in the view removes the blocks (`moves` tests above).
 #[test]
-fn emptying_a_list_written_as_blocks_or_tables_removes_them() {
+fn emptying_a_list_written_as_blocks_or_tables_waits() {
     let mut failures = Vec::new();
     let cases: [(&str, Language, &str, &str, &str); 5] = [
         (
@@ -311,18 +355,19 @@ fn emptying_a_list_written_as_blocks_or_tables_removes_them() {
             "x = 1\n\n# T\n[t]\ny = 2\n",
         ),
     ];
-    for (name, host, text, pointer, expected) in cases {
-        check(&mut failures, name, host, text, pointer, "[]", expected);
+    for (name, host, text, pointer, _) in cases {
+        check_waits(&mut failures, name, host, text, pointer, "[]");
     }
     assert!(failures.is_empty(), "{}", failures.join("\n\n"));
 }
 
-/// M24-E1: every labelled HCL block removed (the map of its labels
-/// emptied, at any of its labels) goes with its comments, as unlabelled
-/// ones do: no `svc {}` or `resource "aws_s3" {}` left, which Terraform
-/// refuses.
+/// M24-E1, revised by QA `FZ38-3`: every labelled HCL block removed
+/// leaves the view holding an empty map at its type (or label), which the
+/// host does not write (`svc {}` or `resource "aws_s3" {}` Terraform
+/// refuses): the save waits, rather than drop the key the view still
+/// holds.
 #[test]
-fn emptying_the_labels_of_blocks_removes_them() {
+fn emptying_the_labels_of_blocks_waits() {
     let mut failures = Vec::new();
     let services = "x = 1\n\n# A\nsvc \"a\" {\n  p = 1\n}\n\n# B\nsvc \"b\" {\n  p = 2\n}\n";
     let resource = "# R\nresource \"aws_s3\" \"b\" {\n  acl = \"x\"\n}\n\nx = 1\n";
@@ -333,16 +378,8 @@ fn emptying_the_labels_of_blocks_removes_them() {
         ("the inner label", resource, "/resource/aws_s3", "x = 1\n"),
         ("in a block", nested, "/top/svc", "top {\n  x = 1\n}\n"),
     ];
-    for (name, text, pointer, expected) in cases {
-        check(
-            &mut failures,
-            name,
-            Language::HCL,
-            text,
-            pointer,
-            "{}",
-            expected,
-        );
+    for (name, text, pointer, _) in cases {
+        check_waits(&mut failures, name, Language::HCL, text, pointer, "{}");
     }
     assert!(failures.is_empty(), "{}", failures.join("\n\n"));
 }

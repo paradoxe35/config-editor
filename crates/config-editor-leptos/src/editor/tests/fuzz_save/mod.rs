@@ -121,10 +121,12 @@ fn run(case: &Case) -> Result<bool, Broke> {
             }
             if trace {
                 println!(
-                    "-- {op:?} ({}, in sync {}):\n{}",
+                    "-- {op:?} ({}, in sync {}):\n{}--- host:\n{}--- problems: {:?}",
                     state.sync().edit_language.get_untracked().label(),
                     state.sync().in_sync.get_untracked(),
-                    state.doc().text.get_untracked()
+                    state.doc().text.get_untracked(),
+                    state.sync().host_text.get_value(),
+                    state.sync().conversion_problems.get_untracked()
                 );
             }
             if op.saves() {

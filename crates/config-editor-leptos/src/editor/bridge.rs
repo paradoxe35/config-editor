@@ -19,7 +19,6 @@ use std::sync::Arc;
 type ItemMap = HashMap<String, ItemSource>;
 
 mod collapsed;
-mod emptied_containers;
 mod emptied_quotes;
 mod host_strings;
 pub(super) mod links;
@@ -322,14 +321,6 @@ impl Bridge {
             ),
             None => value,
         };
-        // A map whose last entry the view deleted (`deps:` left alone) is
-        // the empty map, not a null.
-        let value = emptied_containers::kept(
-            self.edit.behavior(),
-            edit_text,
-            (&old, told.map(|told| &told.held)),
-            value,
-        );
         // Each changed value in the host's own form (a TOML datetime read
         // back normalized), or the reason the save waits.
         let value = host_scalars(host, previous_host, &old, value)?;
@@ -391,6 +382,12 @@ impl Bridge {
         // The host writer may order keys its own way (TOML puts `reach = {}`
         // after arrays); the patch keeps the edit's order, the host's own.
         let target = in_order_of(target, &value);
+        // So is an emptied map or list the host does not write (an HCL
+        // block of labelled blocks, all gone): saved without it, the host
+        // would read back otherwise than the view (QA `FZ38-3`).
+        if let Some(pointer) = dropped_empty(&value, &target, &mut String::new()) {
+            return Err(SaveError::CannotKeep { pointer });
+        }
         // A value the edit left as it was that the host would write
         // otherwise (a number the view showed in its own form) keeps the
         // host's text: the patches leave it, and it is no loss.
@@ -919,6 +916,47 @@ fn located(
 }
 
 // Conversion tests pair languages, so they need every built-in one.
+
+/// The pointer of the first empty map or list of `value` (at `pointer`)
+/// `target` (the host's reading of it written) holds nothing at.
+fn dropped_empty(
+    value: &serde_json::Value,
+    target: &serde_json::Value,
+    pointer: &mut String,
+) -> Option<String> {
+    use serde_json::Value;
+    let empty = match value {
+        Value::Object(map) => map.is_empty(),
+        Value::Array(items) => items.is_empty(),
+        _ => return None,
+    };
+    if empty {
+        return target.pointer(pointer).is_none().then(|| pointer.clone());
+    }
+    let length = pointer.len();
+    let children: Vec<(String, &Value)> = match value {
+        Value::Object(map) => map
+            .iter()
+            .map(|(key, child)| (codec::escape(key), child))
+            .collect(),
+        Value::Array(items) => items
+            .iter()
+            .enumerate()
+            .map(|(index, child)| (index.to_string(), child))
+            .collect(),
+        _ => Vec::new(),
+    };
+    for (segment, child) in children {
+        pointer.push('/');
+        pointer.push_str(&segment);
+        let found = dropped_empty(child, target, pointer);
+        pointer.truncate(length);
+        if found.is_some() {
+            return found;
+        }
+    }
+    None
+}
 
 /// `value` with each object's keys in `order`'s order (keys `order` lacks
 /// last, as they were).

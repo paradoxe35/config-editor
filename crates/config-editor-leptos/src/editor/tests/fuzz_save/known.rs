@@ -41,13 +41,6 @@ const KNOWN: &[Known] = &[
         },
     },
     Known {
-        finding: "FZ38-2 a null in a view saved as an empty block, table, list or map",
-        applies: |_, broke| {
-            kinds(broke, &[Broken::Meaning])
-                && view_value(broke).is_some_and(|value| holds_null(&value))
-        },
-    },
-    Known {
         finding: "FZ38-3 a block or element emptied in a view is dropped from the host (or the whole document is)",
         applies: |case, broke| {
             (kinds(broke, &[Broken::Meaning])
@@ -198,15 +191,6 @@ fn holds_empty_map(value: &Value) -> bool {
     match value {
         Value::Object(map) => map.is_empty() || map.values().any(holds_empty_map),
         Value::Array(items) => items.iter().any(holds_empty_map),
-        _ => false,
-    }
-}
-
-fn holds_null(value: &Value) -> bool {
-    match value {
-        Value::Null => true,
-        Value::Array(items) => items.iter().any(holds_null),
-        Value::Object(map) => map.values().any(holds_null),
         _ => false,
     }
 }

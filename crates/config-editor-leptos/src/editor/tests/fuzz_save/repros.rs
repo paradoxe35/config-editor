@@ -751,7 +751,6 @@ fn fz38_3_1() {
 }
 
 #[test]
-#[ignore = "open: FZ38-2"]
 fn fz38_2_1() {
     replay(
         Language::HCL,
@@ -762,7 +761,6 @@ fn fz38_2_1() {
 }
 
 #[test]
-#[ignore = "open: FZ38-2"]
 fn fz38_2_2() {
     replay(
         Language::JSON,
@@ -776,7 +774,6 @@ fn fz38_2_2() {
 }
 
 #[test]
-#[ignore = "open: FZ38-2"]
 fn fz38_2_3() {
     replay(
         Language::TOML,

@@ -9,7 +9,7 @@ use super::super::super::parse_cache;
 use super::super::super::work_count::{Work, note};
 use super::items::items;
 use super::{Link, Links, Source, content};
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
 /// What a save is told of the view's items: each one's source, by its
@@ -18,9 +18,6 @@ use std::sync::Arc;
 pub(crate) struct Told {
     pub(crate) items: HashMap<String, ItemSource>,
     pub(crate) earlier: Option<String>,
-    /// The pointer of each item of the host's last text the view's text
-    /// still holds a link to (as an item, or as text another item took).
-    pub(crate) held: HashSet<String>,
 }
 
 /// Whether `before` and `after` (in `language`) read as values with the
@@ -76,8 +73,12 @@ impl Links {
         // Typing only, its keys all where they were: each item is where
         // the patches find it by its values. Typing that renames a key or
         // a table's header moves every item under it (QA `FZ38-4`).
-        if let Links::Fresh { base, .. } = self
+        // Not when the links are of another host text than the last (an
+        // undo back past a save, QA `FZ38-12`): its items are no longer
+        // where the last text has them.
+        if let Links::Fresh { base, host, .. } = self
             && !identity
+            && **host == *previous
             && same_keys(language, base, text)
         {
             return None;
@@ -117,18 +118,9 @@ impl Links {
                 Some((pointer, told))
             })
             .collect();
-        let held = match self {
-            Links::Kept(links) => links
-                .iter()
-                .filter(|link| &*link.source.host == previous)
-                .map(|link| link.source.pointer.clone())
-                .collect(),
-            Links::Fresh { .. } => HashSet::new(),
-        };
         Some(Told {
             items,
             earlier: earlier.map(|host| host.to_string()),
-            held,
         })
     }
 

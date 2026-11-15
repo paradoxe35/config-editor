@@ -1,13 +1,13 @@
 //! A map's or list's last entry deleted in a YAML view leaves `deps:`
-//! with nothing under it, which reads as null: the save keeps the empty
-//! map or list the host held, in every host (TOML and XML waited on "no
-//! null value", JSON and HCL saved a null for it), and a null the user
-//! writes stays one where the host can hold it.
+//! with nothing under it, which reads as null: the save writes the view's
+//! value (QA `FZ38-2`: the host read back as an empty block the view did
+//! not hold), a null where the host's language writes one (JSON, HCL),
+//! else it waits with the reason (TOML and XML hold no null).
 
 use crate::editor::Language;
 use crate::editor::bridge::Bridge;
 use crate::editor::save_matrix::report;
-use serde_json::{Value, json};
+use serde_json::Value;
 
 /// `host_text` saved after each line of its YAML view holding the first
 /// text of one of `edits` is replaced by its second (removed when empty).
@@ -31,6 +31,27 @@ fn saved_after(host: Language, host_text: &str, edits: &[(&str, &str)]) -> Resul
         .map_err(|error| format!("{error:?}"))
 }
 
+/// What a host reads at `pointer` once the view holds a null there: the
+/// null where it writes one, else the save waits.
+fn null_kept(host: Language, saved: Result<String, String>, pointer: &str) -> Result<(), String> {
+    if host == Language::TOML || host == Language::XML {
+        return match saved {
+            Err(_) => Ok(()),
+            Ok(saved) => Err(format!(
+                "{host}: saved what it cannot read as a null:\n{saved}"
+            )),
+        };
+    }
+    let saved = saved.map_err(|error| format!("{host}: {error}"))?;
+    let read = host
+        .parse(&saved)
+        .map(|value| value.pointer(pointer).cloned());
+    match read {
+        Ok(Some(Value::Null)) => Ok(()),
+        other => Err(format!("{host}: {other:?}\n{saved}")),
+    }
+}
+
 /// Each host with a map `deps` holding one entry `x`, and the pointer of
 /// `deps` in it.
 const HOSTS: [(Language, &str, &str); 4] = [
@@ -49,19 +70,11 @@ const HOSTS: [(Language, &str, &str); 4] = [
 ];
 
 #[test]
-fn a_map_whose_last_entry_is_deleted_stays_an_empty_map() {
+fn a_map_whose_last_entry_is_deleted_saves_the_null_the_view_holds() {
     let mut failures = Vec::new();
     for (host, text, pointer) in HOSTS {
-        match saved_after(host, text, &[("x: 1", "")]) {
-            Ok(saved) => {
-                let read = host
-                    .parse(&saved)
-                    .map(|value| value.pointer(pointer).cloned());
-                if !matches!(&read, Ok(Some(map)) if *map == json!({})) {
-                    failures.push(format!("{host}: {read:?}\n{saved}"));
-                }
-            }
-            Err(error) => failures.push(format!("{host}: {error}")),
+        if let Err(failure) = null_kept(host, saved_after(host, text, &[("x: 1", "")]), pointer) {
+            failures.push(failure);
         }
     }
     report(failures);
@@ -75,14 +88,10 @@ fn a_null_written_over_a_map_stays_null() {
         let line = format!("deps: {written}\n");
         let edits = [("deps:", line.as_str()), ("x: 1", "")];
         let saved = saved_after(Language::JSON, HOSTS[0].1, &edits);
-        let read = saved
-            .as_deref()
-            .ok()
-            .and_then(|saved| Language::JSON.parse(saved).ok());
         assert_eq!(
-            read.as_ref().and_then(|value| value.pointer("/deps")),
-            Some(&Value::Null),
-            "{written}: {saved:?}"
+            null_kept(Language::JSON, saved, "/deps"),
+            Ok(()),
+            "{written}"
         );
         let toml = saved_after(Language::TOML, HOSTS[1].1, &edits);
         assert!(
@@ -94,7 +103,7 @@ fn a_null_written_over_a_map_stays_null() {
 
 /// Each host with a list `arr` holding one item `1`, the line of the item
 /// in the YAML view, and the pointer of `arr`.
-const LIST_HOSTS: [(Language, &str, &str, &str); 3] = [
+const LIST_HOSTS: [(Language, &str, &str, &str); 4] = [
     (
         Language::JSON,
         "{\n  \"arr\": [1],\n  \"o\": {\"k\": 1}\n}\n",
@@ -108,51 +117,24 @@ const LIST_HOSTS: [(Language, &str, &str, &str); 3] = [
         "/arr",
     ),
     (Language::HCL, "a {\n  arr = [1]\n}\n", "- 1", "/a/arr"),
+    (
+        Language::XML,
+        "<r>\n  <arr>\n    <i>1</i>\n    <i>2</i>\n  </arr>\n</r>\n",
+        "- 1",
+        "/r/arr",
+    ),
 ];
 
-/// A list whose last item is deleted stays a list, empty, in every host
-/// that holds an empty list (JSON and HCL saved a null, TOML waited).
+/// A list whose last item is deleted saves the null the view holds, or
+/// waits, in every host.
 #[test]
-fn a_list_whose_last_item_is_deleted_stays_an_empty_list() {
+fn a_list_whose_last_item_is_deleted_saves_the_null_the_view_holds() {
     let mut failures = Vec::new();
     for (host, text, item, pointer) in LIST_HOSTS {
-        match saved_after(host, text, &[(item, "")]) {
-            Ok(saved) => {
-                let read = host
-                    .parse(&saved)
-                    .map(|value| value.pointer(pointer).cloned());
-                if !matches!(&read, Ok(Some(list)) if *list == json!([])) {
-                    failures.push(format!("{host}: {read:?}\n{saved}"));
-                }
-            }
-            Err(error) => failures.push(format!("{host}: {error}")),
+        let edits = [(item, ""), ("- 2", "")];
+        if let Err(failure) = null_kept(host, saved_after(host, text, &edits), pointer) {
+            failures.push(failure);
         }
     }
     report(failures);
-}
-
-/// An XML host writes an emptied list as its element left empty (the
-/// save waited on a null the user never wrote).
-#[test]
-fn an_emptied_xml_list_is_its_empty_element() {
-    let text = "<r>\n  <arr>\n    <i>1</i>\n    <i>2</i>\n  </arr>\n</r>\n";
-    let saved = saved_after(Language::XML, text, &[("- 1", ""), ("- 2", "")]);
-    assert_eq!(saved.as_deref(), Ok("<r>\n  <arr/>\n</r>\n"));
-}
-
-/// A null typed over the list stays a null where the host holds one.
-#[test]
-fn a_null_written_over_a_list_stays_null() {
-    let (host, text, item, pointer) = LIST_HOSTS[0];
-    let edits = [("arr:", "arr: null\n"), (item, "")];
-    let saved = saved_after(host, text, &edits);
-    let read = saved
-        .as_deref()
-        .ok()
-        .and_then(|saved| host.parse(saved).ok());
-    assert_eq!(
-        read.as_ref().and_then(|value| value.pointer(pointer)),
-        Some(&Value::Null),
-        "{saved:?}"
-    );
 }
