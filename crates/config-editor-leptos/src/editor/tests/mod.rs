@@ -333,6 +333,16 @@ mod option_nested_keys_work;
 #[cfg(all(feature = "json", feature = "schema-validation"))]
 mod schema_error_cost;
 #[cfg(all(
+    feature = "schema-validation",
+    feature = "protect",
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod schema_fuzz;
+#[cfg(all(
     feature = "yaml",
     feature = "json",
     feature = "toml",
