@@ -23,10 +23,10 @@ pub(super) fn json_parse(source: &str) -> Result<Value, ParseError> {
         } else if message == "recursion limit exceeded" {
             super::super::nesting::too_deep(super::super::nesting::VALUES)
         } else {
-            message
+            super::super::json_words::plain_words(&error, source, "document")
         };
         // A trailing comma is reported at the closer; point at the comma.
-        if message.starts_with("trailing comma")
+        if full.starts_with("trailing comma")
             && let Some(comma) = source[..at].rfind(',')
         {
             (line, column) = line_column(source, comma);

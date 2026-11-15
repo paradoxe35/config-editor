@@ -81,7 +81,7 @@ pub(crate) struct ProtectState {
     pub(crate) ranges: RwSignal<Vec<Range<usize>>>,
     /// The host's ranges in its own text while editing as another
     /// language, followed through each conversion back.
-    in_host: HostRanges,
+    pub(super) in_host: HostRanges,
     /// The host's ranges `ranges` was first placed from, until the effect
     /// placing them again first runs: ranges the host changed before then
     /// (an update in the task that mounts the editor) are placed then.
@@ -517,6 +517,20 @@ impl EditorState {
         });
     }
 
+    /// A closer the editor wrote was typed over, the caret stepping from
+    /// UTF-16 `from` to `to`: typing goes on past it, so an entry refused
+    /// right after it (the `:` after `"password"`) is taken back whole, as
+    /// without auto-closing.
+    pub(crate) fn note_stepped_over(&self, from: usize, to: usize) {
+        self.protect().marks.update_value(|marks| {
+            if let Some((start, end)) = marks.typed
+                && end == from
+            {
+                marks.typed = Some((start, to));
+            }
+        });
+    }
+
     /// The caret moved, or another kind of key was pressed: typing starts
     /// afresh.
     pub(crate) fn forget_refusal(&self) {
@@ -711,10 +725,19 @@ impl EditorState {
     }
 
     /// Byte ranges of `text` (the text on screen) no replace may touch
-    /// (find and replace's Replace All).
+    /// (find and replace's Replace All). Each offset is read off the
+    /// text's lines, split once, never by a pass from the top (one per
+    /// lock and placeholder: quadratic with a lock on every line).
     #[cfg(feature = "search")]
     pub(crate) fn protected_bytes(&self, text: &str) -> Vec<Range<usize>> {
         let byte = |at: usize| super::super::keyboard::utf16_to_byte_index(text, at);
+        let behavior = self.behavior();
+        super::super::paths::with_spans(behavior, text, &[], || self.protected_bytes_in(&byte))
+    }
+
+    /// [`Self::protected_bytes`], with `byte` the byte at a UTF-16 offset.
+    #[cfg(feature = "search")]
+    fn protected_bytes_in(&self, byte: &dyn Fn(usize) -> usize) -> Vec<Range<usize>> {
         self.protect().protected.with_untracked(|protected| {
             protected
                 .locks

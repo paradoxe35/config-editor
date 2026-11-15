@@ -3,7 +3,7 @@
 A fast, schema-aware config editor for the browser: YAML, JSON, TOML, HCL and XML, or a language of your own,
 with completion from a JSON Schema, hover docs, validation, a diff gutter,
 editing one language as another, and eleven themes. It is written in Rust
-([`config-editor-leptos`](https://crates.io/crates/config-editor-leptos))
+([`config-editor-leptos`](https://github.com/paradoxe35/config-editor/tree/main/crates/config-editor-leptos))
 and ships as WebAssembly; this package is its framework-free JavaScript API.
 
 It has three entries:
@@ -14,9 +14,9 @@ It has three entries:
 | `@pngwasi/config-editor/tools`   | Text without an editor (servers, build steps, review screens): validation, conversion, parsing, diffs, paths, folds; see [Tools](#pngwasiconfig-editortools).      |
 | `@pngwasi/config-editor/binding` | Writing a package for another framework; see [Binding](#pngwasiconfig-editorbinding).                                                                              |
 
-For React, Vue and Svelte, use [`@pngwasi/config-editor-react`](https://www.npmjs.com/package/@pngwasi/config-editor-react),
-[`@pngwasi/config-editor-vue`](https://www.npmjs.com/package/@pngwasi/config-editor-vue)
-or [`@pngwasi/config-editor-svelte`](https://www.npmjs.com/package/@pngwasi/config-editor-svelte),
+For React, Vue and Svelte, use [`@pngwasi/config-editor-react`](https://github.com/paradoxe35/config-editor/tree/main/js/config-editor-react),
+[`@pngwasi/config-editor-vue`](https://github.com/paradoxe35/config-editor/tree/main/js/config-editor-vue)
+or [`@pngwasi/config-editor-svelte`](https://github.com/paradoxe35/config-editor/tree/main/js/config-editor-svelte),
 which build on this package.
 
 <!-- toc -->
@@ -67,7 +67,7 @@ Browsers only (ES modules + WebAssembly). The `.wasm` file is about 2.3 MB
 gzipped (1.5 MB with brotli) and loads once per page. It is built with every Cargo feature of
 the Rust crate (all five languages, schema validation, find and replace,
 the diff, folding, read-only fields and secrets); a Rust app can leave out
-what it does not use ([Cargo features](https://crates.io/crates/config-editor-leptos#cargo-features)).
+what it does not use ([Cargo features](https://github.com/paradoxe35/config-editor/tree/main/crates/config-editor-leptos#cargo-features)).
 
 ## Quick start
 
@@ -431,9 +431,9 @@ with that reason.
 | `notOneOf`                  | `"{value} is not one of {allowed}"`                                                                                                         | A value not among the allowed ones.                                                                                                                                                                                                            |
 | `wrongType`                 | `"{value} is not of type {types}"`                                                                                                          | A value of none of the accepted types.                                                                                                                                                                                                         |
 | `notFormat`                 | `"{value} is not a valid {format}"`                                                                                                         | A value out of its `format` (checked up to draft-07): `{format}` is its name, quoted.                                                                                                                                                          |
-| `noItemContained`           | `"no item of the list is one its \"contains\" schema allows"`                                                                               | A list with no item its `contains` schema allows.                                                                                                                                                                                              |
-| `tooFewContained`           | `"fewer than {limit} items of the list are ones its \"contains\" schema allows"`                                                            | A list with fewer items its `contains` schema allows than its `minContains` (`{limit}`).                                                                                                                                                       |
-| `tooManyContained`          | `"more than {limit} items of the list are ones its \"contains\" schema allows"`                                                             | A list with more items its `contains` schema allows than its `maxContains` (`{limit}`).                                                                                                                                                        |
+| `noItemContained`           | `"no item of the list matches its \"contains\" schema"`                                                                                     | A list with no item its `contains` schema allows.                                                                                                                                                                                              |
+| `tooFewContained`           | `"fewer than {limit} items of the list match its \"contains\" schema"`                                                                      | A list with fewer items its `contains` schema allows than its `minContains` (`{limit}`).                                                                                                                                                       |
+| `tooManyContained`          | `"more than {limit} items of the list match its \"contains\" schema"`                                                                       | A list with more items its `contains` schema allows than its `maxContains` (`{limit}`).                                                                                                                                                        |
 | `tooFewItems`               | `"the number of items must be at least {limit}, and is {count}"`                                                                            | A list with fewer items (`{count}`) than its `minItems` (`{limit}`).                                                                                                                                                                           |
 | `tooManyItems`              | `"the number of items must be at most {limit}, and is {count}"`                                                                             | A list with more items (`{count}`) than its `maxItems` (`{limit}`).                                                                                                                                                                            |
 | `tooFewKeys`                | `"the number of keys must be at least {limit}, and is {count}"`                                                                             | An object with fewer keys (`{count}`) than its `minProperties` (`{limit}`).                                                                                                                                                                    |
@@ -586,7 +586,11 @@ revert), or to reset while the echoes of what was typed are still to come,
 call `replaceValue(text)`: it always applies, and the echoes on their way
 are still told apart. Your store then takes that text, late if it likes:
 given back after what is typed next, it is the reset's echo and keeps the
-typing. The promise is
+typing, also for a reset to the text you gave last (a discard to the file
+as loaded). A reset to the document as it is changes nothing (a second
+Discard): your store holds that text once. The `readOnlyRanges` the editor
+holds go with the text they cover into the reset's text (the ranges you
+give next, with a text, are read in that text as always). The promise is
 yours to keep: a host that hands back only some texts (the latest of
 several) leaves the others counted as echoes (every text sent is
 remembered until its echo comes, a text of your own replaces the
@@ -615,12 +619,12 @@ for your own text), so set those with `replaceValue` too.
 
 `ConfigEditor` adds:
 
-| Member               | Description                                                                                                                                                                                                                                                                                                                                           |
-| -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `update(options)`    | Change the editor live; see [`update`](#updateoptions).                                                                                                                                                                                                                                                                                               |
-| `replaceValue(text)` | Replace the document with a text of your own, whatever it is: with `echoes`, `update({ value })` takes a text `onChange` gave that has not come back yet for its echo and keeps the document; this never does (a revert to such a text). The caret stays on the same text when possible; `onChange` does not hear it.                                 |
-| `destroy()`          | Unmount. An edit still converting (while editing as another language) is sent to `onChange` first. Safe to call inside any callback (`onChange`, `onSave`, …).                                                                                                                                                                                        |
-| `free()`             | Release the WebAssembly object after `destroy()`. Optional; the garbage collector does it too. An editor stays on the page until `destroy()`, whether or not you keep a reference to it. Call `destroy()` first: after `free()` the instance cannot be used at all (wasm-bindgen's own method). Inside a callback it frees once the callback returns. |
+| Member               | Description                                                                                                                                                                                                                                                                                                                                                            |
+| -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `update(options)`    | Change the editor live; see [`update`](#updateoptions).                                                                                                                                                                                                                                                                                                                |
+| `replaceValue(text)` | Replace the document with a text of your own, whatever it is: with `echoes`, `update({ value })` takes a text `onChange` gave that has not come back yet for its echo and keeps the document; this never does (a revert to such a text). The caret stays on the same text when possible, and the `readOnlyRanges` on the text they cover; `onChange` does not hear it. |
+| `destroy()`          | Unmount. An edit still converting (while editing as another language) is sent to `onChange` first. Safe to call inside any callback (`onChange`, `onSave`, …).                                                                                                                                                                                                         |
+| `free()`             | Release the WebAssembly object after `destroy()`. Optional; the garbage collector does it too. An editor stays on the page until `destroy()`, whether or not you keep a reference to it. Call `destroy()` first: after `free()` the instance cannot be used at all (wasm-bindgen's own method). Inside a callback it frees once the callback returns.                  |
 
 An exception thrown by a callback is logged to the console and does not
 break the editor.
@@ -997,7 +1001,9 @@ const { schema, losses } = compileSchema("port: integer\n", {
 ### XML mapping
 
 Child elements and attributes are object properties, element text is a typed
-scalar (`<listen>7835</listen>` is the number 7835), and repeated siblings are
+scalar (`<listen>7835</listen>` is the number 7835; where the schema wants a
+number, text in any number spelling is one: `1.50`, `1e3`, `4`, kept as
+written; empty text is `null` where the schema allows it and no string), and repeated siblings are
 an array. An attribute sharing its name with a child element is the property
 `@name` (`<r a="1"><a>2</a></r>` is `{"r": {"@a": 1, "a": 2}}`), so the two
 stay apart. Another host's `@name` key holding a value (an npm `@scope`) is
@@ -1114,11 +1120,11 @@ rangesOf("yaml", "web:\n  http: 80\n", ["/web/http", "/web/https"]);
 React, Vue and Svelte have packages of their own, built on what this
 entry exports (`EditorBinding`, `DocumentsBinding`, `SETTING_TYPES`):
 
-| Package                                                                                        | Component                                                     |
-| ---------------------------------------------------------------------------------------------- | ------------------------------------------------------------- |
-| [`@pngwasi/config-editor-react`](https://www.npmjs.com/package/@pngwasi/config-editor-react)   | `<ConfigEditor value onChange />`, a ref for the instance API |
-| [`@pngwasi/config-editor-vue`](https://www.npmjs.com/package/@pngwasi/config-editor-vue)       | `<ConfigEditor v-model @save />`, a template ref              |
-| [`@pngwasi/config-editor-svelte`](https://www.npmjs.com/package/@pngwasi/config-editor-svelte) | `<ConfigEditor bind:value onSave />`, exported functions      |
+| Package                                                                                                          | Component                                                     |
+| ---------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------- |
+| [`@pngwasi/config-editor-react`](https://github.com/paradoxe35/config-editor/tree/main/js/config-editor-react)   | `<ConfigEditor value onChange />`, a ref for the instance API |
+| [`@pngwasi/config-editor-vue`](https://github.com/paradoxe35/config-editor/tree/main/js/config-editor-vue)       | `<ConfigEditor v-model @save />`, a template ref              |
+| [`@pngwasi/config-editor-svelte`](https://github.com/paradoxe35/config-editor/tree/main/js/config-editor-svelte) | `<ConfigEditor bind:value onSave />`, exported functions      |
 
 For another framework (Angular, Solid, Lit, …), `EditorBinding` is what
 those components do, written once: feed it the component's props and it
@@ -1314,7 +1320,7 @@ out the typing pause is converted first; when it cannot be written in
 The document is dirty while it differs from `baseline` (the document at
 mount when no `baseline` is given). Embedding notes (what is fixed at mount,
 which text to send, flushing before your own Save button) are in the crate's
-[Embedding](https://crates.io/crates/config-editor-leptos#embedding)
+[Embedding](https://github.com/paradoxe35/config-editor/tree/main/crates/config-editor-leptos#embedding)
 section: `editor.value` is the document in `language`, `editor.text` the
 text on screen.
 
@@ -1444,8 +1450,9 @@ view.isDirty("main");
   started, and that call leaves those keys as you set them, applying only
   its others.
 - `onProblems(id, problems)` gives each document's editor's own problems
-  (as `ConfigEditor`'s `onProblems`): once its editor mounts, when the
-  document is first shown, then each time they change.
+  (as `ConfigEditor`'s `onProblems`): once its editor mounts (when the
+  document is first shown, or at once when it is listed with
+  `editAsText`), then each time they change.
 - Nothing closes by itself: `onClose({ id, dirty })` asks you (close button,
   middle click, `Delete` on a tab). Only closable documents ask: a document
   with `closable: false` (switches live) stays open, with no close button,
@@ -1466,7 +1473,8 @@ view.isDirty("main");
   cannot be added by `update` to a view mounted without them.
 - Switching keeps each document's caret, selection, scroll position, undo
   history, folds and find widget: an editor mounts the first time its
-  document is shown, then stays (hidden) while it is open. With ten
+  document is shown (at once for a document listed with `editAsText`),
+  then stays (hidden) while it is open. With ten
   ~2000-line documents all shown, the view used about 21 MB of wasm memory
   (1.5 to 1.9 MB per editor) and 4 MB of JS heap. Closing a document gives
   its editor's memory back, as `destroy()` does for a `ConfigEditor` (all
@@ -1550,7 +1558,11 @@ view.editAs("main", "toml"); // after an undo across the switch: ask again
   its document is shown (at once with `editAsText`): until then `value`, `text` and `unifiedDiff`
   answer the document as listed, `settings` and `isDirty` answer too and
   `save()` sends it, while its paths, folds and `reveal` answer `null` or
-  `false` (`[]` for `foldedLines`). Once its document is removed,
+  `false` (`[]` for `foldedLines`). With `editAsText` it answers from that
+  text from the constructor on; a document an `update` lists with it opens
+  once the view renders the new list (its panel is not on the page before),
+  and until then `save()` and `saveAll()` send nothing for it, never the
+  text as listed. Once its document is removed,
   it stays with it and answers `null` (`value`, `text`, `currentPath`) or
   `false` (`save()`, `isDirty`, `reveal`, …), also when a new document
   with the same id is listed: ask `editor(id)` again for that one.

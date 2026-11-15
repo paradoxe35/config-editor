@@ -162,9 +162,15 @@ impl EditorState {
 
     pub(super) fn forget_refusal(&self) {}
 
+    pub(super) fn note_stepped_over(&self, _from: usize, _to: usize) {}
+
     pub(super) fn find_protected_again(&self, _origin: &Origin) {}
 
     pub(super) fn leave_ranges(&self, _before: &str) {}
+
+    pub(crate) fn host_ranges_now(&self) -> Vec<TextRange> {
+        Vec::new()
+    }
 
     pub(super) fn check_host_save(
         &self,

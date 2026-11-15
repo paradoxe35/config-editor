@@ -1,8 +1,8 @@
-//! A map's last entry deleted in a YAML view leaves `deps:` with nothing
-//! under it, which reads as null: the save keeps the empty map the host
-//! held a map in, in every host (TOML and XML waited on "no null value",
-//! JSON and HCL saved a null for the map), and a null the user writes
-//! stays one where the host can hold it.
+//! A map's or list's last entry deleted in a YAML view leaves `deps:`
+//! with nothing under it, which reads as null: the save keeps the empty
+//! map or list the host held, in every host (TOML and XML waited on "no
+//! null value", JSON and HCL saved a null for it), and a null the user
+//! writes stays one where the host can hold it.
 
 use crate::editor::Language;
 use crate::editor::bridge::Bridge;
@@ -90,4 +90,69 @@ fn a_null_written_over_a_map_stays_null() {
             "{written}: {toml:?}"
         );
     }
+}
+
+/// Each host with a list `arr` holding one item `1`, the line of the item
+/// in the YAML view, and the pointer of `arr`.
+const LIST_HOSTS: [(Language, &str, &str, &str); 3] = [
+    (
+        Language::JSON,
+        "{\n  \"arr\": [1],\n  \"o\": {\"k\": 1}\n}\n",
+        "- 1",
+        "/arr",
+    ),
+    (
+        Language::TOML,
+        "name = \"x\"\narr = [1]\n\n[t]\nk = 1\n",
+        "- 1",
+        "/arr",
+    ),
+    (Language::HCL, "a {\n  arr = [1]\n}\n", "- 1", "/a/arr"),
+];
+
+/// A list whose last item is deleted stays a list, empty, in every host
+/// that holds an empty list (JSON and HCL saved a null, TOML waited).
+#[test]
+fn a_list_whose_last_item_is_deleted_stays_an_empty_list() {
+    let mut failures = Vec::new();
+    for (host, text, item, pointer) in LIST_HOSTS {
+        match saved_after(host, text, &[(item, "")]) {
+            Ok(saved) => {
+                let read = host
+                    .parse(&saved)
+                    .map(|value| value.pointer(pointer).cloned());
+                if !matches!(&read, Ok(Some(list)) if *list == json!([])) {
+                    failures.push(format!("{host}: {read:?}\n{saved}"));
+                }
+            }
+            Err(error) => failures.push(format!("{host}: {error}")),
+        }
+    }
+    report(failures);
+}
+
+/// An XML host writes an emptied list as its element left empty (the
+/// save waited on a null the user never wrote).
+#[test]
+fn an_emptied_xml_list_is_its_empty_element() {
+    let text = "<r>\n  <arr>\n    <i>1</i>\n    <i>2</i>\n  </arr>\n</r>\n";
+    let saved = saved_after(Language::XML, text, &[("- 1", ""), ("- 2", "")]);
+    assert_eq!(saved.as_deref(), Ok("<r>\n  <arr/>\n</r>\n"));
+}
+
+/// A null typed over the list stays a null where the host holds one.
+#[test]
+fn a_null_written_over_a_list_stays_null() {
+    let (host, text, item, pointer) = LIST_HOSTS[0];
+    let edits = [("arr:", "arr: null\n"), (item, "")];
+    let saved = saved_after(host, text, &edits);
+    let read = saved
+        .as_deref()
+        .ok()
+        .and_then(|saved| host.parse(saved).ok());
+    assert_eq!(
+        read.as_ref().and_then(|value| value.pointer(pointer)),
+        Some(&Value::Null),
+        "{saved:?}"
+    );
 }

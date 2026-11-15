@@ -2,7 +2,7 @@
 name = "config-editor-leptos"
 version = "0.1.0"
 edition = "2024"
-description = "A lightweight VS Code-style Leptos editor for YAML, JSON, TOML, HCL, and XML configs, with JSON Schema completion, diagnostics, and conversion"
+description = "A fast, VS Code-style Leptos editor for YAML, JSON, TOML, HCL, and XML configs, with JSON Schema completion, diagnostics, and conversion"
 license = "MIT"
 rust-version = "1.88"
 readme = "README.md"

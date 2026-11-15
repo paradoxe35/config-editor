@@ -1,6 +1,6 @@
 # Config Editor for Leptos
 
-A lightweight and fast, VS Code–style config editor component for [Leptos], plus a
+A fast, VS Code–style config editor component for [Leptos], plus a
 headless API for the same parsing, validation, and conversion.
 
 - **Languages:** YAML (default), JSON, TOML, HCL, XML, and your own through
@@ -253,7 +253,8 @@ keys, `{ showFooter: true }`), and its TypeScript type is generated from it.
   cannot tell types apart (XML text, HCL numbers), the
   host's type decides: text that reads as a number or boolean where the host
   holds one is that (`False`, `007`), and a whole number typed over a float
-  stays a float.
+  stays a float. Where the schema allows only the view's reading, that is
+  saved (`8` typed over `"auto"` for "an integer or `auto`" is the number).
 - Items moved in a list, with others added or removed in the same save, take
   their comment lines along (scalars, one-line tables, YAML block items,
   repeated XML elements over lines); where they cannot, the save waits. The
@@ -276,7 +277,7 @@ keys, `{ showFooter: true }`), and its TypeScript type is generated from it.
   problem at the second `---`, and Edit as is refused with that reason.
 - XML element text is the value exactly as an XML reader reports it, the
   whitespace and line breaks around it included (a number, boolean or `null`
-  reads without them): `<s>  a  </s>` shows as `"  a  "` in other languages,
+  where the schema wants one reads without them): `<s>  a  </s>` shows as `"  a  "` in other languages,
   and a YAML `|` block keeps its final line break through the XML view. A
   string an XML host would read back as another value (`"true"`, `"null"`,
   `"12"`, or `""`, an empty element) is not saved there: the save waits with
@@ -548,9 +549,9 @@ they come.
 | `not_one_of`                    | `"{value} is not one of {allowed}"`                                                                                                         | A value not among the allowed ones.                                                                                                                                                                                                            |
 | `wrong_type`                    | `"{value} is not of type {types}"`                                                                                                          | A value of none of the accepted types.                                                                                                                                                                                                         |
 | `not_format`                    | `"{value} is not a valid {format}"`                                                                                                         | A value out of its `format` (checked up to draft-07): `{format}` is its name, quoted.                                                                                                                                                          |
-| `no_item_contained`             | `"no item of the list is one its \"contains\" schema allows"`                                                                               | A list with no item its `contains` schema allows.                                                                                                                                                                                              |
-| `too_few_contained`             | `"fewer than {limit} items of the list are ones its \"contains\" schema allows"`                                                            | A list with fewer items its `contains` schema allows than its `minContains` (`{limit}`).                                                                                                                                                       |
-| `too_many_contained`            | `"more than {limit} items of the list are ones its \"contains\" schema allows"`                                                             | A list with more items its `contains` schema allows than its `maxContains` (`{limit}`).                                                                                                                                                        |
+| `no_item_contained`             | `"no item of the list matches its \"contains\" schema"`                                                                                     | A list with no item its `contains` schema allows.                                                                                                                                                                                              |
+| `too_few_contained`             | `"fewer than {limit} items of the list match its \"contains\" schema"`                                                                      | A list with fewer items its `contains` schema allows than its `minContains` (`{limit}`).                                                                                                                                                       |
+| `too_many_contained`            | `"more than {limit} items of the list match its \"contains\" schema"`                                                                       | A list with more items its `contains` schema allows than its `maxContains` (`{limit}`).                                                                                                                                                        |
 | `too_few_items`                 | `"the number of items must be at least {limit}, and is {count}"`                                                                            | A list with fewer items (`{count}`) than its `minItems` (`{limit}`).                                                                                                                                                                           |
 | `too_many_items`                | `"the number of items must be at most {limit}, and is {count}"`                                                                             | A list with more items (`{count}`) than its `maxItems` (`{limit}`).                                                                                                                                                                            |
 | `too_few_keys`                  | `"the number of keys must be at least {limit}, and is {count}"`                                                                             | An object with fewer keys (`{count}`) than its `minProperties` (`{limit}`).                                                                                                                                                                    |
@@ -855,7 +856,8 @@ view! {
   edited), `on_dirty_change((id, dirty))` (when a document is added, then on
   every change), `on_problems((id, problems))` (its editor's own problems,
   as `ConfigEditor`'s `on_problems`: once its editor mounts, when the
-  document is first shown, then on every change). Each tab shows a dot
+  document is first shown or at once when it is listed with an
+  `edit_as_text`, then on every change). Each tab shows a dot
   while its document is dirty.
 - **What each document shows:** `on_edit_as_change((id, language))` says
   the language on screen, once when its editor mounts and then each time it
@@ -908,7 +910,8 @@ tabs.edit_as("main", Language::TOML);
 ```
 
 - **Switching keeps each document's state.** An editor mounts the first time
-  its document is shown and then stays, hidden (`visibility: hidden`,
+  its document is shown (at once for a document listed with an
+  `edit_as_text`) and then stays, hidden (`visibility: hidden`,
   `inert`) while another is active, so its caret, selection, scroll
   position, undo history, folds, find widget and Edit-as language are where
   they were. Mounting lazily keeps the start cheap; keeping editors avoids
@@ -922,7 +925,8 @@ tabs.edit_as("main", Language::TOML);
 - **`DocumentsHandle`:** `select(id)` (shows it and focuses its editor),
   `show(id)` (shows it, leaving the focus where it is: a host following its
   own state of which file is open), `active()`, `editor(id)` / `active_editor()` (the document's
-  `EditorHandle`, attached once it has been shown), `is_dirty(id)`,
+  `EditorHandle`, attached once it has been shown, or at once for a
+  document listed with an `edit_as_text`), `is_dirty(id)`,
   `save(id)`, `save_all()` (the dirty documents; returns the ids sent),
   `edit_as(id, language)` (see above), `focus()`.
 - **Settings:** `settings` takes the same [`EditorSettings`](#settings) as
@@ -1834,7 +1838,9 @@ let language = Language::from_path("infra/main.tf");   // Some(Language::HCL)
 ## XML mapping
 
 Child elements and attributes are object properties, element text is a typed
-scalar (`<listen>7835</listen>` is the number 7835), and repeated siblings are
+scalar (`<listen>7835</listen>` is the number 7835; where the schema wants a
+number, text in any number spelling is one: `1.50`, `1e3`, `4`, kept as
+written; empty text is `null` where the schema allows it and no string), and repeated siblings are
 an array. An attribute sharing its name with a child element is the property
 `@name` (`<r a="1"><a>2</a></r>` is `{"r": {"@a": 1, "a": 2}}`), so the two
 stay apart. Another host's `@name` key holding a value (an npm `@scope`) is
@@ -2268,5 +2274,5 @@ MIT. See [LICENSE](LICENSE).
 [`SchemaCheck`]: https://docs.rs/config-editor-leptos/latest/config_editor_leptos/trait.SchemaCheck.html
 [`CheckedDocument`]: https://docs.rs/config-editor-leptos/latest/config_editor_leptos/struct.CheckedDocument.html
 [`CheckProblem`]: https://docs.rs/config-editor-leptos/latest/config_editor_leptos/struct.CheckProblem.html
-[`@pngwasi/config-editor`]: https://www.npmjs.com/package/@pngwasi/config-editor
-[`@pngwasi/config-editor-react`]: https://www.npmjs.com/package/@pngwasi/config-editor-react
+[`@pngwasi/config-editor`]: https://github.com/paradoxe35/config-editor/tree/main/js/config-editor
+[`@pngwasi/config-editor-react`]: https://github.com/paradoxe35/config-editor/tree/main/js/config-editor-react

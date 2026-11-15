@@ -69,7 +69,9 @@ use entries::{Callbacks, Documents, Entry};
 /// that is not [`closable`](Document::closable) cannot be closed), `on_add`
 /// when they want a new one (which the host creates and lists).
 ///
-/// An editor mounts the first time its document is shown and then stays,
+/// An editor mounts the first time its document is shown (at once for a
+/// document listed with an [`edit_as_text`](Document::edit_as_text)) and
+/// then stays,
 /// hidden while another document is active, so each document keeps its
 /// caret, selection, scroll position, undo history, folds and `edit_as`
 /// language across switches.
@@ -158,12 +160,14 @@ pub fn ConfigDocuments(
     /// Called with a document's id and its editor's own problems, as
     /// `ConfigEditor`'s `on_problems` (never the document's
     /// `host_diagnostics`): once its editor mounts (when the document is
-    /// first shown), then each time they change.
+    /// first shown, or at once when it is listed with an `edit_as_text`),
+    /// then each time they change.
     #[prop(optional, into)]
     on_problems: Option<Callback<(String, Vec<Diagnostic>)>>,
     /// Called with a document's id and the language on screen in its
     /// editor: once when the editor mounts (the first time the document is
-    /// shown), then each time that changes: an `edit_as` switch made, one
+    /// shown, or at once when it is listed with an `edit_as_text`), then
+    /// each time that changes: an `edit_as` switch made, one
     /// that waited until the text could convert, undo or redo stepping back
     /// across a switch. A switch still waiting changes nothing on screen, so
     /// it is not reported; neither is a list that changes nothing.

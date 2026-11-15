@@ -1,4 +1,4 @@
-//! A lightweight, VS Code–style config editor component for Leptos, plus a
+//! A fast, VS Code–style config editor component for Leptos, plus a
 //! headless API for the same parsing, validation, and conversion.
 //!
 //! Languages: YAML (default), JSON, TOML, HCL, and XML. They all parse into
@@ -185,6 +185,14 @@ pub mod js_support {
     /// no copy of the text, and no read of it up to the offset, per call.
     pub fn path_at_offset(handle: &crate::EditorHandle, offset: usize) -> Option<crate::FieldPath> {
         handle.path_at_offset(offset)
+    }
+
+    /// The read-only ranges of the editor of `handle` where the edits since
+    /// they were given moved them, as positions in the host's text; `None`
+    /// before it mounts. A host text that replaces the document without
+    /// new ranges (`replaceValue`) gets them moved from there.
+    pub fn read_only_ranges_now(handle: &crate::EditorHandle) -> Option<Vec<crate::TextRange>> {
+        handle.read_only_ranges_now()
     }
 
     /// Makes the view of `handle` take `documents` (the list just given to

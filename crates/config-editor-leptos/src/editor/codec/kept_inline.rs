@@ -117,10 +117,12 @@ pub(super) fn hide(
     let bodies: Vec<String> = language
         .saved_string_lines(previous)
         .into_iter()
-        // With the line that opens it, which may hold its first words (`m: "a`).
+        // With the line that opens it, which may hold its first words (`m: "a`),
+        // and the one after, which may hold its last (`x"""` of a TOML string
+        // whose body is one line: no line is wholly inside it).
         .filter_map(|range| {
             host_lines
-                .get(range.start.saturating_sub(1)..range.end)
+                .get(range.start.saturating_sub(1)..(range.end + 1).min(host_lines.len()))
                 .map(|lines| lines.join("\n"))
         })
         .collect();
@@ -452,7 +454,19 @@ fn on_one_line(pointer: &str, container: &Value, lines: &[&str]) -> bool {
         && texts.len() <= MAX_ONE_LINE_LEAVES
         && lines
             .iter()
-            .any(|line| texts.iter().all(|text| line.contains(text.as_str())))
+            .any(|line| texts.iter().all(|text| written_on(line, text)))
+}
+
+/// Whether `line` may write the key or scalar `text`: as it reads, or
+/// each run of its letters and digits (a value the host writes in its
+/// own form, read otherwise: HCL's `var.a` read as `${var.a}`, an
+/// escape). The span lookup that follows tells for sure.
+fn written_on(line: &str, text: &str) -> bool {
+    line.contains(text)
+        || text
+            .split(|character: char| !character.is_alphanumeric())
+            .filter(|word| !word.is_empty())
+            .all(|word| line.contains(word))
 }
 
 /// The byte range of the value marked by `span` when the host wrote it as

@@ -59,7 +59,7 @@ versions move together.
 
 ## 0.1.0 — unreleased
 
-The first release: a lightweight and fast, VS Code–style editor for
+The first release: a fast, VS Code–style editor for
 configuration files that runs in the browser, written in Rust and compiled to
 WebAssembly.
 

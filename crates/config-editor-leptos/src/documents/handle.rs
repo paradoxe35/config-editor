@@ -64,6 +64,14 @@ impl DocumentsHandle {
         self.documents.try_get_untracked().flatten()
     }
 
+    /// The view, its waiting editors mounted (see `Documents::mount_waiting`):
+    /// for the queries that read a document's editor.
+    fn mounted_view(self) -> Option<Documents> {
+        let documents = self.view()?;
+        documents.mount_waiting();
+        Some(documents)
+    }
+
     /// Takes the host's new list now, as the view does once its effects
     /// run: the active document (and every query) follows it at once.
     pub(crate) fn take_documents(&self, documents: &[super::Document]) {
@@ -110,20 +118,23 @@ impl DocumentsHandle {
 
     /// The editor of the document `id`, for paths, folds, saving and the
     /// rest of [`EditorHandle`]. It is attached once the document has been
-    /// shown: editors mount the first time their document is selected.
+    /// shown: editors mount the first time their document is selected, or
+    /// at once for a document listed with an
+    /// [`edit_as_text`](crate::Document::edit_as_text).
     pub fn editor(&self, id: &str) -> Option<EditorHandle> {
-        Some(self.view()?.entry(id)?.handle)
+        Some(self.mounted_view()?.entry(id)?.handle)
     }
 
     /// The active document's editor.
     pub fn active_editor(&self) -> Option<EditorHandle> {
-        let documents = self.view()?;
+        let documents = self.mounted_view()?;
         Some(documents.entry(&documents.active_id()?)?.handle)
     }
 
     /// Whether the document `id` has unsaved edits (its text differs from
     /// its baseline). Reactive.
     pub fn is_dirty(&self, id: &str) -> bool {
+        let _ = self.mounted_view();
         self.documents
             .try_get()
             .flatten()
@@ -140,7 +151,8 @@ impl DocumentsHandle {
     /// `on_save` prop. Returns whether it was sent (see
     /// [`EditorHandle::save`]).
     pub fn save(&self, id: &str) -> bool {
-        self.view().is_some_and(|documents| documents.save(id))
+        self.mounted_view()
+            .is_some_and(|documents| documents.save(id))
     }
 
     /// Saves every document with unsaved edits, in order, through
@@ -148,7 +160,7 @@ impl DocumentsHandle {
     /// read (shown or not), or whose `edit_as` edit cannot convert back
     /// yet, is left out.
     pub fn save_all(&self) -> Vec<String> {
-        self.view()
+        self.mounted_view()
             .map(|documents| documents.save_all())
             .unwrap_or_default()
     }

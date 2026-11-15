@@ -2,7 +2,8 @@
 //! Edit-as view and pasted back after a pause, a switch or a round trip
 //! through the host's language keeps its written name (prefix), its
 //! attribute or element form and its markup, as a cut item does (QA
-//! `E34-1`), wherever among its siblings it is pasted; never is it saved
+//! `E34-1`), wherever among its siblings it is pasted, at once too (QA
+//! `E37-4`: a prefixed key moved in one save waited); never is it saved
 //! as a new key with that markup lost.
 
 use super::super::edit::Edit;
@@ -18,6 +19,7 @@ use leptos::prelude::*;
 enum Kind {
     Attributes,
     Prefixed,
+    LongPrefix,
     Children,
     OwnNamespace,
 }
@@ -28,6 +30,7 @@ impl Kind {
         match self {
             Kind::Attributes => "<scan pkg=\"com.example\" lazy=\"true\"/>",
             Kind::Prefixed => "<c:scan pkg=\"com.example\" lazy=\"true\"/>",
+            Kind::LongPrefix => "<context:scan pkg=\"com.example\" lazy=\"true\"/>",
             Kind::Children => {
                 "<c:scan pkg=\"com.example\">\n    <c:lazy>true</c:lazy>\n    <n>4</n>\n  </c:scan>"
             }
@@ -41,6 +44,7 @@ impl Kind {
         let root = match self {
             Kind::Attributes | Kind::OwnNamespace => "<r>",
             Kind::Prefixed | Kind::Children => "<r xmlns:c=\"urn:c\">",
+            Kind::LongPrefix => "<r xmlns:context=\"urn:c\">",
         };
         format!(
             "{root}\n  {}\n  <a>1</a>\n  <b>2</b>\n  <d x=\"1\">\n    <e>3</e>\n  </d>\n</r>\n",
@@ -201,6 +205,7 @@ fn a_key_cut_and_pasted_keeps_its_name_form_and_markup() {
     for kind in [
         Kind::Attributes,
         Kind::Prefixed,
+        Kind::LongPrefix,
         Kind::Children,
         Kind::OwnNamespace,
     ] {
@@ -244,9 +249,7 @@ fn a_key_cut_and_pasted_keeps_its_name_form_and_markup() {
                         Place::Middle => order[1] < order[0] && order[0] < order[2],
                         Place::End => order[3] < order[0],
                     };
-                    // Moved without a save between, the save may wait.
-                    let waits = matches!(step, Between::Nothing) && saved == host;
-                    if !waits && !(kept && wanted_order) {
+                    if !(kept && wanted_order) {
                         failures.push(format!(
                             "{kind:?} as {view:?}, {step:?}, paste {place:?}:\n{saved}"
                         ));

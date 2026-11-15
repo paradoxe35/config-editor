@@ -11,7 +11,15 @@ use crate::EditorStrings;
 use crate::strings::{default_strings, fill};
 
 #[cfg(feature = "schema-validation")]
+mod fields;
+#[cfg(feature = "schema-validation")]
+use fields::Fields;
+#[cfg(feature = "schema-validation")]
+mod explanation;
+#[cfg(feature = "schema-validation")]
 mod meta_wording;
+#[cfg(feature = "schema-validation")]
+mod placeholders;
 #[cfg(feature = "schema-validation")]
 mod unevaluated;
 #[cfg(feature = "schema-validation")]
@@ -91,6 +99,38 @@ pub(super) struct SchemaBundle {
     pub(super) has_conditionals: bool,
     #[cfg(feature = "schema-validation")]
     validator: jsonschema::Validator,
+    /// The schema the validators are built from.
+    #[cfg(feature = "schema-validation")]
+    validated_schema: Value,
+    /// The validator that says why a document is invalid (see
+    /// [`explanation`]), built for the first one; `None` when it does not
+    /// build.
+    #[cfg(feature = "schema-validation")]
+    explainer: std::sync::OnceLock<Option<jsonschema::Validator>>,
+}
+
+#[cfg(feature = "schema-validation")]
+impl SchemaBundle {
+    /// Why `value` is invalid: none when it is valid; else the errors of
+    /// the explaining validator, each value explained a bounded number of
+    /// times (see [`explanation`]).
+    fn errors<'v>(&'v self, value: &'v Value) -> Vec<ValidationError<'v>> {
+        if self.validator.is_valid(value) {
+            return Vec::new();
+        }
+        let explained = self
+            .explainer
+            .get_or_init(|| explanation::build(&self.validated_schema))
+            .as_ref()
+            .map(|explainer| explanation::errors(explainer, value))
+            .unwrap_or_default();
+        if explained.is_empty() {
+            // The explaining validator read the schema otherwise (a draft
+            // read as another): the main one says why.
+            return self.validator.iter_errors(value).collect();
+        }
+        explained
+    }
 }
 
 /// Why a schema did not compile, worded where it is shown (the
@@ -160,12 +200,10 @@ fn build_compiled(
 ) -> Result<SchemaBundle, String> {
     super::empty_refs::to_root(&mut schema);
     #[cfg(feature = "schema-validation")]
-    let validator = jsonschema::validator_for(
-        super::false_schema::for_validation(&schema)
-            .as_ref()
-            .unwrap_or(&schema),
-    )
-    .map_err(|error| {
+    let validated_schema =
+        super::false_schema::for_validation(&schema).unwrap_or_else(|| schema.clone());
+    #[cfg(feature = "schema-validation")]
+    let validator = jsonschema::validator_for(&validated_schema).map_err(|error| {
         if let Some(message) = super::schema_refs::message(error.kind(), &schema) {
             return message;
         }
@@ -193,6 +231,10 @@ fn build_compiled(
         has_conditionals,
         #[cfg(feature = "schema-validation")]
         validator,
+        #[cfg(feature = "schema-validation")]
+        validated_schema,
+        #[cfg(feature = "schema-validation")]
+        explainer: std::sync::OnceLock::new(),
     })
 }
 
@@ -914,7 +956,10 @@ pub(super) fn validate_with(
         } else {
             Vec::new()
         });
-        let inside = |path: &str, pointers: &Fields| pointers.holds(path);
+        // A problem judging a placeholder's unknown value is none.
+        let judged = |error: &ValidationError<'_>| {
+            placeholders::judges_placeholder(error, &placeholders, &schema.schema)
+        };
         // Infinities and NaN are numbers to the schema (see `non_finite`).
         use super::codec::non_finite::{StandIn, for_validation};
         let validated = for_validation(&document, StandIn::Bounds);
@@ -934,10 +979,10 @@ pub(super) fn validate_with(
         // `paths::with_spans`), not a read of the document each.
         let mut tops = Vec::new();
         let mut shown = 0;
-        for top in schema.validator.iter_errors(&validated) {
+        for top in schema.errors(&validated) {
             shown += specific_errors(&top)
                 .iter()
-                .filter(|error| !inside(error.instance_path().as_str(), &placeholders))
+                .filter(|error| !judged(error))
                 .count();
             tops.push(top);
             if shown > MAX_DIAGNOSTICS {
@@ -953,14 +998,14 @@ pub(super) fn validate_with(
             })
             .collect();
         for (pass, value) in &further {
-            for error in schema.validator.iter_errors(value) {
+            for error in schema.errors(value) {
                 let key = (
                     error.instance_path().as_str().to_string(),
                     error.kind().keyword().to_string(),
                 );
                 if shown <= MAX_DIAGNOSTICS
                     && pass.reports(error.instance(), error.kind())
-                    && !inside(&key.0, &placeholders)
+                    && !judged(&error)
                     && found.insert(key)
                 {
                     shown += 1;
@@ -973,7 +1018,6 @@ pub(super) fn validate_with(
             .flat_map(|top| specific_errors(top))
             .map(|error| error.instance_path().as_str().to_string())
             .collect();
-        let secret = |path: &str| inside(path, &secrets);
         let repeats_arrays = behavior.repetition() != super::language::Repetition::None;
         let unevaluated = unevaluated::Unevaluated::new(
             &schema.schema,
@@ -984,7 +1028,9 @@ pub(super) fn validate_with(
         let wording = wording::Wording {
             root: &schema.schema,
             strings,
-            secret: &secret,
+            secrets: &secrets,
+            placeholders: &placeholders,
+            levels: std::cell::Cell::new(0),
         };
         let mut diagnostics = super::paths::with_spans(behavior, source, &pointers, || {
             tops.iter()
@@ -993,7 +1039,7 @@ pub(super) fn validate_with(
                         .into_iter()
                         .flat_map(|error| {
                             let path = error.instance_path().as_str().to_string();
-                            if inside(&path, &placeholders) {
+                            if judged(error) {
                                 return Vec::new();
                             }
                             // The schema's docs for the value (`x-docs-url`):
@@ -1046,11 +1092,7 @@ pub(super) fn validate_with(
                                         let span = super::paths::schema_problem_span(
                                             behavior, source, &pointer, false, block,
                                         );
-                                        let value = if secret(&pointer) {
-                                            strings.secret_value.clone()
-                                        } else {
-                                            item.to_string()
-                                        };
+                                        let value = wording.value_at(&pointer, &item);
                                         let message = format!(
                                             "{pointer}: {}",
                                             super::false_schema::message(&value)
@@ -1168,37 +1210,6 @@ pub(super) fn validate_with(
         ));
     }
     capped(found, strings)
-}
-
-/// Some fields of a document, by pointer: whether a path is one of them
-/// or inside one is a lookup of each of its ancestors, not a pass over
-/// them all (thousands of secret placeholders, checked for each problem).
-#[cfg(feature = "schema-validation")]
-struct Fields(std::collections::HashSet<String>);
-
-#[cfg(feature = "schema-validation")]
-impl Fields {
-    fn new(pointers: Vec<String>) -> Self {
-        super::work_count::note(super::work_count::Work::TokenScan);
-        Self(pointers.into_iter().collect())
-    }
-
-    /// Whether `path` is one of the fields or inside one.
-    fn holds(&self, path: &str) -> bool {
-        if self.0.is_empty() {
-            return false;
-        }
-        let mut end = path.len();
-        loop {
-            if self.0.contains(&path[..end]) {
-                return true;
-            }
-            if end == 0 {
-                return false;
-            }
-            end = path[..end].rfind('/').unwrap_or(0);
-        }
-    }
 }
 
 /// Pointers of the values of `document` that are one of `accepted`: each
@@ -1340,9 +1351,12 @@ fn text_for_typed_option(
 /// an object reports the typo rather than "not valid under any of the schemas".
 /// When several options remain and none reaches deeper into the value than
 /// the others (the value got further into it), the error itself is shown:
-/// it is worded as the options, each with what it misses.
+/// it is worded as the options, each with what it misses. An option the
+/// explanation did not reach (see [`explanation::unexplained`]) is meant
+/// only when no other is. Each error inside is read once.
 #[cfg(feature = "schema-validation")]
 fn specific_errors<'e, 'a>(error: &'e ValidationError<'a>) -> Vec<&'e ValidationError<'a>> {
+    super::work_count::note(super::work_count::Work::ErrorVisit);
     let branches = match error.kind() {
         ValidationErrorKind::AnyOf { context } | ValidationErrorKind::OneOfNotValid { context } => {
             context
@@ -1356,39 +1370,43 @@ fn specific_errors<'e, 'a>(error: &'e ValidationError<'a>) -> Vec<&'e Validation
         return vec![error];
     }
     let depth = |error: &ValidationError<'_>| error.instance_path().as_str().matches('/').count();
-    let deepest_in = |branch: &'e Vec<ValidationError<'a>>| {
-        branch
-            .iter()
-            .flat_map(specific_errors)
-            .map(&depth)
-            .max()
-            .unwrap_or(0)
-    };
-    let meant: Vec<(&'e Vec<ValidationError<'a>>, usize)> = branches
+    // Each branch's errors to show, and how deep the deepest is.
+    let resolved: Vec<(Vec<&'e ValidationError<'a>>, usize)> = branches
         .iter()
-        .filter(|branch| !wrong_type(branch, path))
-        .map(|branch| (branch, deepest_in(branch)))
+        .map(|branch| {
+            let errors: Vec<_> = branch.iter().flat_map(specific_errors).collect();
+            let deepest = errors.iter().map(|error| depth(error)).max().unwrap_or(0);
+            (errors, deepest)
+        })
+        .collect();
+    let explained =
+        |branch: &Vec<ValidationError<'_>>| !branch.iter().any(explanation::unexplained);
+    let any_explained = branches.iter().any(explained);
+    let meant: Vec<(usize, usize)> = branches
+        .iter()
+        .enumerate()
+        .filter(|(_, branch)| !wrong_type(branch, path) && (explained(branch) || !any_explained))
+        .map(|(index, _)| (index, resolved[index].1))
         .collect();
     // The branch the value was meant for: every one of its errors is shown,
     // so a second problem is not hidden behind the first.
-    if let Some(&(branch, deepest)) = meant.iter().max_by_key(|(_, deepest)| *deepest) {
+    if let Some(&(index, deepest)) = meant.iter().max_by_key(|(_, deepest)| *deepest) {
         let alone = meant.len() == 1
             || (deepest > depth(error)
                 && meant.iter().filter(|(_, other)| *other == deepest).count() == 1);
-        return if alone {
-            branch.iter().flat_map(specific_errors).collect()
+        return if alone && explained(&branches[index]) {
+            resolved[index].0.clone()
         } else {
             vec![error]
         };
     }
     // Without one, only a deeper error says more than "wrong type".
-    match branches
+    match resolved
         .iter()
-        .flatten()
-        .flat_map(specific_errors)
+        .flat_map(|(errors, _)| errors)
         .max_by_key(|nested| depth(nested))
     {
-        Some(deepest) if depth(deepest) > depth(error) => vec![deepest],
+        Some(deepest) if depth(deepest) > depth(error) => vec![*deepest],
         _ => vec![error],
     }
 }

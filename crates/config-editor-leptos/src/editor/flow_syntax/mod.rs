@@ -403,9 +403,14 @@ impl Flow {
     }
 }
 
+/// How far back [`markup_before`] looks: the markup opening a key, a
+/// namespace prefix included (XML's `<context:`), is short.
+const MARKUP_BEFORE: usize = 64;
+
 /// Where the markup opening a key (see
 /// [`ConfigLanguage::key_markup_len`]) starts when it ends right at byte
-/// `name` of `text`: a few characters back at most.
+/// `name` of `text`: on its line, at most [`MARKUP_BEFORE`] characters
+/// back (the work per key stays bounded on a long line).
 pub(crate) fn markup_before(
     language: &(impl ConfigLanguage + ?Sized),
     text: &str,
@@ -414,7 +419,8 @@ pub(crate) fn markup_before(
     text[..name]
         .char_indices()
         .rev()
-        .take(8)
+        .take_while(|(_, character)| *character != '\n')
+        .take(MARKUP_BEFORE)
         .map(|(at, _)| at)
         .find(|at| language.key_markup_len(&text[*at..]) == Some(name - at))
 }

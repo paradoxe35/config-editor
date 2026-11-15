@@ -8,7 +8,7 @@
 use super::super::super::{SchemaFormat, SchemaInput};
 use crate::editor::Language;
 use crate::editor::diagnostics::Schema;
-use crate::editor::work_count::{Work, counted};
+use crate::editor::work_count::{Work, counted, counted_all};
 
 fn xsd(body: &str) -> String {
     format!("<xs:schema xmlns:xs=\"http://www.w3.org/2001/XMLSchema\">\n{body}\n</xs:schema>\n")
@@ -310,6 +310,18 @@ fn the_checks_walk_the_document_once_per_validation() {
         branch_large <= branch_small * 10 + 50,
         "{branch_small} -> {branch_large}"
     );
+    // Every kind of work an XSD schema's validation costs grows with the
+    // document no faster than it (as `tests::linear_work` holds for the
+    // edits): the document doubled, at most two and a half times each.
+    let (_, at_50) = counted_all(|| schema.validate(Language::XML, &document(50)));
+    let (_, at_100) = counted_all(|| schema.validate(Language::XML, &document(100)));
+    let grown: Vec<String> = Work::ALL
+        .iter()
+        .zip(at_50.iter().zip(at_100.iter()))
+        .filter(|(_, (small, large))| **large * 2 > (**small).max(16) * 5)
+        .map(|(work, (small, large))| format!("{work:?}: {small} -> {large}"))
+        .collect();
+    assert!(grown.is_empty(), "{grown:?}");
 }
 
 #[test]

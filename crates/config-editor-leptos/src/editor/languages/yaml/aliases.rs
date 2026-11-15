@@ -6,17 +6,17 @@ use super::*;
 use std::collections::HashMap;
 
 /// An anchor (`&name`) or alias (`*name`) token on a line.
-struct Shared {
-    name: String,
-    start: usize,
-    end: usize,
-    pointer: String,
-    merge: bool,
+pub(super) struct Shared {
+    pub(super) name: String,
+    pub(super) start: usize,
+    pub(super) end: usize,
+    pub(super) pointer: String,
+    pub(super) merge: bool,
 }
 
 /// The anchors of `source` by name, with the pointer each marks, and its
 /// aliases and merges.
-fn shared_of(source: &str) -> (HashMap<String, String>, Vec<Shared>) {
+pub(super) fn shared_of(source: &str) -> (HashMap<String, String>, Vec<Shared>) {
     let mut anchors: HashMap<String, String> = HashMap::new();
     let mut aliases: Vec<Shared> = Vec::new();
     let mut offset = 0;

@@ -35,7 +35,7 @@ pub(crate) use accept::*;
 pub(crate) use around::document_around;
 pub(crate) use candidates::*;
 pub(crate) use choices::*;
-pub(crate) use conditions::mentions_conditionals;
+pub(crate) use conditions::{decides, mentions_conditionals};
 use conform::conform;
 pub(crate) use conform::{conform_arrays, conform_typed_arrays};
 pub(crate) use docs::*;

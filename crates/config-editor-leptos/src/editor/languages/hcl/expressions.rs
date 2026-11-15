@@ -77,6 +77,12 @@ pub(super) fn expression_text(text: &str) -> Option<&str> {
     (read.get("v")?.as_str()? == text && is_expression(inner)).then_some(inner)
 }
 
+/// Whether `text` is written as a `${…}` expression that reads as no
+/// expression (`${f(x}`): HCL writes it as a literal string.
+pub(super) fn broken_expression(text: &str) -> bool {
+    text.starts_with("${") && text.ends_with('}') && expression_text(text).is_none()
+}
+
 /// The expression `written` (as the host writes it) edited to read as
 /// `text`: the edit the view made to its `${…}` text applied to the host's
 /// own spelling (its spaces kept: `{ for … }` where the view shows

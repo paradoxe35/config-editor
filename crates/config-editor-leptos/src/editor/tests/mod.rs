@@ -70,8 +70,24 @@ mod key_trail_switches;
     feature = "hcl",
     feature = "xml"
 ))]
-mod xml_moved_prefixes;
+mod sibling_decided_suggestions;
+#[cfg(all(
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod xml_moved_namespaces;
 // Reads what the view reads (folds, suggestions) on every language's sample.
+#[cfg(all(
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod anchor_moves;
 #[cfg(all(
     feature = "yaml",
     feature = "json",
@@ -92,6 +108,15 @@ mod keystroke_work;
     feature = "xml"
 ))]
 mod line_breaks;
+// It uses the helpers of `moved_forms`, gated the same.
+#[cfg(all(
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod large_edit_work;
 #[cfg(all(
     feature = "yaml",
     feature = "json",
@@ -108,6 +133,24 @@ mod moved_form_checks;
     feature = "xml"
 ))]
 mod moved_forms;
+#[cfg(all(
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod moved_forms_again;
+#[cfg(all(feature = "yaml", feature = "toml"))]
+mod moved_into_items;
+#[cfg(all(
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod moved_maps_nested;
 // Observes what every setting switches, so it needs every optional feature.
 #[cfg(all(feature = "yaml", feature = "toml", feature = "schema-validation"))]
 mod hover_look_back;
@@ -129,6 +172,21 @@ mod own_problems;
 mod problem_cap;
 #[cfg(feature = "yaml")]
 mod reveal_range;
+// Counts every kind of edit in every language and view, so it needs every
+// optional feature the edits reach.
+#[cfg(all(
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml",
+    feature = "folding",
+    feature = "diff",
+    feature = "search",
+    feature = "protect",
+    feature = "schema-validation"
+))]
+mod linear_work;
 #[cfg(all(
     feature = "schema-validation",
     feature = "yaml",
@@ -156,6 +214,16 @@ mod schema_message_kinds;
 mod schema_option_messages;
 #[cfg(all(feature = "yaml", feature = "schema-validation"))]
 mod schema_text_wording;
+#[cfg(all(
+    feature = "schema-validation",
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml",
+    feature = "protect"
+))]
+mod secret_inside_messages;
 
 #[cfg(all(
     feature = "yaml",
@@ -218,6 +286,8 @@ mod option_document_reads;
     feature = "schema-validation"
 ))]
 mod option_nested_keys_work;
+#[cfg(all(feature = "json", feature = "schema-validation"))]
+mod schema_error_cost;
 #[cfg(all(
     feature = "yaml",
     feature = "json",
@@ -245,6 +315,15 @@ mod utf16_offsets;
     feature = "xml"
 ))]
 mod xml_numeric_strings;
+#[cfg(all(
+    feature = "schema-validation",
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod xml_text_readings;
 #[cfg(all(
     feature = "schema-validation",
     feature = "yaml",

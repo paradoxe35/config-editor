@@ -1,9 +1,15 @@
-//! QA `E36-3`: an element with a prefix (or a prefixed attribute or
-//! child) cut in an Edit-as view and pasted under another element, out of
-//! the element declaring that prefix: no view shows the declaration or
-//! the prefix, so the user could not declare it. The moved element
-//! declares it itself, bound as the host bound it, when the paste
-//! follows a pause or a switch to another view, from every view.
+//! An element cut in an Edit-as view and pasted under another element
+//! keeps its namespace: no view shows a declaration or a prefix, so the
+//! user could neither see nor fix one that changed. QA `E36-3`: moved out
+//! of the element declaring its prefix (or a prefixed attribute's or
+//! child's), it declares the prefix itself, bound as the host bound it.
+//! QA `E37-6`: moved into or out of a default namespace (`xmlns="…"`), or
+//! where its prefix is bound to another namespace, it declares its own
+//! (`xmlns=""`, `xmlns="urn:d"`, `xmlns:c="urn:c"`). Moved within its
+//! namespace, it declares nothing. From every view, pasted at once, after
+//! a pause or after a switch to another view, into another element or out
+//! to an ancestor. A copy is a new element: it takes its siblings'
+//! namespace.
 
 use super::super::edit::Edit;
 use super::super::languages::Language;
@@ -49,6 +55,86 @@ const CASES: &[Case] = &[
         sibling: "Id",
         table: "Envelope.Body",
         expected: "<m:Name xmlns:m=\"urn:m\">T</m:Name>",
+    },
+    Case {
+        name: "into a default namespace",
+        host: "<root>\n  <p>\n    <t a=\"1\">x</t>\n    <k>0</k>\n  </p>\n  <q xmlns=\"urn:d\">\n    <z>1</z>\n  </q>\n</root>\n",
+        key: "t",
+        sibling: "z",
+        table: "root.q",
+        expected: "<t xmlns=\"\" a=\"1\">x</t>",
+    },
+    Case {
+        name: "out of a default namespace",
+        host: "<root>\n  <p xmlns=\"urn:d\">\n    <t a=\"1\">x</t>\n    <k>0</k>\n  </p>\n  <q>\n    <z>1</z>\n  </q>\n</root>\n",
+        key: "t",
+        sibling: "z",
+        table: "root.q",
+        expected: "<t xmlns=\"urn:d\" a=\"1\">x</t>",
+    },
+    Case {
+        name: "out of a default namespace to its parent",
+        host: "<root>\n  <p xmlns=\"urn:d\">\n    <t a=\"1\">x</t>\n    <k>0</k>\n  </p>\n  <z>1</z>\n</root>\n",
+        key: "t",
+        sibling: "z",
+        table: "root",
+        expected: "<t xmlns=\"urn:d\" a=\"1\">x</t>",
+    },
+    Case {
+        name: "prefixed element out to its parent, where its prefix is bound otherwise",
+        host: "<root xmlns:c=\"urn:other\">\n  <p xmlns:c=\"urn:c\">\n    <c:t a=\"1\">x</c:t>\n    <k>0</k>\n  </p>\n  <z>1</z>\n</root>\n",
+        key: "t",
+        sibling: "z",
+        table: "root",
+        expected: "<c:t xmlns:c=\"urn:c\" a=\"1\">x</c:t>",
+    },
+    Case {
+        name: "from one default namespace to another, with a child",
+        host: "<root xmlns=\"urn:a\">\n  <p>\n    <t a=\"1\">\n      <u>2</u>\n    </t>\n    <k>0</k>\n  </p>\n  <q xmlns=\"urn:b\">\n    <z>1</z>\n  </q>\n</root>\n",
+        key: "t",
+        sibling: "z",
+        table: "root.q",
+        expected: "<t xmlns=\"urn:a\" a=\"1\">\n      <u>2</u>\n    </t>",
+    },
+    Case {
+        name: "prefix bound to another namespace where pasted",
+        host: "<root>\n  <p xmlns:c=\"urn:c\">\n    <c:t a=\"1\">x</c:t>\n    <k>0</k>\n  </p>\n  <q xmlns:c=\"urn:other\">\n    <z>1</z>\n  </q>\n</root>\n",
+        key: "t",
+        sibling: "z",
+        table: "root.q",
+        expected: "<c:t xmlns:c=\"urn:c\" a=\"1\">x</c:t>",
+    },
+    Case {
+        name: "prefixed attribute bound to another namespace where pasted",
+        host: "<root>\n  <p xmlns:c=\"urn:c\">\n    <t c:a=\"1\">x</t>\n    <k>0</k>\n  </p>\n  <q xmlns:c=\"urn:other\">\n    <z>1</z>\n  </q>\n</root>\n",
+        key: "t",
+        sibling: "z",
+        table: "root.q",
+        expected: "<t xmlns:c=\"urn:c\" c:a=\"1\">x</t>",
+    },
+    Case {
+        name: "prefixed element into a default namespace",
+        host: "<root>\n  <p xmlns:c=\"urn:c\">\n    <c:t a=\"1\">x</c:t>\n    <k>0</k>\n  </p>\n  <q xmlns=\"urn:d\">\n    <z>1</z>\n  </q>\n</root>\n",
+        key: "t",
+        sibling: "z",
+        table: "root.q",
+        expected: "<c:t xmlns:c=\"urn:c\" a=\"1\">x</c:t>",
+    },
+    Case {
+        name: "within its default namespace",
+        host: "<root xmlns=\"urn:r\">\n  <p>\n    <t a=\"1\">x</t>\n    <k>0</k>\n  </p>\n  <q>\n    <z>1</z>\n  </q>\n</root>\n",
+        key: "t",
+        sibling: "z",
+        table: "root.q",
+        expected: "\n    <t a=\"1\">x</t>\n",
+    },
+    Case {
+        name: "within its prefix's scope",
+        host: "<root xmlns:c=\"urn:c\">\n  <p>\n    <c:t a=\"1\">x</c:t>\n    <k>0</k>\n  </p>\n  <q>\n    <z>1</z>\n  </q>\n</root>\n",
+        key: "t",
+        sibling: "z",
+        table: "root.q",
+        expected: "\n    <c:t a=\"1\">x</c:t>\n",
     },
 ];
 
@@ -109,13 +195,19 @@ fn entry_lines(view: Language, text: &str, name: &str) -> (usize, usize) {
 /// The entry `key` cut from the view's text, as a user cuts its lines.
 fn cut(state: EditorState, view: Language, key: &str) -> String {
     let before = state.doc().text.get_untracked();
+    let lines = copy(view, &before, key);
     let (start, end) = entry_lines(view, &before, key);
     let (from, to) = (line_offset(&before, start), line_offset(&before, end));
-    let lines = before[from..to].to_string();
     let text = format!("{}{}", &before[..from], &before[to..]);
     let caret = units(&before[..from]);
     state.commit(Edit::new(before, (caret, caret), text, caret));
     lines
+}
+
+/// The entry `key`'s lines in the view's `text`, as a user copies them.
+fn copy(view: Language, text: &str, key: &str) -> String {
+    let (start, end) = entry_lines(view, text, key);
+    text[line_offset(text, start)..line_offset(text, end)].to_string()
 }
 
 /// `lines` pasted before the entry `sibling`, indented as it; a TOML
@@ -151,8 +243,18 @@ fn paste(state: EditorState, lines: &str, sibling: &str, table: &str) {
     state.commit(Edit::new(before, (start, start), text, caret));
 }
 
+/// What happens between the cut and the paste.
+#[derive(Clone, Copy, Debug)]
+enum Between {
+    Nothing,
+    Pause,
+    OtherView,
+    /// Copied, not cut: the copy is pasted where the original stays.
+    Copied,
+}
+
 #[test]
-fn an_element_moved_out_of_its_prefix_scope_declares_the_prefix() {
+fn an_element_moved_keeps_its_namespace() {
     let mut failures = Vec::new();
     for case in CASES {
         for view in [
@@ -161,26 +263,42 @@ fn an_element_moved_out_of_its_prefix_scope_declares_the_prefix() {
             Language::TOML,
             Language::HCL,
         ] {
-            for switched in [false, true] {
+            for step in [
+                Between::Nothing,
+                Between::Pause,
+                Between::OtherView,
+                Between::Copied,
+            ] {
                 let mut editor = TestEditor::new(Language::XML, case.host);
                 editor.edit_as = Some(view);
                 let (_owner, state) = editor.mount();
-                let lines = cut(state, view, case.key);
-                pause(state);
-                if switched {
-                    let other = if view == Language::YAML {
-                        Language::JSON
-                    } else {
-                        Language::YAML
-                    };
-                    switch_to(state, other);
-                    switch_to(state, view);
+                let lines = match step {
+                    Between::Copied => copy(view, &state.doc().text.get_untracked(), case.key),
+                    _ => cut(state, view, case.key),
+                };
+                match step {
+                    Between::Nothing | Between::Copied => {}
+                    Between::Pause => pause(state),
+                    Between::OtherView => {
+                        pause(state);
+                        let other = if view == Language::YAML {
+                            Language::JSON
+                        } else {
+                            Language::YAML
+                        };
+                        switch_to(state, other);
+                        switch_to(state, view);
+                    }
                 }
                 paste(state, &lines, case.sibling, case.table);
                 pause(state);
                 let saved = state.sync().host_text.get_value();
                 let problems = crate::check_syntax(Language::XML, &saved);
-                if !saved.contains(case.expected) || !problems.is_empty() {
+                // A copy keeps its source's namespace like a moved element
+                // (QA 37, E37-5: a copy of an existing item keeps its form);
+                // only a brand-new element takes its siblings' (E34-3).
+                let kept = saved != case.host && saved.contains(case.expected);
+                if !kept || !problems.is_empty() {
                     let waits: Vec<String> = state
                         .sync()
                         .conversion_problems
@@ -189,7 +307,7 @@ fn an_element_moved_out_of_its_prefix_scope_declares_the_prefix() {
                         .map(|problem| format!("{:?}", problem.text))
                         .collect();
                     failures.push(format!(
-                        "{} as {view:?}, switched {switched}: {waits:?}\n{}\n{saved}",
+                        "{} as {view:?}, {step:?}: {waits:?}\n{}\n{saved}",
                         case.name,
                         state.doc().text.get_untracked()
                     ));

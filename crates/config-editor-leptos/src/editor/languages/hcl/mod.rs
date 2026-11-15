@@ -151,6 +151,12 @@ impl ConfigLanguage for HclBehavior {
         changed_form(previous, patched).or_else(|| expressions::changed_expression(previous, patched))
     }
 
+    fn changed_form_reason(&self, value: &Value) -> Option<String> {
+        expressions::broken_expression(value.as_str()?).then(|| {
+            "this value no longer reads as an HCL expression (`${…}` holding one), so HCL would write it as plain text: correct the expression, or edit it as HCL".to_string()
+        })
+    }
+
     fn one_line_body(&self, value: &Value, indent: &str, unit: &str) -> Option<String> {
         let map = value.as_object()?;
         if let Some((key, child)) = map.iter().next().filter(|_| map.len() == 1)
@@ -181,6 +187,14 @@ impl ConfigLanguage for HclBehavior {
 
     fn item_lines(&self, source: &str, pointer: &str) -> Option<std::ops::Range<usize>> {
         repeated_block_lines(source, pointer)
+    }
+
+    fn block_labels(&self, line: &str) -> Vec<String> {
+        let tokens = tokenize(line);
+        let Some(brace) = classify_header(&tokens, 0) else {
+            return Vec::new();
+        };
+        tokens[..brace].iter().filter_map(|token| token_name(line, token)).skip(1).collect()
     }
 
     fn writes_as_labels(&self, source: &str, pointer: &str) -> bool {

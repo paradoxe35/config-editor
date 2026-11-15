@@ -108,11 +108,23 @@ pub(super) fn end_tag_len(text: &str) -> Option<usize> {
     text.find('>').map(|end| end + 1)
 }
 
-/// The `<` before a start tag's name.
+/// The `<` before a start tag's name, and the name's prefix (`<c:` of
+/// `<c:scan>`): the key is the element's local name (QA `E37-4`: a
+/// prefixed element's lines were not found, so a move among its siblings
+/// in one save could not be written).
 pub(super) fn name_markup_len(text: &str) -> Option<usize> {
     let name = text.strip_prefix('<')?;
-    name.starts_with(|character: char| character.is_alphabetic() || character == '_')
-        .then_some(1)
+    let starts_name = |text: &str| text.starts_with(|character: char| character.is_alphabetic() || character == '_');
+    if !starts_name(name) {
+        return None;
+    }
+    let end = name
+        .find(|character: char| !(character.is_alphanumeric() || matches!(character, '_' | '-' | '.' | ':')))
+        .unwrap_or(name.len());
+    match name[..end].split_once(':') {
+        Some((prefix, local)) if starts_name(local) => Some(1 + prefix.len() + 1),
+        _ => Some(1),
+    }
 }
 
 /// Whether whitespace between `before` and `after` is an element text's own
@@ -218,6 +230,26 @@ mod tests {
         assert_eq!(element_end(text, 0), Some(text.len() - " tail".len()));
         assert_eq!(element_end("<s name='c'/> <!-- c -->", 0), Some(13));
         assert_eq!(element_end("<s>\n  <p>", 0), None);
+    }
+
+    /// The markup before a key, the element's local name: its `<` and its
+    /// prefix, of any length; found back from the name.
+    #[test]
+    fn a_keys_markup_is_its_open_bracket_and_prefix() {
+        use crate::editor::flow_syntax::markup_before;
+        use crate::editor::languages::Language;
+        for (text, length) in [("<web>", 1), ("<c:scan/>", 3), ("<context:component-scan a='1'/>", 9), ("<a.b:c-d>", 5)] {
+            assert_eq!(super::name_markup_len(text), Some(length), "{text}");
+            let line = format!("  {text}");
+            let behavior = Language::XML.behavior();
+            assert_eq!(markup_before(behavior, &line, 2 + length), Some(2), "{text}");
+        }
+        for text in ["<a:>", "<a:1>", "<a: b>"] {
+            assert_eq!(super::name_markup_len(text), Some(1), "{text}");
+        }
+        for text in ["</a>", "<!-- c -->", "<1>", "a"] {
+            assert_eq!(super::name_markup_len(text), None, "{text}");
+        }
     }
 
     #[test]

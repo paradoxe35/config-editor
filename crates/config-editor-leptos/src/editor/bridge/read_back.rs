@@ -48,7 +48,10 @@ pub(super) fn first_mismatch(
         return Some(Mismatch::Value(pointer));
     }
     if moved {
-        return out_of_order(&read, target, String::new()).map(Mismatch::Order);
+        // A key the host writes in another map (one a YAML merge brings
+        // in) has no place in this one.
+        let written = |pointer: &str| codec::written_in_its_map(host, saved.text, pointer);
+        return out_of_order(&read, target, String::new(), &written).map(Mismatch::Order);
     }
     None
 }
@@ -67,44 +70,81 @@ pub(super) enum Mismatch {
 /// Whether `edited` holds keys of one of `seen`'s maps in another order
 /// among themselves (a key renamed or added is no move).
 pub(super) fn reorders(seen: &Value, edited: &Value) -> bool {
-    out_of_order(edited, seen, String::new()).is_some()
+    out_of_order(edited, seen, String::new(), &|_| true).is_some()
 }
 
 /// The pointer of the first key `read` holds in another place than `like`
-/// does among the keys both hold, depth first; `None` when every map's
-/// keys are in `like`'s order.
-fn out_of_order(read: &Value, like: &Value, pointer: String) -> Option<String> {
+/// does among the keys both hold that are `written` in their map (by
+/// pointer), depth first; `None` when every map's keys are in `like`'s
+/// order. Of a map's keys out of order, the first `like` moved among the
+/// others (not one of those that kept their order).
+fn out_of_order(
+    read: &Value,
+    like: &Value,
+    pointer: String,
+    written: &dyn Fn(&str) -> bool,
+) -> Option<String> {
+    let child = |key: &str| format!("{pointer}/{}", escape(key));
     match (read, like) {
         (Value::Object(read), Value::Object(like)) => {
             let read_keys = read.keys().filter(|key| like.contains_key(*key));
             let like_keys = like.keys().filter(|key| read.contains_key(*key));
-            if let Some((key, _)) = like_keys.zip(read_keys).find(|(left, right)| left != right) {
-                return Some(format!("{pointer}/{}", escape(key)));
+            if !like_keys.clone().eq(read_keys.clone()) {
+                // Only then is each key's place looked up.
+                let placed = |key: &&String| written(&child(key));
+                let read_keys: Vec<&String> = read_keys.filter(placed).collect();
+                let like_keys: Vec<&String> = like_keys.filter(placed).collect();
+                if like_keys != read_keys {
+                    return Some(child(moved_key(&like_keys, &read_keys)));
+                }
             }
-            like.iter().find_map(|(key, child)| {
-                let read = read.get(key)?;
-                out_of_order(read, child, format!("{pointer}/{}", escape(key)))
-            })
+            like.iter()
+                .find_map(|(key, like)| out_of_order(read.get(key)?, like, child(key), written))
         }
         (Value::Array(read), Value::Array(like)) => {
             read.iter()
                 .zip(like)
                 .enumerate()
                 .find_map(|(index, (read, like))| {
-                    out_of_order(read, like, format!("{pointer}/{index}"))
+                    out_of_order(read, like, format!("{pointer}/{index}"), written)
                 })
         }
         _ => None,
     }
 }
 
+/// The most keys of one map whose moved key is told apart from those that
+/// kept their order (the table grows with their square).
+const MOVED_KEY_LIMIT: usize = 400;
+
+/// Of `like`'s keys, which `read` holds in another order, the first one
+/// not among the longest run both hold in the same order: the one moved.
+/// Past [`MOVED_KEY_LIMIT`], the first one out of its place.
+fn moved_key<'a>(like: &[&'a String], read: &[&'a String]) -> &'a String {
+    let first_apart = || {
+        like.iter()
+            .zip(read)
+            .find(|(left, right)| left != right)
+            .map_or(like[0], |(left, _)| *left)
+    };
+    if like.len() > MOVED_KEY_LIMIT {
+        return first_apart();
+    }
+    let kept = super::merge::longest_common(like, read);
+    like.iter()
+        .find(|key| !kept.contains(key))
+        .copied()
+        .unwrap_or_else(first_apart)
+}
+
 #[cfg(test)]
 mod tests {
-    use super::out_of_order;
     use serde_json::json;
 
     #[test]
     fn the_first_key_out_of_its_place_is_named() {
+        let out_of_order =
+            |read: &_, like: &_, pointer| super::out_of_order(read, like, pointer, &|_| true);
         let like = json!({"r": {"s": {"#text": "t", "a": 3}, "u": 1}});
         let read = json!({"r": {"s": {"a": 3, "#text": "t"}, "u": 1}});
         assert_eq!(

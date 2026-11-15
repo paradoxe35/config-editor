@@ -25,9 +25,10 @@ pub(super) use components::{FindWidget, GoToLineWidget, SearchHighlights};
 pub(super) use go_to_line::GoToLine;
 pub(super) use keys::shortcuts;
 
+pub(super) use actions::replace_all;
 use actions::{
-    SearchNotice, close, count_label, dismiss, replace_all, replace_current, say_query_results,
-    select_nearest, step, toggle_option,
+    SearchNotice, close, count_label, dismiss, replace_current, say_query_results, select_nearest,
+    step, toggle_option,
 };
 use matcher::{SearchMatch, SearchOptions};
 

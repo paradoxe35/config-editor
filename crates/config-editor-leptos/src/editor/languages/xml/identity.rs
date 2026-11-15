@@ -110,10 +110,10 @@ impl<'a> Identity<'a> {
             // Pasted back from the session's first text: that item (or
             // key, which the host's last text may not hold, QA `E35-1`);
             // or moved from another element of the host's last text (QA
-            // `E36-2`): that one.
+            // `E36-2`), one of its descendants too (QA `E37-6`): that one.
             let moved = told.and_then(|(sources, origin)| match sources.of(&item_at(index), !new_child.is_array())? {
                 ItemSource::Origin(from) => Some((origin?.pointer(from)?, from, Host::Origin)),
-                ItemSource::Previous(from) if !from.starts_with(&format!("{old_at}/")) => {
+                ItemSource::Previous(from) if !of_parent(from, &old_at) => {
                     Some((self.old?.pointer(from)?, from, Host::Previous))
                 }
                 ItemSource::Previous(_) => None,
@@ -180,6 +180,18 @@ impl<'a> Identity<'a> {
             at += 1;
         }
         Some((host, side))
+    }
+}
+
+/// Whether the host key or item at `pointer` is one of the element at
+/// `parent`'s own: a key of it, or an item of a list of it.
+fn of_parent(pointer: &str, parent: &str) -> bool {
+    let Some(rest) = pointer.strip_prefix(parent).and_then(|rest| rest.strip_prefix('/')) else {
+        return false;
+    };
+    match rest.split_once('/') {
+        None => true,
+        Some((_, index)) => crate::editor::language::pointer_index(index).is_some(),
     }
 }
 

@@ -807,12 +807,12 @@ impl Default for EditorStrings {
             not_one_of: text("{value} is not one of {allowed}"),
             wrong_type: text("{value} is not of type {types}"),
             not_format: text("{value} is not a valid {format}"),
-            no_item_contained: text("no item of the list is one its \"contains\" schema allows"),
+            no_item_contained: text("no item of the list matches its \"contains\" schema"),
             too_few_contained: text(
-                "fewer than {limit} items of the list are ones its \"contains\" schema allows",
+                "fewer than {limit} items of the list match its \"contains\" schema",
             ),
             too_many_contained: text(
-                "more than {limit} items of the list are ones its \"contains\" schema allows",
+                "more than {limit} items of the list match its \"contains\" schema",
             ),
             too_few_items: text("the number of items must be at least {limit}, and is {count}"),
             too_many_items: text("the number of items must be at most {limit}, and is {count}"),

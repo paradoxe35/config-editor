@@ -16,7 +16,6 @@ fn strings_xml_reads_as_other_values_wait_from_every_view() {
             ("/r/s", ""),
             ("/r/s", "null"),
             ("/r/s", "true"),
-            ("/r/s", " false "),
             ("/r/s", "12"),
             ("/r/k", "true"),
             ("/r/k", "7"),
@@ -32,6 +31,8 @@ fn strings_xml_reads_as_other_values_wait_from_every_view() {
         // What XML reads back as the same string is saved.
         for (pointer, string, expected) in [
             ("/r/s", "1.50", "<s>1.50</s>"),
+            // Text with spaces around is a string without a schema.
+            ("/r/s", " false ", "<s> false </s>"),
             ("/r/s", "true!", "<s>true!</s>"),
             ("/r/k", "", "k=\"\""),
         ] {

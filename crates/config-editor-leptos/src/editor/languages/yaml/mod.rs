@@ -22,6 +22,7 @@ mod constructs;
 mod enter;
 use style::{comparable_yaml_line, node_properties_len};
 mod aliases;
+mod aliases_back;
 mod wide_negatives;
 mod tags;
 mod limits;
@@ -292,6 +293,10 @@ impl ConfigLanguage for YamlBehavior {
 
     fn written_at(&self, source: &str, pointer: &str) -> Option<String> {
         aliases::written_at(source, pointer)
+    }
+
+    fn references_back(&self, saved: &str, origin: &str) -> Option<String> {
+        aliases_back::aliases_back(saved, origin)
     }
 
     fn tags(&self, source: &str) -> Vec<(String, String)> {

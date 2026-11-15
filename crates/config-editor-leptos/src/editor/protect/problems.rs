@@ -7,12 +7,13 @@
 use serde_json::Value;
 
 use super::super::diagnostics::{Diagnostic, Severity};
-use super::super::language::{ConfigLanguage, Repetition};
+use super::super::language::{ConfigLanguage, Repetition, pointer_segments};
 use super::super::parse_cache;
 use super::super::paths::{FieldPath, path_at};
 use super::copied::copied_placeholders;
 use super::marks::marks_at;
 use super::moved_off::is_own_field;
+use super::scan::names_word;
 use super::texts;
 use super::tokens::{Known, SecretMatcher, held_in_fields, in_comment};
 use crate::EditorStrings;
@@ -196,6 +197,10 @@ pub(crate) fn unknown_placeholders(
                 continue;
             };
             let pointer = path.to_pointer();
+            let place = Place {
+                before: &text[line_start..range.start],
+                pointer: &pointer,
+            };
             match owner {
                 Some(_) => {
                     // In its own field (as often as the host wrote it
@@ -205,7 +210,7 @@ pub(crate) fn unknown_placeholders(
                         fields.iter_mut().find(|(field, count)| {
                             may_be_real
                                 && *count > 0
-                                && in_own_field(behavior, document, field, &pointer)
+                                && in_own_field(behavior, document, field, &place)
                         })
                     }) {
                         slot.1 -= 1;
@@ -215,7 +220,7 @@ pub(crate) fn unknown_placeholders(
                         continue;
                     }
                     let fields = left.get(token).map_or(&[][..], Vec::as_slice);
-                    moved_or_extra(behavior, document, fields, &pointer, strings)
+                    moved_or_extra(behavior, document, fields, &place, strings)
                 }
                 None if in_comments.contains_key(token) => {
                     texts::comment_placeholder(strings, &pointer)
@@ -242,7 +247,14 @@ pub(crate) fn unknown_placeholders(
     problems
 }
 
-/// What a host's token at `pointer` outside its count in its `fields`
+/// Where a token is written: what its line holds before it, and the path
+/// it is at.
+struct Place<'a> {
+    before: &'a str,
+    pointer: &'a str,
+}
+
+/// What a host's token at `place` outside its count in its `fields`
 /// (each with how many of its writings are still to be met) is: a copy
 /// beyond those the host wrote in that very field, or one moved from the
 /// fields still missing it (all of them when none is).
@@ -250,12 +262,13 @@ fn moved_or_extra(
     behavior: &dyn ConfigLanguage,
     document: Option<&Value>,
     fields: &[(&str, usize)],
-    pointer: &str,
+    place: &Place<'_>,
     strings: &EditorStrings,
 ) -> String {
+    let pointer = place.pointer;
     if let Some((field, _)) = fields
         .iter()
-        .find(|(field, _)| in_own_field(behavior, document, field, pointer))
+        .find(|(field, _)| in_own_field(behavior, document, field, place))
     {
         return texts::extra_placeholder(strings, field);
     }
@@ -273,18 +286,22 @@ fn moved_or_extra(
     texts::moved_placeholder(strings, pointer, &owners.join(", "))
 }
 
-/// Whether the place `pointer` of a token is in the field `field` the host
-/// gave it in (see `is_own_field`), or, in a language that repeats any
-/// element for a list, in a copy of it: the field's element, or one
-/// holding it, written more than once (its line copied), so `pointer` is
-/// `field` with list items on the way (`/b/key/1`, `/b/c/1/key`). The
-/// first copy is the field's, the others copies of it.
+/// Whether the token at `place` is in the field `field` the host gave it
+/// in (see `is_own_field`), or, in a language that repeats any element for
+/// a list, in a copy of it: the field's element, or one holding it opened
+/// on the token's line before it, written more than once (its line
+/// copied), so the token's pointer is `field` with list items on the way
+/// (`/b/key/1`, `/b/c/1/key`). The first copy is the field's, the others copies of it.
+/// A block holding the field over other lines that became a list (another
+/// block renamed to its name) moved the field: `/config/db/0/password` is
+/// not `/config/db/password` (QA 37).
 fn in_own_field(
     behavior: &dyn ConfigLanguage,
     document: Option<&Value>,
     field: &str,
-    pointer: &str,
+    place: &Place<'_>,
 ) -> bool {
+    let pointer = place.pointer;
     if is_own_field(document, field, pointer) {
         return true;
     }
@@ -292,14 +309,23 @@ fn in_own_field(
         return false;
     }
     let mut wanted = field.split('/').peekable();
+    // The names of the elements written as lists on the way.
+    let mut items = Vec::new();
+    let mut previous = "";
     for segment in pointer.split('/') {
         if wanted.peek() == Some(&segment) {
             wanted.next();
         } else if segment.is_empty() || !segment.bytes().all(|byte| byte.is_ascii_digit()) {
             return false;
+        } else {
+            items.push(previous);
         }
+        previous = segment;
     }
     wanted.peek().is_none()
+        && items
+            .into_iter()
+            .all(|name| names_word(&pointer_segments(&format!("/{name}")), place.before))
 }
 
 /// Placeholders looked up by path at most in one check; past that, their

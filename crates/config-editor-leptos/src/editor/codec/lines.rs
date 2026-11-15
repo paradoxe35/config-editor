@@ -230,6 +230,29 @@ fn patch_lines(
                 let slot = match replacing {
                     Some(at) => at,
                     None => match place[..old_index].iter().rposition(Option::is_some) {
+                        // Lines of code between it and the insert that
+                        // the host does not write there (keys a YAML merge
+                        // brings in, written as its one line): before the
+                        // host line of the next placed one, past them.
+                        Some(placed)
+                            if let Some(below) = below_unwritten(
+                                &rendered_old,
+                                &place,
+                                (placed, old_index),
+                                &|line| {
+                                    let code = comparable(language, line);
+                                    !code.is_empty() && !punctuation(&code)
+                                },
+                            ) =>
+                        {
+                            let mut slot = below;
+                            while slot > place[placed].unwrap_or_default() + 1
+                                && (host[slot - 1].trim().is_empty() || is_comment(host[slot - 1]))
+                            {
+                                slot -= 1;
+                            }
+                            slot
+                        }
                         // Past the host's blank lines that match rendered
                         // ones in between, so the insert sits after them.
                         Some(placed) => {
@@ -376,6 +399,23 @@ fn patch_lines(
         patched.push('\n');
     }
     Some(patched)
+}
+
+/// The host line of the first placed rendered line from `at` on, when a
+/// line of code between the placed one at `placed` and `at` has no host
+/// line: what the host writes for those lines (a YAML merge's one line)
+/// sits somewhere before that line, not right after `placed`'s.
+fn below_unwritten(
+    rendered: &[&str],
+    place: &[Option<usize>],
+    (placed, at): (usize, usize),
+    code: &dyn Fn(&str) -> bool,
+) -> Option<usize> {
+    let unwritten = (placed + 1..at).any(|index| place[index].is_none() && code(rendered[index]));
+    if !unwritten {
+        return None;
+    }
+    place[at..].iter().find_map(|line| *line)
 }
 
 /// Whether `line` (trimmed) is only brackets and item separators (`}`,

@@ -19,7 +19,7 @@ use std::sync::Arc;
 type ItemMap = HashMap<String, ItemSource>;
 
 mod collapsed;
-mod emptied_maps;
+mod emptied_containers;
 mod emptied_quotes;
 mod host_strings;
 pub(super) mod item_trail;
@@ -44,6 +44,7 @@ mod many_values_tests;
 mod merge;
 mod moved_forms;
 mod read_back;
+mod schema_readings;
 mod shared;
 mod tags;
 mod text_scalars;
@@ -328,7 +329,7 @@ impl Bridge {
         // the edited values keep the host's.
         let value = match &seen {
             Some(seen) if self.edit.behavior().scalars() == Scalars::Text => {
-                text_scalars::in_host_types(&old, seen, value).map_err(|pointer| {
+                text_scalars::in_host_types(&old, seen, value, self.shape()).map_err(|pointer| {
                     ConvertError::Unsupported(format!(
                         "{} reads an empty element here, and {} holds no empty number or boolean: the edit is saved once it holds a value again (at {pointer})",
                         self.edit.label(),
@@ -352,7 +353,7 @@ impl Bridge {
         };
         // A map whose last entry the view deleted (`deps:` left alone) is
         // the empty map, not a null.
-        let value = emptied_maps::kept(self.edit.behavior(), edit_text, &old, value);
+        let value = emptied_containers::kept(self.edit.behavior(), edit_text, &old, value);
         // Each changed value in the host's own form (a TOML datetime read
         // back normalized), or the reason the save waits.
         let value = host_scalars(host, previous_host, &old, value)?;
@@ -375,7 +376,9 @@ impl Bridge {
         let Ok(target) = codec::read(host, &rendered.text, self.shape())
             .map(|target| host.spelled_like(&rendered.text, target, &value))
         else {
-            if let Some(error) = written_anew::refused(self.host, previous_host, (&old, &value)) {
+            if let Some(error) =
+                written_anew::refused(self.host, (previous_host, &rendered.text), (&old, &value))
+            {
                 return Err(error);
             }
             #[cfg(test)]
@@ -575,9 +578,11 @@ impl Bridge {
             // No patch applies: the host is written anew, which keeps none
             // of its comments; a host with some waits.
             None => {
-                if let Some(error) =
-                    written_anew::refused(self.host, previous_host, (&old, &target))
-                {
+                if let Some(error) = written_anew::refused(
+                    self.host,
+                    (previous_host, &rendered.text),
+                    (&old, &target),
+                ) {
                     return Err(error);
                 }
                 #[cfg(test)]
@@ -605,6 +610,9 @@ impl Bridge {
                     (followed, (followed == previous_host).then_some(&old)),
                     origin,
                 )?;
+                // Values the cut of what they referred to wrote out
+                // (YAML aliases), referring to it again where it is back.
+                let text = host.references_back(&text, origin).unwrap_or(text);
                 Conversion { text, ..conversion }
             }
             None => conversion,
@@ -636,12 +644,7 @@ impl Bridge {
         // The read-back check cannot tell forms that read the same (an HCL
         // expression and the literal text it reads as): the host can.
         if let Some(pointer) = host.changed_form(previous_host, &conversion.text) {
-            return Err(ConvertError::Unsupported(format!(
-                "this edit would write the value at {pointer} in another form than {} writes it, though it reads the same: edit it as {} (at {pointer})",
-                self.host.label(),
-                self.host.label()
-            ))
-            .into());
+            return Err(self.changed_form(&pointer, intended));
         }
         Ok(conversion)
     }
@@ -681,14 +684,26 @@ impl Bridge {
                 value,
             }),
         );
-        moved_forms::kept(host, saved, intended, items, sources, self.shape()).map_err(|pointer| {
-            ConvertError::Unsupported(format!(
-                "this edit would write the value at {pointer} in another form than {} writes it, though it reads the same: edit it as {} (at {pointer})",
+        moved_forms::kept(host, saved, intended, items, sources, self.shape())
+            .map_err(|pointer| self.changed_form(&pointer, intended))
+    }
+
+    /// The save waits: it would write the value at `pointer` (of
+    /// `intended`) in another form than the host does, said with what is
+    /// wrong with it where the host knows (an HCL expression edited into
+    /// one that is none).
+    fn changed_form(&self, pointer: &str, intended: &serde_json::Value) -> SaveError {
+        let reason = intended
+            .pointer(pointer)
+            .and_then(|value| self.host.behavior().changed_form_reason(value));
+        let reason = reason.unwrap_or_else(|| {
+            format!(
+                "this edit would write the value at {pointer} in another form than {} writes it, though it reads the same: edit it as {}",
                 self.host.label(),
                 self.host.label()
-            ))
-            .into()
-        })
+            )
+        });
+        ConvertError::Unsupported(format!("{reason} (at {pointer})")).into()
     }
 
     /// Every tag of the host's `previous` text (YAML `!Sub`) on a value the

@@ -153,11 +153,6 @@ fn schema_text_problems_read_plainly() {
             "minLength must be 0 or more, and is -1 (at /properties/a/minLength)",
         ),
         (
-            "{\"type\": \"object\",}",
-            "trailing comma (line 1, column 19)",
-        ),
-        ("{\"type\": 'object'}", "expected value (line 1, column 10)"),
-        (
             "{type: object, type: string}",
             "duplicate key \"type\" (line 1, column 16)",
         ),

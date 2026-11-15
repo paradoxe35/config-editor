@@ -198,6 +198,26 @@ pub(crate) enum Work {
     /// A scalar of a key or item an Edit-as edit moved, compared with
     /// where it was cut from (`bridge::moved_forms`).
     MovedLeaf,
+    /// One schema error read for the problems to show (an error inside a
+    /// `oneOf`/`anyOf` option included): once each, not again for each
+    /// option above it.
+    #[cfg_attr(
+        not(feature = "schema-validation"),
+        allow(dead_code, reason = "only schema validation notes it")
+    )]
+    ErrorVisit,
+    /// A `oneOf`/`anyOf` option tried on a value for the explanation of a
+    /// problem (see `diagnostics::explanation`).
+    #[cfg_attr(
+        not(feature = "schema-validation"),
+        allow(dead_code, reason = "only schema validation notes it")
+    )]
+    OptionTried,
+    /// A step following the items of an Edit-as view through its edits
+    /// (`bridge::item_trail`): a place of an insert weighed for a cut
+    /// item's lines (or against a place taken), or an item of the view
+    /// looked for among the ones followed or cut.
+    TrailStep,
     /// A schema format's extra check run on a document
     /// (`SchemaCheck::check`): once per check and validation.
     SchemaCheck,
@@ -249,7 +269,10 @@ impl Work {
             Self::WalkUp => 39,
             Self::NamespaceScan => 40,
             Self::MovedLeaf => 41,
-            Self::SchemaCheck => 42,
+            Self::ErrorVisit => 42,
+            Self::OptionTried => 43,
+            Self::TrailStep => 44,
+            Self::SchemaCheck => 45,
         }
     }
 
@@ -298,13 +321,16 @@ impl Work {
         Self::WalkUp,
         Self::NamespaceScan,
         Self::MovedLeaf,
+        Self::ErrorVisit,
+        Self::OptionTried,
+        Self::TrailStep,
         Self::SchemaCheck,
     ];
 }
 
 /// How many kinds of work there are.
 #[cfg(test)]
-const KINDS: usize = 43;
+const KINDS: usize = 46;
 
 #[cfg(test)]
 thread_local! {

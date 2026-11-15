@@ -119,3 +119,68 @@ fn a_typed_value_is_saved_without_reading_the_items() {
     assert_eq!(told, untold);
     assert_eq!((told, untold), work(400));
 }
+
+/// The pause saving a copied key compares it alone with the items it may
+/// be a copy of, at any size (QA `E37-5`).
+#[test]
+fn a_copied_key_is_kept_with_the_same_work_at_any_size() {
+    let work = |count: usize| {
+        let fillers: String = (0..count).map(|at| format!("k{at} = {at}\n")).collect();
+        let host = format!("[a]\nsub = 1979-05-27T07:32:00Z\nmid = 1\n{fillers}\n[b]\nother = 2\n");
+        let mut editor = TestEditor::new(Language::TOML, &host);
+        editor.edit_as = Some(Language::YAML);
+        let (_owner, state) = editor.mount();
+        let text = state.doc().text.get_untracked();
+        let line = key_line(&text, "sub");
+        let lines = text[line_offset(&text, line)..line_offset(&text, line + 1)].to_string();
+        paste(state, &lines, "other", false);
+        let ((((), compared), leaves), reads) = counted(Work::DocumentRead, || {
+            counted(Work::MovedLeaf, || {
+                counted(Work::ItemComparison, || pause(state))
+            })
+        });
+        let saved = state.sync().host_text.get_value();
+        assert!(
+            saved.ends_with("[b]\nsub = 1979-05-27T07:32:00Z\nother = 2\n"),
+            "{saved}"
+        );
+        (compared, leaves, reads)
+    };
+    let small = work(20);
+    assert_eq!(small, work(400));
+    assert!(small.0 <= 2, "{} items compared", small.0);
+}
+
+/// A paste of many copied keys at once compares each with the keys
+/// holding the same data only: work in proportion to them (QA `E37-5`,
+/// beside QA `SP37-1`'s large edits).
+#[test]
+fn many_copied_keys_are_kept_with_work_in_proportion() {
+    let work = |count: usize| {
+        let entries: String = (0..count)
+            .map(|at| format!("k{at} = 1979-05-27T07:32:00Z\n"))
+            .collect();
+        let host = format!("[a]\n{entries}\n[b]\nother = 2\n");
+        let mut editor = TestEditor::new(Language::TOML, &host);
+        editor.edit_as = Some(Language::YAML);
+        let (_owner, state) = editor.mount();
+        let text = state.doc().text.get_untracked();
+        let (from, to) = (
+            line_offset(&text, key_line(&text, "k0")),
+            line_offset(&text, key_line(&text, "b")),
+        );
+        let lines = text[from..to].to_string();
+        paste(state, &lines, "other", false);
+        let ((), compared) = counted(Work::ItemComparison, || pause(state));
+        let saved = state.sync().host_text.get_value();
+        assert_eq!(saved, format!("[a]\n{entries}\n[b]\n{entries}other = 2\n"));
+        compared
+    };
+    for count in [20, 400] {
+        let compared = work(count);
+        assert!(
+            compared <= count + 2,
+            "{compared} comparisons for {count} keys"
+        );
+    }
+}

@@ -39,7 +39,11 @@ pub(super) fn first_lost<'a>(
             }
         };
         let (old_siblings, new_siblings) = (siblings(old), siblings(target));
-        let still_there = new_siblings.contains(value);
+        // As many siblings alike as before: another equal one (`'x'`
+        // beside a deleted `!Ref x`) is not it.
+        let alike =
+            |siblings: &[Value]| siblings.iter().filter(|sibling| *sibling == value).count();
+        let still_there = alike(&new_siblings) >= alike(&old_siblings);
         let edited_in_place = target
             .pointer(pointer)
             .is_some_and(|now| !old_siblings.contains(now));

@@ -323,3 +323,29 @@ fn a_key_cut_and_pasted_after_a_save_is_the_key_moved_at_any_size() {
     assert_eq!(small, comparisons(800));
     assert!(small <= 2, "{small} comparisons");
 }
+
+/// A line's text cut (End, Shift+Home, Ctrl+X), pasted on a blank line,
+/// or pasted over a line selected whole is an edit of the whole line: the
+/// item on it removed or inserted (QA `E37-1`); typing in a line is not.
+#[test]
+fn an_edit_of_all_a_lines_text_is_an_edit_of_the_line() {
+    let parts = |splice: Splice| (splice.at, splice.removed, splice.inserted);
+    let text = "a:\n  d: 1\n  k: 2\n";
+    let cut = Splice::of(text, "a:\n  \n  k: 2\n", 5).expect("an edit");
+    assert_eq!(parts(cut), (3, "  d: 1\n".into(), "  \n".into()));
+    let pasted = Splice::of("a:\n  \n", "a:\n  d: 1\n", 9).expect("an edit");
+    assert_eq!(parts(pasted), (3, "  \n".into(), "  d: 1\n".into()));
+    let over = Splice::of(text, "a:\n  z: 9\n  k: 2\n", 10).expect("an edit");
+    assert_eq!(parts(over), (3, "  d: 1\n".into(), "  z: 9\n".into()));
+    let typed = Splice::of(text, "a:\n  d: 12\n  k: 2\n", 9).expect("an edit");
+    assert_eq!(parts(typed), (9, String::new(), "2".into()));
+    // Lines indented (Tab), which the texts tell as the first line's text
+    // replaced and the next line's indent written: both lines rewritten.
+    let before = "b:\n  t:\n    n: 1\n  s: 2\n";
+    let after = "b:\n    t:\n      n: 1\n  s: 2\n";
+    let tabbed = Splice::of(before, after, 21).expect("an edit");
+    assert_eq!(
+        parts(tabbed),
+        (3, "  t:\n    n: 1\n".into(), "    t:\n      n: 1\n".into())
+    );
+}

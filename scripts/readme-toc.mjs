@@ -3,7 +3,9 @@
 // sections, linked) between `<!-- toc -->` and `<!-- /toc -->`, inserted
 // before the first section when missing. `--check` changes nothing and
 // fails when a contents list is out of date (CI runs it). Both fail when an
-// npm package's README links out of its folder (npmjs.com cannot follow it).
+// npm package's README links out of its folder (npmjs.com cannot follow it),
+// or when a README links our own packages' npm or crates.io pages (the docs
+// live on GitHub).
 //
 //   node scripts/readme-toc.mjs          # update
 //   node scripts/readme-toc.mjs --check  # verify
@@ -90,11 +92,24 @@ function relativeLinks(text) {
   return [...text.matchAll(/\]\((\.\.\/[^)\s]*|\/[^)\s]*)\)/g)].map((match) => match[1]);
 }
 
+/** Links to our own packages' pages on npm or crates.io: the docs live on GitHub. */
+function packageSiteLinks(text) {
+  return [
+    ...text.matchAll(/https:\/\/(?:www\.)?(?:npmjs\.com\/package\/@pngwasi\/[^)\s]*|crates\.io\/crates\/config-editor-leptos[^)\s]*)/g),
+  ].map((match) => match[0]);
+}
+
 const check = process.argv.includes('--check');
 let stale = 0;
+for (const name of READMES) {
+  for (const link of packageSiteLinks(readFileSync(join(root, name), 'utf8'))) {
+    console.error(`${name}: the link ${link} goes to a package site; link our docs on GitHub (relative in the root README)`);
+    stale += 1;
+  }
+}
 for (const name of READMES.filter((name) => name.startsWith('js/'))) {
   for (const link of relativeLinks(readFileSync(join(root, name), 'utf8'))) {
-    console.error(`${name}: the link ${link} leaves the package, which npmjs.com cannot follow; link the published page`);
+    console.error(`${name}: the link ${link} leaves the package, which npmjs.com and crates.io cannot follow; link its page on GitHub (https://github.com/paradoxe35/config-editor/tree/main/…)`);
     stale += 1;
   }
 }

@@ -1,6 +1,6 @@
 //! The text with only the entry being typed at the caret left out, so a
 //! list item written on one line (`{"kind": "a", "na|"}`, `{ a = 1, | }`,
-//! `<item><na|</item>`) stays where it is, its own (possibly empty) item:
+//! `<item><na|</item>`, `<item k="a" m="|"/>`) stays where it is, its own (possibly empty) item:
 //! the items after it keep their places. Read from the language's config
 //! (its brackets, item separator, quotes and markup delimiters), so it
 //! works alike in every language.
@@ -23,8 +23,8 @@ pub(crate) fn typed_entry_left_out(
     let line_end = source[cursor..]
         .find('\n')
         .map_or(source.len(), |at| cursor + at);
-    if let Some((open, close)) = behavior.markup_delimiters() {
-        return open_tag_left_out(source, line_start, cursor, line_end, open, close);
+    if let Some(delimiters) = behavior.markup_delimiters() {
+        return open_tag_left_out(behavior, source, line_start, cursor, line_end, delimiters);
     }
     let config = behavior.config();
     let quotes: Vec<char> = config
@@ -120,12 +120,12 @@ pub(crate) fn typed_entry_left_out(
 /// (`<na|`), left out with the rest of its name after the caret. The
 /// source as it is where none is open there (nothing typed to leave out).
 fn open_tag_left_out(
+    behavior: &dyn ConfigLanguage,
     source: &str,
     line_start: usize,
     cursor: usize,
     line_end: usize,
-    open: char,
-    close: char,
+    (open, close): (char, char),
 ) -> Option<(String, usize)> {
     let before = &source[line_start..cursor];
     let Some(opened) = before.rfind(open) else {
@@ -139,13 +139,84 @@ fn open_tag_left_out(
             character.is_whitespace() || character == open || character == close
         })
         .map_or(line_end, |at| cursor + at);
-    // An open tag's attributes (`<a b|`): its name stays, so its end tag
-    // still has its start.
+    // In an open tag's attributes (`<a k="1" b|`, `<a k="1" b="|"/>`):
+    // only the attribute typed is left out, so its name and the other
+    // attributes (which decide its values) stay.
     if source[line_start + opened..cursor].contains(char::is_whitespace) {
-        return None;
+        let quotes: Vec<char> = behavior
+            .config()
+            .quotes
+            .iter()
+            .filter_map(|quote| single_char(quote))
+            .collect();
+        let tag = Tag {
+            start: line_start + opened,
+            open,
+            close,
+            quotes: &quotes,
+        };
+        return tag.attribute_left_out(source, cursor, line_end);
     }
     let start = line_start + opened;
     Some((format!("{}{}", &source[..start], &source[end..]), start))
+}
+
+/// A markup tag left open on the caret's line: where it starts, its
+/// delimiters and the language's quotes.
+struct Tag<'a> {
+    start: usize,
+    open: char,
+    close: char,
+    quotes: &'a [char],
+}
+
+impl Tag<'_> {
+    /// `source` without the attribute at `cursor` (from the space before
+    /// it through its value's closing quote, or up to the mark closing the
+    /// tag), with the byte where it was.
+    fn attribute_left_out(
+        &self,
+        source: &str,
+        cursor: usize,
+        line_end: usize,
+    ) -> Option<(String, usize)> {
+        let mut quote: Option<char> = None;
+        let mut start = cursor;
+        for (offset, character) in source[self.start..cursor].char_indices() {
+            match quote {
+                Some(open) if character == open => quote = None,
+                Some(_) => {}
+                None if self.quotes.contains(&character) => quote = Some(character),
+                None if character.is_whitespace() => start = self.start + offset,
+                None => {}
+            }
+        }
+        let rest = &source[cursor..line_end];
+        let mut end = line_end;
+        for (offset, character) in rest.char_indices() {
+            let at = cursor + offset;
+            match quote {
+                Some(open) if character == open => {
+                    end = at + character.len_utf8();
+                    break;
+                }
+                Some(_) => {}
+                None if self.quotes.contains(&character) => quote = Some(character),
+                // A mark the closing delimiter follows (`/>`) stays.
+                None if character.is_whitespace()
+                    || character == self.open
+                    || character == self.close
+                    || (!character.is_alphanumeric()
+                        && rest[offset + character.len_utf8()..].starts_with(self.close)) =>
+                {
+                    end = at;
+                    break;
+                }
+                None => {}
+            }
+        }
+        Some((format!("{}{}", &source[..start], &source[end..]), start))
+    }
 }
 
 fn single_char(text: &str) -> Option<char> {

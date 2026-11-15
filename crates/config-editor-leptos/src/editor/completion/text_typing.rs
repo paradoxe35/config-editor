@@ -85,7 +85,7 @@ fn walk(
             // As `conform` decides between a union's options: the text where
             // the typed value fits no option and the text does (`4` for
             // `oneOf [integer >= 10, string]`), kept exactly as written.
-            *value = if !read.is_string() && read_as_text(&read, schemas, &scalar, root) {
+            *value = if !read.is_string() && read_as_text(&read, &text, schemas, &scalar, root) {
                 Value::String(text)
             } else {
                 read

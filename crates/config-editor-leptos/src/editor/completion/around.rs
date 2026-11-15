@@ -71,7 +71,11 @@ fn without_dangling_separator(
 /// The document `start` (the text before the entry at the caret) holds,
 /// a separator it ends in left out and the containers it leaves open
 /// closed: on its last line, else each on a line of its own (a block
-/// closed on its own line).
+/// closed on its own line). A syntax error on a line above its last (a
+/// value left unfinished, an entry the caret is not in) is left out, the
+/// line blank, a few times at most; one the parser finds only at the end
+/// (a quote left open above) leaves the entry the caret is in, from its
+/// last line starting unindented, read alone.
 fn start_closed(start: &str, behavior: &dyn ConfigLanguage) -> Option<Value> {
     let kept = start.trim_end();
     let start = behavior
@@ -79,25 +83,76 @@ fn start_closed(start: &str, behavior: &dyn ConfigLanguage) -> Option<Value> {
         .item_separator
         .and_then(|separator| kept.strip_suffix(separator))
         .unwrap_or(start);
-    let closers = behavior.container_closers(start);
-    let on_line = format!("{start}{}", closers.concat());
-    read_aside(behavior, &on_line).or_else(|| {
-        let mut own_lines = start.to_string();
-        for closer in &closers {
-            own_lines.push('\n');
-            own_lines.push_str(closer);
+    let mut text = start.to_string();
+    let entry = last_unindented_entry(start);
+    for _ in 0..=MAX_LINES_LEFT_OUT {
+        let error = match closed(&text, behavior) {
+            Ok(read) => return Some(read),
+            Err(error) => error,
+        };
+        match error.line.and_then(|line| line_left_blank(&text, line)) {
+            Some(blanked) => text = blanked,
+            None => break,
         }
+    }
+    closed(entry?, behavior).ok()
+}
+
+/// `text` read with the containers it leaves open closed: on its last
+/// line, else each on a line of its own.
+fn closed(text: &str, behavior: &dyn ConfigLanguage) -> Result<Value, crate::ParseError> {
+    let closers = behavior.container_closers(text);
+    let error = match read_aside(behavior, &format!("{text}{}", closers.concat())) {
+        Ok(read) => return Ok(read),
+        Err(error) => error,
+    };
+    if closers.is_empty() {
+        return Err(error);
+    }
+    let mut own_lines = text.to_string();
+    for closer in &closers {
         own_lines.push('\n');
-        (!closers.is_empty())
-            .then(|| read_aside(behavior, &own_lines))
-            .flatten()
-    })
+        own_lines.push_str(closer);
+    }
+    own_lines.push('\n');
+    read_aside(behavior, &own_lines).map_err(|_| error)
+}
+
+/// `text` from its last line with text that starts unindented, when that
+/// is not its first.
+fn last_unindented_entry(text: &str) -> Option<&str> {
+    let mut start = None;
+    let mut at = 0;
+    for line in text.split_inclusive('\n') {
+        if line.starts_with(|character: char| !character.is_whitespace()) {
+            start = Some(at);
+        }
+        at += line.len();
+    }
+    start.filter(|start| *start > 0).map(|start| &text[start..])
+}
+
+/// Lines of syntax errors above the caret [`start_closed`] leaves out.
+const MAX_LINES_LEFT_OUT: usize = 2;
+
+/// `text` with its one-based `line` left blank, when that is a line with
+/// text above its last.
+fn line_left_blank(text: &str, line: usize) -> Option<String> {
+    let lines: Vec<&str> = text.split('\n').collect();
+    let last = lines.iter().rposition(|line| !line.trim().is_empty())?;
+    let index = line.checked_sub(1).filter(|index| *index < last)?;
+    if lines[index].trim().is_empty() {
+        return None;
+    }
+    let mut kept = lines;
+    kept[index] = "";
+    Some(kept.join("\n"))
 }
 
 /// `text` parsed on the side (not the shared parse of the text on screen).
-fn read_aside(behavior: &dyn ConfigLanguage, text: &str) -> Option<Value> {
+fn read_aside(behavior: &dyn ConfigLanguage, text: &str) -> Result<Value, crate::ParseError> {
     crate::editor::work_count::note_many(crate::editor::work_count::Work::ParsedBytes, text.len());
-    counted_parse(behavior, text).ok()
+    counted_parse(behavior, text)
 }
 
 /// `text` (the document with what is typed left out) parsed, counted

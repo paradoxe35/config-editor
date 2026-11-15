@@ -23,6 +23,7 @@ mod commands;
 mod comment_scope;
 mod completion;
 mod components;
+mod decimal_text;
 mod diagnostics;
 mod diff;
 mod document;

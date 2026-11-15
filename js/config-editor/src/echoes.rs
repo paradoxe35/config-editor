@@ -256,15 +256,19 @@ impl Echoes {
     /// The host lists the text from then on, maybe late, after what is
     /// typed next: it is on its way as a text sent is, and its listing is
     /// its echo (QA 36, FW36-1: listed after the typing, it was taken for
-    /// the host's own and rolled the typing back). A text the host listed
-    /// last is its render again already (see [`Echoes::kind`]).
+    /// the host's own and rolled the typing back). So is a reset to the
+    /// text the host listed last (a discard to the file as loaded) once
+    /// the document moved past it (QA 37, HO37-1: listed after the typing
+    /// that followed, it rolled that typing back). A reset to the document
+    /// as it is changes nothing: its text is listed already, or on its way
+    /// once (QA 37, FW37-1: a second Discard waited for a listing of its
+    /// own, which the host's listing again, read as its render, never
+    /// used up, so the host's own revert to it was taken for its echo).
     pub(crate) fn replaced(&mut self, text: &str) {
         if self.on {
             let print = Print::of(text);
             self.last_given = Some(print);
-            if self.last_listed == Some(print) {
-                self.document = Some(print);
-            } else {
+            if self.document != Some(print) {
                 self.send(print);
             }
         }
@@ -424,8 +428,8 @@ impl Echoes {
                 // echoes.
                 if !same {
                     self.forget_before(flushed);
-                    self.document = Some(print);
                 }
+                self.document = Some(print);
                 return Echo::Apply;
             }
         };
@@ -914,77 +918,180 @@ mod tests {
     /// then typing, with the host listing every text, the resets' too,
     /// late and in any order: nothing rolls the document back, and the
     /// host ends on it. Before, the reset's text listed after the typing
-    /// was taken for the host's own and threw the typing away.
+    /// was taken for the host's own and threw the typing away. QA 37
+    /// (HO37-1): the same for a reset to the text the host listed last
+    /// (a discard to the file as loaded, or to the echo that came back
+    /// last), to the first text, to an earlier echo and to the text of the
+    /// reset before (a double Discard, its text listed once): before, a reset to
+    /// the text listed last was not on its way, so its listing after the
+    /// typing applied.
     #[test]
     fn a_reset_listed_late_in_any_order_keeps_the_typing() {
-        fn permutations(items: &[String]) -> Vec<Vec<String>> {
-            if items.is_empty() {
-                return vec![vec![]];
+        const FIRST: &str = "[limits]\n";
+        const TYPED: [&str; 2] = ["[limits]\nx", "[limits]\nx = 1"];
+        // Where a reset goes: a new text, the first text, the text the
+        // host listed last, an earlier echo, the text of the reset before.
+        let target = |typed_back: bool, reset: usize, to: usize| -> (&str, String) {
+            match to {
+                0 => ("new", format!("[limits]\nmax_pending = {reset}\n")),
+                1 => ("first", FIRST.to_string()),
+                2 => (
+                    "listed last",
+                    (if typed_back { TYPED[1] } else { FIRST }).to_string(),
+                ),
+                3 => ("earlier echo", TYPED[0].to_string()),
+                _ => ("the same", "[limits]\nmax_pending = 0\n".to_string()),
             }
-            (0..items.len())
-                .flat_map(|at| {
-                    let mut rest = items.to_vec();
-                    let first = rest.remove(at);
-                    permutations(&rest).into_iter().map(move |mut tail| {
-                        tail.insert(0, first.clone());
-                        tail
-                    })
-                })
-                .collect()
-        }
+        };
         for resets in [1, 2] {
             for typed_back in [false, true] {
-                let mut waiting = Vec::new();
-                let mut echoes = Echoes::new(true);
-                echoes.given("[limits]\n");
-                for text in ["[limits]\nx", "[limits]\nx = 1"] {
-                    echoes.sent(text);
-                    waiting.push(text.to_string());
-                }
-                if typed_back {
-                    for text in waiting.drain(..) {
-                        let _ = echoes.received(&text, "[limits]\nx = 1", NONE);
+                for to in 0..5 {
+                    // With two resets, the last one goes to `to`.
+                    let plan: Vec<(&str, String)> = (0..resets)
+                        .map(|reset| {
+                            let to = if reset + 1 == resets { to } else { 0 };
+                            target(typed_back, reset, to)
+                        })
+                        .collect();
+                    let name = plan.last().map_or("", |(name, _)| *name);
+                    let mut waiting = Vec::new();
+                    let mut echoes = Echoes::new(true);
+                    echoes.given(FIRST);
+                    for text in TYPED {
+                        echoes.sent(text);
+                        waiting.push(text.to_string());
                     }
-                }
-                let mut document = String::new();
-                for reset in 0..resets {
-                    document = format!("[limits]\nmax_pending = {reset}\n");
-                    echoes.replaced(&document);
-                    waiting.push(document.clone());
-                }
-                for key in ["y", " = 2"] {
-                    document.push_str(key);
-                    echoes.sent(&document);
-                    waiting.push(document.clone());
-                }
-                for order in permutations(&waiting) {
-                    let mut echoes = clone_of(&echoes);
-                    let mut host = String::new();
-                    let mut queue: std::collections::VecDeque<String> = order.into();
-                    let mut rounds = 0;
-                    loop {
-                        while let Some(text) = queue.pop_front() {
-                            host.clone_from(&text);
-                            match echoes.received(&text, &document, NONE) {
-                                Echo::Apply => assert_eq!(
-                                    text, document,
-                                    "{resets} resets, typed back {typed_back}: rolled back"
-                                ),
-                                Echo::Skip | Echo::Settle => {}
-                                Echo::Resend => queue.push_back(document.clone()),
-                            }
+                    if typed_back {
+                        for text in waiting.drain(..) {
+                            let _ = echoes.received(&text, TYPED[1], NONE);
                         }
-                        if !echoes.settle(&document) {
-                            break;
-                        }
-                        queue.push_back(document.clone());
-                        rounds += 1;
-                        assert!(rounds < 4, "settles forever");
                     }
-                    assert_eq!(host, document, "{resets} resets, typed back {typed_back}");
+                    let mut document = (if typed_back { TYPED[1] } else { FIRST }).to_string();
+                    for (_, text) in &plan {
+                        // A reset to the document as it is changes
+                        // nothing: the host's list holds that text already.
+                        if *text != document {
+                            waiting.push(text.clone());
+                        }
+                        document.clone_from(text);
+                        echoes.replaced(&document);
+                    }
+                    for key in ["y", " = 2"] {
+                        document.push_str(key);
+                        echoes.sent(&document);
+                        waiting.push(document.clone());
+                    }
+                    for order in permutations(&waiting) {
+                        let case = format!(
+                            "{resets} resets to {name}, typed back {typed_back}, {order:?}"
+                        );
+                        let mut echoes = clone_of(&echoes);
+                        let host = deliver(&mut echoes, order, &document, &case);
+                        assert_eq!(host, document, "{case}");
+                    }
                 }
             }
         }
+    }
+
+    /// A reset to the text the host listed last with nothing typed since
+    /// changes nothing: no copy waits for its listing, so a later discard
+    /// to that text, once the typing came back, still applies.
+    #[test]
+    fn a_reset_to_the_text_listed_last_with_nothing_typed_waits_for_nothing() {
+        let mut echoes = Echoes::new(true);
+        echoes.given("a: 1\n");
+        echoes.replaced("a: 1\n");
+        assert_eq!(waiting(&echoes), 0);
+        echoes.sent("a: 12\n");
+        assert_eq!(echoes.received("a: 12\n", "a: 12\n", NONE), Echo::Apply);
+        assert_eq!(echoes.received("a: 1\n", "a: 12\n", NONE), Echo::Apply);
+    }
+
+    /// QA 37 (FW37-1): two resets to the same text (a double Discard),
+    /// listed once or twice by the host, then typing, every text listed in
+    /// any order: the host ends on the document, and its own revert to the
+    /// reset's text then applies. Before, each reset waited for a listing
+    /// of its own, the host's listing again read as its render, so one
+    /// stayed on its way and the revert was taken for its echo.
+    #[test]
+    fn a_reset_made_twice_waits_for_one_listing() {
+        const RESET: &str = "[limits]\nmax_pending = 1\n";
+        for listings in [1, 2] {
+            let mut echoes = Echoes::new(true);
+            echoes.given("[limits]\n");
+            echoes.sent("[limits]\nx = 1");
+            echoes.replaced(RESET);
+            echoes.replaced(RESET);
+            let mut waiting = vec!["[limits]\nx = 1".to_string()];
+            if listings == 1 {
+                // One render for both (a framework batching them).
+                waiting.push(RESET.to_string());
+            } else {
+                // Each listed before the typing (a host listing each reset
+                // it holds).
+                for _ in 0..listings {
+                    assert_ne!(echoes.received(RESET, RESET, NONE), Echo::Resend);
+                }
+            }
+            let document = format!("{RESET}y = 2");
+            echoes.sent(&document);
+            waiting.push(document.clone());
+            for order in permutations(&waiting) {
+                let case = format!("{listings} listings, {order:?}");
+                let mut echoes = clone_of(&echoes);
+                let host = deliver(&mut echoes, order, &document, &case);
+                assert_eq!(host, document, "{case}");
+                assert_eq!(
+                    echoes.received(RESET, &document, NONE),
+                    Echo::Apply,
+                    "{case}: the revert was taken for an echo"
+                );
+            }
+        }
+    }
+
+    /// Every order of `items`.
+    fn permutations(items: &[String]) -> Vec<Vec<String>> {
+        if items.is_empty() {
+            return vec![vec![]];
+        }
+        (0..items.len())
+            .flat_map(|at| {
+                let mut rest = items.to_vec();
+                let first = rest.remove(at);
+                permutations(&rest).into_iter().map(move |mut tail| {
+                    tail.insert(0, first.clone());
+                    tail
+                })
+            })
+            .collect()
+    }
+
+    /// Lists `order` to `echoes`, then what it sends again (at once, or
+    /// once a pause is over) until nothing more comes, checking that no
+    /// text but the document applies; returns the text the host holds.
+    fn deliver(echoes: &mut Echoes, order: Vec<String>, document: &str, case: &str) -> String {
+        let mut host = String::new();
+        let mut queue: std::collections::VecDeque<String> = order.into();
+        let mut rounds = 0;
+        loop {
+            while let Some(text) = queue.pop_front() {
+                host.clone_from(&text);
+                match echoes.received(&text, document, NONE) {
+                    Echo::Apply => assert_eq!(text, document, "{case}: rolled back"),
+                    Echo::Skip | Echo::Settle => {}
+                    Echo::Resend => queue.push_back(document.to_string()),
+                }
+            }
+            if !echoes.settle(document) {
+                break;
+            }
+            queue.push_back(document.to_string());
+            rounds += 1;
+            assert!(rounds < 4, "{case}: settles forever");
+        }
+        host
     }
 
     /// A copy of `echoes` (the tests' own: the editor never copies one).

@@ -407,6 +407,43 @@ impl Documents {
             .flatten()
     }
 
+    /// Mounts now the editors waiting to (a document listed with an
+    /// Edit-as text, shown or not), as their panel's effect does once it
+    /// runs: a query in the same task as the view's start (`is_dirty`,
+    /// `save`, the editor's text) answers from that text, not as if it
+    /// were absent (QA 37, HO37-4).
+    pub(super) fn mount_waiting(&self) {
+        let waiting: Vec<Entry> = self
+            .entries
+            .try_with_untracked(|entries| {
+                entries
+                    .iter()
+                    .filter(|entry| {
+                        entry.visited.get_untracked()
+                            && entry.editor.try_with_value(Option::is_none) == Some(true)
+                    })
+                    .cloned()
+                    .collect()
+            })
+            .unwrap_or_default();
+        if waiting.is_empty() {
+            return;
+        }
+        for entry in &waiting {
+            if let Some(mount) = entry.mount_now.try_get_value().flatten() {
+                untrack(|| mount.run(()));
+            }
+        }
+        // Its text converted now, as a host's call does, and its dirty
+        // state taken from it now, not once its effect reports it.
+        crate::flush_pending_edits();
+        for entry in &waiting {
+            if untrack(|| entry.handle.is_mounted()) {
+                self.note_dirty(entry, untrack(|| entry.handle.is_dirty()));
+            }
+        }
+    }
+
     /// The active document's id.
     pub(super) fn active_id(&self) -> Option<String> {
         self.active.try_get_untracked().flatten()
@@ -701,6 +738,14 @@ impl Documents {
         };
         if untrack(|| entry.handle.is_mounted()) {
             return entry.handle.save();
+        }
+        // Its editor is still to open with an Edit-as text (listed by an
+        // update, before the view renders its panel): the listed text is
+        // not what it holds, so nothing is sent until it opens.
+        if entry.visited.get_untracked()
+            && entry.edit_as_text.try_with_value(Option::is_some) == Some(true)
+        {
+            return false;
         }
         let Some(callback) = self.callbacks.on_save else {
             return false;

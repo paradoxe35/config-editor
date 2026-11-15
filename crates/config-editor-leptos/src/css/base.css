@@ -1311,10 +1311,17 @@
 }
 
 :not(#\#):not(#\#) .config-editor__find-text-button {
-  padding: 0 7px;
+  /* A long text wraps inside the button instead of leaving the widget. */
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 100%;
+  height: auto;
+  min-height: 22px;
+  padding: 3px 7px;
   border-color: var(--config-editor-raised-border);
   background: var(--config-editor-control-bg);
-  font: 12px/1 ui-sans-serif, system-ui, sans-serif;
+  font: 12px/1.2 ui-sans-serif, system-ui, sans-serif;
+  overflow-wrap: anywhere;
 }
 
 /* Unavailable with no match (still focusable, and said so). */
@@ -1338,7 +1345,7 @@
 
 :not(#\#):not(#\#) .config-editor__find-count-empty { color: var(--config-editor-status-error); }
 
-:not(#\#):not(#\#) .config-editor__find-actions { display: flex; flex: none; gap: 1px; margin-left: auto; }
+:not(#\#):not(#\#) .config-editor__find-actions { display: flex; flex: 0 1 auto; flex-wrap: wrap; min-width: 0; gap: 1px; margin-left: auto; }
 
 :not(#\#):not(#\#) .config-editor__comment { color: var(--config-editor-comment); }
 :not(#\#):not(#\#) .config-editor__key { color: var(--config-editor-key); }
@@ -1574,21 +1581,27 @@
 
 :not(#\#):not(#\#) .config-editor__hover-meta {
   display: flex;
-  gap: 8px;
+  /* A long label keeps its line and the value moves under it. */
+  flex-wrap: wrap;
+  gap: 2px 8px;
   align-items: baseline;
   color: var(--config-editor-raised-muted);
   font-size: 11px;
 }
 
+/* The label stays whole (its line is its own once it does not fit beside a
+   usable value); only a single word wider than the card breaks. */
 :not(#\#):not(#\#) .config-editor__hover-meta > span {
   flex: 0 1 auto;
-  min-width: min-content;
-  overflow-wrap: normal;
-  word-break: normal;
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
 }
 
+/* The value asks for about eight characters beside the label, or the line
+   under it, and takes the rest. */
 :not(#\#):not(#\#) .config-editor__hover-meta code {
-  flex: 1 1 0;
+  flex: 1 1 8em;
   min-width: 0;
   font: 11px var(--config-editor-mono);
   color: var(--config-editor-raised-text);
@@ -1755,7 +1768,7 @@
    the line count: one row while it fits, else wrapped rather than cut
    (an unplaced problem's message), never with an empty half. */
 @media (max-width: 540px) {
-  :not(#\#):not(#\#) .config-editor__status-meta { flex: 1 1 auto; justify-content: flex-end; }
+  :not(#\#):not(#\#) .config-editor__status-meta { flex: 1 1 auto; flex-wrap: wrap; justify-content: flex-end; gap: 0 8px; }
   :not(#\#):not(#\#) .config-editor__diagnostic-status { flex: 1 1 auto; max-width: none; white-space: normal; }
 }
 
@@ -1800,6 +1813,12 @@
   cursor: pointer;
   font: inherit;
   white-space: nowrap;
+}
+
+/* On a phone a long text wraps on a row of its own, not squeezed beside the others. */
+@media (max-width: 540px) {
+  :not(#\#):not(#\#) .config-editor__change-status,
+  :not(#\#):not(#\#) .config-editor__line-count { max-width: 100%; white-space: normal; text-align: right; }
 }
 
 :not(#\#):not(#\#) .config-editor__change-status:hover { text-decoration: underline; }

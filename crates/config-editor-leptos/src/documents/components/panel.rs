@@ -1,6 +1,7 @@
 //! One document's tab panel and its editor. The editor mounts the first time
 //! the document is shown (at once, so its handle answers right after a
-//! `select`), then stays mounted while the document is open:
+//! `select`; at once when it is listed with an Edit-as text), then
+//! stays mounted while the document is open:
 //! hidden panels keep their layout (`visibility: hidden`, `inert`), so the
 //! editor's scroll position, caret, undo history, folds and find widget are
 //! all there when the document comes back.
@@ -42,9 +43,10 @@ pub(in crate::documents) fn DocumentPanel(documents: Documents, entry: Entry) ->
     }
 }
 
-/// Mounts the document's editor into its panel the first time it is shown:
-/// at once when the view shows it (`Entry::mount_now`), or once the panel
-/// is on the page for a document shown before. As a view of its own, with
+/// Mounts the document's editor into its panel the first time it is shown
+/// (or the document is listed with an Edit-as text): at once when the view
+/// shows it (`Entry::mount_now`), or once the panel is on the page for a
+/// document shown before. As a view of its own, with
 /// an owner of its own, unmounted (then cleaned up) with the panel.
 fn mount_when_shown(
     documents: Documents,

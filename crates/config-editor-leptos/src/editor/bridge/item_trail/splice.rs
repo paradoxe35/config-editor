@@ -50,22 +50,54 @@ impl Splice {
             _ => self,
         };
         if !splice.removed.contains('\n') && !splice.inserted.contains('\n') {
-            return splice;
+            return splice.over_line_text(before);
         }
         let line_start = before[..splice.at].rfind('\n').map_or(0, |at| at + 1);
         let end = splice.at + splice.removed.len();
-        let line_end = if end == 0 || before.as_bytes()[end - 1] == b'\n' {
+        // Through the line the edit leaves unended: a re-indent read as
+        // its first line's text replaced, the next line's indent written
+        // (`tags:\n` by `  tags:\n  `), rewrites both lines.
+        let head = &before[line_start..splice.at];
+        let ended =
+            head.is_empty() && splice.inserted.is_empty() || splice.inserted.ends_with('\n');
+        let line_end = if (end == 0 || before.as_bytes()[end - 1] == b'\n') && ended {
             end
         } else {
             before[end..]
                 .find('\n')
                 .map_or(before.len(), |at| end + at + 1)
         };
-        let (head, tail) = (&before[line_start..splice.at], &before[end..line_end]);
+        let tail = &before[end..line_end];
         Splice {
             at: line_start,
             removed: format!("{head}{}{tail}", splice.removed),
             inserted: format!("{head}{}{tail}", splice.inserted),
+        }
+    }
+
+    /// An edit within one line that removes, writes or replaces all its
+    /// text but the indent (End, Shift+Home and Ctrl+X; a paste on a blank
+    /// line, or over a line selected whole, which the texts tell as its
+    /// text replaced) spread to the whole line: the item written on it is
+    /// removed or inserted whole (QA `E37-1`).
+    fn over_line_text(self, before: &str) -> Splice {
+        let blank = |text: &str| text.trim().is_empty();
+        if blank(&self.removed) && blank(&self.inserted) {
+            return self;
+        }
+        let line_start = before[..self.at].rfind('\n').map_or(0, |at| at + 1);
+        let end = self.at + self.removed.len();
+        let line_end = before[end..]
+            .find('\n')
+            .map_or(before.len(), |at| end + at + 1);
+        let (head, tail) = (&before[line_start..self.at], &before[end..line_end]);
+        if !blank(head) || !blank(tail) {
+            return self;
+        }
+        Splice {
+            at: line_start,
+            removed: format!("{head}{}{tail}", self.removed),
+            inserted: format!("{head}{}{tail}", self.inserted),
         }
     }
 

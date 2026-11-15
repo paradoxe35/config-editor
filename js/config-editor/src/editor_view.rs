@@ -33,6 +33,9 @@ pub struct DocumentEditorView {
 impl DocumentEditorView {
     /// The document's value with pending edits applied, while it is listed.
     fn current_value(&self) -> Option<String> {
+        // An editor waiting to mount (listed with `editAsText`) holds the
+        // document's text: mounted first, its edit converts with the rest.
+        let _ = self.handle();
         config_editor_leptos::flush_pending_edits();
         self.texts().map(|texts| texts.value)
     }

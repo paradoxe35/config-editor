@@ -400,7 +400,8 @@ pub(super) fn flush_text(pending: &mut String, stack: &mut [OpenElement]) {
 ///
 /// Text beside no child element is the value exactly as an XML reader reports
 /// it, its leading and trailing whitespace and line breaks included (a
-/// number, boolean or `null` is read without the whitespace around it): what
+/// number, boolean or `null` is read without the whitespace around it where
+/// the schema wants one): what
 /// the host's program reads, so editing it elsewhere keeps it. Whitespace
 /// alone is the empty element's formatting unless written as CDATA. Beside
 /// child elements, the text runs are trimmed: there the whitespace is the
@@ -461,18 +462,20 @@ pub(super) fn insert_child(map: &mut Map<String, Value>, name: String, value: Va
     }
 }
 
-/// Numbers, booleans, and `null` are recognized; everything else is a string.
-/// Where the schema wants a string, validation reads them back as text.
+/// Numbers, booleans, and `null` written as their JSON text are recognized;
+/// everything else is a string. Where the schema wants a string, validation
+/// reads them back as text; where it wants a number, boolean or `null`,
+/// text spelled another way (`1.50`, `1e3`, ` 4 `) reads as one (see
+/// `completion::conform_arrays`).
 pub(super) fn typed_scalar(text: &str) -> Value {
-    let trimmed = text.trim();
-    match trimmed {
+    match text {
         "true" => Value::Bool(true),
         "false" => Value::Bool(false),
         "null" => Value::Null,
-        // Only text a number writes back unchanged (`1e3`, `1.50` and `-0`
-        // stay text, so saving them keeps what was typed).
-        _ => match serde_json::from_str::<Value>(trimmed) {
-            Ok(Value::Number(number)) if number.to_string() == trimmed => Value::Number(number),
+        // Only text a number writes back unchanged (`1e3`, `1.50`, `-0` and
+        // ` 4 ` stay text, so saving them keeps what was typed).
+        _ => match serde_json::from_str::<Value>(text) {
+            Ok(Value::Number(number)) if number.to_string() == text => Value::Number(number),
             _ => Value::String(text.to_string()),
         },
     }

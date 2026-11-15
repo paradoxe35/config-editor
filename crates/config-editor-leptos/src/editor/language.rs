@@ -1207,6 +1207,15 @@ pub trait ConfigLanguage: Send + Sync + 'static {
         false
     }
 
+    /// The names `line` (a line's text past its indent) writes after its
+    /// first key when it opens a block, each one key deeper: HCL's block
+    /// labels (`resource "a" "b" {` writes `/resource/a/b`, a block apart
+    /// from `resource "a" "c" {`). Default: none.
+    fn block_labels(&self, line: &str) -> Vec<String> {
+        let _ = line;
+        Vec::new()
+    }
+
     /// The text with the caret's line (`line_start..line_end`, the line
     /// break kept) left out, to read the rest of the document while a
     /// half-typed entry would not parse. A language whose line also opens
@@ -1451,6 +1460,17 @@ pub trait ConfigLanguage: Send + Sync + 'static {
     /// through nothing so written. `rangeOf` finds such a field there.
     fn written_at(&self, source: &str, pointer: &str) -> Option<String> {
         let _ = (source, pointer);
+        None
+    }
+
+    /// `saved` (an Edit-as save's text) with each value the session's
+    /// first text `origin` wrote as a reference to a value written once
+    /// (a YAML alias `*p`), that `saved` writes out while it writes that
+    /// value again before it (an anchor cut, saved, and pasted back),
+    /// written as that reference again; `None` (the default) when there
+    /// is none. The text must read as `saved` does.
+    fn references_back(&self, saved: &str, origin: &str) -> Option<String> {
+        let _ = (saved, origin);
         None
     }
 
@@ -1970,6 +1990,16 @@ pub trait ConfigLanguage: Send + Sync + 'static {
     /// one waits.
     fn changed_form(&self, previous: &str, patched: &str) -> Option<String> {
         let _ = (previous, patched);
+        None
+    }
+
+    /// Why a save writing `value` (as the view holds it) waits on its form
+    /// ([`Self::changed_form`] named it): what is wrong with it, said to
+    /// the user (an HCL `${…}` text that is no valid expression any more,
+    /// which HCL writes as plain text). `None` (the default) when the form
+    /// alone tells it.
+    fn changed_form_reason(&self, value: &Value) -> Option<String> {
+        let _ = value;
         None
     }
 

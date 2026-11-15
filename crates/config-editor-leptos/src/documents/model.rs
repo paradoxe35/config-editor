@@ -87,7 +87,8 @@ pub struct Document {
     /// editor's `read_only_ranges`; update live.
     pub read_only_ranges: Vec<TextRange>,
     /// Secret placeholders, as the editor's `secrets`. Read when the editor
-    /// mounts (the first time the document is shown).
+    /// mounts (the first time the document is shown, or at once when it
+    /// is listed with an [`edit_as_text`](Self::edit_as_text)).
     pub secrets: Option<SecretOptions>,
 }
 

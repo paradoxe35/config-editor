@@ -29,7 +29,15 @@ mod bom;
     feature = "hcl",
     feature = "xml"
 ))]
-mod emptied_maps;
+mod broken_expressions;
+#[cfg(all(
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod emptied_containers;
 #[cfg(all(
     feature = "yaml",
     feature = "json",
@@ -110,6 +118,14 @@ mod hcl_templates;
     feature = "xml"
 ))]
 mod key_order;
+#[cfg(all(
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod merge_key_order;
 #[cfg(all(
     feature = "yaml",
     feature = "json",
@@ -222,6 +238,14 @@ mod typed;
     feature = "xml"
 ))]
 mod typed_by_schema;
+#[cfg(all(
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod whole_rewrites;
 #[cfg(all(
     feature = "yaml",
     feature = "json",
