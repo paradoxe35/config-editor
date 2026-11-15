@@ -284,6 +284,16 @@ fn toggle_comments_adds_and_removes_hash_prefixes() {
     assert_eq!(restored, source);
 }
 
+/// A selected commented line is uncommented as it is, even into text
+/// that does not read (the problem shows): no refusal.
+#[test]
+fn toggle_comments_uncomments_a_selected_line_into_broken_text() {
+    let source = "# a = [1,\nb = 2\n";
+    let end = "# a = [1,".encode_utf16().count();
+    let (uncommented, _, _) = TomlBehavior.toggle_comments(source, 0, end).unwrap();
+    assert_eq!(uncommented, "a = [1,\nb = 2\n");
+}
+
 #[test]
 fn hovering_a_key_reports_its_schema_type() {
     let hover = key_hover(

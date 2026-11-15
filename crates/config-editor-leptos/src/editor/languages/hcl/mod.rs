@@ -461,12 +461,12 @@ impl ConfigLanguage for HclBehavior {
     /// As the default, commenting with the line comment the file writes
     /// most (`//` in a file of `//` comments, else `#`).
     fn toggle_comments(&self, source: &str, selection_start: usize, selection_end: usize) -> Option<(String, usize, usize)> {
-        use super::super::language::{toggle_line_comments, unwrap_block_comments};
+        use super::super::language::{comment_target, toggle_line_comments, unwrap_block_comments};
         let block = ("/*", "*/");
         if let Some(unwrapped) = unwrap_block_comments(source, selection_start, selection_end, block) {
             return Some(unwrapped);
         }
-        let (start, end) = self.whole_constructs(source, selection_start, selection_end);
+        let (start, end) = comment_target(self, source, selection_start, selection_end);
         unwrap_block_comments(source, start, end, block)
             .or_else(|| toggle_line_comments(source, start, end, comment_markers(source)))
     }

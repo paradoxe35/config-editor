@@ -96,9 +96,10 @@ fn an_xml_document_with_a_declared_entity_does_not_convert() {
     report(failures);
 }
 
-/// L25: whole floats (`1.0`, `0.0`) and a float that underflows to zero
-/// (`1e-400`, read as `0.0`) convert to every target without a loss: HCL
-/// reads a float written `1.0` as the float, as the others do.
+/// Whole floats (`1.0`, `0.0`) convert to every target without a loss
+/// (HCL reads a float written `1.0` as the float, as the others do); a
+/// float that underflows to zero (`1e-400`, read as `0.0`) loses its
+/// digits, as any decimal a double cannot hold does: it is listed.
 #[test]
 fn whole_and_underflowing_floats_convert_to_every_target_without_losses() {
     let sources = [
@@ -131,7 +132,7 @@ fn whole_and_underflowing_floats_convert_to_every_target_without_losses() {
             match from.convert(text, target) {
                 // XML holds the array's items as repeated elements and
                 // reads them back: the floats still are no loss.
-                Ok(conversion) if conversion.losses.is_empty() => {}
+                Ok(conversion) if conversion.losses == ["/c"] => {}
                 other => failures.push(format!("{from} to {target}: {other:?}")),
             }
         }

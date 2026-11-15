@@ -465,6 +465,24 @@ pub fn unwrap_block_comments(
     Some((updated.clone(), map(start), map(end)))
 }
 
+/// The UTF-16 selection Ctrl+/ toggles: a selection's lines as they are
+/// (what the user chose, broken text included, is theirs to see a problem
+/// on); a caret's line widened over the whole constructs it is in (see
+/// [`ConfigLanguage::whole_constructs`]), so one key press never cuts a
+/// string or a block in half.
+pub(crate) fn comment_target(
+    behavior: &(impl ConfigLanguage + ?Sized),
+    source: &str,
+    start: usize,
+    end: usize,
+) -> (usize, usize) {
+    if start == end {
+        behavior.whole_constructs(source, start, end)
+    } else {
+        (start, end)
+    }
+}
+
 /// Ctrl+/ for line-comment languages: the selected lines (UTF-16 offsets)
 /// commented at the block's smallest indent with `markers[0]`, or, when every
 /// non-blank line already starts with one of `markers`, uncommented. Returns
@@ -1310,8 +1328,11 @@ pub trait ConfigLanguage: Send + Sync + 'static {
     }
 
     /// The document with the selected lines commented or uncommented, and the
-    /// remapped selection; `None` when the language has no comments. The
-    /// default uses [`LanguageConfig::line_comments`].
+    /// remapped selection; `None` when the language has no comments. A
+    /// selection's lines are toggled exactly as selected (so a toggle and
+    /// the next one on the lines it leaves selected give the text back); a
+    /// caret's line is widened over the whole constructs it is in (see
+    /// [`comment_target`]). The default uses [`LanguageConfig::line_comments`].
     fn toggle_comments(
         &self,
         source: &str,
@@ -1327,7 +1348,7 @@ pub trait ConfigLanguage: Send + Sync + 'static {
             return Some(unwrapped);
         }
         let (selection_start, selection_end) =
-            self.whole_constructs(source, selection_start, selection_end);
+            comment_target(self, source, selection_start, selection_end);
         config
             .block_comment
             .and_then(|block| unwrap_block_comments(source, selection_start, selection_end, block))

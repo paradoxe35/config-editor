@@ -42,7 +42,6 @@ fn suggestions_beside_a_toml_header_ending_in_non_ascii_do_not_panic() {
 /// FE38-5: moving the last lines down in a text without a last newline
 /// leaves the caret past the text's end.
 #[test]
-#[ignore = "FE38-5 open"]
 fn moving_a_line_down_to_the_end_keeps_the_caret_in_the_text() {
     let text = "a\nb";
     let (_owner, state) = TestEditor::new(Language::YAML, text).mount();
@@ -83,7 +82,6 @@ fn an_xml_element_holding_a_comment_is_commented_and_uncommented() {
 
 /// FE38-2: a replace that changes nothing is no undo step.
 #[test]
-#[ignore = "FE38-2 open"]
 fn a_replace_changing_nothing_is_no_undo_step() {
     super::undo::replay(super::undo::UndoCase {
         host: Language::YAML,
@@ -114,7 +112,6 @@ fn enter_after_a_yaml_key_indents_to_its_entries() {
 /// FE38-1: a decimal with more digits than a double holds converts with
 /// its digits, or the conversion lists it as a loss.
 #[test]
-#[ignore = "FE38-1 open"]
 fn long_decimals_convert_exactly_or_are_listed() {
     super::convert::replay(
         Language::JSON,
@@ -125,7 +122,6 @@ fn long_decimals_convert_exactly_or_are_listed() {
 
 /// FE38-9: Enter after a top-level YAML entry keeps its column.
 #[test]
-#[ignore = "FE38-9 open"]
 fn enter_after_a_top_level_yaml_entry_keeps_its_column() {
     super::valid::replay(super::valid::ValidCase {
         language: Language::YAML,
@@ -137,7 +133,6 @@ fn enter_after_a_top_level_yaml_entry_keeps_its_column() {
 
 /// FE38-4: Ctrl+/ twice on a YAML comment of prose gives the text back.
 #[test]
-#[ignore = "FE38-4 open"]
 fn a_yaml_comment_of_prose_is_uncommented_and_commented_back() {
     super::valid::replay(super::valid::ValidCase {
         language: Language::YAML,

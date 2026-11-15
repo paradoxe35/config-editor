@@ -361,8 +361,13 @@ pub(super) fn toggle_xml_comments(
         };
         return Some((updated.clone(), map(start), map(end)));
     }
-    // Whole elements, start tags, CDATA and comments over lines.
-    let (selection_start, selection_end) = over_balanced_xml_lines(source, selection_start, selection_end);
+    // A caret's line widened over the whole elements, start tags, CDATA
+    // and comments over lines it is in; a selection's lines as selected.
+    let (selection_start, selection_end) = if selection_start == selection_end {
+        over_balanced_xml_lines(source, selection_start, selection_end)
+    } else {
+        (selection_start, selection_end)
+    };
     let (start, end) = (utf16_to_byte_index(source, selection_start), utf16_to_byte_index(source, selection_end));
     let first_line = source[..start]
         .bytes()

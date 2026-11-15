@@ -237,7 +237,8 @@ impl EditorState {
         }
     }
 
-    /// The undo history, by origin; `after` is the selection the edit left,
+    /// The undo history, by origin; `changed` says whether the edit changed
+    /// the text, `after` is the selection the edit left,
     /// `folds` the folds closed before and after a command that said them,
     /// `links` the links of the text before (see `bridge::links`).
     fn record(
@@ -257,6 +258,13 @@ impl EditorState {
         };
         let history = self.doc().history;
         match &edit.origin {
+            // An edit writing the text that is there (a replace by the
+            // same text, a suggestion already written) is no step: undo
+            // would seem to do nothing; it still ends the typing step.
+            Origin::Command | Origin::Reload { .. } if !changed => {
+                history.update(super::super::history::EditHistory::seal);
+            }
+            Origin::Input { .. } if !changed => {}
             Origin::Command => history.update(|history| {
                 let (closed, left) = folds.unzip();
                 let before = Snapshot {
@@ -269,9 +277,7 @@ impl EditorState {
                 history.update(|history| history.record_action(before(), after));
             }
             Origin::Input { kind, time } => {
-                if changed {
-                    history.update(|history| history.record_input(before(), after, kind, *time));
-                }
+                history.update(|history| history.record_input(before(), after, kind, *time));
             }
             Origin::Undo => history.update(|history| {
                 history.undo_with(edit.before.clone(), links.clone());

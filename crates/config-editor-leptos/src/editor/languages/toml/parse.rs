@@ -14,7 +14,11 @@ pub(super) fn toml_parse(source: &str) -> Result<Value, ParseError> {
         let (line, column) = (line.clamp(1, line_count), column.max(1));
         let (column, message) = super::super::wide_integers::out_of_range(source, line, column).unwrap_or_else(|| {
             let message = error.message();
-            let message = if message.starts_with("cannot recurse further") {
+            // Arrays or inline tables too deep, or tables under too many
+            // keys (`[a.a.a…]`).
+            let message = if message.starts_with("cannot recurse further")
+                || message.starts_with("recursion limit")
+            {
                 super::super::nesting::too_deep(super::super::nesting::VALUES)
             } else {
                 super::words::plain(source, line, column, message)

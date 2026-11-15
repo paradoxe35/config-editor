@@ -1,9 +1,11 @@
-//! The lines Ctrl+/ comments, widened so they never cut through something
-//! written over several lines: a flow collection (`a: [1,` … `2]`), a call
+//! The lines Ctrl+/ comments at a caret (and a copy or cut of a folded
+//! line takes), widened so they never cut through something written over
+//! several lines: a flow collection (`a: [1,` … `2]`), a call
 //! or object over lines, a string whose text starts on its opening line
 //! (`s = """multi` … `line"""`), an XML start tag, element or CDATA over
 //! lines. Commenting part of one would leave an invalid document or change
-//! a value; the whole of it is commented instead.
+//! a value; the whole of it is commented instead. A selection is commented
+//! as selected.
 
 use super::keyboard::utf16_to_byte_index;
 use super::language::ConfigLanguage;
@@ -194,10 +196,18 @@ fn line_states(
                 .next_back()
                 .is_none_or(|before| before.is_whitespace() || value_starts.contains(&before));
             // The language's string delimiters, longest first; a literal
-            // one-character quote opens one only where a value starts.
+            // one-character quote opens one only where a value starts, and
+            // any one-character quote right after a letter or digit is part
+            // of that word (`don't`, YAML's plain `x"y`).
+            let after_word = line[..at]
+                .chars()
+                .next_back()
+                .is_some_and(char::is_alphanumeric);
             if let Some(delimiter) = quotes.iter().copied().find(|delimiter| {
                 rest.starts_with(delimiter)
-                    && (boundary || !literal(delimiter) || delimiter.chars().count() > 1)
+                    && (delimiter.chars().count() > 1
+                        || boundary
+                        || !literal(delimiter) && !after_word)
             }) {
                 quote = Some(delimiter);
                 at += delimiter.len();

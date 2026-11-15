@@ -12,6 +12,7 @@ mod kept_inline;
 mod key_order;
 mod lines;
 mod lists;
+mod long_decimals;
 mod moves;
 pub(super) mod non_finite;
 mod removed_items;
@@ -242,9 +243,10 @@ pub(super) fn convert(
 
 /// [`convert`] for a caller who keeps the result (the headless
 /// `convert`): the values whose tags the target has no place for (YAML's
-/// `!Sub`), and those written as expressions (HCL's `var.z`, which the
-/// target holds as text), are losses too. (Edit-as keeps the host's tags
-/// and expressions itself.)
+/// `!Sub`), those written as expressions (HCL's `var.z`, which the
+/// target holds as text), and decimals written with more digits than a
+/// double holds, are losses too. (Edit-as keeps the host's tags,
+/// expressions and digits itself.)
 pub(super) fn convert_away(
     source: &str,
     from: &dyn ConfigLanguage,
@@ -252,11 +254,11 @@ pub(super) fn convert_away(
     schema: Option<&Value>,
 ) -> Result<Conversion, ConvertError> {
     let mut conversion = convert(source, from, to, None, schema)?;
+    let value = read(from, source, schema).map_err(ConvertError::Parse)?;
     // The document is read alone, with no value to spell its keys like: a
     // key it reads back spelled otherwise (an `@a` the XML attribute `a`
     // stands for) is a loss.
     if let Ok(alone) = read(to, &conversion.text, schema) {
-        let value = read(from, source, schema).map_err(ConvertError::Parse)?;
         let mut respelled = Vec::new();
         differences(&value, &alone, String::new(), &mut respelled);
         // Listed where the source has them (`/r/@a`, not the `/r/a` read).
@@ -268,7 +270,8 @@ pub(super) fn convert_away(
         }
     }
     let tagged = from.tags(source).into_iter().map(|(pointer, _)| pointer);
-    for pointer in tagged.chain(from.expressions(source)) {
+    let rounded = long_decimals::rounded(from, source, &value);
+    for pointer in tagged.chain(from.expressions(source)).chain(rounded) {
         if !conversion.losses.contains(&pointer) {
             conversion.losses.push(pointer);
         }

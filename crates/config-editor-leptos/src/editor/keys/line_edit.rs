@@ -391,14 +391,24 @@ pub(in crate::editor) fn line_edit(
             });
         }
     };
+    // A blank line moved to the end of a text without a last newline
+    // would give it one (and could not move back): the text keeps its
+    // lack of one, so the move changes nothing.
+    if matches!(command, LineCommand::Move { .. })
+        && !final_newline
+        && new_lines.last().is_some_and(String::is_empty)
+    {
+        return None;
+    }
     let mut joined = new_lines.join("\n");
     if final_newline {
         joined.push('\n');
     }
+    let end = units(&joined);
     let place = |(line, column): (usize, usize)| {
         // A selection ending at the start of the line after the block
-        // ends there still.
-        offset(&new_lines, line.saturating_add_signed(by), column)
+        // ends there still, or at the text's end when no line follows.
+        offset(&new_lines, line.saturating_add_signed(by), column).min(end)
     };
     let selection = (place(caret), place(other));
     (joined != text).then_some(LineEdit {

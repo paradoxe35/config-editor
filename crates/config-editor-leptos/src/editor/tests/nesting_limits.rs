@@ -52,6 +52,28 @@ fn every_language_says_where_a_text_nests_too_deeply_in_one_sentence() {
     }
 }
 
+/// Tables under more keys than TOML reads (`[a.a.a…]`, or a table in a
+/// list in a table…, as written for deep data) say so in the same sentence.
+#[cfg(feature = "toml")]
+#[test]
+fn toml_tables_nested_too_deeply_say_so() {
+    let mut text = String::new();
+    let mut header = String::from("a");
+    for _ in 0..150 {
+        text.push_str(&format!("[{header}]\nx = 1\n"));
+        header.push_str(".a");
+    }
+    let error = Language::TOML
+        .behavior()
+        .parse(&text)
+        .expect_err("150 levels");
+    assert!(
+        error.message.contains("nest too deeply here"),
+        "{}",
+        error.message
+    );
+}
+
 #[test]
 fn yaml_block_nesting_too_deep_is_placed_on_its_line() {
     let text: String = (0..200)

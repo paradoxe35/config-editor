@@ -911,6 +911,28 @@ fn comment_shortcut_comments_selected_lines_and_preserves_selection() {
     assert_eq!(end, updated.encode_utf16().count());
 }
 
+/// A selection is toggled exactly as selected; a caret's line takes the
+/// whole construct it opens. Uncommented prose that reads into the next
+/// item is the user's choice, and the next Ctrl+/ on the lines it leaves
+/// selected gives the text back.
+#[test]
+fn comment_shortcut_toggles_a_selection_as_selected_and_a_caret_over_its_construct() {
+    let source = "a:\n  b: 1\nc: 2\n";
+    let line = "a:".encode_utf16().count();
+    let (selected, _, _) = toggle_yaml_line_comments(source, 0, line).unwrap();
+    assert_eq!(selected, "# a:\n  b: 1\nc: 2\n");
+    let (caret, _, _) = toggle_yaml_line_comments(source, 1, 1).unwrap();
+    assert_eq!(caret, "# a:\n#   b: 1\nc: 2\n");
+
+    let prose = "sub:\n  # about 1\n  - 2\n";
+    let at = prose.find("# about").unwrap();
+    let end = prose.find("\n  - 2").unwrap();
+    let (once, start, stop) = toggle_yaml_line_comments(prose, at, end).unwrap();
+    assert_eq!(once, "sub:\n  about 1\n  - 2\n");
+    let (twice, _, _) = toggle_yaml_line_comments(&once, start, stop).unwrap();
+    assert_eq!(twice, prose);
+}
+
 #[test]
 fn comment_shortcut_uncomments_indented_lines_and_keeps_blank_lines() {
     let source = "  # first\n\n  # second\n";
