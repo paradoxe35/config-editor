@@ -587,7 +587,9 @@ fn a_new_entry_typed_before_a_secret_in_a_declared_one_line_map_is_taken() {
     make(&setup, &mounted, &entry).expect("each key taken");
     pause(mounted.state);
     assert!(!mounted.state.changes_held(), "released");
-    let last = mounted.changes.with_untracked(|changes| changes.last().cloned());
+    let last = mounted
+        .changes
+        .with_untracked(|changes| changes.last().cloned());
     assert_eq!(last, Some(mounted.state.doc().text.get_untracked()));
 }
 
