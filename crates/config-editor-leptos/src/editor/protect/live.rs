@@ -63,6 +63,10 @@ pub(crate) struct Marks {
     epoch: u64,
     /// The placeholder a mouse press landed inside, until it is released.
     pub(crate) pressed: Option<Range<usize>>,
+    /// The last change event was held back (see
+    /// [`EditorState::hold_change`]): new locks from the host that release
+    /// it send the text on screen then.
+    held_back: bool,
 }
 
 /// The protection signals of one editor.
@@ -160,7 +164,7 @@ impl ProtectState {
                     // Edit-as: the host's ranges lock the fields they cover.
                     if !ranges.with(Vec::is_empty) {
                         host_text.with_value(|host| {
-                            let placed = in_host.in_text(host);
+                            let placed = in_host.in_text(host_language.behavior(), host, reading);
                             range_fields = covered.found(host_language, host, &placed, reading);
                         });
                     }
@@ -369,13 +373,31 @@ impl EditorState {
         });
     }
 
-    /// The host changed its locks: a refusal of the old ones holds no more.
-    fn locks_changed_by_host(&self) {
+    /// The host changed its locks: a refusal of the old ones holds no more,
+    /// and a change event they held back is sent now that they release it
+    /// (P4: the host has the text on screen without waiting for a key).
+    pub(super) fn locks_changed_by_host(&self) {
         let text = self.doc().text.get_untracked();
         let edit = self.sync().edit_language.get_untracked();
-        if edit != self.config().host_language && text != self.sync().synced_edit.get_value() {
-            super::super::sync::convert_now(*self, text, edit);
+        if edit != self.config().host_language {
+            if text != self.sync().synced_edit.get_value() {
+                super::super::sync::convert_now(*self, text, edit);
+            }
+            return;
         }
+        if self.protect().marks.with_value(|marks| marks.held_back) {
+            self.notify_change();
+        }
+    }
+
+    /// Whether the change event for the text on screen waits (see
+    /// [`Self::changes_held`]), noting it for [`Self::locks_changed_by_host`].
+    pub(crate) fn hold_change(&self) -> bool {
+        let held = self.changes_held();
+        self.protect()
+            .marks
+            .update_value(|marks| marks.held_back = held);
+        held
     }
 
     /// The edit pipeline's check stage: whether `edit` keeps every lock;
@@ -512,9 +534,14 @@ impl EditorState {
     fn follow_ranges_across_switch(&self) {
         let host = self.config().host_language == self.sync().edit_language.get_untracked();
         let placed = if host {
-            self.doc()
-                .text
-                .with_untracked(|text| self.protect().in_host.in_text(text))
+            self.config().schema.with_value(|schema| {
+                let reading = schema.as_deref().map(|bundle| &bundle.schema);
+                self.doc().text.with_untracked(|text| {
+                    self.protect()
+                        .in_host
+                        .in_text(self.behavior(), text, reading)
+                })
+            })
         } else {
             Vec::new()
         };
@@ -638,7 +665,7 @@ impl EditorState {
             let ranges = if self.protect().host_ranges.with_untracked(Vec::is_empty) {
                 Vec::new()
             } else {
-                self.protect().in_host.in_text(old)
+                self.protect().in_host.in_text(behavior, old, reading)
             };
             if marking.is_none() && paths.is_empty() && ranges.is_empty() {
                 return Ok(());

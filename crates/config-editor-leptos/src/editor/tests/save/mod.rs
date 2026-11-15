@@ -125,6 +125,15 @@ mod key_order;
     feature = "json",
     feature = "toml",
     feature = "hcl",
+    feature = "xml",
+    feature = "protect"
+))]
+mod large_secrets;
+#[cfg(all(
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
     feature = "xml"
 ))]
 mod merge_key_order;

@@ -356,3 +356,56 @@ fn a_hosts_ranges_are_followed_once_per_host_text() {
     let (few, many) = (followed(50), followed(1_000));
     assert!(few <= 2 && many <= 2, "{few} and {many}");
 }
+
+/// P1: a range on a JSON field written last in its object keeps locking
+/// that field once a view's reorder makes the conversion write it with a
+/// comma after it (its line written anew, not kept): the range is placed
+/// again at the field, not left as one character of the line below.
+#[test]
+fn a_hosts_range_follows_its_field_through_a_reorder_rewriting_its_line() {
+    let host_json = "{\n  \"db\": {\n    \"user\": \"app\",\n    \"password\": \"hunter2\"\n  },\n  \"port\": 1\n}\n";
+    let line = "    \"password\": \"hunter2\"";
+    for view in [Language::YAML, Language::TOML] {
+        let (_owner, state) = TestEditor {
+            edit_as: Some(view),
+            read_only_ranges: vec![TextRange::new(
+                TextPosition::new(4, 1),
+                TextPosition::new(4, line.len() + 1),
+            )],
+            ..TestEditor::new(Language::JSON, host_json)
+        }
+        .mount();
+        let text = shown(state);
+        let (first, second) = if view == Language::YAML {
+            ("  user: app\n", "  password: hunter2\n")
+        } else {
+            ("user = \"app\"\n", "password = \"hunter2\"\n")
+        };
+        let at = text.find(first).expect("the user line");
+        let end = at + first.len() + second.len();
+        assert_eq!(&text[at + first.len()..end], second, "{text}");
+        let reordered = format!("{second}{first}");
+        assert!(
+            input(state, at..end, &reordered, "insertFromPaste"),
+            "the reorder is taken in {view:?}"
+        );
+        pause(state);
+        assert!(
+            host(state).contains("\"password\": \"hunter2\","),
+            "{}",
+            host(state)
+        );
+        // The locks are read again for the next text on screen: the line
+        // the range was left on cut.
+        let text = shown(state);
+        let at = text.find(first).expect("the user line");
+        assert!(input(state, at..at + first.len(), "", "deleteContent"));
+        assert_eq!(
+            locked(state),
+            ["/db/password"],
+            "{view:?} after the reorder"
+        );
+        let value = value_end(state, "password");
+        assert!(!type_at(state, value, "x"), "{view:?}: {}", shown(state));
+    }
+}

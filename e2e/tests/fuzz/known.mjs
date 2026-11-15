@@ -5,35 +5,7 @@
 // LOW for edge cases. `match(failure, page)` takes `{ check, detail }`.
 // Remove an entry when its finding is fixed (its repro under `repros/`
 // then passes: drop the `fixme`).
-export const KNOWN = [
-  {
-    // P1: a placeholder whose key was split (the text no longer parses)
-    // takes a paste inside it: another placeholder pasted at a caret
-    // `revealRange` put inside it splits it (`«s«secret 3f2a»ecret 3f2a»`),
-    // and the host hears the broken token. Repro: repros/GP38-8-*.
-    id: 'GP38-8',
-    severity: 'MEDIUM',
-    check: 'secret',
-    match: (failure) => /«[^»]*«/.test(failure.detail),
-  },
-  {
-    // GP38-8 seen on the page: the split placeholder shows as written.
-    id: 'GP38-8',
-    severity: 'MEDIUM',
-    check: 'secret-dom',
-    match: (failure) => /«[^»]*«/.test(failure.detail),
-  },
-  {
-    // P4: an edit a lock held (its field read otherwise, `saveHeld` shown)
-    // is not released when the host takes the locks away: the notice goes,
-    // yet `value` and `onChange` keep the text before it, saying nothing,
-    // until the next edit. Repro: repros/GP38-5-*.
-    id: 'GP38-5',
-    severity: 'MEDIUM',
-    check: 'value-text',
-    match: (failure) => failure.unlocked,
-  },
-];
+export const KNOWN = [];
 
 export function knownClass(failure, page) {
   return (

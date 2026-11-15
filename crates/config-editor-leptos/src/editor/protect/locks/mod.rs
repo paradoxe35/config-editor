@@ -238,6 +238,13 @@ pub(crate) fn protect(
             }
         }
     });
+    // A field locked two ways (a host range covering a path the host also
+    // names, carried and placed again) is one lock: copies would pile up
+    // with each text that does not parse.
+    let mut seen = std::collections::HashSet::new();
+    protected
+        .locks
+        .retain(|lock| seen.insert((lock.pointer.clone(), lock.ranges.clone(), lock.key.clone())));
     protected.held = placer.held_pointers(&protected.locks);
     protected.pins = placer.into_pins(&protected.locks, &protected.unplaced);
     for (pointer, value) in covered_pins {

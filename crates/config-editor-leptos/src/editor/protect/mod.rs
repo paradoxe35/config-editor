@@ -509,6 +509,8 @@ mod reach_tests;
     feature = "xml"
 ))]
 mod real_again_tests;
+#[cfg(all(test, feature = "yaml"))]
+mod released_tests;
 #[cfg(all(
     test,
     feature = "yaml",
@@ -545,6 +547,15 @@ mod secret_tests;
     feature = "xml"
 ))]
 mod sibling_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod split_key_tests;
 #[cfg(all(
     test,
     feature = "yaml",

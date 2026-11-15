@@ -52,6 +52,11 @@ pub(super) fn before_input(state: EditorState, event: &web_sys::InputEvent) {
                 event.prevent_default();
                 return;
             }
+            // Part of a placeholder dragged: refused, its drop with it.
+            if state.cuts_a_token(start, end) {
+                event.prevent_default();
+                return;
+            }
         } else if kind == "insertFromDrop" && state.drop_refused_by_its_delete() {
             event.prevent_default();
             state.drop_done();

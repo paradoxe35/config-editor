@@ -646,3 +646,184 @@ fn a_range_over_a_declared_list_item_keeps_the_key_holding_it() {
         assert_ok(&setup, &[Act::ReplaceAll { pair: 5 }]);
     }
 }
+
+/// Seed 4183: a key added above a range's field in a YAML view and the
+/// field's line moved above its neighbour; the pause writes the JSON host
+/// with a comma after it (its line written anew). The range is placed
+/// again at the field, so a new value over it is still refused after the
+/// next edit.
+#[test]
+fn a_hosts_range_keeps_its_field_through_a_conversion_rewriting_its_line() {
+    let setup = Setup {
+        case: 0,
+        lock: cases::Lock::Range,
+        host: Some(Language::JSON),
+        pairs: false,
+    };
+    assert_ok(
+        &setup,
+        &[
+            Act::Entry {
+                anchor: 2,
+                name: 3,
+                paste: false,
+            },
+            Act::Line {
+                line: 43383,
+                command: 1,
+            },
+            Act::Pause,
+            Act::Cut { line: 10433 },
+            Act::NewValue,
+        ],
+    );
+}
+
+/// Seed 5227: in a JSON view of an HCL host that does not parse (` }`
+/// typed before a list item a range covers), a new value pasted over the
+/// item is taken. The guard reads a range-covered field's value as the
+/// text past its key, and an item's key span is the item itself.
+#[test]
+#[ignore = "SPANS-4 seed 5227: open, in protect/guard (covered_value_kept)"]
+fn a_new_value_over_a_range_covered_item_in_a_broken_view_is_refused() {
+    let setup = Setup {
+        case: 3,
+        lock: cases::Lock::Range,
+        host: Some(Language::HCL),
+        pairs: false,
+    };
+    assert_ok(
+        &setup,
+        &[
+            Act::Type { at: 56928, text: 9 },
+            Act::NewValue,
+            Act::Cut { line: 65396 },
+        ],
+    );
+}
+
+/// Seed 12127: in a JSON view of a TOML host, the line opening the range's
+/// field's block cut (the text broken) and a character typed into the
+/// field's key: the field's value is followed past its key, so the field
+/// stays locked and, once the text parses without it, held.
+#[test]
+fn a_range_covered_field_whose_key_changes_in_a_broken_view_stays_locked() {
+    let setup = Setup {
+        case: 2,
+        lock: cases::Lock::Range,
+        host: Some(Language::TOML),
+        pairs: true,
+    };
+    assert_ok(
+        &setup,
+        &[
+            Act::Cut { line: 57878 },
+            Act::Type { at: 26170, text: 6 },
+            Act::Cut { line: 28289 },
+        ],
+    );
+}
+
+/// Seed 4669: an XML list item a range covers copied below, the root line
+/// cut, the item moved above its list and that undone: of the two alike
+/// lines, the field's lock follows the one its range follows (the nearest
+/// to where it was), so the field is still locked when the text parses.
+#[test]
+fn a_range_covered_item_and_its_range_follow_the_same_copy_of_its_line() {
+    let setup = Setup {
+        case: 7,
+        lock: cases::Lock::Range,
+        host: None,
+        pairs: false,
+    };
+    assert_ok(
+        &setup,
+        &[
+            Act::PasteCopy { line: 20908 },
+            Act::Line {
+                line: 64435,
+                command: 3,
+            },
+            Act::Line {
+                line: 41245,
+                command: 1,
+            },
+            Act::Undo,
+            Act::Line {
+                line: 43085,
+                command: 3,
+            },
+        ],
+    );
+}
+
+/// Seeds 6192 and 3703: in Dot's one-line map, which reads the last of
+/// alike keys, a range's line copied twice: the range follows one copy, the
+/// field's lock another, the parse reads the third. An edit of the third
+/// changes the value read: held, as the host's ranges are the same ones.
+#[test]
+fn a_range_covered_field_read_at_another_copy_of_its_line_is_held() {
+    for (pairs, acts) in [
+        (
+            false,
+            vec![
+                Act::PasteCopy { line: 15525 },
+                Act::Line {
+                    line: 60486,
+                    command: 2,
+                },
+                Act::Type { at: 4270, text: 1 },
+            ],
+        ),
+        (
+            true,
+            vec![
+                Act::Line {
+                    line: 36092,
+                    command: 2,
+                },
+                Act::PasteCopy { line: 31214 },
+                Act::Entry {
+                    anchor: 2,
+                    name: 9,
+                    paste: false,
+                },
+                Act::ReplaceAll { pair: 3 },
+            ],
+        ),
+    ] {
+        let setup = Setup {
+            case: 11,
+            lock: cases::Lock::Range,
+            host: None,
+            pairs,
+        };
+        assert_ok(&setup, &acts);
+    }
+}
+
+/// The sweep's smallest case of a range following a copy of its field's
+/// line: in TOML, the range's line pasted again, an entry pasted, and a
+/// Replace all changing the copy the parse reads. The field is held
+/// wherever the parse reads it, not only where the range went.
+#[test]
+fn a_range_covered_field_changed_at_the_copy_the_parse_reads_is_held() {
+    let setup = Setup {
+        case: 4,
+        lock: cases::Lock::Range,
+        host: None,
+        pairs: true,
+    };
+    assert_ok(
+        &setup,
+        &[
+            Act::PasteCopy { line: 7364 },
+            Act::Entry {
+                anchor: 2,
+                name: 2,
+                paste: true,
+            },
+            Act::ReplaceAll { pair: 5 },
+        ],
+    );
+}

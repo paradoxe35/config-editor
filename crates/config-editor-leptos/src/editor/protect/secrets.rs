@@ -316,16 +316,53 @@ impl EditorState {
                     .cloned()
                     .collect();
                 let units: Vec<u16> = after.encode_utf16().collect();
-                let mut tokens: Vec<Range<usize>> = followed
+                let text_of = |range: &Range<usize>| {
+                    String::from_utf16_lossy(
+                        &units[range.start.min(units.len())..range.end.min(units.len())],
+                    )
+                };
+                // In a text that parses, every copy of a pasted token is
+                // placed by its path, first ones first.
+                if parse_cache::parsed(behavior, after).is_ok() {
+                    let mut tokens: Vec<Range<usize>> = followed
+                        .into_iter()
+                        .filter(|range| !written.contains(&text_of(range).as_str()))
+                        .chain(matcher.locate(behavior, after, &mine))
+                        .collect();
+                    tokens.sort_by_key(|range| range.start);
+                    return (tokens, false);
+                }
+                // In one that does not, no path is read off its lines for
+                // the tokens the edit kept (a placeholder whose key a paste
+                // split would read as another field's, and a paste into it
+                // would be taken): they follow their text. With the copies
+                // the edit wrote that their path places, each token is real
+                // as often as the host gave it, first ones first.
+                let mut left: std::collections::HashMap<String, usize> =
+                    std::collections::HashMap::new();
+                for known in mine.iter().filter(|known| known.field.is_some()) {
+                    *left.entry(known.token.clone()).or_default() += known.count;
+                }
+                let wrote = start..start + inserted_len;
+                let (kept, mut tokens): (Vec<Range<usize>>, Vec<Range<usize>>) = followed
                     .into_iter()
-                    .filter(|range| {
-                        let token = String::from_utf16_lossy(
-                            &units[range.start.min(units.len())..range.end.min(units.len())],
-                        );
-                        !written.contains(&token.as_str())
-                    })
-                    .chain(matcher.locate(behavior, after, &mine))
+                    .partition(|range| left.contains_key(&text_of(range)));
+                let mut candidates: Vec<Range<usize>> = matcher
+                    .locate(behavior, after, &mine)
+                    .into_iter()
+                    .filter(|range| wrote.start <= range.start && range.end <= wrote.end)
+                    .chain(kept)
                     .collect();
+                candidates.sort_by_key(|range| range.start);
+                candidates.dedup_by(|later, earlier| later.start < earlier.end);
+                for range in candidates {
+                    if let Some(count) = left.get_mut(&text_of(&range))
+                        && *count > 0
+                    {
+                        *count -= 1;
+                        tokens.push(range);
+                    }
+                }
                 tokens.sort_by_key(|range| range.start);
                 (tokens, false)
             })
@@ -483,6 +520,18 @@ impl EditorState {
             secrets.known.set(known);
         }
         self.rescan_tokens(false);
+    }
+
+    /// Whether a selection from UTF-16 `start` to `end` takes part of a
+    /// placeholder, not all of it. A drag of such a selection is refused:
+    /// its delete would take the placeholder whole while its drop writes
+    /// only the dragged part, losing the rest.
+    pub(crate) fn cuts_a_token(&self, start: usize, end: usize) -> bool {
+        self.protect().secrets.tokens.with_untracked(|tokens| {
+            tokens
+                .iter()
+                .any(|token| super::tokens::cuts(token, &(start..end)))
+        })
     }
 
     /// Moves a selection end left inside a placeholder (by a click, Home,

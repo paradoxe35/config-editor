@@ -188,6 +188,14 @@ impl EditorState {
         false
     }
 
+    pub(crate) fn hold_change(&self) -> bool {
+        false
+    }
+
+    pub(crate) fn cuts_a_token(&self, _start: usize, _end: usize) -> bool {
+        false
+    }
+
     pub(super) fn snap_to_tokens(&self) {}
 
     pub(super) fn recheck_tokens(&self) {}

@@ -12,6 +12,7 @@ use std::ops::Range;
 use super::super::diff::{DiffEdit, myers_edits};
 use super::locate::LineIndex;
 use super::locks::Lock;
+use super::texts::Reason;
 
 /// How the UTF-16 offsets of one text map onto the text an edit made of it.
 pub(super) struct Moves<'a> {
@@ -104,10 +105,26 @@ impl<'a> Moves<'a> {
     /// there: of two alike lines, the one the value went to (the other
     /// edited, or the value's line one of two copies) holds its key too.
     pub(super) fn lock(&self, lock: &Lock) -> Option<Lock> {
+        // A field a host range covers keeps its value's text, not its key's
+        // (the guard lets the key change where no range is on screen): its
+        // value is followed past the key, so a renamed key leaves the field
+        // locked, and held where it reads otherwise.
+        let value_only = |range: &Range<usize>| match &lock.key {
+            Some(key)
+                if lock.pointer.is_some()
+                    && lock.reason == Reason::Range
+                    && key.start <= range.start
+                    && range.start < key.end
+                    && key.end < range.end =>
+            {
+                key.end..range.end
+            }
+            _ => range.clone(),
+        };
         let ranges: Vec<Range<usize>> = lock
             .ranges
             .iter()
-            .map(|range| self.range(range))
+            .map(|range| self.range(range).or_else(|| self.range(&value_only(range))))
             .collect::<Option<_>>()?;
         let key = |span: &Range<usize>| {
             lock.ranges
@@ -188,24 +205,20 @@ impl<'a> Moves<'a> {
 }
 
 impl<'a> LineMoves<'a> {
-    /// The lines of the text after holding old lines `first..=last`, when
-    /// they are written there once, whole and together.
+    /// The lines of the text after holding old lines `first..=last`,
+    /// whole and together: of several copies, the one nearest where they
+    /// were, as the host's ranges follow their lines (`follow`), so a
+    /// field's lock and the range covering it stay on the same copy.
     fn written_once(&self, first: usize, last: usize) -> Option<(usize, usize)> {
         let block: Vec<&str> = (first..=last)
             .map(|line| self.old.line_text(line))
             .collect();
         let count = block.len();
         let total = self.new.line_count();
-        let mut found = None;
-        for at in 0..total.saturating_sub(count - 1) {
-            if (0..count).all(|index| self.new.line_text(at + index) == block[index]) {
-                if found.is_some() {
-                    return None;
-                }
-                found = Some((at, at + count - 1));
-            }
-        }
-        found
+        (0..total.saturating_sub(count - 1))
+            .filter(|at| (0..count).all(|index| self.new.line_text(at + index) == block[index]))
+            .min_by_key(|at| at.abs_diff(first))
+            .map(|at| (at, at + count - 1))
     }
 
     fn new(before: &'a str, after: &'a str) -> Option<Self> {

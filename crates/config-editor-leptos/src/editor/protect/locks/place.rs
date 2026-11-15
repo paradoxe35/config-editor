@@ -218,13 +218,28 @@ impl<'r, 'a> Placer<'r, 'a> {
                 })
             })
         };
+        // The host's ranges as they were, only followed here (their text is
+        // locked, so each keeps its length): a field one covered is still
+        // the host's, wherever its lock and the range went among alike
+        // lines (a copy of the line: the range may follow one copy, the
+        // lock another, and the parse read a third).
+        let lengths = |locks: &[Lock]| {
+            let mut lengths: Vec<usize> = locks
+                .iter()
+                .filter(|lock| lock.pointer.is_none())
+                .flat_map(|lock| lock.ranges.iter().map(|range| range.len()))
+                .collect();
+            lengths.sort_unstable();
+            lengths
+        };
+        let same_ranges = lengths(&before.locks) == lengths(ranges);
         before
             .locks
             .iter()
             .filter(|lock| lock.reason == Reason::Range)
             .filter_map(|lock| lock.pointer.as_ref())
             .filter(|pointer| !covered.iter().any(|(known, _)| known == *pointer))
-            .filter(|pointer| in_range(pointer))
+            .filter(|pointer| same_ranges || in_range(pointer))
             .filter(|pointer| {
                 before.pins.iter().any(|(known, value)| {
                     known == *pointer && lookup(document, pointer) == Some(value)

@@ -13,6 +13,21 @@ pub(super) struct Known {
 
 pub(super) const KNOWN: &[Known] = &[
     Known {
+        finding: "SPANS-4 seeds 5227, 503169 (P1, MEDIUM): in an Edit-as JSON or YAML \
+                  view that does not parse, a new value pasted over a list item a host \
+                  range covers is taken (the guard reads a covered field's value as the \
+                  text past its key, and an item's key span is the item itself)",
+        applies: |class| {
+            class.edit_as
+                && is(
+                    class,
+                    Check::LockChanged,
+                    &["JSON list", "YAML list"],
+                    &[Lock::Range],
+                )
+        },
+    },
+    Known {
         finding: "GP38-3 (LOW): in Dot's one-line map, a new entry typed a key at a time \
                   before the secret's passes through `passwordx: password: '«…»'`, which \
                   Dot's parser reads as the token glued into `passwordx`: refused at that \
@@ -35,13 +50,6 @@ pub(super) const KNOWN: &[Known] = &[
                     (Lock::Range, "Entry") | (Lock::Path | Lock::Schema, "Cut")
                 )
         },
-    },
-    Known {
-        finding: "NEW (P1, MEDIUM): a field a host range covers, its line copied in a \
-                  language reading the last of two alike keys (Dot's one-line map), is \
-                  found again only where the parse writes it, the other copy: an edit \
-                  there changes the value read and is not held",
-        applies: |class| is(class, Check::LockChanged, &["Dot map"], &[Lock::Range]),
     },
     Known {
         finding: "NEW (LOW, deferred): a secret's new value is quoted once an edit moves it \

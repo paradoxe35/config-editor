@@ -192,7 +192,7 @@ impl EditorState {
     pub(super) fn notify_change(&self) {
         // A locked field reading otherwise (a duplicate shadows it): the
         // host hears nothing until it reads as pinned again.
-        if self.changes_held() {
+        if self.hold_change() {
             return;
         }
         if let Some(on_change) = self.sync().on_change {

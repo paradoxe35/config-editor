@@ -606,7 +606,7 @@ pub(crate) fn widen(
 
 /// Whether an edit replacing `region` cuts `token`: it removes part of it,
 /// or inserts inside it.
-fn cuts(token: &Range<usize>, region: &Range<usize>) -> bool {
+pub(super) fn cuts(token: &Range<usize>, region: &Range<usize>) -> bool {
     if region.is_empty() {
         return token.start < region.start && region.start < token.end;
     }
