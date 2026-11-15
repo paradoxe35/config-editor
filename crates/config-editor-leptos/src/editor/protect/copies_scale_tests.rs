@@ -105,10 +105,9 @@ fn a_text_holding_its_keys_several_times_checks_placeholders_in_linear_work() {
     assert!(costly.is_empty(), "{costly:#?}");
 }
 
-/// The stand-ins of the text read for the copies of its keys, and the
-/// readings of the whole text, when the first placeholder's line of the
+/// The readings of the whole text when the first placeholder's line of the
 /// sample written `copies` times moves down a line.
-fn line_moved(language: Language, copies: usize) -> (usize, usize) {
+fn line_moved(language: Language, copies: usize) -> usize {
     let text = sample(language).repeat(copies);
     let mut editor = TestEditor::new(language, &text);
     editor.secrets = Some(SecretOptions::default().with_placeholder("«secret [0-9a-f]{8}»"));
@@ -131,12 +130,12 @@ fn line_moved(language: Language, copies: usize) -> (usize, usize) {
         );
     });
     let count = |kind: Work| counts[Work::ALL.iter().position(|each| *each == kind).unwrap()];
-    (count(Work::StandIn), count(Work::DocumentRead))
+    count(Work::DocumentRead)
 }
 
-/// One line moved in the first copy of its keys reads no stand-in for the
-/// later copies, and the same few readings of the text at any size: work
-/// for the lookups it makes, not every copy of every field near it (QA 35:
+/// One line moved in the first copy of its keys reads the text the same
+/// few times at any size: work for the lookups it makes, not every copy of
+/// every field near it (QA 35:
 /// Alt+Down on the large sample written four times was 1.5 times slower).
 #[test]
 fn a_line_moved_reads_only_the_copies_it_looks_up() {
@@ -144,9 +143,9 @@ fn a_line_moved_reads_only_the_copies_it_looks_up() {
     let mut costly = Vec::new();
     for language in Language::ALL.iter().copied() {
         let (small, large) = (line_moved(language, 2), line_moved(language, 4));
-        if small.0 > 0 || large.0 > 0 || large.1 > small.1 {
+        if large > small {
             costly.push(format!(
-                "{language}: (stand-ins, readings) {small:?} for two copies, {large:?} for four"
+                "{language}: {small} readings for two copies, {large} for four"
             ));
         }
     }

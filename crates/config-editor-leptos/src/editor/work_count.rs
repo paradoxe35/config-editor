@@ -165,20 +165,6 @@ pub(crate) enum Work {
         allow(dead_code, reason = "only protection notes it")
     )]
     RangesFollowed,
-    /// A line of an edited region weighed against one lock (whether it
-    /// would join it), in the lock check of a text that does not parse.
-    #[cfg_attr(
-        not(feature = "protect"),
-        allow(dead_code, reason = "only the lock check notes it")
-    )]
-    LockLine,
-    /// A stand-in of a text read for the copies of keys written more than
-    /// once (`protect::own_value`: the text with the keys found renamed).
-    #[cfg_attr(
-        not(feature = "protect"),
-        allow(dead_code, reason = "only the lock check notes it")
-    )]
-    StandIn,
     /// A text parsed with the caret's entry (or line) left out, to read
     /// the document around what is being typed
     /// (`completion::document_around`).
@@ -276,18 +262,16 @@ impl Work {
             Self::BranchWalk => 33,
             Self::OffsetSeek => 34,
             Self::RangesFollowed => 35,
-            Self::LockLine => 36,
-            Self::StandIn => 37,
-            Self::AroundParse => 38,
-            Self::WalkUp => 39,
-            Self::NamespaceScan => 40,
-            Self::MovedLeaf => 41,
-            Self::ErrorVisit => 42,
-            Self::OptionTried => 43,
-            Self::LinkStep => 44,
-            Self::ErrorCollected => 45,
-            Self::HostTextCompared => 46,
-            Self::AliasScan => 47,
+            Self::AroundParse => 36,
+            Self::WalkUp => 37,
+            Self::NamespaceScan => 38,
+            Self::MovedLeaf => 39,
+            Self::ErrorVisit => 40,
+            Self::OptionTried => 41,
+            Self::LinkStep => 42,
+            Self::ErrorCollected => 43,
+            Self::HostTextCompared => 44,
+            Self::AliasScan => 45,
         }
     }
 
@@ -330,8 +314,6 @@ impl Work {
         Self::BranchWalk,
         Self::OffsetSeek,
         Self::RangesFollowed,
-        Self::LockLine,
-        Self::StandIn,
         Self::AroundParse,
         Self::WalkUp,
         Self::NamespaceScan,
@@ -347,7 +329,7 @@ impl Work {
 
 /// How many kinds of work there are.
 #[cfg(test)]
-const KINDS: usize = 48;
+const KINDS: usize = 46;
 
 #[cfg(test)]
 thread_local! {
@@ -418,8 +400,8 @@ pub(crate) fn counted_each<T, const N: usize>(
 }
 
 /// `run`'s result and how many times it read the whole of `text`: the
-/// reads of it for spans, paths or a stand-in, and its parses (the bytes
-/// parsed over its length, rounded up). Work that reads the whole text
+/// reads of it for spans or paths, and its parses (the bytes parsed over
+/// its length, rounded up). Work that reads the whole text
 /// once per item (a path lookup for each token) shows here as thousands.
 #[cfg(test)]
 #[allow(
@@ -427,19 +409,11 @@ pub(crate) fn counted_each<T, const N: usize>(
     reason = "the count tests that use it need features a build may leave out"
 )]
 pub(crate) fn whole_reads<T>(text: &str, run: impl FnOnce() -> T) -> (T, usize) {
-    let (result, [reads, lookups, stand_ins, parsed]) = counted_each(
-        [
-            Work::DocumentRead,
-            Work::PathLookup,
-            Work::StandIn,
-            Work::ParsedBytes,
-        ],
+    let (result, [reads, lookups, parsed]) = counted_each(
+        [Work::DocumentRead, Work::PathLookup, Work::ParsedBytes],
         run,
     );
-    (
-        result,
-        reads + lookups + stand_ins + parsed.div_ceil(text.len().max(1)),
-    )
+    (result, reads + lookups + parsed.div_ceil(text.len().max(1)))
 }
 
 /// The kinds of work (and their total) that `run` starts more than

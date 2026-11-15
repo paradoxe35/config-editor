@@ -1122,42 +1122,41 @@ view! {
   value or the lock shows the reason.
 - Every way of changing the text is checked the same way, after it is made
   and before it is applied: typing, Backspace and Delete, paste, cut, drop,
-  completions, Replace, `Ctrl+/`, Revert, undo and redo. An edit that would
-  change a read-only value, delete its key (also by deleting a selection or
-  a parent block that holds it), rename a key holding it, or add to a
-  read-only block is refused whole: the text stays as it was, and a short
-  tooltip at the caret says why. Typing refused part-way leaves nothing
-  half-written: what was typed of that entry on the line goes too (`<i` of
-  a refused `<id>`), and the keys typed there after it are refused, until
-  the caret moves. Replace All replaces the other matches and reports how
-  many it skipped.
+  completions, Replace, `Ctrl+/`, Revert, undo and redo. What is locked is
+  text: each read-only value, its key and the keys holding it, and each
+  host range, found where the document last parsed and followed through
+  every edit by position. An edit that changes that text (a read-only
+  value, its key or a key holding it, deleting a selection or a parent
+  block that holds it), or glues text onto a value (`port: 808`, `xport`)
+  is refused whole: the text stays as it was, and a short
+  tooltip at the caret says why. Replace All replaces the other matches and
+  reports how many it skipped.
+- Everything else goes through, key by key: a new key beside a locked one,
+  whatever its name, and also a second copy of a locked key or block, a
+  block moved, or a key added past a locked block's end. While such an edit
+  makes the document read a locked field otherwise (a duplicate shadows
+  it, it moved under another key, it was commented out), the field keeps
+  its locked text and nothing reaches you: `on_change` and `value()` wait,
+  and the save waits with a message naming it (the `save_held` text);
+  undoing the change, or deleting the copy, lets it through again.
 - Formatting around and inside a locked field stays free: blank lines,
   trailing spaces, a comment after the value, punctuation next to it (`,`
   in JSON), a space after `:` or `=`, and re-indenting where indentation is
   not structure (JSON, TOML, HCL, XML). In YAML, where the indent says
-  which block a key belongs to, changing a locked line's indent is refused.
+  which block a key belongs to, the lines inside a locked block keep their
+  indent, and a locked line indented into another block holds the change
+  as above.
   A host's read-only range is text: nothing in it changes, and the fields
-  it covers are locked as read-only paths are (`Ctrl+/` cannot comment one
-  out, nor a line command move it under another key); its text goes along
-  with its lines when they are moved.
-- A syntax error anywhere keeps every lock, both ways: a read-only value
-  never changes in anything sent to you (`on_change`, a save, `value()`),
-  and an edit that leaves every read-only value as it was is never
-  refused. While the document does not parse, the locks found in it keep
-  their text, but for whitespace between its tokens (the formatting above;
-  a space inside a string or a YAML plain value, or a YAML locked line's
-  indent, is refused). The edit that makes it parse again is the one that
-  decides: each read-only field must read as in your text (the value it
-  had there, or, when your text never parsed, the same lines with only
-  closers such as `}`, `]` or an end tag added, or the quote, `>` or `:`
-  its own line left out). Closing a block left open, removing a stray
-  line, fixing a quote, or closing the read-only line itself goes through;
-  so does a repair when a read-only path is not in the document at all,
-  and in a text of any size. A repair that would change a read-only value
-  (deleting its line included) is refused with a message naming the field
-  (the `read_only_changed` text). This holds
-  whatever order the text and the locks come in (a `value` that does not
-  parse, at mount or later; paths named while the text does not parse).
+  it covers are locked as read-only paths are; its text goes along with
+  its lines when they are moved.
+- A syntax error anywhere keeps every lock: its text is followed from the
+  last text that parsed (or, when your text never parsed, found in it
+  once), so a read-only value never changes while the document does not
+  parse, and an edit that leaves every locked text as it was is never
+  refused. Whitespace between its tokens stays free (a space inside a
+  string or a YAML plain value is refused). This holds whatever order the text and the locks come in (a
+  `value` that does not parse, at mount or later; paths named while the
+  text does not parse). A text that does not parse is never saved.
 - Suggestions leave read-only keys and values out. Inside a read-only
   region (browsing it with `Ctrl+Space`) they are listed, with the reason as
   their detail.
@@ -1247,10 +1246,13 @@ view! { <ConfigEditor value=text schema=SCHEMA secrets=secrets /> }
   puts around it are not text beside it, and its value keeps them: no edit
   changes that value but one taking the token away whole, whatever makes
   it (a line indented, moved or copied into a block scalar or heredoc, a
-  closing line deleted, a line break joined away, Replace All, undo), while
-  the document parses and while it has a syntax error elsewhere (then the
-  value's text is held as a read-only field's is). Text beside one that
-  gets there anyway is flagged at the token and a save holding it waits.
+  closing line deleted, a line break joined away, Replace All, undo) while
+  the document parses. While it has a syntax error, the token is a span of
+  the text: typing inside it or right beside it is refused, anything else
+  goes through, and the edit that makes the document parse again is
+  refused if it leaves text beside the token (take that text out first).
+  Text beside one that gets there anyway (the host's own text) is flagged
+  at the token and a save holding it waits.
   A token the host wrote inside longer text is the
   host's to embed: editing around it is free. When the host's own `value`
   does not parse, the host's characters decide which tokens are a field's

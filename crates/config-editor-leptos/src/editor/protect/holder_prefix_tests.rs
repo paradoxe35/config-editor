@@ -4,8 +4,9 @@
 //! `[[clients]]`), passes on its way through a half-typed name equal to
 //! the block's (`db`, `[db`, `"db"`, `[db]` with its `]` written by the
 //! editor ahead of the caret): that is no second key holding the field
-//! until written whole, and is never refused. A second key holding the
-//! field, written whole, is still refused. In YAML, JSON, TOML, HCL and
+//! and is never refused. A second key holding the field, written whole,
+//! is taken too (no span's text changes) and the save waits while it is
+//! there. In YAML, JSON, TOML, HCL and
 //! XML, for secrets, read-only paths, the schema's `readOnly` and
 //! read-only ranges, typed a key at a time with auto-closing on and off.
 //! So is a new HCL block of a locked block's type with other labels
@@ -18,7 +19,9 @@ use leptos::prelude::*;
 use super::super::Language;
 use super::super::diagnostics::build_schema;
 use super::super::edit::Edit;
+use super::super::host_editing::SaveRequest;
 use super::super::keyboard::{paired_edit, replace_selection};
+use super::super::language::Repetition;
 use super::super::paths::{FieldPath, TextPosition, TextRange};
 use super::super::save_matrix::report;
 use super::super::secret_options::SecretOptions;
@@ -26,7 +29,7 @@ use super::super::state::EditorState;
 use super::super::test_state::TestEditor;
 use super::guarantee_tests::utf16;
 
-const TOKEN: &str = "«secret 0b1c»";
+pub(super) const TOKEN: &str = "«secret 0b1c»";
 
 /// A document with a locked field (its value written `{v}`), the text new
 /// entries are typed after, the new entries (each must be taken) and a
@@ -186,7 +189,7 @@ const CASES: &[Case] = &[
 ];
 
 #[derive(Clone, Copy, Debug)]
-enum Lock {
+pub(super) enum Lock {
     Secret,
     Path,
     Schema,
@@ -223,35 +226,51 @@ fn text_of(case: &Case, lock: Lock) -> String {
 }
 
 fn mount(case: &Case, lock: Lock) -> (Owner, EditorState) {
-    let text = text_of(case, lock);
-    let mut editor = TestEditor::new(case.language, &text);
+    mount_locked(
+        case.language,
+        &text_of(case, lock),
+        case.locked,
+        case.line,
+        lock,
+    )
+}
+
+/// An editor on `text` in `language`, the field at `locked` (written on
+/// one-based `line`) protected the `lock` way, saving to a host that
+/// takes anything.
+pub(super) fn mount_locked(
+    language: Language,
+    text: &str,
+    locked: &str,
+    line: usize,
+    lock: Lock,
+) -> (Owner, EditorState) {
+    let mut editor = TestEditor::new(language, text);
     match lock {
         Lock::Secret => {
             editor.secrets = Some(SecretOptions::default());
             editor.schema = Some(std::sync::Arc::new(
-                build_schema(&schema(case.locked, "x-secret")).unwrap(),
+                build_schema(&schema(locked, "x-secret")).unwrap(),
             ));
         }
-        Lock::Path => editor.read_only_paths = vec![FieldPath::from(case.locked)],
+        Lock::Path => editor.read_only_paths = vec![FieldPath::from(locked)],
         Lock::Schema => {
             editor.schema = Some(std::sync::Arc::new(
-                build_schema(&schema(case.locked, "readOnly")).unwrap(),
+                build_schema(&schema(locked, "readOnly")).unwrap(),
             ));
         }
         Lock::Range => {
-            let length = text.split('\n').nth(case.line - 1).unwrap().chars().count();
+            let length = text.split('\n').nth(line - 1).unwrap().chars().count();
             editor.read_only_ranges = vec![TextRange {
-                start: TextPosition {
-                    line: case.line,
-                    column: 1,
-                },
+                start: TextPosition { line, column: 1 },
                 end: TextPosition {
-                    line: case.line,
+                    line,
                     column: length + 1,
                 },
             }];
         }
     }
+    editor.on_save = Some(Callback::new(|_: SaveRequest| {}));
     editor.mount()
 }
 
@@ -259,7 +278,7 @@ fn mount(case: &Case, lock: Lock) -> (Owner, EditorState) {
 /// with `pairs`, an opening bracket or quote writes its closer ahead of
 /// the caret, and typing that closer steps over it. Whether every key was
 /// taken.
-fn type_at(state: EditorState, at: usize, typed: &str, pairs: bool) -> bool {
+pub(super) fn type_at(state: EditorState, at: usize, typed: &str, pairs: bool) -> bool {
     let behavior = state.behavior();
     let mut caret = utf16(&state.doc().text.get_untracked(), at);
     // Closers the editor wrote, at their UTF-16 offsets.
@@ -347,12 +366,20 @@ fn a_new_key_starting_with_a_locked_blocks_name_is_taken() {
 }
 
 #[test]
-fn a_second_key_holding_a_locked_field_is_still_refused() {
+fn a_second_key_holding_a_locked_field_is_never_saved() {
     let mut failures = Vec::new();
     for case in CASES.iter().filter(|case| !case.duplicate.is_empty()) {
         // A secret is no lock on its value (a new value may replace the
         // placeholder): only read-only fields refuse a second holder.
         for lock in [Lock::Path, Lock::Schema, Lock::Range] {
+            // A host range keeps its text: in a language repeating a block
+            // for a list, a second block of its name is a new item, and the
+            // range's value reads on there (saved as any edit).
+            if matches!(lock, Lock::Range)
+                && case.language.behavior().repetition() != Repetition::None
+            {
+                continue;
+            }
             for pairs in [false, true] {
                 let (_owner, state) = mount(case, lock);
                 let text = state.doc().text.get_untracked();
@@ -369,9 +396,9 @@ fn a_second_key_holding_a_locked_field_is_still_refused() {
                 let now = state.doc().text.get_untracked();
                 let added =
                     now.matches(case.duplicate).count() > text.matches(case.duplicate).count();
-                if added && case.language.parse(&now).is_ok() {
+                if added && state.save() {
                     failures.push(format!(
-                        "{} locked by {lock:?}, pairs {pairs}: a second holder taken:\n{now}",
+                        "{} locked by {lock:?}, pairs {pairs}: a second holder saved:\n{now}",
                         case.label
                     ));
                 }

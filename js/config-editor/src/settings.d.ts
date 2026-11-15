@@ -994,17 +994,11 @@ export interface EditorStrings {
    */
   saveWaits?: string;
   /**
-   * An edit refused because it makes a text that did not parse parse with the read-only field at `{pointer}` reading otherwise than in the host's text, and why the field is read-only (`{reason}`).
+   * A save waiting because the read-only field at `{pointer}` reads otherwise than the host gave it (a duplicate key or block shadows it, or it moved), and why the field is read-only (`{reason}`).
    *
-   * @default "This edit makes the text valid, but {pointer} would no longer read as the host gave it ({reason}): undo the change to it first"
+   * @default "Not saved: {pointer} no longer reads as the host gave it ({reason}): a duplicate or a move shadows it; undo that change first"
    */
-  readOnlyChanged?: string;
-  /**
-   * An edit refused because it makes a text that did not parse parse after more lines that may hold the read-only field at `{pointer}` were deleted from the host's text than can be checked through, and why the field is read-only (`{reason}`).
-   *
-   * @default "Too many lines were deleted while the text was invalid to check {pointer} ({reason}): undo deleting the lines that held it first"
-   */
-  readOnlyUnchecked?: string;
+  saveHeld?: string;
   /**
    * The gutter lock's label, before the reason.
    *

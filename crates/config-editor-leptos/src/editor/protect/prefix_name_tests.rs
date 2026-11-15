@@ -3,7 +3,7 @@
 //! `[tls2]` beside a locked `[tls]`) is a new field: typed a key at a
 //! time, it passes through a half-typed name equal to the locked one
 //! (`<name`, `[tls`), which is no field yet, and is never refused. A
-//! second copy of the locked field itself is still refused. For locks
+//! second copy of the locked field itself is taken too and never saved. For locks
 //! by read-only path, by the schema's `readOnly` and by read-only range;
 //! in XML (elements and attributes) and TOML (tables), with YAML, JSON
 //! and HCL as controls.
@@ -13,6 +13,7 @@ use leptos::prelude::*;
 use super::super::Language;
 use super::super::diagnostics::build_schema;
 use super::super::edit::Edit;
+use super::super::language::Repetition;
 use super::super::paths::{FieldPath, TextPosition, TextRange};
 use super::super::save_matrix::report;
 use super::super::state::EditorState;
@@ -180,6 +181,9 @@ fn mount(case: &Case, lock: Lock) -> (Owner, EditorState) {
             }];
         }
     }
+    editor.on_save = Some(Callback::new(
+        |_: super::super::host_editing::SaveRequest| {},
+    ));
     editor.mount()
 }
 
@@ -217,7 +221,8 @@ fn a_new_field_named_after_a_locked_one_is_not_the_locked_field() {
     let mut failures = Vec::new();
     for case in &CASES {
         // Starting with the locked name, holding it, and a second copy of
-        // the locked field (refused: it is the locked field written twice).
+        // the locked field (never saved: it is the locked field written
+        // twice).
         let names = [
             (format!("{}space", case.name), true),
             (format!("{}2", case.name), true),
@@ -226,6 +231,10 @@ fn a_new_field_named_after_a_locked_one_is_not_the_locked_field() {
             (case.name.to_string(), false),
         ];
         for lock in [Lock::Path, Lock::Schema, Lock::Range] {
+            // A host range keeps its text: where the language repeats an
+            // element for a list (XML), a second copy is a new item.
+            let repeats = case.language.behavior().repetition() != Repetition::None
+                && matches!(lock, Lock::Range);
             // A table's lock by schema is the table's own (`readOnly` on an
             // object), its range its header line.
             for (name, free) in &names {
@@ -242,9 +251,9 @@ fn a_new_field_named_after_a_locked_one_is_not_the_locked_field() {
                         case.label
                     ));
                 }
-                if !*free && written && case.language.parse(&now).is_ok() {
+                if !*free && written && !repeats && state.save() {
                     failures.push(format!(
-                        "{} locked by {lock:?}: a second {name} taken:\n{now}",
+                        "{} locked by {lock:?}: a second {name} saved:\n{now}",
                         case.label
                     ));
                 }

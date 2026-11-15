@@ -16,9 +16,7 @@ use serde_json::Value;
 
 use super::super::super::paths::{path_at, with_spans};
 use super::super::super::text_change::utf16_len;
-use super::super::glued::written_alone;
-use super::super::own_value::with_own_values;
-use super::super::tokens::{Known, field_value};
+use super::super::tokens::field_value;
 use super::Placeholders;
 
 /// Non-blank lines each way from an edit read for tokens: a multi-line
@@ -55,6 +53,31 @@ fn holds(value: &Value, token: &str) -> bool {
         Value::Array(items) => items.iter().any(|item| holds(item, token)),
         Value::Object(map) => map.values().any(|item| holds(item, token)),
         _ => false,
+    }
+}
+
+/// The strings inside `value` (at `pointer`) holding `token`, with their
+/// pointers.
+fn strings_holding<'v>(
+    value: &'v Value,
+    pointer: &str,
+    token: &str,
+    found: &mut Vec<(String, &'v str)>,
+) {
+    match value {
+        Value::String(text) if text.contains(token) => found.push((pointer.to_string(), text)),
+        Value::Array(items) => {
+            for (index, item) in items.iter().enumerate() {
+                strings_holding(item, &format!("{pointer}/{index}"), token, found);
+            }
+        }
+        Value::Object(map) => {
+            for (key, item) in map {
+                let key = key.replace('~', "~0").replace('/', "~1");
+                strings_holding(item, &format!("{pointer}/{key}"), token, found);
+            }
+        }
+        _ => {}
     }
 }
 
@@ -137,6 +160,48 @@ impl Placeholders<'_> {
             return None;
         }
         let behavior = self.behavior;
+        // One the edit wrote (pasted, a line moved) joining text that was
+        // there (a secret item's line pasted under `port: 1` reads
+        // `1 - «…»`): glued. A value the edit wrote whole is its own (a
+        // mask pasted into a note).
+        let written = &after[start..new_end];
+        // Only tokens on lines the edit wrote: a line reading as the text
+        // before's line of the same number is kept (a Replace All rewrites
+        // the text between two changes, every token there with it); a line
+        // moved or pasted reads otherwise there.
+        let before_lines: Vec<&str> = before.split('\n').collect();
+        let mut kept = Vec::with_capacity(near.len());
+        let (mut line, mut byte) = (0, 0);
+        for (range, _) in &near {
+            line += after[byte..range.start].matches('\n').count();
+            byte = range.start;
+            let line_start = after[..range.start].rfind('\n').map_or(0, |at| at + 1);
+            let line_end = after[range.end..]
+                .find('\n')
+                .map_or(after.len(), |at| range.end + at);
+            kept.push(before_lines.get(line) == Some(&&after[line_start..line_end]));
+        }
+        let joined = with_spans(behavior, after, &[], || {
+            near.iter()
+                .zip(&kept)
+                .filter(|((range, _), kept)| {
+                    !**kept && range.start >= start && range.end <= new_end
+                })
+                .find_map(|((range, units), _)| {
+                    let token = &after[range.clone()];
+                    let pointer = path_at(behavior, after, *units)
+                        .map_or_else(String::new, |path| path.to_pointer());
+                    let value = field_value(document, &pointer)?;
+                    let text = value.as_str()?;
+                    (self.index.in_field(token, &pointer).is_none()
+                        && held(Some(value), token) == Held::Glued
+                        && !written.contains(text.trim()))
+                    .then_some(pointer)
+                })
+        });
+        if joined.is_some() {
+            return joined;
+        }
         let removed = utf16_len(&before[start..old_end]);
         let inserted = utf16_len(&after[start..new_end]);
         // Glued now, at a path no field given its token is: where it was
@@ -147,7 +212,8 @@ impl Placeholders<'_> {
                 .filter(|(range, _)| range.end <= start || range.start >= new_end)
                 .filter_map(|(range, units)| {
                     let token = &after[range.clone()];
-                    let pointer = path_at(behavior, after, *units)?.to_pointer();
+                    let pointer = path_at(behavior, after, *units)
+                        .map_or_else(String::new, |path| path.to_pointer());
                     if self.index.in_field(token, &pointer).is_some()
                         || held(field_value(document, &pointer), token) != Held::Glued
                     {
@@ -166,65 +232,35 @@ impl Placeholders<'_> {
         if glued.is_empty() {
             return None;
         }
-        // It may only have had text beside it already: as the text before
-        // reads, or, when it does not parse (a repair), as it is written.
+        // It may only have had text beside it already, as the text before
+        // reads. After a repair (it does not parse), a token the repair
+        // leaves read with other text in one string (a list's key line
+        // made a scalar running over its items) is glued; one in a list or
+        // map there is plain text, flagged.
         let earlier = super::super::super::parse_cache::parsed(behavior, before);
-        let earlier = earlier.as_ref().as_ref().ok();
+        let Some(earlier) = earlier.as_ref().as_ref().ok() else {
+            // Each string holding it there (the path read where it is
+            // written may be a parent's: a line at the start of a plain
+            // scalar written over lines).
+            return glued.into_iter().find_map(|(token, pointer, _)| {
+                let mut strings = Vec::new();
+                strings_holding(
+                    field_value(document, &pointer)?,
+                    &pointer,
+                    token,
+                    &mut strings,
+                );
+                strings.into_iter().find_map(|(at, text)| {
+                    (text.trim() != token && !self.host_wrote(before, &at, text)).then_some(at)
+                })
+            });
+        };
         with_spans(behavior, before, &[], || {
-            glued
-                .into_iter()
-                .find_map(|(token, pointer, (bytes, units))| {
-                    let was = path_at(behavior, before, units)?.to_pointer();
-                    let alone = match earlier {
-                        Some(earlier) => held(field_value(earlier, &was), token) != Held::Glued,
-                        None => written_alone(behavior, before, &was, bytes).is_some(),
-                    };
-                    alone.then_some(pointer)
-                })
-        })
-    }
-
-    /// The tokens given whole `moved` near the edit in `before` (which
-    /// does not parse; see [`Self::moved_near`]), each with its UTF-16 range
-    /// and a stand-in for its token given whole in the field it is
-    /// written in, when that field's value is the token alone: held while
-    /// the text is broken as a field's own token is. One with text beside
-    /// it is the user's.
-    pub(super) fn moved_alone(
-        &self,
-        before: &str,
-        moved: Vec<Written>,
-    ) -> Vec<(Range<usize>, Known)> {
-        // Each one's field, then the values of those fields (every copy of
-        // their keys) found at once.
-        let placed: Vec<(Written, String)> = moved
-            .into_iter()
-            .filter_map(|(range, units)| {
-                let pointer = path_at(self.behavior, before, units)?.to_pointer();
-                Some(((range, units), pointer))
+            glued.into_iter().find_map(|(token, pointer, (_, units))| {
+                let was = path_at(behavior, before, units)
+                    .map_or_else(String::new, |path| path.to_pointer());
+                (held(field_value(earlier, &was), token) != Held::Glued).then_some(pointer)
             })
-            .collect();
-        let pointers: Vec<String> = placed.iter().map(|(_, pointer)| pointer.clone()).collect();
-        with_own_values(self.behavior, before, &pointers, || {
-            placed
-                .into_iter()
-                .filter_map(|((range, units), pointer)| {
-                    let token = &before[range.clone()];
-                    let whole = written_alone(self.behavior, before, &pointer, range)?;
-                    let ranges = units..units + utf16_len(token);
-                    Some((
-                        ranges,
-                        Known {
-                            token: token.to_string(),
-                            field: Some(pointer),
-                            count: 1,
-                            whole: Some(whole),
-                            items: Vec::new(),
-                            placed: true,
-                        },
-                    ))
-                })
-                .collect()
         })
     }
 }

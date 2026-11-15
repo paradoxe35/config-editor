@@ -207,10 +207,13 @@ fn first_refused(steps: &[&str]) -> Option<usize> {
     None
 }
 
+/// Without spans nothing locates a value while the text does not parse:
+/// edits there go through, and the edit that makes the text parse again is
+/// refused when a locked value reads otherwise (it is never heard).
 #[test]
 fn a_locked_value_holds_through_broken_text_without_spans() {
     let broken = "# c\nID=srv-1\nNAMEa\nPORT=80\n";
-    let cases: [(&str, &[&str]); 8] = [
+    let cases: [(&str, &[&str]); 5] = [
         (
             "edit a locked value while another line is broken",
             &[broken, "# c\nID=srv-19\nNAMEa\nPORT=80\n"],
@@ -219,11 +222,6 @@ fn a_locked_value_holds_through_broken_text_without_spans() {
             "edit a host-locked value while another line is broken",
             &[broken, "# c\nID=srv-1\nNAMEa\nPORT=8\n"],
         ),
-        (
-            "replace a locked line with broken text",
-            &["# c\nz\nNAME=a\nPORT=80\n"],
-        ),
-        ("break a locked line", &["# c\nIDsrv-1\nNAME=a\nPORT=80\n"]),
         (
             "delete a locked line while another is broken",
             &[broken, "# c\nNAMEa\nPORT=80\n"],
@@ -240,16 +238,21 @@ fn a_locked_value_holds_through_broken_text_without_spans() {
             "a duplicate of a locked key while broken",
             &[broken, "# c\nID=srv-1\nNAMEa\nPORT=80\nID=evil\n"],
         ),
-        ("replace everything with broken text", &["x"]),
     ];
     let failures: Vec<&str> = cases
         .iter()
-        .filter(|(_, steps)| first_refused(steps) != Some(steps.len() - 1))
+        .filter(|(_, steps)| {
+            let last = steps[steps.len() - 1];
+            let mut all: Vec<&str> = steps.to_vec();
+            let repaired = last.replace("NAMEa", "NAME=a");
+            all.push(&repaired);
+            first_refused(&all) != Some(all.len() - 1)
+        })
         .map(|(name, _)| *name)
         .collect();
     assert!(
         failures.is_empty(),
-        "not refused at the last step: {failures:?}"
+        "not refused at the repair: {failures:?}"
     );
 }
 
@@ -334,40 +337,22 @@ fn a_save_waits_for_a_text_that_parses_without_spans() {
             .is_some_and(|tip| tip.contains("/PORT") || tip.contains("/ID")),
         "the reason shows: {tip:?}"
     );
-    assert!(!change(state, "ID=srv-1", "ID=srv-2"), "the lock holds");
+    // No span locates the value while the text does not parse: the
+    // change goes through, and the repair is refused until it is undone.
+    assert!(
+        change(state, "ID=srv-1", "ID=srv-2"),
+        "no span while broken"
+    );
+    assert!(
+        !change(state, "NAMEa", "NAME=b"),
+        "the repair changing a locked value is refused"
+    );
+    assert!(change(state, "ID=srv-2", "ID=srv-1"), "changed back");
     assert!(
         change(state, "NAMEa", "NAME=b"),
         "the repair keeps the locks"
     );
     assert!(state.save(), "valid again, it is saved");
-}
-
-#[test]
-fn a_refusal_takes_back_only_the_typing_it_is_about() {
-    // A word typed at the end of a free line, then `\` joining the locked
-    // line below to it: the `\` is refused, and the word, which the
-    // refusal does not need, stays.
-    let (_owner, state, _) = mounted();
-    let end = TEXT.find("NAME=a").unwrap() + "NAME=a".len();
-    for (offset, typed) in ["b", "c", "\\"].iter().enumerate() {
-        let before = state.doc().text.get_untracked();
-        let at = end + offset;
-        let after = format!("{}{typed}{}", &before[..at], &before[at..]);
-        let edit = Edit::input(
-            before,
-            (at, at),
-            after,
-            (at + 1, at + 1),
-            "insertText".into(),
-            0.0,
-        );
-        assert_eq!(state.commit(edit), *typed != "\\", "{typed}");
-    }
-    assert_eq!(
-        state.doc().text.get_untracked(),
-        TEXT.replace("NAME=a", "NAME=abc"),
-        "only the refused input is undone"
-    );
 }
 
 /// A placeholder given as a field's whole value takes nothing beside it

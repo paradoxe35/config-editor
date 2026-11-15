@@ -142,22 +142,24 @@ fn typing_work(host: Language, view: Language, locks: &[FieldPath], range: bool)
     });
     // The lock is where placing it in the new text puts it.
     let shown = state.doc().text.get_untracked();
-    // In another view the range locks its field by path alone.
+    // In another view the range locks the field it covers, by its value.
     let ranges = if view == host {
         state.protect().ranges.get_untracked()
     } else {
         Vec::new()
     };
-    let mut fields = locks.to_vec();
-    if range && view != host {
-        fields.push(FieldPath::from(image(host, 0).as_str()));
-    }
+    let covered = if range && view != host {
+        vec![FieldPath::from(image(host, 0).as_str())]
+    } else {
+        Vec::new()
+    };
     let placed = protect(
         view.behavior(),
         &shown,
         Sources {
-            paths: &fields,
+            paths: locks,
             ranges: &ranges,
+            range_fields: &covered,
             ..Sources::default()
         },
     );

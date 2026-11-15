@@ -111,7 +111,6 @@ fn utf16(text: &str, byte: usize) -> usize {
 
 /// A click elsewhere: typing starts afresh (what `input::click` does).
 fn click(state: EditorState) {
-    state.forget_refusal();
     state.forget_typing_aids();
 }
 

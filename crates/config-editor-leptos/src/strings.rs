@@ -409,15 +409,10 @@ pub struct EditorStrings {
     /// where the read-only field at `{pointer}` is written, so its value is
     /// checked only in a text that parses.
     pub save_waits: String,
-    /// An edit refused because it makes a text that did not parse parse
-    /// with the read-only field at `{pointer}` reading otherwise than in
-    /// the host's text, and why the field is read-only (`{reason}`).
-    pub read_only_changed: String,
-    /// An edit refused because it makes a text that did not parse parse
-    /// after more lines that may hold the read-only field at `{pointer}`
-    /// were deleted from the host's text than can be checked through, and
-    /// why the field is read-only (`{reason}`).
-    pub read_only_unchecked: String,
+    /// A save waiting because the read-only field at `{pointer}` reads
+    /// otherwise than the host gave it (a duplicate key or block shadows
+    /// it, or it moved), and why the field is read-only (`{reason}`).
+    pub save_held: String,
     /// The gutter lock's label, before the reason.
     pub read_only_label: String,
     /// The gutter key's label, before the hint.
@@ -767,11 +762,8 @@ impl Default for EditorStrings {
             save_waits: text(
                 "Not saved: {pointer} is read-only, and it can be checked only once the text is valid",
             ),
-            read_only_changed: text(
-                "This edit makes the text valid, but {pointer} would no longer read as the host gave it ({reason}): undo the change to it first",
-            ),
-            read_only_unchecked: text(
-                "Too many lines were deleted while the text was invalid to check {pointer} ({reason}): undo deleting the lines that held it first",
+            save_held: text(
+                "Not saved: {pointer} no longer reads as the host gave it ({reason}): a duplicate or a move shadows it; undo that change first",
             ),
             read_only_label: text("Read-only"),
             secret_label: text("Secret placeholder"),

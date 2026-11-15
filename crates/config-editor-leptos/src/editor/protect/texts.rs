@@ -31,30 +31,6 @@ impl Reason {
         fill(&strings.holds_read_only, &[("reason", &self.text(strings))])
     }
 
-    /// Why an edit making the text parse is refused: the field at
-    /// `pointer`, locked for this reason, would read otherwise than in the
-    /// host's text.
-    pub(crate) fn changed(&self, strings: &EditorStrings, pointer: &str) -> String {
-        let place = if pointer.is_empty() { "/" } else { pointer };
-        fill(
-            &strings.read_only_changed,
-            &[("pointer", &place), ("reason", &self.text(strings))],
-        )
-    }
-
-    /// Why an edit making the text parse is refused when the lines removed
-    /// that may hold the field at `pointer` are too many to read.
-    pub(crate) fn unchecked(&self, strings: &EditorStrings, pointer: Option<&str>) -> String {
-        let place = match pointer {
-            Some("") | None => "/",
-            Some(pointer) => pointer,
-        };
-        fill(
-            &strings.read_only_unchecked,
-            &[("pointer", &place), ("reason", &self.text(strings))],
-        )
-    }
-
     /// "Read-only: …", the gutter lock's label.
     pub(crate) fn label(&self, strings: &EditorStrings) -> String {
         labelled(strings, &strings.read_only_label, &self.text(strings))
@@ -85,6 +61,17 @@ pub(crate) fn save_refused(strings: &EditorStrings, pointer: &str) -> String {
 pub(crate) fn save_waits(strings: &EditorStrings, pointer: &str) -> String {
     let place = if pointer.is_empty() { "/" } else { pointer };
     fill(&strings.save_waits, &[("pointer", &place)])
+}
+
+/// A save waiting while the read-only field at `pointer`, locked for
+/// `reason`, reads otherwise than the host gave it (a duplicate shadows it,
+/// it moved).
+pub(crate) fn save_held(strings: &EditorStrings, pointer: &str, reason: &Reason) -> String {
+    let place = if pointer.is_empty() { "/" } else { pointer };
+    fill(
+        &strings.save_held,
+        &[("pointer", &place), ("reason", &reason.text(strings))],
+    )
 }
 
 /// A placeholder the host did not give, in a secret field.

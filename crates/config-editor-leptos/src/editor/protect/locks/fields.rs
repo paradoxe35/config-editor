@@ -177,15 +177,34 @@ fn outer_only(behavior: &dyn ConfigLanguage, fields: &[(String, Reason)]) -> Vec
     }
     let inside_another = |pointer: &str| {
         let form = plain(behavior, pointer);
-        // Another spelling of the same field, or of the whole document.
-        if forms.get(&form).is_some_and(|known| known.len() > 1)
-            || (!form.is_empty() && forms.contains_key(""))
+        // Another spelling of the same field (a lone element written
+        // without the index another spelling gives it), or the whole
+        // document. Two items of one list (`/key/0`, `/key/1`) are two
+        // fields.
+        let indices = |pointer: &str| {
+            pointer
+                .split('/')
+                .filter(|segment| segment.parse::<usize>().is_ok())
+                .count()
+        };
+        if forms.get(&form).is_some_and(|known| {
+            known
+                .iter()
+                .any(|other| *other != pointer && indices(other) > indices(pointer))
+        }) || (!form.is_empty() && forms.contains_key(""))
         {
             return true;
         }
+        // A field above it: one written so, not only a list's first item
+        // spelled as the lone element (`/key/0` is no parent of `/key/1`).
+        let holds = |above: &str| {
+            forms
+                .get(above)
+                .is_some_and(|spellings| spellings.contains(&above))
+        };
         let mut end = form.len();
         while let Some(cut) = form[..end].rfind('/') {
-            if cut > 0 && forms.contains_key(&form[..cut]) {
+            if cut > 0 && holds(&form[..cut]) {
                 return true;
             }
             end = cut;

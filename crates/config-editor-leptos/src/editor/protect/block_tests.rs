@@ -252,7 +252,8 @@ fn a_placeholder_alone_in_a_multi_line_form_of_a_broken_host_is_whole() {
 /// A placeholder alone in a multi-line form keeps its value, its last line
 /// break included, in every view: joining the line after it onto its own
 /// (Delete at its line's end, Backspace at the next line's start) is refused
-/// where it changes the value, and an edit elsewhere leaves the host its
+/// where it changes the value in a text that parses (one it leaves
+/// unparseable reads no value), and an edit elsewhere leaves the host its
 /// own text with only that edit made. (Joined in an XML view, a YAML `|`
 /// holding it became `|-`, its value losing its last line break.)
 #[test]
@@ -289,10 +290,12 @@ fn a_placeholder_s_multi_line_form_keeps_its_value_in_every_view() {
                 state.doc().text.get_untracked(),
                 state.sync().edit_language.get_untracked(),
             );
+            // A join leaving the text unparseable is no value heard: the
+            // placeholder is a span there, and the repair is checked.
             if let Some(changed) = heard
                 .get_untracked()
                 .iter()
-                .find(|heard| field_a(host, heard) != given)
+                .find(|heard| host.parse(heard).is_ok() && field_a(host, heard) != given)
             {
                 let how = if delete { "Delete" } else { "Backspace" };
                 failures.push(format!(

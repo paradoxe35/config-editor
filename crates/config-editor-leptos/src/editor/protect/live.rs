@@ -11,8 +11,6 @@ use super::super::codec;
 use super::super::diagnostics::SchemaBundle;
 use super::super::edit::{Edit, Origin};
 use super::super::edit_as::SaveError;
-use super::super::keyboard::utf16_to_byte_index;
-use super::super::language::ConfigLanguage;
 use super::super::languages::Language;
 use super::super::parse_cache;
 use super::super::paths::{FieldPath, TextRange};
@@ -26,7 +24,7 @@ use super::locate::LineIndex;
 use super::locks::{Protected, Sources, protect};
 use super::save::{ReadOnlyChange, check_save, locked_pointers, range_pointers};
 use super::secrets::SecretState;
-use super::texts::save_waits;
+use super::texts::{save_held, save_waits};
 use super::whole_guard::Placeholders;
 use crate::reactive::later::{self, Timeout};
 
@@ -61,13 +59,6 @@ pub(crate) struct Marks {
     epoch: u64,
     /// The placeholder a mouse press landed inside, until it is released.
     pub(crate) pressed: Option<Range<usize>>,
-    /// Where typing was refused at a read-only field, and why: the rest of
-    /// what is typed there is refused too (see [`EditorState::check_edit`]),
-    /// until the caret moves or another edit is made.
-    refused: Option<(usize, String)>,
-    /// The stretch typing just wrote, one character after another (UTF-16
-    /// offsets): a refusal takes back the word it was writing.
-    typed: Option<(usize, usize)>,
 }
 
 /// The protection signals of one editor.
@@ -153,7 +144,8 @@ impl ProtectState {
                     .as_deref()
                     .filter(|bundle| bundle.has_marks)
                     .map(|bundle| &bundle.schema);
-                let mut fields = paths.get();
+                let fields = paths.get();
+                let mut range_fields = Vec::new();
                 let local_ranges = if edit == host_language {
                     local.get()
                 } else {
@@ -161,7 +153,7 @@ impl ProtectState {
                     if !ranges.with(Vec::is_empty) {
                         host_text.with_value(|host| {
                             let placed = in_host.in_text(host);
-                            fields.extend(covered.found(host_language, host, &placed, reading));
+                            range_fields = covered.found(host_language, host, &placed, reading);
                         });
                     }
                     Vec::new()
@@ -175,6 +167,7 @@ impl ProtectState {
                             reading_schema: reading,
                             paths: &fields,
                             ranges: &local_ranges,
+                            range_fields: &range_fields,
                             previous,
                         },
                     );
@@ -305,6 +298,7 @@ fn locks_changed(old: Option<&Arc<Protected>>, new: Option<&Arc<Protected>>) -> 
                 || old.pins != new.pins
                 || old.marked != new.marked
                 || old.unplaced != new.unplaced
+                || old.held != new.held
                 || old.epoch != new.epoch
         }
         _ => true,
@@ -350,7 +344,6 @@ impl EditorState {
 
     /// The host changed its locks: a refusal of the old ones holds no more.
     fn locks_changed_by_host(&self) {
-        self.forget_refusal();
         let text = self.doc().text.get_untracked();
         let edit = self.sync().edit_language.get_untracked();
         if edit != self.config().host_language && text != self.sync().synced_edit.get_value() {
@@ -361,20 +354,6 @@ impl EditorState {
     /// The edit pipeline's check stage: whether `edit` keeps every lock;
     /// when not, why the field is locked.
     pub(crate) fn check_edit(&self, edit: &Edit) -> Result<(), String> {
-        // Typing on where a key was refused: the rest of the word, or the
-        // spaces after it, would only be left there half-written.
-        if let Some(at) = inserted_at(edit)
-            && holds_back(edit, at, &comment_markers(self.behavior()))
-            && let Some(message) = self.protect().marks.with_value(|marks| {
-                marks
-                    .refused
-                    .as_ref()
-                    .filter(|(refused_at, _)| *refused_at == at)
-                    .map(|(_, message)| message.clone())
-            })
-        {
-            return Err(message);
-        }
         self.protect()
             .protected
             .with_untracked(|protected| {
@@ -410,21 +389,23 @@ impl EditorState {
             .parsing
             .with_value(|known| known.as_deref() == Some(before))
             || parse_cache::known_to_parse(behavior, before) == Some(true);
-        let verdict = self.config().schema.with_value(|schema| {
-            let index = secrets.whole.get_untracked();
-            secrets.known.with_untracked(|known| {
-                secrets.tokens.with_untracked(|tokens| {
-                    secrets.matcher.with_value(|matcher| {
-                        Placeholders {
-                            behavior,
-                            reading_schema: schema.as_deref().map(|bundle| &bundle.schema),
-                            known,
-                            index: &index,
-                            tokens,
-                            matcher,
-                        }
-                        .check(before, after, before_parses)
-                    })
+        let index = secrets.whole.get_untracked();
+        let origin = self
+            .protect()
+            .protected
+            .with_untracked(|p| p.origin.clone());
+        let verdict = secrets.known.with_untracked(|known| {
+            secrets.tokens.with_untracked(|tokens| {
+                secrets.matcher.with_value(|matcher| {
+                    Placeholders {
+                        behavior,
+                        known,
+                        index: &index,
+                        tokens,
+                        matcher,
+                        origin: origin.as_deref(),
+                    }
+                    .check(before, after, before_parses)
                 })
             })
         });
@@ -434,110 +415,6 @@ impl EditorState {
                 .set_value((verdict.parses == Some(true)).then(|| after.to_string()));
         }
         verdict.glued
-    }
-
-    /// After typing was refused at a read-only field with `message`: what
-    /// is typed there next is refused too, and what typing wrote on that
-    /// line up to there is taken back (`<i` of a refused `<id`, `id ` of a
-    /// refused `id =`), the edit returned to make it. Nothing half-written
-    /// stays.
-    pub(crate) fn note_refused(&self, edit: &Edit, message: String) -> Option<Edit> {
-        let at = inserted_at(edit)?;
-        let typed = self.protect().marks.with_value(|marks| marks.typed);
-        let word_start = typed
-            .filter(|(start, end)| *end == at && start < end)
-            .map(|(start, _)| {
-                let units: Vec<u16> = edit.before.encode_utf16().collect();
-                let typed = String::from_utf16_lossy(&units[start..at]);
-                // The entry typed on this line, past its indentation.
-                let line = typed.rsplit('\n').next().unwrap_or_default();
-                at - line.trim_start().encode_utf16().count()
-            })
-            .filter(|start| *start < at)
-            // Taken back only when it is what the refusal is about: the
-            // input refused without it would be let through. A word the
-            // refused input does not need (typed before a quote that
-            // closes a string over a locked field) is the user's and stays.
-            .filter(|start| self.refused_for(edit, *start, at));
-        let refused_at = word_start.unwrap_or(at);
-        self.protect().marks.update_value(|marks| {
-            marks.refused = Some((refused_at, message));
-            marks.typed = None;
-        });
-        let start = word_start?;
-        let before = edit.before.clone();
-        let (from, to) = (
-            utf16_to_byte_index(&before, start),
-            utf16_to_byte_index(&before, at),
-        );
-        let text = format!("{}{}", &before[..from], &before[to..]);
-        Some(Edit::new(before, (start, at), text, start))
-    }
-
-    /// Whether the refused `edit` is let through without what typing wrote
-    /// from UTF-16 `start` to `at`, where the edit inserts.
-    fn refused_for(&self, edit: &Edit, start: usize, at: usize) -> bool {
-        let (from, to) = (
-            utf16_to_byte_index(&edit.text, start),
-            utf16_to_byte_index(&edit.text, at),
-        );
-        let without = format!("{}{}", &edit.text[..from], &edit.text[to..]);
-        self.protect().protected.with_untracked(|protected| {
-            self.config().schema.with_value(|schema| {
-                check_at(
-                    self.behavior(),
-                    schema.as_deref().map(|bundle| &bundle.schema),
-                    protected,
-                    (&edit.before, &without),
-                    Some(start),
-                )
-                .is_ok()
-            })
-        }) && self.glued_by(&edit.before, &without).is_none()
-    }
-
-    /// After an edit was made: typing goes on from where it ended, and a
-    /// refusal stays only where typing was refused (see
-    /// [`Self::note_refused`]).
-    pub(crate) fn note_applied(&self, edit: &Edit) {
-        // Typing goes on at the caret the insertion left (its end), read
-        // without measuring the document on every key.
-        let inserted = inserted_at(edit).map(|at| (at, edit.caret().max(at)));
-        self.protect().marks.update_value(|marks| {
-            let at_refusal = marks.refused.as_ref().is_some_and(|(refused_at, _)| {
-                edit.replaced(edit.caret()).1 == *refused_at || edit.caret() == *refused_at
-            });
-            if !at_refusal {
-                marks.refused = None;
-            }
-            marks.typed = match (marks.typed, inserted) {
-                (Some((start, end)), Some((at, to))) if end == at => Some((start, to)),
-                (_, inserted) => inserted,
-            };
-        });
-    }
-
-    /// A closer the editor wrote was typed over, the caret stepping from
-    /// UTF-16 `from` to `to`: typing goes on past it, so an entry refused
-    /// right after it (the `:` after `"password"`) is taken back whole, as
-    /// without auto-closing.
-    pub(crate) fn note_stepped_over(&self, from: usize, to: usize) {
-        self.protect().marks.update_value(|marks| {
-            if let Some((start, end)) = marks.typed
-                && end == from
-            {
-                marks.typed = Some((start, to));
-            }
-        });
-    }
-
-    /// The caret moved, or another kind of key was pressed: typing starts
-    /// afresh.
-    pub(crate) fn forget_refusal(&self) {
-        self.protect().marks.update_value(|marks| {
-            marks.refused = None;
-            marks.typed = None;
-        });
     }
 
     /// Finds again what is kept by position in a text replaced whole (see
@@ -616,12 +493,34 @@ impl EditorState {
         self.protect().ranges.set(placed);
     }
 
+    /// Whether a locked field reads otherwise than pinned in the text on
+    /// screen (see `locks::Protected::held`): its change events, value and
+    /// save wait until it reads as pinned again.
+    pub(crate) fn changes_held(&self) -> bool {
+        self.protect()
+            .protected
+            .with_untracked(|protected| !protected.held.is_empty())
+    }
+
     /// Why a save of the text on screen waits, when it does: it holds text
     /// beside a placeholder the host gave as a field's whole value, or it
     /// does not parse and holds a read-only field the language cannot
     /// locate (it gives no spans), so nothing shows that its value is kept.
     pub(crate) fn save_waits(&self) -> Option<String> {
-        self.glued_waits().or_else(|| self.unplaced_waits())
+        self.glued_waits()
+            .or_else(|| self.held_waits())
+            .or_else(|| self.unplaced_waits())
+    }
+
+    /// The locked field a save of the text on screen waits on because it
+    /// reads otherwise than pinned (see `locks::Protected::held`): a
+    /// duplicate shadows it, or it moved.
+    fn held_waits(&self) -> Option<String> {
+        let (pointer, reason) = self.protect().protected.with_untracked(|protected| {
+            let pointer = protected.held.first()?;
+            Some((pointer.clone(), protected.held_reason(pointer)))
+        })?;
+        Some(self.strings_untracked(|strings| save_held(strings, &pointer, &reason)))
     }
 
     /// The glued placeholder a save of the text on screen waits on.
@@ -717,6 +616,7 @@ impl EditorState {
                     reading_schema: reading,
                     paths: &paths,
                     ranges: &ranges,
+                    range_fields: &[],
                     previous: None,
                 },
             );
@@ -823,61 +723,4 @@ impl EditorState {
         }
         Some(message)
     }
-}
-
-/// Where `edit` inserts what typing writes (characters, a line break, a
-/// command's text such as an accepted suggestion), replacing nothing; `None`
-/// for any other edit (a paste, a deletion, a replacement).
-fn inserted_at(edit: &Edit) -> Option<usize> {
-    let typed = match &edit.origin {
-        Origin::Command => true,
-        Origin::Input { kind, .. } => matches!(
-            kind.as_str(),
-            "insertText" | "insertCompositionText" | "insertLineBreak" | "insertParagraph"
-        ),
-        _ => false,
-    };
-    let (start, end) = edit.replaced(edit.caret());
-    (typed && start == end && edit.text.len() > edit.before.len()).then_some(start)
-}
-
-/// Whether a refusal at UTF-16 `at` refuses `edit` inserting there too: the
-/// rest of an entry refused where a line starts (its key, the spaces and
-/// value after it), or more text glued on after a field. A line break ends
-/// what was refused, and whitespace after a field is free, like a comment
-/// after it (`#`, or the `/` starting a `//`, glued on or not): those are
-/// checked like any other edit.
-fn holds_back(edit: &Edit, at: usize, comment_markers: &[&str]) -> bool {
-    let added = edit.text.encode_utf16().count() - edit.before.encode_utf16().count();
-    let (from, to) = (
-        utf16_to_byte_index(&edit.text, at),
-        utf16_to_byte_index(&edit.text, at + added),
-    );
-    let inserted = &edit.text[from..to];
-    if inserted.contains(['\n', '\r']) {
-        return false;
-    }
-    let at = utf16_to_byte_index(&edit.before, at);
-    let line = edit.before[..at]
-        .rsplit(['\n', '\r'])
-        .next()
-        .unwrap_or_default();
-    let typed = inserted.trim();
-    let starts_comment = !typed.is_empty()
-        && comment_markers
-            .iter()
-            .any(|marker| typed.starts_with(marker) || marker.starts_with(typed));
-    (line.trim().is_empty() || !typed.is_empty()) && !starts_comment
-}
-
-/// The markers that start a comment in `behavior`'s language: its line
-/// comments and the opener of its block comment.
-fn comment_markers(behavior: &dyn ConfigLanguage) -> Vec<&'static str> {
-    let config = behavior.config();
-    config
-        .line_comments
-        .iter()
-        .copied()
-        .chain(config.block_comment.map(|(open, _)| open))
-        .collect()
 }

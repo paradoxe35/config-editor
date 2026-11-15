@@ -124,7 +124,7 @@ test.describe('read-only fields', () => {
   test('a line added inside a read-only block is refused, one after it is not', async ({ page }) => {
     const ed = editor(page);
     const before = await ed.value();
-    await clickInto(page, 'burst: 20', 9);
+    await clickInto(page, 'max: 10', 7);
     await page.keyboard.press('End');
     await page.keyboard.press('Enter');
     await page.keyboard.type('x: 1');

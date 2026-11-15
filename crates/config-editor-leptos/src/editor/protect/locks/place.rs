@@ -1,15 +1,16 @@
-//! Where each locked field is in the text, tried in order: in a text that
-//! does not parse, the lock of the text before moved through the edit,
-//! else the stand-in's lock (its value pinned); else located by its path
-//! (or under its own key); else held as a field not found: in a text that
-//! does not parse, until it parses; in one that parses (a language that
-//! cannot locate fields), by its value alone, every edit then compared with
-//! it (`guard`).
+//! Where each locked field is in the text, tried in order: the lock of the
+//! text before moved through the edit, when the edit kept its text (the
+//! spans are followed by position, whether or not the text parses); else the stand-in's lock (its value pinned); else located by
+//! its path (or under its own key); else kept as a field not found: in a
+//! text that does not parse, until it parses; in one that parses (a
+//! language that cannot locate fields), by its value alone, every edit then
+//! compared with it (`guard`).
 
 use std::ops::Range;
 
 use serde_json::Value;
 
+use super::super::super::codec;
 use super::super::super::paths::key_range;
 use super::super::carry::Moves;
 use super::super::locate::{Extent, extent, inside, lookup};
@@ -24,10 +25,15 @@ pub(super) struct Placer<'r, 'a> {
     reading: &'r Reading<'a>,
     /// The locks of the text before, when this text does not parse.
     carried: Option<&'a Protected>,
+    /// The locks of the text before, when this one parses: those of the
+    /// fields held are followed from it.
+    before: Option<&'a Protected>,
     moves: Option<Moves<'a>>,
     /// The values pinned in the texts before, then those of each stand-in
     /// lock placed.
     pins: Vec<(String, Value)>,
+    /// The fields held, with their pinned values (see `Protected::held`).
+    held: Vec<(String, Value)>,
 }
 
 /// What became of one field.
@@ -40,20 +46,195 @@ pub(super) enum Placed {
 }
 
 impl<'r, 'a> Placer<'r, 'a> {
-    pub(super) fn new(reading: &'r Reading<'a>, carried: Option<&'a Protected>) -> Self {
+    /// Places the fields of `reading`'s text; `previous` is the text
+    /// before's locks (from the same sources), when there is one.
+    pub(super) fn new(reading: &'r Reading<'a>, previous: Option<&'a Protected>) -> Self {
+        let carried = previous.filter(|_| reading.document.is_none());
+        let before = previous.filter(|_| reading.document.is_some());
+        // Held through a text that does not parse, as pinned.
+        let held = match (before, carried, &reading.document) {
+            (Some(before), _, Some(document)) => held_pins(before, document),
+            (_, Some(carried), None) => carried
+                .pins
+                .iter()
+                .filter(|(pointer, _)| carried.held.contains(pointer))
+                .cloned()
+                .collect(),
+            _ => Vec::new(),
+        };
+        let followed = carried.or(before);
         Placer {
             reading,
             carried,
-            moves: carried.map(|previous| Moves::new(&previous.text, reading.text)),
+            before,
+            moves: followed.map(|previous| Moves::new(&previous.text, reading.text)),
             pins: carried
                 .map(|previous| previous.pins.clone())
                 .unwrap_or_default(),
+            held,
         }
+    }
+
+    /// Holds a locked field with no value pinned yet (the host's text never
+    /// parsed, or the host named its path after edits were made) that the
+    /// text, now parsing, reads otherwise than the host's text (its parse,
+    /// or its stand-in's), gone from it included: what was typed meanwhile
+    /// is not the host's.
+    pub(super) fn hold_unpinned(&mut self) {
+        let (Some(previous), Some(document)) =
+            (self.reading.sources.previous, &self.reading.document)
+        else {
+            return;
+        };
+        let named: Vec<String> = self
+            .reading
+            .sources
+            .paths
+            .iter()
+            .map(|path| path.to_pointer())
+            .collect();
+        let pointers = previous
+            .locks
+            .iter()
+            .filter_map(|lock| lock.pointer.clone())
+            .chain(named);
+        for pointer in pointers {
+            if previous.pins.iter().any(|(known, _)| *known == pointer)
+                || self.held.iter().any(|(known, _)| *known == pointer)
+            {
+                continue;
+            }
+            let host = self
+                .origin_value(&pointer)
+                .or_else(|| self.read_within_span(&pointer));
+            if let Some(host) = host
+                && lookup(document, &pointer) != Some(&host)
+            {
+                self.held.push((pointer, host));
+            }
+        }
+    }
+
+    /// With no host value to compare (the host's text never parsed and has
+    /// no stand-in), the value of the field at `pointer` as its lock's span
+    /// writes it: when the field's text in this parse runs on past the span
+    /// (a line added under a block's end), that text cut off and the rest
+    /// read. `None` when it does not run past it, or the rest does not
+    /// parse.
+    fn read_within_span(&self, pointer: &str) -> Option<Value> {
+        let lock = self.moved(pointer)?;
+        let end = lock.ranges.iter().map(|range| range.end).max()?;
+        let Reading {
+            behavior,
+            text,
+            lines,
+            sources,
+            ..
+        } = self.reading;
+        // Where the parse writes the field now.
+        let field = self
+            .located(pointer)?
+            .ranges
+            .iter()
+            .map(|range| range.end)
+            .max()?;
+        let past = lines.byte_of(end)..lines.byte_of(field);
+        if past.is_empty() || text[past.clone()].trim().is_empty() {
+            return None;
+        }
+        let cut = format!("{}{}", &text[..past.start], &text[past.end..]);
+        let document = codec::read(*behavior, &cut, sources.reading_schema).ok()?;
+        lookup(&document, pointer).cloned()
+    }
+
+    /// Lets go of the fields held for a host range (they were found by
+    /// what the range covers) whose value a field the ranges cover now
+    /// (`covered`) still reads under the same keys: the range's text moved
+    /// with its item to another index (an item added above it, a second
+    /// block making a lone one a list), which is no change. Under other
+    /// keys (its line moved into another block) it stays held.
+    pub(super) fn release_covered(&mut self, covered: &[(String, Reason)]) {
+        let (Some(before), Some(document)) = (self.before, &self.reading.document) else {
+            return;
+        };
+        let now: Vec<(Vec<&str>, &Value)> = covered
+            .iter()
+            .filter_map(|(pointer, _)| Some((keys_of(pointer), lookup(document, pointer)?)))
+            .collect();
+        let earlier = before.document.as_deref();
+        self.held.retain(|(pointer, value)| {
+            let range = before.locks.iter().any(|lock| {
+                lock.pointer.as_deref() == Some(pointer.as_str()) && lock.reason == Reason::Range
+            });
+            let keys = keys_of(pointer);
+            // Moved, not copied: read under those keys as often as before
+            // (a copy of its line makes it a list of two there).
+            let segments: Vec<&str> = keys.iter().copied().filter(|key| !key.is_empty()).collect();
+            let moved = || {
+                earlier.is_some_and(|earlier| {
+                    reads_under(earlier, &segments, value)
+                        == reads_under(document, &segments, value)
+                })
+            };
+            !(range && now.iter().any(|(at, now)| *at == keys && *now == value) && moved())
+        });
+    }
+
+    /// The fields held that `placed` (the fields placed) leaves out (moved
+    /// away, no longer marked where they are now), each with the reason
+    /// it was locked for in the text before.
+    pub(super) fn held_left(&self, placed: &[Lock]) -> Vec<(String, Reason)> {
+        let Some(before) = self.before else {
+            return Vec::new();
+        };
+        self.held
+            .iter()
+            .filter(|(pointer, _)| {
+                !placed
+                    .iter()
+                    .any(|lock| lock.pointer.as_deref() == Some(pointer))
+            })
+            .filter_map(|(pointer, _)| {
+                let lock = before
+                    .locks
+                    .iter()
+                    .find(|lock| lock.pointer.as_deref() == Some(pointer))?;
+                Some((pointer.clone(), lock.reason.clone()))
+            })
+            .collect()
+    }
+
+    /// The fields held whose lock was followed into this text, and those
+    /// the text no longer has.
+    pub(super) fn held_pointers(&self, locks: &[Lock]) -> Vec<String> {
+        // A text that does not parse carries every one held.
+        let Some(document) = &self.reading.document else {
+            return self
+                .held
+                .iter()
+                .map(|(pointer, _)| pointer.clone())
+                .collect();
+        };
+        let gone: Vec<&String> = self.held_gone(document).collect();
+        self.held
+            .iter()
+            .map(|(pointer, _)| pointer)
+            .filter(|pointer| {
+                gone.contains(pointer)
+                    || locks
+                        .iter()
+                        .any(|lock| lock.pointer.as_deref() == Some(pointer.as_str()))
+            })
+            .cloned()
+            .collect()
     }
 
     /// The field at `pointer`, locked for `reason`, placed by the first
     /// step that finds it.
     pub(super) fn place(&mut self, pointer: String, reason: Reason) -> Placed {
+        // Followed from the text before by position whenever the edit kept
+        // its text: a parse of a text half typed may read the user's new
+        // text into the field's key (`h  - host:` above `host:`).
         if let Some(lock) = self.moved(&pointer) {
             return Placed::Locked(Lock { reason, ..lock });
         }
@@ -69,7 +250,12 @@ impl<'r, 'a> Placer<'r, 'a> {
                 ranges: found.ranges,
                 reason,
             }),
-            None if self.held(&pointer) => Placed::Unplaced(pointer, reason),
+            // A field a host range covers is found again from the range
+            // in each text that parses (the range's own lock keeps the
+            // text meanwhile): a half-typed parse's path for it is no field.
+            None if reason != Reason::Range && self.kept_unplaced(&pointer) => {
+                Placed::Unplaced(pointer, reason)
+            }
             None => Placed::Absent,
         }
     }
@@ -82,21 +268,42 @@ impl<'r, 'a> Placer<'r, 'a> {
         locks: &[Lock],
         unplaced: &[(String, Reason)],
     ) -> Vec<(String, Value)> {
+        // Each field once (one held may be gone from the parse and keep its
+        // lock, followed by position).
+        let mut seen = std::collections::HashSet::new();
         match &self.reading.document {
             None => self.pins,
             Some(document) => locks
                 .iter()
                 .filter_map(|lock| lock.pointer.as_ref())
                 .chain(unplaced.iter().map(|(pointer, _)| pointer))
-                .filter_map(|pointer| Some((pointer.clone(), lookup(document, pointer)?.clone())))
+                .chain(self.held_gone(document))
+                .filter(|pointer| seen.insert(pointer.as_str()))
+                .filter_map(|pointer| {
+                    // A field held keeps the host's value (see
+                    // `hold_unpinned` for one named late).
+                    if let Some((_, value)) = self.held.iter().find(|(known, _)| known == pointer) {
+                        return Some((pointer.clone(), value.clone()));
+                    }
+                    Some((pointer.clone(), lookup(document, pointer).cloned()?))
+                })
                 .collect(),
         }
     }
 
-    /// In a text that does not parse, the lock of the text before, moved
-    /// through the edit, when the edit kept its text.
+    /// The fields held that `document` no longer has (a locked line
+    /// deleted or commented out): held until it reads them again.
+    fn held_gone<'s>(&'s self, document: &'s Value) -> impl Iterator<Item = &'s String> {
+        self.held
+            .iter()
+            .map(|(pointer, _)| pointer)
+            .filter(move |pointer| lookup(document, pointer).is_none())
+    }
+
+    /// The lock of the text before, moved through the edit, when the edit
+    /// kept its text.
     fn moved(&self, pointer: &str) -> Option<Lock> {
-        let (previous, moves) = self.carried.zip(self.moves.as_ref())?;
+        let (previous, moves) = self.carried.or(self.before).zip(self.moves.as_ref())?;
         let lock = previous
             .locks
             .iter()
@@ -117,7 +324,31 @@ impl<'r, 'a> Placer<'r, 'a> {
             .iter()
             .find(|lock| lock.pointer.as_deref() == Some(pointer))?;
         let pin = stand.pins.iter().find(|(known, _)| *known == pointer)?;
-        Some((lock.clone(), pin.clone()))
+        // A lock named after edits were made: its value is the host's.
+        let pin = match self.origin_value(pointer) {
+            Some(value) => (pointer.to_string(), value),
+            None => pin.clone(),
+        };
+        Some((lock.clone(), pin))
+    }
+
+    /// The value of the field at `pointer` in the text from the host the
+    /// locks follow, when that is another text than this one: its parse,
+    /// or its stand-in's.
+    fn origin_value(&self, pointer: &str) -> Option<Value> {
+        let origin = self.reading.sources.previous?.origin.as_deref()?;
+        if origin == self.reading.text {
+            return None;
+        }
+        let Reading {
+            behavior, sources, ..
+        } = self.reading;
+        let reading = sources.reading_schema;
+        let document = codec::read(*behavior, origin, reading).ok().or_else(|| {
+            let stand = scan::stand_in(*behavior, origin, None, reading)?;
+            codec::read(*behavior, &stand.text, reading).ok()
+        })?;
+        lookup(&document, pointer).cloned()
     }
 
     /// Located in the text, with what is inside it as the parsed text (or
@@ -170,15 +401,14 @@ impl<'r, 'a> Placer<'r, 'a> {
         wanted
     }
 
-    /// Whether a field not found is held: in a text that parses, when the
-    /// document has it (the language could not say where it is written:
-    /// its value is pinned, and an edit changing it refused); in a text
-    /// that does not parse, until it does, when it was found or held so in
-    /// the text before, or written in the last text that parsed or the
-    /// stand-in. Else it is not written (a path the text never had):
-    /// nothing to keep until the text parses, where `guard::repair` reads
-    /// it again.
-    fn held(&self, pointer: &str) -> bool {
+    /// Whether a field not found is kept unplaced: in a text that parses,
+    /// when the document has it (the language could not say where it is
+    /// written: its value is pinned, and an edit changing it refused); in a
+    /// text that does not parse, until it does, when it was found or kept
+    /// so in the text before, or written in the last text that parsed or
+    /// the stand-in. Else it is not written (a path the text never had):
+    /// nothing to keep until the text parses and the field is placed.
+    fn kept_unplaced(&self, pointer: &str) -> bool {
         if let Some(document) = &self.reading.document {
             return lookup(document, pointer).is_some();
         }
@@ -219,4 +449,47 @@ impl<'r, 'a> Placer<'r, 'a> {
         }
         keys
     }
+}
+
+/// The pinned values of the text before (`before`, whose locks are its
+/// own) that read otherwise in `document`: the fields to hold.
+fn held_pins(before: &Protected, document: &Value) -> Vec<(String, Value)> {
+    before
+        .pins
+        .iter()
+        .filter(|(pointer, value)| {
+            lookup(document, pointer) != Some(value)
+                && (before.held.contains(pointer)
+                    || before
+                        .locks
+                        .iter()
+                        .any(|lock| lock.pointer.as_deref() == Some(pointer.as_str())))
+        })
+        .cloned()
+        .collect()
+}
+
+/// How many fields under `keys` (any list index between them) of `value`
+/// (a document) read `expected`.
+fn reads_under(value: &Value, keys: &[&str], expected: &Value) -> usize {
+    match value {
+        _ if keys.is_empty() && value == expected => 1,
+        Value::Array(items) => items
+            .iter()
+            .map(|item| reads_under(item, keys, expected))
+            .sum(),
+        _ if keys.is_empty() => 0,
+        Value::Object(map) => map
+            .get(&keys[0].replace("~1", "/").replace("~0", "~"))
+            .map_or(0, |child| reads_under(child, &keys[1..], expected)),
+        _ => 0,
+    }
+}
+
+/// The keys of `pointer`, its list indices left out.
+fn keys_of(pointer: &str) -> Vec<&str> {
+    pointer
+        .split('/')
+        .filter(|segment| segment.parse::<usize>().is_err())
+        .collect()
 }

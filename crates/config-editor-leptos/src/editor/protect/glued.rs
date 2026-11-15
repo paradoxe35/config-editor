@@ -10,12 +10,12 @@ use std::ops::Range;
 
 use serde_json::Value;
 
+use super::super::codec::scalar_range;
 use super::super::diagnostics::{Diagnostic, Severity};
 use super::super::language::{ConfigLanguage, Repetition};
 use super::super::parse_cache;
-use super::super::paths::field_range;
+use super::super::paths::{field_range, written_value_span};
 use super::super::work_count::{Work, note};
-use super::own_value::own_value;
 use super::tokens::{Known, field_value};
 use crate::EditorStrings;
 use crate::strings::fill;
@@ -34,9 +34,10 @@ pub(crate) fn written_alone(
     pointer: &str,
     token: Range<usize>,
 ) -> Option<String> {
-    // The value the token is written in, also where the field's key is
-    // written twice (a line moved into a block holding it).
-    let range = own_value(behavior, text, pointer, &token)?;
+    // The value the language finds written for the field, holding it.
+    let range = written_value_span(behavior, text, pointer)
+        .and_then(|span| scalar_range(behavior, text, span))
+        .filter(|range| range.start <= token.start && token.end <= range.end)?;
     let written = &text[range.clone()];
     let token_text = &text[token.clone()];
     // The whitespace written right before the token inside the value's

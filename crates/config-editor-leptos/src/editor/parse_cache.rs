@@ -31,10 +31,6 @@ use super::work_count::{Work, note, note_many};
 
 mod conformed;
 pub(crate) use conformed::conformed;
-#[cfg(feature = "protect")]
-mod copies;
-#[cfg(feature = "protect")]
-pub(crate) use copies::every_copy;
 
 /// How many parses are kept.
 const PARSES_KEPT: usize = 2;
@@ -277,6 +273,4 @@ pub(crate) fn release() {
     let _ = LEXICAL.try_with(|last| last.borrow_mut().take());
     let _ = LINE_PATHS.try_with(|kept| kept.borrow_mut().clear());
     conformed::forget();
-    #[cfg(feature = "protect")]
-    copies::forget();
 }

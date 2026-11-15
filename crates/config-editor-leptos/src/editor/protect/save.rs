@@ -23,7 +23,8 @@ pub(crate) struct ReadOnlyChange {
 
 /// The pointers of the fields `ranges` (UTF-16, in `text`) cover: each
 /// field written there whose range, or scalar value as written (over the
-/// lines below its key too), overlaps one, outermost first. Every
+/// lines below its key too), overlaps one, outermost first; a list some of
+/// whose items they overlap is read into. Every
 /// field's span is read in one pass of the text (a read each made every
 /// keystroke of an Edit-as view with read-only ranges cost fields × text).
 pub(crate) fn range_pointers(
@@ -50,9 +51,23 @@ pub(crate) fn range_pointers(
             for (child_pointer, child) in inside {
                 // A value written below its key (XML text over lines) is
                 // the field's too.
+                // A list whose items the ranges cover is read into: those
+                // items are its locked fields, not the others beside them
+                // (TOML's `[[servers]]`, written apart, reads as its first
+                // item's lines). Any other field they overlap is theirs (a
+                // block's header line locks the block).
                 let scalar = || !child.is_object() && !child.is_array();
-                let covered = field_range(behavior, text, &child_pointer)
-                    .is_some_and(|range| overlaps.any(lines.range(range)))
+                let overlapped = |pointer: &str| {
+                    field_range(behavior, text, pointer)
+                        .is_some_and(|range| overlaps.any(lines.range(range)))
+                };
+                let items_covered = || {
+                    child.as_array().is_some_and(|items| {
+                        (0..items.len())
+                            .any(|index| overlapped(&format!("{child_pointer}/{index}")))
+                    })
+                };
+                let covered = overlapped(&child_pointer) && !items_covered()
                     || (scalar()
                         && written_value_span(behavior, text, &child_pointer)
                             .and_then(|span| scalar_range(behavior, text, span))

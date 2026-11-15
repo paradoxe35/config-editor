@@ -110,6 +110,8 @@ mod hcl_repeated_labels;
     feature = "xml"
 ))]
 mod hcl_templates;
+#[cfg(all(feature = "json", feature = "protect"))]
+mod host_check_work;
 #[cfg(all(
     feature = "yaml",
     feature = "json",

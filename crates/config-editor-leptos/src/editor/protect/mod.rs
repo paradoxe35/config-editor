@@ -4,13 +4,14 @@
 //!
 //! The shared part, computed per text on screen in any language:
 //! - `marks`: what the schema marks on each field;
-//! - `locate`, `locks`: where each protected field is written (by path,
-//!   with everything inside a container); `carry`: the locks moved
-//!   through an edit leaving the text unparseable; `scan`: the fields of
-//!   a text that does not parse, line by line, when there is none to
-//!   carry from;
-//! - `guard`: one check every edit passes, whatever made it; `reach`: an
-//!   edit no lock can feel, kept and followed without reading the text;
+//! - `locate`, `locks`: the protected spans, placed from a text that
+//!   parses (by path, with everything inside a container) and followed by
+//!   position through every edit (`carry`); a locked field reading
+//!   otherwise in a text that parses is held, and the save waits; `scan`:
+//!   the fields of a host text that never parsed, read once;
+//! - `guard`: one check every edit passes, whatever made it: no span's
+//!   text changes, nothing is glued onto one; `reach`: an edit no lock can
+//!   feel, kept and followed without reading the text;
 //! - `save`: the last check before an Edit-as save reaches the host;
 //! - `tokens`, `secrets`: secret placeholders, atomic and followed through
 //!   edits; `problems`: placeholders the host did not give; `glued`: text
@@ -37,7 +38,6 @@ mod locate;
 mod locks;
 mod marks;
 mod moved_off;
-mod own_value;
 mod problems;
 mod reach;
 mod rewritten;
@@ -267,6 +267,15 @@ mod guard_scale_tests;
     feature = "hcl",
     feature = "xml"
 ))]
+mod held_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
 mod holder_list_secret_tests;
 #[cfg(all(
     test,
@@ -449,6 +458,17 @@ mod point_problem_tests;
     feature = "xml"
 ))]
 mod prefix_name_tests;
+#[cfg(all(test, feature = "yaml"))]
+mod range_edge_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod range_items_tests;
 #[cfg(all(
     test,
     feature = "yaml",
@@ -476,6 +496,15 @@ mod reach_tests;
     feature = "xml"
 ))]
 mod real_again_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod rename_through_tests;
 #[cfg(all(
     test,
     feature = "yaml",
@@ -611,3 +640,12 @@ mod xml_list_secret_tests;
     feature = "xml"
 ))]
 mod xml_rename_secret_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod xml_secret_entry_tests;

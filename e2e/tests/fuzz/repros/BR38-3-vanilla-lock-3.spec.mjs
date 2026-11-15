@@ -3,7 +3,7 @@ import { replay } from '../runner.mjs';
 
 // Shrunk by the browser fuzz on vanilla.
 // Fails the `lock` check after step 3: locked "public_address: tunnel.example.com\ninsecure_plaintext: false\n" gone from "# Tunnel server configuration\nlisten: 7835\npublic_address: tunnel.example.com\ninsecure_plaintext: false"
-test.fixme('BR38-3 vanilla: lock', async ({ browser }) => {
+test('BR38-3 vanilla: lock', async ({ browser }) => {
   await replay(
     browser,
     'vanilla',

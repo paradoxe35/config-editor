@@ -127,6 +127,48 @@ impl ProtectState {
         })
     }
 
+    /// A warning at each locked field held (see `locks::Protected::held`):
+    /// why its change, value and save wait. Tracked.
+    pub(crate) fn held_problems(&self, text: &str, strings: &EditorStrings) -> Vec<Diagnostic> {
+        self.protected.with(|protected| {
+            let lines = super::locate::LineIndex::new(text);
+            protected
+                .held
+                .iter()
+                .map(|pointer| {
+                    let message =
+                        super::texts::save_held(strings, pointer, &protected.held_reason(pointer));
+                    // Marked where its lock starts; one the text no longer
+                    // has, on the document.
+                    let start = protected
+                        .locks
+                        .iter()
+                        .find(|lock| lock.pointer.as_ref() == Some(pointer))
+                        .and_then(|lock| lock.ranges.first())
+                        .map(|range| range.start);
+                    let Some(start) = start else {
+                        return Diagnostic {
+                            message,
+                            severity: Severity::Warning,
+                            ..Diagnostic::default()
+                        };
+                    };
+                    let line = lines.line_of(start);
+                    let line_start = lines.byte_of(lines.line_bounds(line).start);
+                    let column = text[line_start..lines.byte_of(start)].chars().count() + 1;
+                    Diagnostic {
+                        line: Some(line + 1),
+                        column: Some(column),
+                        end_column: Some(column + 1),
+                        message,
+                        severity: Severity::Warning,
+                        ..Diagnostic::default()
+                    }
+                })
+                .collect()
+        })
+    }
+
     /// Byte ranges of the tokens of `text` the host's placeholder pattern
     /// (and check) match, real or not: what a host problem with no end
     /// marks whole when it starts on one.

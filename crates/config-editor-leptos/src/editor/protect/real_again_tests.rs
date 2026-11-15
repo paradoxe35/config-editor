@@ -231,10 +231,11 @@ fn a_placeholder_made_real_again_with_text_beside_it_is_refused() {
             // another block), it is still the host's token, held whole (see
             // `whole_guard::moved`); in a comment, or read into another
             // value with text beside it (a YAML line moved under a scalar),
-            // it is that text's, free to write beside.
+            // it is that text's, free to write beside. While the text does
+            // not parse, a token is a span: nothing is typed against it.
             let alone = language
                 .parse(&plain)
-                .is_ok_and(|document| alone_somewhere(&document));
+                .map_or(true, |document| alone_somewhere(&document));
             let typed = state
                 .doc()
                 .text

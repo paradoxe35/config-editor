@@ -4,54 +4,23 @@
 //! a stand-in or line by line), `fields` (which fields are protected) and
 //! `place` (where each one is, or that it is held until the text parses).
 //!
-//! # A text that does not parse
+//! # Spans, followed by position
 //!
-//! Two promises hold whatever order the text and the locks arrive in, at
-//! any size and with any number of breaks:
-//! - (I1) a locked value never changes in anything the editor sends
-//!   (`on_change`, a save, `value()`);
-//! - (I2) an edit leaving every locked value as it was is never refused:
-//!   closing a bracket, quote or block, removing a stray line, a lock on a
-//!   path the text never had, a large text.
+//! The locks are spans of the text: each locked value, its own key and the
+//! keys holding it, and the host's ranges. They are placed from a text that
+//! parses (or, for a text from the host that never parsed, from its
+//! stand-in: the text with its breaking lines blanked, else line by line),
+//! and followed through every edit by position (`carry::Moves`): a text
+//! that does not parse takes the locks of the text before, moved through
+//! the edit. Nothing is read off a half-typed line.
 //!
-//! A locked value exists only in a text that parses, so the decision is
-//! made at one moment: the edit that makes a text parse while the one
-//! before did not (`guard::repair`). Each locked field then reads as its
-//! *reference*, read from the *reference text* (`Protected::origin`: the
-//! text the host gave, or the last one of it that parsed, or the text the
-//! locks were first named on):
-//! 1. the value pinned for it (the last text that parsed, or the stand-in:
-//!    the reference text with its breaking lines blanked), equal;
-//! 2. else, when the reference text parses, its value there, equal (both
-//!    absent included);
-//! 3. else, when the new text has the field: made there of the reference
-//!    text's own lines, kept, with only closers added (`}`, `]`, `)`, end
-//!    tags, a comma moved past them, and once the quote, `>` or `:`/`=`
-//!    the line itself left out, its strings then all written there), none
-//!    of its lines removed;
-//! 4. else, absent from the new text, absent from the reference text too
-//!    (no lock found there, no line of it removed, no key): a path the
-//!    text never had keeps nothing, as in a text that parses.
-//!
-//! The fields checked are every lock, held field and pinned value of the
-//! text before, the host's paths, and the fields the schema marks in the
-//! new text and on the reference text's lines the edits removed: none
-//! depends on finding the field in the broken text. A refusal names the
-//! field (`Why::Changed`). The removed lines read for their paths are
-//! those that may hold a protected field (naming one of the keys, or in the
-//! block under such a line) and those where a field's own lines end, so
-//! deleting unrelated lines costs nothing. One limit: when the reference
-//! text never parsed and the edits since removed more lines naming a
-//! protected key than can be read in a moment (`guard::repair::
-//! REMOVED_READS`: about 80 in a text of 3000 lines), the repair is
-//! refused, naming the field and asking to undo the deletion
-//! (`Why::Unread`).
-//!
-//! While the text does not parse, the locks found in it (carried through
-//! edits, from the stand-in, or by the line scan, which in a large text
-//! reads only the lines naming a protected field) are shown and refuse an
-//! edit on them at once; they never decide a value, so a lock not found
-//! there costs only that early refusal.
+//! When the text parses again, each locked field is placed afresh where its
+//! value reads as it was pinned. One that reads otherwise (a duplicate key
+//! or block shadows it, it moved under another parent, it was commented
+//! out) is *held* (`Protected::held`): it keeps the spans followed from the
+//! text before and its pinned value, and the save waits until it reads as
+//! pinned again (`live::ProtectState`'s save check). The edits that made it
+//! so were let through: the guard refuses an edit only for the spans' text.
 
 mod fields;
 mod place;
@@ -129,9 +98,13 @@ pub(crate) struct Protected {
     /// Which text from the host the locks follow (see
     /// `ProtectState::trust_text`): pins are carried only within one.
     pub(crate) epoch: u64,
-    /// The reference text: the one locked values are read from when no
-    /// value was pinned (the text from the host, or the last that parsed),
-    /// carried through texts that do not parse.
+    /// The locked fields whose value, in this text (which parses), reads
+    /// otherwise than pinned: their spans are those followed from the text
+    /// before, and a save waits until they read as pinned again.
+    pub(crate) held: Vec<String>,
+    /// The text from the host the locks follow (see `ProtectState::
+    /// trust_text`): a lock named while the text does not parse takes its
+    /// value from it, not from what was typed before the lock came.
     pub(crate) origin: Option<Arc<str>>,
     /// The host's read-only paths, as pointers.
     pub(crate) paths: Vec<String>,
@@ -148,15 +121,25 @@ impl Protected {
         self.locks.iter().find(|lock| lock.contains(offset))
     }
 
+    /// Why the field held at `pointer` is locked: its lock's reason, or,
+    /// for one the text no longer has, its mark's (a path by default).
+    pub(crate) fn held_reason(&self, pointer: &str) -> Reason {
+        self.locks
+            .iter()
+            .find(|lock| lock.pointer.as_deref() == Some(pointer))
+            .map(|lock| lock.reason.clone())
+            .or_else(|| {
+                self.marked
+                    .iter()
+                    .find(|(known, _)| known == pointer)
+                    .map(|(_, reason)| reason.clone())
+            })
+            .unwrap_or(Reason::Field)
+    }
+
     /// Whether nothing is locked.
     pub(crate) fn is_empty(&self) -> bool {
         self.locks.is_empty() && self.unplaced.is_empty()
-    }
-
-    /// Whether the text does not parse while fields may be locked: an edit
-    /// making it parse is checked even when no lock was found in it.
-    pub(crate) fn watches(&self) -> bool {
-        self.document.is_none() && (self.marking || !self.paths.is_empty())
     }
 }
 
@@ -171,6 +154,9 @@ pub(crate) struct Sources<'a> {
     pub(crate) paths: &'a [FieldPath],
     /// Read-only UTF-16 ranges of this text the host gave.
     pub(crate) ranges: &'a [Range<usize>],
+    /// The fields the host's ranges cover in its own text, locked here (a
+    /// view in another language) as a range locks them: by their values.
+    pub(crate) range_fields: &'a [FieldPath],
     /// The locks of the text before, whose marks and pinned values carry
     /// over when this text does not parse, and which move past an edit out
     /// of their reach (see `carried_past`).
@@ -188,11 +174,22 @@ pub(crate) fn protect(
     if let Some(carried) = carried_past(behavior, text, sources) {
         return carried;
     }
+    // The host's text the locks follow, kept while there are none yet: a
+    // path named late takes its value from it.
+    let origin = sources
+        .previous
+        .and_then(|previous| previous.origin.clone())
+        .or_else(|| Some(Arc::from(text)));
     let mut protected = Protected {
         locks: range_locks(text, sources.ranges),
+        origin,
         ..Protected::default()
     };
-    if sources.marking_schema.is_none() && sources.paths.is_empty() && protected.locks.is_empty() {
+    if sources.marking_schema.is_none()
+        && sources.paths.is_empty()
+        && sources.range_fields.is_empty()
+        && protected.locks.is_empty()
+    {
         return protected;
     }
     let reading = Reading::new(behavior, text, sources);
@@ -200,12 +197,25 @@ pub(crate) fn protect(
     let marks = reading.schema_marks();
     let mut marked = fields::marked(&reading, carried, marks.read_only);
     let mut covered_pins = Vec::new();
+    let mut covered_fields = Vec::new();
     if carried.is_none() {
         let covered = fields::covered(&reading, &protected.locks);
-        marked.extend(covered.fields);
+        covered_fields = covered.fields;
         covered_pins = covered.pins;
     }
-    let mut placer = Placer::new(&reading, carried);
+    let followed = sources
+        .previous
+        .filter(|previous| carried.is_some() || same_sources(previous, sources));
+    let mut placer = Placer::new(&reading, followed);
+    covered_fields.extend(
+        sources
+            .range_fields
+            .iter()
+            .map(|path| (path.to_pointer(), Reason::Range)),
+    );
+    placer.hold_unpinned();
+    placer.release_covered(&covered_fields);
+    marked.extend(covered_fields);
     let outermost = fields::outermost(&reading, &marked);
     // Every field's spans read in one pass of the document, not each
     // field's in a pass of its own.
@@ -218,7 +228,15 @@ pub(crate) fn protect(
                 Placed::Absent => {}
             }
         }
+        // A field held that is no longer marked or written where it is now
+        // keeps its lock all the same.
+        for (pointer, reason) in placer.held_left(&protected.locks) {
+            if let Placed::Locked(lock) = placer.place(pointer, reason) {
+                protected.locks.push(lock);
+            }
+        }
     });
+    protected.held = placer.held_pointers(&protected.locks);
     protected.pins = placer.into_pins(&protected.locks, &protected.unplaced);
     for (pointer, value) in covered_pins {
         if !protected.pins.iter().any(|(known, _)| *known == pointer) {
@@ -226,15 +244,21 @@ pub(crate) fn protect(
         }
     }
     protected.secret = fields::secret(&reading, carried, marks.secret);
+    // A field held stays marked: the texts after this one, parsing or not,
+    // keep following it.
+    for lock in &protected.locks {
+        if let Some(pointer) = &lock.pointer
+            && protected.held.contains(pointer)
+            && !marked.iter().any(|(known, _)| known == pointer)
+        {
+            marked.push((pointer.clone(), lock.reason.clone()));
+        }
+    }
     protected.marked = marked;
     protected.document = reading.into_document().map(Arc::new);
     protected.parsed = match &protected.document {
         Some(document) => Some(Arc::clone(document)),
         None => carried.and_then(|previous| previous.parsed.clone()),
-    };
-    protected.origin = match (&protected.document, carried) {
-        (None, Some(previous)) if previous.origin.is_some() => previous.origin.clone(),
-        _ => Some(Arc::from(text)),
     };
     protected.paths = sources.paths.iter().map(FieldPath::to_pointer).collect();
     protected.marking = sources.marking_schema.is_some();
@@ -254,14 +278,7 @@ fn carried_past(
     sources: Sources<'_>,
 ) -> Option<Protected> {
     let previous = sources.previous?;
-    let same_sources = previous.marking == sources.marking_schema.is_some()
-        && previous.paths.len() == sources.paths.len()
-        && previous
-            .paths
-            .iter()
-            .zip(sources.paths)
-            .all(|(pointer, path)| *pointer == path.to_pointer());
-    if !same_sources || previous.text == text {
+    if !same_sources(previous, sources) || previous.text == text {
         return None;
     }
     let shift = out_of_reach(behavior, previous, &previous.text, text)?;
@@ -293,11 +310,24 @@ fn carried_past(
         marked: previous.marked.clone(),
         text: text.to_string(),
         epoch: previous.epoch,
-        origin: Some(Arc::from(text)),
+        held: previous.held.clone(),
+        origin: previous.origin.clone(),
         paths: previous.paths.clone(),
         marking: previous.marking,
         ranges: moved,
     })
+}
+
+/// Whether `previous` was found with the same schema marking and host paths
+/// as `sources` give.
+fn same_sources(previous: &Protected, sources: Sources<'_>) -> bool {
+    previous.marking == sources.marking_schema.is_some()
+        && previous.paths.len() == sources.paths.len()
+        && previous
+            .paths
+            .iter()
+            .zip(sources.paths)
+            .all(|(pointer, path)| *pointer == path.to_pointer())
 }
 
 /// The stretches of the host's ranges among `locks`.

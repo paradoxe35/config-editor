@@ -123,11 +123,6 @@ impl EditorState {
 
         trace(Stage::Record);
         self.record(&edit, (changed, links), after, language_before, said_folds);
-        if origin.is_checked() {
-            self.note_applied(&edit);
-        } else {
-            self.forget_refusal();
-        }
 
         trace(Stage::Notify);
         if edit.origin.notifies() && !hosts_own {
@@ -172,11 +167,7 @@ impl EditorState {
             self.note_read_only();
             return;
         };
-        self.protect().flash(reason.clone(), start);
-        // Typing refused part-way: nothing half-written stays.
-        if let Some(take_back) = self.note_refused(edit, reason) {
-            self.commit(take_back);
-        }
+        self.protect().flash(reason, start);
     }
 
     /// Puts the selection where the edit leaves it; the caret is recorded

@@ -7,10 +7,9 @@
 //!   locked block are found where the stand-in has none (in a large text,
 //!   the lines naming a protected field and the block under each).
 //!
-//! Neither reading decides what an edit may do to a locked value: that is
-//! decided when the text parses again (`guard::repair`), against the
-//! reference text. They place the locks shown, and refuse an edit on them
-//! at once rather than at the repair.
+//! Both only place the locks of such a text, once: from then on they are
+//! followed through edits by position (see `locks`), never read again off
+//! the lines.
 
 use serde_json::Value;
 

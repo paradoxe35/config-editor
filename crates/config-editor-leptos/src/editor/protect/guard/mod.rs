@@ -1,106 +1,88 @@
 //! Whether an edit keeps every lock: one check for every way text changes
 //! (typing, paste, cut, delete, replace, completions, Revert, comment
-//! toggling, undo), given the text before and after.
+//! toggling, undo), given the text before and after. What is protected is
+//! a set of spans of the text (see `locks`): each locked field's value, its
+//! own key and the keys holding it, and the host's ranges, placed from the
+//! last text that parsed and followed through edits by position.
 //!
 //! An edit changing one scalar on a line no lock is on, in a text that
 //! parses, is kept without reading the document (`reach`). Any other is
 //! refused when
-//! - it changes a locked stretch's text, or a key holding a locked field;
-//! - it glues text onto a locked stretch's ends (`port: 80` → `port: 808`,
+//! - it changes a span's text (a locked value, a key holding one, a range);
+//! - it glues text onto a span's ends (`port: 80` → `port: 808`,
 //!   `xport: 80`); whitespace and punctuation next to it are free;
-//! - the document parses before and after, and a locked field's value
-//!   differs from the value pinned when the lock was last read (it moved
-//!   under another parent, a comment took it, a line added below joined a
-//!   locked block, a TOML table or dotted key added elsewhere extended it);
-//! - the document did not parse and now does, and a locked field does not
-//!   read as its reference (`repair`, the rule in `locks`);
-//! - the document does not parse afterwards and the edit adds a line that
-//!   would join a locked field once it does: a line whose path is inside
-//!   it, or a second key holding it (duplicates are errors here, but a
-//!   host's parser may let the last one win).
-//! - the document does not parse afterwards and the edit, made inside a
-//!   locked block, opens a comment or string running over its lines below;
-//! - the document does not parse afterwards, the language cannot say where
-//!   a locked field is written, and the lines the edit changed, tried on
-//!   the last text that parsed, change a pinned value (`spanless`).
+//! - it writes or removes more than whitespace inside a locked block,
+//!   between its key and its value's end (`block`: a line above a TOML
+//!   table's first key is the table's);
 //!
-//! Formatting around a locked field stays free: blank lines, trailing
-//! spaces, comments after the value, and whitespace inside it (a space
-//! after `:` or `=`, re-indenting where indentation carries no structure:
-//! JSON, TOML, HCL, XML) while the text parses and every locked value reads
-//! as pinned. In YAML a locked line's indent cannot change. While the text
-//! does not parse, a locked stretch keeps its text exactly but for
-//! whitespace between its tokens (`spacing`: the same formatting, a space
-//! inside a string or a YAML plain value excepted), a YAML plain value
-//! takes nothing glued onto it (`abc<`); nor does a locked value's content
-//! written over lines or as XML text, whose whitespace is content too
-//! (`content`), nor the inside of a locked string written over lines (a
-//! blank line typed between a block scalar's header and its text).
+//! A field of a host text that never parsed (no value pinned) may be
+//! closed by the edit making the text parse (`closing`).
+//!
+//! Everything else is taken, whether the text parses or not: a key typed
+//! beside a locked one whatever its name, a half-typed line, a duplicate
+//! of a locked key or block, a locked line moved or commented out, a key
+//! added past a block's end. No keystroke is refused for how the parse
+//! reads the locked value: when it reads otherwise (a duplicate shadows
+//! it, it moved under another parent), the lock is held (see
+//! `locks::Protected::held`): its text stays locked, the save, the change
+//! event and the value wait with the `saveHeld` reason, until the text
+//! reads it as pinned again. A field the language cannot locate (it gives
+//! no spans) has its value for a span: an edit whose text parses with
+//! another value is refused.
+//!
+//! Formatting inside a locked span stays free: whitespace between its
+//! tokens (a space after `:` or `=`, re-indenting where indentation carries
+//! no structure: JSON, TOML, HCL, XML), and lines moved whole, while the
+//! text parses and every locked value reads as pinned; while it does not
+//! parse, whitespace between tokens (`spacing`: a space inside a string or
+//! a YAML plain value excepted). Where indentation is structure (YAML) a
+//! locked block's inner indents cannot change; nor can a locked value's
+//! content written over lines or as XML text, whose whitespace is content
+//! too (`content`).
 
-mod closers;
+mod block;
+mod closing;
 mod content;
 mod edit;
-mod hiding;
-mod joining;
-mod joins;
-mod moved;
 mod pins;
-mod repair;
 mod spacing;
-mod spanless;
 mod stretch;
-
-use std::ops::Range;
 
 use serde_json::Value;
 
 use super::super::language::ConfigLanguage;
-use super::locate::LineIndex;
 use super::locks::{Lock, Protected};
 use super::reach::out_of_reach;
 use super::texts::Reason;
 use crate::EditorStrings;
+use block::written_inside;
+use closing::only_closes;
 use content::{glued_to_content, written_string_changed};
 use edit::Edited;
-use hiding::hidden;
-use joining::{LinePaths, is_near, near_lines, span};
-use joins::{Joinable, joining_counts};
-use moved::Place;
-use pins::pins_hold;
-use stretch::indent_kept;
+use pins::unplaced_hold;
 
 /// An edit that would change a locked field, and why it is locked.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Blocked {
     pub(crate) reason: Reason,
     pub(crate) why: Why,
-    /// The locked field, when the refusal names it.
-    pub(crate) pointer: Option<String>,
 }
 
 /// What the refused edit would do.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Why {
-    /// Change a locked field's text.
+    /// Change a locked span's text.
     Locked,
     /// Rename or move a key holding the locked field.
     Holds,
-    /// Make the text parse with the locked field reading otherwise than in
-    /// the host's text.
-    Changed,
-    /// Make the text parse after more changes to the host's text than can
-    /// be checked.
-    Unread,
 }
 
 impl Blocked {
     /// Why the edit is refused, as the tooltip says it.
     pub(crate) fn message(&self, strings: &EditorStrings) -> String {
-        match (self.why, &self.pointer) {
-            (Why::Holds, _) => self.reason.holding(strings),
-            (Why::Changed, Some(pointer)) => self.reason.changed(strings, pointer),
-            (Why::Unread, pointer) => self.reason.unchecked(strings, pointer.as_deref()),
-            _ => self.reason.text(strings),
+        match self.why {
+            Why::Holds => self.reason.holding(strings),
+            Why::Locked => self.reason.text(strings),
         }
     }
 }
@@ -119,8 +101,8 @@ pub(crate) fn check(
 }
 
 /// Checks the edit turning `before` (whose locks are `protected`) into
-/// `after`, the caret it left at `caret` (UTF-16) when known: each step
-/// below in turn, the first to refuse it saying why.
+/// `after`, the caret it left at `caret` (UTF-16) when known: every span
+/// kept, and, for a field the language cannot locate, its value.
 pub(crate) fn check_at(
     behavior: &dyn ConfigLanguage,
     reading_schema: Option<&Value>,
@@ -128,7 +110,7 @@ pub(crate) fn check_at(
     (before, after): (&str, &str),
     caret: Option<usize>,
 ) -> Result<(), Blocked> {
-    if (protected.is_empty() && !protected.watches()) || before == after {
+    if protected.is_empty() || before == after {
         return Ok(());
     }
     // One scalar changed off every lock's lines: nothing to read.
@@ -136,87 +118,46 @@ pub(crate) fn check_at(
         return Ok(());
     }
     let edit = Edited::new(behavior, reading_schema, protected, before, after, caret);
-    // The edit making the text parse is decided by the repair rule alone,
-    // which names the field: a closer added to a locked line completes it.
-    let repairing = protected.document.is_none() && edit.parsed().is_some();
-    stretches_kept(&edit, repairing)?;
-    let mut pointed: Vec<&Lock> = protected
-        .locks
-        .iter()
-        .filter(|lock| lock.pointer.is_some())
-        .collect();
-    if let Some(edited) = edit.parsed() {
-        if protected.document.is_none() {
-            return repair::repair_keeps_locks(&edit, edited);
-        }
-        pins_still_hold(edited, protected)?;
-        pointed.retain(|lock| !edit.pinned().holds(lock));
-    } else {
-        spanless::hunks_keep_pins(&edit)?;
+    spans_kept(&edit)?;
+    if !protected.unplaced.is_empty()
+        && let Some(edited) = edit.parsed()
+        && let Some(reason) = unplaced_hold(edited, protected)
+    {
+        return Err(refused(reason));
     }
-    if pointed.is_empty() || edit.spacing_only() {
-        return Ok(());
-    }
-    nothing_hidden(&edit, &pointed)?;
-    nothing_joins(&edit, &pointed, true)?;
-    indents_kept(&edit, &pointed)
+    Ok(())
 }
 
-/// Checks the edit turning `before` (whose locks are `protected`, values
-/// only) into `after`, a text that does not parse, for the values' text
-/// alone: each kept, nothing glued onto it or joining it, nothing hidden,
-/// no line indented under it, as for a lock; a value moved with its key,
-/// re-indented with it, or its key renamed, is free (see `whole_guard`: a
-/// placeholder only keeps its value).
-pub(crate) fn check_values(
-    behavior: &dyn ConfigLanguage,
-    reading_schema: Option<&Value>,
-    protected: &Protected,
-    before: &str,
-    after: &str,
-) -> Result<(), Blocked> {
-    if protected.locks.is_empty() || before == after {
-        return Ok(());
-    }
-    let edit = Edited::new(behavior, reading_schema, protected, before, after, None);
-    if edit.parsed().is_some() {
-        return Ok(());
-    }
-    // A field whose key is written twice holds a value in each copy: a
-    // line diff takes a changed copy for its twin, so each is counted.
-    if let Some(lock) = protected.locks.iter().find(|lock| {
-        lock.ranges.len() > 1 && !lock.ranges.iter().all(|range| edit.copies_kept(range))
-    }) {
-        return Err(refused(&lock.reason));
-    }
-    stretches_kept(&edit, false)?;
-    let pointed: Vec<&Lock> = protected
-        .locks
-        .iter()
-        .filter(|lock| lock.pointer.is_some())
-        .collect();
-    if pointed.is_empty() || edit.spacing_only() {
-        return Ok(());
-    }
-    nothing_hidden(&edit, &pointed)?;
-    nothing_joins(&edit, &pointed, false)
-}
-
-/// Every lock's stretches, and the keys holding it, survive the edit;
-/// whitespace changed inside a locked field is free when every locked
-/// value still reads as pinned, and so are its lines moved whole past
-/// several others (a reorder made at once). A repair checks the fields
-/// itself.
-fn stretches_kept(edit: &Edited<'_>, repairing: bool) -> Result<(), Blocked> {
+/// Every lock's spans survive the edit: its value's stretches and its own
+/// key, then the keys holding it; whitespace changed inside a locked field
+/// is free when every locked value still reads as pinned, and so are its
+/// lines moved whole past several others (a reorder made at once).
+fn spans_kept(edit: &Edited<'_>) -> Result<(), Blocked> {
     for lock in &edit.protected.locks {
-        if repairing && lock.pointer.is_some() {
+        // A field a host range covers keeps its value's text; its key is
+        // the range's text where the range covers it (a parse of a line
+        // half typed above it may read the new text into its key).
+        if lock.pointer.is_some() && lock.reason == Reason::Range {
+            covered_value_kept(edit, lock)?;
             continue;
         }
         let free = || {
             lock.pointer.is_some()
-                && (edit.reformat_only() || edit.spacing_only() || edit.moved_whole(lock))
+                && (edit.reformat_only()
+                    || edit.spacing_only()
+                    || edit.moved_whole(lock)
+                    || only_closes(edit, lock))
         };
-        if !lock.ranges.iter().all(|range| edit.kept(range)) && !free() {
+        if !lock
+            .ranges
+            .iter()
+            .chain(&lock.key)
+            .all(|range| edit.kept(range))
+            && !free()
+        {
+            return Err(refused(&lock.reason));
+        }
+        if written_inside(edit, lock) && !free() {
             return Err(refused(&lock.reason));
         }
         if glued_to_content(edit, lock)
@@ -224,151 +165,36 @@ fn stretches_kept(edit: &Edited<'_>, repairing: bool) -> Result<(), Blocked> {
         {
             return Err(refused(&lock.reason));
         }
-        let held = || {
-            lock.guards.iter().all(|range| edit.kept(range))
-                && edit.kept_together(&[lock.ranges.as_slice(), &lock.guards].concat())
-        };
+        let spans: Vec<_> = lock
+            .ranges
+            .iter()
+            .chain(&lock.key)
+            .chain(&lock.guards)
+            .cloned()
+            .collect();
+        let held =
+            || lock.guards.iter().all(|range| edit.kept(range)) && edit.kept_together(&spans);
         if !held() && !free() {
             return Err(Blocked {
                 reason: lock.reason.clone(),
                 why: Why::Holds,
-                pointer: lock.pointer.clone(),
             });
         }
     }
     Ok(())
 }
 
-/// The edited text parses, as the text before did: every locked value must
-/// read as it was pinned, wherever the edit was (a TOML `[web.sub]` table
-/// added at the end changes `web`), the fields the language could not
-/// locate included.
-fn pins_still_hold(edited: &Value, protected: &Protected) -> Result<(), Blocked> {
-    let Some(pointer) = pins_hold(edited, protected) else {
-        return Ok(());
+/// The value stretches of a field a host range covers (past its key) are
+/// kept, or the edit only re-flows whitespace or moves lines whole.
+fn covered_value_kept(edit: &Edited<'_>, lock: &Lock) -> Result<(), Blocked> {
+    let value = |range: &std::ops::Range<usize>| match &lock.key {
+        Some(key) if key.start <= range.start && range.start < key.end => key.end..range.end,
+        _ => range.clone(),
     };
-    let reason = protected
-        .locks
-        .iter()
-        .find(|lock| lock.pointer.as_deref() == Some(pointer))
-        .map(|lock| &lock.reason)
-        .or_else(|| {
-            protected
-                .unplaced
-                .iter()
-                .find(|(known, _)| known == pointer)
-                .map(|(_, reason)| reason)
-        });
-    Err(refused(reason.unwrap_or(&Reason::Field)))
-}
-
-/// The values cannot be compared (the edited text does not parse, or the
-/// lock has no pinned value). Nothing may be written where it would join
-/// a locked field once it parses (a key half typed inside a locked block,
-/// a duplicate of a locked key or of a key holding one): the edit may not
-/// add a line whose path is inside a locked field, or which names a key
-/// holding it; and a locked field the edit moves (a line command, a cut
-/// and paste) stays where it is (see `moved`). Without `paths_kept` (a
-/// value held for its text alone), its key may be renamed or moved, and a
-/// second line of its own key (a copy of its line) joins nothing.
-fn nothing_joins(edit: &Edited<'_>, pointed: &[&Lock], paths_kept: bool) -> Result<(), Blocked> {
-    let new_lines = LineIndex::new(edit.after);
-    // Each line's path is read once for all the locks.
-    let old_paths = LinePaths::new(edit.behavior, edit.before, &edit.lines);
-    let new_paths = LinePaths::new(edit.behavior, edit.after, &new_lines);
-    let place = Place {
-        edit,
-        old: &old_paths,
-        new: &new_paths,
-        new_lines: &new_lines,
-    };
-    // The lines near each lock before and after the edit: before or after
-    // the region it keeps its text; over it, it is anywhere in it.
-    let (mut before, mut after) = (Vec::new(), Vec::new());
-    for lock in pointed {
-        let Some((low, high)) = span(lock) else {
-            continue;
-        };
-        let pointer = lock.pointer.as_deref().unwrap_or_default();
-        let near_after = if high <= edit.region.start {
-            near_lines(edit.behavior, &new_lines, low, high)
-        } else if low >= edit.region.end {
-            let moved = |at: usize| at + edit.new.len() - edit.old.len();
-            near_lines(edit.behavior, &new_lines, moved(low), moved(high))
-        } else {
-            0..new_lines.line_count()
-        };
-        before.push(Joinable {
-            pointer,
-            near: near_lines(edit.behavior, &edit.lines, low, high),
-        });
-        after.push(Joinable {
-            pointer,
-            near: near_after,
-        });
-    }
-    let was = joining_counts(&old_paths, &edit.region, &before, !paths_kept);
-    let now = joining_counts(&new_paths, &edit.new_region, &after, !paths_kept);
-    let mut counts = was.into_iter().zip(now);
-    for lock in pointed {
-        if is_near(lock, &edit.region, &edit.lines) && !place.kept(lock, paths_kept) {
-            return Err(refused(&lock.reason));
-        }
-        if span(lock).is_some()
-            && let Some((was, now)) = counts.next()
-            && now > was
-        {
-            return Err(refused(&lock.reason));
-        }
-    }
-    Ok(())
-}
-
-/// The edited text does not parse: an edit inside a locked block may not
-/// open a comment or a string running over the block's lines below it
-/// (`<!--` on a line of its own), where they would be text no lock is found
-/// in. Opening one above a locked field, outside it, is typing as usual
-/// (`<!--` before `-->`, a quote before its closer): the field is then
-/// decided when the text parses again.
-fn nothing_hidden(edit: &Edited<'_>, pointed: &[&Lock]) -> Result<(), Blocked> {
-    if edit.parsed().is_some() {
-        return Ok(());
-    }
-    // The locked text right after an edit made inside a locked stretch,
-    // before and after the edit.
-    let moved: Vec<(&Lock, usize, usize)> = pointed
-        .iter()
-        .flat_map(|lock| {
-            lock.ranges
-                .iter()
-                .filter(|range| range.start < edit.region.start && edit.region.end < range.end)
-                .map(|_| (*lock, edit.region.end, edit.new_region.end))
-        })
-        .collect();
-    let starts = |pick: fn(&(&Lock, usize, usize)) -> usize| -> Vec<usize> {
-        moved.iter().map(pick).collect()
-    };
-    let was = hidden(edit.behavior, edit.before, &starts(|(_, low, _)| *low));
-    let now = hidden(edit.behavior, edit.after, &starts(|(_, _, after)| *after));
-    for ((lock, _, _), (was, now)) in moved.iter().zip(was.into_iter().zip(now)) {
-        if now && !was {
-            return Err(refused(&lock.reason));
-        }
-    }
-    Ok(())
-}
-
-/// Without a value to compare, a locked line near the edit keeps its
-/// indent (in YAML it is structure) and whatever starts its line.
-fn indents_kept(edit: &Edited<'_>, pointed: &[&Lock]) -> Result<(), Blocked> {
-    for lock in pointed {
-        let indent_kept = |range: &Range<usize>| {
-            indent_kept(range, &edit.old, &edit.new, edit.prefix, edit.suffix)
-                || edit.lines_kept(range)
-        };
-        if is_near(lock, &edit.region, &edit.lines) && !lock.ranges.iter().all(indent_kept) {
-            return Err(refused(&lock.reason));
-        }
+    let kept = lock.ranges.iter().all(|range| edit.kept(&value(range)));
+    let free = || edit.reformat_only() || edit.spacing_only() || edit.moved_whole(lock);
+    if !kept && !free() || written_inside(edit, lock) && !free() {
+        return Err(refused(&lock.reason));
     }
     Ok(())
 }
@@ -378,6 +204,5 @@ fn refused(reason: &Reason) -> Blocked {
     Blocked {
         reason: reason.clone(),
         why: Why::Locked,
-        pointer: None,
     }
 }

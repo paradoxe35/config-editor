@@ -735,29 +735,31 @@ editor.update({ readOnlyPaths: ["/limits", "/tls/cert"] }); // at runtime
 
 - A lock in the gutter marks each locked line, the value is muted (color
   token `locked`), and hovering it shows the reason.
-- Typing, deleting, pasting, cutting, completions, Replace, `Ctrl+/`,
-  Revert and undo that would change a read-only value, delete its key (also
-  inside a deleted selection or parent block) or add to a read-only block
-  are refused: the text stays, and a tooltip at the caret says why. Replace
-  All skips matches in read-only text and says how many. The line commands
-  are judged the same way: a locked line moves among its siblings
-  (`Alt+↑` / `Alt+↓`, or cut and pasted past several), not out of its
-  parent or into a list.
+- Locked text is each read-only value, its key and the keys holding it,
+  and each `readOnlyRanges` entry, found where the text last parsed and
+  followed through every edit by position. Typing, deleting, pasting,
+  cutting, completions, Replace, `Ctrl+/`, Revert, line commands and undo
+  that change that text or glue text onto a value are refused: the text stays, and a tooltip at the caret
+  says why. Replace All skips matches in read-only text and says how many.
+- Everything else goes through: a new key beside a locked one whatever its
+  name, and also a second copy of a locked key or block, or a key added
+  past a locked block's end. While the document then reads a locked field
+  otherwise (a duplicate shadows it, it moved, it was commented out),
+  nothing reaches you: `onChange` and `value` wait, and `save()` waits
+  (returns `false`, saying which field) until it reads as given again.
 - Whitespace, comments and punctuation around a locked field stay free
-  (also whitespace inside it, such as a space after `:`); in YAML a locked
-  line's indent cannot change (it is structure). A syntax error anywhere
-  keeps every lock until it is repaired, also in a `value` that does not
-  parse and for `readOnlyPaths` given while the text does not parse.
+  (also whitespace inside it, such as a space after `:`); in YAML the
+  lines inside a locked block keep their indent (it is structure). A syntax error anywhere
+  keeps every lock, also in a `value` that does not parse and for
+  `readOnlyPaths` given while the text does not parse.
 - Suggestions leave read-only keys out (inside a read-only block they are
   listed with the reason).
 - With `editAs`, the same fields are locked in the other language, and a
   save that would change one is refused (shown as an error, not sent).
-- In a custom language without `spans`, a field is checked by value: while
-  the text does not parse, an edit that would change a read-only value in
-  the last text that parsed is refused, and `save()` waits (returns
-  `false`, saying which field) until the text parses again. A host text
-  that has never parsed has no value to check: edits go through while it
-  does not parse, and a save waits until it does.
+- In a custom language without `spans`, a field is checked by value: an
+  edit whose text parses with another read-only value is refused; while
+  the text does not parse, edits go through and `save()` waits (returns
+  `false`, saying which field) until it parses again.
 
 </details>
 

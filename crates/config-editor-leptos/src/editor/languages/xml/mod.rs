@@ -122,20 +122,6 @@ impl ConfigLanguage for XmlBehavior {
         Repetition::Elements
     }
 
-    fn key_half_typed(&self, line: &str) -> bool {
-        // A start tag's name with nothing after it yet: no `>`, `/` or
-        // space ends it.
-        let Some(tag) = line.strip_prefix('<') else {
-            return false;
-        };
-        let name_end = tag
-            .find(|character: char| {
-                !(character.is_alphanumeric() || matches!(character, '_' | '-' | '.' | ':'))
-            })
-            .unwrap_or(tag.len());
-        name_end > 0 && name_end == tag.len()
-    }
-
     fn reindent_on_type(&self, source: &str, cursor: usize, typed: char) -> Option<String> {
         // `</name` alone on its line, finished by `>`: it closes the element
         // one level out.

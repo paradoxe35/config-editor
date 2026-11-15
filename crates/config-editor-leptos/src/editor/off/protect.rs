@@ -96,6 +96,10 @@ impl ProtectState {
         false
     }
 
+    pub(super) fn held_problems(&self, _text: &str, _strings: &EditorStrings) -> Vec<Diagnostic> {
+        Vec::new()
+    }
+
     pub(super) fn placeholder_pattern_problem(
         &self,
         _strings: &EditorStrings,
@@ -154,16 +158,6 @@ impl EditorState {
 
     pub(super) fn follow_edit(&self, _before: &str, _after: &str, _caret: usize) {}
 
-    pub(super) fn note_refused(&self, _edit: &Edit, _message: String) -> Option<Edit> {
-        None
-    }
-
-    pub(super) fn note_applied(&self, _edit: &Edit) {}
-
-    pub(super) fn forget_refusal(&self) {}
-
-    pub(super) fn note_stepped_over(&self, _from: usize, _to: usize) {}
-
     pub(super) fn find_protected_again(&self, _origin: &Origin) {}
 
     pub(super) fn leave_ranges(&self, _before: &str) {}
@@ -178,6 +172,10 @@ impl EditorState {
 
     pub(super) fn save_waits(&self) -> Option<String> {
         None
+    }
+
+    pub(crate) fn changes_held(&self) -> bool {
+        false
     }
 
     pub(super) fn snap_to_tokens(&self) {}

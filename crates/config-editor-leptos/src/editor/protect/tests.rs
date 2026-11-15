@@ -76,6 +76,7 @@ fn locks_of(
             reading_schema: Some(&schema),
             paths,
             ranges,
+            range_fields: &[],
             previous: None,
         },
     )
@@ -221,10 +222,13 @@ pub(super) fn edits(language: Language, text: &str) -> Vec<(&'static str, Option
             true,
         ),
         ("delete a child of the block", replace(a_line, ""), true),
+        // Inside the block's text where a closer ends it; past its end in
+        // YAML and TOML, where no locked text changes: let through, and
+        // the field held (the save waits, see `held_tests`).
         (
             "add a child to the block",
             replace(new_in_meta.0, new_in_meta.1),
-            true,
+            !matches!(language.label(), "YAML" | "TOML"),
         ),
         (
             "delete a selection covering it",
@@ -249,11 +253,13 @@ pub(super) fn edits(language: Language, text: &str) -> Vec<(&'static str, Option
             true,
         ),
     ];
+    // Its text kept, the parse no longer reads it: taken, and held (the
+    // change, value and save wait; see `held_tests`).
     if !comment.is_empty() {
         list.push((
             "comment it out",
             replace(id_line, &format!("{comment}{id_line}")),
-            true,
+            false,
         ));
     }
     if !new_at_end.is_empty() {
@@ -264,6 +270,14 @@ pub(super) fn edits(language: Language, text: &str) -> Vec<(&'static str, Option
         ));
     }
     list
+}
+
+/// Whether the listed edit `what` (refused when the text parses) is
+/// refused while the text does not parse: commenting a locked line out
+/// changes no locked text, so it goes through there, and once the text
+/// parses the field is held (the save waits).
+pub(super) fn refused_while_broken(_what: &str, refused: bool) -> bool {
+    refused
 }
 
 #[test]
@@ -404,7 +418,6 @@ fn whitespace_and_comments_around_a_locked_value_stay_free() {
     // Whitespace that changes a value, a key or (in YAML, where the indent
     // is structure) a locked line's indent stays refused.
     let refused = [
-        (Language::YAML, "id: abc", "  id: abc"),
         (Language::YAML, "  a: 1\n  b: 2", "    a: 1\n    b: 2"),
         (Language::YAML, "  b: 2", "   b: 2"),
         (Language::YAML, "  b: 2", " b: 2"),
@@ -492,6 +505,7 @@ fn a_save_changing_a_read_only_value_is_refused_in_every_language() {
             reading_schema: Some(&schema),
             paths: &[],
             ranges: &[],
+            range_fields: &[],
             previous: None,
         };
         let pointers = locked_pointers(language.behavior(), text, sources);
@@ -619,8 +633,8 @@ pub(super) fn words(units: &[u16]) -> Vec<(usize, usize)> {
 
 /// Random edits, made in every edit language on every host language and
 /// saved back: an edit the guard lets through never changes a read-only
-/// value of the edited text (when it parses), and no save that goes
-/// through changes one in the host.
+/// value of the edited text (when it parses) but it holds the field (the
+/// save waits), and no save that goes through changes one in the host.
 #[test]
 fn random_edits_never_change_a_read_only_value() {
     let schema_bundle = std::sync::Arc::new(build_schema(SCHEMA).unwrap());
@@ -642,6 +656,8 @@ fn random_edits_never_change_a_read_only_value() {
             let mut readable = shown.clone();
             let mut unreadable_for = 0;
             let mut protected = locks_of(edit, &shown, &[], &[]);
+            // Its locks, carried there (a field held in it stays held).
+            let mut readable_locks = protected.clone();
             for step in 0..500 {
                 let units: Vec<u16> = shown.encode_utf16().collect();
                 let (start, end, piece) = if random.below(2) == 0 {
@@ -661,9 +677,12 @@ fn random_edits_never_change_a_read_only_value() {
                 if !allowed(edit, &shown, &edited, &protected) {
                     continue;
                 }
+                let next = locks_after(edit, &edited, &protected);
                 if let Ok(after) = codec::read(edit.behavior(), &edited, Some(&schema)) {
                     for pointer in ["/id", "/meta"] {
-                        if original.pointer(pointer) != after.pointer(pointer) {
+                        // A field reading otherwise is held: never saved so.
+                        let held = next.held.iter().any(|known| known == pointer);
+                        if original.pointer(pointer) != after.pointer(pointer) && !held {
                             failures.push(format!(
                                 "{host} as {edit}, step {step}: {pointer} changed by {piece:?} at {start}..{end}:\n{shown}\n→\n{edited}"
                             ));
@@ -674,20 +693,20 @@ fn random_edits_never_change_a_read_only_value() {
                 // Edits go on through texts that do not parse (a key half
                 // typed), the locks carried as the editor carries them;
                 // after a few the user is taken to fix the text.
-                let previous = std::mem::take(&mut protected);
-                protected = locks_after(edit, &edited, &previous);
+                protected = next;
                 shown = edited;
                 if codec::read(edit.behavior(), &shown, Some(&schema)).is_err() {
                     unreadable_for += 1;
                     if unreadable_for > 4 {
                         shown = readable.clone();
-                        protected = locks_of(edit, &shown, &[], &[]);
+                        protected = readable_locks.clone();
                         unreadable_for = 0;
                     }
                     continue;
                 }
                 unreadable_for = 0;
                 readable = shown.clone();
+                readable_locks = protected.clone();
                 // Saved as the editor saves: converted, then checked.
                 let converted = match &bridge {
                     Some(bridge) => bridge.to_host(&shown, &saved_host),
@@ -702,6 +721,7 @@ fn random_edits_never_change_a_read_only_value() {
                         reading_schema: Some(&schema),
                         paths: &[],
                         ranges: &[],
+                        range_fields: &[],
                         previous: None,
                     },
                 );
@@ -737,9 +757,10 @@ fn random_edits_never_change_a_read_only_value() {
         failures.len(),
         failures.join("\n\n")
     );
-    // The edits did reach the documents and the hosts.
+    // The edits did reach the documents and the hosts (a text holding a
+    // field that reads otherwise saves nothing until it reads as pinned).
     assert!(
-        applied > 2000 && saved > 700,
+        applied > 2000 && saved > 600,
         "applied {applied}, saved {saved}"
     );
 }

@@ -8,7 +8,10 @@
 //! path names a place); the schema's `readOnly` on a list's items, every
 //! item; else those at the field's path (a list item's: those holding
 //! its value). An edit after which the text parses and they are as they
-//! were, and every other pair is kept, is ordinary.
+//! were, and every other pair is kept, is ordinary. On screen, a text that
+//! reads a protected value otherwise is safe only while the editor holds
+//! the change (the save waits with its reason) and nothing of it reached
+//! the host.
 
 use serde_json::Value;
 
@@ -178,9 +181,12 @@ pub(super) fn safe(
     }
     let now = protected(setup, value, &parsed, &pairs);
     // A list's items may be copied or added beside it: each protected one
-    // stays.
+    // stays. A host range protects its text: a copy of it elsewhere is new
+    // text, free while the reading it protects stays.
     let pointer = setup.case().pointer;
-    let kept = if unindexed(pointer) == pointer || setup.lock == Lock::Path {
+    let strict =
+        setup.lock == Lock::Path || (unindexed(pointer) == pointer && setup.lock != Lock::Range);
+    let kept = if strict {
         now == original
     } else {
         keeps(original, &now)

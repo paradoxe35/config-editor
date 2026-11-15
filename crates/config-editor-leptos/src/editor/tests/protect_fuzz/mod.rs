@@ -106,8 +106,16 @@ fn run(setup: &Setup, acts: &[Act]) -> Result<(), Step> {
     let mut check_all = |what: &str| -> Result<(), Step> {
         let at = |(check, detail): (Check, String)| (what.to_string(), check, detail);
         let text = state.doc().text.get_untracked();
-        safe(setup, view, protected, &view_original, &text)
-            .map_err(|(check, detail)| at((check, format!("on screen: {detail}"))))?;
+        match safe(setup, view, protected, &view_original, &text) {
+            // The locked text kept, the parse reading it otherwise (a
+            // duplicate shadows it, it moved): fine while the change is held
+            // with its reason, nothing reaching the host (checked below).
+            Err((Check::LockChanged, _))
+                if state.changes_held() && state.save_waits().is_some() => {}
+            result => {
+                result.map_err(|(check, detail)| at((check, format!("on screen: {detail}"))))?;
+            }
+        }
         let changes = mounted.changes.get_untracked();
         let saves = mounted.saves.get_untracked();
         for text in changes[heard.0..].iter().chain(&saves[heard.1..]) {
@@ -232,7 +240,6 @@ fn repro(class: &Class, found: &Found) -> String {
 }
 
 /// A run that must pass (the repros pasted below).
-#[allow(dead_code)]
 fn assert_ok(setup: &Setup, acts: &[Act]) {
     if let Err(Failure { class, detail }) = replay(setup, acts) {
         panic!("{class:?}: {detail}");
@@ -258,4 +265,62 @@ fn random_edits_keep_every_protection_and_take_ordinary_edits() {
         }
     }
     assert!(new.is_empty(), "new classes:\n{}", new.join("\n\n"));
+}
+
+/// Seed 8733: a line break typed after a list item's `- ` puts its
+/// placeholder on a line of its own (the text then broken); the empty
+/// item's line cut makes the list one scalar running over the lines, the
+/// token in it with other text: refused.
+#[test]
+fn a_list_made_one_scalar_by_a_cut_never_glues_a_placeholder() {
+    let setup = Setup {
+        case: 1,
+        lock: cases::Lock::Secret,
+        host: None,
+        pairs: true,
+    };
+    assert_ok(
+        &setup,
+        &[
+            Act::ReplaceAll { pair: 5 },
+            Act::Entry {
+                anchor: 2,
+                name: 4,
+                paste: false,
+            },
+            Act::Type { at: 39857, text: 3 },
+            Act::Entry {
+                anchor: 2,
+                name: 6,
+                paste: false,
+            },
+            Act::Cut { line: 40188 },
+        ],
+    );
+}
+
+/// Seed 7633: a placeholder's list item moved down twice (Alt+Down), under
+/// `port: 1`, would read `1 - «…»`: refused (while a Replace All's
+/// rewritten lines cost no path lookup each, see `link_costs`).
+#[test]
+fn a_secret_item_moved_under_a_scalar_never_glues_its_placeholder() {
+    let setup = Setup {
+        case: 1,
+        lock: cases::Lock::Secret,
+        host: None,
+        pairs: true,
+    };
+    assert_ok(
+        &setup,
+        &[
+            Act::Line {
+                line: 24986,
+                command: 1,
+            },
+            Act::Line {
+                line: 44715,
+                command: 1,
+            },
+        ],
+    );
 }

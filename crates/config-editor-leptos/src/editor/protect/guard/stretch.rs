@@ -1,33 +1,7 @@
 //! Whether one locked stretch survives an edit, unit by unit: its text in
-//! what the two texts share, nothing glued onto its ends, its indent kept.
+//! what the two texts share, nothing glued onto its ends.
 
 use std::ops::Range;
-
-/// Whether the text from its line's start to a locked stretch (its indent)
-/// reads the same after the edit.
-pub(super) fn indent_kept(
-    range: &Range<usize>,
-    old: &[u16],
-    new: &[u16],
-    prefix: usize,
-    suffix: usize,
-) -> bool {
-    let start = range.start;
-    let moved = if range.end <= prefix {
-        start
-    } else if start >= old.len().saturating_sub(suffix) {
-        start + new.len() - old.len()
-    } else {
-        return false;
-    };
-    let line_start = |units: &[u16], at: usize| {
-        units[..at]
-            .iter()
-            .rposition(|unit| *unit == u16::from(b'\n'))
-            .map_or(0, |found| found + 1)
-    };
-    old[line_start(old, start)..start] == new[line_start(new, moved)..moved]
-}
 
 /// Whether `range` of the old text survives the edit untouched: it lies in
 /// the common prefix or suffix, and nothing new is glued onto its ends.

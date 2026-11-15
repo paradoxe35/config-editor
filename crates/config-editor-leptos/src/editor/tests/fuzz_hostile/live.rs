@@ -520,6 +520,20 @@ pub(super) fn check(case: &LiveCase) -> Result<(), Failure> {
         });
         fresh_owner.cleanup();
         let mut live = seen(state, ranges_placed);
+        // A field held because the text reads it otherwise than the host's
+        // text did (a path named after the user renamed its key) is known
+        // to the live editor only: a fresh one never saw the host's text.
+        let held: Vec<String> = state.strings_untracked(|strings| {
+            state
+                .protect()
+                .held_problems(&after, strings)
+                .into_iter()
+                .map(|problem| problem.message)
+                .collect()
+        });
+        live.problems.retain(|(.., message)| {
+            !held.contains(message) || new.problems.iter().any(|(.., known)| known == message)
+        });
         // Locks are carried through a text that does not parse (within one
         // text from the host); a fresh editor has nothing to carry.
         // The host's ranges followed through edits are not where it gave

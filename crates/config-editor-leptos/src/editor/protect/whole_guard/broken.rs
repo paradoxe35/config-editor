@@ -1,418 +1,116 @@
 //! An edit leaving the text unparseable, near placeholders the host gave
-//! whole: each one's value is held as a read-only field's is through a
-//! syntax error, for its text alone (see `guard::check_values`). Its value
-//! is found where the language reads it written, all of them in one read
-//! of the text, and pinned to the string the host gave; only a field the
-//! language finds no value written for is placed as a lock is (`protect`).
-//! So the check costs a reading of the text and work for each placeholder
-//! near the edit, never a pass over the text for each (Ctrl+A Tab in a
-//! long broken text was seconds).
+//! whole: each token written near the edit (its own field's, or one moved
+//! into another, found by the host's pattern) is a span of the text. The
+//! edit is refused when it types inside one, or writes text (other than
+//! whitespace) right at one of its edges. Replacing one (a cut into one is
+//! taken whole), taking it away (its line cut or moved) and deleting text
+//! beside one are free (but for whitespace taken from between it and other
+//! text: a line joined onto it): when the text parses again, the parse
+//! says where each token is (`problems`: a copy, another field's, glued),
+//! and an edit making it parse with text beside a token is refused
+//! (`glued_in_parsed`). No field is read off the broken text.
 
-use std::collections::{HashMap, HashSet};
-use std::ops::Range;
-
-use serde_json::Value;
-
-use super::super::super::codec::scalar_range;
-use super::super::super::language::{ConfigLanguage, Repetition};
-use super::super::super::paths::{FieldPath, field_key, path_at, with_spans, written_value_span};
+use super::super::super::paths::path_at;
 use super::super::super::text_change::{changed_bytes, utf16_len};
-use super::super::glued::written_alone;
-use super::super::guard::check_values;
-use super::super::locate::LineIndex;
-use super::super::locks::{Lock, Protected, Sources, protect};
-use super::super::own_value::{own_value, with_own_values};
-use super::super::texts::Reason;
-use super::super::tokens::Known;
 use super::Placeholders;
 
-/// Non-blank lines past a placeholder's own read for an edit: a closing
-/// line, and the lines a deletion or a move would bring into the value.
-const LINES_AFTER: usize = 3;
-
-/// A placeholder: its UTF-16 range in the text before, and the host's
-/// token it is.
-type Live<'k> = (Range<usize>, &'k Known);
-
-/// Placeholders by where they are written: those with their field (or
-/// none read, `false`: the first field given the token), and those written
-/// at a path no field given their token is, with that first field.
-type Placing<'k> = (Vec<Live<'k>>, Vec<bool>, Vec<Live<'k>>);
+/// Whether an edit replacing UTF-16 `first..last` changes part of the
+/// token at `range` but not all of it: typing strictly inside it, or text
+/// replaced over some of its characters. Text replaced over all of it
+/// takes it away whole (a cut into one in its own field is widened to the
+/// whole token first; the two texts may share some of its characters):
+/// the parse decides where it went.
+fn cuts_into(range: &std::ops::Range<usize>, first: usize, last: usize) -> bool {
+    let typed_inside = first == last && range.start < first && first < range.end;
+    let overlaps = first < range.end && range.start < last;
+    let whole = first <= range.start && range.end <= last;
+    typed_inside || overlaps && !whole
+}
 
 impl Placeholders<'_> {
+    /// The field of a placeholder near the edit, its own field's or one
+    /// moved into another (plain text there, still the host's token), that
+    /// the edit changes part of (see [`cuts_into`]), whether the text
+    /// parses after it or not.
+    pub(super) fn cut_into(&self, before: &str, after: &str) -> Option<String> {
+        let (start, old_end, _) = changed_bytes(before, after);
+        let (first, last) = (utf16_len(&before[..start]), utf16_len(&before[..old_end]));
+        self.written_near(before, start, old_end)
+            .into_iter()
+            .find_map(|(bytes, units)| {
+                let token = &before[bytes];
+                let range = units..units + utf16_len(token);
+                (cuts_into(&range, first, last) && self.damaged(before, after, token))
+                    .then(|| self.field_written(before, token, units))
+            })
+    }
+
+    /// Whether the edit from `before` to `after`, cutting into `token`,
+    /// damaged it: `after` holds it fewer times, and no token is written
+    /// over the edited text (one pasted or undone over another shares
+    /// some of its characters, which the diff of the texts keeps).
+    fn damaged(&self, before: &str, after: &str, token: &str) -> bool {
+        if after.matches(token).count() >= before.matches(token).count() {
+            return false;
+        }
+        let (start, _, new_end) = changed_bytes(before, after);
+        let line_start = after[..start].rfind('\n').map_or(0, |at| at + 1);
+        let line_end = after[new_end..]
+            .find('\n')
+            .map_or(after.len(), |at| new_end + at);
+        !self
+            .matcher
+            .find_in(&after[line_start..line_end])
+            .into_iter()
+            .any(|found| line_start + found.start <= start && new_end <= line_start + found.end)
+    }
+
+    /// The field a token written at UTF-16 `units` of `text` is in, as
+    /// written there, else its own.
+    fn field_written(&self, text: &str, token: &str, units: usize) -> String {
+        path_at(self.behavior, text, units)
+            .map(|path| path.to_pointer())
+            .or_else(|| {
+                self.index
+                    .first_of(token)
+                    .and_then(|at| self.known[at].field.clone())
+            })
+            .unwrap_or_default()
+    }
+
     /// The field of a placeholder near the edit that the edit, leaving the
-    /// text unparseable, changes as it would a read-only field's value.
+    /// text unparseable, types inside or writes text right beside.
     pub(super) fn held_while_broken(&self, before: &str, after: &str) -> Option<String> {
         let (start, old_end, new_end) = changed_bytes(before, after);
-        let lines = LineIndex::new(before);
-        let near_ranges: Vec<&Range<usize>> = self
-            .tokens
-            .iter()
-            .filter(|range| near(&lines, range, start, old_end))
-            .collect();
-        // Tokens given whole near the edit in none of their fields (a
-        // parent key renamed, a line moved) are held as in a field of
-        // their own where they are written (see `moved`).
-        let moved = self.moved_near(before, start, old_end);
-        if near_ranges.is_empty() && moved.is_empty() {
-            return None;
-        }
-        // Each placeholder's field from where it is written (the text read
-        // once for all of them). One written where no field given its
-        // token is (its key renamed while the text does not parse: an XML
-        // start tag renamed before its end tag) is held where it is, as a
-        // moved one is; where the language finds no value of its own for
-        // it there (a text that reads wrong around it), it keeps its line.
-        let ((mut near, mut placed, elsewhere), stand_ins) =
-            with_spans(self.behavior, before, &[], || {
-                let (near, placed, elsewhere) = self.placed(before, &lines, &near_ranges);
-                let mut moved = moved;
-                moved.extend(elsewhere.iter().map(|(range, _)| {
-                    (
-                        lines.byte_of(range.start)..lines.byte_of(range.end),
-                        range.start,
-                    )
-                }));
-                let stand_ins = self.moved_alone(before, moved);
-                ((near, placed, elsewhere), stand_ins)
-            });
-        for (range, known) in &stand_ins {
-            near.push((range.clone(), known));
-            placed.push(true);
-        }
-        for (range, known) in elsewhere {
-            if !stand_ins.iter().any(|(held, _)| held.start == range.start) {
-                near.push((range, known));
-                placed.push(false);
-            }
-        }
+        let near = self.written_near(before, start, old_end);
         if near.is_empty() {
             return None;
         }
-        let mut seen = HashSet::new();
-        let pointers: Vec<String> = near
-            .iter()
-            .zip(&placed)
-            .filter(|(_, placed)| **placed)
-            .map(|((_, known), _)| known.field.clone().unwrap_or_default())
-            .filter(|pointer| seen.insert(pointer.clone()))
-            .collect();
-        let near: Vec<&Live<'_>> = near.iter().collect();
-        // The fields' spans are read once for the placing and the check.
-        with_spans(self.behavior, before, &pointers, || {
-            let mut protected = self.value_locks(before, &lines, &near, &pointers);
-            // A placeholder the edit takes away whole leaves its field free
-            // (a secret replaced); renaming or moving the keys above one is
-            // free.
-            let removed = removed_by(before, after, (start, old_end, new_end));
-            let holders = holders(&protected.locks, &near);
-            // A placeholder whose field the language cannot find in the
-            // text (it gives no spans, or it is not where its token is)
-            // keeps its line as it is.
-            let unfound = near.iter().zip(&holders).find(|((range, _), holder)| {
-                holder.is_none() && !removed(range) && on_line(&lines, range, start, old_end)
-            });
-            if let Some(((_, known), _)) = unfound {
-                return known.field.clone();
+        let inserted = &after[start..new_end];
+        let (first, last) = (utf16_len(&before[..start]), utf16_len(&before[..old_end]));
+        near.into_iter().find_map(|(bytes, units)| {
+            let token = &before[bytes];
+            let range = units..units + utf16_len(token);
+            let inside = cuts_into(&range, first, last) && self.damaged(before, after, token);
+            // Written at an edge: the inserted text's end against the
+            // token's start, or its start against the token's end.
+            let at_start = last == range.start && !inserted.ends_with(char::is_whitespace);
+            let at_end = first == range.end && !inserted.starts_with(char::is_whitespace);
+            // Or whitespace taken from between it and other text (a line
+            // break after it deleted, joining the next line onto it).
+            let removed = &before[start..old_end];
+            let spacing = !removed.is_empty() && removed.chars().all(char::is_whitespace);
+            let code = |character: Option<char>| character.is_some_and(|c| !c.is_whitespace());
+            let joined = inserted.is_empty()
+                && spacing
+                && ((first == range.end && code(after[new_end..].chars().next()))
+                    || (last == range.start && code(after[..start].chars().next_back())));
+            let glued = (!inserted.is_empty() && (at_start || at_end)) || joined;
+            if !inside && !glued {
+                return None;
             }
-            let mut kept = vec![false; protected.locks.len()];
-            let mut freed = vec![false; protected.locks.len()];
-            for ((range, _), holder) in near.iter().zip(&holders) {
-                if let Some(lock) = holder {
-                    kept[*lock] = true;
-                    freed[*lock] |= removed(range);
-                }
-            }
-            let mut index = 0;
-            protected.locks.retain(|_| {
-                index += 1;
-                kept[index - 1] && !freed[index - 1]
-            });
-            let pointer = protected.locks.first()?.pointer.clone();
-            check_values(
-                self.behavior,
-                self.reading_schema,
-                &protected,
-                before,
-                after,
-            )
-            .err()
-            .map(|blocked| blocked.pointer.or(pointer).unwrap_or_default())
+            self.index.first_of(token)?;
+            Some(self.field_written(before, token, range.start))
         })
     }
-
-    /// Each of `ranges` (UTF-16, in `before`) whose token is given whole,
-    /// with the host's token in the field written there, or, where no
-    /// field is read there (`false`), the first one given it (named when
-    /// its line is refused); those written at a path no field given their
-    /// token is, apart (see [`Placing`]).
-    fn placed(&self, before: &str, lines: &LineIndex<'_>, ranges: &[&Range<usize>]) -> Placing<'_> {
-        // Each one's field, then the values of those fields (every copy of
-        // their keys) found at once.
-        let pointers: Vec<Option<String>> = ranges
-            .iter()
-            .map(|range| path_at(self.behavior, before, range.start).map(|path| path.to_pointer()))
-            .collect();
-        let fields: Vec<String> = pointers.iter().flatten().cloned().collect();
-        with_own_values(self.behavior, before, &fields, || {
-            self.placed_in(before, lines, ranges, pointers)
-        })
-    }
-
-    /// [`Self::placed`], each of `ranges` with the field it is written in.
-    fn placed_in(
-        &self,
-        before: &str,
-        lines: &LineIndex<'_>,
-        ranges: &[&Range<usize>],
-        pointers: Vec<Option<String>>,
-    ) -> Placing<'_> {
-        let mut near = Vec::new();
-        let mut placed = Vec::new();
-        let mut elsewhere = Vec::new();
-        for (range, pointer) in ranges.iter().zip(pointers) {
-            let token = &before[lines.byte_of(range.start)..lines.byte_of(range.end)];
-            let Some(first) = self.index.first_of(token) else {
-                continue;
-            };
-            let at = pointer
-                .as_deref()
-                .and_then(|pointer| self.index.in_field(token, pointer));
-            // One whose value holds other text beside it already is the
-            // user's (see `moved_alone`): taking it away is the way back.
-            if let (Some(_), Some(pointer)) = (at, pointer.as_deref())
-                && glued_where_written(self.behavior, before, pointer, lines, range)
-            {
-                continue;
-            }
-            if at.is_none() && pointer.is_some() {
-                elsewhere.push(((*range).clone(), &self.known[first]));
-                continue;
-            }
-            near.push(((*range).clone(), &self.known[at.unwrap_or(first)]));
-            placed.push(at.is_some());
-        }
-        (near, placed, elsewhere)
-    }
-
-    /// The fields at `pointers` locked for their values alone: each value
-    /// where the language reads it written in `before` (the spans of
-    /// `pointers` read at once), pinned to the string the host gave (`near`
-    /// holds its placeholder); a field it finds no value written for is
-    /// placed as a lock is (`protect`: its key may be renamed, as when the
-    /// text parses).
-    fn value_locks(
-        &self,
-        before: &str,
-        lines: &LineIndex<'_>,
-        near: &[&Live<'_>],
-        pointers: &[String],
-    ) -> Protected {
-        with_own_values(self.behavior, before, pointers, || {
-            self.value_locks_found(before, lines, near, pointers)
-        })
-    }
-
-    /// [`Self::value_locks`], the values of `pointers` found at once.
-    fn value_locks_found(
-        &self,
-        before: &str,
-        lines: &LineIndex<'_>,
-        near: &[&Live<'_>],
-        pointers: &[String],
-    ) -> Protected {
-        let mut found = Vec::new();
-        let mut unfound = Vec::new();
-        for pointer in pointers {
-            // Each value holding one of them: the field's key may be
-            // written more than once (a line moved into a block holding
-            // it), each copy its own token's.
-            let mut values: Vec<Range<usize>> = Vec::new();
-            for (token, _) in near
-                .iter()
-                .filter(|(_, known)| known.field.as_deref() == Some(pointer.as_str()))
-            {
-                let bytes = lines.byte_of(token.start)..lines.byte_of(token.end);
-                let value = item_value(self.behavior, before, pointer, token, &bytes)
-                    .or_else(|| own_value(self.behavior, before, pointer, &bytes));
-                if let Some(value) = value
-                    && !values.contains(&value)
-                {
-                    values.push(value);
-                }
-            }
-            if values.is_empty() {
-                values.extend(
-                    written_value_span(self.behavior, before, pointer)
-                        .and_then(|span| scalar_range(self.behavior, before, span)),
-                );
-            }
-            if values.is_empty() {
-                unfound.push(FieldPath::from(pointer.as_str()));
-            } else {
-                found.push((pointer, values));
-            }
-        }
-        let mut protected = if unfound.is_empty() {
-            Protected::default()
-        } else {
-            protect(
-                self.behavior,
-                before,
-                Sources {
-                    reading_schema: self.reading_schema,
-                    paths: &unfound,
-                    ..Sources::default()
-                },
-            )
-        };
-        for lock in &mut protected.locks {
-            lock.guards.clear();
-        }
-        let wholes: HashMap<&str, &str> = near
-            .iter()
-            .filter_map(|(_, known)| Some((known.field.as_deref()?, known.whole.as_deref()?)))
-            .collect();
-        for (pointer, values) in found {
-            protected.locks.push(Lock {
-                pointer: Some(pointer.clone()),
-                key: None,
-                ranges: values
-                    .iter()
-                    .map(|value| lines.units_of(value.start)..lines.units_of(value.end))
-                    .collect(),
-                guards: Vec::new(),
-                reason: Reason::Field,
-            });
-            if let Some(whole) = wholes.get(pointer.as_str()) {
-                protected
-                    .pins
-                    .push((pointer.clone(), Value::String((*whole).to_string())));
-            }
-        }
-        protected
-    }
-}
-
-/// In a language that repeats any element for a list, the bytes of the
-/// value of the item the token at UTF-16 `token` (bytes `bytes`) of `text`
-/// is written in, where its field at `pointer` is written more than once
-/// (a second element of its name typed or copied beside it): that item's
-/// value alone is the token's, the other items are new ones.
-fn item_value(
-    behavior: &dyn ConfigLanguage,
-    text: &str,
-    pointer: &str,
-    token: &Range<usize>,
-    bytes: &Range<usize>,
-) -> Option<Range<usize>> {
-    if behavior.repetition() != Repetition::Elements {
-        return None;
-    }
-    let item = path_at(behavior, text, token.start)?.to_pointer();
-    if item == pointer || field_key(&item) != field_key(pointer) {
-        return None;
-    }
-    written_value_span(behavior, text, &item)
-        .and_then(|span| scalar_range(behavior, text, span))
-        .filter(|value| value.start <= bytes.start && bytes.end <= value.end)
-}
-
-/// Whether the token at UTF-16 `range` of `text` (split by `lines`), in
-/// the field at `pointer`, is written in a value holding other text
-/// beside it: found where it is written, and not written alone.
-fn glued_where_written(
-    behavior: &dyn ConfigLanguage,
-    text: &str,
-    pointer: &str,
-    lines: &LineIndex<'_>,
-    range: &Range<usize>,
-) -> bool {
-    let bytes = lines.byte_of(range.start)..lines.byte_of(range.end);
-    written_alone(behavior, text, pointer, bytes.clone()).is_none()
-        && own_value(behavior, text, pointer, &bytes).is_some()
-}
-
-/// For each of `near`, the index in `locks` of the lock holding it in one
-/// of its stretches (those of different fields never overlap: the one
-/// starting last before it is the one).
-fn holders(locks: &[Lock], near: &[&Live<'_>]) -> Vec<Option<usize>> {
-    let mut stretches: Vec<(&Range<usize>, usize)> = locks
-        .iter()
-        .enumerate()
-        .flat_map(|(index, lock)| lock.ranges.iter().map(move |range| (range, index)))
-        .collect();
-    stretches.sort_by_key(|(range, _)| range.start);
-    near.iter()
-        .map(|(token, _)| {
-            let at = stretches.partition_point(|(range, _)| range.start <= token.start);
-            let (range, lock) = stretches.get(at.checked_sub(1)?)?;
-            (token.end <= range.end).then_some(*lock)
-        })
-        .collect()
-}
-
-/// Whether the edit from `before` to `after` (`changed`: the bytes it
-/// replaced, and where the new ones end) takes away the placeholder at a
-/// UTF-16 range of `before`: it changes text there (edits never cut one, so
-/// it went whole), and its text is not written again where the edit wrote
-/// (a line moved or copied keeps it). The two texts may share the token's
-/// last characters with what replaced it: its length around is read too.
-fn removed_by<'a>(
-    before: &'a str,
-    after: &'a str,
-    (start, old_end, new_end): (usize, usize, usize),
-) -> impl Fn(&Range<usize>) -> bool + 'a {
-    let old: Vec<u16> = before.encode_utf16().collect();
-    let new: Vec<u16> = after.encode_utf16().collect();
-    let (first, last) = (utf16_len(&before[..start]), utf16_len(&before[..old_end]));
-    let new_last = utf16_len(&after[..new_end]);
-    move |range: &Range<usize>| {
-        let touched = if first == last {
-            range.start < first && first < range.end
-        } else {
-            first < range.end && range.start < last
-        };
-        if !touched {
-            return false;
-        }
-        let token = &old[range.clone()];
-        let window =
-            &new[first.saturating_sub(token.len())..(new_last + token.len()).min(new.len())];
-        !window
-            .windows(token.len().max(1))
-            .any(|found| found == token)
-    }
-}
-
-/// Whether the edit replacing bytes `start..end` of the text `lines`
-/// splits changes the line of the placeholder at UTF-16 `token`.
-fn on_line(lines: &LineIndex<'_>, token: &Range<usize>, start: usize, end: usize) -> bool {
-    let first = lines.line_bounds(lines.line_of(token.start));
-    let last = lines.line_bounds(lines.line_of(token.end));
-    start <= lines.byte_of(last.end) && lines.byte_of(first.start) <= end
-}
-
-/// Whether the edit replacing bytes `start..end` of the text `lines`
-/// splits is on the lines around the placeholder at UTF-16 `token`: from
-/// the last line holding code above it (a header) to the
-/// [`LINES_AFTER`]th below it.
-fn near(lines: &LineIndex<'_>, token: &Range<usize>, start: usize, end: usize) -> bool {
-    let line = lines.line_of(token.start);
-    // Up through blank lines to a line holding code.
-    let mut from = line.saturating_sub(1);
-    while from > 0 && lines.line_text(from).trim().is_empty() {
-        from -= 1;
-    }
-    let mut to = lines.line_of(token.end);
-    let mut counted = 0;
-    while counted < LINES_AFTER && to + 1 < lines.line_count() {
-        to += 1;
-        if !lines.line_text(to).trim().is_empty() {
-            counted += 1;
-        }
-    }
-    let from = lines.byte_of(lines.line_bounds(from).start);
-    let to = lines.byte_of(lines.line_bounds(to).end);
-    start <= to && from <= end
 }

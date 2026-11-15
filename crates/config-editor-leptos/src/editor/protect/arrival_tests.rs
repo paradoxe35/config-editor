@@ -12,7 +12,7 @@ use super::super::work_count::{Work, counted, whole_reads};
 use super::broken_tests::breaks;
 use super::guard::check;
 use super::locks::{Protected, Sources, protect};
-use super::tests::{PIECES, Random, WORDS, documents, edits, schema, words};
+use super::tests::{PIECES, Random, WORDS, documents, edits, refused_while_broken, schema, words};
 
 /// Where the locks come from.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -135,6 +135,7 @@ fn refusals(case: &Case<'_>, protected: &Protected, tag: &str, failures: &mut Ve
     }
     for (what, edited, refused) in edits(language, &broken) {
         let Some(edited) = edited else { continue };
+        let refused = refused_while_broken(what, refused);
         if !refused || !allowed(language, &broken, &edited, protected) {
             continue;
         }
@@ -150,7 +151,12 @@ fn refusals(case: &Case<'_>, protected: &Protected, tag: &str, failures: &mut Ve
                     .iter()
                     .any(|pointer| read.pointer(pointer) != original.pointer(pointer))
             });
-        if changed && allowed(language, &edited, &repaired, &carried) {
+        let held = || {
+            !locks(language, &repaired, from, true, Some(&carried))
+                .held
+                .is_empty()
+        };
+        if changed && allowed(language, &edited, &repaired, &carried) && !held() {
             failures.push(format!(
                 "{tag}: {what} allowed, and its repair: {repaired:?}"
             ));
@@ -281,8 +287,9 @@ enum Step {
 
 /// Random sessions in every language, the text and the locks arriving in
 /// any order: every text the editor sends that parses (and each repair of
-/// its break it would send next) holds the locked values as the host had them
-/// (I1), and every repair keeping them goes through (I2).
+/// its break it would send next) holds the locked values as the host had
+/// them, or holds the save for the field reading otherwise (I1), and every
+/// repair keeping them goes through (I2).
 #[test]
 fn locked_values_hold_whatever_order_text_and_locks_arrive_in() {
     let schema = schema();
@@ -397,8 +404,16 @@ fn locked_values_hold_whatever_order_text_and_locks_arrive_in() {
                         if !locked {
                             continue;
                         }
+                        // A field reading otherwise is held: never saved so.
+                        let held = if candidate == &edited {
+                            protected.held.clone()
+                        } else {
+                            locks(language, candidate, from, paths_given, Some(&protected)).held
+                        };
                         for pointer in LOCKED {
-                            if read.pointer(pointer) != original.pointer(pointer) {
+                            if read.pointer(pointer) != original.pointer(pointer)
+                                && !held.iter().any(|known| known == pointer)
+                            {
                                 failures.push(format!(
                                     "{language} ({from:?}) session {session}: {pointer} changed in {candidate:?}\n{}",
                                     trail.join("\n")

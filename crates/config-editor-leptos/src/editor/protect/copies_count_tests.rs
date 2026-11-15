@@ -111,26 +111,3 @@ fn a_key_written_many_times_costs_work_linear_in_its_copies() {
     super::super::parse_cache::release();
     assert!(costly.is_empty(), "{costly:#?}");
 }
-
-/// The checks of an edit share one search for the copies of each text
-/// they read, never one each (QA 36: up to six searches of one text for
-/// each edit): typing beside the last copy, a line copied, Ctrl+A Tab and
-/// its undo read a stand-in for each text at most.
-#[test]
-fn the_checks_of_an_edit_find_the_copies_once_for_each_text() {
-    super::super::parse_cache::hold();
-    let stand_in = Work::ALL
-        .iter()
-        .position(|each| *each == Work::StandIn)
-        .unwrap();
-    let mut costly = Vec::new();
-    for language in Language::ALL.iter().copied() {
-        let stand_ins = work(language, 40)[stand_in];
-        eprintln!("{language}: {stand_ins}");
-        if stand_ins > 4 {
-            costly.push(format!("{language}: {stand_ins} stand-ins"));
-        }
-    }
-    super::super::parse_cache::release();
-    assert!(costly.is_empty(), "{costly:#?}");
-}

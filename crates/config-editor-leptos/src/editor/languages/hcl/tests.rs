@@ -483,18 +483,6 @@ fn run(kind: Option<TokenKind>, text: &str) -> (Option<TokenKind>, String) {
 }
 
 #[test]
-fn a_block_header_line_writes_its_labels_one_key_deeper_each() {
-    let labels = |line: &str| HclBehavior.block_labels(line);
-    assert_eq!(labels(r#"resource "aws_s3_bucket" "logs" {"#), ["aws_s3_bucket", "logs"]);
-    assert_eq!(labels(r#"resource "a" {}"#), ["a"]);
-    assert_eq!(labels("module web {"), ["web"]);
-    assert_eq!(labels(r#"resource "a\"b" "c" { x = 1 }"#), ["a\"b", "c"]);
-    assert!(labels("db {").is_empty());
-    assert!(labels(r#"ami = "x""#).is_empty());
-    assert!(labels(r#"resource "a" "b""#).is_empty());
-}
-
-#[test]
 fn block_headers_color_the_type_as_key_and_labels_as_strings() {
     use TokenKind::*;
     assert_eq!(

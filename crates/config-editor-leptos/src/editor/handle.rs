@@ -140,12 +140,17 @@ impl EditorHandle {
     /// pending Edit-as edit is converted first (and reaches `on_change`
     /// first), as [`save`](Self::save) does. `None` before the editor
     /// mounts, and while an Edit-as edit cannot be written in the host's
-    /// language (invalid text, or a value the language cannot hold). Written
+    /// language (invalid text, or a value the language cannot hold), and
+    /// while a read-only field reads otherwise than the host gave it (a
+    /// duplicate shadows it: the save waits too, saying why). Written
     /// with the host's line endings (CRLF when its text had them): the text
     /// `on_change` and `on_save` get.
     pub fn value(&self) -> Option<String> {
         let state = self.editor()?;
         let text = state.host_document()?;
+        if state.changes_held() {
+            return None;
+        }
         Some(state.sync().line_endings.restore(text))
     }
 

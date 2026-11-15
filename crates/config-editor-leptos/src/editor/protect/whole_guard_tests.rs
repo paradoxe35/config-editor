@@ -135,11 +135,11 @@ fn a_whole_document_edit_checks_placeholders_in_linear_work() {
     let ((), none) = counted_all(|| {
         let verdict = Placeholders {
             behavior: Language::YAML.behavior(),
-            reading_schema: None,
             known: &[],
             index: &WholeIndex::new(&[]),
             tokens: &[],
             matcher: &super::tokens::SecretMatcher::new(&SecretOptions::default()),
+            origin: None,
         }
         .check("a: 1\nb: [\n", "  a: 1\n  b: [\n", false);
         assert!(verdict.glued.is_none());

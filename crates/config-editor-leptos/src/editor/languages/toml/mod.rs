@@ -58,11 +58,6 @@ const SCALAR_LINE: super::scalar_lines::LineRules = super::scalar_lines::LineRul
 };
 
 impl ConfigLanguage for TomlBehavior {
-    fn key_half_typed(&self, line: &str) -> bool {
-        // A table header without its `]` yet.
-        line.starts_with('[') && !line.contains(']')
-    }
-
     fn edits_one_scalar(&self, source: &str, range: std::ops::Range<usize>, inserted: &str) -> bool {
         super::scalar_lines::one_scalar_line(self, source, range, inserted, &SCALAR_LINE).is_some()
     }

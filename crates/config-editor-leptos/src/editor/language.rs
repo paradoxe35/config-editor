@@ -1166,26 +1166,6 @@ pub trait ConfigLanguage: Send + Sync + 'static {
         None
     }
 
-    /// Whether `line` (a line's text past its indent) starts with a key
-    /// still being typed: what the language reads as naming a key before
-    /// the key's markup is written whole (an XML start tag without its
-    /// `>`, a TOML table header without its `]`). It names no field yet:
-    /// `<name` on its way to `<namespace>` is not a second `<name>`.
-    /// Default: never (a key is read as typed).
-    fn key_half_typed(&self, line: &str) -> bool {
-        let _ = line;
-        false
-    }
-
-    /// The names `line` (a line's text past its indent) writes after its
-    /// first key when it opens a block, each one key deeper: HCL's block
-    /// labels (`resource "a" "b" {` writes `/resource/a/b`, a block apart
-    /// from `resource "a" "c" {`). Default: none.
-    fn block_labels(&self, line: &str) -> Vec<String> {
-        let _ = line;
-        Vec::new()
-    }
-
     /// The text with the caret's line (`line_start..line_end`, the line
     /// break kept) left out, to read the rest of the document while a
     /// half-typed entry would not parse. A language whose line also opens

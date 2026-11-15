@@ -2,8 +2,7 @@
 //! they share at their ends, the region the edit replaced, and the edited
 //! text parsed (at most once, when a check asks for it).
 
-use std::cell::{OnceCell, RefCell};
-use std::collections::HashMap;
+use std::cell::OnceCell;
 use std::ops::Range;
 
 use serde_json::Value;
@@ -11,11 +10,10 @@ use serde_json::Value;
 use super::super::super::codec;
 use super::super::super::diff::{DiffEdit, myers_edits};
 use super::super::super::language::ConfigLanguage;
-use super::super::super::work_count::{Work, note};
 use super::super::locate::LineIndex;
 use super::super::locks::{Lock, Protected};
 use super::content::{content_areas, in_locked_content};
-use super::pins::{Pinned, pins_hold};
+use super::pins::{all_pinned, pins_hold};
 use super::spacing::between_tokens;
 use super::stretch::{is_blank, kept};
 
@@ -46,14 +44,8 @@ pub(super) struct Edited<'a> {
     reformat: OnceCell<bool>,
     spacing: OnceCell<bool>,
     content: OnceCell<Vec<Range<usize>>>,
-    pinned: OnceCell<Pinned<'a>>,
-    /// The lines of each text by their last bytes (`copies_kept`).
-    line_ends: LineEnds<'a>,
+    pinned: OnceCell<bool>,
 }
-
-/// For each length, how many lines of each text end with each run of that
-/// many bytes.
-type LineEnds<'a> = RefCell<HashMap<usize, std::rc::Rc<[HashMap<&'a str, usize>; 2]>>>;
 
 impl<'a> Edited<'a> {
     pub(super) fn new(
@@ -108,7 +100,6 @@ impl<'a> Edited<'a> {
             spacing: OnceCell::new(),
             content: OnceCell::new(),
             pinned: OnceCell::new(),
-            line_ends: RefCell::default(),
         }
     }
 
@@ -122,8 +113,11 @@ impl<'a> Edited<'a> {
     /// Whether `range` of `before` survives the edit: its text is kept
     /// with nothing glued onto its ends, or it is on lines an edit
     /// changing several places (Replace All, a comment toggle over lines)
-    /// left whole.
+    /// left whole. An edit made inside it, by position, never keeps it,
+    /// though a copy of its line elsewhere lets a line diff take that copy
+    /// for it.
     pub(super) fn kept(&self, range: &Range<usize>) -> bool {
+        let inside = range.start < self.region.start && self.region.end < range.end;
         kept(
             range,
             &self.old,
@@ -131,54 +125,7 @@ impl<'a> Edited<'a> {
             self.prefix,
             self.suffix,
             &|| self.strict(),
-        ) || self.lines_kept(range)
-    }
-
-    /// Whether `range` of `before` (on one line), with the character
-    /// before it and the rest of its line, ends as many lines of the text
-    /// after as before. A line diff keeps a changed line as its twin (a
-    /// key written twice, both copies alike): one copy fewer is one
-    /// changed. The key before it is free to rename.
-    pub(super) fn copies_kept(&self, range: &Range<usize>) -> bool {
-        let line = self.lines.line_of(range.start);
-        if line != self.lines.line_of(range.end) {
-            return true;
-        }
-        let bounds = self.lines.line_bounds(line);
-        let from = self
-            .lines
-            .byte_of(range.start.saturating_sub(1).max(bounds.start));
-        let line_start = self.lines.byte_of(bounds.start);
-        let text = self.lines.line_text(line).trim_end_matches('\r');
-        let Some(tail) = text.get(from - line_start..) else {
-            return true;
-        };
-        let [before, after] = &*self.line_ends(tail.len());
-        let copies = |ends: &HashMap<&str, usize>| ends.get(tail).copied().unwrap_or(0);
-        copies(before) <= copies(after)
-    }
-
-    /// For each of the two texts, how many of its lines end with each
-    /// `length` bytes (read once per length: a check of every copy of
-    /// every field is a pass over the texts, not one for each).
-    fn line_ends(&self, length: usize) -> std::rc::Rc<[HashMap<&'a str, usize>; 2]> {
-        if let Some(ends) = self.line_ends.borrow().get(&length) {
-            return ends.clone();
-        }
-        let ends = |source: &'a str| {
-            note(Work::LineSplit);
-            let mut ends: HashMap<&'a str, usize> = HashMap::new();
-            for line in source.lines() {
-                let line = line.trim_end_matches('\r');
-                if let Some(end) = line.len().checked_sub(length).and_then(|at| line.get(at..)) {
-                    *ends.entry(end).or_default() += 1;
-                }
-            }
-            ends
-        };
-        let made = std::rc::Rc::new([ends(self.before), ends(self.after)]);
-        self.line_ends.borrow_mut().insert(length, made.clone());
-        made
+        ) || (!inside && self.lines_kept(range))
     }
 
     /// Whether the lines of `range` of `before` are kept whole by a line
@@ -216,9 +163,15 @@ impl<'a> Edited<'a> {
     /// `ranges` whole.
     fn kept_by_one_diff(&self, ranges: &[Range<usize>]) -> bool {
         let lines = &self.lines;
+        // A range ending with its line's break holds the break too: the
+        // line after it is kept as well, or the break may be gone (the
+        // last line cut, joining it onto the end of the text).
         let wanted = || {
             ranges.iter().flat_map(|range| {
-                lines.line_of(range.start)..=lines.line_of(range.end.saturating_sub(1))
+                let ends_line =
+                    range.end > range.start && self.old[range.end - 1] == u16::from(b'\n');
+                let last = lines.line_of(range.end.saturating_sub(1)) + usize::from(ends_line);
+                lines.line_of(range.start)..=last
             })
         };
         self.unchanged
@@ -251,7 +204,10 @@ impl<'a> Edited<'a> {
             .end;
         let block = String::from_utf16_lossy(&self.old[start..end]);
         let padded = format!("\n{}\n", self.after);
-        padded.matches(&format!("\n{block}\n")).count() == 1 && self.parsed().is_some()
+        padded.matches(&format!("\n{block}\n")).count() == 1
+            && self
+                .parsed()
+                .is_some_and(|document| pins_hold(document, self.protected).is_none())
     }
 
     /// Whether only whitespace changed inside a locked field (an indent, a
@@ -263,7 +219,7 @@ impl<'a> Edited<'a> {
                 && self
                     .parsed()
                     .is_some_and(|document| pins_hold(document, self.protected).is_none())
-                && self.pinned().all()
+                && self.all_pinned()
                 && (!self.behavior.indent_is_structure()
                     || indents(self.behavior, self.before) == indents(self.behavior, self.after))
         })
@@ -319,16 +275,16 @@ impl<'a> Edited<'a> {
             .get_or_init(|| content_areas(self.behavior, self.before, &self.lines))
     }
 
-    /// Which locked fields have a value pinned, read once.
-    pub(super) fn pinned(&self) -> &Pinned<'a> {
-        self.pinned.get_or_init(|| Pinned::new(self.protected))
+    /// Whether every locked field has a value pinned, read once.
+    fn all_pinned(&self) -> bool {
+        *self.pinned.get_or_init(|| all_pinned(self.protected))
     }
 
     /// Without a parse to compare, a character typed next to a YAML plain
     /// value joins it, punctuation included (`abc<`, `2[x]`); so it does in
     /// any language next to a lock with no pinned value (`2/ 3` in HCL).
     fn strict(&self) -> bool {
-        (self.behavior.plain_scalars() && self.parsed().is_none()) || !self.pinned().all()
+        (self.behavior.plain_scalars() && self.parsed().is_none()) || !self.all_pinned()
     }
 }
 

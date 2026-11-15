@@ -96,7 +96,10 @@ test.describe('onSchemaWarning', () => {
   });
 });
 
-// Typing refused at a read-only field leaves nothing half-written.
+// An entry typed at a read-only field is judged by the locked text alone:
+// inside a locked block every key of it is refused (only whitespace may
+// stay), past the block's end or as a second copy of a locked key it is
+// taken whole; never half of it.
 async function caretAt(e, needle, offset) {
   await e.input.evaluate((element, [needle, offset]) => {
     const at = needle === null ? element.value.length : element.value.indexOf(needle) + offset;
@@ -105,27 +108,32 @@ async function caretAt(e, needle, offset) {
   }, [needle, offset]);
 }
 
-for (const [language, place, opened, typed] of [
-  ['toml', 'burst = 20', true, 'extra = 5'],
-  ['hcl', 'burst = 20', true, 'extra = 5'],
-  ['yaml', 'burst: 20', true, 'extra: 5'],
-  ['xml', null, false, '<id>other</id>'],
-  ['hcl', null, false, 'id = "other"'],
+const flat = (text) => text.replace(/\s+/g, '');
+
+for (const [language, place, opened, typed, inside] of [
+  ['toml', 'burst = 20', true, 'extra = 5', false],
+  ['hcl', 'burst = 20', true, 'extra = 5', true],
+  ['yaml', 'burst: 20', true, 'extra: 5', false],
+  ['xml', null, true, '<id>other</id>', false],
+  ['hcl', null, true, 'id = "other"', false],
 ]) {
-  test.describe(`${language}: typing refused at a read-only field`, () => {
+  test.describe(`${language}: an entry typed at a read-only field`, () => {
     setupEditor(test, `?schema=protected&language=${language}`);
 
-    test(`${typed} leaves nothing half-written`, async ({ page }) => {
+    test(`${typed} is taken or refused whole`, async ({ page }) => {
       const e = editor(page);
       const before = await e.value();
       await caretAt(e, place, place === null ? 0 : place.length);
       if (opened) await page.keyboard.press('Enter');
-      const afterEnter = await e.value();
       await page.keyboard.type(typed, { delay: 20 });
-      await expect(page.locator('.config-editor__protect-tip--refused')).toBeVisible();
-      // Only the line Enter opened stays (its indentation included).
-      expect(await e.value()).toBe(afterEnter);
-      if (!opened) expect(await e.value()).toBe(before);
+      const now = await e.value();
+      if (inside) {
+        await expect(page.locator('.config-editor__protect-tip--refused')).toBeVisible();
+        expect(flat(now)).toBe(flat(before));
+      } else {
+        expect(flat(now)).toContain(flat(typed));
+        expect(flat(now).length).toBe(flat(before).length + flat(typed).length);
+      }
     });
   });
 }

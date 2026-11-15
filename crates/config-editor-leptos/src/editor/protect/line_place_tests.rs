@@ -1,10 +1,9 @@
-//! A line command is judged as typing is (the check is one): a locked line
-//! moved into the list below it changes where the field is, and is refused
-//! in every language whose lists open on a line of their own, the text
-//! parsing or not (it used to go through while the text did not parse);
-//! moved past the whole list at once (a cut and paste), it is a reorder
-//! inside its parent, let through (it used to be refused: no line diff keeps
-//! a line moved past several).
+//! A line command is judged as typing is (the check is one): a locked
+//! line moved into the list below it changes where the field is; its text
+//! kept, the move is taken and the field held (its change, value and save
+//! wait), or the text does not parse (nothing is read or saved). Moved
+//! past the whole list at once (a cut and paste), it is a reorder inside
+//! its parent, let through.
 
 use super::super::Language;
 use super::super::keys::line_edit::{Folded, LineCommand, line_edit};
@@ -73,6 +72,31 @@ fn run(text: &str, line: &str, command: LineCommand) -> String {
 }
 
 /// Whether the edit from `before` to `after` is let through, `pointer`
+/// locked, to a text reading the locked field otherwise without holding
+/// it (a held field's change, value and save wait; one that does not
+/// parse reads nothing).
+fn changed_through(language: Language, before: &str, after: &str, pointer: &str) -> bool {
+    let behavior = language.behavior();
+    let changed = match (behavior.parse(before), behavior.parse(after)) {
+        (Ok(was), Ok(now)) => was.pointer(pointer) != now.pointer(pointer),
+        _ => false,
+    };
+    if !changed || !allowed(language, before, after, pointer) {
+        return false;
+    }
+    let paths = [FieldPath::from(pointer)];
+    let sources = |previous| Sources {
+        paths: &paths,
+        previous,
+        ..Sources::default()
+    };
+    let was = protect(behavior, before, sources(None));
+    protect(behavior, after, sources(Some(&was)))
+        .held
+        .is_empty()
+}
+
+/// Whether the edit from `before` to `after` is let through, `pointer`
 /// locked.
 fn allowed(language: Language, before: &str, after: &str, pointer: &str) -> bool {
     let behavior = language.behavior();
@@ -90,7 +114,7 @@ fn allowed(language: Language, before: &str, after: &str, pointer: &str) -> bool
 }
 
 #[test]
-fn a_locked_line_moved_into_the_list_below_it_is_refused_in_every_language() {
+fn a_locked_line_moved_into_the_list_below_it_never_reads_otherwise_in_every_language() {
     let mut let_through = Vec::new();
     for &language in Language::ALL {
         // A YAML list's items are below the line opening it, not in it.
@@ -100,7 +124,7 @@ fn a_locked_line_moved_into_the_list_below_it_is_refused_in_every_language() {
         let (text, pointer, list) = host(language);
         let moved = moved_down(text, &locked_line(text, list));
         let parses = language.behavior().parse(&moved).is_ok();
-        if allowed(language, text, &moved, pointer) {
+        if changed_through(language, text, &moved, pointer) {
             let_through.push(format!("{language} (parses: {parses}):\n{moved}"));
         }
     }
@@ -129,10 +153,10 @@ fn a_locked_line_moved_past_the_list_below_it_is_let_through_in_every_language()
 
 /// YAML: a list's items left under the locked key (it moved onto them,
 /// their key moved above it, or deleted) would join the locked value once
-/// the text parses: refused, whichever command makes it (they went
-/// through, the text then broken).
+/// the text parses: never let through to a text reading it so, whichever
+/// command makes it.
 #[test]
-fn a_list_left_under_a_locked_yaml_key_is_refused_whichever_command_makes_it() {
+fn a_list_left_under_a_locked_yaml_key_never_reads_so_whichever_command_makes_it() {
     let (text, pointer, _) = host(Language::YAML);
     let (image, ports) = ("    image:", "    ports:");
     let cases = [
@@ -151,21 +175,32 @@ fn a_list_left_under_a_locked_yaml_key_is_refused_whichever_command_makes_it() {
     ];
     let let_through: Vec<String> = cases
         .iter()
-        .filter(|(_, after)| allowed(Language::YAML, text, after, pointer))
+        .filter(|(_, after)| changed_through(Language::YAML, text, after, pointer))
         .map(|(name, after)| format!("{name}:\n{after}"))
         .collect();
     assert!(let_through.is_empty(), "{}", let_through.join("\n"));
 }
 
 /// JSON: the key holding the locked field moved above the document's
-/// opening brace holds nothing there: refused (it went through, and the
-/// broken text was saved).
+/// opening brace holds nothing there: the text does not parse, so it is
+/// never saved (it used to be).
 #[test]
-fn a_key_holding_a_lock_moved_out_of_its_object_is_refused() {
+fn a_key_holding_a_lock_moved_out_of_its_object_is_never_saved() {
+    use super::super::host_editing::SaveRequest;
+    use super::super::test_state::TestEditor;
+    use leptos::prelude::*;
     let (text, pointer, _) = host(Language::JSON);
     let moved = run(text, "  \"web\"", LineCommand::Move { down: false });
     assert!(moved.starts_with("  \"web\": {\n{\n"), "{moved}");
-    assert!(!allowed(Language::JSON, text, &moved, pointer), "{moved}");
+    let (_owner, state) = TestEditor {
+        read_only_paths: vec![FieldPath::from(pointer)],
+        on_save: Some(Callback::new(|_: SaveRequest| {})),
+        ..TestEditor::new(Language::JSON, text)
+    }
+    .mount();
+    let edit = super::super::edit::Edit::new(text.to_string(), (0, 0), moved.clone(), 0);
+    state.commit(edit);
+    assert!(!state.save(), "{moved}");
 }
 
 /// YAML: a locked field on a list item's first line (`- id: 7`) stays
@@ -188,7 +223,7 @@ fn a_locked_key_on_a_list_items_first_line_stays_above_its_keys() {
     ];
     let mut failures: Vec<String> = refused
         .iter()
-        .filter(|(_, after)| allowed(Language::YAML, text, after, pointer))
+        .filter(|(_, after)| changed_through(Language::YAML, text, after, pointer))
         .map(|(name, after)| format!("{name} let through:\n{after}"))
         .collect();
     let free = [

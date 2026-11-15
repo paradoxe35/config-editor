@@ -190,6 +190,11 @@ impl EditorState {
     /// (while editing in the host's language; otherwise the conversion
     /// does, after the typing pause).
     pub(super) fn notify_change(&self) {
+        // A locked field reading otherwise (a duplicate shadows it): the
+        // host hears nothing until it reads as pinned again.
+        if self.changes_held() {
+            return;
+        }
         if let Some(on_change) = self.sync().on_change {
             on_change.run(self.doc().text.get_untracked());
         }

@@ -179,13 +179,18 @@ fn large_texts_broken_in_many_places_keep_their_locks_both_ways() {
                         }
                         tampered += 1;
                         let carried = locks(language, &edited, from, true, Some(&protected));
-                        let (reached, _) = repair_all(language, edited, carried, &pairs, from);
+                        let (reached, _) =
+                            repair_all(language, edited, carried.clone(), &pairs, from);
                         let Ok(read) = codec::read(language.behavior(), &reached, Some(&schema))
                         else {
                             continue;
                         };
+                        // A field reading otherwise is held: never saved so.
+                        let held = locks(language, &reached, from, true, Some(&carried)).held;
                         for pointer in LOCKED.iter().chain(&[GHOST]) {
-                            if read.pointer(pointer) != original.pointer(pointer) {
+                            if read.pointer(pointer) != original.pointer(pointer)
+                                && !held.iter().any(|known| known == pointer)
+                            {
                                 failures.push(format!(
                                     "{tag}: {what}, then repaired: {pointer} changed"
                                 ));
@@ -307,27 +312,12 @@ fn deleting_many_unrelated_lines_then_repairing_goes_through() {
                     failures.push(format!("{tag}: the repair read {lookups} lines"));
                 }
             }
-            // The locked fields deleted with the lines before them.
+            // The locked fields deleted with the lines before them: the
+            // deletion changes their text, refused at once.
             let tag = format!("{language} ({from:?}) deleted through the locked fields");
             let deleted = without_lines(&shown, first, usize::MAX);
-            let deleted = match language.label() {
-                "JSON" => format!("{deleted}  \"z\": 0\n}}\n"),
-                _ => deleted,
-            };
-            let carried = locks(language, &deleted, from, true, Some(&protected));
-            let repaired = deleted.replacen(bad, fixed, 1);
-            if codec::read(language.behavior(), &repaired, None).is_err() {
-                failures.push(format!("{tag}: {repaired:?} does not parse"));
-                continue;
-            }
-            match check(&carried, &deleted, &repaired) {
-                Ok(()) => failures.push(format!("{tag}: the repair went through")),
-                Err(blocked) => {
-                    let message = blocked.message(&strings);
-                    if !LOCKED.iter().any(|pointer| message.contains(pointer)) {
-                        failures.push(format!("{tag}: refused with {message:?}"));
-                    }
-                }
+            if allowed(language, &shown, &deleted, &protected) {
+                failures.push(format!("{tag}: the deletion went through"));
             }
         }
     }
@@ -335,36 +325,5 @@ fn deleting_many_unrelated_lines_then_repairing_goes_through() {
         failures.is_empty(),
         "{} failures:\n{failures:#?}",
         failures.len()
-    );
-}
-
-/// More deleted lines naming a protected field's key than can be read: the
-/// repair is refused, naming the field and the change to undo.
-#[test]
-fn a_repair_past_the_reading_budget_names_the_field() {
-    let language = Language::YAML;
-    let schema = schema();
-    let items: String = (0..3000)
-        .map(|index| format!("  - id: {index}\n"))
-        .collect();
-    let good = format!("name: x\nlist:\n{items}id: abc\nmeta:\n  a: 1\nport: 80\n");
-    let shown = good.replacen("name: x\n", "name: x\n@@@ : : x\n", 1);
-    let protected = locks(language, &shown, From::Schema, true, None);
-    let deleted = without_lines(&shown, "- id: 100", 2000);
-    let carried = locks(language, &deleted, From::Schema, true, Some(&protected));
-    let repaired = deleted.replacen("@@@ : : x\n", "", 1);
-    assert!(codec::read(language.behavior(), &repaired, None).is_ok());
-    let blocked = check(
-        language.behavior(),
-        Some(&schema),
-        &carried,
-        &deleted,
-        &repaired,
-    )
-    .unwrap_err();
-    let message = blocked.message(&crate::EditorStrings::default());
-    assert!(
-        message.contains("/id") && message.contains("undo deleting"),
-        "{message}"
     );
 }

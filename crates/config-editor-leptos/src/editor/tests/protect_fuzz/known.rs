@@ -11,54 +11,27 @@ pub(super) struct Known {
     pub(super) applies: fn(&Class) -> bool,
 }
 
-const LISTS: &[&str] = &["YAML list", "JSON list", "XML list"];
-
 pub(super) const KNOWN: &[Known] = &[
     Known {
-        finding: "PT38-3: a new list item beside an item locked by a range is refused",
-        applies: |class| is(class, Check::OverRefusal, LISTS, &[Lock::Range]),
+        finding: "SPANS-4: a field a host range covers reads otherwise, not held, in a few \
+                  shapes (Edit-as views, a new value or a line moved in TOML or XML)",
+        applies: |class| is(class, Check::LockChanged, &[], &[Lock::Range]),
     },
     Known {
-        finding: "PT38-1: a new item in an XML list of secrets is refused",
-        applies: |class| is(class, Check::OverRefusal, &["XML list"], &[Lock::Secret]),
+        finding: "SPANS-8: a readOnly YAML list item moved out of its list still keeps its \
+                  text (cutting it is refused)",
+        applies: |class| is(class, Check::OverRefusal, &["YAML list"], &[Lock::Schema]),
     },
     Known {
-        finding: "NEW (PT38-1 in YAML/JSON): a new item above a secret list item is refused",
-        applies: |class| {
-            is(
-                class,
-                Check::OverRefusal,
-                &["YAML list", "JSON list"],
-                &[Lock::Secret],
-            )
-        },
+        finding: "SPANS-9 (P1): in a YAML view, a character typed at a list item's line \
+                  start that makes the list one scalar passes, gluing a placeholder \
+                  below (1 run in 10000)",
+        applies: |class| class.edit_as && is(class, Check::Glued, &["YAML list"], &[Lock::Secret]),
     },
     Known {
-        finding: "NEW: an XML list item locked by path refuses new items and cuts beside it",
-        applies: |class| is(class, Check::OverRefusal, &["XML list"], &[Lock::Path]),
-    },
-    Known {
-        finding: "NEW: a new attribute beside a locked XML attribute is refused",
-        applies: |class| is(class, Check::OverRefusal, &["XML attribute"], &[]),
-    },
-    Known {
-        finding: "NEW: a secret item's line pasted under a scalar glues the placeholder to it",
-        applies: |class| is(class, Check::Glued, &["YAML list"], &[Lock::Secret]),
-    },
-    Known {
-        finding: "NEW: readOnly XML list items can be cut or moved out of the list",
-        applies: |class| is(class, Check::LockChanged, &["XML list"], &[Lock::Schema]),
-    },
-    Known {
-        finding: "NEW: a secret's new value is quoted once an edit moves it off its schema path \
-                  (a second element makes its parent a list, a broken line a scalar)",
+        finding: "NEW (LOW, deferred): a secret's new value is quoted once an edit moves it \
+                  off its schema path",
         applies: |class| is(class, Check::Leak, &[], &[Lock::Secret]),
-    },
-    Known {
-        finding: "NEW: Edit-as, a range lock refuses cutting a sibling line after lines moved",
-        applies: |class| {
-            class.edit_as && is(class, Check::OverRefusal, &["YAML block"], &[Lock::Range])
-        },
     },
 ];
 

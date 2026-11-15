@@ -191,14 +191,6 @@ impl ConfigLanguage for HclBehavior {
         repeated_block_lines(source, pointer)
     }
 
-    fn block_labels(&self, line: &str) -> Vec<String> {
-        let tokens = tokenize(line);
-        let Some(brace) = classify_header(&tokens, 0) else {
-            return Vec::new();
-        };
-        tokens[..brace].iter().filter_map(|token| token_name(line, token)).skip(1).collect()
-    }
-
     fn writes_as_labels(&self, source: &str, pointer: &str) -> bool {
         let wanted = super::super::language::pointer_segments(pointer);
         labelled_blocks(source)
