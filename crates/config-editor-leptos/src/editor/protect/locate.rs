@@ -414,6 +414,23 @@ fn close(
     last.end = lines.units_of(end);
 }
 
+/// The values of `value` (a document) under `keys`, any list index between
+/// them, each item of a list there one value.
+pub(super) fn values_under<'v>(value: &'v Value, keys: &[&str], found: &mut Vec<&'v Value>) {
+    match value {
+        Value::Array(items) => items
+            .iter()
+            .for_each(|item| values_under(item, keys, found)),
+        _ if keys.is_empty() => found.push(value),
+        Value::Object(map) => {
+            if let Some(child) = map.get(&keys[0].replace("~1", "/").replace("~0", "~")) {
+                values_under(child, &keys[1..], found);
+            }
+        }
+        _ => {}
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

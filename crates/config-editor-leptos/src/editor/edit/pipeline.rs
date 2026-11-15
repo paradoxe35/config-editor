@@ -81,6 +81,12 @@ impl EditorState {
         }
 
         trace(Stage::Apply);
+        // Test builds check that what the gate took kept every span (see
+        // `protect::kept`).
+        #[cfg(test)]
+        let spans = (changed && origin.is_checked())
+            .then(|| self.spans_before(&edit.before))
+            .map(|spans| (spans, matches!(origin, Origin::Undo | Origin::Redo)));
         // The folds a command says it leaves closed, and those closed before
         // it: undo and redo close them again.
         let said_folds = (origin == Origin::Command)
@@ -98,7 +104,7 @@ impl EditorState {
             self.show_language(language, &edit);
         }
         if changed && origin.follows() {
-            self.follow_edit(&edit.before, &edit.text, edit.caret());
+            self.follow_edit(&edit);
         }
         let kept = match edit.after {
             After::Mapped => self.textarea().map(|area| {
@@ -120,6 +126,10 @@ impl EditorState {
         }
         self.find_protected_again(&origin);
         let after = self.place_selection(&edit, rewritten, kept);
+        #[cfg(test)]
+        if let Some((spans, stepped)) = spans {
+            self.assert_spans_kept(&spans, &edit.before, &edit.text, edit.caret(), stepped);
+        }
 
         trace(Stage::Record);
         self.record(&edit, (changed, links), after, language_before, said_folds);

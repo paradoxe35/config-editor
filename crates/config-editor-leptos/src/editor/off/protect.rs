@@ -166,7 +166,7 @@ impl EditorState {
         Ok(())
     }
 
-    pub(super) fn follow_edit(&self, _before: &str, _after: &str, _caret: usize) {}
+    pub(super) fn follow_edit(&self, _edit: &Edit) {}
 
     pub(super) fn find_protected_again(&self, _origin: &Origin) {}
 
@@ -219,6 +219,21 @@ impl EditorState {
     #[cfg(feature = "search")]
     pub(super) fn protected_bytes(&self, _text: &str) -> Vec<std::ops::Range<usize>> {
         Vec::new()
+    }
+
+    /// Nothing is protected: no span to keep.
+    #[cfg(test)]
+    pub(super) fn spans_before(&self, _text: &str) {}
+
+    #[cfg(test)]
+    pub(super) fn assert_spans_kept(
+        &self,
+        _spans: &(),
+        _before: &str,
+        _after: &str,
+        _caret: usize,
+        _stepped: bool,
+    ) {
     }
 }
 

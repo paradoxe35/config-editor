@@ -306,6 +306,15 @@ impl Edit {
         }
     }
 
+    /// Where the text the edit wrote ends, which places the region it
+    /// replaced among alike text: the caret it leaves, but for an undo or
+    /// redo, whose caret is the selection it puts back (a copied line
+    /// undone leaves the caret on the line it was copied from).
+    #[cfg(feature = "protect")]
+    pub(super) fn written_end(&self) -> Option<usize> {
+        (!matches!(self.origin, Origin::Undo | Origin::Redo)).then(|| self.caret())
+    }
+
     /// Puts the caret at `caret` with nothing selected (an edit widened
     /// over a placeholder).
     #[cfg(feature = "protect")]

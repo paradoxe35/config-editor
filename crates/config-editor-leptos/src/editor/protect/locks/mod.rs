@@ -161,6 +161,10 @@ pub(crate) struct Sources<'a> {
     /// over when this text does not parse, and which move past an edit out
     /// of their reach (see `carried_past`).
     pub(crate) previous: Option<&'a Protected>,
+    /// Where the edit from `previous`'s text to this one left its caret
+    /// (UTF-16), when known: the locks follow the region it replaced as
+    /// the guard placed it.
+    pub(crate) caret: Option<usize>,
 }
 
 /// The locks of `text`, written in `behavior`: the host's ranges, then each

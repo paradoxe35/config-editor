@@ -34,6 +34,8 @@ mod glued;
 mod guard;
 mod hooks;
 mod host_ranges;
+#[cfg(test)]
+mod kept;
 mod live;
 mod locate;
 mod locks;
@@ -133,6 +135,8 @@ mod broken_tests;
     feature = "xml"
 ))]
 mod browse_tests;
+#[cfg(all(test, feature = "yaml"))]
+mod command_matrix_tests;
 #[cfg(all(
     test,
     feature = "yaml",

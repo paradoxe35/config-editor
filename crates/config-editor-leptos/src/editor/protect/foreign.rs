@@ -53,17 +53,16 @@ impl DocumentPlaceholders {
     }
 }
 
-/// A warning on each token of `others` written in `text` that this
-/// editor's host did not give (`known`): another document's placeholder.
-/// One pass of each pattern over the text (one pass for every list found
-/// by a pattern like `own`'s), whatever the number of tokens.
-pub(super) fn foreign_placeholders(
+/// The tokens of `others` written in `text` (byte ranges, in order, apart)
+/// that this editor's host did not give (`known`), with the document each
+/// is from. One pass of each pattern over the text (one pass for every
+/// list found by a pattern like `own`'s), whatever the number of tokens.
+pub(super) fn foreign_tokens<'o>(
     text: &str,
     own: &SecretMatcher,
     known: &[Known],
-    others: &[DocumentPlaceholders],
-    strings: &EditorStrings,
-) -> Vec<Diagnostic> {
+    others: &'o [DocumentPlaceholders],
+) -> Vec<(Range<usize>, &'o str)> {
     let own_tokens: HashSet<&str> = known.iter().map(|known| known.token.as_str()).collect();
     let mut found: Vec<(Range<usize>, &str)> = Vec::new();
     let mut own_found: Option<Vec<Range<usize>>> = None;
@@ -82,6 +81,19 @@ pub(super) fn foreign_placeholders(
     }
     found.sort_by_key(|(range, _)| range.start);
     found.dedup_by(|later, earlier| later.0.start < earlier.0.end);
+    found
+}
+
+/// A warning on each token of `others` written in `text` that this
+/// editor's host did not give (`known`): another document's placeholder.
+pub(super) fn foreign_placeholders(
+    text: &str,
+    own: &SecretMatcher,
+    known: &[Known],
+    others: &[DocumentPlaceholders],
+    strings: &EditorStrings,
+) -> Vec<Diagnostic> {
+    let found = foreign_tokens(text, own, known, others);
     // Their lines and columns, in one pass of the text.
     let mut problems = Vec::new();
     let (mut line, mut line_start, mut byte) = (1, 0, 0);

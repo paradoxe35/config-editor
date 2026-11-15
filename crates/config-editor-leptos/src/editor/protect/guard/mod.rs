@@ -52,6 +52,8 @@ mod stretch;
 use serde_json::Value;
 
 use super::super::language::ConfigLanguage;
+use super::carry::Moves;
+use super::follow::follow_ranges;
 use super::locks::{Lock, Protected};
 use super::reach::out_of_reach;
 use super::texts::Reason;
@@ -120,6 +122,7 @@ pub(crate) fn check_at(
     }
     let edit = Edited::new(behavior, reading_schema, protected, before, after, caret);
     spans_kept(&edit)?;
+    followed_kept(&edit, caret)?;
     if !protected.unplaced.is_empty() {
         let reason = match edit.parsed() {
             Some(edited) => unplaced_hold(edited, protected),
@@ -183,6 +186,43 @@ fn spans_kept(edit: &Edited<'_>) -> Result<(), Blocked> {
                 reason: lock.reason.clone(),
                 why: Why::Holds,
             });
+        }
+    }
+    Ok(())
+}
+
+/// Every span where the editor will hold it after the edit keeps its
+/// text: the readings above judge the two texts, the followers then carry
+/// the spans (`follow::follow_ranges` the host's ranges, `carry::Moves` the
+/// locks of a text that does not parse), and an edit the followers would
+/// carry otherwise is refused (a range's lines kept one by one by a line
+/// diff, a line moved in between them). So no edit the guard takes leaves
+/// a span holding other text, or loses a lock.
+fn followed_kept(edit: &Edited<'_>, caret: Option<usize>) -> Result<(), Blocked> {
+    let protected = edit.protected;
+    if !protected.ranges.is_empty() {
+        let caret = caret.unwrap_or(edit.new_region.end);
+        let followed = follow_ranges(&protected.ranges, edit.before, edit.after, caret);
+        let text = |units: &[u16], range: &std::ops::Range<usize>| {
+            units.get(range.clone()).map(<[u16]>::to_vec)
+        };
+        let changed = protected
+            .ranges
+            .iter()
+            .zip(&followed)
+            .any(|(old, new)| text(&edit.old, old) != text(&edit.new, new));
+        if changed {
+            return Err(refused(&Reason::Range));
+        }
+    }
+    if edit.parsed().is_none() {
+        let moves = Moves::at(edit.before, edit.after, caret);
+        if let Some(lost) = protected
+            .locks
+            .iter()
+            .find(|lock| lock.pointer.is_some() && moves.lock(lock).is_none())
+        {
+            return Err(refused(&lost.reason));
         }
     }
     Ok(())

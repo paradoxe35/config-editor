@@ -124,3 +124,32 @@ fn of_two_like_lines_the_ranges_own_deleted_is_refused() {
     );
     assert!(copy.is_ok(), "the copy deleted");
 }
+
+#[test]
+fn a_line_moved_in_between_a_ranges_lines_is_refused() {
+    // The range over two lines, a line moved up between them (Alt+Up on
+    // the line below): a line diff keeps both of its lines, one by one,
+    // but not together.
+    let locked = "l server configuration\nlisten:";
+    let moved = "public_address: tunnel.example.com\n";
+    let after = TEXT
+        .replacen(moved, "", 1)
+        .replacen("listen", &format!("{moved}listen"), 1);
+    let start = TEXT.find(locked).expect("the locked text");
+    let units = |byte: usize| TEXT[..byte].encode_utf16().count();
+    let range = units(start)..units(start + locked.len());
+    let behavior = Language::YAML.behavior();
+    let protected = protect(
+        behavior,
+        TEXT,
+        Sources {
+            ranges: std::slice::from_ref(&range),
+            ..Sources::default()
+        },
+    );
+    let at = after.find(moved).expect("the moved line");
+    for caret in [None, Some(units(at)), Some(units(at + moved.len() - 1))] {
+        let result = check_at(behavior, None, &protected, (TEXT, &after), caret);
+        assert!(result.is_err(), "caret {caret:?}: taken");
+    }
+}

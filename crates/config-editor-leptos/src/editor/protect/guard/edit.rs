@@ -10,8 +10,9 @@ use serde_json::Value;
 use super::super::super::codec;
 use super::super::super::diff::{DiffEdit, myers_edits};
 use super::super::super::language::ConfigLanguage;
-use super::super::locate::LineIndex;
+use super::super::locate::{LineIndex, values_under};
 use super::super::locks::{Lock, Protected};
+use super::super::texts::Reason;
 use super::content::{content_areas, in_locked_content};
 use super::pins::{all_pinned, pins_hold};
 use super::spacing::between_tokens;
@@ -87,11 +88,9 @@ impl<'a> Edited<'a> {
         // starts and after it ends. The texts kept around it are then those
         // before and after that place (one of two like lines deleted: the
         // one the caret says, which the host's ranges follow too).
-        if let Some(from) = caret.and_then(|caret| caret.checked_sub(new_region.len()))
-            && from <= prefix
-            && from + region.len() <= old.len()
-            && old.len() - (from + region.len()) <= suffix
-        {
+        if let Some(from) = caret.and_then(|caret| {
+            super::super::carry::placed_by_caret(&old, &new, prefix, suffix, caret)
+        }) {
             region = from..from + region.len();
             new_region = from..from + new_region.len();
             prefix = from;
@@ -236,9 +235,48 @@ impl<'a> Edited<'a> {
         let block = String::from_utf16_lossy(&self.old[start..end]);
         let padded = format!("\n{}\n", self.after);
         padded.matches(&format!("\n{block}\n")).count() == 1
-            && self
-                .parsed()
-                .is_some_and(|document| pins_hold(document, self.protected).is_none())
+            && self.parsed().is_some_and(|document| {
+                pins_hold(document, self.protected).is_none() && self.items_kept(lock, document)
+            })
+    }
+
+    /// Whether a list item a host range covers is still read in `document`
+    /// (the text after) under its list as often as before: its pointer's
+    /// index moves with the items around it, so its pin, read at the
+    /// pointer, may be another item's, and the lines kept whole may be a
+    /// copy of its line written where no list reads it (the item's own line
+    /// deleted below a copy). Each value its list read before is read there
+    /// as often again.
+    fn items_kept(&self, lock: &Lock, document: &Value) -> bool {
+        let Some(pointer) = lock
+            .pointer
+            .as_deref()
+            .filter(|_| lock.reason == Reason::Range)
+        else {
+            return true;
+        };
+        let keys: Vec<&str> = pointer
+            .split('/')
+            .filter(|segment| !segment.is_empty() && segment.parse::<usize>().is_err())
+            .collect();
+        if keys.len()
+            == pointer
+                .split('/')
+                .filter(|segment| !segment.is_empty())
+                .count()
+        {
+            return true;
+        }
+        let Some(before) = self.protected.document.as_deref() else {
+            return true;
+        };
+        let (mut old, mut new) = (Vec::new(), Vec::new());
+        values_under(before, &keys, &mut old);
+        values_under(document, &keys, &mut new);
+        old.iter().all(|value| {
+            let count = |values: &[&Value]| values.iter().filter(|other| *other == value).count();
+            count(&new) >= count(&old)
+        })
     }
 
     /// Whether only whitespace changed inside a locked field (an indent, a

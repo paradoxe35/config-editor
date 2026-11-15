@@ -13,7 +13,7 @@ use serde_json::Value;
 use super::super::super::codec;
 use super::super::super::paths::key_range;
 use super::super::carry::Moves;
-use super::super::locate::{Extent, extent, inside, lookup};
+use super::super::locate::{Extent, extent, inside, lookup, values_under};
 use super::super::scan;
 use super::super::texts::Reason;
 use super::reading::Reading;
@@ -62,6 +62,11 @@ impl<'r, 'a> Placer<'r, 'a> {
             _ if hosts_own => Vec::new(),
             (Some(before), _, Some(document)) => {
                 let mut held = held_pins(before, document);
+                for item in items_read_fewer(before, document) {
+                    if !held.iter().any(|(pointer, _)| *pointer == item.0) {
+                        held.push(item);
+                    }
+                }
                 // A field named by its path reading as in the host's text
                 // (both without it included) reaches the host unchanged: a
                 // value pinned in a text the user made (a cut put a block's
@@ -94,7 +99,8 @@ impl<'r, 'a> Placer<'r, 'a> {
             reading,
             carried,
             before,
-            moves: followed.map(|previous| Moves::new(&previous.text, reading.text)),
+            moves: followed
+                .map(|previous| Moves::at(&previous.text, reading.text, reading.sources.caret)),
             pins: carried
                 .map(|previous| previous.pins.clone())
                 .unwrap_or_default(),
@@ -603,6 +609,59 @@ fn held_pins(before: &Protected, document: &Value) -> Vec<(String, Value)> {
         })
         .cloned()
         .collect()
+}
+
+/// The list items a host range covers that `document` reads fewer times
+/// under their list than the text before did (`before`, which parsed),
+/// each with the value to hold it at: a list item's pointer moves with the
+/// items around it, so its pin, read at the pointer, may be another item's
+/// while its own line went where no list reads it (moved under a scalar,
+/// its line deleted below a copy). Items are matched by their span's text,
+/// which holds the value the host gave.
+fn items_read_fewer(before: &Protected, document: &Value) -> Vec<(String, Value)> {
+    let Some(earlier) = before.document.as_deref() else {
+        return Vec::new();
+    };
+    let units: Vec<u16> = before.text.encode_utf16().collect();
+    let mut found: Vec<(String, Value)> = Vec::new();
+    for lock in &before.locks {
+        let Some(pointer) = lock
+            .pointer
+            .as_deref()
+            .filter(|_| lock.reason == Reason::Range)
+        else {
+            continue;
+        };
+        let keys: Vec<&str> = keys_of(pointer)
+            .into_iter()
+            .filter(|key| !key.is_empty())
+            .collect();
+        if keys.len() == pointer.split('/').filter(|key| !key.is_empty()).count() {
+            continue;
+        }
+        let written: String = lock
+            .ranges
+            .iter()
+            .map(|range| String::from_utf16_lossy(units.get(range.clone()).unwrap_or_default()))
+            .collect();
+        let mut values = Vec::new();
+        values_under(earlier, &keys, &mut values);
+        let dropped = values.into_iter().find(|value| {
+            let text = match value {
+                Value::String(text) => text.clone(),
+                other => other.to_string(),
+            };
+            !text.is_empty()
+                && written.contains(&text)
+                && reads_under(document, &keys, value) < reads_under(earlier, &keys, value)
+        });
+        if let Some(value) = dropped
+            && !found.iter().any(|(_, held)| held == value)
+        {
+            found.push((pointer.to_string(), value.clone()));
+        }
+    }
+    found
 }
 
 /// Whether each of `inner` lies inside one of `outer`.

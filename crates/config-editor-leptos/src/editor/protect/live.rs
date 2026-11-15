@@ -11,14 +11,16 @@ use super::super::codec;
 use super::super::diagnostics::SchemaBundle;
 use super::super::edit::{Edit, Origin};
 use super::super::edit_as::SaveError;
+use super::super::language::ConfigLanguage;
 use super::super::languages::Language;
 use super::super::parse_cache;
 use super::super::paths::{FieldPath, TextRange};
 use super::super::secret_options::SecretOptions;
 use super::super::state::EditorState;
+use super::carry::Moves;
 use super::follow::follow_ranges;
 use super::foreign::DocumentPlaceholders;
-use super::glued::{first_glued, glued_in_save, glued_message};
+use super::glued::{first_glued, glued_elsewhere, glued_in_save, glued_message};
 use super::guard::{Blocked, check_at};
 use super::host_ranges::{HostRanges, offsets};
 use super::locate::LineIndex;
@@ -67,6 +69,10 @@ pub(crate) struct Marks {
     /// [`EditorState::hold_change`]): new locks from the host that release
     /// it send the text on screen then.
     held_back: bool,
+    /// The last edit followed: the length (bytes) of the text it made and
+    /// the caret it left there (UTF-16), so the locks follow it as the
+    /// guard judged it (see `locks::Sources::caret`).
+    followed: Option<(usize, usize)>,
 }
 
 /// The protection signals of one editor.
@@ -171,6 +177,10 @@ impl ProtectState {
                     Vec::new()
                 };
                 source.with(|text| {
+                    let caret = marks
+                        .with_value(|marks| marks.followed)
+                        .filter(|(length, _)| *length == text.len())
+                        .map(|(_, caret)| caret);
                     let mut protected = protect(
                         edit.behavior(),
                         text,
@@ -181,6 +191,7 @@ impl ProtectState {
                             ranges: &local_ranges,
                             range_fields: &range_fields,
                             previous,
+                            caret,
                         },
                     );
                     protected.epoch = epoch;
@@ -207,7 +218,10 @@ impl ProtectState {
     /// an Edit-as switch): the locked values are read from it afresh, never
     /// carried from the text it replaces.
     pub(crate) fn trust_text(&self) {
-        self.marks.update_value(|marks| marks.epoch += 1);
+        self.marks.update_value(|marks| {
+            marks.epoch += 1;
+            marks.followed = None;
+        });
     }
 
     /// Shows `message` at `offset` for a moment.
@@ -319,6 +333,56 @@ fn covered_fields(
         .collect()
 }
 
+/// The host's ranges (UTF-16 offsets of its text `old`) that cover no
+/// field (a comment) keep their text in its next text `new`: an Edit-as
+/// view locks the fields a range covers, and has nothing of a range over
+/// other text to lock, so the save back holds it as text (written there at
+/// least as often as before).
+fn text_ranges_kept(
+    behavior: &dyn ConfigLanguage,
+    reading: Option<&serde_json::Value>,
+    old: &str,
+    new: &str,
+    ranges: &[Range<usize>],
+) -> Result<(), ReadOnlyChange> {
+    if ranges.is_empty() {
+        return Ok(());
+    }
+    // Most ranges keep their text where the conversion kept their lines;
+    // only the others are read for what they cover.
+    let moves = Moves::new(old, new);
+    let (units, new_units): (Vec<u16>, Vec<u16>) =
+        (old.encode_utf16().collect(), new.encode_utf16().collect());
+    let moved: Vec<&Range<usize>> = ranges
+        .iter()
+        .filter(|range| {
+            moves
+                .range(range)
+                .is_none_or(|to| new_units.get(to) != units.get((*range).clone()))
+        })
+        .collect();
+    if moved.is_empty() {
+        return Ok(());
+    }
+    let Ok(document) = codec::read(behavior, old, reading) else {
+        return Ok(());
+    };
+    for range in moved {
+        if !range_pointers(behavior, old, &document, std::slice::from_ref(range)).is_empty() {
+            continue;
+        }
+        let Some(text) = units.get(range.clone()).map(String::from_utf16_lossy) else {
+            continue;
+        };
+        if !text.trim().is_empty() && new.matches(&text).count() < old.matches(&text).count() {
+            return Err(ReadOnlyChange {
+                pointer: String::new(),
+            });
+        }
+    }
+    Ok(())
+}
+
 /// Whether the locks memo has news for its readers: the text it was read
 /// from and the documents alone do not count.
 fn locks_changed(old: Option<&Arc<Protected>>, new: Option<&Arc<Protected>>) -> bool {
@@ -412,7 +476,7 @@ impl EditorState {
                         schema.as_deref().map(|bundle| &bundle.schema),
                         protected,
                         (&edit.before, &edit.text),
-                        Some(edit.caret()),
+                        edit.written_end(),
                     )
                 })
             })
@@ -493,8 +557,6 @@ impl EditorState {
             self.protect().secrets.held.set_value(None);
         }
         match origin {
-            // A placeholder an undo brings back is the host's again.
-            Origin::Undo | Origin::Redo => self.rescan_tokens(false),
             Origin::Reload { host } => self.adopt_host_tokens(host),
             // A new text from the host: its ranges and placeholders anew. Not
             // on an echo of the editor's own edit, where they are followed
@@ -507,13 +569,22 @@ impl EditorState {
                 self.follow_ranges_across_switch();
                 self.rescan_tokens(false);
             }
-            Origin::Command | Origin::Input { .. } => {}
+            // An undo or redo is followed as any edit (`follow_tokens`): a
+            // placeholder it writes back is found by its path or, in a text
+            // that does not parse, as often as the host gave it, the ones
+            // it kept first. Found again by their text, a copy written
+            // before the real one would take its place.
+            Origin::Command | Origin::Input { .. } | Origin::Undo | Origin::Redo => {}
         }
     }
 
     /// Follows an applied edit with what is kept by position (the host's
     /// ranges, the secret placeholders).
-    pub(crate) fn follow_edit(&self, before: &str, after: &str, caret: usize) {
+    pub(crate) fn follow_edit(&self, edit: &Edit) {
+        let (before, after, caret) = (edit.before.as_str(), edit.text.as_str(), edit.caret());
+        self.protect().marks.update_value(|marks| {
+            marks.followed = edit.written_end().map(|end| (after.len(), end));
+        });
         self.follow_tokens(before, after, caret);
         if self.protect().ranges.with_untracked(Vec::is_empty) {
             return;
@@ -571,9 +642,11 @@ impl EditorState {
 
     /// Whether the text on screen may not reach the host, by any route
     /// (change events, the value, a save): a locked field reads otherwise
-    /// than pinned (see `locks::Protected::held`), or the text does not
-    /// parse and holds locks. (Text beside a placeholder given whole is
-    /// refused at the keystroke; the save checks it again.)
+    /// than pinned (see `locks::Protected::held`), the text does not parse
+    /// and holds locks, or it reads a placeholder given whole with text
+    /// beside it (refused at the keystroke where it can be told; a parse
+    /// reading one glued after edits made while the text did not parse,
+    /// its key renamed, waits here).
     pub(crate) fn changes_held(&self) -> bool {
         // A text that does not parse writing a locked key again (a YAML key
         // written twice does not parse, and a reader taking the last would
@@ -584,6 +657,7 @@ impl EditorState {
                 || (protected.document.is_none() && locked_key_again(protected))
         }) || self.unplaced_waits().is_some()
             || self.placeholder_held().is_some()
+            || self.glued_away().is_some()
     }
 
     /// Why a save of the text on screen waits, when it does: it holds text
@@ -633,6 +707,9 @@ impl EditorState {
 
     /// The glued placeholder a save of the text on screen waits on.
     fn glued_waits(&self) -> Option<String> {
+        if let Some(field) = self.glued_away() {
+            return Some(self.strings_untracked(|strings| glued_message(strings, &field)));
+        }
         let secrets = self.protect().secrets;
         if !secrets
             .known
@@ -649,6 +726,35 @@ impl EditorState {
             first_glued(self.behavior(), document, known).and_then(|known| known.field.clone())
         })?;
         Some(self.strings_untracked(|strings| glued_message(strings, &pointer)))
+    }
+
+    /// The field of a placeholder given whole that the text on screen, which
+    /// parses, reads with other text beside it in a value out of its field
+    /// (see `glued::glued_elsewhere`). Read only while some placeholder is
+    /// out of its field (fewer real ones on screen than the host wrote in
+    /// fields): one in its field is judged at each keystroke, and a parse
+    /// per change would cost a key a read of the document.
+    fn glued_away(&self) -> Option<String> {
+        let secrets = self.protect().secrets;
+        let away = secrets.known.with_untracked(|known| {
+            let written: usize = known
+                .iter()
+                .filter(|known| known.whole.is_some() && known.field.is_some())
+                .map(|known| known.count)
+                .sum();
+            written > 0 && secrets.tokens.with_untracked(Vec::len) < written
+        });
+        if !away {
+            return None;
+        }
+        let parsed = self
+            .doc()
+            .text
+            .with_untracked(|text| parse_cache::parsed(self.behavior(), text));
+        let document = parsed.as_ref().as_ref().ok()?;
+        secrets
+            .known
+            .with_untracked(|known| glued_elsewhere(document, known)?.field.clone())
     }
 
     /// The read-only field the language cannot locate in the text on
@@ -726,9 +832,11 @@ impl EditorState {
                     ranges: &ranges,
                     range_fields: &[],
                     previous: None,
+                    caret: None,
                 },
             );
-            check_save(behavior, reading, old, new, &pointers)
+            check_save(behavior, reading, old, new, &pointers)?;
+            text_ranges_kept(behavior, reading, old, new, &ranges)
         })
     }
 
@@ -740,24 +848,27 @@ impl EditorState {
     pub(crate) fn protected_bytes(&self, text: &str) -> Vec<Range<usize>> {
         let byte = |at: usize| super::super::keyboard::utf16_to_byte_index(text, at);
         let behavior = self.behavior();
-        super::super::paths::with_spans(behavior, text, &[], || self.protected_bytes_in(&byte))
+        let tokens = self.solid_tokens(text);
+        super::super::paths::with_spans(behavior, text, &[], || {
+            self.protected_bytes_in(&byte, &tokens)
+        })
     }
 
-    /// [`Self::protected_bytes`], with `byte` the byte at a UTF-16 offset.
+    /// [`Self::protected_bytes`], with `byte` the byte at a UTF-16 offset and
+    /// `tokens` the placeholders no replace may cut.
     #[cfg(feature = "search")]
-    fn protected_bytes_in(&self, byte: &dyn Fn(usize) -> usize) -> Vec<Range<usize>> {
+    fn protected_bytes_in(
+        &self,
+        byte: &dyn Fn(usize) -> usize,
+        tokens: &[Range<usize>],
+    ) -> Vec<Range<usize>> {
         self.protect().protected.with_untracked(|protected| {
             protected
                 .locks
                 .iter()
                 .flat_map(|lock| lock.ranges.iter().chain(&lock.guards))
+                .chain(tokens)
                 .map(|range| byte(range.start)..byte(range.end))
-                .chain(self.protect().secrets.tokens.with_untracked(|tokens| {
-                    tokens
-                        .iter()
-                        .map(|range| byte(range.start)..byte(range.end))
-                        .collect::<Vec<_>>()
-                }))
                 .collect()
         })
     }

@@ -16,6 +16,7 @@ use super::super::parse_cache;
 use super::super::secret_options::SecretOptions;
 use super::super::state::{EditorState, directed_selection, textarea_selection};
 use super::follow_items;
+use super::foreign::foreign_tokens;
 use super::tokens::{
     Known, SecretMatcher, follow, held_in_fields, in_comment, locate_written, snap, snap_selection,
     widen,
@@ -240,28 +241,74 @@ fn ended_at_caret(
 }
 
 impl EditorState {
+    /// The placeholders of `text` (UTF-16, in order) no edit may cut: the
+    /// host's tokens where they are, and, in a documents view, the tokens of
+    /// the other documents written here (flagged as theirs, and as solid as
+    /// here: removed whole or kept whole).
+    pub(crate) fn solid_tokens(&self, text: &str) -> Vec<Range<usize>> {
+        let secrets = self.protect().secrets;
+        let mut tokens = secrets.tokens.get_untracked();
+        // Byte ranges of the other documents' tokens written here.
+        let mut written: Vec<Range<usize>> = self.protect().foreign.with_untracked(|others| {
+            if others.is_empty() {
+                return Vec::new();
+            }
+            secrets.matcher.with_value(|matcher| {
+                secrets.known.with_untracked(|known| {
+                    foreign_tokens(text, matcher, known, others)
+                        .into_iter()
+                        .map(|(range, _)| range)
+                        .collect()
+                })
+            })
+        });
+        if written.is_empty() {
+            return tokens;
+        }
+        // As UTF-16, in one pass of the text.
+        written.sort_by_key(|range| range.start);
+        let (mut byte, mut unit) = (0, 0);
+        let mut at = |to: usize| {
+            unit += text[byte..to].encode_utf16().count();
+            byte = to;
+            unit
+        };
+        for range in written {
+            let start = at(range.start);
+            tokens.push(start..at(range.end));
+        }
+        tokens.sort_by_key(|range| range.start);
+        tokens.dedup_by(|later, earlier| later.start < earlier.end);
+        tokens
+    }
+
+    /// The solid tokens of the text on screen (see [`Self::solid_tokens`]).
+    fn solid_tokens_on_screen(&self) -> Vec<Range<usize>> {
+        self.doc()
+            .text
+            .with_untracked(|text| self.solid_tokens(text))
+    }
+
     /// The edit pipeline's prepare stage: an edit cutting a placeholder
     /// takes it whole, leaving just the caret.
     pub(crate) fn widen_edit(&self, edit: &mut Edit) {
-        let widened = self.protect().secrets.tokens.with_untracked(|tokens| {
-            if tokens.is_empty() {
-                return None;
-            }
-            // The selection the edit replaced when it is known and the
-            // texts agree with it: a token pasted over another shares its
-            // first characters, which a diff of the texts would keep.
-            let told = edit.selection != UNKNOWN_SELECTION;
-            let (start, end) = Some(edit.selection)
-                .filter(|selection| told && replaces(&edit.before, &edit.text, *selection))
-                .or_else(|| {
-                    (!told)
-                        .then(|| ended_at_caret(tokens, &edit.before, &edit.text, edit.caret()))
-                        .flatten()
-                })
-                .unwrap_or_else(|| edit_range(&edit.before, &edit.text, edit.caret()));
-            widen(tokens, &edit.before, &edit.text, start..end)
-        });
-        if let Some((text, _, caret)) = widened {
+        let tokens = self.solid_tokens(&edit.before);
+        if tokens.is_empty() {
+            return;
+        }
+        // The selection the edit replaced when it is known and the texts
+        // agree with it: a token pasted over another shares its first
+        // characters, which a diff of the texts would keep.
+        let told = edit.selection != UNKNOWN_SELECTION;
+        let (start, end) = Some(edit.selection)
+            .filter(|selection| told && replaces(&edit.before, &edit.text, *selection))
+            .or_else(|| {
+                (!told)
+                    .then(|| ended_at_caret(&tokens, &edit.before, &edit.text, edit.caret()))
+                    .flatten()
+            })
+            .unwrap_or_else(|| edit_range(&edit.before, &edit.text, edit.caret()));
+        if let Some((text, _, caret)) = widen(&tokens, &edit.before, &edit.text, start..end) {
             edit.text = text;
             edit.collapse_to(caret);
         }
@@ -532,26 +579,21 @@ impl EditorState {
     /// its delete would take the placeholder whole while its drop writes
     /// only the dragged part, losing the rest.
     pub(crate) fn cuts_a_token(&self, start: usize, end: usize) -> bool {
-        self.protect().secrets.tokens.with_untracked(|tokens| {
-            tokens
-                .iter()
-                .any(|token| super::tokens::cuts(token, &(start..end)))
-        })
+        self.solid_tokens_on_screen()
+            .iter()
+            .any(|token| super::tokens::cuts(token, &(start..end)))
     }
 
     /// Moves a selection end left inside a placeholder (by a click, Home,
     /// a vertical move) out of it: a caret to the nearest edge, a selection
     /// grown to take it whole.
     pub(crate) fn snap_to_tokens(&self) {
-        let secrets = self.protect().secrets;
         let Some(element) = self.textarea() else {
             return;
         };
         let (anchor, caret) = directed_selection(&element);
         let (start, end) = (anchor.min(caret), anchor.max(caret));
-        let snapped = secrets
-            .tokens
-            .with_untracked(|tokens| snap_selection(tokens, start, end));
+        let snapped = snap_selection(&self.solid_tokens_on_screen(), start, end);
         if snapped == (start, end) {
             return;
         }
@@ -564,13 +606,10 @@ impl EditorState {
     /// browser's own anchor inside a placeholder is not reliable): a press
     /// inside one is remembered, for the release to anchor at its edge.
     pub(crate) fn press_at(&self, offset: usize) {
-        let secrets = self.protect().secrets;
-        let pressed = secrets.tokens.with_untracked(|tokens| {
-            tokens
-                .iter()
-                .find(|token| token.start < offset && offset < token.end)
-                .cloned()
-        });
+        let pressed = self
+            .solid_tokens_on_screen()
+            .into_iter()
+            .find(|token| token.start < offset && offset < token.end);
         self.protect()
             .marks
             .update_value(|marks| marks.pressed = pressed);
@@ -633,11 +672,7 @@ impl EditorState {
         } else {
             caret.saturating_sub(1)
         };
-        let target = self
-            .protect()
-            .secrets
-            .tokens
-            .with_untracked(|tokens| snap(tokens, step, Some(forward)));
+        let target = snap(&self.solid_tokens_on_screen(), step, Some(forward));
         if target == step {
             return false;
         }

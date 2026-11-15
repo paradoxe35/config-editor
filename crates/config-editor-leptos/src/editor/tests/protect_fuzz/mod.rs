@@ -23,6 +23,7 @@
 mod acts;
 mod cases;
 mod checks;
+mod gate_repros;
 mod known;
 mod mount;
 mod rng;

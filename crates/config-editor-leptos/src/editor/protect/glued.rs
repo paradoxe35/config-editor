@@ -203,6 +203,38 @@ pub(crate) fn first_glued<'a>(
         .find(|known| glued_in(behavior, document, known))
 }
 
+/// The first token the host gave whole (among `known`) that `document`
+/// writes with other text in a value outside its own field: the key
+/// holding it renamed (it is plain text there) while a key or a mark typed
+/// beside it in a text that did not parse made the parse read them into
+/// one value. What reaches the host would read the placeholder glued.
+pub(crate) fn glued_elsewhere<'a>(document: &Value, known: &'a [Known]) -> Option<&'a Known> {
+    let whole: Vec<&Known> = known.iter().filter(|known| known.whole.is_some()).collect();
+    if whole.is_empty() {
+        return None;
+    }
+    let mut found = None;
+    walk_strings(document, &mut |leaf| {
+        if found.is_none() {
+            found = whole
+                .iter()
+                .find(|known| leaf.contains(known.token.as_str()) && leaf.trim() != known.token)
+                .copied();
+        }
+    });
+    found
+}
+
+/// Calls `visit` with every string of `value`, keys left out.
+fn walk_strings(value: &Value, visit: &mut dyn FnMut(&str)) {
+    match value {
+        Value::String(text) => visit(text),
+        Value::Array(items) => items.iter().for_each(|item| walk_strings(item, visit)),
+        Value::Object(map) => map.values().for_each(|item| walk_strings(item, visit)),
+        _ => {}
+    }
+}
+
 /// Whether `known` (a token given whole) has something beside it in its
 /// field in `document` (read in `behavior`): text, or the list or map the
 /// field became.

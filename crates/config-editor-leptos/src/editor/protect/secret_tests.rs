@@ -27,7 +27,7 @@ const SCHEMA: &str = r#"{
 
 pub(super) const SECRET: &str = "«secret 3f2a»";
 pub(super) const PIN: &str = "«secret 0b1c»";
-const ID: &str = "«secret 9d»";
+pub(super) const ID: &str = "«secret 9d»";
 
 /// The same document in every language, holding three placeholders.
 pub(super) fn documents() -> Vec<(Language, String)> {

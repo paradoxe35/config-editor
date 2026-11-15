@@ -409,3 +409,32 @@ fn a_hosts_range_follows_its_field_through_a_reorder_rewriting_its_line() {
         assert!(!type_at(state, value, "x"), "{view:?}: {}", shown(state));
     }
 }
+
+/// P1: a host range over text that is no field (in a comment) holds in an
+/// Edit-as view, where nothing on screen locks it: a view emptied (all
+/// selected, the clipboard pasted over it) never takes the range's text
+/// from the host.
+#[test]
+fn a_range_over_a_comment_keeps_its_text_through_an_edit_as_view() {
+    let text = "# Tunnel server configuration\nlisten: 7835\n";
+    let mut failures = Vec::new();
+    for view in [Language::JSON, Language::TOML, Language::XML] {
+        let (_owner, state) = TestEditor {
+            edit_as: Some(view),
+            read_only_ranges: vec![TextRange::new(
+                TextPosition::new(1, 10),
+                TextPosition::new(1, 15),
+            )],
+            ..TestEditor::new(Language::YAML, text)
+        }
+        .mount();
+        let all = shown(state).len();
+        input(state, 0..all, "", "insertFromPaste");
+        pause(state);
+        let host = host(state);
+        if !host.contains("serve") {
+            failures.push(format!("{view}: {host:?}"));
+        }
+    }
+    assert!(failures.is_empty(), "{failures:#?}");
+}
