@@ -4,14 +4,61 @@
 //! field). A refused half refuses the other: a refused delete leaves the
 //! drop out (it would copy the text, a fold's header twice), and a refused
 //! drop puts the deleted text back (the move would lose it).
+//!
+//! The text a drag carries is the text it began in: while it goes on, a
+//! switch waiting for the document to convert waits for it too (it would
+//! rewrite the text under the pointer), and a drag whose document was
+//! rewritten anyway (a host value) is refused whole: its drop would copy
+//! text of the document before into the new one.
 
 use leptos::prelude::*;
 
+use super::diagnostics::DIAGNOSTICS_DEBOUNCE_MS;
 use super::edit::Edit;
 use super::state::EditorState;
 use crate::reactive::later;
 
 impl EditorState {
+    /// A drag of the editor's own text begins.
+    pub(super) fn drag_began(&self) {
+        let text = self.doc().text.get_untracked();
+        self.typing().drag_source.set_value(Some(text));
+    }
+
+    /// The drag ended (dropped, or cancelled): a switch that waited for it
+    /// is tried after the pause a drop's edit also waits for.
+    pub(super) fn drag_ended(&self) {
+        if self
+            .typing()
+            .drag_source
+            .try_update_value(Option::take)
+            .flatten()
+            .is_none()
+        {
+            return;
+        }
+        later::after(*self, DIAGNOSTICS_DEBOUNCE_MS, |state| {
+            if !state.dragging() {
+                super::sync::retry_pending_switch(state);
+            }
+        });
+    }
+
+    /// Whether a drag of the editor's own text is going on.
+    pub(super) fn dragging(&self) -> bool {
+        self.typing().drag_source.with_value(Option::is_some)
+    }
+
+    /// Whether the document was rewritten since the drag going on began:
+    /// the text it carries is not this document's.
+    pub(super) fn rewritten_under_drag(&self) -> bool {
+        self.typing().drag_source.with_value(|source| {
+            source
+                .as_ref()
+                .is_some_and(|source| self.doc().text.with_untracked(|text| text != source))
+        })
+    }
+
     /// A drag's delete is about to be applied to the document as it is now.
     pub(super) fn drag_starts(&self) {
         let before = self.doc().text.get_untracked();
@@ -20,15 +67,15 @@ impl EditorState {
         later::next_frame(*self, |state| state.typing().drag_before.set_value(None));
     }
 
-    /// Whether the drop arriving now has to be refused because its drag's
-    /// delete was (the document is still what it was before the delete).
+    /// Whether the drop arriving now has to be refused: its drag's delete
+    /// was (the document is still what it was before the delete), or with
+    /// no delete (a copy), the document was rewritten under the drag.
     /// Input still pending is applied first.
-    pub(super) fn drop_refused_by_its_delete(&self) -> bool {
+    pub(super) fn drop_refused_early(&self) -> bool {
         super::input::flush_input(*self);
-        self.typing().drag_before.with_value(|before| {
-            before
-                .as_ref()
-                .is_some_and(|before| self.doc().text.with_untracked(|text| text == before))
+        self.typing().drag_before.with_value(|before| match before {
+            Some(before) => self.doc().text.with_untracked(|text| text == before),
+            None => self.rewritten_under_drag(),
         })
     }
 

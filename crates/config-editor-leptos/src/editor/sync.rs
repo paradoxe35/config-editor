@@ -816,9 +816,11 @@ fn switch_languages(state: EditorState, host: Host) {
 /// Tries a switch still waiting for the document to convert, after the
 /// typing pause. Not on a step back through undo: the switch would end
 /// redo, and the steps the user may redo would be lost. The next edit
-/// (which ends redo anyway) makes it.
-fn retry_pending_switch(state: EditorState) {
-    if state.doc().history.with_untracked(EditHistory::can_redo) {
+/// (which ends redo anyway) makes it. Not while a drag of the text goes
+/// on: the switch would rewrite the text it carries; it is tried when the
+/// drag ends (see `drag_move`).
+pub(super) fn retry_pending_switch(state: EditorState) {
+    if state.doc().history.with_untracked(EditHistory::can_redo) || state.dragging() {
         return;
     }
     if let Some(next) = state.sync().pending_switch.get_untracked() {

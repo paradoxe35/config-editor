@@ -2,7 +2,8 @@
 //! the selection after it, so both directions restore exactly where the user
 //! was. Typing (or deleting) continues a step only where the previous one
 //! ended and within [`UNDO_GROUPING_WINDOW_MS`]; a caret move, a paste, or a
-//! command starts a new one. An Edit-as switch is a step too: its snapshots
+//! command starts a new one. An edit that changes no text is no step (and
+//! ends none), so every step undone changes the text. An Edit-as switch is a step too: its snapshots
 //! carry the language their text is in, so undo goes back to the view it
 //! left and redo returns to the new one. A step that said which folds it
 //! leaves closed (a line command moving closed folds) keeps the folds of
@@ -79,10 +80,13 @@ pub(super) const UNDO_GROUPING_WINDOW_MS: f64 = 800.0;
 
 impl EditHistory {
     /// An edit the browser made (typing, deleting, pasting), from the input
-    /// event's type.
+    /// event's type, leaving `text`. A step that grew back to the text it
+    /// started from (`-` typed, then the Enter that ends a list takes it
+    /// away) is no step any more: undo never changes nothing.
     pub(super) fn record_input(
         &mut self,
         before: Snapshot,
+        text: &str,
         after: Selection,
         input_type: &str,
         timestamp: f64,
@@ -104,6 +108,9 @@ impl EditHistory {
         if dropping && let Some(step) = self.undo.last_mut() {
             step.after = after;
             self.open = None;
+            if step.before.value == text {
+                self.undo.pop();
+            }
             return;
         }
         // Typing over a wrapped selection: the wrap and the typing are one.
@@ -124,6 +131,11 @@ impl EditHistory {
                     .last()
                     .is_some_and(|step| step.after == before.selection);
         if continues && let Some(step) = self.undo.last_mut() {
+            if step.before.value == text {
+                self.undo.pop();
+                self.open = None;
+                return;
+            }
             step.after = after;
         } else {
             self.push(Step {
@@ -362,9 +374,9 @@ mod tests {
     fn typing_pause_beyond_the_grouping_window_splits_undo_steps() {
         assert_eq!(UNDO_GROUPING_WINDOW_MS, 800.0);
         let mut history = EditHistory::default();
-        history.record_input(at("", 0), (1, 1), "insertText", 0.0);
-        history.record_input(at("a", 1), (2, 2), "insertText", 100.0);
-        history.record_input(at("ab", 2), (3, 3), "insertText", 1100.0);
+        history.record_input(at("", 0), "a", (1, 1), "insertText", 0.0);
+        history.record_input(at("a", 1), "ab", (2, 2), "insertText", 100.0);
+        history.record_input(at("ab", 2), "abc", (3, 3), "insertText", 1100.0);
 
         assert_eq!(history.undo("abc".into()), Some(at("ab", 2)));
         assert_eq!(history.undo("ab".into()), Some(at("", 0)));
@@ -374,9 +386,9 @@ mod tests {
     #[test]
     fn typing_somewhere_else_is_a_separate_step() {
         let mut history = EditHistory::default();
-        history.record_input(at("ab", 1), (2, 2), "insertText", 0.0);
+        history.record_input(at("ab", 1), "axb", (2, 2), "insertText", 0.0);
         // The caret moved to the end before the next keystroke.
-        history.record_input(at("axb", 3), (4, 4), "insertText", 100.0);
+        history.record_input(at("axb", 3), "axby", (4, 4), "insertText", 100.0);
         assert_eq!(history.undo("axby".into()), Some(at("axb", 3)));
         assert_eq!(history.undo("axb".into()), Some(at("ab", 1)));
     }
@@ -384,7 +396,13 @@ mod tests {
     #[test]
     fn an_ime_composition_is_one_step() {
         let mut history = EditHistory::default();
-        history.record_input(at("name: ", 6), (7, 7), "insertCompositionText", 0.0);
+        history.record_input(
+            at("name: ", 6),
+            "name: に",
+            (7, 7),
+            "insertCompositionText",
+            0.0,
+        );
         // Each update replaces the composed text (selected by the browser).
         let composing = |value: &str, from: usize, to: usize| Snapshot {
             value: value.into(),
@@ -395,18 +413,21 @@ mod tests {
         };
         history.record_input(
             composing("name: に", 6, 7),
+            "name: にほ",
             (8, 8),
             "insertCompositionText",
             2000.0,
         );
         history.record_input(
             composing("name: にほ", 6, 8),
+            "name: にほん",
             (9, 9),
             "insertCompositionText",
             4000.0,
         );
         history.record_input(
             composing("name: にほん", 6, 9),
+            "name: 日本",
             (8, 8),
             "insertCompositionText",
             6000.0,
@@ -417,8 +438,20 @@ mod tests {
     #[test]
     fn a_drag_move_is_one_step() {
         let mut history = EditHistory::default();
-        history.record_input(at("alpha: one\nb: 2", 7), (7, 7), "deleteByDrag", 0.0);
-        history.record_input(at("alpha: \nb: 2", 13), (16, 16), "insertFromDrop", 5.0);
+        history.record_input(
+            at("alpha: one\nb: 2", 7),
+            "alpha: \nb: 2",
+            (7, 7),
+            "deleteByDrag",
+            0.0,
+        );
+        history.record_input(
+            at("alpha: \nb: 2", 13),
+            "alpha: \nb: 2one",
+            (16, 16),
+            "insertFromDrop",
+            5.0,
+        );
         assert_eq!(
             history.undo("alpha: \nb: 2one".into()),
             Some(at("alpha: one\nb: 2", 7))
@@ -428,9 +461,9 @@ mod tests {
     #[test]
     fn sealing_splits_consecutive_compositions() {
         let mut history = EditHistory::default();
-        history.record_input(at("", 0), (1, 1), "insertCompositionText", 0.0);
+        history.record_input(at("", 0), "日", (1, 1), "insertCompositionText", 0.0);
         history.seal();
-        history.record_input(at("日", 1), (2, 2), "insertCompositionText", 10.0);
+        history.record_input(at("日", 1), "日本", (2, 2), "insertCompositionText", 10.0);
         assert_eq!(history.undo("日本".into()), Some(at("日", 1)));
     }
 
@@ -438,31 +471,52 @@ mod tests {
     fn typing_on_past_a_closer_stepped_over_is_one_step() {
         let mut history = EditHistory::default();
         // `"` writes `""`, `k` goes in it, `"` steps over the closer, `:`.
-        history.record_input(at("{}", 1), (2, 2), "insertText", 0.0);
-        history.record_input(at("{\"\"}", 2), (3, 3), "insertText", 100.0);
+        history.record_input(at("{}", 1), "{\"\"}", (2, 2), "insertText", 0.0);
+        history.record_input(at("{\"\"}", 2), "{\"k\"}", (3, 3), "insertText", 100.0);
         history.stepped_over(3, 4, 200.0);
-        history.record_input(at("{\"k\"}", 4), (5, 5), "insertText", 300.0);
+        history.record_input(at("{\"k\"}", 4), "{\"k\":}", (5, 5), "insertText", 300.0);
         // A line break Enter typed goes on with it.
-        history.record_input(at("{\"k\":}", 5), (6, 6), "insertLineBreak", 400.0);
+        history.record_input(
+            at("{\"k\":}", 5),
+            "{\"k\":\n}",
+            (6, 6),
+            "insertLineBreak",
+            400.0,
+        );
         assert_eq!(history.undo("{\"k\":\n}".into()), Some(at("{}", 1)));
         // Past a pause, or once the caret moved, stepping over starts nothing.
         let mut history = EditHistory::default();
-        history.record_input(at("{}", 1), (3, 3), "insertText", 0.0);
+        history.record_input(at("{}", 1), "{\"\"}", (3, 3), "insertText", 0.0);
         history.stepped_over(3, 4, 2000.0);
-        history.record_input(at("{\"\"}", 4), (5, 5), "insertText", 2100.0);
+        history.record_input(at("{\"\"}", 4), "{\"\":}", (5, 5), "insertText", 2100.0);
         assert_eq!(history.undo("{\"\":}".into()), Some(at("{\"\"}", 4)));
         let mut history = EditHistory::default();
-        history.record_input(at("{}", 1), (3, 3), "insertText", 0.0);
+        history.record_input(at("{}", 1), "{\"\"}", (3, 3), "insertText", 0.0);
         history.stepped_over(1, 2, 100.0);
-        history.record_input(at("{\"\"}", 2), (3, 3), "insertText", 200.0);
+        history.record_input(at("{\"\"}", 2), "{\"\":}", (3, 3), "insertText", 200.0);
         assert_eq!(history.undo("{\"\":}".into()), Some(at("{\"\"}", 2)));
+    }
+
+    #[test]
+    fn a_step_typed_back_to_its_start_is_no_step() {
+        let mut history = EditHistory::default();
+        history.record_action(at("", 0), (1, 1));
+        // `-` typed, then the Enter ending the list takes it away.
+        history.record_input(at("\n", 0), "-\n", (1, 1), "insertText", 0.0);
+        history.record_input(at("-\n", 1), "\n", (0, 0), "insertLineBreak", 100.0);
+        assert_eq!(history.undo("\n".into()), Some(at("", 0)));
+        // A drag dropped where it started.
+        let mut history = EditHistory::default();
+        history.record_input(at("ab", 0), "b", (0, 0), "deleteByDrag", 0.0);
+        history.record_input(at("b", 0), "ab", (1, 1), "insertFromDrop", 5.0);
+        assert_eq!(history.undo("ab".into()), None);
     }
 
     #[test]
     fn a_paste_is_its_own_step() {
         let mut history = EditHistory::default();
-        history.record_input(at("", 0), (5, 5), "insertFromPaste", 0.0);
-        history.record_input(at("hello", 5), (6, 6), "insertText", 10.0);
+        history.record_input(at("", 0), "hello", (5, 5), "insertFromPaste", 0.0);
+        history.record_input(at("hello", 5), "hello!", (6, 6), "insertText", 10.0);
         assert_eq!(history.undo("hello!".into()), Some(at("hello", 5)));
     }
 
@@ -518,7 +572,7 @@ mod tests {
     #[test]
     fn actions_are_separate_steps_and_clear_redo() {
         let mut history = EditHistory::default();
-        history.record_input(at("", 0), (1, 1), "insertText", 0.0);
+        history.record_input(at("", 0), "a", (1, 1), "insertText", 0.0);
         history.record_action(at("a", 1), (4, 4));
         assert_eq!(history.undo("a: ".into()), Some(at("a", 1)));
         history.record_action(at("a", 1), (2, 2));

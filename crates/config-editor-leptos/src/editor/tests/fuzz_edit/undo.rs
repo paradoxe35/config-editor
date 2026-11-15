@@ -241,6 +241,11 @@ pub(super) fn check(case: &UndoCase) -> Result<(), Failure> {
         };
         if !continues {
             expected.push(before.clone());
+        } else if expected.last() == Some(&after) {
+            // The step grew back to the text it started from: no step.
+            expected.pop();
+            open = None;
+            continue;
         }
         open = this.map(|group| (group, context.time, caret_after));
     }

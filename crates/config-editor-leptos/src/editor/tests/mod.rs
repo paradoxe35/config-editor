@@ -337,6 +337,8 @@ mod schema_walk;
     feature = "xml"
 ))]
 mod deep_option_completion_work;
+#[cfg(all(feature = "yaml", feature = "json"))]
+mod drag_under_switch;
 #[cfg(all(feature = "json", feature = "xml", feature = "schema-validation"))]
 mod edit_as_host_problems;
 #[cfg(all(

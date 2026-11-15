@@ -316,3 +316,53 @@ fn an_indent_enter_and_outdent_in_a_view_keep_every_link_in_the_text() {
         ],
     });
 }
+
+#[test]
+fn every_undo_step_after_a_paste_then_typing_changes_the_text() {
+    super::undo::replay(super::undo::UndoCase {
+        host: Language::YAML,
+        view: None,
+        schema: false,
+        text: "a:\n".into(),
+        interleaved: true,
+        actions: vec![
+            Paste {
+                at: 1357702,
+                to: 8363232,
+            },
+            Type {
+                at: 7181582,
+                text: "-",
+            },
+            Enter { at: 1249606 },
+        ],
+    });
+}
+
+#[test]
+fn undo_steps_in_an_xml_host_shown_as_json_follow_the_grouping() {
+    super::undo::replay(super::undo::UndoCase {
+        host: Language::XML,
+        view: Some(Language::JSON),
+        schema: false,
+        text: "<a>16762</a>\n".into(),
+        interleaved: false,
+        actions: vec![
+            Enter { at: 7682218 },
+            Enter { at: 4143467 },
+            Type {
+                at: 11402574,
+                text: "-",
+            },
+            Tab {
+                at: 67002,
+                to: 2901362,
+                shift: false,
+            },
+            Type {
+                at: 2618730,
+                text: ">",
+            },
+        ],
+    });
+}

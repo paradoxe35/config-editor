@@ -228,3 +228,51 @@ test.describe('a drag at a locked field is one move', () => {
     expect(await saveNow(page)).toBe(text);
   });
 });
+
+// A drag carries the text it began in. A switch waiting for the document
+// to convert, made on the typing pause while a drag went on, rewrote the
+// text under it, and the drop copied the dragged text into the new view;
+// a host value arriving during a drag did the same.
+test.describe('a drag while the document would be rewritten', () => {
+  test.skip(!built, 'js packages not built: run `npm run build` in js/');
+
+  /** Drags line 0 to the start of line 2, slowly, running `during` on the way. */
+  async function slowDrag(page, during) {
+    await select(page, 0, 0, Infinity);
+    const a = await point(page, 0, 1);
+    const b = await point(page, 2, 0);
+    await page.mouse.move(a.x, a.y);
+    await page.mouse.down();
+    await page.mouse.move(a.x + 4, a.y, { steps: 3 });
+    for (let step = 1; step <= 10; step += 1) {
+      const x = a.x + ((b.x - a.x) * step) / 10;
+      const y = a.y + ((b.y - a.y) * step) / 10;
+      await page.mouse.move(x, y, { steps: 2 });
+      await page.waitForTimeout(60);
+      if (step === 5) await during();
+    }
+    await page.mouse.up();
+  }
+
+  test('a switch waiting for the document waits for the drag, then shows the moved text', async ({ page }) => {
+    await open(page);
+    await mount(page, { language: 'yaml', value: 'a: 1\nb: 2\n😀' });
+    await page.evaluate(() => window.qa.update({ editAs: 'json' }));
+    await input(page).focus();
+    await page.keyboard.press('Control+End');
+    await page.keyboard.press('Backspace');
+    // The pause (and the switch) comes while the drag goes on.
+    await slowDrag(page, async () => {});
+    await expect.poll(() => page.evaluate(() => window.qa.value)).toBe('b: 2\na: 1\n');
+    await expect.poll(() => page.evaluate(() => window.qa.text)).toBe('{\n  "b": 2,\n  "a": 1\n}\n');
+  });
+
+  test('a drop after a host value is refused, nothing copied', async ({ page }) => {
+    await open(page);
+    await mount(page, { language: 'yaml', value: 'a: 1\nb: 2\n' });
+    await slowDrag(page, () => page.evaluate(() => window.qa.update({ value: 'c: 3\nd: 4\n' })));
+    await page.waitForTimeout(300);
+    expect(await page.evaluate(() => window.qa.text)).toBe('c: 3\nd: 4\n');
+    expect(await page.evaluate(() => window.qa.value)).toBe('c: 3\nd: 4\n');
+  });
+});

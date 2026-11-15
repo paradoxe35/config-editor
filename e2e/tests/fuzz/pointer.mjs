@@ -11,10 +11,19 @@ const frames = (page) => page.evaluate(() => new Promise((resolve) => requestAni
 // them all (a drop may indent its lines anew).
 const kept = (text) => [...text.replace(/\s/g, '')].sort().join('');
 
+// The text on screen and its language (the frame's label names it).
+const shownText = (page) =>
+  page.evaluate(() => ({
+    text: window.__fz.editor()?.text,
+    language: window.__fz.root()?.querySelector('.config-editor__frame')?.getAttribute('aria-label') ?? null,
+  }));
+
 // Selects `length` characters at `fraction` of the text, grabs the
 // selection and drops it at a point of the text: the text after is the
-// text before (the move refused, or dropped on itself) or the same
-// characters moved, none lost or doubled.
+// text the drag began in (the move refused, or dropped on itself) or the
+// same characters moved, none lost or doubled. The text is read once the
+// drag has begun: a switch waiting for the document may land before (on
+// the typing pause), never while it goes on.
 export async function dragMove(run, action) {
   const { page } = run;
   const picked = await page.evaluate(({ at: fraction, length }) => {
@@ -37,16 +46,27 @@ export async function dragMove(run, action) {
   await page.mouse.move(from.x, from.y);
   await page.mouse.down();
   await page.mouse.move(from.x + 4, from.y, { steps: 3 });
+  const began = await shownText(page);
+  if (typeof began.text !== 'string') return null;
+  if (began.text !== picked.text) run.reached('the text rewritten before a drag began');
   await page.mouse.move(to.x, to.y, { steps: 8 });
   await page.mouse.up();
+  const dropped = await shownText(page);
+  if (dropped.language !== began.language)
+    return { check: 'drag-move', detail: `the view switched from ${began.language} to ${dropped.language} during a drag` };
   // The drop lands at the end of the task, a refusal's repair with it.
   await page.waitForTimeout(150);
-  const after = await page.evaluate(() => window.__fz.editor()?.text);
-  if (typeof after === 'string' && after !== picked.text) run.reached('text moved by a drag');
-  if (typeof after !== 'string' || after === picked.text || kept(after) === kept(picked.text)) return null;
+  const { text: after, language } = await shownText(page);
+  // A switch that waited for the drag, made on the drop's typing pause.
+  if (language !== began.language) {
+    run.reached('a switch made after a drag');
+    return null;
+  }
+  if (typeof after === 'string' && after !== began.text) run.reached('text moved by a drag');
+  if (typeof after !== 'string' || after === began.text || kept(after) === kept(began.text)) return null;
   return {
     check: 'drag-move',
-    detail: `dragging ${JSON.stringify(picked.text.slice(picked.start, picked.end))} made ${JSON.stringify(after).slice(0, 160)} of ${JSON.stringify(picked.text).slice(0, 160)}`,
+    detail: `dragging ${JSON.stringify(picked.text.slice(picked.start, picked.end))} made ${JSON.stringify(after).slice(0, 160)} of ${JSON.stringify(began.text).slice(0, 160)}`,
   };
 }
 

@@ -267,12 +267,10 @@ impl EditorState {
         let history = self.doc().history;
         match &edit.origin {
             // An edit writing the text that is there (a replace by the
-            // same text, a suggestion already written) is no step: undo
-            // would seem to do nothing; it still ends the typing step.
-            Origin::Command | Origin::Reload { .. } if !changed => {
-                history.update(super::super::history::EditHistory::seal);
-            }
-            Origin::Input { .. } if !changed => {}
+            // same text, a suggestion already written, a Tab over the
+            // indent it writes) is nothing to the history: no step, and
+            // typing on where it stopped goes on in the same step.
+            Origin::Command | Origin::Reload { .. } | Origin::Input { .. } if !changed => {}
             Origin::Command => history.update(|history| {
                 let (closed, left) = folds.unzip();
                 let before = Snapshot {
@@ -285,7 +283,9 @@ impl EditorState {
                 history.update(|history| history.record_action(before(), after));
             }
             Origin::Input { kind, time } => {
-                history.update(|history| history.record_input(before(), after, kind, *time));
+                history.update(|history| {
+                    history.record_input(before(), &edit.text, after, kind, *time);
+                });
             }
             Origin::Undo => history.update(|history| {
                 history.undo_with(edit.before.clone(), links.clone());

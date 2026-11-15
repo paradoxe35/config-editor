@@ -46,6 +46,12 @@ pub(super) fn before_input(state: EditorState, event: &web_sys::InputEvent) {
         let kind = event.input_type();
         if kind == "deleteByDrag" {
             state.drag_starts();
+            // The document was rewritten under the drag: refused, its drop
+            // with it.
+            if state.rewritten_under_drag() {
+                event.prevent_default();
+                return;
+            }
             // Taking a closed fold's shown closing line away rewrites the
             // textarea under the drag: refused, its drop with it.
             if state.delete_reshapes_folds(start, end) {
@@ -57,7 +63,7 @@ pub(super) fn before_input(state: EditorState, event: &web_sys::InputEvent) {
                 event.prevent_default();
                 return;
             }
-        } else if kind == "insertFromDrop" && state.drop_refused_by_its_delete() {
+        } else if kind == "insertFromDrop" && state.drop_refused_early() {
             event.prevent_default();
             state.drop_done();
             return;
@@ -531,6 +537,8 @@ fn mouse_down(state: EditorState, event: &web_sys::MouseEvent) {
         return;
     }
     state.view().page_goal.set_value(None);
+    // A press is no drag going on (one whose end never came).
+    state.drag_ended();
     let Some(element) = target_textarea(state, event) else {
         return;
     };
@@ -672,6 +680,11 @@ pub(super) fn attach_listeners(state: EditorState) {
                 })),
             ),
             ("mouseup", clipboard(Box::new(move |_| mouse_up(state)))),
+            (
+                "dragstart",
+                clipboard(Box::new(move |_| state.drag_began())),
+            ),
+            ("dragend", clipboard(Box::new(move |_| state.drag_ended()))),
             (
                 "compositionstart",
                 clipboard(Box::new(move |_| state.typing().composing.set_value(true))),
