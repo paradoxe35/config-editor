@@ -60,6 +60,13 @@ pub fn required_children<'a>(
     schema: &'a Value,
     root: &'a Value,
 ) -> Vec<RequiredChild<'a>> {
+    // A block writing the key's default or const writes no children.
+    if kept_default(language, schema, root)
+        .or_else(|| kept_const(language, schema, root))
+        .is_some_and(|value| !value.is_object())
+    {
+        return Vec::new();
+    }
     let mut caret = false;
     let mut found = children(language, schema, root, &mut caret, 0);
     if !caret {
@@ -94,37 +101,120 @@ fn children<'a>(
     let items = || {
         array_branch(schema, root)
             .and_then(|array| array.get("items"))
-            .and_then(|items| object_branch(items, root))
+            .filter(|items| object_branch(items, root).is_some())
     };
-    let Some(branch) = object_branch(schema, root).or_else(items) else {
-        return Vec::new();
-    };
-    let Some(properties) = branch.get("properties").and_then(Value::as_object) else {
-        return Vec::new();
+    let object = if object_branch(schema, root).is_some() {
+        schema
+    } else {
+        match items() {
+            Some(items) => items,
+            None => return Vec::new(),
+        }
     };
     let mut found = Vec::new();
-    for name in branch
-        .get("required")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(Value::as_str)
-    {
-        let key = language.required_property(name);
-        let Some((key, child)) = properties.get_key_value(key) else {
-            continue;
-        };
+    for (key, child, at) in required_keys(language, object, root) {
         if !writes_key(language, key) {
             continue;
         }
-        let Some(fill) = fill(language, child, root, caret, depth) else {
+        let Some(fill) = fill(language, child, &at, root, caret, depth) else {
             continue;
         };
         found.push(RequiredChild {
-            key: key.as_str(),
+            key,
             schema: child,
             fill,
         });
+    }
+    found
+}
+
+/// The schema of a key no schema describes: any value.
+static ANY_VALUE: std::sync::LazyLock<Value> =
+    std::sync::LazyLock::new(|| Value::Object(serde_json::Map::new()));
+
+/// The required keys of the object `schema` describes (as `language`
+/// spells them), in the order the schemas list them, each once with the
+/// schema describing it: the `required` of every schema certain to apply
+/// to the object and of its object branch (an option it may take), and a
+/// key's schema the one those give it (its property, a pattern matching
+/// it, `additionalProperties`), else one allowing any value.
+pub(super) fn required_keys<'a>(
+    language: &dyn ConfigLanguage,
+    schema: &'a Value,
+    root: &'a Value,
+) -> Vec<(&'a str, &'a Value, Entry<'a>)> {
+    let here = Here::of(schema, root);
+    let mut sources = here.certain();
+    if let Some(branch) = object_branch(schema, root)
+        && !sources.iter().any(|known| std::ptr::eq(*known, branch))
+    {
+        sources.push(branch);
+    }
+    let mut found: Vec<(&'a str, &'a Value, Entry<'a>)> = Vec::new();
+    let required = sources
+        .iter()
+        .filter_map(|source| source.get("required").and_then(Value::as_array))
+        .flatten()
+        .filter_map(Value::as_str);
+    // And each key a required one makes required in turn (`dependentRequired`,
+    // draft 7's `dependencies` lists, a dependent schema's `required`).
+    let mut names: Vec<&'a str> = required.collect();
+    let mut at = 0;
+    while at < names.len() && names.len() < MAX_REQUIRED {
+        for name in dependent_required(&sources, names[at]) {
+            if !names.contains(&name) {
+                names.push(name);
+            }
+        }
+        at += 1;
+    }
+    for name in names {
+        let key = language.required_property(name);
+        if found.iter().any(|(known, _, _)| *known == key) {
+            continue;
+        }
+        let at = here.child(&SchemaPathSegment::Key(key.to_string()));
+        let described = at.schemas();
+        let child = described
+            .iter()
+            .find(|schema| !names_only(schema))
+            .or(described.first())
+            .copied()
+            .unwrap_or(&*ANY_VALUE);
+        found.push((key, child, at));
+    }
+    found
+}
+
+/// Most required keys one object's fill writes.
+const MAX_REQUIRED: usize = 256;
+
+/// The keys `sources` (an object's schemas) require once `key` is there.
+fn dependent_required<'a>(sources: &[&'a Value], key: &str) -> Vec<&'a str> {
+    let listed = |list: &'a Value| {
+        list.as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .collect::<Vec<_>>()
+    };
+    let mut found = Vec::new();
+    for source in sources {
+        if let Some(list) = source
+            .get("dependentRequired")
+            .and_then(|deps| deps.get(key))
+        {
+            found.extend(listed(list));
+        }
+        for keyword in ["dependencies", "dependentSchemas"] {
+            match source.get(keyword).and_then(|deps| deps.get(key)) {
+                Some(list @ Value::Array(_)) => found.extend(listed(list)),
+                Some(schema) => {
+                    found.extend(schema.get("required").map(listed).unwrap_or_default())
+                }
+                None => {}
+            }
+        }
     }
     found
 }
@@ -133,18 +223,28 @@ fn children<'a>(
 fn fill<'a>(
     language: &dyn ConfigLanguage,
     child: &'a Value,
+    at: &Entry<'_>,
     root: &'a Value,
     caret: &mut bool,
     depth: usize,
 ) -> Option<Fill<'a>> {
-    if let Some(default) = kept_default(language, child, root) {
+    if let Some(default) = kept_default(language, child, root)
+        .filter(|default| at.accepts(default, root) != Some(false))
+    {
         return Some(Fill::Value(default.clone()));
     }
     if array_branch(child, root).is_some() && object_branch(child, root).is_none() {
         let empty = Value::Array(Vec::new());
-        let list = [least_list(language, child, root), empty]
+        // A list the language cannot write (XML's empty one) is left out,
+        // unless the schema takes a value that is no list there (list
+        // keywords with no `type`): an empty value to type then.
+        let Some(list) = [least_list(language, child, root), empty]
             .into_iter()
-            .find(|list| language_keeps(language, list, child, root))?;
+            .find(|list| language_keeps(language, list, child, root))
+        else {
+            let takes_text = decides(child, &Value::String(String::new()), root) == Some(true);
+            return takes_text.then_some(Fill::Empty(None));
+        };
         // Items to type: the caret starts in the first one when no value
         // before the list took it.
         if list.as_array().is_some_and(|items| !items.is_empty()) && !*caret {
@@ -165,9 +265,9 @@ fn fill<'a>(
             string: placeholder(child, root).is_string(),
         });
     }
-    Some(match filled_past_caret(language, child, root) {
+    Some(match filled_past_caret(language, child, at, root) {
         Some(value) => Fill::Value(value),
-        None => Fill::Empty(fill_value(language, child, root)),
+        None => Fill::Empty(super::fill::fill_value_at(language, child, at, root)),
     })
 }
 

@@ -78,7 +78,28 @@ pub(super) fn check(case: &Case) -> Verdict {
         // The save waits, telling why: no silent change.
         Err(_) => return Verdict::Skipped,
     };
+    // A view typed as it was shown is unchanged: it saves nothing (its
+    // host keeps every value as it was, read as the view may read it).
+    if bridge
+        .to_edit(&host_text)
+        .is_ok_and(|shown| shown.text == typed)
+    {
+        return if saved == host_text {
+            Verdict::Holds
+        } else {
+            Verdict::Fails(failure(
+                "an unchanged view changes its host",
+                format!("{host} host:\n{host_text}saved:\n{saved}"),
+            ))
+        };
+    }
     let host_value = both.read(host, &saved);
+    // A value the view leaves as the host has it keeps its host form (the
+    // save writes nothing for it), whatever the view reads it as.
+    let view_value = match &host_value {
+        Some(host_value) => untouched_from(&view_value, &case.other, &case.doc, host_value),
+        None => view_value,
+    };
     let seen = |what: &str| {
         format!(
             "{host} host:\n{host_text}{edit} view typed:\n{typed}reads {view_value}\nsaved:\n{saved}reads {host_value:?}\n{what}"
@@ -158,4 +179,37 @@ fn values_typed_in_an_edit_as_view_save_as_the_view_reads_them() {
         draw,
         check,
     });
+}
+
+/// `view` with each value `typed` (the document the view was typed from)
+/// leaves as `before` (the host's document) has it taken from `host` (what
+/// the save reads back): untouched values keep their host form.
+fn untouched_from(
+    view: &serde_json::Value,
+    typed: &serde_json::Value,
+    before: &serde_json::Value,
+    host: &serde_json::Value,
+) -> serde_json::Value {
+    use serde_json::Value;
+    if typed == before {
+        return host.clone();
+    }
+    match (view, typed, before, host) {
+        (Value::Object(view), Value::Object(typed), Value::Object(before), Value::Object(host)) => {
+            Value::Object(
+                view.iter()
+                    .map(|(key, value)| {
+                        let kept = match (typed.get(key), before.get(key), host.get(key)) {
+                            (Some(typed), Some(before), Some(host)) => {
+                                untouched_from(value, typed, before, host)
+                            }
+                            _ => value.clone(),
+                        };
+                        (key.clone(), kept)
+                    })
+                    .collect(),
+            )
+        }
+        _ => view.clone(),
+    }
 }

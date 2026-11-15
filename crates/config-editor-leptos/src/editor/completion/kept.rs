@@ -41,13 +41,18 @@ pub fn language_keeps(
 }
 
 /// The `default` of `property` ([`schema_default`]) when `language` keeps
-/// it ([`language_keeps`]); a suggestion writes it, else nothing.
+/// it ([`language_keeps`]) and the schemas applying to the value do not
+/// refuse it (a `default` beside an `allOf` asking another type); a
+/// suggestion writes it, else nothing.
 pub fn kept_default<'a>(
     language: &dyn ConfigLanguage,
     property: &'a Value,
     root: &'a Value,
 ) -> Option<&'a Value> {
-    schema_default(property, root).filter(|value| language_keeps(language, value, property, root))
+    schema_default(property, root).filter(|value| {
+        decides(property, value, root) != Some(false)
+            && language_keeps(language, value, property, root)
+    })
 }
 
 /// The `const` of `property` ([`schema_const`]) when `language` keeps it.
@@ -56,7 +61,10 @@ pub fn kept_const<'a>(
     property: &'a Value,
     root: &'a Value,
 ) -> Option<&'a Value> {
-    schema_const(property, root).filter(|value| language_keeps(language, value, property, root))
+    schema_const(property, root).filter(|value| {
+        decides(property, value, root) != Some(false)
+            && language_keeps(language, value, property, root)
+    })
 }
 
 /// What a required child past the one the caret goes to gets: its
@@ -65,9 +73,10 @@ pub fn kept_const<'a>(
 pub(super) fn filled_past_caret(
     language: &dyn ConfigLanguage,
     schema: &Value,
+    at: &Entry<'_>,
     root: &Value,
 ) -> Option<Value> {
-    fill_value(language, schema, root).filter(|value| match value {
+    super::fill::fill_value_at(language, schema, at, root).filter(|value| match value {
         Value::Null => false,
         Value::String(text) => !text.is_empty(),
         Value::Object(members) => !members.is_empty(),

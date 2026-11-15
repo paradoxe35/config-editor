@@ -47,7 +47,13 @@ pub(super) fn conform(
         Repetition::Blocks => value.is_object(),
         _ => false,
     };
-    if wants_array && repeatable && !branches.iter().any(|branch| accepts(branch, value)) {
+    // A lone value the schemas take as it is (list keywords with no
+    // `type` say nothing of a value that is no list) stays itself.
+    if wants_array
+        && repeatable
+        && !branches.iter().any(|branch| accepts(branch, value))
+        && at.accepts(value, root) != Some(true)
+    {
         *value = Value::Array(vec![value.take()]);
     }
     // Each child read with every schema that applies to it there.
@@ -58,7 +64,7 @@ pub(super) fn conform(
     };
     let children: Vec<Entry<'_>> = segments
         .iter()
-        .map(|segment| applied.child(segment))
+        .map(|segment| applied.child_typed(segment))
         .collect();
     match value {
         Value::Array(items) => {
@@ -72,6 +78,60 @@ pub(super) fn conform(
             }
         }
         _ => {}
+    }
+    if repetition == Repetition::Elements {
+        reread_for_object(value, at, root);
+    }
+}
+
+/// Scalars of an XML object [`reread_for_object`] tries reading the other
+/// way at most: a refused object is tried a bounded number of times.
+const MAX_REREADS: usize = 8;
+
+/// An object the schemas at it refuse as its scalars were read (`0` read
+/// as the string a `oneOf` option's `port` takes, so that two options
+/// match): each scalar read the other way (text as the number, boolean or
+/// `null` it writes, or such a value as its text), one at a time, kept
+/// where that makes the schemas take the object.
+fn reread_for_object(value: &mut Value, at: &Entry<'_>, root: &Value) {
+    if !value.is_object() || at.accepts_near(value, root) != Some(false) {
+        return;
+    }
+    let keys: Vec<String> = value
+        .as_object()
+        .map(|map| {
+            map.iter()
+                .filter(|(_, child)| other_reading(child).is_some())
+                .map(|(key, _)| key.clone())
+                .take(MAX_REREADS)
+                .collect()
+        })
+        .unwrap_or_default();
+    for key in keys {
+        let Some(slot) = value.get_mut(&key) else {
+            continue;
+        };
+        let Some(other) = other_reading(slot) else {
+            continue;
+        };
+        let read = std::mem::replace(slot, other);
+        if at.accepts_near(value, root) == Some(true) {
+            return;
+        }
+        if let Some(slot) = value.get_mut(&key) {
+            *slot = read;
+        }
+    }
+}
+
+/// A scalar of XML text read the other way: text as the number, boolean
+/// or `null` it writes, or such a value as its text. (An empty element
+/// stays an object: `<cloudflare/>` is the object it starts.)
+fn other_reading(value: &Value) -> Option<Value> {
+    match value {
+        Value::String(text) => text_literal(text),
+        Value::Number(_) | Value::Bool(_) | Value::Null => Some(Value::String(scalar_text(value))),
+        _ => None,
     }
 }
 

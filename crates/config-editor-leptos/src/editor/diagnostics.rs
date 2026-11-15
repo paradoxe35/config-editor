@@ -792,7 +792,11 @@ pub(super) fn validate_with(
     if let Some(schema) = schema {
         let placeholders = Fields::new(accepted_pointers(&document, accepted));
         let secrets = Fields::new(if schema.has_marks {
-            super::protect::secret_pointers(&document, &schema.schema)
+            super::protect::secret_pointers(
+                &document,
+                &schema.schema,
+                behavior.repetition() != crate::editor::language::Repetition::None,
+            )
         } else {
             Vec::new()
         });
@@ -1126,7 +1130,23 @@ fn deprecation_warnings(
     if !bundle.has_deprecated {
         return Vec::new();
     }
-    super::completion::deprecated_keys(document, &bundle.schema, MAX_DEPRECATION_WARNINGS)
+    let found =
+        super::completion::deprecated_keys(document, &bundle.schema, MAX_DEPRECATION_WARNINGS);
+    // Every key's place read in one pass over the text, not one each.
+    let pointers: Vec<String> = found.iter().map(|found| found.pointer.clone()).collect();
+    super::paths::with_spans(behavior, source, &pointers, || {
+        deprecation_diagnostics(found, source, behavior, strings)
+    })
+}
+
+/// The warnings of the deprecated keys `found`, each on its key.
+fn deprecation_diagnostics(
+    found: Vec<super::completion::DeprecatedKey>,
+    source: &str,
+    behavior: &dyn ConfigLanguage,
+    strings: &EditorStrings,
+) -> Vec<Diagnostic> {
+    found
         .into_iter()
         .filter_map(|found| {
             // The key alone, struck through as VS Code does.
@@ -1152,11 +1172,7 @@ fn deprecation_warnings(
                 message,
                 severity: Severity::Warning,
                 deprecated: true,
-                docs_url: super::completion::docs_url_at(
-                    &bundle.schema,
-                    &found.pointer,
-                    behavior.repetition() != super::language::Repetition::None,
-                ),
+                docs_url: found.docs_url,
                 ..Diagnostic::default()
             })
         })

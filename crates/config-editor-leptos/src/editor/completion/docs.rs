@@ -41,6 +41,7 @@ pub(crate) fn docs_url(schema: &Value, root: &Value) -> Option<String> {
 /// The `x-docs-url` of the value at JSON `pointer` (its property's, or an
 /// item's), so a problem there links to its docs as the hover does.
 /// `repeats_arrays` as in [`Applies`].
+#[cfg(feature = "schema-validation")]
 pub(crate) fn docs_url_at(root: &Value, pointer: &str, repeats_arrays: bool) -> Option<String> {
     let path: Vec<SchemaPathSegment> = crate::editor::language::pointer_segments(pointer)
         .into_iter()
@@ -159,13 +160,19 @@ pub(crate) struct DeprecatedKey {
     pub(crate) key: String,
     /// What to use instead (`deprecationMessage`).
     pub(crate) message: Option<String>,
+    /// Its schema's docs link (see [`docs_url`]).
+    pub(crate) docs_url: Option<String>,
 }
 
 /// Up to `limit` keys of `document` that the schema marks deprecated, in
 /// document order.
 pub(crate) fn deprecated_keys(document: &Value, root: &Value, limit: usize) -> Vec<DeprecatedKey> {
     let mut found = Vec::new();
-    each_value(document, root, true, &mut |visit| {
+    let walking = Walking {
+        decided: true,
+        repeats_arrays: false,
+    };
+    each_value(document, root, walking, &mut |visit| {
         if found.len() >= limit {
             return Next::Stop;
         }
@@ -180,6 +187,11 @@ pub(crate) fn deprecated_keys(document: &Value, root: &Value, limit: usize) -> V
             found.push(DeprecatedKey {
                 pointer: visit.pointer.to_string(),
                 key: key.clone(),
+                docs_url: visit
+                    .here
+                    .schemas()
+                    .into_iter()
+                    .find_map(|schema| docs_url(schema, root)),
                 message: branches.iter().find_map(|branch| {
                     branch
                         .get("deprecationMessage")
@@ -235,12 +247,14 @@ mod tests {
                 DeprecatedKey {
                     pointer: "/timeout".into(),
                     key: "timeout".into(),
-                    message: Some("Use deadline.".into())
+                    message: Some("Use deadline.".into()),
+                    docs_url: None,
                 },
                 DeprecatedKey {
                     pointer: "/servers/0/weight".into(),
                     key: "weight".into(),
-                    message: None
+                    message: None,
+                    docs_url: None,
                 },
             ]
         );

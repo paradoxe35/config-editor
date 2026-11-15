@@ -8,7 +8,8 @@
 //! Each property draws its cases from a fixed seed (`SCHEMA_FUZZ_SEED`
 //! changes it) and runs a modest number of them (`SCHEMA_FUZZ_CASES` runs
 //! more, thousands at a time). A failing case is shrunk to a small one and
-//! printed as a test to paste; the failures are grouped by class, and a
+//! printed as a test to paste (`SCHEMA_FUZZ_FAILS` prints every failing
+//! case too); the failures are grouped by class, and a
 //! class a known finding explains is allowed by name (see [`known`]).
 
 mod documents;

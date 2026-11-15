@@ -44,14 +44,13 @@ impl<'s> Leaves<'s> {
                 }
             }
             Node::Options(choices) => {
-                let matched = choices.iter().any(|choice| choice.state == State::Matched);
+                let matched = choices.iter().any(|choice| choice.state.taken());
                 for choice in choices {
                     let takes = match self.walked {
                         Walked::Any => true,
-                        Walked::Certain => choice.state == State::Matched,
+                        Walked::Certain => choice.state.taken(),
                         Walked::Offered => {
-                            choice.state == State::Matched
-                                || (!matched && choice.state == State::Open)
+                            choice.state.taken() || (!matched && choice.state == State::Open)
                         }
                     };
                     if takes {

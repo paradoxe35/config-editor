@@ -243,7 +243,11 @@ pub(super) fn mentions_marks(_schema: &Value) -> bool {
 }
 
 #[cfg(feature = "schema-validation")]
-pub(super) fn secret_pointers(_document: &Value, _root: &Value) -> Vec<String> {
+pub(super) fn secret_pointers(
+    _document: &Value,
+    _root: &Value,
+    _repeats_arrays: bool,
+) -> Vec<String> {
     Vec::new()
 }
 

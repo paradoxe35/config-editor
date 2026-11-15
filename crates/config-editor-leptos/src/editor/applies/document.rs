@@ -30,15 +30,26 @@ pub(crate) struct Visit<'v, 's> {
     pub(crate) here: &'v Here<'s>,
 }
 
+/// How a document is walked.
+#[derive(Clone, Copy, Default)]
+pub(crate) struct Walking {
+    /// What applies is walked for each value (its conditionals and
+    /// options decided by it), else for any value (what the schema may
+    /// say there, as locks read it).
+    pub(crate) decided: bool,
+    /// A key naming an array is one of its items as well (a language that
+    /// writes a list by repeating its key writes a one-item list as the
+    /// item alone).
+    pub(crate) repeats_arrays: bool,
+}
+
 /// Visits each value of `document` (parents first, in document order)
 /// with what applies to it; a value no schema says anything of is not
-/// visited, nor are its children. `decided`: what applies is walked for
-/// each value (its conditionals and options decided by it), else for any
-/// value (what the schema may say there, as locks read it).
+/// visited, nor are its children.
 pub(crate) fn each_value<'s>(
     document: &Value,
     root: &'s Value,
-    decided: bool,
+    walking: Walking,
     visit: &mut dyn FnMut(&Visit<'_, 's>) -> Next,
 ) {
     let mut pointer = String::new();
@@ -48,14 +59,14 @@ pub(crate) fn each_value<'s>(
         Entry::schema(root),
         root,
         &mut pointer,
-        &mut Walk { decided, visit },
+        &mut Walk { walking, visit },
         0,
     );
 }
 
 #[allow(clippy::too_many_arguments)]
 struct Walk<'w, 's> {
-    decided: bool,
+    walking: Walking,
     visit: &'w mut dyn FnMut(&Visit<'_, 's>) -> Next,
 }
 
@@ -71,7 +82,7 @@ fn walk<'s>(
     if depth > MAX_DEPTH || entry.is_empty() {
         return Next::Past;
     }
-    let seen = Seen::value(walker.decided.then_some(value));
+    let seen = Seen::value(walker.walking.decided.then_some(value));
     let here = Here::walk(entry, root, seen);
     let visited = Visit {
         pointer,
@@ -87,10 +98,18 @@ fn walk<'s>(
         |segment: SchemaPathSegment, step: &str, value: &Value, pointer: &mut String| {
             pointer.push('/');
             pointer.push_str(step);
+            let mut entry = here.child_named(&segment);
+            if walker.walking.repeats_arrays
+                && matches!(segment, SchemaPathSegment::Key(_))
+                && !entry.is_empty()
+            {
+                let seen = Seen::value(walker.walking.decided.then_some(value));
+                entry = super::with_items(entry.clone(), &Here::walk(entry, root, seen));
+            }
             let next = walk(
                 value,
                 Some(&segment),
-                here.child_named(&segment),
+                entry,
                 root,
                 pointer,
                 walker,

@@ -17,7 +17,7 @@ pub(super) fn keep(value: &mut Value, retyped: Vec<(String, Value)>, schema: &Va
         let at = {
             let document = &*value;
             let whole = || Some(document);
-            Applies::new(schema, false, &whole)
+            Applies::for_types(schema, false, &whole)
                 .at(&path)
                 .entry()
                 .clone()

@@ -3,7 +3,7 @@
 //! required children and a list's least items (see [`least`]), only what
 //! the language reads back as written.
 
-use super::least::least_items;
+use super::least::{least_items, others};
 use super::*;
 
 /// What an inserted block writes for a required child the caret does not
@@ -12,13 +12,27 @@ use super::*;
 /// children filled the same way (`{cpu: 2}`, not `{}`) — the first of them
 /// that `language` keeps, else nothing (an empty value Tab stops at).
 pub fn fill_value(language: &dyn ConfigLanguage, schema: &Value, root: &Value) -> Option<Value> {
-    Filler::new(language, root).filled(schema, 0)
+    Filler::new(language, root).filled(schema, None, 0)
+}
+
+/// [`fill_value`] for a value `at` names every schema of (its property,
+/// a pattern, a branch beside them): what it writes they all allow.
+pub(super) fn fill_value_at(
+    language: &dyn ConfigLanguage,
+    schema: &Value,
+    at: &Entry<'_>,
+    root: &Value,
+) -> Option<Value> {
+    Filler::new(language, root).filled(schema, Some(at), 0)
 }
 
 /// The list a list `schema` describes is written as (see [`least_items`]).
 pub(super) fn least_list(language: &dyn ConfigLanguage, schema: &Value, root: &Value) -> Value {
     least_items(&mut Filler::new(language, root), schema, 0)
 }
+
+/// Values past each bound [`Filler::filled`] tries when its own are refused.
+const OTHERS: usize = 4;
 
 /// How deep required children and list items are filled (a schema requiring itself ends there).
 pub(super) const MAX_FILL_DEPTH: usize = 8;
@@ -58,19 +72,36 @@ impl<'a> Filler<'a> {
         language_keeps(self.language, value, schema, self.root)
     }
 
-    /// [`fill_value`] at `depth`.
-    pub(super) fn filled(&mut self, schema: &Value, depth: usize) -> Option<Value> {
+    /// Whether `schema` (every schema applying to a value of it) does not
+    /// refuse `value`, as far as the quick check tells.
+    fn allows(&self, value: &Value, schema: &Value, at: Option<&Entry<'_>>) -> bool {
+        decides(schema, value, self.root) != Some(false)
+            && at.is_none_or(|at| at.accepts(value, self.root) != Some(false))
+    }
+
+    /// [`fill_value`] at `depth`: the first of its default or const, its
+    /// example and its placeholder that the language keeps and the schema
+    /// allows, else another value the schema allows ([`others`]: an enum
+    /// member, a number past its bound, …), else the placeholder the
+    /// language keeps.
+    /// `at`: every schema applying to the value, where more than `schema`.
+    pub(super) fn filled(
+        &mut self,
+        schema: &Value,
+        at: Option<&Entry<'_>>,
+        depth: usize,
+    ) -> Option<Value> {
         let root = self.root;
         let branches = resolve_branches(schema, root);
         if let Some(value) = branches
             .iter()
             .find_map(|branch| branch.get("default").or_else(|| branch.get("const")))
-            .filter(|value| self.keeps(value, schema))
+            .filter(|value| self.keeps(value, schema) && self.allows(value, schema, at))
         {
             return Some(value.clone());
         }
-        if let Some(example) =
-            schema_example(schema, root).filter(|value| self.keeps(value, schema))
+        if let Some(example) = schema_example(schema, root)
+            .filter(|value| self.keeps(value, schema) && self.allows(value, schema, at))
         {
             return Some(example);
         }
@@ -81,7 +112,22 @@ impl<'a> Filler<'a> {
             Value::Array(items) if items.is_empty() => least_items(self, schema, depth),
             other => other,
         };
-        Some(value).filter(|value| self.keeps(value, schema))
+        if self.keeps(&value, schema) && self.allows(&value, schema, at) {
+            return Some(value);
+        }
+        let empty = [
+            Value::String(String::new()),
+            Value::from(0),
+            Value::Bool(false),
+            Value::Null,
+            Value::Array(Vec::new()),
+            Value::Object(serde_json::Map::new()),
+        ];
+        others(schema, root, std::slice::from_ref(&value), OTHERS)
+            .into_iter()
+            .chain(empty)
+            .find(|other| self.keeps(other, schema) && self.allows(other, schema, at))
+            .or_else(|| Some(value).filter(|value| self.keeps(value, schema)))
     }
 
     /// An object of `schema`'s required children, each [`Self::filled`],
@@ -90,21 +136,10 @@ impl<'a> Filler<'a> {
         if depth >= MAX_FILL_DEPTH {
             return None;
         }
-        let branch = object_branch(schema, self.root)?;
-        let properties = branch.get("properties").and_then(Value::as_object)?;
+        object_branch(schema, self.root)?;
         let mut members = serde_json::Map::new();
-        for name in branch
-            .get("required")
-            .and_then(Value::as_array)
-            .into_iter()
-            .flatten()
-            .filter_map(Value::as_str)
-        {
-            let key = self.language.required_property(name);
-            let Some(child) = properties.get(key) else {
-                continue;
-            };
-            if let Some(value) = self.filled(child, depth + 1) {
+        for (key, child, at) in super::required::required_keys(self.language, schema, self.root) {
+            if let Some(value) = self.filled(child, Some(&at), depth + 1) {
                 members.insert(key.to_string(), value);
             }
         }

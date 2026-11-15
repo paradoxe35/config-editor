@@ -105,8 +105,8 @@ pub(super) fn root_values(
     if objects(branches) || !branches.iter().any(|branch| describes_array(branch)) {
         return None;
     }
-    let items = applies.at(&[SchemaPathSegment::ArrayItem(0)]).branches();
-    if objects(&items) {
+    let items = applies.at(&[SchemaPathSegment::ArrayItem(0)]);
+    if objects(&items.branches()) {
         return None;
     }
     let mut options = value_completions(

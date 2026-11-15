@@ -132,7 +132,7 @@ pub fn placeholder(schema: &Value, root: &Value) -> Value {
     }
     if branches
         .iter()
-        .any(|branch| branch.get("properties").is_some())
+        .any(|branch| branch.get("properties").is_some() || branch.get("required").is_some())
     {
         return Value::Object(serde_json::Map::new());
     }
@@ -177,6 +177,7 @@ pub fn array_branch<'a>(schema: &'a Value, root: &'a Value) -> Option<&'a Value>
 /// Whether one schema (a branch) describes an object.
 pub(super) fn describes_object(branch: &Value) -> bool {
     branch.get("properties").is_some()
+        || branch.get("required").is_some()
         || branch.get("patternProperties").is_some()
         || branch.get("additionalProperties").is_some()
         || branch.get("unevaluatedProperties").is_some()

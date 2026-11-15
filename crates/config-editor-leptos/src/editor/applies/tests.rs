@@ -207,3 +207,13 @@ fn values_are_found_at_their_path() {
     );
     assert_eq!(value_at(&document, &[key("z")]), None);
 }
+
+#[test]
+fn a_lone_xml_value_is_one_item_once() {
+    use crate::editor::completion::conform_arrays;
+    use crate::editor::language::Repetition;
+    let schema = json!({"properties": {"a": {"allOf": [{"type": "array"}]}}});
+    let mut value = json!({"a": true});
+    conform_arrays(&mut value, &schema, Repetition::Elements);
+    assert_eq!(value, json!({"a": [true]}));
+}

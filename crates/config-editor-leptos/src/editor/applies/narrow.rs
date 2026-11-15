@@ -30,8 +30,8 @@ pub(super) fn states(options: &[Tree<'_>], seen: Seen<'_>, root: &Value) -> Vec<
         .iter()
         .map(|&refuted| if refuted { State::Refuted } else { State::Open })
         .collect();
-    if let Some(matched) = matched(&looks, &left, map, seen.keys, root) {
-        states[matched] = State::Matched;
+    if let Some((matched, state)) = matched(&looks, &left, map, seen.keys, root) {
+        states[matched] = state;
     }
     states
 }
@@ -141,13 +141,13 @@ fn matched(
     map: Option<&Map<String, Value>>,
     keys: Option<&HashSet<String>>,
     root: &Value,
-) -> Option<usize> {
+) -> Option<(usize, State)> {
     let only = |found: &[usize]| match found {
         [only] => Some(*only),
         _ => None,
     };
     if let Some(only) = only(left) {
-        return Some(only);
+        return Some((only, State::Matched));
     }
     let has = |key: &str| {
         map.is_some_and(|map| map.contains_key(key)) || keys.is_some_and(|keys| keys.contains(key))
@@ -160,7 +160,7 @@ fn matched(
         })
         .collect();
     if let Some(only) = only(&by_required) {
-        return Some(only);
+        return Some((only, State::Matched));
     }
     let map = map?;
     let pool = if by_required.is_empty() {
@@ -179,20 +179,22 @@ fn matched(
         })
         .collect();
     if let Some(only) = only(&by_const) {
-        return Some(only);
+        return Some((only, State::Matched));
     }
     let fitting: Vec<usize> = left
         .iter()
         .copied()
         .filter(|&at| looks[at].fits(map, root))
         .collect();
-    only(&fitting).or_else(|| {
-        let declaring: Vec<usize> = fitting
-            .into_iter()
-            .filter(|&at| map.keys().all(|key| looks[at].declares(key)))
-            .collect();
-        only(&declaring)
-    })
+    only(&fitting)
+        .or_else(|| {
+            let declaring: Vec<usize> = fitting
+                .into_iter()
+                .filter(|&at| map.keys().all(|key| looks[at].declares(key)))
+                .collect();
+            only(&declaring)
+        })
+        .map(|fitted| (fitted, State::Fitted))
 }
 
 /// Whether `value` fits a property's `schema` (through a `$ref`) by a

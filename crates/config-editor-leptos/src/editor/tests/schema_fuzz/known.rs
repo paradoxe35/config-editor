@@ -50,38 +50,6 @@ pub(super) const KNOWN: &[Known] = &[
         class: "a save reads otherwise than the view",
         applies: |case| case.language != Language::XML && one_item_list(&case.doc),
     },
-    // FZ38-5 (new): XML reads a lone element as a one-item list where a
-    // schema's list keywords have no `type` (`oneOf: [{prefixItems:
-    // [{}]}]`), though the schema accepts the lone value itself: the view
-    // reads `[false]` where its host holds `false`.
-    Known {
-        finding: "FZ38-5",
-        property: "edit_as",
-        class: "a save reads otherwise than the view",
-        applies: |case| untyped_lists(&case.schema),
-    },
-    // FZ38-6 (new, schema reading): XML text is typed as the string one
-    // `oneOf` option's property wants although that makes the object match
-    // two options (`oneOf: [{}, {anyOf: [{properties: {port: {type:
-    // string}}}]}]`, `<port>0</port>` read "0"): a valid document gets "matches
-    // more than one of the oneOf options".
-    Known {
-        finding: "FZ38-6",
-        property: "validation",
-        class: "XML reads a valid document as an invalid one",
-        applies: |_| true,
-    },
-    // FZ38-7 (new, schema reading): a secret marked through an option or
-    // `allOf` member (`anyOf: [{properties: {size: {writeOnly: true,
-    // maxLength: 0}}}, …]`) is quoted in its own problem's message
-    // (`/b/b/size: "<secret>" is longer than 0 characters`), JSON, TOML and
-    // HCL.
-    Known {
-        finding: "FZ38-7",
-        property: "secrets",
-        class: "a problem message holds a secret",
-        applies: |_| true,
-    },
     // FZ38-8 (new): a list emptied in an Edit-as view of an XML host
     // (`c: []` where the host has `<c>false</c>`) is saved by dropping the
     // element (`<x_two/>`) instead of waiting: the value is lost silently.
@@ -109,18 +77,133 @@ pub(super) const KNOWN: &[Known] = &[
         class: "a save keeps the host's text where the XML view's text reads as another type",
         applies: |_| true,
     },
-    // FZ38-16 (new, schema reading, SC37-1/SC38-2 class): XML view text
-    // saved in the host's type where the view read it as the schema
-    // types it: `allOf: [{type: string}]` over a host's `true` (the view
-    // reads "true", valid; the host keeps `true`, refused), or conflicting
-    // types (`const: 3` beside a pattern's boolean) saving "3" over a
-    // host's string. Covers this whole class for hosts other than XML
-    // until fixed.
+    // `completion::candidates::refused_beside`: a key whose dependent
+    // schema (or `dependentRequired`) requires another key is offered,
+    // and the problem it adds names the key to write next; one whose
+    // dependent schema refuses a value written beside it is not offered.
     Known {
-        finding: "FZ38-16",
+        finding: "documented: a key whose dependency requires another is offered",
+        property: "suggestions",
+        class: "a suggested key adds a problem elsewhere (required)",
+        applies: |case| case.schema.to_string().contains("\"dependen"),
+    },
+    // FZ38-10 (edge): a key's own list value is written `[]` to type
+    // into (each language's insert), so a list asking items at once
+    // (`minItems`, `contains`, in an option or member) is refused until
+    // they are typed; and list constraints no value meets together
+    // (`contains` beside `items` refusing it).
+    Known {
+        finding: "FZ38-10",
+        property: "fill",
+        class: "a fill writes a value its schema refuses (",
+        applies: |case| asks_list_items(&case.schema),
+    },
+    Known {
+        finding: "FZ38-10",
+        property: "suggestions",
+        class: "a suggested key writes a value its schema refuses (",
+        applies: |case| asks_list_items(&case.schema),
+    },
+    // FZ38-10 too: a field no value meets (`allOf: [{enum: [true]},
+    // {type: string}]`) has no reading a save can keep.
+    Known {
+        finding: "FZ38-10",
         property: "edit_as",
         class: "a save reads otherwise than the view",
-        applies: |case| case.language != Language::XML,
+        applies: |case| contradicting_all_of(&case.schema),
+    },
+    // FZ38-10 too: `oneOf` options a value of one kind meets twice (`{}`
+    // beside `{type: object}`): the object a fill writes for the required
+    // keys matches both.
+    Known {
+        finding: "FZ38-10",
+        property: "fill",
+        class: "a fill leaves out a required child",
+        applies: |case| overlapping_one_of(&case.schema),
+    },
+    // A host value the XML view leaves as shown keeps its host text (P2),
+    // and its problem: the view reads its own text by the schema (`"8"`
+    // under `type: number` reads 8 there), so it does not show that one.
+    Known {
+        finding: "documented: an untouched host value keeps its text and its problem",
+        property: "edit_as",
+        class: "the view and its saved host disagree on problems",
+        applies: |case| untouched_text(&case.doc, &case.other),
+    },
+    Known {
+        finding: "FZ38-10",
+        property: "fill",
+        class: "a fill writes a value its schema refuses (oneOf)",
+        applies: |case| overlapping_one_of(&case.schema),
+    },
+    // XML writes no list of lists: a secret in an item of an inner list
+    // is read in another place than its schema marks.
+    Known {
+        finding: "documented: XML writes no list of lists",
+        property: "secrets",
+        class: "a problem message quotes a value holding a secret",
+        applies: |case| case.language == Language::XML && nested_list(&case.doc),
+    },
+    // `codec::conform_arrays`: an HCL block where the schema wants a list
+    // is one item of it (`c {}` reads `[{}]`), as HCL writes lists of
+    // objects; an object written there changes its verdict.
+    Known {
+        finding: "documented: an HCL block where a list is wanted is its one item",
+        property: "validation",
+        class: "writing a document changes its verdict",
+        applies: |case| case.language == Language::HCL,
+    },
+    // `bridge::text_scalars`: an XML element emptied where the host holds
+    // text saves as the empty text; with no schema the view reads the
+    // empty element as an empty object.
+    Known {
+        finding: "documented: an emptied XML element saves as the host's empty text",
+        property: "edit_as",
+        class: "a save reads otherwise than the view",
+        applies: |case| case.language != Language::XML && empty_text(&case.other),
+    },
+    // `bridge::schema_readings`: a value the schema takes in no reading
+    // (`0` typed under `minimum: 1` over a host's text) is saved in the
+    // host's type: the view's reading is kept only where the schema takes it.
+    Known {
+        finding: "documented: a value no reading of which the schema takes keeps the host's type",
+        property: "edit_as",
+        class: "a save reads otherwise than the view",
+        applies: |case| {
+            jsonschema::validator_for(&case.schema)
+                .is_ok_and(|reference| !reference.is_valid(&case.other))
+        },
+    },
+    // `bridge::text_scalars`: a number typed in another spelling (`08`,
+    // `2.50`) where the host holds a number is that number.
+    Known {
+        finding: "documented: a number typed in another spelling is the host's number",
+        property: "edit_as",
+        class: "a save reads otherwise than the view",
+        applies: |case| respelled_number(&case.doc, &case.other),
+    },
+    Known {
+        finding: "documented: an empty XML element reads as an empty object",
+        property: "suggestions",
+        class: "a suggested key adds a problem elsewhere",
+        applies: |case| case.language == Language::XML && empty_text(&case.doc),
+    },
+    // An empty XML element (`<a/>`) is an empty object where an object may
+    // be (`<cloudflare/>` starts one): where the schema also takes an empty
+    // text there, a document written with that text reads otherwise.
+    Known {
+        finding: "documented: an empty XML element reads as an empty object",
+        property: "validation",
+        class: "XML reads a valid document as an invalid one",
+        applies: |case| empty_text(&case.doc),
+    },
+    // XML writes no empty list, and TOML no `null`: a required child
+    // only such a value meets is left out (the problem names it).
+    Known {
+        finding: "documented: XML writes no empty list, TOML no null",
+        property: "fill",
+        class: "a fill leaves out a required child",
+        applies: |case| matches!(case.language.label(), "XML" | "TOML"),
     },
     // An empty document has no problems (`diagnostics::validate`): a view
     // holding `{}` whose host's text is empty disagrees by design.
@@ -133,135 +216,6 @@ pub(super) const KNOWN: &[Known] = &[
                 .as_object()
                 .is_some_and(serde_json::Map::is_empty)
         },
-    },
-    // FZ38-9 (new, schema reading): a fill writes only the required
-    // children its schema describes as an object with properties: a
-    // required key with no property schema (`required: [d, b]`,
-    // `properties: {b: {}}`), or an object schema with no `type`, is left
-    // out.
-    Known {
-        finding: "FZ38-9",
-        property: "fill",
-        class: "a fill leaves out a required child",
-        applies: |_| true,
-    },
-    // FZ38-10 (new, edge): a fill or suggestion does not weigh combined
-    // constraints: a value matching two `oneOf` options (`oneOf:
-    // [{const: "0"}, {}]`), `contains` beside `prefixItems`, an option no
-    // value meets.
-    Known {
-        finding: "FZ38-10",
-        property: "fill",
-        class: "a fill writes a value its schema refuses (",
-        applies: |case| !case.schema.to_string().contains("exclusiveM"),
-    },
-    Known {
-        finding: "FZ38-10",
-        property: "suggestions",
-        class: "a suggested value is refused (oneOf)",
-        applies: |_| true,
-    },
-    Known {
-        finding: "FZ38-10",
-        property: "suggestions",
-        class: "a suggested key writes a value its schema refuses (",
-        applies: |case| {
-            case.language != Language::XML && !case.schema.to_string().contains("exclusiveM")
-        },
-    },
-    // FZ38-11 (new, schema reading): a block's fills are listed from an
-    // option or member the insert does not write (`allOf: [{const: 0},
-    // {anyOf: [{required: [...]}]}]` writes `0` and lists the object's
-    // children), so their values get no Tab stop.
-    Known {
-        finding: "FZ38-11",
-        property: "fill",
-        class: "a filled value gets no Tab stop",
-        applies: |_| true,
-    },
-    // FZ38-12 (new): a fill's placeholder number ignores
-    // `exclusiveMinimum` (`{type: integer, exclusiveMinimum: 0}` filled 0).
-    Known {
-        finding: "FZ38-12",
-        property: "fill",
-        class: "a fill writes a value its schema refuses (exclusiveMinimum)",
-        applies: |_| true,
-    },
-    Known {
-        finding: "FZ38-12",
-        property: "suggestions",
-        class: "a suggested key writes a value its schema refuses (exclusiveMinimum)",
-        applies: |_| true,
-    },
-    // FZ38-13 (new, XML): a key suggested again in XML for a list adds an
-    // empty item in front of the written ones, moving them to places
-    // `prefixItems`/`items` type otherwise (`[{}, 0]`).
-    Known {
-        finding: "FZ38-13",
-        property: "suggestions",
-        class: "a suggested key writes a value its schema refuses (",
-        applies: |case| case.language == Language::XML,
-    },
-    // FZ38-14 (new, schema reading): value suggestions read the field's
-    // `properties` entry only, not the pattern property or `else` that
-    // applies too (`properties: {x_one: {type: boolean}}` beside
-    // `patternProperties: {^x_: {enum: [true]}}` offers `false`).
-    Known {
-        finding: "FZ38-14",
-        property: "suggestions",
-        class: "a suggested value is refused (",
-        applies: |_| true,
-    },
-    // FZ38-15 (new): keys are suggested in an object that already holds
-    // its `maxProperties`.
-    Known {
-        finding: "FZ38-15",
-        property: "suggestions",
-        class: "a suggested key adds a problem elsewhere (maxProperties)",
-        applies: |_| true,
-    },
-    // FZ38-1 (new, round 38's random tests): a key a dependent schema or
-    // `dependentRequired` makes require (or restrict) another is suggested
-    // and accepted alone: the document gets a problem on the other key
-    // (`required`, or the dependent schema's `const`/`enum`/`type`).
-    Known {
-        finding: "FZ38-1",
-        property: "suggestions",
-        class: "a suggested key adds a problem elsewhere",
-        applies: |case| case.schema.to_string().contains("\"dependent"),
-    },
-    // FZ38-2 (new): a problem on a value that holds a secret field quotes
-    // the whole value, the secret's text with it (`/x_two:
-    // {"name":"…"} is not of type "string"`).
-    Known {
-        finding: "FZ38-2",
-        property: "secrets",
-        class: "a problem message quotes a value holding a secret",
-        applies: |_| true,
-    },
-    // FZ38-4 (new): the deprecation warnings under a recursive
-    // `oneOf`/`anyOf` holding a deprecated field: their walk of the
-    // options doubles with each level (BranchWalk 607 / 4654 / 36925 at
-    // depths 6 / 9 / 12; 41 ms at 12 against 11 ms with no `deprecated`),
-    // and in HCL and XML each deprecated key's place is a read of the
-    // whole document (DocumentRead 312 -> 1204 when the depth doubles).
-    Known {
-        finding: "FZ38-4",
-        property: "work",
-        class: "validate: its time grows faster than the document",
-        applies: |case| deprecates(&case.schema),
-    },
-    Known {
-        finding: "FZ38-4",
-        property: "work",
-        class: "validate: DocumentRead grows",
-        applies: |case| deprecates(&case.schema),
-    },
-    Known {
-        finding: "FZ38-4",
-        property: "work",
-        class: "validate: BranchWalk grows",
-        applies: |case| deprecates(&case.schema),
     },
     // SC38-3 (open, qa38-validate): the explanation under recursive
     // options with an error at every level; and by design (SC37-2) each
@@ -287,13 +241,176 @@ pub(super) const KNOWN: &[Known] = &[
     },
 ];
 
-/// Whether `schema` has list keywords (`items`, `prefixItems`) with no
-/// `type`, which allow any value that is no list too.
-fn untyped_lists(schema: &Value) -> bool {
+/// Whether `schema` has a list asking items (`minItems`, `contains`).
+fn asks_list_items(schema: &Value) -> bool {
     let mut found = false;
     walk(schema, &mut |node| {
-        found |= (node.get("items").is_some() || node.get("prefixItems").is_some())
-            && node.get("type").is_none();
+        found |= node.get("minItems").is_some() || node.get("contains").is_some();
+    });
+    found
+}
+
+/// Whether some `allOf` of `schema` lists values (`enum`, `const`) none of
+/// which another member's `type` allows, or a schema lists none at all
+/// (`enum: []`).
+fn contradicting_all_of(schema: &Value) -> bool {
+    let mut found = false;
+    walk(schema, &mut |node| {
+        found |= node
+            .get("enum")
+            .and_then(Value::as_array)
+            .is_some_and(Vec::is_empty);
+        // A property two schemas applying together type apart (its own
+        // `properties` beside an `allOf` member's or an always-taken
+        // `then`'s).
+        let always = node
+            .get("if")
+            .is_some_and(|condition| *condition == json!({}) || *condition == json!(true));
+        let together: Vec<&Value> = std::iter::once(node)
+            .chain(
+                node.get("allOf")
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten(),
+            )
+            .chain(node.get("then").filter(|_| always))
+            .collect();
+        let typed = |source: &Value, key: &str| {
+            source
+                .get("properties")?
+                .get(key)?
+                .get("type")?
+                .as_str()
+                .map(str::to_string)
+        };
+        for source in &together {
+            for key in source
+                .get("properties")
+                .and_then(Value::as_object)
+                .into_iter()
+                .flat_map(|properties| properties.keys())
+            {
+                let types: Vec<String> = together
+                    .iter()
+                    .filter_map(|other| typed(other, key))
+                    .collect();
+                found |= types.iter().any(|one| {
+                    types.iter().any(|other| {
+                        one != other
+                            && !matches!(
+                                (one.as_str(), other.as_str()),
+                                ("number", "integer") | ("integer", "number")
+                            )
+                    })
+                });
+            }
+        }
+        let Some(members) = node.get("allOf").and_then(Value::as_array) else {
+            return;
+        };
+        let listed: Vec<&Value> = members
+            .iter()
+            .flat_map(|member| {
+                member.get("const").into_iter().chain(
+                    member
+                        .get("enum")
+                        .and_then(Value::as_array)
+                        .into_iter()
+                        .flatten(),
+                )
+            })
+            .collect();
+        let types: Vec<&str> = members
+            .iter()
+            .filter_map(|member| member.get("type").and_then(Value::as_str))
+            .collect();
+        let kind = |value: &Value| match value {
+            Value::Null => "null",
+            Value::Bool(_) => "boolean",
+            Value::Number(_) => "number",
+            Value::String(_) => "string",
+            Value::Array(_) => "array",
+            Value::Object(_) => "object",
+        };
+        found |= !listed.is_empty()
+            && types.iter().any(|wanted| {
+                listed.iter().all(|value| {
+                    let have = kind(value);
+                    have != *wanted && !(have == "number" && *wanted == "integer")
+                })
+            });
+    });
+    found
+}
+
+/// Whether some `oneOf` of `schema` has an option allowing anything
+/// (`{}`) beside others.
+fn overlapping_one_of(schema: &Value) -> bool {
+    let mut found = false;
+    walk(schema, &mut |node| {
+        found |= node
+            .get("oneOf")
+            .and_then(Value::as_array)
+            .is_some_and(|options| {
+                options.len() > 1 && options.iter().any(|option| *option == json!({}))
+            });
+    });
+    found
+}
+
+/// Whether `typed` leaves a text of `host` that reads as a number,
+/// boolean or `null` (`"8"`) as it is.
+fn untouched_text(host: &Value, typed: &Value) -> bool {
+    match (host, typed) {
+        (Value::String(text), Value::String(same)) => {
+            text == same
+                && serde_json::from_str::<Value>(text.trim()).is_ok_and(|read| !read.is_string())
+        }
+        (Value::Object(host), Value::Object(typed)) => host.iter().any(|(key, value)| {
+            typed
+                .get(key)
+                .is_some_and(|typed| untouched_text(value, typed))
+        }),
+        _ => false,
+    }
+}
+
+/// Whether `typed` writes, where `host` holds a number, text spelling a
+/// number another way (`"08"`).
+fn respelled_number(host: &Value, typed: &Value) -> bool {
+    match (host, typed) {
+        (Value::Number(_), Value::String(text)) => {
+            crate::editor::decimal_text::decimal(text.trim(), false).is_some()
+        }
+        (Value::Object(host), Value::Object(typed)) => host.iter().any(|(key, value)| {
+            typed
+                .get(key)
+                .is_some_and(|typed| respelled_number(value, typed))
+        }),
+        (Value::Array(host), Value::Array(typed)) => host
+            .iter()
+            .zip(typed)
+            .any(|(host, typed)| respelled_number(host, typed)),
+        _ => false,
+    }
+}
+
+/// Whether `value` holds a list inside a list.
+fn nested_list(value: &Value) -> bool {
+    let mut found = false;
+    walk(value, &mut |node| {
+        found |= node
+            .as_array()
+            .is_some_and(|items| items.iter().any(Value::is_array));
+    });
+    found
+}
+
+/// Whether `value` holds an empty text.
+fn empty_text(value: &Value) -> bool {
+    let mut found = false;
+    walk(value, &mut |node| {
+        found |= node.as_str().is_some_and(str::is_empty);
     });
     found
 }

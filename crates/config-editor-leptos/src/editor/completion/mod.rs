@@ -58,8 +58,8 @@ pub use schema::{array_branch, object_branch, placeholder, schema_const, schema_
 pub use stops::schema_example;
 
 pub(crate) use super::applies::{
-    Applies, ChoiceHover, Choices, Entry, Here, Next, Seen, decides, each_value,
-    mentions_conditionals, named_properties, ref_target, type_includes,
+    Applies, ChoiceHover, Choices, Entry, Here, Next, Seen, Walking, decides, each_value,
+    item_schema, mentions_conditionals, named_properties, ref_target, type_includes,
 };
 use super::commands::indent_unit;
 use super::diagnostics::SchemaBundle;

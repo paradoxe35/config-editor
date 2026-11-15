@@ -23,7 +23,7 @@ mod step;
 
 pub(crate) use accepts::{decides, mentions_conditionals};
 pub(crate) use choices::{ChoiceHover, Choices};
-pub(crate) use document::{Next, each_value};
+pub(crate) use document::{Next, Walking, each_value};
 pub(crate) use narrow::{listed, scalar_text};
 pub(crate) use node::{Entry, Walked};
 
@@ -144,9 +144,23 @@ impl<'s> Here<'s> {
         Choices::of(&self.tree)
     }
 
+    /// Whether every schema here allows `value` (`None` when one cannot
+    /// tell, see [`decides`]).
+    pub(crate) fn accepts(&self, value: &Value) -> Option<bool> {
+        self.entry.accepts(value, self.root)
+    }
+
     /// What applies to the child `segment`, before its walk.
     pub(crate) fn child(&self, segment: &SchemaPathSegment) -> Entry<'s> {
         step::child(&self.entry, &self.tree, segment)
+    }
+
+    /// [`Self::child`] for reading the child's type: by every option the
+    /// value may be in, not one it only seems to fit; an item where the
+    /// schemas name none is nothing (a value read as its own one item
+    /// would be read again inside itself).
+    pub(crate) fn child_typed(&self, segment: &SchemaPathSegment) -> Entry<'s> {
+        step::named(&self.tree, segment, false)
     }
 
     /// [`Self::child`] as the schemas name it: an item where they name
@@ -166,6 +180,9 @@ pub(crate) struct Applies<'s, 'd> {
     /// The document, read only at a step it decides (a parse of the
     /// whole text, which most steps of most paths need none of).
     document: &'d dyn Fn() -> Option<&'d Value>,
+    /// Whether an option a value only fits is taken as its own (not when
+    /// reading values' types, see [`Here::child_typed`]).
+    trust_fit: bool,
     steps: RefCell<HashMap<Vec<SchemaPathSegment>, Rc<Here<'s>>>>,
 }
 
@@ -183,7 +200,21 @@ impl<'s, 'd> Applies<'s, 'd> {
             root,
             repeats_arrays,
             document,
+            trust_fit: true,
             steps: RefCell::new(HashMap::new()),
+        }
+    }
+
+    /// [`Self::new`] for reading the types of the document's values: each
+    /// by every option its object may be in, not one it only seems to fit.
+    pub(crate) fn for_types(
+        root: &'s Value,
+        repeats_arrays: bool,
+        document: &'d dyn Fn() -> Option<&'d Value>,
+    ) -> Self {
+        Self {
+            trust_fit: false,
+            ..Self::new(root, repeats_arrays, document)
         }
     }
 
@@ -244,7 +275,11 @@ impl<'s, 'd> Applies<'s, 'd> {
         segment: &SchemaPathSegment,
         path: &[SchemaPathSegment],
     ) -> Entry<'s> {
-        let next = parent.child(segment);
+        let next = if self.trust_fit {
+            parent.child(segment)
+        } else {
+            parent.child_typed(segment)
+        };
         if !self.repeats_arrays || !matches!(segment, SchemaPathSegment::Key(_)) || next.is_empty()
         {
             return next;
@@ -252,12 +287,19 @@ impl<'s, 'd> Applies<'s, 'd> {
         let walked = Here::walk_read(next.clone(), self.root, &|| {
             Seen::value(self.value_at(path))
         });
-        let items = step::child_only(&walked.tree, &SchemaPathSegment::ArrayItem(0));
-        if items.is_empty() {
-            return next;
-        }
-        Entry(node::any(vec![next.0, items.0]))
+        with_items(next, &walked)
     }
+}
+
+/// `next` (what applies under a key, `walked` for its value) or, where it
+/// is an array, one of its items: a language that writes a list by
+/// repeating its key writes a one-item list as the item alone.
+fn with_items<'s>(next: Entry<'s>, walked: &Here<'s>) -> Entry<'s> {
+    let items = step::child_only(&walked.tree, &SchemaPathSegment::ArrayItem(0));
+    if items.is_empty() {
+        return next;
+    }
+    Entry(node::any(vec![next.0, items.0]))
 }
 
 /// The value at `path` in a parsed document: a step written as an index

@@ -169,7 +169,7 @@ impl<'a> Found<'a> {
                             self.choices.push(ObjectChoice {
                                 branches,
                                 doc,
-                                matched: state == State::Matched,
+                                matched: state.taken(),
                             });
                         }
                     }

@@ -17,18 +17,31 @@ impl Entry<'_> {
     /// Whether every schema here allows `value` (`None` when one cannot
     /// tell, see [`decides`]): each of an `All`, one of an `Any`.
     pub(crate) fn accepts(&self, value: &Value, root: &Value) -> Option<bool> {
-        accepted(&self.0, value, root)
+        accepted(&self.0, value, root, 0)
+    }
+
+    /// [`Self::accepts`] reading no deeper than a few levels of schemas
+    /// and values (`None` past them): a check whose cost does not grow
+    /// with what the value holds.
+    pub(crate) fn accepts_near(&self, value: &Value, root: &Value) -> Option<bool> {
+        accepted(&self.0, value, root, MAX_DEPTH - NEAR)
     }
 }
 
-fn accepted(node: &Node<'_>, value: &Value, root: &Value) -> Option<bool> {
+/// Levels [`Entry::accepts_near`] reads.
+const NEAR: usize = 6;
+
+/// Levels of schemas and values [`decides`] reads at most.
+const MAX_DEPTH: usize = 32;
+
+fn accepted(node: &Node<'_>, value: &Value, root: &Value, depth: usize) -> Option<bool> {
     match node {
-        Node::Leaf(schema) => decides(schema, value, root),
-        Node::All(parts) => all(parts.iter().map(|part| accepted(part, value, root))),
+        Node::Leaf(schema) => decide(schema, value, root, depth),
+        Node::All(parts) => all(parts.iter().map(|part| accepted(part, value, root, depth))),
         Node::Any(parts) | Node::Either(parts) => {
             let mut known = true;
             for part in parts {
-                match accepted(part, value, root) {
+                match accepted(part, value, root, depth) {
                     Some(true) => return Some(true),
                     None => known = false,
                     Some(false) => {}
@@ -81,7 +94,7 @@ fn all(results: impl IntoIterator<Item = Option<bool>>) -> Option<bool> {
 }
 
 fn decide(schema: &Value, value: &Value, root: &Value, depth: usize) -> Option<bool> {
-    if depth > 32 {
+    if depth > MAX_DEPTH {
         return None;
     }
     let members = match schema {

@@ -21,7 +21,7 @@ pub(super) fn numeric_example_as_number(value: Value, numeric_allowed: bool) -> 
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn value_completions(
-    branches: &[&Value],
+    here: &Here<'_>,
     typed: &str,
     start: usize,
     end: usize,
@@ -33,6 +33,7 @@ pub(super) fn value_completions(
     let query = unquoted(behavior, typed);
     let mut candidates = Vec::new();
     let mut seen = HashSet::new();
+    let branches = here.branches();
     // A language without null (TOML) is not offered one.
     let null_writable = behavior
         .serialize(&serde_json::json!({ "value": null }), None)
@@ -41,7 +42,7 @@ pub(super) fn value_completions(
         .iter()
         .any(|branch| type_includes(branch, "integer") || type_includes(branch, "number"));
     {
-        for &branch in branches {
+        for &branch in &branches {
             let description = branch
                 .get("description")
                 .and_then(Value::as_str)
@@ -51,7 +52,12 @@ pub(super) fn value_completions(
             for value in schema_value_candidates(branch, open) {
                 let value = numeric_example_as_number(value, numeric_allowed);
                 let label = value_label(&value);
-                if !seen.insert(label.clone()) || (value.is_null() && !null_writable) {
+                // A value every schema here refuses is none to offer (one
+                // a pattern property or an `else` beside it rules out).
+                if !seen.insert(label.clone())
+                    || (value.is_null() && !null_writable)
+                    || here.accepts(&value) == Some(false)
+                {
                     continue;
                 }
                 if let Some(score) = match_score(&label, query) {
@@ -103,6 +109,87 @@ fn forbidden_keys<'a>(certain: &[&'a Value]) -> HashSet<&'a str> {
                 .map(|(key, _)| key.as_str())
         })
         .collect()
+}
+
+/// Whether a list key written by repeating its element (`property` its
+/// schema, `written` what the object holds for it) takes one more: not
+/// one whose items have places (the new item, at the caret, would move
+/// the others to places that type them otherwise), nor one at its
+/// `maxItems`, nor one whose lone value written is not taken as a list's
+/// item (list keywords with no `type` take it as itself).
+fn repeats_as_elements(property: &Value, written: Option<&Value>, root: &Value) -> bool {
+    let Some(array) = array_branch(property, root) else {
+        return false;
+    };
+    if array.get("prefixItems").is_some() || array.get("items").is_some_and(Value::is_array) {
+        return false;
+    }
+    let Some(written) = written else {
+        return true;
+    };
+    let items = match written {
+        Value::Array(items) => items.clone(),
+        lone => vec![lone.clone()],
+    };
+    let most = array.get("maxItems").and_then(Value::as_u64);
+    most.is_none_or(|most| (items.len() as u64) < most)
+        && (written.is_array() || decides(property, &Value::Array(items), root) != Some(false))
+}
+
+/// Of `fills` (the values a block writes for required children), those
+/// `insert` holds where [`stop_ranges`] finds them, in order.
+fn written_fills(
+    insert: &str,
+    cursor_offset: usize,
+    fills: Vec<(String, String)>,
+) -> Vec<(String, String)> {
+    let mut kept: Vec<(String, String)> = Vec::with_capacity(fills.len());
+    for fill in fills {
+        kept.push(fill);
+        if stop_ranges(insert, cursor_offset, &kept).len() != kept.len() {
+            kept.pop();
+        }
+    }
+    kept
+}
+
+/// Whether writing `key` (its value `property`'s placeholder) into the
+/// object `written` makes a dependent schema of `key` refuse what else
+/// the object holds (a `const`, `enum` or type it asks of another key).
+/// Keys such a schema requires are not counted: the problem then names
+/// the key to write next.
+fn refused_beside(
+    key: &str,
+    property: &Value,
+    certain: &[&Value],
+    written: Option<&Value>,
+    root: &Value,
+) -> bool {
+    let dependents: Vec<&Value> = certain
+        .iter()
+        .filter_map(|branch| {
+            ["dependentSchemas", "dependencies"]
+                .iter()
+                .find_map(|keyword| branch.get(*keyword)?.get(key))
+        })
+        .filter(|dependent| dependent.is_object())
+        .collect();
+    if dependents.is_empty() {
+        return false;
+    }
+    let mut object = written
+        .and_then(Value::as_object)
+        .cloned()
+        .unwrap_or_default();
+    object.insert(key.to_string(), placeholder(property, root));
+    let object = Value::Object(object);
+    dependents.into_iter().any(|dependent| {
+        let mut asked = dependent.clone();
+        if let Some(members) = asked.as_object_mut() {
+            members.remove("required");
+        }
+        decides(&asked, &object, root) == Some(false)
+    })
 }
 
 /// `(cursor_offset, selected)` for an inserted key: a scalar default the
@@ -157,6 +244,7 @@ pub(super) fn property_completions(
     repetition: Repetition,
     insert_context: &InsertContext<'_>,
     behavior: &dyn ConfigLanguage,
+    written: Option<&Value>,
     read_repeated: &dyn Fn() -> HashSet<String>,
 ) -> Vec<Completion> {
     let repeated = std::cell::OnceCell::new();
@@ -166,6 +254,14 @@ pub(super) fn property_completions(
     let choices = &object.choices;
     let branches = &object.branches;
     let forbidden = forbidden_keys(&object.certain);
+    // An object holding its `maxProperties` takes no other key.
+    let full = existing.is_some_and(|existing| {
+        object
+            .certain
+            .iter()
+            .filter_map(|branch| branch.get("maxProperties")?.as_u64())
+            .any(|most| existing.len() as u64 >= most)
+    });
     // A key of `oneOf`/`anyOf` options names them (the matched one alone
     // when it has the key); once an option matches, another option's keys
     // are not offered (adding one would leave it).
@@ -200,7 +296,11 @@ pub(super) fn property_completions(
             // once it is written so (not as one whole list).
             let present = existing.is_some_and(|existing| existing.contains(key));
             let repeatable = match repetition {
-                Repetition::Elements => array_branch(property, root).is_some(),
+                Repetition::Elements => repeats_as_elements(
+                    property,
+                    written.and_then(|written| written.get(key)),
+                    root,
+                ),
                 Repetition::Blocks => {
                     insert_context.position == EntryPosition::Block
                         && array_branch(property, root)
@@ -210,12 +310,15 @@ pub(super) fn property_completions(
                 }
                 _ => false,
             };
-            if !repeatable && present || forbidden.contains(key.as_str()) {
+            if !repeatable && present || forbidden.contains(key.as_str()) || full && !present {
                 continue;
             }
             // A key a `not` keeps apart from keys written (`git` beside
-            // `path`): writing it would break the `not`.
-            if existing.is_some_and(|existing| excluded_by_not(key, branches, existing, root)) {
+            // `path`): writing it would break the `not`. Nor a key whose
+            // dependent schema refuses a value written beside it.
+            if existing.is_some_and(|existing| excluded_by_not(key, branches, existing, root))
+                || (!present && refused_beside(key, property, &object.certain, written, root))
+            {
                 continue;
             }
             let Some(score) = match_score(key, typed) else {
@@ -232,15 +335,25 @@ pub(super) fn property_completions(
                 another_item: present && repeatable,
                 ..*insert_context
             };
+            // Another element of a list written by repeating its key is
+            // one item: written as its items' schema says.
+            let written_schema = match (another.another_item, repetition) {
+                (true, Repetition::Elements) => array_branch(property, root)
+                    .and_then(|array| item_schema(array, 1))
+                    .unwrap_or(property),
+                _ => property,
+            };
             let Some((insert, cursor_offset)) =
-                behavior.property_insert(key, property, root, &another)
+                behavior.property_insert(key, written_schema, root, &another)
             else {
                 continue;
             };
-            let children = required_children(behavior, property, root);
-            let fills = fills_of(&children);
+            let children = required_children(behavior, written_schema, root);
+            // Only the values the insert writes are Tab stops (a list
+            // written `[]` writes none of its items' children).
+            let fills = written_fills(&insert, cursor_offset, fills_of(&children));
             let (cursor_offset, selected) =
-                default_selection(&insert, cursor_offset, property, root, behavior);
+                default_selection(&insert, cursor_offset, written_schema, root, behavior);
             // A list written with items to type: the caret in the first.
             let (cursor_offset, selected) = if selected == 0 && caret_at_list(&children) {
                 caret_in_list(&insert, cursor_offset, &fills, behavior)
@@ -902,10 +1015,11 @@ fn completions_around(
         if !force && !typed_value.is_empty() && typed_value.parse::<f64>().is_ok() {
             return Vec::new();
         }
-        let value_branches = applies.at(&path_with_key(&context.path, key)).branches();
+        let value_here = applies.at(&path_with_key(&context.path, key));
+        let value_branches = value_here.branches();
         let leading = if context.value_needs_space { " " } else { "" };
         let mut options = value_completions(
-            &value_branches,
+            &value_here,
             &context.typed,
             context.replace_start,
             context.replace_end,
@@ -937,7 +1051,7 @@ fn completions_around(
         });
         if !has_object_properties {
             let mut options = value_completions(
-                &branches,
+                &here,
                 &context.typed,
                 context.replace_start,
                 context.replace_end,
@@ -995,6 +1109,7 @@ fn completions_around(
             another_item: false,
         },
         behavior,
+        applies.value_at(&context.path),
         &|| behavior.repeated_keys(source, cursor_byte, &context.path),
     );
     // A key typed directly in an array starts a new object item, which needs

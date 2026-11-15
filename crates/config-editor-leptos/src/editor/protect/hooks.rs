@@ -149,8 +149,9 @@ impl ProtectState {
     }
 }
 
-/// The pointers of the fields `root` marks secret in `document`.
+/// The pointers of the fields `root` marks secret in `document` (see
+/// [`super::marks::secret_fields`]).
 #[cfg(feature = "schema-validation")]
-pub(crate) fn secret_pointers(document: &Value, root: &Value) -> Vec<String> {
-    super::marks::schema_marks(document, root).secret
+pub(crate) fn secret_pointers(document: &Value, root: &Value, repeats_arrays: bool) -> Vec<String> {
+    super::marks::secret_fields(document, root, repeats_arrays)
 }

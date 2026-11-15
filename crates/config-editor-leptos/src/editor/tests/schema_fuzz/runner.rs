@@ -117,6 +117,18 @@ pub(super) fn run(property: &Property) {
             Verdict::Holds => held += 1,
             Verdict::Skipped => skipped += 1,
             Verdict::Fails(found) => {
+                if std::env::var_os("SCHEMA_FUZZ_FAILS").is_some() {
+                    eprintln!(
+                        "FAIL {} {index} {:?} {} | {} | schema {} doc {} other {}",
+                        property.name,
+                        case.language,
+                        found.class,
+                        found.detail.replace('\n', " / "),
+                        case.schema,
+                        case.doc,
+                        case.other
+                    );
+                }
                 // A class is told apart by the finding allowing it: a case
                 // the first one's finding does not explain is shrunk too.
                 let key = format!(

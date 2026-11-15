@@ -3,7 +3,7 @@
 
 use serde_json::Value;
 
-use super::super::applies::{Applies, Next, each_value};
+use super::super::applies::{Applies, Next, Walking, each_value};
 use super::super::completion::resolve_branches;
 use super::super::language::SchemaPathSegment;
 
@@ -148,7 +148,7 @@ pub(crate) fn marks_at(
 /// never depends on what is written beside it.
 pub(crate) fn schema_marks(document: &Value, root: &Value) -> SchemaMarks {
     let mut marks = SchemaMarks::default();
-    each_value(document, root, false, &mut |visit| {
+    each_value(document, root, Walking::default(), &mut |visit| {
         let branches = visit.here.branches();
         if let Some(reason) = read_only_in(&branches) {
             marks.read_only.push((visit.pointer.to_string(), reason));
@@ -160,6 +160,26 @@ pub(crate) fn schema_marks(document: &Value, root: &Value) -> SchemaMarks {
         Next::Into
     });
     marks
+}
+
+/// The secret fields of `document` a message must not quote: every field
+/// a schema that may apply there marks secret (inside a read-only field
+/// too), a key naming a list also read as its item where the language
+/// writes lists by repeating keys (`repeats_arrays`).
+#[cfg(feature = "schema-validation")]
+pub(crate) fn secret_fields(document: &Value, root: &Value, repeats_arrays: bool) -> Vec<String> {
+    let mut secrets = Vec::new();
+    let walking = Walking {
+        decided: false,
+        repeats_arrays,
+    };
+    each_value(document, root, walking, &mut |visit| {
+        if secret_in(&visit.here.branches()) {
+            secrets.push(visit.pointer.to_string());
+        }
+        Next::Into
+    });
+    secrets
 }
 
 /// A key as a JSON pointer segment.

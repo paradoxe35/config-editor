@@ -43,11 +43,22 @@ pub(crate) struct Choice<'s> {
 pub(crate) enum State {
     /// It may be the value's.
     Open,
-    /// It is the value's (the only one it can be in, or the one its keys
-    /// and values pick).
+    /// It is the value's: the only one it can be in, or the one its keys
+    /// or `const` values pick.
     Matched,
+    /// It is the one the value fits by a quick look at its values (not
+    /// a validation): what suggestions and hover go by, never what reading
+    /// a value's type goes by.
+    Fitted,
     /// The value is not in it (a kind or a listed value it refuses).
     Refuted,
+}
+
+impl State {
+    /// Whether the value is taken to be in this option (matched or fitted).
+    pub(crate) fn taken(self) -> bool {
+        matches!(self, State::Matched | State::Fitted)
+    }
 }
 
 /// What applies to a value before the applicators of its schemas are
