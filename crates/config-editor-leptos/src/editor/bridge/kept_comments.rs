@@ -212,34 +212,34 @@ pub(super) fn first_lost(
             })
             .collect()
     };
-    let (keys, values) = paths::with_spans(host, previous, &all, || {
-        (
-            found(host.key_spans(previous, &all), true),
-            found(host.value_spans(previous, &all), false),
-        )
+    // Every span and item's lines from one read of the text.
+    let on_line: BTreeMap<usize, Vec<&String>> = paths::with_spans(host, previous, &all, || {
+        let keys = found(host.key_spans(previous, &all), true);
+        let values = found(host.value_spans(previous, &all), false);
+        let mut on_line: BTreeMap<usize, Vec<&String>> = BTreeMap::new();
+        for ((pointer, key), value) in all.iter().zip(keys).zip(values) {
+            let mut lines: Vec<usize> = key
+                .iter()
+                .chain(value.iter())
+                .filter_map(|span| span.line.checked_sub(1))
+                .collect();
+            // An item written as lines of its own (a TOML `[[s]]` table)
+            // is written on its first one too.
+            let in_list = pointer
+                .rsplit_once('/')
+                .and_then(|(parent, _)| old.pointer(parent))
+                .is_some_and(Value::is_array);
+            if in_list && let Some(own) = host.item_lines(previous, pointer) {
+                lines.push(paths::line_of_byte(previous, own.start));
+            }
+            lines.sort_unstable();
+            lines.dedup();
+            for line in lines {
+                on_line.entry(line).or_default().push(pointer);
+            }
+        }
+        on_line
     });
-    let mut on_line: BTreeMap<usize, Vec<&String>> = BTreeMap::new();
-    for ((pointer, key), value) in all.iter().zip(keys).zip(values) {
-        let mut lines: Vec<usize> = key
-            .iter()
-            .chain(value.iter())
-            .filter_map(|span| span.line.checked_sub(1))
-            .collect();
-        // An item written as lines of its own (a TOML `[[s]]` table) is
-        // written on its first one too.
-        let in_list = pointer
-            .rsplit_once('/')
-            .and_then(|(parent, _)| old.pointer(parent))
-            .is_some_and(Value::is_array);
-        if in_list && let Some(own) = host.item_lines(previous, pointer) {
-            lines.push(paths::line_of_byte(previous, own.start));
-        }
-        lines.sort_unstable();
-        lines.dedup();
-        for line in lines {
-            on_line.entry(line).or_default().push(pointer);
-        }
-    }
     let lines: Vec<&str> = previous.split('\n').collect();
     let mut starts = Vec::with_capacity(lines.len());
     let mut at = 0;

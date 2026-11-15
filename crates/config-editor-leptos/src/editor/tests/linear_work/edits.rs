@@ -21,6 +21,10 @@ pub(super) enum EditKind {
     /// A digit typed into the middle item's port, then the typing pause
     /// and a save.
     Type,
+    /// The middle item's name selected and typed over, then the typing
+    /// pause and a save (a value retyped: the links are read, every
+    /// item left where it was told).
+    Retype,
     /// Enter at the end of the middle item's port line.
     Enter,
     /// The middle item's port line deleted (Ctrl+Shift+K).
@@ -53,9 +57,10 @@ impl EditKind {
         dead_code,
         reason = "used by an open finding's ignored test (none open now)"
     )]
-    pub(super) const ALL: [Self; 14] = [
+    pub(super) const ALL: [Self; 15] = [
         Self::Open,
         Self::Type,
+        Self::Retype,
         Self::Enter,
         Self::DeleteLine,
         Self::CutPausePaste,
@@ -241,6 +246,35 @@ pub(super) fn make(state: EditorState, kind: EditKind, last: &str) {
         EditKind::Open => unreachable!("the mount itself"),
         EditKind::Type => {
             type_at(state, port_digit_end(&shown(state)), "2");
+            read_view(state);
+            pause(state);
+            let _ = state.save();
+        }
+        EditKind::Retype => {
+            let before = shown(state);
+            let line = middle(&before, "name");
+            let written = before.split('\n').nth(line).unwrap_or_default();
+            let start = written
+                .find('a')
+                .unwrap_or_else(|| panic!("no name in {written:?}"));
+            let end = start
+                + 1
+                + written[start + 1..]
+                    .find(|character: char| !character.is_ascii_digit())
+                    .unwrap_or(written.len() - start - 1);
+            let at = line_start(&before, line);
+            let (from, to) = (at + units(&written[..start]), at + units(&written[..end]));
+            let byte = crate::editor::keyboard::utf16_to_byte_index(&before, from);
+            let stop = crate::editor::keyboard::utf16_to_byte_index(&before, to);
+            let text = format!("{}zz{}", &before[..byte], &before[stop..]);
+            state.commit(Edit::input(
+                before,
+                (from, to),
+                text,
+                (from + 2, from + 2),
+                "insertText".into(),
+                0.0,
+            ));
             read_view(state);
             pause(state);
             let _ = state.save();

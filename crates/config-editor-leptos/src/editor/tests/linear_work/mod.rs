@@ -233,6 +233,7 @@ macro_rules! linear {
 linear! {
     opening_grows_with_the_document: Open,
     typing_grows_with_the_document: Type,
+    retyping_a_value_grows_with_the_document: Retype,
     enter_grows_with_the_document: Enter,
     deleting_a_line_grows_with_the_document: DeleteLine,
     cut_pause_paste_grows_with_the_document: CutPausePaste,

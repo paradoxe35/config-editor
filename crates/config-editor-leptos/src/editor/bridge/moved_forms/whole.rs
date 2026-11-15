@@ -252,6 +252,21 @@ fn comments(
     changed.then(|| (start..text.starts[first] + line.len(), out.join("\n")))
 }
 
+/// `work` run while a batch reads each of `texts` (with the spans of its
+/// pointers) once.
+fn in_batches<T>(
+    host: &dyn ConfigLanguage,
+    texts: &[(&str, Vec<String>)],
+    work: &dyn Fn() -> T,
+) -> T {
+    match texts.split_first() {
+        Some(((text, pointers), rest)) => {
+            paths::with_spans(host, text, pointers, || in_batches(host, rest, work))
+        }
+        None => work(),
+    }
+}
+
 /// One at a time past this many writes is not tried (each try reads the
 /// whole text).
 const MOST_TRIED: usize = 16;
@@ -329,16 +344,14 @@ pub(super) fn kept(
             })
             .collect()
     };
+    // The text written and every source text (the host's last, an
+    // earlier one items were pasted back from) each read once.
     let batched = |text: &str, work: &dyn Fn() -> Vec<Option<(Range<usize>, String)>>| {
-        let source = moved.first().map(|item| item.source.text);
-        let (to, from) = (
-            spans_of(text, false),
-            source.map(|source| spans_of(source, true)),
-        );
-        paths::with_spans(host, text, &to, || match (source, from) {
-            (Some(source), Some(from)) => paths::with_spans(host, source, &from, work),
-            _ => work(),
-        })
+        let mut texts: Vec<(&str, Vec<String>)> = vec![(text, spans_of(text, false))];
+        for source in &sources {
+            texts.push((source.text, spans_of(source.text, true)));
+        }
+        in_batches(host, &texts, work)
     };
     // The comments of the items not written back whole (their values
     // changed since), as their sources write them, where the text then

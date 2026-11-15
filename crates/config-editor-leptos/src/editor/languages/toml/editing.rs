@@ -191,18 +191,35 @@ fn table_end(source: &str, line_end: usize, segments: &[String], is_array: bool)
 /// sub-tables it owns; of the table at `pointer` (`/s`, `[s]`) the same
 /// way, the sub-tables right after it (`[s.sub]`) with it.
 pub(super) fn table_lines(source: &str, pointer: &str) -> Option<std::ops::Range<usize>> {
-    let wanted = pointer_segments(pointer);
-    let lines: Vec<&str> = source.split('\n').collect();
-    let paths = table_paths(&lines);
-    let mut start = 0;
-    for (index, line) in lines.iter().enumerate() {
-        let line_end = start + line.len();
-        if let Some((segments, _)) = parse_header(split_toml_comment(line).0)
-            && path_strings(&paths[index + 1]) == wanted
-        {
-            return Some(start..table_end(source, line_end, &segments, true));
+    let headers = table_headers(source);
+    let (start, line_end, segments) = headers.0.get(&pointer_segments(pointer))?;
+    Some(*start..table_end(source, *line_end, segments, true))
+}
+
+/// The first header of each table `source` writes, by its path: where its
+/// line starts and ends, and its segments. Read once while a batch runs
+/// for the text (a save placing every item asks for each).
+struct Headers(std::collections::HashMap<Vec<String>, (usize, usize, Vec<String>)>);
+
+fn table_headers(source: &str) -> std::rc::Rc<Headers> {
+    crate::editor::paths::batch_kept(source, || {
+        crate::editor::work_count::note_many(
+            crate::editor::work_count::Work::ItemLinesBytes,
+            source.len(),
+        );
+        let lines: Vec<&str> = source.split('\n').collect();
+        let paths = table_paths(&lines);
+        let mut headers = std::collections::HashMap::new();
+        let mut start = 0;
+        for (index, line) in lines.iter().enumerate() {
+            let line_end = start + line.len();
+            if let Some((segments, _)) = parse_header(split_toml_comment(line).0) {
+                headers
+                    .entry(path_strings(&paths[index + 1]))
+                    .or_insert((start, line_end, segments));
+            }
+            start = line_end + 1;
         }
-        start = line_end + 1;
-    }
-    None
+        Headers(headers)
+    })
 }

@@ -220,6 +220,11 @@ pub(crate) enum Work {
     /// byte, see [`note_many`]).
     #[cfg_attr(not(feature = "yaml"), allow(dead_code, reason = "only YAML notes it"))]
     AliasScan,
+    /// A byte of a whole text read for the lines an item is written on
+    /// as its own (`ConfigLanguage::item_lines`: a TOML table from its
+    /// header; one note per byte, see [`note_many`]).
+    #[cfg_attr(not(feature = "toml"), allow(dead_code, reason = "only TOML notes it"))]
+    ItemLinesBytes,
 }
 
 impl Work {
@@ -272,6 +277,7 @@ impl Work {
             Self::ErrorCollected => 43,
             Self::HostTextCompared => 44,
             Self::AliasScan => 45,
+            Self::ItemLinesBytes => 46,
         }
     }
 
@@ -324,12 +330,13 @@ impl Work {
         Self::ErrorCollected,
         Self::HostTextCompared,
         Self::AliasScan,
+        Self::ItemLinesBytes,
     ];
 }
 
 /// How many kinds of work there are.
 #[cfg(test)]
-const KINDS: usize = 46;
+const KINDS: usize = 47;
 
 #[cfg(test)]
 thread_local! {
