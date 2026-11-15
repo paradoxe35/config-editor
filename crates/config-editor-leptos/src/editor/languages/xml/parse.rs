@@ -267,6 +267,16 @@ pub(super) fn open_element(
 ) -> Result<OpenElement, ParseError> {
     let start = markup_start(source, event_start);
     let name = element.local_name().into_inner().to_string();
+    // Not well-formed XML, though the reader would take it (`<4/>`,
+    // `<k=2/>`): no writer could write it back.
+    let qualified = element.name().into_inner().to_string();
+    if !super::names::is_name(&qualified) {
+        return Err(syntax_error(
+            source,
+            start,
+            format!("`{qualified}` is not an XML name, so it cannot name an element"),
+        ));
+    }
     let mut attrs = Map::new();
     for attribute in element.attributes() {
         let attribute = attribute.map_err(|error| match error {
@@ -276,6 +286,13 @@ pub(super) fn open_element(
             other => syntax_error(source, start, other.to_string()),
         })?;
         let key = attribute.key.into_inner().to_string();
+        if !super::names::is_name(&key) {
+            return Err(syntax_error(
+                source,
+                start,
+                format!("`{key}` is not an XML name, so it cannot name an attribute (<{name} {key}=…>)"),
+            ));
+        }
         // Not well-formed XML, though the reader would take it.
         if attribute.value.contains('<') {
             return Err(syntax_error(source, start, format!("\"<\" must be written &lt; in an attribute value (<{name} {key}=…>)")));

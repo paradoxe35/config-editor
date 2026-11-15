@@ -17,6 +17,11 @@ use std::sync::Arc;
 /// the [`ItemSource::Origin`] ones are in.
 pub(crate) struct Told {
     pub(crate) items: HashMap<String, ItemSource>,
+    /// The host text the [`ItemSource::Previous`] ones are in, when it is
+    /// not the host's last text (no item comes from that): the save is
+    /// an edit of it (an undo back past a save, a host emptied by a cut
+    /// and its items pasted back).
+    pub(crate) base: Option<String>,
     pub(crate) earlier: Option<String>,
 }
 
@@ -117,33 +122,39 @@ impl Links {
         }
         let paired = self.paired(language, text)?;
         let mut last = LastHost::new(previous);
-        // The host text before the last most items come from.
-        let mut earlier: Vec<(&Arc<str>, usize)> = Vec::new();
+        // The host texts before the last the items come from, by how many
+        // name each, most first.
+        let mut named: Vec<(&Arc<str>, usize)> = Vec::new();
+        let mut any_last = false;
         for (_, source) in &paired {
             if last.is(&source.host) {
+                any_last = true;
                 continue;
             }
-            match earlier
+            match named
                 .iter_mut()
                 .find(|(host, _)| Arc::ptr_eq(host, &source.host))
             {
                 Some((_, count)) => *count += 1,
-                None => earlier.push((&source.host, 1)),
+                None => named.push((&source.host, 1)),
             }
         }
-        let earlier = earlier
-            .into_iter()
-            .max_by_key(|(_, count)| *count)
-            .map(|(host, _)| host.clone());
+        named.sort_by_key(|(_, count)| std::cmp::Reverse(*count));
+        let mut named = named.into_iter().map(|(host, _)| host.clone());
+        // No item of the last text: the save is an edit of the text most
+        // items come from.
+        let base = (!any_last).then(|| named.next()).flatten();
+        let earlier = named.next();
         let items = paired
             .into_iter()
             .filter_map(|(pointer, source)| {
-                let told = if last.is(&source.host) {
+                let of = |host: &Option<Arc<str>>| {
+                    host.as_ref()
+                        .is_some_and(|host| Arc::ptr_eq(host, &source.host))
+                };
+                let told = if of(&base) || (base.is_none() && last.is(&source.host)) {
                     ItemSource::Previous(source.pointer.clone())
-                } else if earlier
-                    .as_ref()
-                    .is_some_and(|host| Arc::ptr_eq(host, &source.host))
-                {
+                } else if of(&earlier) {
                     ItemSource::Origin(source.pointer.clone())
                 } else {
                     return None;
@@ -153,6 +164,7 @@ impl Links {
             .collect();
         Some(Told {
             items,
+            base: base.map(|host| host.to_string()),
             earlier: earlier.map(|host| host.to_string()),
         })
     }
@@ -268,10 +280,21 @@ impl Links {
         let Ok(value) = parsed.as_ref() else {
             return Links::default();
         };
+        // A view that writes a list of one as its item (XML) names it
+        // without its index, or the other way: found as the view before
+        // spells it.
+        let before = parse_cache::parsed(from_language, from_text);
+        let spelled = |pointer: &str| match before.as_ref() {
+            Ok(before) => super::super::moved_forms::as_written(before, pointer),
+            Err(_) => pointer.to_string(),
+        };
         let mut links: Vec<Link> = items(language, text, value)
             .into_iter()
             .filter_map(|item| {
-                let source = sources.get(&item.pointer)?.clone();
+                let source = sources
+                    .get(&item.pointer)
+                    .or_else(|| sources.get(&spelled(&item.pointer)))?
+                    .clone();
                 let (start, end) = content(text, item.lines.start, item.lines.end)?;
                 Some(Link { start, end, source })
             })

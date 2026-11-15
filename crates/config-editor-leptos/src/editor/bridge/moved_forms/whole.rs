@@ -68,9 +68,13 @@ fn place(host: &dyn ConfigLanguage, text: &Lines<'_>, pointer: &str) -> Option<P
 /// The bytes of the item at `pointer` in `text` from its key's start (a
 /// list item's: its value's) to its value's end.
 fn inline(host: &dyn ConfigLanguage, text: &Lines<'_>, pointer: &str) -> Option<Range<usize>> {
-    let value = paths::memo_value_span(host, text.text, pointer)?;
+    // A member of a container written inline is found in it, its key
+    // with its quotes.
+    let value = codec::inline_location(host, text.text, pointer, false)
+        .or_else(|| paths::memo_value_span(host, text.text, pointer))?;
     let value = written_range(host, text.text, value)?;
-    let start = paths::memo_key_span(host, text.text, pointer)
+    let start = codec::inline_location(host, text.text, pointer, true)
+        .or_else(|| paths::memo_key_span(host, text.text, pointer))
         .and_then(|key| byte_range(text.text, key))
         .map_or(value.start, |key| key.start.min(value.start));
     Some(start..value.end)
@@ -415,7 +419,9 @@ pub(super) fn kept(
     let differing: Vec<&Moved<'_>> = moved
         .iter()
         .zip(&all_writes)
-        .filter(|(_, write)| write.is_some())
+        .filter(|(item, write)| {
+            write.is_some() || before.pointer(&item.to) != item.source.value.pointer(&item.from)
+        })
         .map(|(item, _)| item)
         .collect();
     if differing.len() > MOST_TRIED {
@@ -423,19 +429,150 @@ pub(super) fn kept(
     }
     let mut text = saved;
     let mut written: Vec<&str> = Vec::new();
-    for item in differing {
+    let mut tried: Vec<&Moved<'_>> = differing;
+    tried.reverse();
+    while let Some(item) = tried.pop() {
         if written.iter().any(|outer| inside(&item.to, outer)) {
             continue;
         }
-        let Some((range, replaced)) = write(&Lines::of(&text), item) else {
-            continue;
-        };
-        let mut next = text.clone();
-        next.replace_range(range, &replaced);
-        if reads(&next) {
+        let whole = write(&Lines::of(&text), item)
+            .map(|(range, replaced)| {
+                let mut next = text.clone();
+                next.replace_range(range, &replaced);
+                next
+            })
+            .filter(|next| reads(next));
+        if let Some(next) = whole {
             text = next;
             written.push(&item.to);
+            continue;
+        }
+        // An item the edit changed inside (a key added to it, an item
+        // removed): its source's text with that change made there, as a
+        // save of its source would make it, so the rest of it keeps its
+        // forms; then the items inside it the edit moved, each from its
+        // own source.
+        if let Some(next) = changed_inside(host, &text, item, before, shape)
+            && reads(&next)
+        {
+            text = next;
+            let inner: Vec<&Moved<'_>> = moved
+                .iter()
+                .filter(|inner| {
+                    inside(&inner.to, &item.to)
+                        && !tried.iter().any(|next| std::ptr::eq(*next, *inner))
+                })
+                .collect();
+            tried.extend(inner.into_iter().rev());
         }
     }
     with_comments(text)
+}
+
+/// Whether `patched` (its source `text` patched so the item at `from`
+/// holds `now`, where it held `held`) writes each scalar of the item
+/// that holds what it held as `text` does, and there is one: the patch
+/// made only the change, to an item still holding some of what it held.
+fn forms_kept(
+    host: &dyn ConfigLanguage,
+    (text, patched): (&str, &str),
+    from: &str,
+    (held, now): (&Value, &Value),
+) -> bool {
+    fn leaves(held: &Value, now: &Value, pointer: &mut String, out: &mut Vec<String>) {
+        let length = pointer.len();
+        match (held, now) {
+            (Value::Object(held), Value::Object(now)) => {
+                for (key, child) in held {
+                    if let Some(other) = now.get(key) {
+                        pointer.push('/');
+                        pointer.push_str(&codec::escape(key));
+                        leaves(child, other, pointer, out);
+                        pointer.truncate(length);
+                    }
+                }
+            }
+            (Value::Array(held), Value::Array(now)) => {
+                for (index, (child, other)) in held.iter().zip(now).enumerate() {
+                    pointer.push('/');
+                    pointer.push_str(&index.to_string());
+                    leaves(child, other, pointer, out);
+                    pointer.truncate(length);
+                }
+            }
+            (Value::Object(_) | Value::Array(_), _) | (_, Value::Object(_) | Value::Array(_)) => {}
+            _ if held == now => out.push(pointer.clone()),
+            _ => {}
+        }
+    }
+    let mut pointers = Vec::new();
+    leaves(held, now, &mut from.to_string(), &mut pointers);
+    // An item holding none of what it held is no change made inside it.
+    if pointers.is_empty() {
+        return false;
+    }
+    let written = |source: &str| -> Vec<Option<String>> {
+        host.value_spans(source, &pointers)
+            .into_iter()
+            .zip(&pointers)
+            .map(|(span, pointer)| {
+                let span = span.or_else(|| codec::inline_location(host, source, pointer, false))?;
+                written_range(host, source, span).map(|range| source[range].trim().to_string())
+            })
+            .collect()
+    };
+    written(text) == written(patched)
+}
+
+/// Whether the keys `now` shares with `held` come in `held`'s order, all
+/// the way down (a key added or removed changes no order).
+fn kept_order(now: &Value, held: &Value) -> bool {
+    match (now, held) {
+        (Value::Object(now), Value::Object(held)) => {
+            now.keys()
+                .filter(|key| held.contains_key(*key))
+                .eq(held.keys().filter(|key| now.contains_key(*key)))
+                && now
+                    .iter()
+                    .all(|(key, value)| held.get(key).is_none_or(|other| kept_order(value, other)))
+        }
+        (Value::Array(now), Value::Array(held)) => now
+            .iter()
+            .zip(held)
+            .all(|(now, held)| kept_order(now, held)),
+        _ => true,
+    }
+}
+
+/// `text` with the item `item` written as its source text writes it,
+/// patched there to hold what `before` holds at its place; `None` when
+/// it holds what it held, or no patch makes its source hold it.
+fn changed_inside(
+    host: &dyn ConfigLanguage,
+    text: &str,
+    item: &Moved<'_>,
+    before: &Value,
+    shape: Option<&Value>,
+) -> Option<String> {
+    let now = before.pointer(&item.to)?;
+    let was = item.source.value;
+    let held = was.pointer(&item.from)?;
+    // A map still a map, a list still a list: its source's text is the
+    // start of its own.
+    let kind = |value: &Value| (value.is_object(), value.is_array());
+    if held == now || kind(held) != kind(now) || !kept_order(now, held) {
+        return None;
+    }
+    let mut changed = was.clone();
+    *changed.pointer_mut(&item.from)? = now.clone();
+    let patched = super::super::patched(host, item.source.text, was, &changed, shape);
+    let patched = patched?;
+    if !forms_kept(host, (item.source.text, &patched), &item.from, (held, now)) {
+        return None;
+    }
+    let source = Lines::of(&patched);
+    let (range, replaced) = write(host, &Lines::of(text), &source, item)?;
+    let mut next = text.to_string();
+    next.replace_range(range, &replaced);
+    Some(next)
 }

@@ -457,7 +457,7 @@ fn relocated(
 /// a list of one as its item names it without one), and left out where
 /// `value` holds the item itself; `pointer` itself when
 /// it names nothing there either way.
-fn as_written(value: &Value, pointer: &str) -> String {
+pub(super) fn as_written(value: &Value, pointer: &str) -> String {
     if value.pointer(pointer).is_some() {
         return pointer.to_string();
     }

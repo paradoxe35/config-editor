@@ -372,12 +372,19 @@ impl EditorState {
 
     /// `text` (UTF-16 `start..end` of the text on screen) copied or cut:
     /// the clipboard's record of it keeps its items' links.
+    /// In the host's own language the text on screen is the host's: each
+    /// item copied is the host's item at its own pointer, so a paste into
+    /// a view after a switch keeps its source.
     pub(super) fn note_copied(&self, text: &str, (start, end): (usize, usize)) {
-        if self.bridge().is_none() {
-            return;
-        }
         let language = self.behavior();
-        let mut links = self.sync().links.get_value();
+        let own = self.bridge().is_none();
+        let mut links = if own {
+            self.doc()
+                .text
+                .with_untracked(|current| Links::fresh(current, current))
+        } else {
+            self.sync().links.get_value()
+        };
         let copied = self.doc().text.with_untracked(|current| {
             let (start, end) = (
                 super::keyboard::utf16_to_byte_index(current, start),
@@ -385,7 +392,9 @@ impl EditorState {
             );
             links.copied((language, current), start, end)
         });
-        self.sync().links.set_value(links);
+        if !own {
+            self.sync().links.set_value(links);
+        }
         self.sync()
             .clipboard
             .update_value(|clipboard| clipboard.copied(text, copied));

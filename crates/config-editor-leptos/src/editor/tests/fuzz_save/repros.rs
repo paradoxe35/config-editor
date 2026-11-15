@@ -1473,3 +1473,460 @@ fn user_made_1() {
         ],
     );
 }
+
+/// P2: a view undone back past a save is an edit of the host text it shows: saved over it, its comments kept.
+#[test]
+fn an_undo_back_past_a_save_saves_over_the_text_it_shows_keeping_its_comments() {
+    replay(
+        Language::TOML,
+        Language::YAML,
+        "[alpha]\nk1 = [1, 0x2, 3] # note 1\nk2 = 0x1F\n[beta]\nk3 = 0o17 # note 4\nk4 = true\n# note 10\n[gamma]\nk5 = 1_000 # note 7\nk6 = [1, 0x2, 3] # note 9\n",
+        &[
+            Op::DeleteLine { line: 12 },
+            Op::Type {
+                line: 42,
+                column: 1001,
+                text: "x",
+            },
+            Op::Pause,
+            Op::Undo,
+            Op::Type {
+                line: 4,
+                column: 11,
+                text: "x",
+            },
+        ],
+    );
+}
+
+/// P3: a key line moved away from its value lines and joined to them again keeps its source form.
+#[test]
+fn a_key_line_moved_away_from_its_value_stays_that_item() {
+    replay(
+        Language::HCL,
+        Language::YAML,
+        "alpha {\n  k1 = true\n  k2 = local.count + 1\n  k3 = upper(var.name) # note 1\n}\nbeta {\n  k4 = [1, 2] # note 3\n  k5 = 1.5\n  k6 { one = true }\n}\ngamma {\n  k7 = aws_subnet.main.id\n  k8 = var.on ? 1 : 2\n  k9 = [1, 2]\n}\n",
+        &[
+            Op::MoveLine {
+                line: 21,
+                down: true,
+            },
+            Op::Enter {
+                line: 16,
+                column: 1001,
+            },
+            Op::Cut {
+                line: 41,
+                how: Take::Line,
+            },
+        ],
+    );
+}
+
+/// P2: what a cut in the host's own language took, pasted into a view, is the host's items: saved in their forms.
+#[test]
+fn a_cut_in_the_hosts_language_pasted_into_a_view_keeps_its_forms() {
+    replay(
+        Language::JSON,
+        Language::JSON,
+        "{\n  \"editor.fontSize\": 14,\n  \"files.exclude\": {\n    \"**/.git\": true,\n    \"**/node_modules\": true\n  },\n  \"servers\": [\n    {\"name\": \"one\", \"port\": 80},\n    {\"name\": \"two\", \"port\": 81}\n  ],\n  \"nothing\": null,\n  \"escaped\": \"a\\u0041b\"\n}\n",
+        &[
+            Op::Cut {
+                line: 52,
+                how: Take::Entry,
+            },
+            Op::Switch { to: 0 },
+            Op::Paste {
+                line: 48,
+                how: Put::Before,
+            },
+        ],
+    );
+}
+
+/// P2: an undo back past a saved rename, then a cut: the containers left alone keep their lines.
+#[test]
+fn an_undo_of_a_rename_past_a_save_keeps_untouched_containers_over_lines() {
+    replay(
+        Language::JSON,
+        Language::YAML,
+        "{\n  \"alpha\": {\n    \"k1\": [\n      {\"name\": \"one\"},\n      {\"name\": \"two\"}\n    ],\n    \"k2\": [\n      {\"name\": \"one\"},\n      {\"name\": \"two\"}\n    ],\n    \"k3\": \"plain\"\n  },\n  \"beta\": {\n    \"k4\": null,\n    \"k5\": [1, 2, 3]\n  },\n  \"gamma\": {\n    \"k6\": [\n      {\"name\": \"one\"},\n      {\"name\": \"two\"}\n    ],\n    \"k7\": null\n  },\n  \"delta\": {\n    \"k8\": 1e3,\n    \"k9\": null,\n    \"k10\": [1, 2, 3]\n  }\n}\n",
+        &[
+            Op::Type {
+                line: 26,
+                column: 1001,
+                text: "x",
+            },
+            Op::Pause,
+            Op::Undo,
+            Op::Cut {
+                line: 5,
+                how: Take::Entry,
+            },
+        ],
+    );
+}
+
+/// P3: an entry cut before two saves and pasted after an undo keeps its TOML date.
+#[test]
+fn a_paste_from_a_text_two_saves_back_keeps_its_form() {
+    replay(
+        Language::TOML,
+        Language::JSON,
+        "[alpha]\nk1 = 3.5e2\nk2 = 1979-05-27T07:32:00\nk3 = 1979-05-27\nk4 = 1979-05-27\n[beta]\nk5 = 1979-05-27T07:32:00\nk6 = true\nk7 = 0x1F\n",
+        &[
+            Op::ReplaceAll {
+                pick: 16,
+                suffix: "_x",
+            },
+            Op::Cut {
+                line: 43,
+                how: Take::Entry,
+            },
+            Op::Undo,
+            Op::Pause,
+            Op::PasteWhole { line: 47 },
+            Op::Pause,
+            Op::Undo,
+            Op::Paste {
+                line: 23,
+                how: Put::Before,
+            },
+        ],
+    );
+}
+
+/// P3: an element joined to an element pasted back from an earlier text keeps its own name, not its new siblings' prefix.
+#[test]
+fn an_element_moved_into_an_element_pasted_back_keeps_its_name() {
+    replay(
+        Language::XML,
+        Language::YAML,
+        "<root xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" xmlns:p=\"urn:p\">\n  <alpha>\n    <k1>text</k1>\n    <k2 a=\"1\" b=\"x\"/>\n    <k3 id=\"1\">text</k3>\n    <p:k4>v</p:k4> <!-- note 3 -->\n  </alpha>\n  <beta>\n    <k5 id=\"1\">text</k5>\n    <p:k6>v</p:k6>\n  </beta>\n  <gamma>\n    <k7>42</k7>\n    <k8 xsi:type=\"File\" name=\"f\"/> <!-- note 6 -->\n  </gamma>\n  <delta>\n    <k9>42</k9>\n    <k10>text</k10>\n    <k11>\n      <item>a</item>\n      <item>b</item>\n    </k11>\n    <p:k12>v</p:k12>\n  </delta>\n</root>\n",
+        &[
+            Op::Cut {
+                line: 36,
+                how: Take::Line,
+            },
+            Op::Enter {
+                line: 17,
+                column: 37,
+            },
+            Op::Cut {
+                line: 63,
+                how: Take::Entry,
+            },
+            Op::Switch { to: 0 },
+            Op::Paste {
+                line: 28,
+                how: Put::Before,
+            },
+        ],
+    );
+}
+
+/// P3: a YAML flow map copied with its line keeps its flow form.
+#[test]
+fn a_flow_map_copied_by_its_line_keeps_its_form() {
+    replay(
+        Language::YAML,
+        Language::TOML,
+        "x-common: &common\n  restart: unless-stopped # always back\n  logging:\n    driver: \"json-file\"\nservices:\n  web:\n    <<: *common\n    image: 'nginx:1.25'\n    ports:\n      - \"8080:80\" # http\n      - 8443:443\n    environment:\n      MODE: production\n      DEBUG: \"false\"\n    command: >-\n      'daemon off;'\n  db:\n    image: postgres:16\n    volumes: [dbdata:/var/lib/postgresql/data]\n    healthcheck: {test: [CMD, pg_isready], interval: 10s}\n",
+        &[
+            Op::Backspace {
+                line: 11,
+                column: 8,
+                count: 3,
+            },
+            Op::Switch { to: 1 },
+            Op::Cut {
+                line: 8,
+                how: Take::Text,
+            },
+            Op::CopyLine {
+                line: 25,
+                down: false,
+            },
+        ],
+    );
+}
+
+/// P2: `<4/>` is no XML; the view says so and the save waits.
+#[test]
+fn an_element_name_that_is_no_xml_name_is_a_syntax_error() {
+    replay(
+        Language::JSON,
+        Language::XML,
+        "{\n  \"alpha\": {\n    \"k1\": true,\n    \"k2\": \"plain\",\n    \"k3\": null\n  },\n  \"beta\": {\n    \"k4\": null,\n    \"k5\": 1e3,\n    \"k6\": \"plain\",\n    \"k7\": [1, 2, 3]\n  },\n  \"gamma\": {\n    \"k8\": \"a\\u0041\",\n    \"k9\": true,\n    \"k10\": 1e3,\n    \"k11\": null\n  }\n}\n",
+        &[Op::Backspace {
+            line: 63,
+            column: 4,
+            count: 1,
+        }],
+    );
+}
+
+/// P2: the whole host cut in a view and pasted back is saved as it was.
+#[test]
+fn a_host_emptied_by_a_cut_and_pasted_back_keeps_its_forms() {
+    replay(
+        Language::HCL,
+        Language::JSON,
+        "provider \"aws\" {\n  validation {\n  }\n}\nvariable \"subnets\" {\n  type = map(object({\n  }))\n  default = {\n    a = { cidr = \"10.0.1.0/24\", az = \"eu-west-1a\" }\n  }\n}\ndata \"aws_ami\" \"ubuntu\" {\n  tags = {\n  }\n}\nmodule \"vpc\" {\n}\nresource \"aws_security_group\" \"web\" {\n  dynamic \"ingress\" {\n    content {\n      cidr_blocks = [\"0.0.0.0/0\"]\n    }\n    cidr_blocks = [\"0.0.0.0/0\"]\n  }\n  lifecycle {\n  }\n}\noutput \"web_ips\" {\n}\noutput \"policy\" {\n  value = jsonencode({\n    Statement = [{\n    }]\n  })\n}\n",
+        &[
+            Op::Cut {
+                line: 0,
+                how: Take::Entry,
+            },
+            Op::Enter {
+                line: 49,
+                column: 1000,
+            },
+            Op::Pause,
+            Op::Paste {
+                line: 34,
+                how: Put::OverBlank,
+            },
+        ],
+    );
+}
+
+/// P3: the YAML empty key (`:` alone) is found where it is written, so the items under it keep their links.
+#[test]
+fn an_entry_under_an_empty_yaml_key_keeps_its_link() {
+    replay(
+        Language::JSON,
+        Language::YAML,
+        "{\n  \"alpha\": {\n    \"k1\": [\n      {\"name\": \"one\"},\n      {\"name\": \"two\"}\n    ],\n    \"k2\": \"plain\"\n  },\n  \"beta\": {\n    \"k3\": \"a\\u0041\",\n    \"k4\": 1e3,\n    \"k5\": null,\n    \"k6\": 1e3\n  }\n}\n",
+        &[
+            Op::Cut {
+                line: 49,
+                how: Take::Line,
+            },
+            Op::Enter {
+                line: 59,
+                column: 1001,
+            },
+            Op::Type {
+                line: 35,
+                column: 1000,
+                text: ":",
+            },
+        ],
+    );
+}
+
+/// P3: a container pasted into a JSON object of one entry is written on a line of its own, then in its source form.
+#[test]
+fn a_list_pasted_into_a_json_object_over_lines_gets_lines_of_its_own() {
+    replay(
+        Language::JSON,
+        Language::YAML,
+        "{\n  \"alpha\": {\n    \"k1\": \"a\\u0041\",\n    \"k2\": [\n      {\"name\": \"one\"},\n      {\"name\": \"two\"}\n    ],\n    \"k4\": [\n      {\"name\": \"one\"},\n      {\"name\": \"two\"}\n    ]\n  },\n  \"beta\": {\n    \"k5\": null,\n    \"k6\": \"a\\u0041\",\n    \"k7\": true\n  },\n  \"gamma\": {\n    \"k8\": [1, 2, 3],\n    \"k9\": 1.50\n  },\n  \"delta\": {\n    \"k10\": \"plain\",\n    \"k11\": \"plain\"\n  }\n}\n",
+        &[
+            Op::Cut {
+                line: 44,
+                how: Take::Entry,
+            },
+            Op::DeleteLine { line: 32 },
+            Op::Pause,
+            Op::Paste {
+                line: 10,
+                how: Put::OverBlank,
+            },
+        ],
+    );
+}
+
+/// P2: a map pasted back from an earlier text with a key added keeps the forms of what it held.
+#[test]
+fn an_item_pasted_back_with_a_key_added_keeps_its_forms_inside() {
+    replay(
+        Language::JSON,
+        Language::YAML,
+        "{\n  \"alpha\": {\n    \"k1\": [\n      {\"name\": \"two\"}\n    ],\n    \"k2\": true\n  },\n  \"gamma\": {\n    \"k6\": [\n      {\"name\": \"two\"}\n    ]\n  },\n  \"delta\": {\n  }\n}\n",
+        &[
+            Op::Cut {
+                line: 0,
+                how: Take::Entry,
+            },
+            Op::Switch { to: 0 },
+            Op::Enter {
+                line: 12,
+                column: 1000,
+            },
+            Op::Paste {
+                line: 47,
+                how: Put::Before,
+            },
+        ],
+    );
+}
+
+/// P3: a TOML table read under the YAML empty key keeps its values' forms.
+#[test]
+fn a_toml_table_shown_under_an_empty_yaml_key_keeps_its_hex() {
+    replay(
+        Language::TOML,
+        Language::YAML,
+        "[alpha]\nk1 = 0o17\nk2 = { x = 1, y = \"two\" } # note 1\nk3 = '''\nraw text\n'''\nk4 = '''\nraw text\n'''\n[beta]\nk5 = [1, 0x2, 3]\nk6 = 0o17\nk7 = 0b101\nk8 = 07:32:00\n",
+        &[
+            Op::CopyLine {
+                line: 26,
+                down: false,
+            },
+            Op::Enter {
+                line: 10,
+                column: 1001,
+            },
+        ],
+    );
+}
+
+/// P2: a quoted HCL string stays on one line; one run on over lines is an error, not a value swallowing the lines below.
+#[test]
+fn an_hcl_string_over_lines_is_a_syntax_error() {
+    replay(
+        Language::XML,
+        Language::HCL,
+        "<root xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" xmlns:p=\"urn:p\">\n  <alpha>\n    <k1><![CDATA[x < y]]></k1> <!-- note 2 -->\n    <k2 xsi:type=\"File\" name=\"f\"/>\n  </alpha>\n  <beta>\n    <k3 id=\"1\">text</k3> <!-- note 3 -->\n    <k6 xsi:type=\"File\" name=\"f\"/>\n  </beta>\n</root>\n",
+        &[Op::Backspace {
+            line: 5,
+            column: 1001,
+            count: 3,
+        }],
+    );
+}
+
+/// P2: `<k=2/>` is no XML; the view says so and the save waits.
+#[test]
+fn an_element_name_with_an_equals_sign_is_a_syntax_error() {
+    replay(
+        Language::JSON,
+        Language::XML,
+        "{\n  \"alpha\": {\n    \"k1\": true,\n    \"k2\": null\n  },\n  \"beta\": {\n    \"k3\": 1.50,\n    \"k4\": true,\n    \"k5\": \"plain\",\n    \"k6\": [1, 2, 3]\n  },\n  \"gamma\": {\n    \"k7\": {\"x\": 1, \"y\": \"two\"},\n    \"k8\": [1, 2, 3],\n    \"k9\": 1e3,\n    \"k10\": \"plain\"\n  }\n}\n",
+        &[
+            Op::Enter {
+                line: 5,
+                column: 1000,
+            },
+            Op::Type {
+                line: 26,
+                column: 4,
+                text: "=",
+            },
+        ],
+    );
+}
+
+/// P2: a copy that the links pair with another item of its header line changes no form of what it left alone.
+#[test]
+fn a_value_copied_into_a_toml_array_of_tables_keeps_the_other_forms() {
+    replay(
+        Language::YAML,
+        Language::TOML,
+        "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: web # the app\n  labels: {app: web, tier: \"front\"}\nspec:\n  replicas: 0x3\n  selector:\n      app: web\n  template:\n      containers:\n        - name: web\n          image: \"nginx:1.25\"\n          args: [--port, '8080']\n          env:\n            - name: GREETING\n              value: |\n                hello\n                world\n            - name: LEVEL\n              value: !!str 3\n          resources:\n            limits: {cpu: 500m, memory: 128Mi}\n",
+        &[
+            Op::Copy {
+                line: 51,
+                how: Take::Text,
+            },
+            Op::Paste {
+                line: 33,
+                how: Put::Before,
+            },
+        ],
+    );
+}
+
+/// P2: the same, one table deeper.
+#[test]
+fn a_value_copied_into_a_nested_toml_array_of_tables_keeps_the_other_forms() {
+    replay(
+        Language::YAML,
+        Language::TOML,
+        "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: web # the app\n  labels: {app: web, tier: \"front\"}\nspec:\n  replicas: 0x3\n  selector:\n      app: web\n  template:\n    spec:\n      containers:\n        - name: web\n          image: \"nginx:1.25\"\n          args: [--port, '8080']\n          env:\n            - name: GREETING\n              value: |\n                hello\n                world\n            - name: LEVEL\n              value: !!str 3\n          resources:\n            limits: {cpu: 500m, memory: 128Mi}\n",
+        &[
+            Op::Copy {
+                line: 51,
+                how: Take::Text,
+            },
+            Op::Paste {
+                line: 33,
+                how: Put::Before,
+            },
+        ],
+    );
+}
+/// P2: an item pasted back into an HCL list of one item writes the list as `[1, 2]`, not `[1,2]`: a lone item tells no spacing.
+#[test]
+fn an_item_pasted_back_into_a_list_of_one_keeps_the_lists_spacing() {
+    replay(
+        Language::HCL,
+        Language::YAML,
+        "alpha {\n  k1 = var.name\n  k2 { one = true }\n  k3 = [1, 2]\n}\nbeta {\n  k4 = var.on ? 1 : 2\n  k5 = [1, 2] # note 2\n  k6 = { a = 1, b = \"x\" }\n}\n",
+        &[
+            Op::CopyLine {
+                line: 36,
+                down: false,
+            },
+            Op::Cut {
+                line: 12,
+                how: Take::Entry,
+            },
+            Op::Enter {
+                line: 17,
+                column: 39,
+            },
+            Op::Pause,
+            Op::Paste {
+                line: 45,
+                how: Put::Before,
+            },
+        ],
+    );
+}
+
+/// P3: the links of a list of one survive a switch through a view that writes it as its item (XML), so its values keep their forms.
+#[test]
+fn links_follow_a_list_of_one_through_an_xml_view() {
+    replay(
+        Language::YAML,
+        Language::HCL,
+        "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: web # the app\n  labels: {app: web, tier: \"front\"}\nspec:\n  replicas: 0x3\n  selector:\n    matchLabels:\n      app: web\n  template:\n    spec:\n      containers:\n        - name: web\n          image: \"nginx:1.25\"\n          args: [--port, '8080']\n          env:\n            - name: GREETING\n              value: |\n                world\n            - name: LEVEL\n              value: !!str 3\n",
+        &[
+            Op::MoveLine {
+                line: 38,
+                down: false,
+            },
+            Op::Switch { to: 4 },
+            Op::Switch { to: 1 },
+        ],
+    );
+}
+
+/// P2: a key pasted back into a YAML flow map keeps its source spelling (`y`, not `"y"`).
+#[test]
+fn a_key_pasted_back_into_a_flow_map_keeps_its_spelling() {
+    replay(
+        Language::YAML,
+        Language::TOML,
+        "alpha:\n  k1: !Sub \"${AWS::StackName}-data\" # note 1\n  k2: !Ref Param # note 2\n  k3: 0x1F\nbeta:\n  k4: {x: 1, y: two} # note 3\n  k5: \"double\"\ngamma:\n  k6: 'single'\n  k7: !!str 5\n  k8:\n    - name: one\n      port: 80\n    - name: two\n      port: 81\n  k9: !Sub \"${AWS::StackName}-data\" # note 6\n",
+        &[
+            Op::Cut {
+                line: 34,
+                how: Take::Text,
+            },
+            Op::Undo,
+            Op::Enter {
+                line: 0,
+                column: 1000,
+            },
+            Op::Pause,
+            Op::Paste {
+                line: 37,
+                how: Put::OverLine,
+            },
+        ],
+    );
+}

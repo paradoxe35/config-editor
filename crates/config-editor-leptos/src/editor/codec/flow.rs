@@ -45,16 +45,19 @@ pub(super) fn restyle(
             (before, text, after)
         })
         .collect();
-    // The spacing a new item takes: the item before it's, else none in a
-    // compact container (`{"a":1}`), else one space.
+    // The spacing a new item takes: the item before it's, else in a
+    // container over lines a line of its own at the first item's indent,
+    // else none in a compact container (`{"a":1}`), else one space (a
+    // lone list item, `[1]`, tells no spacing).
     let compact = lead.is_empty()
-        && !flow
+        && flow
             .entry_parts(items[0].1)
-            .is_some_and(|(_, head, _)| flow.separator_of(head).contains([' ', '\t']));
+            .is_some_and(|(_, head, _)| !flow.separator_of(head).contains([' ', '\t']));
     let gap = |position: usize| -> &str {
         match items.get(position.min(last)) {
             Some((before, _, _)) if position > 0 && !before.is_empty() => before,
             _ if items.len() > 1 => items[1].0,
+            _ if lead.contains('\n') => lead,
             _ if compact => "",
             _ => " ",
         }

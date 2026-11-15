@@ -238,10 +238,9 @@ pub(super) fn yaml_path_lines(source: &str) -> Vec<(Vec<String>, usize, usize, u
         let written = without_node_properties(&rest[..colon]);
         let key_raw = &rest[colon - written.len()..colon];
         let key = key_name(key_raw);
-        // A quoted empty key (`"": x`) is a key; nothing before `:` is not.
-        if key_raw.trim().is_empty() {
-            continue;
-        }
+        // Nothing before `:` (`: x`) is the empty key, as the parser reads
+        // it: written at its `:`, holding no characters.
+        let key = if key_raw.trim().is_empty() { "" } else { key };
         // An item holding a mapping (`- name: web`) is written at its dash.
         if let Some(path) = array_item_path {
             entries.push((path, index + 1, dash_column, dash_column + 1));

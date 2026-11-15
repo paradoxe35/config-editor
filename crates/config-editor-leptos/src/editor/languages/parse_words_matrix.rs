@@ -17,6 +17,12 @@ const HCL: &[Case] = &[
         5,
     ),
     (
+        "a = \"x\nb = 1\"\n",
+        "a string is never closed: a closing \" is missing (a string stays on one line)",
+        1,
+        5,
+    ),
+    (
         "a = foo(",
         "this ( is never closed: a ) is missing to end the function call or group",
         1,

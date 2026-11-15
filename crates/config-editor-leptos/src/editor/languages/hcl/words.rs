@@ -31,6 +31,16 @@ pub(super) fn plain(source: &str, line: usize, column: usize, raw: &str) -> Plac
     (line, column, message)
 }
 
+/// A quoted string a line break ends, which the reader takes on over the
+/// lines below though HCL keeps a string on one line: where it opens, and
+/// what is told.
+pub(super) fn string_over_lines(source: &str) -> Option<(usize, String)> {
+    match first_open(source)? {
+        (offset, open @ Open::String) => Some((offset, unclosed_words(&open))),
+        _ => None,
+    }
+}
+
 /// What a construct left open is told.
 fn unclosed_words(open: &Open) -> String {
     match open {

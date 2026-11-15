@@ -177,6 +177,7 @@ impl Links {
                         .flat_map(|moved| {
                             within(&links, moved.from, moved.from + moved.len)
                                 .into_iter()
+                                .chain(heads(&links, before, moved.from, moved.from + moved.len))
                                 .map(|link| Link {
                                     start: link.start + moved.to,
                                     end: link.end + moved.to,
@@ -326,6 +327,25 @@ fn within(links: &[Link], start: usize, end: usize) -> Vec<Link> {
         .map(|link| Link {
             start: link.start - start,
             end: link.end - start,
+            source: link.source.clone(),
+        })
+        .collect()
+}
+
+/// The links starting inside `start..end` of `text` that run past it,
+/// from `start`, cut at its last character that is not blank: the head
+/// of an item (its key's line) moved away from the rest of its lines
+/// stays that item's.
+fn heads(links: &[Link], text: &str, start: usize, end: usize) -> Vec<Link> {
+    let last = start + text[start..end].trim_end().len();
+    let first = links.partition_point(|link| link.start < start);
+    links[first..]
+        .iter()
+        .take_while(|link| link.start < end)
+        .filter(|link| link.end > end && link.start < last)
+        .map(|link| Link {
+            start: link.start - start,
+            end: last - start,
             source: link.source.clone(),
         })
         .collect()

@@ -194,6 +194,20 @@ impl Bridge {
                 .0
                 .to_string()
         });
+        // A view whose links name no item of the host's last text is an
+        // edit of the text they name (see `links::Told::base`): saved over
+        // it, which holds their forms and comments.
+        if let Some(told) = told
+            && let Some(base) = told.base.as_deref()
+        {
+            let told = links::Told {
+                items: told.items.clone(),
+                base: None,
+                earlier: told.earlier.clone(),
+            };
+            let base = byte_order_mark::split(base).0;
+            return self.to_unmarked_host(edit_text, base, origin, Some(&told));
+        }
         let items = told.map(|told| &told.items).zip(earlier.as_deref());
         // The host's last text as it was given, whose comments the save
         // keeps (the patches below may start from a respelled copy).
@@ -809,6 +823,27 @@ fn in_order(
 /// replace-all, a paste, a reorder) read the text from the top for each.
 fn with_lines<T>(host: &dyn ConfigLanguage, text: &str, work: impl FnOnce() -> T) -> T {
     super::paths::with_spans(host, text, &[], work)
+}
+
+/// `text` (reading `old`) made to read as `new` by the first patch that
+/// changes only what differs and keeps every form, as a save's single
+/// step is.
+fn patched(
+    host: &dyn ConfigLanguage,
+    text: &str,
+    old: &serde_json::Value,
+    new: &serde_json::Value,
+    shape: Option<&serde_json::Value>,
+) -> Option<String> {
+    with_lines(host, text, || {
+        PRECISE
+            .iter()
+            .chain(&[codec::patch_structure as Patch])
+            .find_map(|patch| {
+                patch(host, text, old, new, shape)
+                    .filter(|patched| host.changed_form(text, patched).is_none())
+            })
+    })
 }
 
 /// `value` with each scalar changed from `old` as the host saves it there

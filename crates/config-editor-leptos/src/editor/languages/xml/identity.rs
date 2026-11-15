@@ -106,14 +106,17 @@ impl<'a> Identity<'a> {
                 Value::Array(_) => format!("{new_at}/{index}"),
                 _ => new_at.clone(),
             };
-            let told = self.told.filter(|_| side == Host::Previous);
             // Pasted back from the session's first text: that item (or
             // key, which the host's last text may not hold, QA `E35-1`);
             // or moved from another element of the host's last text (QA
-            // `E36-2`), one of its descendants too (QA `E37-6`): that one.
-            let moved = told.and_then(|(sources, origin)| match sources.of(&item_at(index), !new_child.is_array())? {
-                ItemSource::Origin(from) => Some((origin?.pointer(from)?, from, Host::Origin)),
-                ItemSource::Previous(from) if !of_parent(from, &old_at) => {
+            // `E36-2`), one of its descendants too (QA `E37-6`), also into
+            // an element pasted back: that one.
+            let moved = self.told.and_then(|(sources, origin)| match sources.of(&item_at(index), !new_child.is_array())? {
+                ItemSource::Origin(from) if side == Host::Previous || !of_parent(from, &old_at) => {
+                    Some((origin?.pointer(from)?, from, Host::Origin))
+                }
+                ItemSource::Origin(_) => None,
+                ItemSource::Previous(from) if side == Host::Origin || !of_parent(from, &old_at) => {
                     Some((self.old?.pointer(from)?, from, Host::Previous))
                 }
                 ItemSource::Previous(_) => None,
@@ -138,18 +141,23 @@ impl<'a> Identity<'a> {
             let place = {
                 let mut lists = self.lists.borrow_mut();
                 let places = lists.entry(pointer.clone()).or_insert_with(|| {
-                    let told: Vec<Told> = match told {
+                    let told: Vec<Told> = match self.told {
                         Some((sources, _)) => (0..new_items.len())
-                            .map(|index| match sources.of(&item_at(index), !new_child.is_array()) {
-                                None => Told::Nothing,
-                                Some(ItemSource::Previous(from)) => match place_in(from, &old_at, old_child.is_array()) {
-                                    Some(place) => Told::At(place),
-                                    // The key of a list written as a lone
-                                    // item: which item, values tell.
-                                    None if *from == old_at => Told::Nothing,
-                                    None => Told::Elsewhere,
-                                },
-                                Some(ItemSource::Origin(_)) => Told::Elsewhere,
+                            .map(|index| match (sources.of(&item_at(index), !new_child.is_array()), side) {
+                                (None, _) => Told::Nothing,
+                                // An item of the text this element is in.
+                                (Some(ItemSource::Previous(from)), Host::Previous)
+                                | (Some(ItemSource::Origin(from)), Host::Origin) => {
+                                    match place_in(from, &old_at, old_child.is_array()) {
+                                        Some(place) => Told::At(place),
+                                        // The key of a list written as a
+                                        // lone item: which item, values
+                                        // tell.
+                                        None if *from == old_at => Told::Nothing,
+                                        None => Told::Elsewhere,
+                                    }
+                                }
+                                (Some(_), _) => Told::Elsewhere,
                             })
                             .collect(),
                         None => vec![Told::Nothing; new_items.len()],

@@ -39,7 +39,7 @@ pub(super) fn hcl_parse(source: &str) -> Result<Value, ParseError> {
             column: Some(column),
         }
     })?;
-    if let Some((offset, message)) = shadowed_name(source) {
+    if let Some((offset, message)) = super::words::string_over_lines(source).or_else(|| shadowed_name(source)) {
         let (line, column) = line_column(source, offset);
         return Err(ParseError { message, line: Some(line), column: Some(column) });
     }
