@@ -22,7 +22,13 @@ ROOT=$PWD
 # Runs a test command, under a memory limit when CI_MEMORY_LIMIT is set:
 # compiled first, so the limit applies to the tests and not to rustc.
 run_tests() {
-  cargo "$@" --no-run --quiet
+  # Arguments after `--` go to the test binary; `--no-run` must come before.
+  local cargo_args=()
+  for argument in "$@"; do
+    [[ "$argument" == "--" ]] && break
+    cargo_args+=("$argument")
+  done
+  cargo "${cargo_args[@]}" --no-run --quiet
   if [[ -n "${CI_MEMORY_LIMIT:-}" ]]; then
     prlimit --as="$CI_MEMORY_LIMIT" cargo "$@"
   else
