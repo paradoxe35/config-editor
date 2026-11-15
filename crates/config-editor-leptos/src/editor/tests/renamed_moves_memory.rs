@@ -136,6 +136,7 @@ fn kept(host_language: Language, view: Language) -> [(isize, isize); 2] {
 }
 
 #[test]
+#[ignore = "measures this thread's memory: run alone (scripts/ci.sh test runs keeps_no_memory with --ignored --test-threads=1)"]
 fn a_key_moved_and_renamed_over_and_over_keeps_no_memory_in_every_host_and_view() {
     let mut failures = Vec::new();
     for host_language in [Language::YAML, Language::HCL, Language::TOML, Language::XML] {

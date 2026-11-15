@@ -225,6 +225,7 @@ pub(super) fn replay(case: LeakCase) {
 }
 
 #[test]
+#[ignore = "measures this thread's memory: run alone (scripts/ci.sh test runs keeps_no_memory with --ignored --test-threads=1)"]
 fn a_random_edit_sequence_repeated_keeps_no_memory() {
     let count = std::env::var("FUZZ_LEAK_CASES")
         .ok()
