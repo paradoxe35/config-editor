@@ -3,7 +3,8 @@
 //!
 //! The decision is cheap and never wrong, not a validation: the keywords a
 //! condition is written with (`const`, `enum`, `type`, `required`,
-//! `properties`, `pattern`, bounds, the combinators) are checked, and a
+//! `properties`, `patternProperties`, `additionalProperties`, dependent
+//! schemas, items, `pattern`, bounds, the combinators) are checked, and a
 //! condition using anything else is undecided (both branches are offered).
 
 use super::*;
@@ -95,6 +96,59 @@ fn decide(schema: &Value, value: &Value, root: &Value, depth: usize) -> Option<b
                 }
                 _ => Some(true),
             },
+            "patternProperties" => {
+                match value {
+                    Value::Object(present) => {
+                        let patterns = argument.as_object()?;
+                        all(present.iter().flat_map(|(key, child)| {
+                            patterns.iter().map(|(pattern, property)| {
+                                match patterns::pattern_decides(pattern, key)? {
+                                    true => decide(property, child, root, depth + 1),
+                                    false => Some(true),
+                                }
+                            })
+                        }))
+                    }
+                    _ => Some(true),
+                }
+            }
+            // Keys that neither `properties` nor a pattern names (unknown
+            // while a pattern cannot be read).
+            "additionalProperties" => match value {
+                Value::Object(present) => {
+                    let patterns = members.get("patternProperties").and_then(Value::as_object);
+                    if patterns.is_some_and(|patterns| {
+                        patterns
+                            .keys()
+                            .any(|pattern| patterns::pattern_decides(pattern, "").is_none())
+                    }) {
+                        return None;
+                    }
+                    all(present
+                        .iter()
+                        .filter(|(key, _)| named_properties(schema, key).is_empty())
+                        .map(|(_, child)| decide(argument, child, root, depth + 1)))
+                }
+                _ => Some(true),
+            },
+            "dependentSchemas" | "dependencies" => match value {
+                Value::Object(present) => all(argument
+                    .as_object()?
+                    .iter()
+                    .filter(|(key, _)| present.contains_key(*key))
+                    .map(|(_, dependent)| dependency(dependent, present, &sub))),
+                _ => Some(true),
+            },
+            // The items, each by the schema its position has (decided
+            // once, under the keyword that gives the positions).
+            "items" | "prefixItems" | "additionalItems" => match value {
+                Value::Array(items) if keyword == items_keyword(members) => {
+                    all(items.iter().enumerate().filter_map(|(index, item)| {
+                        item_schema(schema, index).map(|at| decide(at, item, root, depth + 1))
+                    }))
+                }
+                _ => Some(true),
+            },
             "pattern" => match value {
                 Value::String(text) => patterns::pattern_decides(argument.as_str()?, text),
                 _ => Some(true),
@@ -168,6 +222,33 @@ fn decide(schema: &Value, value: &Value, root: &Value, depth: usize) -> Option<b
             _ => None,
         }
     }))
+}
+
+/// Whether an object holding a key meets what the key's dependency asks:
+/// a schema (`dependentSchemas`), or draft-07's list of keys it requires.
+fn dependency(
+    dependent: &Value,
+    present: &serde_json::Map<String, Value>,
+    sub: &dyn Fn(&Value) -> Option<bool>,
+) -> Option<bool> {
+    match dependent {
+        Value::Array(keys) => Some(
+            keys.iter()
+                .filter_map(Value::as_str)
+                .all(|key| present.contains_key(key)),
+        ),
+        dependent => sub(dependent),
+    }
+}
+
+/// The keyword that gives an array's item positions: `prefixItems`, else
+/// `items` (`additionalItems` only continues an `items` list).
+fn items_keyword(members: &serde_json::Map<String, Value>) -> &'static str {
+    if members.contains_key("prefixItems") {
+        "prefixItems"
+    } else {
+        "items"
+    }
 }
 
 fn is_of_type(value: &Value, name: &str) -> bool {
@@ -251,6 +332,30 @@ mod tests {
             decides(&json!({"multipleOf": 0.1}), &json!(0.3), &root),
             Some(true)
         );
+        let keyed = json!({
+            "properties": {"a": {}},
+            "patternProperties": {"^n": {"type": "integer"}},
+            "additionalProperties": {"type": "string"},
+            "dependentSchemas": {"a": {"required": ["b"]}},
+            "dependencies": {"c": ["a"]}
+        });
+        for (object, decided) in [
+            (json!({"n1": 1, "s": "x"}), Some(true)),
+            (json!({"n1": "x"}), Some(false)),
+            (json!({"s": 1}), Some(false)),
+            (json!({"a": 1, "b": "x"}), Some(true)),
+            (json!({"a": 1}), Some(false)),
+            (json!({"c": "x"}), Some(false)),
+        ] {
+            assert_eq!(decides(&keyed, &object, &root), decided, "{object}");
+        }
+        let tuple = json!({"prefixItems": [{"type": "string"}], "items": {"type": "integer"}});
+        assert_eq!(decides(&tuple, &json!(["a", 1, 2]), &root), Some(true));
+        assert_eq!(decides(&tuple, &json!(["a", "b"]), &root), Some(false));
+        assert_eq!(decides(&tuple, &json!([1]), &root), Some(false));
+        let draft7 = json!({"items": [{"type": "string"}], "additionalItems": {"type": "integer"}});
+        assert_eq!(decides(&draft7, &json!(["a", 1]), &root), Some(true));
+        assert_eq!(decides(&draft7, &json!(["a", "b"]), &root), Some(false));
         let cycle = json!({"$defs": {"c": {"$ref": "#/$defs/c"}}});
         assert_eq!(
             decides(&json!({"$ref": "#/$defs/c"}), &json!(1), &cycle),

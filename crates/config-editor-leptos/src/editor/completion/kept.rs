@@ -29,7 +29,13 @@ pub fn language_keeps(
     };
     let mut read = read;
     if language.repetition() != Repetition::None {
-        conform(&mut read, &[property], root, language.repetition(), 0);
+        conform(
+            &mut read,
+            &AtPath::Schema(property),
+            root,
+            language.repetition(),
+            0,
+        );
     }
     read == *value
 }

@@ -4,43 +4,7 @@
 use super::*;
 
 pub(super) fn schema_type_label(schema: &Value, root: &Value, fallback: &str) -> String {
-    let mut labels: Vec<String> = resolve_branches(schema, root)
-        .into_iter()
-        .filter_map(|branch| {
-            // A const is its one value (`"static"`), unless that is long.
-            if branch.get("type").is_none()
-                && let Some(value) = branch.get("const")
-            {
-                let written = value.to_string();
-                return Some(if written.chars().count() <= CONST_LABEL_LIMIT {
-                    written
-                } else {
-                    json_type_name(value).to_string()
-                });
-            }
-            // An enum is a constraint, not a type: show its values' type.
-            if branch.get("type").is_none()
-                && let Some(values) = branch.get("enum").and_then(Value::as_array)
-            {
-                let mut kinds: Vec<&str> = values.iter().map(json_type_name).collect();
-                kinds.sort_unstable();
-                kinds.dedup();
-                return Some(kinds.join(" | "));
-            }
-            match branch.get("type") {
-                Some(Value::String(value)) => Some(value.clone()),
-                Some(Value::Array(values)) => {
-                    let value = values
-                        .iter()
-                        .filter_map(Value::as_str)
-                        .collect::<Vec<_>>()
-                        .join(" | ");
-                    (!value.is_empty()).then_some(value)
-                }
-                _ => None,
-            }
-        })
-        .collect();
+    let mut labels = type_labels(schema, root);
     labels.sort();
     labels.dedup();
     if labels.is_empty() {
@@ -50,18 +14,61 @@ pub(super) fn schema_type_label(schema: &Value, root: &Value, fallback: &str) ->
     }
 }
 
+/// Each type (or short `const`) `schema`'s branches allow, as a label
+/// names it: `string`, `"static"`.
+fn type_labels(schema: &Value, root: &Value) -> Vec<String> {
+    resolve_branches(schema, root)
+        .into_iter()
+        .flat_map(|branch| {
+            // A const is its one value (`"static"`), unless that is long.
+            if branch.get("type").is_none()
+                && let Some(value) = branch.get("const")
+            {
+                let written = value.to_string();
+                return vec![if written.chars().count() <= CONST_LABEL_LIMIT {
+                    written
+                } else {
+                    json_type_name(value).to_string()
+                }];
+            }
+            // An enum is a constraint, not a type: show its values' type.
+            if branch.get("type").is_none()
+                && let Some(values) = branch.get("enum").and_then(Value::as_array)
+            {
+                return values
+                    .iter()
+                    .map(|value| json_type_name(value).to_string())
+                    .collect();
+            }
+            match branch.get("type") {
+                Some(Value::String(value)) => vec![value.clone()],
+                Some(Value::Array(values)) => values
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .map(str::to_string)
+                    .collect(),
+                _ => Vec::new(),
+            }
+        })
+        .collect()
+}
+
 /// The longest `const` value a type label shows as written; a longer one
 /// shows its type.
 const CONST_LABEL_LIMIT: usize = 24;
 
 /// The type labels of `schemas` (the same key in several `oneOf` options)
-/// in one: `"manual" | "static"`.
+/// in one, each type once: `"manual" | "static"`, `integer | string |
+/// boolean` for `integer | string` and `boolean | string`.
 pub(super) fn type_label_of_all(schemas: &[&Value], root: &Value, fallback: &str) -> String {
     let mut labels: Vec<String> = Vec::new();
     for schema in schemas {
-        let label = schema_type_label(schema, root, "");
-        if !label.is_empty() && !labels.contains(&label) {
-            labels.push(label);
+        let mut own = type_labels(schema, root);
+        own.sort();
+        for label in own {
+            if !labels.contains(&label) {
+                labels.push(label);
+            }
         }
     }
     if labels.is_empty() {
@@ -282,7 +289,7 @@ pub(crate) fn ref_target<'a>(reference: &str, root: &'a Value) -> Option<&'a Val
 
 /// Whether the keywords beside a `$ref` are ignored: up to draft-07, which
 /// the root's `$schema` names.
-fn refs_stand_alone(root: &Value) -> bool {
+pub(super) fn refs_stand_alone(root: &Value) -> bool {
     root.get("$schema")
         .and_then(Value::as_str)
         .is_some_and(|dialect| {
@@ -661,6 +668,33 @@ pub(crate) fn unquoted<'a>(behavior: &dyn ConfigLanguage, typed: &'a str) -> &'a
         return inner.strip_suffix(quote).unwrap_or(inner);
     }
     typed
+}
+
+#[cfg(test)]
+mod label_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn a_type_label_names_each_type_once_in_order() {
+        let root = json!({});
+        let first = json!({"anyOf": [{"type": "integer"}, {"type": "string"}]});
+        let second = json!({"anyOf": [{"type": "boolean"}, {"type": "string"}]});
+        let third = json!({"type": ["null", "integer"]});
+        let listed = json!({"enum": ["a", 1, "b"]});
+        assert_eq!(
+            type_label_of_all(&[&first, &second], &root, "property"),
+            "integer | string | boolean"
+        );
+        assert_eq!(
+            type_label_of_all(&[&second, &third, &listed], &root, "property"),
+            "boolean | string | integer | null"
+        );
+        assert_eq!(
+            schema_type_label(&listed, &root, "property"),
+            "integer | string"
+        );
+    }
 }
 
 #[cfg(test)]

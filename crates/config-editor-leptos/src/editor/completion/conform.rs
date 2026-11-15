@@ -11,38 +11,31 @@ use super::*;
 /// where only an array is allowed becomes a one-item array (a single XML
 /// `<dns>` element is `dns: [...]`), and XML text is typed by the schema.
 pub(crate) fn conform_arrays(value: &mut Value, schema: &Value, repetition: Repetition) {
-    conform(value, &[schema], schema, repetition, 0);
+    conform(value, &AtPath::Schema(schema), schema, repetition, 0);
 }
 
-/// [`conform_arrays`] where `schemas` all describe `value` (the property
-/// as each option of its parent gives it): read as one of them allows.
+/// [`conform_arrays`] where `at` is what applies to `value` (every
+/// subschema at its path combined): read as they allow.
 pub(super) fn conform(
     value: &mut Value,
-    schemas: &[&Value],
+    at: &AtPath<'_>,
     root: &Value,
     repetition: Repetition,
     depth: usize,
 ) {
-    if depth > 64 || schemas.is_empty() {
+    if depth > 64 || at.leaves().is_empty() {
         return;
     }
-    let mut branches: Vec<&Value> = Vec::new();
-    for schema in schemas {
-        // An object decides the conditionals it is under (`if kind is a`).
-        let instance = value.is_object().then_some(&*value);
-        for branch in branches_for(schema, root, instance) {
-            if !branches.iter().any(|known| std::ptr::eq(*known, branch)) {
-                branches.push(branch);
-            }
-        }
-    }
+    // An object decides the conditionals it is under (`if kind is a`).
+    let applied = at.applied(value.is_object().then_some(&*value), root);
+    let branches = applied.branches();
     let wants_array = branches.iter().any(|branch| {
         branch.get("items").is_some()
             || branch.get("prefixItems").is_some()
             || type_includes(branch, "array")
     });
     if repetition == Repetition::Elements {
-        read_text(value, schemas, &branches, root);
+        read_text(value, at, &branches, root);
     }
     let repeatable = match repetition {
         Repetition::Elements => !value.is_array(),
@@ -52,21 +45,25 @@ pub(super) fn conform(
     if wants_array && repeatable && !branches.iter().any(|branch| accepts(branch, value)) {
         *value = Value::Array(vec![value.take()]);
     }
-    if let Value::Object(map) = &*value {
-        branches = discriminated(branches, map, root);
-    }
-    // Each child read with every schema the branches above give it.
+    // Each child read with every schema that applies to it there.
+    let segments: Vec<SchemaPathSegment> = match &*value {
+        Value::Array(items) => (0..items.len()).map(SchemaPathSegment::ArrayItem).collect(),
+        Value::Object(map) => map.keys().cloned().map(SchemaPathSegment::Key).collect(),
+        _ => return,
+    };
+    let children: Vec<AtPath<'_>> = segments
+        .iter()
+        .map(|segment| applied.child(segment))
+        .collect();
     match value {
         Value::Array(items) => {
-            for (index, item) in items.iter_mut().enumerate() {
-                let schemas = children_of(&branches, &SchemaPathSegment::ArrayItem(index));
-                conform(item, &schemas, root, repetition, depth + 1);
+            for (item, at) in items.iter_mut().zip(&children) {
+                conform(item, at, root, repetition, depth + 1);
             }
         }
         Value::Object(map) => {
-            for (key, child) in map.iter_mut() {
-                let schemas = children_of(&branches, &SchemaPathSegment::Key(key.clone()));
-                conform(child, &schemas, root, repetition, depth + 1);
+            for (child, at) in map.values_mut().zip(&children) {
+                conform(child, at, root, repetition, depth + 1);
             }
         }
         _ => {}
@@ -80,7 +77,7 @@ pub(super) fn conform(
 /// the text; and empty text (an empty element, read as `{}`, or an empty
 /// attribute) is the empty string where the schema wants text, else
 /// `null` where it allows that.
-fn read_text(value: &mut Value, schemas: &[&Value], branches: &[&Value], root: &Value) {
+fn read_text(value: &mut Value, at: &AtPath<'_>, branches: &[&Value], root: &Value) {
     let allowed = |candidate: &Value| {
         branches.iter().any(|branch| {
             accepts(branch, candidate)
@@ -91,7 +88,7 @@ fn read_text(value: &mut Value, schemas: &[&Value], branches: &[&Value], root: &
     let empty = match value {
         Value::Number(_) | Value::Bool(_) | Value::Null => {
             let text = scalar_text(value);
-            if read_as_text(value, &text, schemas, branches, root) {
+            if read_as_text(value, &text, at, branches, root) {
                 *value = Value::String(text);
             }
             return;
@@ -99,15 +96,11 @@ fn read_text(value: &mut Value, schemas: &[&Value], branches: &[&Value], root: &
         Value::String(text) => {
             // Text the schema takes as it is stays text (`007` for "an
             // integer or a string").
-            let fits = |candidate: &Value| {
-                schemas
-                    .iter()
-                    .any(|schema| conditions::decides(schema, candidate, root) == Some(true))
-            };
+            let fits = |candidate: &Value| at.decides(candidate, root) == Some(true);
             if let Some(typed) = text_literal(text)
                 && allowed(&typed)
                 && !fits(&Value::String(text.clone()))
-                && !read_as_text(&typed, text, schemas, branches, root)
+                && !read_as_text(&typed, text, at, branches, root)
             {
                 *value = typed;
                 return;
@@ -157,7 +150,7 @@ fn whole(value: &Value) -> Option<Value> {
 fn read_as_text(
     value: &Value,
     text: &str,
-    schemas: &[&Value],
+    at: &AtPath<'_>,
     branches: &[&Value],
     root: &Value,
 ) -> bool {
@@ -166,11 +159,7 @@ fn read_as_text(
     if listed.contains(&&text) && !listed.contains(&value) {
         return true;
     }
-    let fits = |candidate: &Value| {
-        schemas
-            .iter()
-            .any(|schema| conditions::decides(schema, candidate, root) == Some(true))
-    };
+    let fits = |candidate: &Value| at.decides(candidate, root) == Some(true);
     if fits(value) {
         return false;
     }
@@ -186,7 +175,7 @@ fn read_as_text(
 }
 
 /// The values `branch` lists as the only ones allowed (`const`, `enum`).
-fn listed(branch: &Value) -> impl Iterator<Item = &Value> {
+pub(super) fn listed(branch: &Value) -> impl Iterator<Item = &Value> {
     branch.get("const").into_iter().chain(
         branch
             .get("enum")
@@ -197,78 +186,10 @@ fn listed(branch: &Value) -> impl Iterator<Item = &Value> {
 }
 
 /// A scalar as XML text writes it.
-fn scalar_text(value: &Value) -> String {
+pub(super) fn scalar_text(value: &Value) -> String {
     match value {
         Value::Null => "null".to_string(),
         Value::String(text) => text.clone(),
         other => other.to_string(),
     }
-}
-
-/// `branches` without the `oneOf`/`anyOf` options `map` is not (one whose
-/// property lists values its own value is not: `kind: const "b"` for
-/// `kind: a`), so a property the options type differently (`v` a number
-/// in one, text in the other) is read as the option the object is in
-/// wants it. All of them when every such option would go (the object is
-/// none of them yet).
-fn discriminated<'a>(
-    branches: Vec<&'a Value>,
-    map: &serde_json::Map<String, Value>,
-    root: &'a Value,
-) -> Vec<&'a Value> {
-    let options: Vec<&Value> = branches
-        .iter()
-        .flat_map(|branch| ["oneOf", "anyOf"].map(|keyword| branch.get(keyword)))
-        .flatten()
-        .filter_map(Value::as_array)
-        .flatten()
-        .map(|option| target(option, root))
-        .collect();
-    let gone: Vec<&Value> = options
-        .iter()
-        .copied()
-        .filter(|option| refuted(option, map, root))
-        .collect();
-    let is_gone = |branch: &Value| gone.iter().any(|option| std::ptr::eq(*option, branch));
-    let all_gone = options
-        .iter()
-        .filter(|option| option.get("properties").is_some())
-        .all(|option| is_gone(option));
-    if gone.is_empty() || all_gone {
-        return branches;
-    }
-    branches
-        .into_iter()
-        .filter(|branch| !is_gone(branch))
-        .collect()
-}
-
-/// The schema `schema`'s `$ref` names, else `schema`.
-fn target<'a>(schema: &'a Value, root: &'a Value) -> &'a Value {
-    schema
-        .get("$ref")
-        .and_then(Value::as_str)
-        .and_then(|reference| ref_target(reference, root))
-        .unwrap_or(schema)
-}
-
-/// Whether one of `branch`'s properties lists the values allowed and the
-/// object's scalar there is none of them, also as text (XML's `1` is the
-/// `"1"` listed).
-fn refuted(branch: &Value, map: &serde_json::Map<String, Value>, root: &Value) -> bool {
-    let Some(properties) = branch.get("properties").and_then(Value::as_object) else {
-        return false;
-    };
-    properties.iter().any(|(key, property)| {
-        let Some(present) = map
-            .get(key)
-            .filter(|present| !present.is_object() && !present.is_array())
-        else {
-            return false;
-        };
-        let mut allowed = listed(target(property, root)).peekable();
-        allowed.peek().is_some()
-            && !allowed
-                .any(|allowed| allowed == present || scalar_text(allowed) == scalar_text(present))
-    })
 }

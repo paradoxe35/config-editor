@@ -2,7 +2,7 @@
 //! (`8` for "an integer ≥ 1 or `auto`"), saved as read where the host's
 //! type of them is one the schema does not allow.
 
-use super::super::completion::{decides, schema_at_path_in};
+use super::super::completion::at_path;
 use super::super::language::{SchemaPathSegment, pointer_segments};
 use serde_json::Value;
 
@@ -12,21 +12,10 @@ use serde_json::Value;
 pub(super) fn keep(value: &mut Value, retyped: Vec<(String, Value)>, schema: &Value) {
     for (pointer, read) in retyped {
         let path = path_in(value, &pointer);
-        let schemas = schema_at_path_in(schema, &path, false, Some(value));
-        // Taken where one of them takes it, unknown where one cannot tell.
-        let takes = |candidate: &Value| {
-            let decided: Vec<Option<bool>> = schemas
-                .iter()
-                .map(|at| decides(at, candidate, schema))
-                .collect();
-            if decided.contains(&Some(true)) {
-                Some(true)
-            } else if decided.contains(&None) {
-                None
-            } else {
-                Some(false)
-            }
-        };
+        // Every subschema at the path: the base property, the `allOf` and
+        // `then` beside it, one of the options.
+        let at = at_path(schema, &path, value);
+        let takes = |candidate: &Value| at.decides(candidate, schema);
         let Some(typed) = value.pointer(&pointer) else {
             continue;
         };

@@ -3,6 +3,7 @@
 
 mod accept;
 mod around;
+mod at_path;
 mod candidates;
 mod choices;
 mod conditions;
@@ -30,6 +31,7 @@ mod window;
 
 pub(crate) use accept::*;
 pub(crate) use around::document_around;
+pub(crate) use at_path::{AtPath, at_path};
 pub(crate) use candidates::*;
 pub(crate) use choices::*;
 pub(crate) use conditions::{decides, mentions_conditionals};
