@@ -189,7 +189,7 @@ pub(super) fn yaml_path_lines(source: &str) -> Vec<(Vec<String>, usize, usize, u
             .and_then(|indicator| Some((indicator, block_scalar_text(indicator, &all_lines[index + 1..], content_indent)?)));
         let is_block_key = block_key.is_some();
         if let Some((key_raw, name)) =
-            block_key.or_else(|| explicit_key(rest).map(|key| (key, key.trim_matches(['\'', '"']).to_string())))
+            block_key.or_else(|| explicit_key(rest).map(|key| (key, key_name(key).to_string())))
         {
             if let Some(path) = array_item_path {
                 entries.push((path, index + 1, dash_column, dash_column + 1));
@@ -237,7 +237,7 @@ pub(super) fn yaml_path_lines(source: &str) -> Vec<(Vec<String>, usize, usize, u
         // A key's own anchor or tag (`&k b: 1`) is no part of its name.
         let written = without_node_properties(&rest[..colon]);
         let key_raw = &rest[colon - written.len()..colon];
-        let key = key_raw.trim().trim_matches(['\'', '"']);
+        let key = key_name(key_raw);
         // A quoted empty key (`"": x`) is a key; nothing before `:` is not.
         if key_raw.trim().is_empty() {
             continue;
@@ -405,6 +405,19 @@ fn multi_line_scalar_end(source: &str, line_number: usize, column: usize, value:
         _ => return None,
     };
     (end > line_end).then(|| column + source[start..end].chars().count())
+}
+
+/// A key's name as written (`raw`, before its colon): a quoted key's
+/// text inside its quotes; a plain key as it is, a quote in it too
+/// (`alpha"` names `alpha"`).
+fn key_name(raw: &str) -> &str {
+    let key = raw.trim();
+    match key.chars().next() {
+        Some(quote @ ('"' | '\'')) if key.len() >= 2 && key.ends_with(quote) => {
+            &key[1..key.len() - 1]
+        }
+        _ => key,
+    }
 }
 
 /// The colon after a mapping key in `rest` (a line's content after its

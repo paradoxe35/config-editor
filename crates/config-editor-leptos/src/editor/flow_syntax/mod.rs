@@ -113,15 +113,32 @@ impl Flow {
             .is_some_and(|first| self.quote(first).is_some())
     }
 
-    /// `text` trimmed, without the quotes around it if it is quoted.
+    /// `text` trimmed, without the quotes around it if it is quoted; in a
+    /// quote where a backslash escapes, an escaped quote or backslash
+    /// (`"a\"b"`) as the character it writes.
     pub(crate) fn strip_quotes(&self, text: &str) -> String {
         let trimmed = text.trim();
         if let Some(first) = trimmed.chars().next()
-            && self.quote(first).is_some()
+            && let Some(escapes) = self.quote(first)
             && trimmed.len() >= 2 * first.len_utf8()
             && trimmed.ends_with(first)
         {
-            return trimmed[first.len_utf8()..trimmed.len() - first.len_utf8()].to_string();
+            let inner = &trimmed[first.len_utf8()..trimmed.len() - first.len_utf8()];
+            if !escapes || !inner.contains('\\') {
+                return inner.to_string();
+            }
+            let mut out = String::with_capacity(inner.len());
+            let mut characters = inner.chars();
+            while let Some(character) = characters.next() {
+                match (character, characters.clone().next()) {
+                    ('\\', Some(next)) if next == first || next == '\\' => {
+                        out.push(next);
+                        characters.next();
+                    }
+                    _ => out.push(character),
+                }
+            }
+            return out;
         }
         trimmed.to_string()
     }

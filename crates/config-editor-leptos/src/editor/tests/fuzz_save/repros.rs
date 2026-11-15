@@ -1231,3 +1231,159 @@ fn sv38_19_1() {
         }],
     );
 }
+
+/// P3: an item of an HCL list written over lines, copied, keeps its source's form (a YAML quoted string).
+#[test]
+fn fz38_9_1() {
+    replay(
+        Language::YAML,
+        Language::TOML,
+        "alpha:\n  k1:\n    - !Ref A\n    - 'q'\n    - 3\n  k2: 'single'\nbeta:\n  k3: |\n  k4: {x: 1, y: two} # note 2\ngamma:\n  k5: 1.50 # note 4\n  k6: {x: 1, y: two} # note 6\n",
+        &[
+            Op::Switch { to: 3 },
+            Op::CopyLine {
+                line: 29,
+                down: false,
+            },
+        ],
+    );
+}
+
+/// P3: a block a cut leaves alone in its list is the host's block written once: its values keep their form.
+#[test]
+fn fz38_4_33() {
+    replay(
+        Language::HCL,
+        Language::TOML,
+        "terraform {\n  required_version = \">= 1.6\"\n  backend \"s3\" {\n    bucket = \"tf-state\"\n    key    = \"app/terraform.tfstate\"\n    region = \"eu-west-1\"\n  }\n}\nprovider \"aws\" {\n  region = var.region\n}\nprovider \"aws\" {\n  alias  = \"us\"\n  region = \"us-east-1\"\n}\nvariable \"region\" {\n  type    = string\n  default = \"eu-west-1\"\n  validation {\n    condition     = can(regex(\"^eu-\", var.region))\n    error_message = \"Only EU regions.\"\n  }\n}\nvariable \"subnets\" {\n  type = map(object({\n  }))\n  default = {\n    a = { cidr = \"10.0.1.0/24\", az = \"eu-west-1a\" }\n    b = { cidr = \"10.0.2.0/24\", az = \"eu-west-1b\" }\n  }\n}\ndata \"aws_ami\" \"ubuntu\" {\n  most_recent = true\n  owners      = [\"099720109477\"]\n  filter {\n    values = [\"ubuntu/images/hvm-ssd/ubuntu-jammy-22.04-amd64-server-*\"]\n  }\n  filter {\n    values = [\"hvm\"]\n  }\n}\noutput \"policy\" {\n  value = jsonencode({\n    Statement = [{\n    }]\n  })\n}\n",
+        &[Op::Cut {
+            line: 38,
+            how: Take::Text,
+        }],
+    );
+}
+
+/// P3: a YAML key with a quote in it (`alpha"`) is found, so its items keep their links and forms.
+#[test]
+fn fz38_4_34() {
+    replay(
+        Language::JSON,
+        Language::TOML,
+        "{\n  \"alpha\": {\n    \"k1\": {\"x\": 1, \"y\": \"two\"},\n    \"k2\": [\n      {\"name\": \"one\"},\n      {\"name\": \"two\"}\n    ],\n    \"k3\": [1, 2, 3],\n    \"k4\": 1e3\n  },\n  \"beta\": {\n    \"k5\": [1, 2, 3],\n    \"k6\": 1.50,\n    \"k7\": [1, 2, 3],\n    \"k8\": \"plain\"\n  },\n  \"gamma\": {\n    \"k9\": [\n      {\"name\": \"one\"},\n      {\"name\": \"two\"}\n    ],\n    \"k10\": true,\n    \"k11\": [\n      {\"name\": \"one\"},\n      {\"name\": \"two\"}\n    ],\n    \"k12\": 1e3\n  },\n  \"delta\": {\n    \"k13\": {\"x\": 1, \"y\": \"two\"},\n    \"k14\": {\"x\": 1, \"y\": \"two\"}\n  }\n}\n",
+        &[
+            Op::Switch { to: 0 },
+            Op::Type {
+                line: 39,
+                column: 5,
+                text: "\"",
+            },
+            Op::Cut {
+                line: 41,
+                how: Take::Text,
+            },
+        ],
+    );
+}
+
+/// P3: a JSON key with an escaped quote keeps its entry's lines when an edit inside it is restyled.
+#[test]
+fn fz38_4_35() {
+    replay(
+        Language::JSON,
+        Language::TOML,
+        "{\n  \"alpha\": {\n    \"k1\": {\"x\": 1, \"y\": \"two\"},\n    \"k2\": [\n      {\"name\": \"one\"},\n      {\"name\": \"two\"}\n    ],\n    \"k3\": [1, 2, 3],\n    \"k4\": 1e3\n  },\n  \"beta\": {\n    \"k5\": [1, 2, 3],\n    \"k6\": 1.50,\n    \"k7\": [1, 2, 3],\n    \"k8\": \"plain\"\n  },\n  \"gamma\": {\n    \"k9\": [\n      {\"name\": \"one\"},\n      {\"name\": \"two\"}\n    ],\n    \"k10\": true,\n    \"k11\": [\n      {\"name\": \"one\"},\n      {\"name\": \"two\"}\n    ],\n    \"k12\": 1e3\n  },\n  \"delta\": {\n    \"k13\": {\"x\": 1, \"y\": \"two\"},\n    \"k14\": {\"x\": 1, \"y\": \"two\"}\n  }\n}\n",
+        &[
+            Op::Switch { to: 0 },
+            Op::Type {
+                line: 39,
+                column: 5,
+                text: "\"",
+            },
+            Op::Cut {
+                line: 41,
+                how: Take::Text,
+            },
+            Op::DeleteLine { line: 33 },
+        ],
+    );
+}
+
+/// The user's own spelling: a number split by Enter and joined back as `1000.` is theirs, written in the host's spelling of it.
+#[test]
+fn user_spelled_1() {
+    replay(
+        Language::JSON,
+        Language::XML,
+        "{\n  \"alpha\": {\n    \"k1\": null,\n    \"k2\": true,\n    \"k3\": null\n  },\n  \"beta\": {\n    \"k4\": \"plain\",\n    \"k5\": 1e3\n  },\n  \"gamma\": {\n    \"k6\": null,\n    \"k7\": 1.50\n  },\n  \"delta\": {\n    \"k8\": 1e3,\n    \"k9\": \"plain\",\n    \"k10\": 1.50\n  }\n}\n",
+        &[
+            Op::Switch { to: 0 },
+            Op::Enter {
+                line: 25,
+                column: 1001,
+            },
+            Op::DeleteLine { line: 62 },
+            Op::Cut {
+                line: 51,
+                how: Take::Text,
+            },
+            Op::MoveLine {
+                line: 22,
+                down: false,
+            },
+        ],
+    );
+}
+
+/// The user's own order: lines cut and pasted over others put a map's keys in another order, which the save keeps.
+#[test]
+fn user_ordered_1() {
+    replay(
+        Language::JSON,
+        Language::YAML,
+        "{\n  \"alpha\": {\n    \"k1\": [\n      {\"name\": \"one\"},\n      {\"name\": \"two\"}\n    ],\n    \"k2\": \"a\\u0041\"\n  },\n  \"beta\": {\n    \"k3\": [1, 2, 3],\n    \"k4\": {\"x\": 1, \"y\": \"two\"},\n    \"k5\": 1e3\n  },\n  \"gamma\": {\n    \"k6\": [\n      {\"name\": \"one\"},\n      {\"name\": \"two\"}\n    ],\n    \"k7\": true,\n    \"k8\": [1, 2, 3],\n    \"k9\": \"a\\u0041\"\n  }\n}\n",
+        &[
+            Op::Cut {
+                line: 26,
+                how: Take::Entry,
+            },
+            Op::Cut {
+                line: 33,
+                how: Take::Entry,
+            },
+            Op::Pause,
+            Op::Paste {
+                line: 55,
+                how: Put::OverLine,
+            },
+        ],
+    );
+}
+
+/// The user's own value: a hex number edited and typed back as `31` is theirs.
+#[test]
+fn user_spelled_2() {
+    replay(
+        Language::TOML,
+        Language::YAML,
+        "[alpha]\nk1 = 1_000\nk2 = \"plain\"\nk3 = 0x1F # note 2\nk6 = 0b101\nk7 = 0b101\n[delta]\nk8 = 1979-05-27\nk9 = 1_000 # note 7\n",
+        &[
+            Op::MoveLine {
+                line: 42,
+                down: true,
+            },
+            Op::DeleteLine { line: 1 },
+            Op::Type {
+                line: 2,
+                column: 1001,
+                text: "x",
+            },
+            Op::Pause,
+            Op::DeleteLine { line: 9 },
+            Op::Backspace {
+                line: 15,
+                column: 1001,
+                count: 1,
+            },
+        ],
+    );
+}

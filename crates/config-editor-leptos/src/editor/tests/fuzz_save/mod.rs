@@ -66,8 +66,6 @@ struct Case {
 struct Broke {
     step: usize,
     failure: Box<Failure>,
-    /// Whether the text was edited in the host's own language before.
-    edited_natively: bool,
 }
 
 /// Runs `case`; `Ok(false)` when it cannot start (its text does not read,
@@ -105,20 +103,12 @@ fn run(case: &Case) -> Result<bool, Broke> {
         let (_owner, state) = editor.mount();
         let mut clipboard = None;
         let mut time = 0.0;
-        let mut edited_natively = false;
         for (step, op) in case.ops.iter().enumerate() {
-            let native = state.sync().edit_language.get_untracked() == case.host;
             let before = state.doc().text.get_untracked();
             if op.saves() {
                 start.note(&before);
             }
             ops::apply(state, case.host, op, &mut clipboard, &mut time);
-            if native
-                && !matches!(op, Op::Switch { .. })
-                && before != state.doc().text.get_untracked()
-            {
-                edited_natively = true;
-            }
             if trace {
                 println!(
                     "-- {op:?} ({}, in sync {}):\n{}--- host:\n{}--- problems: {:?}",
@@ -130,11 +120,7 @@ fn run(case: &Case) -> Result<bool, Broke> {
                 );
             }
             if op.saves() {
-                checks::check(state, &start, &held).map_err(|failure| Broke {
-                    step,
-                    failure,
-                    edited_natively,
-                })?;
+                checks::check(state, &start, &held).map_err(|failure| Broke { step, failure })?;
             }
             let language = state.sync().edit_language.get_untracked();
             let text = state.doc().text.get_untracked();
@@ -150,7 +136,6 @@ fn run(case: &Case) -> Result<bool, Broke> {
         checks::check(state, &start, &held).map_err(|failure| Broke {
             step: case.ops.len(),
             failure,
-            edited_natively,
         })
     }));
     match outcome {
@@ -164,7 +149,6 @@ fn run(case: &Case) -> Result<bool, Broke> {
             Err(Broke {
                 step: case.ops.len(),
                 failure: Failure::new(Broken::Panic, "", message),
-                edited_natively: false,
             })
         }
     }

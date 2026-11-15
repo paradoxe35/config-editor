@@ -454,7 +454,8 @@ fn relocated(
 
 /// `pointer` as `value` holds it: where `value` has a list of one and the
 /// pointer names no index in it, the index `0` put in (a view that writes
-/// a list of one as its item names it without one); `pointer` itself when
+/// a list of one as its item names it without one), and left out where
+/// `value` holds the item itself; `pointer` itself when
 /// it names nothing there either way.
 fn as_written(value: &Value, pointer: &str) -> String {
     if value.pointer(pointer).is_some() {
@@ -469,6 +470,14 @@ fn as_written(value: &Value, pointer: &str) -> String {
         {
             out.push_str("/0");
             at = &items[0];
+        }
+        // The other way: a view's list of one the host writes as its
+        // item (an HCL block written once).
+        if segment == "0"
+            && let Value::Object(map) = at
+            && !map.contains_key("0")
+        {
+            continue;
         }
         out.push('/');
         out.push_str(segment);

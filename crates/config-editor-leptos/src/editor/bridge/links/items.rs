@@ -4,6 +4,7 @@
 //! one before (the items of a flow list), only the outermost has lines:
 //! lines do not tell the others apart.
 
+use super::super::super::codec;
 use super::super::super::language::ConfigLanguage;
 use super::super::super::paths;
 use serde_json::Value;
@@ -29,9 +30,13 @@ pub(super) fn items(language: &dyn ConfigLanguage, text: &str, value: &Value) ->
     let (values, keys): (Vec<_>, Vec<_>) = paths::with_spans(language, text, &all, || {
         all.iter()
             .map(|pointer| {
+                // A member of a container written with brackets over lines
+                // (an item of an HCL or TOML list) is found in it.
                 (
-                    paths::memo_value_span(language, text, pointer),
-                    paths::memo_key_span(language, text, pointer),
+                    paths::memo_value_span(language, text, pointer)
+                        .or_else(|| codec::inline_location(language, text, pointer, false)),
+                    paths::memo_key_span(language, text, pointer)
+                        .or_else(|| codec::inline_location(language, text, pointer, true)),
                 )
             })
             .unzip()

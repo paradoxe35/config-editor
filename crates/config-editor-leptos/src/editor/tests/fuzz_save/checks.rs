@@ -101,6 +101,10 @@ pub(super) struct Start {
     shown_comments: Vec<String>,
     /// The text the session's views showed, each switch's added.
     shown: String,
+    /// The scalars a save so far held otherwise than the start.
+    changed: std::cell::RefCell<std::collections::HashSet<String>>,
+    /// Each value's text as a view showed it (at the start, each switch).
+    shown_values: std::cell::RefCell<std::collections::HashSet<String>>,
     /// The views' texts at each save since: what the user wrote.
     written: std::cell::RefCell<String>,
     /// Each view text shown or saved in sync, with its language and the
@@ -125,6 +129,8 @@ impl Start {
             shown_comments: comment_bodies(view, view_text),
             shown: view_text.to_string(),
             written: Default::default(),
+            changed: Default::default(),
+            shown_values: std::cell::RefCell::new(value_texts(view, view_text)),
             synced: std::cell::RefCell::new(vec![(view, view_text.to_string(), text.to_string())]),
         })
     }
@@ -153,6 +159,18 @@ impl Start {
             self.synced
                 .borrow_mut()
                 .push((view, view_text.to_string(), host_text.to_string()));
+        }
+        // The values of a view the switch built from the host's text (not
+        // the user's edits carried over).
+        let built = host_text.is_some_and(|host_text| {
+            Bridge::new(self.host, view, None)
+                .and_then(|bridge| bridge.to_edit(host_text).ok())
+                .is_some_and(|shown| shown.text == view_text)
+        });
+        if built {
+            self.shown_values
+                .borrow_mut()
+                .extend(value_texts(view, view_text));
         }
         self.shown_comments = comment_bodies(view, view_text);
         self.shown.push_str(view_text);
@@ -600,7 +618,7 @@ fn check_save(state: EditorState, start: &Start, held: &HostCopy) -> Result<(), 
             ));
         }
     }
-    check_forms(start, &saved, &now, &view_text)?;
+    check_forms(start, &saved, &now, (view, &view_text))?;
     check_comments(start, view, &view_text, &saved, &now)
 }
 
@@ -610,9 +628,49 @@ fn check_forms(
     start: &Start,
     saved: &str,
     now: &Value,
-    view_text: &str,
+    (view, view_text): (Language, &str),
 ) -> Result<(), Box<Failure>> {
     let after = forms(start.host, saved, now);
+    // What the user wrote in the view: a value spelled there as no view
+    // showed it (`1000.0` split by Enter and joined back as `1000.`), or a
+    // map whose keys the view holds in another order (lines cut and
+    // pasted over others): the save writes it as the user wrote it, in
+    // the host's spelling of that.
+    let view_value = view.parse(view_text).ok();
+    let view_spans = |pointer: &str| {
+        let span = view
+            .behavior()
+            .value_spans(view_text, &[pointer.to_string()])
+            .pop()
+            .flatten()?;
+        let line = line_text(view_text, span.line)?;
+        Some(characters(line, span.start_column - 1, span.end_column - 1))
+    };
+    let users_own = |pointer: &str| {
+        let respelled = now
+            .pointer(pointer)
+            .is_some_and(|value| !value.is_object() && !value.is_array())
+            && view_spans(pointer).is_some_and(|spelled| {
+                !spelled.trim().is_empty() && !start.shown_values.borrow().contains(spelled.trim())
+            });
+        let reordered = match (
+            start.value.pointer(pointer),
+            view_value.as_ref().and_then(|value| value.pointer(pointer)),
+        ) {
+            (Some(Value::Object(was)), Some(Value::Object(is))) => {
+                let order = |map: &serde_json::Map<String, Value>,
+                             other: &serde_json::Map<String, Value>| {
+                    map.keys()
+                        .filter(|key| other.contains_key(*key))
+                        .cloned()
+                        .collect::<Vec<_>>()
+                };
+                order(was, is) != order(is, was)
+            }
+            _ => false,
+        };
+        respelled || reordered
+    };
     let before = &start.forms;
     // Anchors and aliases whose values all stay may not be written out.
     let changed_anchor = |form: &str| {
@@ -645,6 +703,22 @@ fn check_forms(
             Err(_) => last.to_string(),
         }
     };
+    // A scalar an earlier save held otherwise (the user changed it and
+    // typed it back), or that the user spelled anew, is the user's: the
+    // save writes what they typed. An undo back is judged by GetPut,
+    // exactly.
+    let changed_before = start.changed.borrow().clone();
+    {
+        let mut changed = start.changed.borrow_mut();
+        for (pointer, was) in pointers(&start.value) {
+            // Changed, or spelled by the user (their spelling, saved, is
+            // the host's from then on, in the views built from it too).
+            let changed_now = now.pointer(&pointer) != Some(was);
+            if !was.is_object() && !was.is_array() && (changed_now || users_own(&pointer)) {
+                changed.insert(pointer);
+            }
+        }
+    }
     for (pointer, value) in pointers(now) {
         let Some(form) = after.get(&pointer) else {
             continue;
@@ -652,10 +726,13 @@ fn check_forms(
         let parent = &pointer[..pointer.rfind('/').unwrap_or(0)];
         let new_parent = !parent.is_empty() && start.value.pointer(parent).is_none();
         if start.value.pointer(&pointer) == Some(value) {
+            if changed_before.contains(&pointer) {
+                continue;
+            }
             let Some(was) = before.get(&pointer) else {
                 continue;
             };
-            if was != form && !changed_anchor(was) && !retyped(form) {
+            if was != form && !changed_anchor(was) && !retyped(form) && !users_own(&pointer) {
                 return Err(Failure::new(
                     Broken::Form,
                     was.clone(),
@@ -683,6 +760,7 @@ fn check_forms(
             .filter_map(|other| before.get(other))
             .collect();
         if !textless
+            && !users_own(&pointer)
             && !sources.is_empty()
             && !sources.contains(&form)
             && !sources.iter().any(|was| changed_anchor(was))
@@ -738,4 +816,30 @@ fn check_comments(
 fn is_empty_container(value: &Value) -> bool {
     value.as_object().is_some_and(|map| map.is_empty())
         || value.as_array().is_some_and(|items| items.is_empty())
+}
+
+/// The text of each scalar value `text` (in `language`) writes, trimmed.
+fn value_texts(language: Language, text: &str) -> std::collections::HashSet<String> {
+    let Ok(value) = language.parse(text) else {
+        return Default::default();
+    };
+    let wanted: Vec<String> = pointers(&value)
+        .into_iter()
+        .filter(|(_, value)| !value.is_object() && !value.is_array())
+        .map(|(pointer, _)| pointer)
+        .collect();
+    language
+        .behavior()
+        .value_spans(text, &wanted)
+        .into_iter()
+        .flatten()
+        .filter_map(|span| {
+            let line = line_text(text, span.line)?;
+            Some(
+                characters(line, span.start_column - 1, span.end_column - 1)
+                    .trim()
+                    .to_string(),
+            )
+        })
+        .collect()
 }
