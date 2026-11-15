@@ -230,8 +230,7 @@ mod tests {
         let problems: Vec<Diagnostic> = (0..200)
             .map(|index| over(1 + index * 7, 1, Some(1 + index * 7 + 200), 2))
             .collect();
-        let (took, planned) =
-            crate::editor::test_timing::best_of(3, || plan(&problems, &lines, |_| false));
+        let planned = plan(&problems, &lines, |_| false);
         assert_eq!(planned.drawn.len(), MAX_DRAWN);
         assert!(planned.cut);
         // Every problem's start first (QA 20: the first one took the whole
@@ -239,7 +238,13 @@ mod tests {
         let mut starts: Vec<usize> = planned.drawn.iter().map(|(index, _)| *index).collect();
         starts.dedup();
         assert_eq!(starts, (0..200).collect::<Vec<_>>());
-        assert!(took.as_millis() < 50, "planning took {took:?}");
+        // And planning grows with the problems only: four times the ranges
+        // about four times as long.
+        let growth =
+            crate::editor::test_timing::growth(5, (&problems[..50], &problems[..]), |problems| {
+                plan(problems, &lines, |_| false)
+            });
+        assert!(growth.ratio() < 10.0, "50 ranges, then 200: {growth}");
         // One-line problems: the first 200 of them.
         let short: Vec<Diagnostic> = (0..300).map(|index| over(1 + index, 1, None, 3)).collect();
         let planned = plan(&short, &lines, |_| false);

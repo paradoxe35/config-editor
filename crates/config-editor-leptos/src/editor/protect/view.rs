@@ -95,22 +95,26 @@ mod tests {
     /// Measured from the document's start, as before, this took minutes.
     #[test]
     fn many_placeholders_are_marked_in_linear_time() {
-        let lines = 20_000;
         let line = "  secret: «secret 3f2a» # é\n";
-        let text = line.repeat(lines);
         let line_units = line.encode_utf16().count();
         let token_start = "  secret: ".encode_utf16().count();
         let token_units = "«secret 3f2a»".encode_utf16().count();
-        let tokens: Vec<_> = (0..lines)
-            .map(|index| {
-                let start = index * line_units + token_start;
-                start..start + token_units
-            })
-            .collect();
         let strings = crate::EditorStrings::default();
-        let (took, marks) = crate::editor::test_timing::best_of(3, || {
+        let marked = |lines: usize| {
+            let text = line.repeat(lines);
+            let tokens: Vec<_> = (0..lines)
+                .map(|index| {
+                    let start = index * line_units + token_start;
+                    start..start + token_units
+                })
+                .collect();
             line_marks(&text, &Protected::default(), &tokens, "hint", &strings)
-        });
+        };
+        // Twice the lines, twice the steps placing the offsets (counted).
+        let grown = crate::editor::work_count::grown_faster(2.5, (10_000, 20_000), marked);
+        assert!(grown.is_empty(), "{grown:?}");
+        let lines = 20_000;
+        let marks = marked(lines);
         let byte_start = "  secret: ".len();
         let expected = byte_start..byte_start + "«secret 3f2a»".len();
         // Only the lines with a placeholder: not an entry for every line.
@@ -120,6 +124,5 @@ mod tests {
                 .values()
                 .all(|marks| marks.secret == [expected.clone()])
         );
-        assert!(took.as_secs() < 5, "{took:?}");
     }
 }

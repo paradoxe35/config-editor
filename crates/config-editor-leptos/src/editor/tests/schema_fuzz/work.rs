@@ -23,9 +23,6 @@ const DEPTHS: [usize; 3] = [4, 8, 16];
 /// Counts this small at the last depth are no growth worth naming.
 const FLOOR: usize = 64;
 
-/// Validation this fast is no growth worth timing.
-const SLOW: std::time::Duration = std::time::Duration::from_millis(3);
-
 /// How many times longer validation may take three levels deeper, from
 /// depth 6 to 9 (linear work: 1.5 times; quadratic: 2.25 times).
 const TIME_RATIO: u32 = 5;
@@ -184,28 +181,18 @@ fn operations(both: &Both, language: Language, text: &str) -> Vec<(&'static str,
 /// Linear work takes 1.5 times as long three levels down; exponential
 /// work over two options 8 times, over three 27 times.
 fn validation_blows(both: &Both, case: &Case) -> Option<super::runner::Failure> {
-    let timed = |depth: usize| {
-        let doc = nested(&case.doc, depth, case.pick == 1);
-        let text = both.written(case.language, &doc)?;
-        // The best of three runs: a busy machine slows one now and then.
-        let best = (0..3)
-            .map(|_| {
-                let start = std::time::Instant::now();
-                drop(both.problems(case.language, &text));
-                start.elapsed()
-            })
-            .min()?;
-        Some((best, text))
-    };
-    let (shallow, _) = timed(6)?;
-    let (deep, text) = timed(9)?;
-    (deep > SLOW && deep > shallow * TIME_RATIO).then(|| {
+    let text =
+        |depth: usize| both.written(case.language, &nested(&case.doc, depth, case.pick == 1));
+    let (shallow, deep) = (text(6)?, text(9)?);
+    // Both depths in turn, the fastest of three each: a busy stretch slows
+    // both alike.
+    let growth = crate::editor::test_timing::growth(3, (&shallow, &deep), |text: &String| {
+        both.problems(case.language, text)
+    });
+    (growth.ratio() > f64::from(TIME_RATIO)).then(|| {
         failure(
             "validate: its time grows faster than the document",
-            format!(
-                "{}: {shallow:?} at depth 6, {deep:?} at depth 9\n{text}",
-                case.language
-            ),
+            format!("{}: depth 6, then 9: {growth}\n{deep}", case.language),
         )
     })
 }

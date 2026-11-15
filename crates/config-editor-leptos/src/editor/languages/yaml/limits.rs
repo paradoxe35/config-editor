@@ -135,11 +135,16 @@ mod tests {
     #[test]
     fn a_billion_laughs_is_refused_plainly_and_promptly() {
         for levels in [9, 12, 20] {
-            let started = std::time::Instant::now();
             let error = YamlBehavior.parse(&laughs(levels)).expect_err("a bomb is refused");
             assert_eq!(error.message, EXPANSION_REFUSED, "{levels} levels");
-            assert!(started.elapsed().as_secs() < 5, "{levels} levels: {:?}", started.elapsed());
         }
+        // Promptly: refused before it is expanded, so 20 levels cost about
+        // what 12 do (expanded, ten times as much per level).
+        let (small, large) = (laughs(12), laughs(20));
+        let growth = crate::editor::test_timing::growth(5, (&small, &large), |text: &String| {
+            YamlBehavior.parse(text).is_err()
+        });
+        assert!(growth.ratio() < 8.0, "12 levels, then 20: {growth}");
     }
 
     /// A Compose file whose `x-defaults` anchor of `options` lines of

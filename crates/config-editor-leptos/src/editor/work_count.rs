@@ -402,9 +402,110 @@ pub(crate) fn counted_all<T>(run: impl FnOnce() -> T) -> (T, [usize; KINDS]) {
     )
 }
 
+/// Runs `run` and returns its result and how many times it started each
+/// of `works`, in their order.
+#[cfg(test)]
+#[allow(
+    dead_code,
+    reason = "the count tests that use it need features a build may leave out"
+)]
+pub(crate) fn counted_each<T, const N: usize>(
+    works: [Work; N],
+    run: impl FnOnce() -> T,
+) -> (T, [usize; N]) {
+    let (result, counts) = counted_all(run);
+    (result, works.map(|work| counts[work.index()]))
+}
+
+/// `run`'s result and how many times it read the whole of `text`: the
+/// reads of it for spans, paths or a stand-in, and its parses (the bytes
+/// parsed over its length, rounded up). Work that reads the whole text
+/// once per item (a path lookup for each token) shows here as thousands.
+#[cfg(test)]
+#[allow(
+    dead_code,
+    reason = "the count tests that use it need features a build may leave out"
+)]
+pub(crate) fn whole_reads<T>(text: &str, run: impl FnOnce() -> T) -> (T, usize) {
+    let (result, [reads, lookups, stand_ins, parsed]) = counted_each(
+        [
+            Work::DocumentRead,
+            Work::PathLookup,
+            Work::StandIn,
+            Work::ParsedBytes,
+        ],
+        run,
+    );
+    (
+        result,
+        reads + lookups + stand_ins + parsed.div_ceil(text.len().max(1)),
+    )
+}
+
+/// The kinds of work (and their total) that `run` starts more than
+/// `ratio` times as often at `large` as at `small` (a count under
+/// [`GROWTH_FLOOR`] at the small size compared as if that large), each
+/// with its counts. Twice the size gives linear work twice the count and
+/// quadratic work four times: a ratio of 2.5 tells them apart on any
+/// machine under any load, where a timing could not.
+#[cfg(test)]
+#[allow(
+    dead_code,
+    reason = "the count tests that use it need languages a build may leave out"
+)]
+pub(crate) fn grown_faster<T>(
+    ratio: f64,
+    (small, large): (usize, usize),
+    mut run: impl FnMut(usize) -> T,
+) -> Vec<String> {
+    let [small_counts, large_counts] = [small, large].map(|size| counted_all(|| run(size)).1);
+    let total = |counts: &[usize; KINDS]| counts.iter().sum::<usize>();
+    Work::ALL
+        .iter()
+        .map(|work| format!("{work:?}"))
+        .chain(["total".to_string()])
+        .zip(
+            small_counts
+                .iter()
+                .zip(&large_counts)
+                .map(|(small, large)| (*small, *large))
+                .chain([(total(&small_counts), total(&large_counts))]),
+        )
+        .filter(|(_, (at_small, at_large))| {
+            *at_large as f64 > ratio * (*at_small).max(GROWTH_FLOOR) as f64
+        })
+        .map(|(work, (at_small, at_large))| {
+            format!("{work}: {at_small} at size {small}, {at_large} at {large}")
+        })
+        .collect()
+}
+
+/// Counts this small at the smaller size are compared as if this large
+/// in [`grown_faster`]: a constant few more steps are not growth.
+#[cfg(test)]
+const GROWTH_FLOOR: usize = 16;
+
 #[cfg(test)]
 mod tests {
-    use super::{KINDS, Work, counted, counted_all, note};
+    use super::{KINDS, Work, counted, counted_all, grown_faster, note};
+
+    #[test]
+    fn work_growing_faster_than_its_input_is_named() {
+        let linear = grown_faster(2.5, (100, 200), |size| {
+            (0..size).for_each(|_| note(Work::LineSeek));
+        });
+        assert!(linear.is_empty(), "{linear:?}");
+        let quadratic = grown_faster(2.5, (100, 200), |size| {
+            (0..size * size).for_each(|_| note(Work::LineSeek));
+        });
+        assert_eq!(
+            quadratic,
+            [
+                "LineSeek: 10000 at size 100, 40000 at 200",
+                "total: 10000 at size 100, 40000 at 200"
+            ]
+        );
+    }
 
     #[test]
     fn counts_only_the_work_asked_inside_the_run() {

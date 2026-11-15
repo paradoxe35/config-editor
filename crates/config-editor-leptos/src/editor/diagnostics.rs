@@ -1369,13 +1369,24 @@ mod scale_tests {
     fn many_unknown_keys_stay_fast_and_messages_stay_short() {
         let schema =
             Schema::compile(include_str!("../../tests/fixtures/tunnel.schema.json")).unwrap();
-        let document: String = (0..2000)
-            .map(|index| format!("unknown_{index}: 1\n"))
-            .collect();
-        let (took, problems) =
-            crate::editor::test_timing::best_of(3, || schema.validate(Language::YAML, &document));
-        assert!(took < std::time::Duration::from_millis(300), "{took:?}");
+        let document = |keys: usize| -> String {
+            (0..keys)
+                .map(|index| format!("unknown_{index}: 1\n"))
+                .collect()
+        };
+        let (small, large) = (document(500), document(2000));
+        // The problems placed with a few reads of the document, not one each.
+        let (problems, reads) = crate::editor::work_count::whole_reads(&large, || {
+            schema.validate(Language::YAML, &large)
+        });
+        assert!(reads <= 8, "{reads} whole reads");
         assert!(problems.iter().all(|problem| problem.message.len() < 200));
+        // And the validator's own time (not counted) grows with the keys:
+        // four times the keys about four times as long.
+        let growth = crate::editor::test_timing::growth(5, (&small, &large), |text: &String| {
+            schema.validate(Language::YAML, text)
+        });
+        assert!(growth.ratio() < 10.0, "500 keys, then 2000: {growth}");
         let services: String = format!(
             "services:\n{}",
             (0..200)
@@ -1425,17 +1436,18 @@ mod placing_tests {
         let mut failures = Vec::new();
         for language in Language::ALL {
             let text = language.serialize(&document).unwrap();
-            // The best of five runs: on a loaded machine (other builds, the
-            // browser suite) one pass of JSON reached 430 ms; the one-by-one
-            // lookups this guards against took 900 ms and more.
-            let (took, problems) =
-                crate::editor::test_timing::best_of(5, || schema.validate(*language, &text));
+            // Counted: the one-by-one lookups this guards against read the
+            // whole document for each problem and each of its ancestors.
+            let (problems, reads) =
+                crate::editor::work_count::whole_reads(&text, || schema.validate(*language, &text));
             let placed = problems
                 .iter()
                 .filter(|problem| problem.line.is_some())
                 .count();
-            if took.as_millis() > 650 || placed < 20 {
-                failures.push(format!("{language}: {placed} placed in {took:?}"));
+            if reads > 8 || placed < 20 {
+                failures.push(format!(
+                    "{language}: {placed} placed in {reads} whole reads"
+                ));
             }
         }
         assert!(failures.is_empty(), "{}", failures.join("\n"));
@@ -1463,14 +1475,18 @@ mod key_placing_tests {
             r#"{"type": "object", "properties": {"a": {"type": "object", "additionalProperties": false, "properties": {"k": {}}}}}"#,
         )
         .unwrap();
-        let mut a = serde_json::Map::new();
-        for index in 0..12000 {
-            a.insert(format!("unknown_{index}"), serde_json::json!(index));
-        }
-        let document = serde_json::json!({ "a": a });
+        let document = |keys: usize| {
+            let mut a = serde_json::Map::new();
+            for index in 0..keys {
+                a.insert(format!("unknown_{index}"), serde_json::json!(index));
+            }
+            serde_json::json!({ "a": a })
+        };
+        let (small, document) = (document(3000), document(12000));
         let mut failures = Vec::new();
         for language in [Language::YAML, Language::JSON] {
             let text = language.serialize(&document).unwrap();
+            let small = language.serialize(&small).unwrap();
             let (problems, reads) =
                 counted(Work::DocumentRead, || schema.validate(language, &text));
             let placed = problems
@@ -1482,12 +1498,14 @@ mod key_placing_tests {
             if reads > 2 || placed < 20 {
                 failures.push(format!("{language}: {placed} placed in {reads} reads"));
             }
-            // And the pass itself stays linear: about 30 ms here, where work
-            // growing with the square of 12,000 keys takes seconds.
-            let (took, _) =
-                crate::editor::test_timing::best_of(5, || schema.validate(language, &text));
-            if took.as_millis() > 300 {
-                failures.push(format!("{language}: validated in {took:?}"));
+            // And the pass itself stays linear (timed: most of it is the
+            // validator's own): four times the keys about four times as
+            // long, sixteen times when it grows with their square.
+            let growth = crate::editor::test_timing::growth(5, (&small, &text), |text: &String| {
+                schema.validate(language, text)
+            });
+            if growth.ratio() > 10.0 {
+                failures.push(format!("{language}: 3000 keys, then 12000: {growth}"));
             }
         }
         assert!(failures.is_empty(), "{}", failures.join("\n"));

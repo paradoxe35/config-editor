@@ -215,8 +215,8 @@ fn fold_ranges_stay_well_formed_while_typing() {
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
-/// The 2000-line samples fold quickly: a 10k-line document's ranges in
-/// well under a frame.
+/// The 2000-line samples fold quickly: a document's ranges cost in step
+/// with its length (five times the sample about five times as long).
 #[test]
 fn fold_ranges_of_large_documents_are_fast() {
     let samples = [
@@ -243,13 +243,14 @@ fn fold_ranges_of_large_documents_are_fast() {
     ];
     for (language, sample) in samples {
         let large = sample.repeat(5);
-        let (elapsed, ranges) =
-            crate::editor::test_timing::best_of(3, || language.fold_ranges(&large));
-        assert!(!ranges.is_empty(), "{language}");
+        assert!(!language.fold_ranges(&large).is_empty(), "{language}");
+        // Timed: most of the time is the language's parser.
+        let growth = crate::editor::test_timing::growth(5, (sample, large.as_str()), |text| {
+            language.fold_ranges(text)
+        });
         assert!(
-            elapsed.as_millis() < 500,
-            "{language}: {} ranges in {elapsed:?}",
-            ranges.len()
+            growth.ratio() < 12.0,
+            "{language}: the sample, then five times it: {growth}"
         );
     }
 }

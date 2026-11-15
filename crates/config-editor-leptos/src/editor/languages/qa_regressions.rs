@@ -815,40 +815,44 @@ fn hovering_a_segment_of_a_dotted_key_or_header_shows_that_segment() {
 }
 
 /// Span lookups run per diagnostic and per ancestor of it; on a 2000-line
-/// document each must stay far below a frame budget, in every language.
+/// document each grows with the document only (four times the clients
+/// about four times as long), in every language.
 #[test]
 fn span_lookups_on_large_documents_are_fast() {
-    let mut clients = serde_json::Map::new();
-    for index in 0..1500 {
-        clients.insert(
-            format!("client-{index}"),
-            serde_json::json!({"secret": format!("s{index}"), "max_connections": index % 50}),
-        );
-    }
-    let document = serde_json::json!({
-        "clients": clients,
-        "web": {"letsencrypt": {"email": "a@b.c", "dns": [
-            {"domains": ["a.example", "c.example"], "wait_secs": 60},
-            {"domains": ["b.example", "d.example"], "wait_secs": 120}
-        ]}}
-    });
+    let document = |count: usize| {
+        let mut clients = serde_json::Map::new();
+        for index in 0..count {
+            clients.insert(
+                format!("client-{index}"),
+                serde_json::json!({"secret": format!("s{index}"), "max_connections": index % 50}),
+            );
+        }
+        serde_json::json!({
+            "clients": clients,
+            "web": {"letsencrypt": {"email": "a@b.c", "dns": [
+                {"domains": ["a.example", "c.example"], "wait_secs": 60},
+                {"domains": ["b.example", "d.example"], "wait_secs": 120}
+            ]}}
+        })
+    };
+    let (small, large) = (document(375), document(1500));
     for language in Language::ALL {
-        let text = language.serialize(&document).unwrap();
-        assert!(text.lines().count() > 2000, "{language}");
+        let small = language.serialize(&small).unwrap();
+        let large = language.serialize(&large).unwrap();
+        assert!(large.lines().count() > 2000, "{language}");
         for pointer in [
             "/web/letsencrypt/dns/1/wait_secs",
             "/web/letsencrypt/dns/1",
             "/web",
             "/missing/key",
         ] {
-            let (elapsed, ()) = crate::editor::test_timing::best_of(5, || {
-                let _ = language.behavior().value_span(&text, pointer);
-                let _ = language.behavior().key_span(&text, pointer);
-            });
-            assert!(
-                elapsed < std::time::Duration::from_millis(150),
-                "{language} {pointer}: {elapsed:?}"
-            );
+            // Timed: the lookups read the text with the language's parser.
+            let growth =
+                crate::editor::test_timing::growth(5, (&small, &large), |text: &String| {
+                    let _ = language.behavior().value_span(text, pointer);
+                    let _ = language.behavior().key_span(text, pointer);
+                });
+            assert!(growth.ratio() < 10.0, "{language} {pointer}: {growth}");
         }
     }
 }

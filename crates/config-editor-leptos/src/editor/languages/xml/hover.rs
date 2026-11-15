@@ -6,6 +6,8 @@ use super::*;
 /// single line, with its starting column. Comment-only lines yield `None`.
 pub(super) fn hover_name(line: &str, column: usize) -> Option<(String, usize)> {
     let tokens = tokenize(line);
+    let mut columns = Columns::new(line);
+    let mut column_of = |byte: usize| columns.at(byte);
     for token in &tokens {
         match token.kind {
             Kind::OpenTag { name_end, .. } => {
@@ -13,8 +15,8 @@ pub(super) fn hover_name(line: &str, column: usize) -> Option<(String, usize)> {
                 if start >= name_end {
                     continue;
                 }
-                let start_column = line[..start].chars().count();
-                let end_column = line[..name_end.min(line.len())].chars().count();
+                let start_column = column_of(start);
+                let end_column = column_of(name_end.min(line.len()));
                 if (start_column..end_column).contains(&column) {
                     return Some((decode_entities(&line[start..name_end]), start_column));
                 }
@@ -22,8 +24,8 @@ pub(super) fn hover_name(line: &str, column: usize) -> Option<(String, usize)> {
                     if !matches!(inner.kind, Kind::Text { quoted: false }) {
                         continue;
                     }
-                    let start_column = line[..inner.start].chars().count();
-                    let end_column = line[..inner.end].chars().count();
+                    let start_column = column_of(inner.start);
+                    let end_column = column_of(inner.end);
                     if (start_column..end_column).contains(&column) {
                         // Markup is no key (`declarations`). With the line
                         // alone, `xsi` is taken as the schema-instance
@@ -40,7 +42,7 @@ pub(super) fn hover_name(line: &str, column: usize) -> Option<(String, usize)> {
                     continue;
                 }
                 let start = token.start + 2;
-                let start_column = line[..start].chars().count();
+                let start_column = column_of(start);
                 let end_column = start_column
                     + line[start..]
                         .chars()
@@ -55,6 +57,36 @@ pub(super) fn hover_name(line: &str, column: usize) -> Option<(String, usize)> {
         }
     }
     None
+}
+
+/// Character columns of byte offsets in a line, asked in rising order
+/// (the tokens'): each counted on from the one asked before, so a line of
+/// many tokens is read once, not once per token.
+struct Columns<'a> {
+    line: &'a str,
+    byte: usize,
+    column: usize,
+}
+
+impl<'a> Columns<'a> {
+    fn new(line: &'a str) -> Self {
+        Self {
+            line,
+            byte: 0,
+            column: 0,
+        }
+    }
+
+    /// The column of `byte` (a character boundary of the line).
+    fn at(&mut self, byte: usize) -> usize {
+        if byte < self.byte {
+            self.byte = 0;
+            self.column = 0;
+        }
+        self.column += self.line[self.byte..byte].chars().count();
+        self.byte = byte;
+        self.column
+    }
 }
 
 /// Byte offset within `line` where the hover context is read: just past the

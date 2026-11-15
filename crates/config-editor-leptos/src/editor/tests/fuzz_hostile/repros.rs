@@ -133,3 +133,19 @@ fn the_path_after_a_run_of_end_tags_reads_the_text_once() {
         assert!(walks <= 2, "{depth} end tags: {walks} walks");
     }
 }
+
+/// SP38-4: the path at a caret (and HCL's suggestion context) on a long
+/// HCL line of open lists (`a = [1, [1, …`) costs more than the line:
+/// about 10 times as long at four times the line (`path_at` 3 ms, then
+/// 31-39 ms).
+#[test]
+#[ignore = "SP38-4 open"]
+fn reading_a_long_hcl_line_of_open_lists_grows_with_it() {
+    super::linear::replay(super::linear::LinearCase {
+        language: "HCL",
+        shape: super::linear::Shape::LongLine,
+        breaker: 0,
+        unit: 4,
+        carriage_returns: false,
+    });
+}

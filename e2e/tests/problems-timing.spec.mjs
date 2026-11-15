@@ -228,8 +228,15 @@ test.describe('problem timing', () => {
       }
       return { key: Math.min(...presses), switched };
     };
-    const bare = await keys([]);
-    const hosted = await keys(ranges);
+    // Without and with the ranges in turn, each the shorter of two rounds
+    // (a busy stretch then slows both sides alike).
+    const rounds = { bare: [], hosted: [] };
+    for (let round = 0; round < 2; round += 1) {
+      rounds.bare.push(await keys([]));
+      rounds.hosted.push(await keys(ranges));
+    }
+    const shortest = (list) => ({ key: Math.min(...list.map((one) => one.key)), switched: Math.min(...list.map((one) => one.switched)) });
+    const [bare, hosted] = [shortest(rounds.bare), shortest(rounds.hosted)];
     console.log(`Edit as JSON: longest task per key ${JSON.stringify(bare)} alone, ${JSON.stringify(hosted)} with 5000 host ranges`);
     // Each key was followed by a 1.1-1.6 s task.
     expect(hosted.key - bare.key, `${Math.round(hosted.key)} ms with the ranges, ${Math.round(bare.key)} ms without`).toBeLessThan(150);
@@ -314,10 +321,19 @@ test.describe('problem timing', () => {
       };
       const failures = [];
       for (const view of ['yaml', 'json', 'toml', 'hcl', 'xml'].filter((other) => other !== language)) {
-        const bare = await pauses(view, []);
-        const hosted = await pauses(view, ranges);
+        // Without and with the ranges in turn, each the shortest of two
+        // rounds: load only ever makes one longer, and taking them in turn
+        // lets a busy stretch slow both sides alike, not only one.
+        const alone = [];
+        const withRanges = [];
+        for (let round = 0; round < 2; round += 1) {
+          alone.push(await pauses(view, []));
+          withRanges.push(await pauses(view, ranges));
+        }
+        const [bare, hosted] = [Math.min(...alone), Math.min(...withRanges)];
         console.log(`${language} as ${view}: longest task per pause ${Math.round(bare)} ms alone, ${Math.round(hosted)} ms with 5000 host ranges`);
-        if (hosted - bare >= 100) failures.push(`${language} as ${view}: ${Math.round(hosted)} ms, ${Math.round(bare)} ms alone`);
+        // They added 200-350 ms to each pause.
+        if (hosted - bare >= 150) failures.push(`${language} as ${view}: ${Math.round(hosted)} ms, ${Math.round(bare)} ms alone`);
       }
       expect(failures).toEqual([]);
     });

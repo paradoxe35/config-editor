@@ -606,26 +606,35 @@ fn toggling_a_mixed_selection_from_mid_line_keeps_the_document_and_restores_it()
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
-/// Ctrl+/ over a whole 8000-line document, and back, is linear: well under
-/// a frame budget per toggle in every language.
+/// Ctrl+/ over a whole 8000-line document, and back, is linear: four
+/// times the lines about four times as long, in every language.
 #[test]
 fn toggling_comments_over_a_large_document_is_fast() {
     let mut failures = Vec::new();
     for language in ALL {
-        let text = large(language).repeat(4);
         let behavior = language.behavior();
-        let end = text.encode_utf16().count();
-        let (took, commented) =
-            crate::editor::test_timing::best_of(3, || behavior.toggle_comments(&text, 0, end));
-        let Some((commented, _, commented_end)) = commented else {
+        let toggled = |text: &str| {
+            let end = text.encode_utf16().count();
+            behavior
+                .toggle_comments(text, 0, end)
+                .map(|(commented, ..)| commented)
+        };
+        let small = large(language).to_string();
+        let large = small.repeat(4);
+        let (Some(small_commented), Some(large_commented)) = (toggled(&small), toggled(&large))
+        else {
             continue;
         };
-        let (back, _) = crate::editor::test_timing::best_of(3, || {
-            behavior.toggle_comments(&commented, 0, commented_end)
-        });
-        eprintln!("{language}: comment {took:?}, back {back:?}");
-        if took.max(back) > std::time::Duration::from_millis(100) {
-            failures.push(format!("{language}: comment {took:?}, back {back:?}"));
+        // Timed: the toggle reads the text with the language's parser.
+        let comment =
+            crate::editor::test_timing::growth(5, (&small, &large), |text: &String| toggled(text));
+        let back = crate::editor::test_timing::growth(
+            5,
+            (&small_commented, &large_commented),
+            |text: &String| toggled(text),
+        );
+        if comment.ratio().max(back.ratio()) > 10.0 {
+            failures.push(format!("{language}: comment {comment}, back {back}"));
         }
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));

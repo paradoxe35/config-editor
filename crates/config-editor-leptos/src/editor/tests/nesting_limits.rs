@@ -154,19 +154,13 @@ fn yaml_reads_in_time_linear_in_the_text() {
             format!("base: &b\n{}m:\n  <<: *b\n{}", half("b"), half("m"))
         }),
     ];
+    // Timed, not counted: the time is the YAML parser's own. Quadratic
+    // reading takes 16 times as long at four times the size.
     for (shape, text) in shapes {
-        let time = |n: usize| {
-            let text = text(n);
-            crate::editor::test_timing::best_of(3, || {
-                Language::YAML.behavior().parse(&text).is_ok()
-            })
-            .0
-        };
-        let (small, large) = (time(20_000), time(80_000));
-        let ratio = large.as_secs_f64() / small.as_secs_f64().max(1e-6);
-        assert!(
-            ratio < 8.0,
-            "{shape}: {small:?} -> {large:?} ({ratio:.1}x for 4x)"
-        );
+        let (small, large) = (text(20_000), text(80_000));
+        let growth = crate::editor::test_timing::growth(5, (&small, &large), |text: &String| {
+            Language::YAML.behavior().parse(text).is_ok()
+        });
+        assert!(growth.ratio() < 10.0, "{shape}: {growth} for 4x");
     }
 }

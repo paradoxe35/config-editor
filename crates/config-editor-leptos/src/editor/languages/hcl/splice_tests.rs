@@ -4,7 +4,7 @@
 use super::HclBehavior;
 use super::convert::{HostForms, hcl_body, host_forms};
 use crate::editor::language::ConfigLanguage;
-use crate::editor::test_timing::best_of;
+use crate::editor::test_timing::growth;
 use serde_json::{Value, json};
 
 /// An object of `entries` entries, each `entry(index)`.
@@ -57,12 +57,15 @@ fn objects_written_entry_by_entry_are_written_as_whole_ones() {
 /// eight times the entries about eight times as long, not sixty-four.
 #[test]
 fn writing_grows_with_the_length_of_the_map() {
-    let time = |entries: usize| {
+    let document = |entries: usize| {
         let value = json!({ "hosts": many(entries, |index| json!(format!("10.0.{}.{}", index >> 8, index & 255))) });
         let text = as_attributes(&value);
-        best_of(3, || HclBehavior.serialize(&value, Some(&text)).expect("it writes")).0
+        (value, text)
     };
-    let (small, large) = (time(2_000), time(16_000));
-    let ratio = large.as_secs_f64() / small.as_secs_f64().max(1e-6);
-    assert!(ratio < 20.0, "2000 entries {small:?}, 16000 entries {large:?} ({ratio:.1}x)");
+    // Timed, not counted: most of the time is the HCL parser's own.
+    let (small, large) = (document(2_000), document(16_000));
+    let growth = growth(5, (&small, &large), |(value, text): &(serde_json::Value, String)| {
+        HclBehavior.serialize(value, Some(text)).expect("it writes")
+    });
+    assert!(growth.ratio() < 20.0, "2000 entries, then 16000: {growth}");
 }

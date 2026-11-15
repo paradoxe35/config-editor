@@ -6,7 +6,7 @@
 
 use super::super::Language;
 use super::super::codec;
-use super::super::work_count::{Work, counted};
+use super::super::work_count::{Work, counted, whole_reads};
 use super::arrival_tests::{From, GHOST, LOCKED, allowed, locks};
 use super::guard::check;
 use super::locks::Protected;
@@ -203,6 +203,11 @@ fn large_texts_broken_in_many_places_keep_their_locks_both_ways() {
     );
 }
 
+/// The most whole reads (parses, path lookups from the top, stand-ins) of
+/// the texts a repair's check makes (about 35 now): a read per line of the
+/// 3000-line text is thousands.
+const REPAIR_READS: usize = 64;
+
 /// The repair that makes a large text parse is checked in a moment, and so
 /// is each edit before it, in every language.
 #[test]
@@ -215,12 +220,12 @@ fn repairs_of_a_large_text_are_checked_quickly() {
             let mut protected = locks(language, &shown, from, true, None);
             for (good, bad) in &pairs {
                 let repaired = shown.replacen(bad, good, 1);
-                let (took, ok) = crate::editor::test_timing::best_of(2, || {
+                let (ok, reads) = whole_reads(&repaired, || {
                     allowed(language, &shown, &repaired, &protected)
                 });
-                if !ok || took > std::time::Duration::from_millis(400) {
+                if !ok || reads > REPAIR_READS {
                     slow.push(format!(
-                        "{language} ({from:?}) repairing {bad:?}: {took:?}, allowed {ok}"
+                        "{language} ({from:?}) repairing {bad:?}: {reads} whole reads, allowed {ok}"
                     ));
                 }
                 let previous = std::mem::take(&mut protected);

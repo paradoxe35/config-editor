@@ -201,12 +201,10 @@ const RATIO: usize = 5;
 /// Counts this small are compared as if this large.
 const FLOOR: usize = 16;
 
-/// How many times the readings' time may grow over four times the text,
-/// past [`TIME_SLACK`].
+/// How many times the readings' time may grow over four times the text
+/// (each size the fastest of three runs, the sizes taken in turn; see
+/// `test_timing::growth`).
 const TIME_RATIO: f64 = 9.0;
-
-/// Time any reading may take more, for a busy machine.
-const TIME_SLACK: f64 = 0.4;
 
 /// The kinds of work that grew too fast from `small` to `large`, the text
 /// growing `times` times (about two; a text nested by indentation grows
@@ -224,18 +222,17 @@ fn grew(small: &[usize], large: &[usize], times: f64) -> Vec<String> {
 
 pub(super) fn check(case: &LinearCase) -> Result<(), Failure> {
     let name = case.language;
-    let mut times = Vec::new();
+    let mut texts = Vec::new();
     let mut readings = Vec::new();
     let mut typed = Vec::new();
     let mut lengths = Vec::new();
     for size in [1, 2, 4] {
         let raw = text(case, size);
         lengths.push(raw.len() as f64);
-        let started = std::time::Instant::now();
         let ((), counts) = counted_all(|| read(case, &raw));
-        times.push(started.elapsed().as_secs_f64());
         readings.push(counts);
         typed.push(keystroke(case, &raw));
+        texts.push(raw);
     }
     for pair in [0, 1] {
         let growth = lengths[pair + 1] / lengths[pair];
@@ -261,13 +258,16 @@ pub(super) fn check(case: &LinearCase) -> Result<(), Failure> {
         }
     }
     let growth = lengths[2] / lengths[0] / 4.0;
-    if times[2] > growth * TIME_RATIO * times[0] + TIME_SLACK {
+    let times = crate::editor::test_timing::growth(3, (&texts[0], &texts[2]), |raw: &String| {
+        read(case, raw)
+    });
+    if times.ratio() > growth * TIME_RATIO {
         return Err(Failure::new(
             format!(
                 "reading a {:?} text takes time growing faster than it ({name})",
                 case.shape
             ),
-            format!("{times:.3?} s at 1, 2 and 4 times the text"),
+            format!("{times} at 1 and 4 times the text"),
         ));
     }
     Ok(())

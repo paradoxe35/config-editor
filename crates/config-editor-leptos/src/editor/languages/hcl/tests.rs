@@ -748,26 +748,32 @@ fn a_name_written_in_two_forms_is_reported_not_dropped() {
 #[test]
 fn key_spans_in_a_large_document_take_no_search_per_header() {
     use crate::editor::work_count::{Work, counted};
-    let source: String = (0..3_000)
-        .map(|index| format!("client_{index} {{\n  secret = \"s{index}\"\n  max = {index}\n}}\n"))
-        .collect();
-    let pointers: Vec<String> = (2_976..3_000).map(|index| format!("/client_{index}/max")).collect();
-    let spans_of = || {
-        crate::editor::paths::with_spans(&HclBehavior, &source, &pointers, || {
+    let source = |clients: usize| -> String {
+        (0..clients)
+            .map(|index| format!("client_{index} {{\n  secret = \"s{index}\"\n  max = {index}\n}}\n"))
+            .collect()
+    };
+    // The last 24 clients' keys.
+    let spans_of = |source: &String| {
+        let clients = source.matches("client_").count();
+        let pointers: Vec<String> = (clients - 24..clients).map(|index| format!("/client_{index}/max")).collect();
+        crate::editor::paths::with_spans(&HclBehavior, source, &pointers, || {
             pointers
                 .iter()
-                .map(|pointer| crate::editor::paths::memo_key_span(&HclBehavior, &source, pointer))
+                .map(|pointer| crate::editor::paths::memo_key_span(&HclBehavior, source, pointer))
                 .collect::<Vec<_>>()
         })
     };
-    let (spans, reads) = counted(Work::DocumentRead, spans_of);
+    let (small, large) = (source(750), source(3_000));
+    let (spans, reads) = counted(Work::DocumentRead, || spans_of(&large));
     assert!(spans.iter().all(Option::is_some), "{spans:?}");
     assert_eq!(spans[0].map(|span| span.line), Some(2_976 * 4 + 3));
     assert!(reads <= 2, "24 key spans read the document {reads} times");
-    // And the one read stays linear: a few milliseconds here, seconds when
-    // each attribute searches every header.
-    let (took, _) = crate::editor::test_timing::best_of(3, spans_of);
-    assert!(took.as_millis() < 200, "24 key spans in {took:?}");
+    // And the one read stays linear (timed: the time is the HCL parser's
+    // own): four times the clients about four times as long, sixteen
+    // times when each attribute searches every header.
+    let growth = crate::editor::test_timing::growth(5, (&small, &large), spans_of);
+    assert!(growth.ratio() < 10.0, "24 key spans at 750 clients, then 3000: {growth}");
 }
 
 #[test]

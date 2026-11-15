@@ -5,7 +5,7 @@
 use super::HclBehavior;
 use super::read::read;
 use crate::editor::language::ConfigLanguage;
-use crate::editor::test_timing::best_of;
+use crate::editor::test_timing::growth;
 
 /// `text` read as `hcl-rs` reads it, the heredocs and floats as the
 /// editor reads them.
@@ -217,19 +217,14 @@ fn reading_grows_with_the_length_of_the_text() {
     ];
     let mut failures = Vec::new();
     for (name, shape) in shapes {
-        let time = |entries: usize| {
-            let text = shape(entries);
-            best_of(3, || {
-                let value = HclBehavior.parse(&text).expect("it parses");
-                (value, HclBehavior.expressions(&text))
-            })
-            .0
-        };
-        let small = time(2_000);
-        let large = time(16_000);
-        let ratio = large.as_secs_f64() / small.as_secs_f64().max(1e-6);
-        if ratio > 20.0 {
-            failures.push(format!("{name}: 2000 entries {small:?}, 16000 entries {large:?} ({ratio:.1}x)"));
+        // Timed, not counted: the time is the HCL parser's own.
+        let (small, large) = (shape(2_000), shape(16_000));
+        let growth = growth(5, (&small, &large), |text: &String| {
+            let value = HclBehavior.parse(text).expect("it parses");
+            (value, HclBehavior.expressions(text))
+        });
+        if growth.ratio() > 20.0 {
+            failures.push(format!("{name}: 2000 entries, then 16000: {growth}"));
         }
     }
     assert!(failures.is_empty(), "{failures:#?}");

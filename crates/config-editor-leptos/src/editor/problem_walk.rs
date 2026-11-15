@@ -44,6 +44,7 @@ struct LineStarts<'a> {
 
 impl<'a> LineStarts<'a> {
     fn new(text: &'a str) -> Self {
+        super::work_count::note(super::work_count::Work::LineSplit);
         let mut offset = 0;
         let lines = text
             .split('\n')
@@ -112,6 +113,7 @@ pub(super) fn next_stop(
 mod tests {
     use super::{Stop, next_stop, stops};
     use crate::Diagnostic;
+    use crate::editor::work_count::{Work, counted};
 
     fn at(line: Option<usize>, message: &str) -> Diagnostic {
         Diagnostic {
@@ -208,7 +210,9 @@ mod tests {
                 ..Diagnostic::default()
             })
             .collect();
-        let (took, found) = crate::editor::test_timing::best_of(3, || stops(&text, &problems));
+        // The text's lines split once for all the problems.
+        let (found, splits) = counted(Work::LineSplit, || stops(&text, &problems));
+        assert_eq!(splits, 1);
         assert_eq!(found.len(), 3000);
         // Each stop is the problem's own offset (UTF-16), in order.
         let offset = |line: usize| {
@@ -228,6 +232,5 @@ mod tests {
                 .windows(2)
                 .all(|pair| pair[0].offset <= pair[1].offset)
         );
-        assert!(took.as_millis() < 30, "the walk took {took:?}");
     }
 }

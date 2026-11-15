@@ -192,6 +192,14 @@ mod moved_into_items;
     feature = "xml"
 ))]
 mod moved_maps_nested;
+#[cfg(all(
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod renamed_moves_memory;
 // Observes what every setting switches, so it needs every optional feature.
 #[cfg(all(feature = "yaml", feature = "toml", feature = "schema-validation"))]
 mod hover_look_back;

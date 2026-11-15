@@ -6,8 +6,6 @@
 //! above it, 3^depth times, which took seconds 12 levels down and ran
 //! out of memory at 16.
 
-use std::time::{Duration, Instant};
-
 use serde_json::{Value, json};
 
 use crate::editor::codec::serialize;
@@ -21,10 +19,6 @@ use crate::strings::default_strings;
 /// The depths checked, in order: the first too slow fails before a
 /// deeper one runs out of memory.
 const DEPTHS: [usize; 4] = [6, 9, 12, 16];
-
-/// The longest a check may take (milliseconds when bounded; seconds at
-/// depth 12 before).
-const SLOWEST: Duration = Duration::from_millis(600);
 
 /// Three members each holding the node under `c` and requiring a key no
 /// level has, in draft-04, with a property `id`.
@@ -65,13 +59,9 @@ fn a_recursive_all_of_without_an_explaining_validator_stops_at_the_bound() {
     let incomplete = &default_strings().problems_incomplete;
     for &language in Language::ALL {
         for depth in DEPTHS {
-            let start = Instant::now();
+            // Counted, not timed: the errors collected are the work (3^depth
+            // of them unbounded).
             let (problems, collected) = checked(&schema, language, depth);
-            let took = start.elapsed();
-            assert!(
-                took < SLOWEST,
-                "{language:?}, depth {depth}: {took:?}, {collected} errors"
-            );
             let notes: Vec<&Diagnostic> = problems
                 .iter()
                 .filter(|problem| problem.code.as_deref() == Some(MORE_PROBLEMS_CODE))

@@ -8,7 +8,7 @@
 use super::super::Language;
 use super::super::codec;
 use super::super::paths::FieldPath;
-use super::super::work_count::{Work, counted};
+use super::super::work_count::{Work, counted, whole_reads};
 use super::broken_tests::breaks;
 use super::guard::check;
 use super::locks::{Protected, Sources, protect};
@@ -428,11 +428,18 @@ fn locked_values_hold_whatever_order_text_and_locks_arrive_in() {
     );
 }
 
+/// How many more whole reads (parses, path lookups from the top) a large
+/// text read for its locks may take at 3000 lines than at 1400: a read
+/// per line is 1600 more.
+const GROWN_READS: usize = 4;
+
 /// A large text from the host that does not parse is read for its locks in
 /// a moment, in every language (each break, and a second one near the top).
 #[test]
 fn a_large_text_that_never_parsed_is_locked_quickly() {
     let mut slow = Vec::new();
+    // Each case's whole reads at the size measured first.
+    let mut reads_at = std::collections::HashMap::new();
     // Past the lines read one by one, and just under them.
     for (language, text, size) in documents()
         .into_iter()
@@ -457,7 +464,7 @@ fn a_large_text_that_never_parsed_is_locked_quickly() {
                 .replacen("k1 = 1\n", "k1 = [\n", 1)
                 .replacen("\"k1\": 1,", "\"k1\": [", 1)
                 .replacen("<k1>1</k1>", "<k1>1</k", 1);
-            for text in [&broken, &twice] {
+            for (break_count, text) in [(1, &broken), (2, &twice)] {
                 for from in [From::Schema, From::Paths] {
                     // A few lines' paths read (each a read from the top),
                     // not every line's: read line by line, thousands.
@@ -468,12 +475,17 @@ fn a_large_text_that_never_parsed_is_locked_quickly() {
                             "{language} {size} ({from:?}, {bad:?}): {lookups} path lookups"
                         ));
                     }
-                    // The stand-in's parses: up to about 150 ms here.
-                    let (took, _) = crate::editor::test_timing::best_of(2, || {
-                        locks(language, text, from, true, None)
-                    });
-                    if took > std::time::Duration::from_millis(700) {
-                        slow.push(format!("{language} {size} ({from:?}, {bad:?}): {took:?}"));
+                    // And the whole reads (the stand-in's parses) the
+                    // same at either size: one per line grows with it.
+                    let (_, reads) = whole_reads(text, || locks(language, text, from, true, None));
+                    let case = format!("{language} ({from:?}, {bad:?}, {break_count} breaks)");
+                    match reads_at.insert(case.clone(), reads) {
+                        Some(other) if reads.abs_diff(other) > GROWN_READS => {
+                            slow.push(format!(
+                                "{case}: {other} whole reads at one size, {reads} at the other"
+                            ));
+                        }
+                        _ => {}
                     }
                 }
             }
