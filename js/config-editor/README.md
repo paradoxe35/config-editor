@@ -1541,7 +1541,11 @@ const env = registerLanguage({
     return null;
   },
   valueSpan(text, pointer) {
-    return null; // optional, like keySpan for the value; Edit-as saves edit values in place with it
+    // Optional, like keySpan for the value; Edit-as saves edit values in
+    // place with it. Without it, a flat language finds values on their
+    // lines, and a list's items on the deeper lines under its key (after
+    // `itemMarker` when declared).
+    return null;
   },
   highlight(line) {
     // Optional: [{ start, end, kind }] ranges of one line, as JavaScript

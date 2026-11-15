@@ -17,6 +17,8 @@ use super::locks::Lock;
 pub(super) struct Moves<'a> {
     before: &'a str,
     after: &'a str,
+    old: Vec<u16>,
+    new: Vec<u16>,
     /// Units the two texts share at their start and end (not overlapping).
     prefix: usize,
     suffix: usize,
@@ -89,27 +91,55 @@ impl<'a> Moves<'a> {
             suffix,
             old_len: old.len(),
             new_len: new.len(),
+            old,
+            new,
             lines: OnceCell::new(),
         }
     }
 
     /// The lock in the text after, or `None` when the edit changed its
     /// value's text. A key holding it the edit changed (one the guard let
-    /// change: above a field a host range covers) is no longer one.
+    /// change: above a field a host range covers) is no longer one. A key
+    /// on the line its value starts on moves with the value, as written
+    /// there: of two alike lines, the one the value went to (the other
+    /// edited, or the value's line one of two copies) holds its key too.
     pub(super) fn lock(&self, lock: &Lock) -> Option<Lock> {
-        let ranges: Option<Vec<Range<usize>>> =
-            lock.ranges.iter().map(|range| self.range(range)).collect();
+        let ranges: Vec<Range<usize>> = lock
+            .ranges
+            .iter()
+            .map(|range| self.range(range))
+            .collect::<Option<_>>()?;
+        let key = |span: &Range<usize>| {
+            lock.ranges
+                .iter()
+                .zip(&ranges)
+                .find_map(|(old, new)| self.along(span, old, new))
+                .or_else(|| self.range(span))
+        };
         Some(Lock {
             pointer: lock.pointer.clone(),
-            key: lock.key.as_ref().and_then(|key| self.range(key)),
-            ranges: ranges?,
-            guards: lock
-                .guards
-                .iter()
-                .filter_map(|range| self.range(range))
-                .collect(),
+            key: lock.key.as_ref().and_then(key),
+            guards: lock.guards.iter().filter_map(key).collect(),
+            ranges,
             reason: lock.reason.clone(),
         })
+    }
+
+    /// `span` moved as `old` moved to `new`, when it is on the line `old`
+    /// starts on and its text is written there in the text after.
+    fn along(
+        &self,
+        span: &Range<usize>,
+        old: &Range<usize>,
+        new: &Range<usize>,
+    ) -> Option<Range<usize>> {
+        let (low, high) = (span.start.min(old.start), span.end.max(old.start));
+        if high > self.old.len() || self.old[low..high].contains(&u16::from(b'\n')) {
+            return None;
+        }
+        let start = (span.start + new.start).checked_sub(old.start)?;
+        let moved = start..start + span.len();
+        (self.new.get(moved.clone()) == Some(&self.old[span.clone()])).then_some(moved)
     }
 
     /// Where `range` of the text before is in the text after, when the edit
@@ -214,5 +244,24 @@ mod tests {
         // Two places changed, the line between them kept whole.
         let moves = Moves::new("x\nb: 2\ny\n", "xx\nb: 2\nyy\n");
         assert_eq!(moves.range(&(2..6)), Some(3..7));
+    }
+
+    #[test]
+    fn a_key_moves_with_its_value_to_the_alike_line_it_went_to() {
+        use super::super::texts::Reason;
+        // Of two alike lines, the first's value edited: the lock's text is
+        // the second's now, its key and the key holding it with it.
+        let moves = Moves::new("a: <k: 1>\na: <k: 1>\n", "a: <k: 2>\na: <k: 1>\n");
+        let lock = Lock {
+            pointer: Some("/a/k".to_string()),
+            key: Some(4..5),
+            ranges: std::iter::once(4..8).collect(),
+            guards: std::iter::once(0..1).collect(),
+            reason: Reason::Field,
+        };
+        let moved = moves.lock(&lock).expect("its text is kept");
+        assert_eq!(moved.ranges.first(), Some(&(14..18)));
+        assert_eq!(moved.key, Some(14..15));
+        assert_eq!(moved.guards.first(), Some(&(10..11)));
     }
 }

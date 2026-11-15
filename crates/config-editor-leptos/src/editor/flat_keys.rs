@@ -9,7 +9,7 @@ use serde_json::Value;
 
 use super::keyboard::utf16_to_byte_index;
 use super::language::{
-    CompletionContext, LanguageConfig, SchemaPathSegment, Span, pointer_segments,
+    CompletionContext, LanguageConfig, SchemaPathSegment, Span, pointer_index, pointer_segments,
 };
 
 impl LanguageConfig {
@@ -286,7 +286,8 @@ impl LanguageConfig {
     /// assert_eq!((span.line, span.start_column, span.end_column), (2, 8, 12));
     /// ```
     pub fn flat_key_span(&self, source: &str, pointer: &str) -> Option<Span> {
-        let (line, entry) = self.flat_entry(source, pointer)?;
+        let [key] = pointer_segments(pointer).try_into().ok()?;
+        let (line, entry) = self.flat_entry(source, &key)?;
         Some(Span {
             line,
             start_column: entry.key.0,
@@ -298,7 +299,11 @@ impl LanguageConfig {
     /// for a flat language: the value of a top-level `pointer` on the last
     /// line naming it, from the first character after the separator's
     /// spaces to the last one that is not blank before a line comment (a
-    /// declared marker after whitespace, outside quotes). `None` for a
+    /// declared marker after whitespace, outside quotes). An item of a list
+    /// written under a top-level key with no value on its line (`/keys/1`)
+    /// is the item's line below it, indented deeper, past the declared
+    /// [`item_marker`](Self::item_marker) (without one, each such line
+    /// holding no separator is an item, read whole). `None` for another
     /// nested pointer, an empty value, or without separators.
     ///
     /// ```
@@ -314,10 +319,21 @@ impl LanguageConfig {
     /// assert_eq!((span.start_column, span.end_column), (5, 12));
     /// assert_eq!(env.flat_value_span("PORT=\n", "/PORT"), None);
     /// assert_eq!(env.flat_value_span("PORT= # c\n", "/PORT"), None);
+    /// let dot = LanguageConfig { separators: &[":"], item_marker: Some("*"), ..LanguageConfig::default() };
+    /// let span = dot.flat_value_span("keys:\n  * a\n  * bc\nport: 1\n", "/keys/1").unwrap();
+    /// assert_eq!((span.line, span.start_column, span.end_column), (3, 5, 7));
+    /// assert_eq!(dot.flat_value_span("keys:\n  * a\nport: 1\n", "/keys/1"), None);
     /// ```
     pub fn flat_value_span(&self, source: &str, pointer: &str) -> Option<Span> {
-        let (line, entry) = self.flat_entry(source, pointer)?;
-        let (start, end) = entry.value?;
+        let segments = pointer_segments(pointer);
+        let (line, (start, end)) = match segments.as_slice() {
+            [key] => {
+                let (line, entry) = self.flat_entry(source, key)?;
+                (line, entry.value?)
+            }
+            [key, index] => self.flat_item(source, key, pointer_index(index)?)?,
+            _ => return None,
+        };
         Some(Span {
             line,
             start_column: start,
@@ -325,10 +341,53 @@ impl LanguageConfig {
         })
     }
 
-    /// The last line writing the top-level `pointer`: its one-based number
-    /// and where its key and value are.
-    fn flat_entry(&self, source: &str, pointer: &str) -> Option<(usize, FlatEntry)> {
-        let [key] = pointer_segments(pointer).try_into().ok()?;
+    /// Item `index` of the list written under the last line writing the
+    /// top-level `key` with no value: the lines below it indented deeper
+    /// that are items, blank and comment lines skipped, up to the first
+    /// other one. Its one-based line and the columns of its value.
+    fn flat_item(&self, source: &str, key: &str, index: usize) -> Option<(usize, (usize, usize))> {
+        let (line, entry) = self.flat_entry(source, key)?;
+        if entry.value.is_some() {
+            return None;
+        }
+        let indent_of = |text: &str| text.len() - text.trim_start().len();
+        let mut lines = source.split('\n');
+        let depth = indent_of(lines.nth(line - 1)?);
+        let mut items = 0;
+        for (below, text) in lines.enumerate() {
+            let code = text.trim_start();
+            if code.is_empty() || self.is_comment_line(code) {
+                continue;
+            }
+            let indent = indent_of(text);
+            if indent <= depth {
+                return None;
+            }
+            let marker = match self.item_marker {
+                Some(marker) => code
+                    .strip_prefix(marker)
+                    .filter(|rest| rest.is_empty() || rest.starts_with(char::is_whitespace))
+                    .map(|_| marker.len())?,
+                None if self.first_separator(code).is_none() => 0,
+                None => return None,
+            };
+            if items < index {
+                items += 1;
+                continue;
+            }
+            let after = indent + marker;
+            let rest = &text[after..self.value_code_end(text, after)];
+            let start = after + rest.len() - rest.trim_start().len();
+            let end = after + rest.trim_end().len();
+            let column = |byte: usize| text[..byte].chars().count() + 1;
+            return (start < end).then(|| (line + 1 + below, (column(start), column(end))));
+        }
+        None
+    }
+
+    /// The last line writing the top-level `key`: its one-based number and
+    /// where its key and value are.
+    fn flat_entry(&self, source: &str, key: &str) -> Option<(usize, FlatEntry)> {
         source
             .split('\n')
             .enumerate()

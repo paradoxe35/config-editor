@@ -360,11 +360,11 @@ fn a_secret_item_moved_under_a_scalar_never_glues_its_placeholder() {
     );
 }
 
-/// GP38-1: in Dot's one-line map, a `,` typed into the placeholder's key
-/// and an entry typed before it leave the placeholder in that entry's
-/// value with text beside it, and the host hears it.
+/// P1: in Dot's one-line map, a `,` typed into the placeholder's key (its
+/// field renamed) and an entry typed before it would leave the placeholder
+/// in that entry's value with text beside it (`k: password,: '«…»'`, the
+/// path read where it is written only the root): refused.
 #[test]
-#[ignore = "GP38-1: open"]
 fn a_placeholder_in_a_declared_one_line_map_never_glues_into_the_entry_before() {
     let setup = Setup {
         case: 11,
@@ -388,10 +388,9 @@ fn a_placeholder_in_a_declared_one_line_map_never_glues_into_the_entry_before() 
     );
 }
 
-/// GP38-2: after entries, cuts and a line moved in Odd's list, a `,` typed
-/// inside the placeholder's quotes is taken.
+/// P1: after entries, cuts and a line moved in Odd's list, a `,` typed
+/// inside the placeholder's quotes is refused.
 #[test]
-#[ignore = "GP38-2: open"]
 fn a_placeholder_in_a_custom_list_item_never_takes_text_inside_its_quotes() {
     let setup = Setup {
         case: 10,
@@ -431,8 +430,10 @@ fn a_placeholder_in_a_custom_list_item_never_takes_text_inside_its_quotes() {
     );
 }
 
-/// GP38-3: a new entry typed before the placeholder's entry in Dot's
-/// one-line map is refused at its closing `;`.
+/// GP38-3: a new entry typed a key at a time before the placeholder's
+/// entry in Dot's one-line map passes through `passwordx: password: '«…»'`,
+/// which Dot reads as the token glued into `passwordx`: refused at that
+/// `:`, as the change event would carry it.
 #[test]
 #[ignore = "GP38-3: open"]
 fn a_new_entry_typed_before_a_secret_in_a_declared_one_line_map_is_taken() {
@@ -452,10 +453,10 @@ fn a_new_entry_typed_before_a_secret_in_a_declared_one_line_map_is_taken() {
     );
 }
 
-/// GP38-1: a `:` typed into a DotBare key (`pass:word: '«…»'`) after a line
-/// moved makes the placeholder part of `pass`'s value with text beside it.
+/// P1: a `:` typed into a DotBare key (`pass:word: '«…»'`) after a line
+/// copied would make the placeholder part of `pass`'s value with text
+/// beside it: refused.
 #[test]
-#[ignore = "GP38-1: open"]
 fn a_placeholder_in_a_declared_language_never_glues_when_a_colon_splits_its_key() {
     let setup = Setup {
         case: 13,
@@ -475,10 +476,10 @@ fn a_placeholder_in_a_declared_language_never_glues_when_a_colon_splits_its_key(
     );
 }
 
-/// GP38-2: in Odd, a key renamed (`pa1ssword`), its line copied and an
-/// entry added, a `-` typed after `:=` glues the placeholder.
+/// P1: in Odd, after the placeholder's key is renamed (`pa1ssword`), its
+/// line copied and an entry added, a `-` typed after `:=` would glue the
+/// placeholder: refused.
 #[test]
-#[ignore = "GP38-2: open"]
 fn a_placeholder_in_a_custom_block_never_glues_after_its_key_is_renamed() {
     let setup = Setup {
         case: 9,
@@ -507,10 +508,10 @@ fn a_placeholder_in_a_custom_block_never_glues_after_its_key_is_renamed() {
     );
 }
 
-/// GP38-3: cutting a duplicate of Dot's one-line map line (holding no
-/// locked value) is refused.
+/// Cutting a duplicate of Dot's one-line map line that the locked one
+/// shadows is taken: the lock's key and the key holding it, on its value's
+/// line, follow the value to the copy it went to.
 #[test]
-#[ignore = "GP38-3: open"]
 fn a_duplicate_one_line_map_line_holding_no_locked_value_can_be_cut() {
     let setup = Setup {
         case: 11,
@@ -566,4 +567,82 @@ fn a_list_made_one_scalar_by_a_typed_key_never_glues_a_placeholder() {
             Act::Type { at: 21715, text: 6 },
         ],
     );
+}
+
+/// P1: in Odd's list, the placeholder's item moved to another index (so it
+/// is plain text there) keeps its quotes' inside: a space typed after the
+/// token, inside them, is refused (`"«…» "` is not the token).
+#[test]
+fn a_placeholder_moved_to_another_item_never_takes_a_space_inside_its_quotes() {
+    let setup = Setup {
+        case: 10,
+        lock: cases::Lock::Secret,
+        host: None,
+        pairs: true,
+    };
+    assert_ok(
+        &setup,
+        &[
+            Act::Line {
+                line: 846,
+                command: 1,
+            },
+            Act::Entry {
+                anchor: 0,
+                name: 7,
+                paste: true,
+            },
+            Act::Type { at: 60621, text: 2 },
+        ],
+    );
+}
+
+/// P1: a DotBare list item's line made `: * '«…»'` (the text then broken)
+/// and moved above its key reads as a field whose value holds the token
+/// with other text: refused, though the moved line was in the text before.
+#[test]
+fn a_line_moved_while_broken_never_glues_a_placeholder() {
+    let setup = Setup {
+        case: 14,
+        lock: cases::Lock::Secret,
+        host: None,
+        pairs: false,
+    };
+    assert_ok(
+        &setup,
+        &[
+            Act::Entry {
+                anchor: 2,
+                name: 5,
+                paste: true,
+            },
+            Act::Entry {
+                anchor: 2,
+                name: 13,
+                paste: true,
+            },
+            Act::Type { at: 30448, text: 4 },
+            Act::Line {
+                line: 11167,
+                command: 1,
+            },
+        ],
+    );
+}
+
+/// P1: in a declared language, a host range over a list item locks that
+/// item (its lines found by the declared item marker, or without one as
+/// the deeper lines holding no separator): Replace all `e` -> `E` would
+/// rename its list (`kEys`), the key holding it: refused.
+#[test]
+fn a_range_over_a_declared_list_item_keeps_the_key_holding_it() {
+    for case in [12, 14] {
+        let setup = Setup {
+            case,
+            lock: cases::Lock::Range,
+            host: None,
+            pairs: false,
+        };
+        assert_ok(&setup, &[Act::ReplaceAll { pair: 5 }]);
+    }
 }
