@@ -189,10 +189,14 @@ fn spans_kept(edit: &Edited<'_>) -> Result<(), Blocked> {
 }
 
 /// The value stretches of a field a host range covers (past its key) are
-/// kept, or the edit only re-flows whitespace or moves lines whole.
+/// kept, or the edit only re-flows whitespace or moves lines whole. A key
+/// span reaching the stretch's end is no key before a value (a list item's
+/// span is the item itself): the whole stretch is the value.
 fn covered_value_kept(edit: &Edited<'_>, lock: &Lock) -> Result<(), Blocked> {
     let value = |range: &std::ops::Range<usize>| match &lock.key {
-        Some(key) if key.start <= range.start && range.start < key.end => key.end..range.end,
+        Some(key) if key.start <= range.start && range.start < key.end && key.end < range.end => {
+            key.end..range.end
+        }
         _ => range.clone(),
     };
     let kept = lock.ranges.iter().all(|range| edit.kept(&value(range)));

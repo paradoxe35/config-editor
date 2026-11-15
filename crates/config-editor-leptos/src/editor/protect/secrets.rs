@@ -21,7 +21,7 @@ use super::tokens::{
     widen,
 };
 use super::unplaced::placed_where_written;
-use super::whole_guard::WholeIndex;
+use super::whole_guard::{Held, WholeIndex};
 
 /// Known tokens one edit may write and still have found by path (a
 /// paste); more (an undo restoring a whole text) are found by text.
@@ -45,6 +45,10 @@ pub(crate) struct SecretState {
     /// The last text an edit's check found to parse, or made of one by an
     /// edit to one scalar (see `whole_guard`).
     pub(crate) parsing: StoredValue<Option<String>>,
+    /// An edit taken while the parse reads a placeholder given whole with
+    /// text beside it (see `whole_guard::Held`): what reaches the host
+    /// waits until it reads as the host's text again.
+    pub(crate) held: StoredValue<Option<Held>>,
 }
 
 impl SecretState {
@@ -73,6 +77,7 @@ impl SecretState {
             whole: Memo::new(move |_| Arc::new(known.with(|known| WholeIndex::new(known)))),
             tokens: RwSignal::new(tokens),
             parsing: StoredValue::new(None),
+            held: StoredValue::new(None),
         }
     }
 

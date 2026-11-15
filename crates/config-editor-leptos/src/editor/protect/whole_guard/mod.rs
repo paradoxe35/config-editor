@@ -43,12 +43,14 @@ use std::ops::Range;
 
 use serde_json::Value;
 
+use super::super::codec::scalar_range;
 use super::super::language::ConfigLanguage;
 use super::super::parse_cache;
+use super::super::paths::written_value_span;
 use super::super::text_change::changed_bytes;
 use super::glued::{Holding, holding, only_taken_from};
 use super::reach::reaches_none_by;
-use super::tokens::{Known, SecretMatcher};
+use super::tokens::{Known, SecretMatcher, field_value};
 
 /// The host's placeholders in the text before an edit.
 pub(crate) struct Placeholders<'a> {
@@ -64,13 +66,33 @@ pub(crate) struct Placeholders<'a> {
     /// The text from the host shown (when known): text beside a token it
     /// wrote is its own.
     pub(crate) origin: Option<&'a str>,
+    /// Whether an edit was taken with a placeholder read otherwise (see
+    /// [`Held`]) since the host's text: a repair of a text broken since
+    /// is judged as an edit of a text that parses.
+    pub(crate) holding: bool,
 }
 
 /// What the check found: the field of a placeholder the edit writes text
-/// beside, and whether the edited text parses (`None`: not read).
+/// beside (refused), or that the parse reads with text beside it while the
+/// edit left the placeholder and its edges alone (taken and held, see
+/// [`Held`]), and whether the edited text parses (`None`: not read).
 pub(crate) struct Verdict {
     pub(crate) glued: Option<String>,
+    pub(crate) held: Option<Held>,
     pub(crate) parses: Option<bool>,
+}
+
+/// An edit taken although the parse reads a placeholder given whole with
+/// text beside it (a key typed a character at a time before its entry,
+/// `passwordx: password: '«…»'`): the placeholder's text and its edges are
+/// as they were, so nothing on screen is glued; what reaches the host waits
+/// until each of `tokens` reads in its fields as in the host's text again.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct Held {
+    /// The field the parse reads the placeholder in, for the reason shown.
+    pub(crate) field: String,
+    /// The placeholders the edit left read otherwise.
+    pub(crate) tokens: Vec<String>,
 }
 
 impl Placeholders<'_> {
@@ -98,6 +120,7 @@ impl Placeholders<'_> {
         if self.index.is_empty() || before == after {
             return Verdict {
                 glued: None,
+                held: None,
                 parses: None,
             };
         }
@@ -120,25 +143,211 @@ impl Placeholders<'_> {
         {
             return Verdict {
                 glued: None,
+                held: None,
                 parses: Some(true),
             };
         }
         let parsed = parse_cache::parsed(self.behavior, after);
         match parsed.as_ref() {
-            Ok(document) => Verdict {
-                glued: self
-                    .cut_into(before, after)
-                    .or_else(|| self.glued_in_parsed(before, after, document))
-                    .or_else(|| self.glued_where_moved(before, after, document, changed)),
-                parses: Some(true),
-            },
+            Ok(document) => {
+                if let Some(field) = self.cut_into(before, after) {
+                    return Verdict {
+                        glued: Some(field),
+                        held: None,
+                        parses: Some(true),
+                    };
+                }
+                let read = self
+                    .glued_in_parsed(before, after, document)
+                    .or_else(|| self.glued_where_moved(before, after, document, changed));
+                // Refused when the edit writes at a placeholder's edges (or
+                // over it), or repairs the text (nothing before says what
+                // its value held) but one held already; else the parse's
+                // reading is held.
+                let tokens = match &read {
+                    Some(field) if before_parses || self.holding => {
+                        self.untouched(before, after, changed, field)
+                    }
+                    _ => None,
+                };
+                match (read, tokens) {
+                    (Some(field), Some(tokens)) => Verdict {
+                        glued: None,
+                        held: Some(Held { field, tokens }),
+                        parses: Some(true),
+                    },
+                    (glued, _) => Verdict {
+                        glued,
+                        held: None,
+                        parses: Some(true),
+                    },
+                }
+            }
             Err(_) => Verdict {
                 glued: self.held_while_broken(before, after),
+                held: None,
                 parses: Some(false),
             },
         }
     }
 
+    /// When the edit (`changed`, see `changed_bytes`) writes neither over
+    /// nor at the edges of any placeholder given whole, before or after it,
+    /// the placeholders it leaves read otherwise: those written near it,
+    /// and the token of the field read at `field`. `None` when it touches
+    /// one. A placeholder's edges are those of the value its field writes
+    /// (a block scalar's lines, a quoted string's quotes), as a locked
+    /// value's: a line typed inside its block writes at it.
+    fn untouched(
+        &self,
+        before: &str,
+        after: &str,
+        changed: (usize, usize, usize),
+        field: &str,
+    ) -> Option<Vec<String>> {
+        // The edit as far as it may slide (`»</` to `»<z/></`: the same
+        // text written right at the token).
+        let (left, right) = slides(before, after, changed);
+        let (start, old_end, new_end) = (changed.0 - left, changed.1 + right, changed.2 + right);
+        let touches = |range: &Range<usize>, end: usize| range.start <= end && start <= range.end;
+        let near_before = self.written_near(before, start, old_end);
+        let near_after = self.written_near(after, start, new_end);
+        if near_before.iter().any(|(range, _)| {
+            touches(
+                &self.written_extent(before, range).unwrap_or(range.clone()),
+                old_end,
+            )
+        }) {
+            return None;
+        }
+        for (range, _) in &near_after {
+            // At the token, or inside the value its field writes now (a
+            // line typed into its block).
+            let now = self.written_extent(after, range).unwrap_or(range.clone());
+            if touches(&now, new_end) {
+                return None;
+            }
+            // Where it was: the edit is wholly before or after it.
+            let was = if range.end < start {
+                range.clone()
+            } else {
+                range.start - new_end + old_end..range.end - new_end + old_end
+            };
+            if touches(&self.written_extent(before, &was).unwrap_or(was), old_end) {
+                return None;
+            }
+        }
+        let mut tokens: Vec<String> = near_after
+            .iter()
+            .map(|(range, _)| after[range.clone()].to_string())
+            .chain(
+                self.known
+                    .iter()
+                    .filter(|known| known.whole.is_some() && known.field.as_deref() == Some(field))
+                    .map(|known| known.token.clone()),
+            )
+            .collect();
+        tokens.sort();
+        tokens.dedup();
+        Some(tokens)
+    }
+
+    /// The bytes of `text` its field writes as its value, when they hold
+    /// the placeholder at bytes `token`.
+    fn written_extent(&self, text: &str, token: &Range<usize>) -> Option<Range<usize>> {
+        let field = self
+            .index
+            .first_of(&text[token.clone()])
+            .and_then(|at| self.known[at].field.as_deref())?;
+        written_value_span(self.behavior, text, field)
+            .and_then(|span| scalar_range(self.behavior, text, span))
+            .filter(|range| range.start <= token.start && token.end <= range.end)
+    }
+}
+
+impl Held {
+    /// Whether `text` (written in `behavior`) still reads a token of the
+    /// hold otherwise than the host's text `origin` does: it does not
+    /// parse, a field the host gave one of them reads another value while
+    /// the text holds the token, or more strings hold it with other text.
+    pub(crate) fn still(
+        &self,
+        behavior: &dyn ConfigLanguage,
+        known: &[Known],
+        text: &str,
+        origin: Option<&str>,
+    ) -> bool {
+        let parsed = parse_cache::parsed(behavior, text);
+        let Ok(document) = parsed.as_ref() else {
+            return true;
+        };
+        let host = origin.map(|origin| parse_cache::parsed(behavior, origin));
+        let host = host.as_ref().and_then(|host| host.as_ref().as_ref().ok());
+        self.tokens
+            .iter()
+            .filter(|token| text.contains(token.as_str()))
+            .any(|token| {
+                let mut fields = known
+                    .iter()
+                    .filter(|known| known.whole.is_some() && known.token == *token);
+                let field_differs = fields.any(|known| {
+                    let Some(field) = known.field.as_deref() else {
+                        return false;
+                    };
+                    match host {
+                        Some(host) => field_value(document, field) != field_value(host, field),
+                        None => !matches!(holding(behavior, document, known), Holding::Alone(_)),
+                    }
+                });
+                let beside = |value: &Value| beside_count(value, token);
+                field_differs || host.map_or(0, beside) < beside(document)
+            })
+    }
+}
+
+/// How far (bytes left, bytes right) the edit `changed` (see
+/// `changed_bytes`) from `before` to `after` could be written as well: an
+/// insertion or deletion repeating the text beside it reads the same
+/// anywhere along that run.
+fn slides(
+    before: &str,
+    after: &str,
+    (start, old_end, new_end): (usize, usize, usize),
+) -> (usize, usize) {
+    let (inserted, removed) = (&after[start..new_end], &before[start..old_end]);
+    let along = |run: &mut dyn Iterator<Item = (char, char)>| -> usize {
+        run.take_while(|(beside, edited)| beside == edited)
+            .map(|(beside, _)| beside.len_utf8())
+            .sum()
+    };
+    let slide = |edited: &str, left: bool| -> Option<usize> {
+        (!edited.is_empty()).then(|| {
+            if left {
+                along(&mut after[..start].chars().rev().zip(edited.chars().rev()))
+            } else {
+                along(&mut after[new_end..].chars().zip(edited.chars()))
+            }
+        })
+    };
+    let both = |left: bool| match (slide(inserted, left), slide(removed, left)) {
+        (Some(one), Some(other)) => one.min(other),
+        (Some(one), None) | (None, Some(one)) => one,
+        (None, None) => 0,
+    };
+    (both(true), both(false))
+}
+
+/// How many strings inside `value` hold `token` with other text.
+fn beside_count(value: &Value, token: &str) -> usize {
+    match value {
+        Value::String(text) => usize::from(text.contains(token) && text.trim() != token),
+        Value::Array(items) => items.iter().map(|item| beside_count(item, token)).sum(),
+        Value::Object(map) => map.values().map(|item| beside_count(item, token)).sum(),
+        _ => 0,
+    }
+}
+
+impl Placeholders<'_> {
     /// The field of a placeholder given whole whose value the edited text
     /// (`document`) changes while still holding it: text beside it, the
     /// whitespace a multi-line form gives it (a `|` block's last line

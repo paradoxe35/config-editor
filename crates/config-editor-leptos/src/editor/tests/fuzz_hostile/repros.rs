@@ -191,3 +191,129 @@ fn an_empty_line_cut_up_to_a_lone_cr_keeps_every_other_ending() {
         ],
     });
 }
+
+/// P1: a path named while the text does not parse, then the cut undone:
+/// once the text parses, the lock is placed by its path (both `<a>`
+/// elements), not followed from the half of the broken text it covered.
+#[test]
+fn a_path_lock_is_placed_by_its_path_once_the_text_parses() {
+    use super::live::Step;
+    super::live::replay(super::live::LiveCase {
+        language: "XML",
+        schema: false,
+        text: "<a>x\"y</a>\n<a>5e-324</a>\n".into(),
+        steps: vec![
+            Step::Cut {
+                at: 5827886,
+                to: 7702808,
+            },
+            Step::Paths { mask: 21 },
+            Step::Undo,
+        ],
+    });
+}
+
+/// P1: Enter undone after a path is named: the HCL list's lock covers the
+/// whole list again, as a fresh editor's.
+#[test]
+fn a_path_lock_covers_its_whole_list_after_an_undo() {
+    use super::live::Step;
+    super::live::replay(super::live::LiveCase {
+        language: "HCL",
+        schema: false,
+        text: "k = [\n  \"web\"\n]\na = [\n  null,\n]\n".into(),
+        steps: vec![
+            Step::Enter { at: 6918550 },
+            Step::Paths { mask: 29 },
+            Step::Undo,
+        ],
+    });
+}
+
+/// P1: a space typed at the end of a locked YAML list: the lock is placed
+/// by its path, through the line's end, as in a fresh editor.
+#[test]
+fn a_lock_grows_with_a_space_typed_at_its_end() {
+    use super::live::Step;
+    super::live::replay(super::live::LiveCase {
+        language: "YAML",
+        schema: true,
+        text: "port:\n  - é😀\n  - a b\n".into(),
+        steps: vec![Step::Type {
+            at: 10305700,
+            text: " ",
+        }],
+    });
+}
+
+/// A cut makes `port` a root key (marked read-only there), and the undo
+/// puts it back under its table: the root field, which the host's text
+/// never had, is not held.
+#[test]
+fn a_field_reading_as_in_the_hosts_text_is_not_held() {
+    use super::live::Step;
+    super::live::replay(super::live::LiveCase {
+        language: "TOML",
+        schema: true,
+        text: "\"a b\" = [\"\"]\nk = [true]\n\n[name]\n\"é\" = \"a b\"\n\"a b\" = 34452\n\n[name.name]\nk = 40687\na = false\nport = \"\"\"\nline\nnext\"\"\"\n".into(),
+        steps: vec![
+            Step::Type {
+                at: 15146974,
+                text: "1",
+            },
+            Step::Cut {
+                at: 9030959,
+                to: 4907816,
+            },
+            Step::Undo,
+        ],
+    });
+}
+
+/// New ranges from the host on the same text cover what they cover: the
+/// field the ranges before covered is no longer locked.
+#[test]
+fn new_ranges_on_the_same_text_lock_only_what_they_cover() {
+    use super::live::Step;
+    super::live::replay(super::live::LiveCase {
+        language: "HCL",
+        schema: true,
+        text: "a = \"line\\nnext\"\n".into(),
+        steps: vec![
+            Step::Enter { at: 7601730 },
+            Step::Ranges {
+                line: Some(15505329),
+            },
+            Step::Type {
+                at: 3697051,
+                text: "x",
+            },
+            Step::Ranges {
+                line: Some(8559509),
+            },
+        ],
+    });
+}
+
+/// The host's ranges taken away while the text does not parse: once it
+/// parses again, the field they covered is not locked.
+#[test]
+fn ranges_taken_away_leave_no_covered_field_locked() {
+    use super::live::Step;
+    super::live::replay(super::live::LiveCase {
+        language: "JSON",
+        schema: true,
+        text: "{\n  \"a\": 35082,\n  \"x_1\": \"a b\"\n}\n".into(),
+        steps: vec![
+            Step::Ranges {
+                line: Some(15868982),
+            },
+            Step::Type {
+                at: 14162372,
+                text: "x",
+            },
+            Step::Ranges { line: None },
+            Step::Undo,
+        ],
+    });
+}

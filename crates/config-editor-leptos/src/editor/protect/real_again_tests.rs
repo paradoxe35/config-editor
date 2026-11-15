@@ -5,7 +5,8 @@
 //!   moved out of its block), then made real again (the key renamed back,
 //!   the line uncommented or moved back): text written beside it in a
 //!   field meanwhile is refused there; written beside it in a comment, the
-//!   edit making it real with that text is refused, in every language;
+//!   edit making it real with that text (leaving the token and its edges
+//!   as they were) is taken and held with its reason, in every language;
 //! - its field made a list or map holding it (an XML element given a child
 //!   or an attribute, a sibling moved in, the token put in brackets) is
 //!   refused as text beside it is.
@@ -251,7 +252,10 @@ fn a_placeholder_made_real_again_with_text_beside_it_is_refused() {
             make(state, true);
             pause(state);
             let now = state.doc().text.get_untracked();
-            if glued(language, &now, field(language)) {
+            // An edit leaving the token and its edges as they were (a line
+            // uncommented) is taken, held with its reason.
+            let held = state.changes_held() && state.save_waits().is_some();
+            if glued(language, &now, field(language)) && !held {
                 failures.push(format!("{case}: made real again glued: {now:?}"));
             }
             if let Some(text) = heard

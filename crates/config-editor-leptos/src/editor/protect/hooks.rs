@@ -14,6 +14,7 @@ use super::super::line_rows::MarkedLines;
 use super::foreign::{DocumentPlaceholders, foreign_placeholders};
 use super::glued::glued_placeholders;
 use super::live::ProtectState;
+use super::locks::Lock;
 use super::problems::unknown_placeholders;
 use super::suggest::{Around, adjust};
 use super::view::line_marks;
@@ -164,20 +165,16 @@ impl ProtectState {
                     let message =
                         super::texts::save_held(strings, pointer, &protected.held_reason(pointer));
                     // Marked where its lock starts; one the text no longer
-                    // has, on the document.
+                    // has (commented out, cut), where the lock nearest to
+                    // it by path starts (a field holding it first), else
+                    // on the first line: F8 shows it there.
                     let start = protected
                         .locks
                         .iter()
                         .find(|lock| lock.pointer.as_ref() == Some(pointer))
+                        .or_else(|| nearest_lock(&protected.locks, pointer))
                         .and_then(|lock| lock.ranges.first())
-                        .map(|range| range.start);
-                    let Some(start) = start else {
-                        return Diagnostic {
-                            message,
-                            severity: Severity::Warning,
-                            ..Diagnostic::default()
-                        };
-                    };
+                        .map_or(0, |range| range.start);
                     let line = lines.line_of(start);
                     let line_start = lines.byte_of(lines.line_bounds(line).start);
                     let column = text[line_start..lines.byte_of(start)].chars().count() + 1;
@@ -221,4 +218,26 @@ impl ProtectState {
 #[cfg(feature = "schema-validation")]
 pub(crate) fn secret_pointers(document: &Value, root: &Value, repeats_arrays: bool) -> Vec<String> {
     super::marks::secret_fields(document, root, repeats_arrays)
+}
+
+/// The lock of `locks` nearest to the field at `pointer` by path: the one
+/// sharing the most leading segments with it (a field holding it first),
+/// the first one at a tie (a range, with no path, shares none).
+fn nearest_lock<'l>(locks: &'l [Lock], pointer: &str) -> Option<&'l Lock> {
+    let shared = |lock: &Lock| {
+        lock.pointer.as_deref().map_or(0, |other| {
+            pointer
+                .split('/')
+                .zip(other.split('/'))
+                .skip(1)
+                .take_while(|(mine, theirs)| mine == theirs)
+                .count()
+        })
+    };
+    // `max_by_key` keeps the last of equals: reversed, the first.
+    locks
+        .iter()
+        .filter(|lock| !lock.ranges.is_empty())
+        .rev()
+        .max_by_key(|lock| shared(lock))
 }

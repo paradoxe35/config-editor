@@ -537,6 +537,20 @@ pub(super) fn check(case: &LiveCase) -> Result<(), Failure> {
         live.problems.retain(|(.., message)| {
             !held.contains(message) || new.problems.iter().any(|(.., known)| known == message)
         });
+        // Such a field's lock is the pinned text followed by position (the
+        // text at its path now is the user's, the way back must stay free);
+        // every other lock is placed by its path, as in a fresh editor.
+        let held_fields = state
+            .protect()
+            .protected
+            .with_untracked(|protected| protected.held.clone());
+        let not_held = |(pointer, _): &(Option<String>, _)| {
+            pointer
+                .as_ref()
+                .is_none_or(|pointer| !held_fields.contains(pointer))
+        };
+        live.locks.retain(not_held);
+        new.locks.retain(not_held);
         // Locks are carried through a text that does not parse (within one
         // text from the host); a fresh editor has nothing to carry.
         // The host's ranges followed through edits are not where it gave
@@ -561,7 +575,14 @@ pub(super) fn check(case: &LiveCase) -> Result<(), Failure> {
                     "{what} differ from a fresh editor's after {} ({name})",
                     kind(step)
                 ),
-                format!("{}\nlive {live:?}\nfresh {new:?}", at()),
+                format!(
+                    "{}\nlive {live:?}\nfresh {new:?}\nheld {:?}",
+                    at(),
+                    state
+                        .protect()
+                        .protected
+                        .with_untracked(|protected| protected.held.clone())
+                ),
             ));
         }
     }

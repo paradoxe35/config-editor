@@ -108,9 +108,11 @@ fn run(setup: &Setup, acts: &[Act]) -> Result<(), Step> {
         let text = state.doc().text.get_untracked();
         match safe(setup, view, protected, &view_original, &text) {
             // The locked text kept, the parse reading it otherwise (a
-            // duplicate shadows it, it moved): fine while the change is held
-            // with its reason, nothing reaching the host (checked below).
-            Err((Check::LockChanged, _))
+            // duplicate shadows it, it moved), or a placeholder whose text
+            // and edges are kept read with text beside it (a key half typed
+            // before its entry): fine while the change is held with its
+            // reason, nothing reaching the host (checked below).
+            Err((Check::LockChanged | Check::Glued, _))
                 if state.changes_held() && state.save_waits().is_some() => {}
             result => {
                 result.map_err(|(check, detail)| at((check, format!("on screen: {detail}"))))?;
@@ -430,12 +432,143 @@ fn a_placeholder_in_a_custom_list_item_never_takes_text_inside_its_quotes() {
     );
 }
 
-/// GP38-3: a new entry typed a key at a time before the placeholder's
-/// entry in Dot's one-line map passes through `passwordx: password: '«…»'`,
-/// which Dot reads as the token glued into `passwordx`: refused at that
-/// `:`, as the change event would carry it.
+/// P1 without over-refusal: a new entry typed a key at a time before the
+/// placeholder's entry in Dot's one-line map passes through `passwordx:
+/// password: '«…»'`, which Dot reads as the token glued into `passwordx`:
+/// the placeholder and its edges are as they were, so each key is taken
+/// and what reaches the host waits until it reads as the host's again.
+/// Seed 778: in Dot's one-line map, a key typed before the locked one's
+/// entry (`password db: 'x'; password: 'hunter2'`) leaves the field where
+/// its path cannot be found: its lock is the text followed, so the next
+/// keys typed are taken.
 #[test]
-#[ignore = "GP38-3: open"]
+fn a_lock_its_path_cannot_find_while_a_key_is_typed_keeps_its_text() {
+    let setup = Setup {
+        case: 11,
+        lock: cases::Lock::Path,
+        host: None,
+        pairs: false,
+    };
+    assert_ok(
+        &setup,
+        &[
+            Act::Entry {
+                anchor: 0,
+                name: 15,
+                paste: false,
+            },
+            Act::Entry {
+                anchor: 0,
+                name: 16,
+                paste: false,
+            },
+        ],
+    );
+}
+
+/// Seed 342: a `:` typed before a Dot list item holding a placeholder
+/// makes the parse read it at the root with text beside it, taken and held;
+/// an entry typed below meanwhile, through a text that does not parse, is
+/// taken too.
+#[test]
+fn an_entry_typed_while_a_placeholder_reads_otherwise_is_taken() {
+    let setup = Setup {
+        case: 12,
+        lock: cases::Lock::Secret,
+        host: None,
+        pairs: true,
+    };
+    assert_ok(
+        &setup,
+        &[
+            Act::Entry {
+                anchor: 2,
+                name: 17,
+                paste: true,
+            },
+            Act::PasteCopy { line: 31383 },
+            Act::Cut { line: 52736 },
+            Act::Cut { line: 22254 },
+            Act::Type { at: 25516, text: 4 },
+            Act::Entry {
+                anchor: 2,
+                name: 0,
+                paste: false,
+            },
+        ],
+    );
+}
+
+/// P1, seed 6585: a YAML list item a range covers read into a plain scalar
+/// once a line above it is made `<` (its list index moved by the entries
+/// added): held, nothing reaching the host, though the host's text has no
+/// item at that index either.
+#[test]
+fn a_range_covered_item_read_otherwise_is_held_whatever_its_index_in_the_hosts_text() {
+    let setup = Setup {
+        case: 1,
+        lock: cases::Lock::Range,
+        host: None,
+        pairs: false,
+    };
+    assert_ok(
+        &setup,
+        &[
+            Act::Entry {
+                anchor: 0,
+                name: 14,
+                paste: false,
+            },
+            Act::Entry {
+                anchor: 3,
+                name: 17,
+                paste: false,
+            },
+            Act::Type { at: 15657, text: 6 },
+            Act::Entry {
+                anchor: 3,
+                name: 0,
+                paste: false,
+            },
+        ],
+    );
+}
+
+/// Seed 12922: in Dot's one-line map, a key typed before two entries of the
+/// locked key (`password:  password: 'x'; password: '…'`): its path is found
+/// at the first, the user's, while the parse reads the last; the lock stays
+/// the text followed, so typing goes on.
+#[test]
+fn a_lock_found_at_a_key_typed_again_keeps_the_text_it_followed() {
+    let setup = Setup {
+        case: 11,
+        lock: cases::Lock::Schema,
+        host: None,
+        pairs: false,
+    };
+    assert_ok(
+        &setup,
+        &[
+            Act::Entry {
+                anchor: 2,
+                name: 16,
+                paste: true,
+            },
+            Act::Entry {
+                anchor: 3,
+                name: 17,
+                paste: true,
+            },
+            Act::Entry {
+                anchor: 0,
+                name: 16,
+                paste: false,
+            },
+        ],
+    );
+}
+
+#[test]
 fn a_new_entry_typed_before_a_secret_in_a_declared_one_line_map_is_taken() {
     let setup = Setup {
         case: 11,
@@ -443,19 +576,25 @@ fn a_new_entry_typed_before_a_secret_in_a_declared_one_line_map_is_taken() {
         host: None,
         pairs: false,
     };
-    assert_ok(
-        &setup,
-        &[Act::Entry {
-            anchor: 2,
-            name: 5,
-            paste: false,
-        }],
-    );
+    let entry = Act::Entry {
+        anchor: 2,
+        name: 5,
+        paste: false,
+    };
+    assert_ok(&setup, std::slice::from_ref(&entry));
+    // P4: the entry finished, the hold lets go and the host hears it.
+    let mounted = mount(&setup).expect("the Dot map mounts");
+    make(&setup, &mounted, &entry).expect("each key taken");
+    pause(mounted.state);
+    assert!(!mounted.state.changes_held(), "released");
+    let last = mounted.changes.with_untracked(|changes| changes.last().cloned());
+    assert_eq!(last, Some(mounted.state.doc().text.get_untracked()));
 }
 
 /// P1: a `:` typed into a DotBare key (`pass:word: '«…»'`) after a line
-/// copied would make the placeholder part of `pass`'s value with text
-/// beside it: refused.
+/// copied makes the parse read the placeholder as part of `pass`'s value
+/// with text beside it; the placeholder and its edges are as they were, so
+/// it is taken and held, nothing reaching the host.
 #[test]
 fn a_placeholder_in_a_declared_language_never_glues_when_a_colon_splits_its_key() {
     let setup = Setup {
@@ -679,12 +818,10 @@ fn a_hosts_range_keeps_its_field_through_a_conversion_rewriting_its_line() {
     );
 }
 
-/// Seed 5227: in a JSON view of an HCL host that does not parse (` }`
-/// typed before a list item a range covers), a new value pasted over the
-/// item is taken. The guard reads a range-covered field's value as the
-/// text past its key, and an item's key span is the item itself.
+/// P1: in a JSON view of an HCL host that does not parse (` }` typed
+/// before a list item a range covers), a new value pasted over the item is
+/// refused: an item's key span is the item itself, all of it the value.
 #[test]
-#[ignore = "SPANS-4 seed 5227: open, in protect/guard (covered_value_kept)"]
 fn a_new_value_over_a_range_covered_item_in_a_broken_view_is_refused() {
     let setup = Setup {
         case: 3,

@@ -454,6 +454,7 @@ impl EditorState {
                         tokens,
                         matcher,
                         origin: origin.as_deref(),
+                        holding: secrets.held.with_value(Option::is_some),
                     }
                     .check(before, after, before_parses)
                 })
@@ -464,6 +465,22 @@ impl EditorState {
                 .parsing
                 .set_value((verdict.parses == Some(true)).then(|| after.to_string()));
         }
+        // An Edit-as view's text reaches the host converted, checked there
+        // (`check_host_save`), not through the hold: refused as before.
+        if self.config().host_language != self.sync().edit_language.get_untracked() {
+            return verdict.glued.or(verdict.held.map(|held| held.field));
+        }
+        if let Some(held) = verdict.held {
+            secrets.held.update_value(|now| match now {
+                Some(now) => {
+                    now.field = held.field;
+                    now.tokens.extend(held.tokens);
+                    now.tokens.sort();
+                    now.tokens.dedup();
+                }
+                None => *now = Some(held),
+            });
+        }
         verdict.glued
     }
 
@@ -471,6 +488,10 @@ impl EditorState {
     /// `edit::Origin`): the host's ranges after a host text, and the secret
     /// placeholders, the host's own after a text from the host.
     pub(crate) fn find_protected_again(&self, origin: &Origin) {
+        // A text from the host is its own: nothing typed is held in it.
+        if matches!(origin, Origin::Reload { .. } | Origin::HostValue) {
+            self.protect().secrets.held.set_value(None);
+        }
         match origin {
             // A placeholder an undo brings back is the host's again.
             Origin::Undo | Origin::Redo => self.rescan_tokens(false),
@@ -562,6 +583,7 @@ impl EditorState {
             !protected.held.is_empty()
                 || (protected.document.is_none() && locked_key_again(protected))
         }) || self.unplaced_waits().is_some()
+            || self.placeholder_held().is_some()
     }
 
     /// Why a save of the text on screen waits, when it does: it holds text
@@ -572,6 +594,30 @@ impl EditorState {
         self.glued_waits()
             .or_else(|| self.held_waits())
             .or_else(|| self.unplaced_waits())
+            .or_else(|| {
+                let field = self.placeholder_held()?;
+                Some(self.strings_untracked(|strings| glued_message(strings, &field)))
+            })
+    }
+
+    /// The field the parse reads a placeholder given whole in with text
+    /// beside it, after an edit taken for leaving the placeholder and its
+    /// edges alone (see `whole_guard::Held`), while the text on screen does
+    /// not read it as the host's text does. The hold is kept until the host
+    /// gives a text: an undo may bring such a text back.
+    fn placeholder_held(&self) -> Option<String> {
+        let secrets = self.protect().secrets;
+        let held = secrets.held.get_value()?;
+        let origin = self
+            .protect()
+            .protected
+            .with_untracked(|protected| protected.origin.clone());
+        let still = secrets.known.with_untracked(|known| {
+            self.doc()
+                .text
+                .with_untracked(|text| held.still(self.behavior(), known, text, origin.as_deref()))
+        });
+        still.then_some(held.field)
     }
 
     /// The locked field a save of the text on screen waits on because it
