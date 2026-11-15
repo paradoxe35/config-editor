@@ -64,6 +64,14 @@ const KNOWN: &[Known] = &[
         class: "Enter after an entry, then a new entry, does not read (YAML)",
         finding: "FE38-9 (LOW edge): Enter after a YAML entry below an eight-space block indents by eight",
     },
+    // The same Enter, with an open quote (`x"y`) on a line above: the core
+    // Enter indents by 2 where the YAML hook says 4 (seed 36209; also on
+    // round 37's code).
+    Known {
+        properties: &["valid"],
+        class: "Enter after an entry puts the new entry elsewhere than meant (YAML)",
+        finding: "FE38-9 (LOW edge): Enter below a line holding an open quote indents by the outer block",
+    },
 ];
 
 /// The finding excusing `class` in `property`, if one does.
