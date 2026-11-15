@@ -18,6 +18,9 @@ Screenshots from the run are written to `test-results/screens/`.
 
 ## Coverage
 
+[`tests/README.md`](tests/README.md) maps each feature to its spec files. Some
+of them:
+
 - `tests/editor.spec.mjs`: key and value acceptance (mouse, Enter, Escape), bare
   colons, indented new lines, the single highlight, hover documentation, and focus.
 - `tests/scenarios.spec.mjs`: a 60-line document, a 900-line scale run, enum and
