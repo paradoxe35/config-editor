@@ -149,10 +149,10 @@ impl<'a> Carry<'a> {
         let mut best = (0, place);
         #[cfg(test)]
         ALIGNED.with(|count| count.set(count.get() + to.saturating_sub(from)));
-        for at in from..to {
+        for (at, line) in self.new.iter().enumerate().take(to).skip(from) {
             let shared = text
                 .chars()
-                .zip(self.new[at].chars())
+                .zip(line.chars())
                 .take_while(|(left, right)| left == right)
                 .count();
             if shared > best.0
