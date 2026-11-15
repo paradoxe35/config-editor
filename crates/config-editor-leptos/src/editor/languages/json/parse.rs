@@ -7,7 +7,9 @@ use super::*;
 pub(super) fn json_parse(source: &str) -> Result<Value, ParseError> {
     let document: Value = serde_json::from_str(source).map_err(|error| {
         let line_count = source.split('\n').count().max(1);
-        let (mut line, mut column) = (error.line().clamp(1, line_count), error.column().max(1));
+        let line = error.line().clamp(1, line_count);
+        // serde counts the column in bytes; the editor's are characters.
+        let (mut line, mut column) = (line, super::super::byte_columns::char_column(source, line, error.column().max(1)));
         // The marker shows the position, so the message drops serde's
         // " at line N column M".
         let full = error.to_string();

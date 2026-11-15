@@ -92,6 +92,12 @@ impl LineEndings {
     pub(super) fn restore(&self, text: String) -> String {
         let restored = self.preview(text);
         self.0.update_value(|endings| {
+            // As for a text from the host: an all-LF text handed back is
+            // its own reference too, or every line would take the most
+            // common ending of an older one.
+            if restored.contains(['\n', '\r']) {
+                endings.common = most_common(&restored);
+            }
             endings.reference = if restored.contains('\r') {
                 restored.clone()
             } else {
@@ -210,7 +216,25 @@ fn written(text: &str, endings: &Endings) -> String {
         } else {
             ""
         };
-        let ending = if ending.is_empty() { above } else { ending };
+        let ending = match ending {
+            "" if readable(above) => above,
+            "" => common,
+            ending => ending,
+        };
+        // After a lone CR, an empty line's LF would read as one CRLF with
+        // it: a line lost. The ending of the line edited is made CRLF, the
+        // one left alone kept.
+        let kept = |index: usize| index < prefix || index >= count - suffix;
+        let ending = if ending == "\n" && line.is_empty() && out.ends_with('\r') {
+            if kept(index) && index > 0 && !kept(index - 1) {
+                out.push('\n');
+                "\n"
+            } else {
+                "\r\n"
+            }
+        } else {
+            ending
+        };
         out.push_str(ending);
         above = ending;
     }

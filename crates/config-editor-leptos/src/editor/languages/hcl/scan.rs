@@ -301,6 +301,9 @@ struct Walk {
     stack: Vec<usize>,
     open: Option<OpenValue>,
     attributes: usize,
+    /// The last header read ([`Walk::header_at`]): from which name, the
+    /// token it was read at, and its answer.
+    header: Option<(usize, usize, Option<usize>)>,
 }
 
 impl Walk {
@@ -311,7 +314,24 @@ impl Walk {
             stack: vec![0],
             open: None,
             attributes: 0,
+            header: None,
         }
+    }
+
+    /// [`classify_header`] at name `index`. A run of names read before for
+    /// an earlier name gives the same answer for every name inside it (it
+    /// reads on to the same token), so a long line of names is read once,
+    /// not once from each of them.
+    fn header_at(&mut self, tokens: &[Token], index: usize) -> Option<usize> {
+        if let Some((from, stop, found)) = self.header
+            && from < index
+            && index < stop
+        {
+            return found;
+        }
+        let (found, stop) = header_from(tokens, index);
+        self.header = Some((index, stop, found));
+        found
     }
 
     /// A line break at bracket depth zero before `token` ends the value
@@ -488,7 +508,7 @@ impl Walk {
                     });
                     self.index = equals + 1;
                     return;
-                } else if let Some(brace) = classify_header(tokens, index) {
+                } else if let Some(brace) = self.header_at(tokens, index) {
                     let names: Vec<&Token> = tokens[index..brace]
                         .iter()
                         .filter(|name_token| token_name(source, name_token).is_some())
@@ -624,21 +644,27 @@ pub(super) fn analyze_at(source: &str, cursor: usize) -> (std::rc::Rc<Scan>, Sna
 /// `None` when the tokens do not form one. A header is one or more names on a
 /// single line followed by `{` on that same line.
 pub(super) fn classify_header(tokens: &[Token], index: usize) -> Option<usize> {
+    header_from(tokens, index).0
+}
+
+/// [`classify_header`], and the index of the token its answer was read at
+/// (the `{`, the token ending the names, or the end).
+fn header_from(tokens: &[Token], index: usize) -> (Option<usize>, usize) {
     let mut names = 0;
     for (offset, token) in tokens[index..].iter().enumerate() {
         match token.kind {
             Kind::Comment => {}
             Kind::Ident | Kind::Str { .. } => {
                 if names > 0 && token.nl_before {
-                    return None;
+                    return (None, index + offset);
                 }
                 names += 1;
             }
             Kind::Punct('{') => {
-                return (names > 0 && !token.nl_before).then_some(index + offset);
+                return ((names > 0 && !token.nl_before).then_some(index + offset), index + offset);
             }
-            _ => return None,
+            _ => return (None, index + offset),
         }
     }
-    None
+    (None, tokens.len())
 }

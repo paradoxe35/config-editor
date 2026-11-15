@@ -472,9 +472,15 @@ pub(crate) fn path_at(
     let line_index = line_column(source, line_start).0 - 1;
     let column = source[line_start..byte].chars().count();
     let line = source[line_start..].split('\n').next().unwrap_or("");
-    // In markup closing a value (`<a>1</a|>`): the value it closes.
+    // In markup closing a value (`<a>1</a|>`): the value it closes; past
+    // markup closing others (`</b></a>|`), stepped back over them all on
+    // the line first, so a run of them costs one walk, not one each.
     let in_line = byte - line_start;
-    if let Some(open) = closing_markup_around(behavior, line, in_line) {
+    let mut open = in_line;
+    while let Some(start) = closing_markup_around(behavior, line, open) {
+        open = start;
+    }
+    if open < in_line {
         let value_end = units_at(source, line_start + open);
         return path_at(behavior, source, value_end);
     }

@@ -245,9 +245,8 @@ pub(super) fn record_tag_keys(
     } else {
         plan.path_of(tag.start).unwrap_or_default()
     };
-    for inner in attributes {
-        if let Kind::Text { quoted: false } = inner.kind
-            && is_attr_name(source, tag, inner)
+    for (index, inner) in attributes.iter().enumerate() {
+        if is_attr_name(&attributes, index)
             && !partial
             && !plan.markup.holds(&source[inner.start..inner.end])
         {
@@ -363,15 +362,17 @@ pub(super) fn attribute_key(path: &[Seg], name: &str) -> Vec<String> {
     key
 }
 
-/// Whether `inner` is an attribute name: an unquoted word directly inside an
-/// open tag that is followed by `=`.
-pub(super) fn is_attr_name(source: &str, open: &Token, inner: Token) -> bool {
-    let inner_tokens = tokenize_tag_inside(source, open);
-    inner_tokens
-        .iter()
-        .position(|token| token.start == inner.start && token.end == inner.end)
-        .and_then(|position| inner_tokens.get(position + 1))
-        .is_some_and(|next| matches!(next.kind, Kind::Equals))
+/// Whether token `index` of `inner`, the tokens inside an open tag
+/// ([`tokenize_tag_inside`]), is an attribute name: an unquoted word
+/// followed by `=`. Given the tokens read once for the tag: reading them
+/// again for each one made a long tag's reading grow with its square.
+pub(super) fn is_attr_name(inner: &[Token], index: usize) -> bool {
+    inner
+        .get(index)
+        .is_some_and(|token| matches!(token.kind, Kind::Text { quoted: false }))
+        && inner
+            .get(index + 1)
+            .is_some_and(|next| matches!(next.kind, Kind::Equals))
 }
 
 /// Whether `token` holds the caret. A tag holds it strictly inside its
@@ -525,8 +526,9 @@ pub(super) fn capture_snapshot(
     let spelled_apart = open_tag.map_or_else(Vec::new, |tag| {
         inner
             .iter()
-            .filter(|token| matches!(token.kind, Kind::Text { quoted: false }) && is_attr_name(source, &tag, **token))
-            .map(|token| source[token.start..token.end].to_string())
+            .enumerate()
+            .filter(|(index, _)| is_attr_name(&inner, *index))
+            .map(|(_, token)| source[token.start..token.end].to_string())
             .filter(|name| plan.attribute_key(tag.start, name).starts_with('@'))
             .collect()
     });

@@ -36,7 +36,14 @@ use super::change_summary::ChangeSummary;
 use super::commands::offset_at;
 use super::live_settings::on_switch_off;
 use super::state::EditorState;
-use line_diff::{DiffPeek, Hunk, PeekKind, diff_lines, document_lines};
+#[cfg(test)]
+#[allow(
+    unused_imports,
+    reason = "used by the hostile random suite, which needs every feature"
+)]
+pub(super) use line_diff::middle_edits;
+use line_diff::{DiffPeek, PeekKind, document_lines};
+pub(super) use line_diff::{Hunk, diff_lines};
 
 /// Switching the `show_diff` setting off closes the preview.
 pub(super) fn follow_settings(state: EditorState) {

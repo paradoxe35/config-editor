@@ -95,9 +95,9 @@ pub(super) fn attribute_paths(source: &str) -> AttributePaths {
             })
             .collect();
         let mut any = false;
-        for inner in tokenize_tag_inside(source, token) {
-            if matches!(inner.kind, Kind::Text { quoted: false })
-                && is_attr_name(source, token, inner)
+        let inside = tokenize_tag_inside(source, token);
+        for (index, inner) in inside.iter().enumerate() {
+            if is_attr_name(&inside, index)
                 && !plan.markup.holds(&source[inner.start..inner.end])
             {
                 let mut attribute = keys.clone();

@@ -526,6 +526,7 @@ pub(in crate::editor) fn middle_edits(old: &[&str], new: &[&str]) -> Vec<DiffEdi
         edits.extend(std::iter::repeat_n(DiffEdit::Insert, new.len()));
         return edits;
     }
+    super::super::diff::step(cell_count);
     let columns = new.len() + 1;
     let mut lcs = vec![0u32; cell_count];
     for old_index in (0..old.len()).rev() {

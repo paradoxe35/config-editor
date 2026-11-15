@@ -120,25 +120,29 @@ pub(super) fn run_end(source: &str, start: usize, keep: impl Fn(char) -> bool) -
 /// own strings included, so a quote or comment marker inside one neither
 /// closes the string nor opens a comment. `$${` and `%%{` are literal.
 pub(super) fn string_end(source: &str, start: usize) -> (usize, bool) {
-    let line_end = line_end(source, start + 1);
-    let line = &source[..line_end];
+    // The line's end is read only where a template or an unclosed string
+    // needs it: read for every string, a line of many strings cost the
+    // square of its length.
+    let mut line = None;
     let mut index = start + 1;
-    while index < line_end {
-        let rest = &line[index..];
+    while index < source.len() && source.as_bytes()[index] != b'\n' {
+        let rest = &source[index..];
         let character = rest.chars().next().unwrap_or('\0');
         if character == '\\' {
-            index += 1 + rest[1..].chars().next().map_or(0, char::len_utf8);
+            let escaped = rest[1..].chars().next().filter(|next| *next != '\n');
+            index += 1 + escaped.map_or(0, char::len_utf8);
         } else if character == '"' {
             return (index + 1, true);
         } else if rest.starts_with("$${") || rest.starts_with("%%{") {
             index += 3;
         } else if rest.starts_with("${") || rest.starts_with("%{") {
+            let line = *line.get_or_insert_with(|| &source[..line_end(source, start + 1)]);
             index = template_end(line, index);
         } else {
             index += character.len_utf8();
         }
     }
-    (line_end, false)
+    (line_end(source, start + 1), false)
 }
 
 /// Byte end of the heredoc opening at `start` (`<<MARKER` / `<<-MARKER`),

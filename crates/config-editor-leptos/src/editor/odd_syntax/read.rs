@@ -66,6 +66,15 @@ fn error(message: impl Into<String>, line: usize, column: usize) -> ParseError {
     }
 }
 
+/// The one-based character column of byte `at` of `line`.
+fn columns(line: &str, at: usize) -> usize {
+    let mut at = at.min(line.len());
+    while !line.is_char_boundary(at) {
+        at -= 1;
+    }
+    line[..at].chars().count() + 1
+}
+
 fn escape(key: &str) -> String {
     key.replace('~', "~0").replace('/', "~1")
 }
@@ -156,7 +165,11 @@ impl Reader<'_> {
                     .ok_or_else(|| error("expected `key := value`", number, indent + 1))?;
                 let after = rest[key_end..].trim_start();
                 let Some(after) = after.strip_prefix(":=") else {
-                    return Err(error("expected `:=`", number, indent + key_end + 1));
+                    return Err(error(
+                        "expected `:=`",
+                        number,
+                        indent + rest[..key_end].chars().count() + 1,
+                    ));
                 };
                 let child = format!("{pointer}/{}", escape(&key));
                 let span = self.span(self.at, indent, indent + key_end);
@@ -196,7 +209,7 @@ impl Reader<'_> {
                     ..problem
                 })?;
                 if inline.at < code.len() {
-                    return Err(error("unexpected text", number, inline.at + 1));
+                    return Err(error("unexpected text", number, columns(code, inline.at)));
                 }
                 for (pointer, from, to) in inline.found {
                     let span = self.span(line, from, to);
@@ -272,7 +285,7 @@ impl Inline<'_> {
         ParseError {
             message: message.to_string(),
             line: None,
-            column: Some(self.at + 1),
+            column: Some(columns(self.text, self.at)),
         }
     }
 

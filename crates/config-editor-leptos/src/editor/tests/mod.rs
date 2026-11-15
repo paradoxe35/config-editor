@@ -298,6 +298,21 @@ mod kept_defaults;
     feature = "protect"
 ))]
 mod fuzz_edit;
+// Hostile texts, diffs, live props and line endings reach every optional
+// feature.
+#[cfg(all(
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml",
+    feature = "folding",
+    feature = "search",
+    feature = "protect",
+    feature = "diff",
+    feature = "schema-validation"
+))]
+mod fuzz_hostile;
 mod save;
 #[cfg(all(feature = "yaml", feature = "schema-validation"))]
 mod schema_options;

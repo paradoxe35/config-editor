@@ -164,12 +164,12 @@ fn attribute_hover_path(
     } else {
         tokens.iter().find(in_attributes)?
     };
-    let name = tokenize_tag_inside(source, open).into_iter().find(|inner| {
-        matches!(inner.kind, Kind::Text { quoted: false })
-            && inner.start <= byte
-            && byte < inner.end
-            && is_attr_name(source, open, *inner)
-    })?;
+    let inside = tokenize_tag_inside(source, open);
+    let name = inside
+        .iter()
+        .enumerate()
+        .find(|(index, inner)| inner.start <= byte && byte < inner.end && is_attr_name(&inside, *index))
+        .map(|(_, inner)| *inner)?;
     // Markup is no key: no schema describes it.
     if plan.markup.holds(&source[name.start..name.end]) {
         return None;

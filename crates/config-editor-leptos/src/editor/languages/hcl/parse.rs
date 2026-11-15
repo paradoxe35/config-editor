@@ -19,7 +19,9 @@ pub(super) fn hcl_parse(source: &str) -> Result<Value, ParseError> {
             _ => (1, 1),
         };
         let line_count = source.split('\n').count().max(1);
-        let (line, column) = (line.clamp(1, line_count), column.max(1));
+        let line = line.clamp(1, line_count);
+        // hcl-edit counts the column in bytes; the editor's are characters.
+        let column = super::super::byte_columns::char_column(source, line, column.max(1));
         let (line, column, message) = match super::super::wide_integers::out_of_range(source, line, column) {
             Some((column, message)) => (line, column, message),
             None => {
