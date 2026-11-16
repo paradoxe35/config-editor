@@ -9,6 +9,7 @@ use super::random::Rng;
 use super::reference::{compile, messages, same, xml_cannot_hold};
 use super::runner::{Case, Property, Verdict, failure, language, run};
 use super::schemas::{Draw, schema};
+use super::xml_spelling::{self, Sides};
 use crate::editor::Language;
 use crate::editor::bridge::Bridge;
 
@@ -100,7 +101,20 @@ pub(super) fn check(case: &Case) -> Verdict {
     // A value the view leaves as the host has it keeps its host form (the
     // save writes nothing for it), whatever the view reads it as.
     let view_value = match &host_value {
-        Some(host_value) => untouched_from(&view_value, &case.other, &case.doc, host_value),
+        Some(host_value) => {
+            // XML writes some values of two types alike (`"8"` and `8`, a
+            // list of one and its item): typed alike, they are untouched.
+            let alike = |typed: &serde_json::Value, before: &serde_json::Value| {
+                typed == before
+                    || (edit == Language::XML && {
+                        let written = |value: &serde_json::Value| {
+                            both.written(edit, &serde_json::json!({ "a": value }))
+                        };
+                        written(typed).is_some_and(|text| Some(text) == written(before))
+                    })
+            };
+            untouched_from(&view_value, (&case.other, &case.doc), host_value, &alike)
+        }
         None => view_value,
     };
     let seen = |what: &str| {
@@ -112,27 +126,21 @@ pub(super) fn check(case: &Case) -> Verdict {
         .as_ref()
         .is_some_and(|host| same(host, &view_value))
     {
-        let kept_text = host_value.as_ref().is_some_and(|host_value| {
-            // No problem the view does not have.
-            let places = |value: &serde_json::Value| {
-                both.reference
-                    .iter_errors(value)
-                    .map(|error| {
-                        let place = error.instance_path().as_str().to_string();
-                        (place, error.kind().keyword().to_string())
-                    })
-                    .collect::<std::collections::HashSet<_>>()
-            };
-            edit == Language::XML
-                && text_kept(host_value, &view_value)
-                && places(host_value).is_subset(&places(&view_value))
+        let before = both.read(host, &host_text).unwrap_or_default();
+        let spelled = host_value.as_ref().and_then(|saved| {
+            xml_spelling::explained(&Sides {
+                both: &both,
+                host,
+                edit,
+                before: &before,
+                view: &view_value,
+                saved,
+            })
         });
         let class = if host == Language::XML && xml_cannot_hold(&view_value) {
             "a save writes what XML cannot hold, without waiting"
-        } else if kept_text {
-            "a save keeps the host's text where the XML view's text reads as another type"
         } else {
-            "a save reads otherwise than the view"
+            spelled.unwrap_or("a save reads otherwise than the view")
         };
         return Verdict::Fails(failure(class, seen("")));
     }
@@ -151,27 +159,6 @@ pub(super) fn check(case: &Case) -> Verdict {
     Verdict::Holds
 }
 
-/// Whether `host` differs from `view` only by text where the view reads
-/// the same text as a number or boolean (`"0"` for `0`).
-fn text_kept(host: &serde_json::Value, view: &serde_json::Value) -> bool {
-    use serde_json::Value;
-    match (host, view) {
-        (Value::String(text), Value::Number(_) | Value::Bool(_)) => {
-            serde_json::from_str::<Value>(text).is_ok_and(|read| read == *view)
-        }
-        (Value::Array(host), Value::Array(view)) => {
-            host.len() == view.len() && host.iter().zip(view).all(|(a, b)| text_kept(a, b))
-        }
-        (Value::Object(host), Value::Object(view)) => {
-            host.len() == view.len()
-                && host
-                    .iter()
-                    .all(|(key, a)| view.get(key).is_some_and(|b| text_kept(a, b)))
-        }
-        _ => same(host, view),
-    }
-}
-
 #[test]
 fn values_typed_in_an_edit_as_view_save_as_the_view_reads_them() {
     run(&Property {
@@ -185,16 +172,17 @@ fn values_typed_in_an_edit_as_view_save_as_the_view_reads_them() {
 }
 
 /// `view` with each value `typed` (the document the view was typed from)
-/// leaves as `before` (the host's document) has it taken from `host` (what
-/// the save reads back): untouched values keep their host form.
+/// leaves as `before` (the host's document) has it, as `alike` tells,
+/// taken from `host` (what the save reads back): untouched values keep
+/// their host form.
 fn untouched_from(
     view: &serde_json::Value,
-    typed: &serde_json::Value,
-    before: &serde_json::Value,
+    (typed, before): (&serde_json::Value, &serde_json::Value),
     host: &serde_json::Value,
+    alike: &dyn Fn(&serde_json::Value, &serde_json::Value) -> bool,
 ) -> serde_json::Value {
     use serde_json::Value;
-    if typed == before {
+    if alike(typed, before) {
         return host.clone();
     }
     match (view, typed, before, host) {
@@ -204,11 +192,23 @@ fn untouched_from(
                     .map(|(key, value)| {
                         let kept = match (typed.get(key), before.get(key), host.get(key)) {
                             (Some(typed), Some(before), Some(host)) => {
-                                untouched_from(value, typed, before, host)
+                                untouched_from(value, (typed, before), host, alike)
                             }
                             _ => value.clone(),
                         };
                         (key.clone(), kept)
+                    })
+                    .collect(),
+            )
+        }
+        (Value::Array(view), Value::Array(typed), Value::Array(before), Value::Array(host))
+            if [typed.len(), before.len(), host.len()] == [view.len(); 3] =>
+        {
+            Value::Array(
+                view.iter()
+                    .zip(typed.iter().zip(before).zip(host))
+                    .map(|(value, ((typed, before), host))| {
+                        untouched_from(value, (typed, before), host, alike)
                     })
                     .collect(),
             )

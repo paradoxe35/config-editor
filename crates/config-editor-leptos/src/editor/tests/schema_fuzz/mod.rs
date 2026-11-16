@@ -29,3 +29,4 @@ mod shrink;
 mod suggestions;
 mod validation;
 mod work;
+mod xml_spelling;

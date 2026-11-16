@@ -185,8 +185,9 @@ fn a_secret_marked_in_an_option_is_not_quoted_in_its_problem() {
     );
 }
 
+/// P2: a list emptied in a view of an XML host (`c: []` where the host
+/// has `<c>false</c>`) waits to save, as XML writes no empty list.
 #[test]
-#[ignore = "FZ38-8"]
 fn a_list_emptied_in_a_view_of_an_xml_host_waits_to_save() {
     holds_everywhere(
         super::edit_as::check,
@@ -722,5 +723,52 @@ fn a_number_under_an_overlapping_one_of_saves_as_the_view_reads_it() {
         json!({"properties": {"x_one": {"oneOf": [{}, {"properties": {"x_one": {"type": "string"}}}]}}}),
         json!({"x_one": {"x_one": "-"}}),
         json!({"x_one": {"x_one": 0}}),
+    );
+}
+
+/// P2: a number typed in an XML view where options nearer the value
+/// (`anyOf` in the items) take the host's string, but an outer `oneOf`
+/// with an anything option takes only the view's reading, saves as the
+/// view reads it. The save keeps the host's string `"0"` today: the
+/// reading is put back only by the nearest options above the value.
+#[test]
+#[ignore = "open: an outer oneOf deciding a value's reading is not consulted (bridge::schema_readings)"]
+fn a_number_under_nested_options_saves_as_the_outer_one_of_reads_it() {
+    holds_everywhere(
+        super::edit_as::check,
+        json!({"properties": {"c": {"oneOf": [
+            {"items": {"anyOf": [{"properties": {"mode": {"type": "string"}}}]}}, {}]}}}),
+        json!({"c": [{"mode": "n"}, false]}),
+        json!({"c": [{"mode": "0"}, {"a": "Z"}]}),
+    );
+}
+
+/// P2: text typed in an XML view as a list's item, where only the list's
+/// `contains` decides its reading (`true` taken, the host's string type
+/// `"true"` refused), saves as the view reads it. The save keeps the
+/// host's string today: `contains` is not one of the schemas consulted.
+#[test]
+#[ignore = "open: a list's contains deciding its item's reading is not consulted (bridge::schema_readings)"]
+fn an_item_only_contains_decides_saves_as_the_view_reads_it() {
+    holds_everywhere(
+        super::edit_as::check,
+        json!({"properties": {"d": {"type": "array", "contains": {"enum": [true]}}}}),
+        json!({"d": ["a"]}),
+        json!({"d": true}),
+    );
+}
+
+/// P2: a host's string respelled as a number in an XML view (`"8"` typed
+/// `08`) where options above take only the number saves as the view reads
+/// it. The save keeps `"8"` today, as if the view had not changed it.
+#[test]
+#[ignore = "open: a string respelled as a number the options above take keeps the host's text (bridge)"]
+fn a_string_respelled_as_a_number_the_options_take_saves_as_the_view_reads_it() {
+    holds_everywhere(
+        super::edit_as::check,
+        json!({"properties": {"x_one": {"properties": {"d": {"oneOf": [
+            {"properties": {"c": {"type": "integer"}}}]}}}}}),
+        json!({"x_one": {"d": {"c": "8"}}}),
+        json!({"x_one": {"d": {"c": "08"}}}),
     );
 }

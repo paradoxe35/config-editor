@@ -453,8 +453,8 @@ impl Bridge {
             Some(_) => merge::keys_ordered_like(target, &old),
             None => target,
         };
-        // A list the host held left with one item or none reads back as
-        // the host spells it (see `collapsed`): no loss.
+        // A list the host held left with one item reads back as the host
+        // spells it (see `collapsed`): no loss.
         let lost = |losses: &[String]| -> Vec<String> {
             losses
                 .iter()
