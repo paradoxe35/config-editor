@@ -1,9 +1,8 @@
 //! Finding a query in the document: plain text or a regular expression,
 //! optionally matching case and whole words. Pure, so it is tested natively.
 
-use std::ops::Range;
-
 use crate::editor::pattern_engine::{Regex, RegexBuilder};
+use crate::editor::text::{TextRange, TextSize, byte_range, slice, text_size};
 
 /// Most matches found; past it the count reads "10000+" and later matches
 /// are neither highlighted nor stepped to (replace all still replaces them).
@@ -20,15 +19,15 @@ pub(in crate::editor) struct SearchOptions {
     pub(in crate::editor) regex: bool,
 }
 
-/// One match, as byte offsets into the document.
+/// One match in the document.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(in crate::editor) struct SearchMatch {
-    pub(in crate::editor) start: usize,
-    pub(in crate::editor) end: usize,
-    /// Zero-based line of `start`.
+    /// The matched bytes.
+    pub(in crate::editor) range: TextRange,
+    /// Zero-based line of the match's start.
     pub(in crate::editor) line: usize,
-    /// Byte offset where that line starts.
-    pub(in crate::editor) line_start: usize,
+    /// Where that line starts.
+    pub(in crate::editor) line_start: TextSize,
 }
 
 /// A compiled query.
@@ -77,14 +76,14 @@ impl Matcher {
     /// The first match starting at or after byte `from`. A pattern may match
     /// empty text (`^`, `$`, `x*`): it is found where it matches, as in VS
     /// Code, and [`after`](Self::after) steps past it.
-    pub(in crate::editor) fn find_from(&self, text: &str, mut from: usize) -> Option<Range<usize>> {
-        while from <= text.len() {
+    pub(in crate::editor) fn find_from(&self, text: &str, mut from: TextSize) -> Option<TextRange> {
+        while from <= TextSize::of(text) {
             let found = self.raw_find(text, from)?;
-            if !self.whole_word || is_whole_word(text, &found) {
+            if !self.whole_word || is_whole_word(text, found) {
                 return Some(found);
             }
             // Part of a word: look again one character on.
-            from = found.start + text[found.start..].chars().next().map_or(1, char::len_utf8);
+            from = one_on(text, found.start());
         }
         None
     }
@@ -92,21 +91,26 @@ impl Matcher {
     /// Where the search for the match after `found` starts: its end, or
     /// one character on from an empty match (past the end of `text` after
     /// one there), so every loop over the matches ends.
-    pub(in crate::editor) fn after(text: &str, found: &Range<usize>) -> usize {
+    pub(in crate::editor) fn after(text: &str, found: TextRange) -> TextSize {
         if found.is_empty() {
-            found.end + text[found.end..].chars().next().map_or(1, char::len_utf8)
+            one_on(text, found.end())
         } else {
-            found.end
+            found.end()
         }
     }
 
-    fn raw_find(&self, text: &str, from: usize) -> Option<Range<usize>> {
+    /// The first match at or after `from` (a character boundary of `text`),
+    /// whole word or not. The standard library's and the regex engine's
+    /// `usize` byte ranges become typed here, where they arrive.
+    fn raw_find(&self, text: &str, from: TextSize) -> Option<TextRange> {
         match &self.kind {
-            Kind::Exact(needle) => text[from..]
+            Kind::Exact(needle) => slice::after(text, from)?
                 .find(needle.as_str())
-                .map(|start| from + start..from + start + needle.len()),
+                .map(|start| TextRange::at(from + text_size(start), TextSize::of(needle.as_str()))),
             Kind::AnyCase(needle) => find_any_case(text, needle, from),
-            Kind::Pattern(regex) => regex.find_at(text, from).map(|found| found.range()),
+            Kind::Pattern(regex) => regex
+                .find_at(text, usize::from(from))
+                .map(|found| byte_range(found.range())),
         }
     }
 
@@ -116,14 +120,16 @@ impl Matcher {
     pub(in crate::editor) fn replacement_for(
         &self,
         text: &str,
-        range: &Range<usize>,
+        range: TextRange,
         replacement: &str,
     ) -> String {
         let Kind::Pattern(regex) = &self.kind else {
             return replacement.to_string();
         };
-        match regex.captures_at(text, range.start) {
-            Some(captures) if captures.get(0).map(|whole| whole.range()) == Some(range.clone()) => {
+        match regex.captures_at(text, usize::from(range.start())) {
+            Some(captures)
+                if captures.get(0).map(|whole| byte_range(whole.range())) == Some(range) =>
+            {
                 super::template::expand(replacement, regex, &captures)
             }
             _ => replacement.to_string(),
@@ -135,27 +141,37 @@ impl Matcher {
 /// the flag says whether more were left out.
 pub(in crate::editor) fn find_matches(text: &str, matcher: &Matcher) -> (Vec<SearchMatch>, bool) {
     let mut matches = Vec::new();
-    let (mut line, mut line_start, mut scanned) = (0, 0, 0);
-    let mut from = 0;
+    let (mut line, mut line_start, mut scanned) = (0, TextSize::default(), TextSize::default());
+    let mut from = TextSize::default();
     while let Some(found) = matcher.find_from(text, from) {
         if matches.len() == MAX_MATCHES {
             return (matches, true);
         }
-        let between = &text[scanned..found.start];
+        let between = slice::slice(text, TextRange::new(scanned, found.start())).unwrap_or("");
         line += between.bytes().filter(|byte| *byte == b'\n').count();
         if let Some(newline) = between.rfind('\n') {
-            line_start = scanned + newline + 1;
+            line_start = scanned + text_size(newline + 1);
         }
-        scanned = found.start;
+        scanned = found.start();
         matches.push(SearchMatch {
-            start: found.start,
-            end: found.end,
+            range: found,
             line,
             line_start,
         });
-        from = Matcher::after(text, &found);
+        from = Matcher::after(text, found);
     }
     (matches, false)
+}
+
+/// The end of the character at `at` of `text`, or one byte on at its end,
+/// so a search loop steps past an empty match there and ends.
+fn one_on(text: &str, at: TextSize) -> TextSize {
+    let next = slice::step_forward(text, at);
+    if next == at {
+        at + TextSize::from(1)
+    } else {
+        next
+    }
 }
 
 /// A character's simple lowercase, or the character when that is several.
@@ -170,24 +186,24 @@ fn fold(character: char) -> char {
     }
 }
 
-fn find_any_case(text: &str, needle: &[char], from: usize) -> Option<Range<usize>> {
+fn find_any_case(text: &str, needle: &[char], from: TextSize) -> Option<TextRange> {
     let first = *needle.first()?;
-    for (offset, character) in text[from..].char_indices() {
+    for (offset, character) in slice::after(text, from)?.char_indices() {
         if fold(character) != first {
             continue;
         }
-        let start = from + offset;
-        let mut rest = text[start..].char_indices();
+        let start = from + text_size(offset);
+        let mut rest = slice::after(text, start)?.chars();
         let mut end = start;
         let matched = needle.iter().all(|wanted| match rest.next() {
-            Some((at, character)) if fold(character) == *wanted => {
-                end = start + at + character.len_utf8();
+            Some(character) if fold(character) == *wanted => {
+                end += TextSize::of(character);
                 true
             }
             _ => false,
         });
         if matched {
-            return Some(start..end);
+            return Some(TextRange::new(start, end));
         }
     }
     None
@@ -198,15 +214,14 @@ fn is_word_character(character: char) -> bool {
 }
 
 /// Whether `range` neither starts nor ends inside a word.
-fn is_whole_word(text: &str, range: &Range<usize>) -> bool {
-    let found = &text[range.clone()];
+fn is_whole_word(text: &str, range: TextRange) -> bool {
+    let found = slice::slice(text, range).unwrap_or("");
+    let before = slice::before(text, range.start()).and_then(|head| head.chars().next_back());
+    let after = slice::after(text, range.end()).and_then(|tail| tail.chars().next());
     let joins = |outside: Option<char>, inside: Option<char>| {
         outside.is_some_and(is_word_character) && inside.is_some_and(is_word_character)
     };
-    !joins(
-        text[..range.start].chars().next_back(),
-        found.chars().next(),
-    ) && !joins(text[range.end..].chars().next(), found.chars().next_back())
+    !joins(before, found.chars().next()) && !joins(after, found.chars().next_back())
 }
 
 /// Regex errors span several lines (the pattern, a caret, the message);

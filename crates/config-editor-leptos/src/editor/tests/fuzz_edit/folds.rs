@@ -163,7 +163,13 @@ fn invariants(state: EditorState, case: &FoldCase, after: &str) -> Result<(), Fa
         results
             .matches
             .iter()
-            .map(|found| (found.start, found.end, found.line))
+            .map(|found| {
+                (
+                    found.range.start().into(),
+                    found.range.end().into(),
+                    found.line,
+                )
+            })
             .collect()
     });
     state.search().open.set(false);

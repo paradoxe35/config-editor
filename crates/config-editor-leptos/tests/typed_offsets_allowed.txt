@@ -90,8 +90,6 @@ editor/protect/secrets.rs 2 locks and secrets still count spans in UTF-16 units;
 editor/protect/tokens.rs 5 locks and secrets still count spans in UTF-16 units; typed at their entry (bytes in, `utf16_of`); to move to bytes with the protect area
 editor/protect/unplaced.rs 2 locks and secrets still count spans in UTF-16 units; typed at their entry (bytes in, `utf16_of`); to move to bytes with the protect area
 editor/protect/whole_guard/moved.rs 6 locks and secrets still count spans in UTF-16 units; typed at their entry (bytes in, `utf16_of`); to move to bytes with the protect area
-editor/search/components/search_highlights.rs 2 matches are the regex engine's `usize` byte ranges (crate edge); to type with the search area
-editor/search/matcher.rs 2 matches are the regex engine's `usize` byte ranges (crate edge); to type with the search area
 editor/state.rs 2 the `_units` adapters (UTF-16 `usize` in, bytes inside) for the areas that still count in UTF-16; they go with those areas
 editor/sync.rs 1 still counts in UTF-16 or str `usize` bytes; to type with its area
 editor/text_change.rs 1 still counts in UTF-16 or str `usize` bytes; to type with its area

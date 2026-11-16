@@ -20,9 +20,11 @@ pub(super) fn expand(template: &str, regex: &Regex, captures: &Captures<'_>) -> 
     let mut out = String::with_capacity(template.len());
     let mut rest = template;
     while let Some(character) = rest.chars().next() {
+        // `$` and `\` are one byte: what follows starts after it.
+        let after = rest.get(1..).unwrap_or("");
         let consumed = match character {
-            '$' => dollar(&rest[1..], regex, captures, &mut out),
-            '\\' => backslash(&rest[1..], &mut out),
+            '$' => dollar(after, regex, captures, &mut out),
+            '\\' => backslash(after, &mut out),
             _ => None,
         };
         let taken = consumed.map_or_else(
@@ -32,7 +34,7 @@ pub(super) fn expand(template: &str, regex: &Regex, captures: &Captures<'_>) -> 
             },
             |after| 1 + after,
         );
-        rest = &rest[taken..];
+        rest = rest.get(taken..).unwrap_or("");
     }
     out
 }
@@ -68,8 +70,10 @@ fn dollar(after: &str, regex: &Regex, captures: &Captures<'_>, out: &mut String)
         }
         open @ (b'<' | b'{') => {
             let close = if open == b'<' { '>' } else { '}' };
-            let length = after[1..].find(close)?;
-            let reference = &after[1..1 + length];
+            // The name or number between the brackets (each one byte).
+            let inside = after.get(1..)?;
+            let (reference, _) = inside.split_once(close)?;
+            let length = reference.len();
             // A group the pattern has but the match skipped is empty; one
             // it lacks stays as written.
             let group = match reference.parse::<usize>() {
