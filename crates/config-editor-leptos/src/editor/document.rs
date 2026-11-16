@@ -23,6 +23,10 @@ pub(super) struct DocState {
     /// The caret's line, 1-based.
     pub(super) current_line: RwSignal<usize>,
     pub(super) history: RwSignal<EditHistory>,
+    /// Which text `text` is: moved on by every write (the edit pipeline's
+    /// `write_text`), so "the same document" is a number compared, not a
+    /// text (an edit and its undo give the same text, a new version).
+    pub(super) version: StoredValue<u64>,
     /// The document's indent unit, detected when it is loaded, replaced or
     /// pasted in (not after every edit, so Tab then Shift+Tab round-trips).
     pub(super) indent: StoredValue<String>,
@@ -53,6 +57,7 @@ impl DocState {
             caret,
             current_line: RwSignal::new(1),
             history: RwSignal::new(EditHistory::default()),
+            version: StoredValue::new(0),
             indent: StoredValue::new(indent_unit(shown)),
             caret_path,
             spans: StoredValue::new_local(KeptSpans::default()),

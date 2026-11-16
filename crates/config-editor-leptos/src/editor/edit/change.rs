@@ -21,11 +21,18 @@
 //!   two in turn, [`Change::map`] rebases one change over another made on
 //!   the same text (`a.compose(&b.map(&a, false))` reads as
 //!   `b.compose(&a.map(&b, true))`).
+//!
+//! The code making an edit says its change ([`Change::replace_units`] and
+//! the like, from the browser's UTF-16 offsets). Only a text from outside
+//! is read off two texts ([`Change::diffed`]): a host value, a reload, a
+//! browser input that does not say what it did.
 
 use std::marker::PhantomData;
 use std::ops::Range;
 
+use super::super::keyboard::utf16_to_byte_index;
 use super::super::text::{TextRange, TextSize};
+use super::super::text_change::{changed_bytes, edit_range};
 
 /// How positions are counted.
 pub(crate) trait Unit: Copy + std::fmt::Debug + PartialEq + Eq {
@@ -38,6 +45,10 @@ pub(crate) trait Unit: Copy + std::fmt::Debug + PartialEq + Eq {
 pub(crate) struct Bytes;
 
 /// Positions in UTF-16 code units (the browser's offsets).
+#[cfg_attr(
+    not(any(test, feature = "protect")),
+    expect(dead_code, reason = "only protection follows UTF-16 spans")
+)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct CodeUnits;
 
@@ -181,11 +192,13 @@ impl<U: Unit> Change<U> {
         Some((before, start..end))
     }
 
+    /// The stretches of the text before the change moved whole, by where
+    /// they were.
+    pub(crate) fn moved(&self) -> &[Moved] {
+        &self.moved
+    }
+
     /// The replacements, as ranges of the text before and their texts.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "read by the tests of the change")
-    )]
     pub(crate) fn edits(&self) -> impl Iterator<Item = (Range<usize>, &str)> {
         self.replaced
             .iter()
@@ -237,6 +250,10 @@ impl<U: Unit> Change<U> {
     /// `range` (of the text before) in the text after: its start keeps
     /// after text inserted at it, its end before; `None` when the change
     /// deleted text inside it or wrote inside it.
+    #[cfg_attr(
+        not(any(test, feature = "protect")),
+        expect(dead_code, reason = "only protection follows UTF-16 spans")
+    )]
     pub(crate) fn map_range(&self, range: &Range<usize>) -> Option<Range<usize>> {
         let start = self.map_pos(range.start, Assoc::After);
         let end = self.map_pos(range.end, Assoc::Before);
@@ -278,6 +295,100 @@ impl Change<Bytes> {
                 .into_iter()
                 .map(|(range, text)| (usize::from(range.start())..usize::from(range.end()), text)),
         )
+    }
+
+    /// The change replacing UTF-16 `start..end` of `text` (the browser's
+    /// offsets; past its end is its end) by `insert`.
+    pub(crate) fn replace_units(text: &str, start: usize, end: usize, insert: &str) -> Self {
+        let start = utf16_to_byte_index(text, start);
+        let end = utf16_to_byte_index(text, end).max(start);
+        Self::replace_bytes(text, start..end, insert)
+    }
+
+    /// The change inserting `insert` at UTF-16 `at` of `text`.
+    pub(crate) fn insert_units(text: &str, at: usize, insert: &str) -> Self {
+        Self::replace_units(text, at, at, insert)
+    }
+
+    /// The change replacing `range` (bytes of `text`, on character
+    /// boundaries) by `insert`; a range past the text is cut at its end.
+    pub(crate) fn replace_bytes(text: &str, range: Range<usize>, insert: &str) -> Self {
+        let end = range.end.min(text.len());
+        let start = range.start.min(end);
+        Self::replacing(text.len(), [(start..end, insert.to_string())])
+            .unwrap_or_else(|| Self::unchanged(text))
+    }
+
+    /// The change that changes nothing in `text`.
+    pub(crate) fn unchanged(text: &str) -> Self {
+        Change {
+            len: text.len(),
+            replaced: Vec::new(),
+            moved: Vec::new(),
+            unit: PhantomData,
+        }
+    }
+
+    /// The change read off two texts: the one stretch between what they
+    /// share at their start and at their end. Only for a text from outside,
+    /// which says nothing of what changed: a host value, a reload, the
+    /// host's change an input burst is replayed over.
+    pub(crate) fn diffed(before: &str, after: &str) -> Self {
+        let (start, end_before, end_after) = changed_bytes(before, after);
+        Self::replace_bytes(before, start..end_before, &after[start..end_after])
+    }
+
+    /// [`Self::diffed`], for browser input that did not say what it did:
+    /// placed by the caret it left (UTF-16 `caret` of `after`), where text
+    /// it inserted ends, which tells apart places the texts alone cannot
+    /// (`aa|a` + `a`).
+    pub(crate) fn diffed_at(before: &str, after: &str, caret: usize) -> Self {
+        let (start, end) = edit_range(before, after, caret);
+        let range = utf16_to_byte_index(before, start)..utf16_to_byte_index(before, end);
+        Self::replacing_selection(before, after, range)
+            .unwrap_or_else(|| Self::diffed(before, after))
+    }
+
+    /// The change between two texts with as many lines, line by line: each
+    /// changed line one replacement, from its first changed byte to its
+    /// last. For a language hook that hands back a whole text it made line
+    /// by line (Ctrl+/: a marker added or taken at each line); `None` when
+    /// the line counts differ.
+    pub(crate) fn line_by_line(before: &str, after: &str) -> Option<Self> {
+        if before.matches('\n').count() != after.matches('\n').count() {
+            return None;
+        }
+        let mut edits = Vec::new();
+        let mut at = 0;
+        for (old, new) in before.split('\n').zip(after.split('\n')) {
+            if old != new {
+                let line: Change<Bytes> = Self::diffed(old, new);
+                edits.extend(
+                    line.edits()
+                        .map(|(range, text)| (at + range.start..at + range.end, text.to_string())),
+                );
+            }
+            at += old.len() + 1;
+        }
+        Self::replacing(before.len(), edits)
+    }
+
+    /// Whether it writes back what it replaces everywhere: `before` (the
+    /// text it is made on) stays as it is.
+    pub(crate) fn is_identity(&self, before: &str) -> bool {
+        self.replaced
+            .iter()
+            .all(|edit| before.get(edit.at..edit.at + edit.delete) == Some(edit.insert.as_str()))
+    }
+
+    /// Bytes it holds: the text it writes, and its pieces (the undo
+    /// history's budget).
+    pub(crate) fn held_bytes(&self) -> usize {
+        self.replaced
+            .iter()
+            .map(|edit| edit.insert.len() + std::mem::size_of::<Replace>())
+            .sum::<usize>()
+            + self.moved.len() * std::mem::size_of::<Moved>()
     }
 
     /// Where byte `at` of the text before is in the text after.
@@ -451,10 +562,6 @@ impl Change<Bytes> {
     /// change of the text `other` makes: what `other` deleted is no more
     /// to replace, and of two insertions at one place, this one's goes
     /// first when `first`.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "a host value rebases unconfirmed changes with it")
-    )]
     pub(crate) fn map(&self, other: &Self, first: bool) -> Option<Self> {
         if other.len != self.len {
             return None;
@@ -508,6 +615,10 @@ impl Change<Bytes> {
 
     /// The same change counted in UTF-16 code units of `before` (the text
     /// it is made on).
+    #[cfg_attr(
+        not(any(test, feature = "protect")),
+        expect(dead_code, reason = "only protection follows UTF-16 spans")
+    )]
     pub(crate) fn in_utf16(&self, before: &str) -> Option<Change<CodeUnits>> {
         let mut units = 0;
         let mut at = 0;

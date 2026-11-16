@@ -20,11 +20,13 @@ pub(crate) mod splices;
 #[cfg(all(test, feature = "yaml"))]
 mod tests;
 mod told;
+mod untouched;
 
 pub(crate) use clipboard::Clipboard;
 use items::items;
-pub(crate) use splices::Splice;
+pub(crate) use splices::{Inserted, Piece, Splice, pieces};
 pub(crate) use told::Told;
+pub(crate) use untouched::Untouched;
 
 /// Typing kept as splices before the links are read (see [`Links::Fresh`]).
 const MOST_PENDING: usize = 64;
@@ -35,6 +37,23 @@ const MOST_PENDING: usize = 64;
 pub(crate) struct Source {
     pub(crate) host: Arc<str>,
     pub(crate) pointer: String,
+    /// Where the editor wrote the item in a view (built from the host
+    /// text, or converted by a switch): what tells the scalars the user
+    /// left as the editor wrote them (see `untouched`).
+    pub(crate) shown: Option<Shown>,
+}
+
+/// A view text the editor wrote, and an item's pointer in it.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct Shown {
+    pub(crate) text: Arc<str>,
+    pub(crate) pointer: String,
+    /// The view's language (its label).
+    pub(crate) language: &'static str,
+    /// The pointers (in `text`) of the scalars written there as the
+    /// editor first wrote them, when not all are: a switch converting
+    /// unsaved edits writes the user's values too.
+    pub(crate) kept: Option<Arc<std::collections::HashSet<String>>>,
 }
 
 /// An item's link: its text in the view (from the first character of its
@@ -119,35 +138,36 @@ impl Links {
         }
     }
 
-    /// The links once `splices` (sorted, apart, in the text before) are
-    /// made to `before` (in `language`): the clipboard's records give an
-    /// insert its links, and keep those an edit removes.
+    /// The links once the edit's `pieces` (sorted, apart, in the text
+    /// before) are made to `before` (in `language`): each piece's insert
+    /// takes the links its source gives (see [`Inserted`]), and the
+    /// clipboard keeps those an edit removes.
     pub(crate) fn edited(
         &mut self,
         language: &dyn ConfigLanguage,
         before: &str,
-        splices: &[Splice],
+        pieces: &[Piece],
         clipboard: &mut Clipboard,
     ) {
-        let splices: Vec<&Splice> = splices
-            .iter()
-            .filter(|splice| {
-                !splice.moved.is_empty()
-                    || before.get(splice.at..splice.at + splice.removed)
-                        != Some(splice.inserted.as_str())
-            })
-            .collect();
-        if splices.is_empty() {
+        if pieces.is_empty() {
             return;
         }
-        // Links of another text than `before` (one written without an
-        // edit) tell nothing of it.
+        // The links are of the text the edit is made on: every write of
+        // the text on screen is an edit they follow.
+        debug_assert!(
+            self.fits(before.len()),
+            "links of another text than the one edited"
+        );
         if !self.fits(before.len()) {
             *self = Links::default();
         }
         // Typing changes no item's link: kept until the links are read.
-        let typed = splices.iter().all(|splice| {
-            splice.removed < 2 && splice.moved.is_empty() && !clipboard.holds(&splice.inserted)
+        let typed = pieces.iter().all(|piece| {
+            piece.removed < 2
+                && matches!(
+                    piece.source,
+                    Inserted::Typed | Inserted::Generated | Inserted::External
+                )
         });
         if let Links::Fresh { pending, .. } = self
             && typed
@@ -155,70 +175,55 @@ impl Links {
         {
             let pending = Arc::make_mut(pending);
             pending.extend(
-                splices
+                pieces
                     .iter()
-                    .map(|splice| (splice.at, splice.removed, splice.inserted.len())),
+                    .map(|piece| (piece.at, piece.removed, piece.inserted.len())),
             );
             return;
         }
         let links = self.read(language);
-        // Each splice with the links its insert takes: those of the text
-        // it moves or copies, of the clipboard's record of its text, or of
-        // its own lines written again at another indent; else it is
-        // narrowed to what it changes (a whole text pasted with a few
-        // changes keeps the items of the lines it writes as they were).
-        let (splices, inserted): (Vec<Splice>, Vec<Vec<Link>>) = splices
+        let inserted: Vec<Vec<Link>> = pieces
             .iter()
-            .map(|splice| {
-                if !splice.moved.is_empty() {
-                    let carried = splice
-                        .moved
-                        .iter()
-                        .flat_map(|moved| {
-                            within(&links, moved.from, moved.from + moved.len)
-                                .into_iter()
-                                .chain(heads(&links, before, moved.from, moved.from + moved.len))
-                                .map(|link| Link {
-                                    start: link.start + moved.to,
-                                    end: link.end + moved.to,
-                                    source: link.source,
-                                })
-                        })
-                        .collect();
-                    return ((*splice).clone(), carried);
-                }
-                let pasted = clipboard.links_of(&splice.inserted);
-                if !pasted.is_empty() {
-                    return ((*splice).clone(), pasted);
-                }
-                let (a, b) = (splice.at, splice.at + splice.removed);
-                match clipboard::reindented(&before[a..b], within(&links, a, b), &splice.inserted) {
-                    Some(reindented) if !reindented.is_empty() => ((*splice).clone(), reindented),
-                    _ => (splice.narrowed(before), Vec::new()),
-                }
+            .map(|piece| match &piece.source {
+                Inserted::Moved(moved) => moved
+                    .iter()
+                    .flat_map(|moved| {
+                        within(&links, moved.from, moved.from + moved.len)
+                            .into_iter()
+                            .chain(heads(&links, before, moved.from, moved.from + moved.len))
+                            .map(|link| Link {
+                                start: link.start + moved.to,
+                                end: link.end + moved.to,
+                                source: link.source,
+                            })
+                    })
+                    .collect(),
+                Inserted::Pasted => clipboard.links_of(&piece.inserted),
+                Inserted::Reindented => clipboard::reindented(
+                    &before[piece.at..piece.end()],
+                    within(&links, piece.at, piece.end()),
+                    &piece.inserted,
+                ),
+                Inserted::Typed | Inserted::Generated | Inserted::External => Vec::new(),
             })
-            .unzip();
-        let splices: Vec<&Splice> = splices.iter().collect();
-        let (mut kept, removed) = shifted(&links, &splices, Some(&inserted));
-        for (splice, links) in splices.iter().zip(removed) {
+            .collect();
+        let (mut kept, removed) = shifted(&links, pieces, Some(&inserted));
+        for (piece, links) in pieces.iter().zip(removed) {
             if !links.is_empty() {
-                clipboard.keep(&before[splice.at..splice.at + splice.removed], links);
+                clipboard.keep(&before[piece.at..piece.end()], links);
             }
         }
         kept.sort_by(|left, right| left.start.cmp(&right.start).then(right.end.cmp(&left.end)));
-        // Each link a range of the text after the edit (QA `FZ38-17`).
-        let length = splices.iter().fold(before.len(), |length, splice| {
-            length + splice.inserted.len() - splice.removed
+        // Each link a range of the text after the edit.
+        let length = pieces.iter().fold(before.len(), |length, piece| {
+            length + piece.inserted.len() - piece.removed
         });
-        kept.retain(|link| {
-            let fits = link.start < link.end && link.end <= length;
-            debug_assert!(
-                fits,
-                "a link {}..{} outside a text of {length} after {splices:?}",
-                link.start, link.end
-            );
-            fits
-        });
+        debug_assert!(
+            kept.iter()
+                .all(|link| link.start < link.end && link.end <= length),
+            "a link outside the text of {length} bytes after {pieces:?}"
+        );
+        kept.retain(|link| link.start < link.end && link.end <= length);
         *self = Links::Kept(Arc::new(kept));
     }
 
@@ -278,6 +283,12 @@ impl Links {
                         end,
                         source: Arc::new(Source {
                             host: host.clone(),
+                            shown: Some(Shown {
+                                text: base.clone(),
+                                pointer: item.pointer.clone(),
+                                language: language.info().label,
+                                kept: None,
+                            }),
                             pointer: item.pointer,
                         }),
                     })
@@ -287,17 +298,16 @@ impl Links {
         };
         // By where they start, an outer item before the ones inside it
         // (the items read in the value's order, which need not be the
-        // text's: `within` and the edits find links by start, QA
-        // `FZ38-17`).
+        // text's: `within` and the edits find links by start).
         links.sort_by(|left, right| left.start.cmp(&right.start).then(right.end.cmp(&left.end)));
         for &(at, removed, inserted) in pending.iter() {
-            let splice = Splice {
+            let typed = Piece {
                 at,
                 removed,
                 inserted: " ".repeat(inserted),
-                moved: Vec::new(),
+                source: Inserted::Typed,
             };
-            links = shifted(&links, &[&splice], None).0;
+            links = shifted(&links, std::slice::from_ref(&typed), None).0;
         }
         let links = Arc::new(links);
         *self = Links::Kept(links.clone());
@@ -358,7 +368,7 @@ fn heads(links: &[Link], text: &str, start: usize, end: usize) -> Vec<Link> {
 /// inside of only.
 fn shifted(
     links: &[Link],
-    splices: &[&Splice],
+    splices: &[Piece],
     inserted: Option<&[Vec<Link>]>,
 ) -> (Vec<Link>, Vec<Vec<Link>>) {
     // How far each splice's start moves: the growth of those before it.

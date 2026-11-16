@@ -10,7 +10,7 @@
 //! the scalars left beside it in the map or list it landed in.
 
 use super::super::codec::{self, byte_range, written_range};
-use super::super::item_sources::ItemSource;
+use super::super::item_sources::{ItemSource, SaveTold};
 use super::super::language::{ConfigLanguage, Span};
 use super::super::work_count::{Work, note};
 use super::ItemMap;
@@ -280,6 +280,7 @@ pub(super) fn kept(
     items: &ItemMap,
     (previous, origin): (Source<'_>, Option<Source<'_>>),
     shape: Option<&Value>,
+    told: SaveTold<'_>,
 ) -> Result<String, String> {
     // The view's pointers as the host spells them: a view that writes a
     // list of one as its item (XML) names `/l/x` for the host's `/l/0/x`.
@@ -300,7 +301,15 @@ pub(super) fn kept(
         })
         .collect();
     let items = &items;
-    let saved = relocated(host, saved, intended, items, (previous, origin), shape)?;
+    let saved = relocated(
+        host,
+        saved,
+        intended,
+        items,
+        (previous, origin),
+        shape,
+        told,
+    )?;
     // An item left where it was, holding what it held, that the save wrote
     // anew all the same (a list item's first entry removed: the next one
     // written onto the item's first line): written back as it was, where
@@ -345,6 +354,7 @@ pub(super) fn kept(
         &before,
         &unmoved,
         shape,
+        told,
     ))
 }
 
@@ -427,6 +437,7 @@ fn relocated(
     items: &ItemMap,
     (previous, origin): (Source<'_>, Option<Source<'_>>),
     shape: Option<&Value>,
+    told: SaveTold<'_>,
 ) -> Result<String, String> {
     let moved = moved(items, previous, origin);
     if moved.is_empty() {
@@ -438,7 +449,7 @@ fn relocated(
     };
     // Each item written whole as its source wrote it, where it reads the
     // same there; what is left, scalar by scalar.
-    let saved = whole::kept(host, (saved, previous.text), &before, &moved, shape);
+    let saved = whole::kept(host, (saved, previous.text), &before, &moved, shape, told);
     let own: HashSet<String> = moved.iter().map(|item| item.to.clone()).collect();
     let mut beside = left_beside(items, intended, previous, &moved, &own);
     let mut moved = moved;

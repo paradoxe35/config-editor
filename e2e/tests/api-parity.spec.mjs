@@ -225,6 +225,7 @@ const CONFIG_LANGUAGE = {
   written_key: { exempt: RUST_ONLY_REFINEMENT },
   scalar_edit: { exempt: SAVE_FORMS },
   changed_form: { exempt: SAVE_FORMS },
+  serialize_over: { exempt: SAVE_FORMS },
   changed_form_reason: { exempt: SAVE_FORMS },
   one_line_body: { exempt: SAVE_FORMS },
   members_in_order: { exempt: SAVE_FORMS },

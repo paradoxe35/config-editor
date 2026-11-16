@@ -1,7 +1,7 @@
 //! Reading a walked tree: its schemas (all, certain, or offered), each
 //! once in order, each shared subtree read once.
 
-use super::node::{Node, State, Tree, Walked};
+use super::node::{Choice, Node, State, Tree, Walked};
 use serde_json::Value;
 use std::collections::HashSet;
 use std::rc::Rc;
@@ -16,6 +16,39 @@ pub(crate) fn leaves<'s>(tree: &Tree<'s>, walked: Walked) -> Vec<&'s Value> {
     };
     found.of(tree);
     found.leaves
+}
+
+/// Whether `tree` holds a `oneOf`/`anyOf`.
+pub(crate) fn has_options(tree: &Tree<'_>) -> bool {
+    finds_options(tree, |_| true)
+}
+
+/// Whether `tree` holds a `oneOf`/`anyOf` option the value refutes.
+pub(crate) fn refutes(tree: &Tree<'_>) -> bool {
+    finds_options(tree, |choices| {
+        choices.iter().any(|choice| choice.state == State::Refuted)
+    })
+}
+
+/// Whether `tree` holds a `oneOf`/`anyOf` whose options `found` says yes
+/// to.
+fn finds_options(tree: &Tree<'_>, found: impl Fn(&[Choice<'_>]) -> bool) -> bool {
+    let mut visited = HashSet::new();
+    let mut next = vec![tree.clone()];
+    while let Some(tree) = next.pop() {
+        if !visited.insert(Rc::as_ptr(&tree)) {
+            continue;
+        }
+        match &*tree {
+            Node::Options(choices) if found(choices) => return true,
+            Node::Options(choices) => next.extend(choices.iter().map(|choice| choice.tree.clone())),
+            Node::All(parts) | Node::Any(parts) | Node::Either(parts) => {
+                next.extend(parts.iter().cloned());
+            }
+            Node::Leaf(_) | Node::Cut => {}
+        }
+    }
+    false
 }
 
 struct Leaves<'s> {

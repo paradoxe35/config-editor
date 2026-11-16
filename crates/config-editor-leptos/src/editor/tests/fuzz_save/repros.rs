@@ -2207,3 +2207,81 @@ fn a_comment_pasted_over_a_line_in_a_switched_view_is_saved() {
         ],
     );
 }
+
+/// P2: an emptied YAML value that a key line below, its colon deleted,
+/// runs on into reads as that text: it is the user's value, not the
+/// host's (its first line is still written as the editor wrote it).
+#[test]
+fn a_value_a_line_below_runs_into_is_saved_as_the_view_reads_it() {
+    replay(
+        Language::HCL,
+        Language::YAML,
+        "resource \"aws_subnet\" \"main\" {\n  vpc_id     = aws_vpc.main.id # the vpc\n  cidr_block = cidrsubnet(var.cidr, 8, 1)\n  tags = { Name = \"main-${var.env}\", Tier = \"app\" }\n}\nlocals {\n  count = 3\n  names = [\"a\", \"b\"]\n  script = <<EOT\n#!/bin/sh\necho hi\nEOT\n}\nmodule \"web\" {\n  source = \"./web\"\n  size   = var.big ? 3 : 1\n  ami = data.aws_ami.ubuntu.id\n}\n",
+        &[
+            Op::DeleteLine { line: 41 },
+            Op::Backspace {
+                line: 49,
+                column: 1000,
+                count: 1,
+            },
+            Op::Pause,
+            Op::Enter {
+                line: 40,
+                column: 1000,
+            },
+            Op::Backspace {
+                line: 53,
+                column: 1000,
+                count: 1,
+            },
+        ],
+    );
+}
+
+/// P2: an entry cut in a JSON host, the view switched to XML and a line
+/// pasted over: the host saves what the view reads.
+#[test]
+fn a_paste_over_a_line_after_a_switch_saves_what_the_view_reads() {
+    replay(
+        Language::JSON,
+        Language::JSON,
+        "{\n  \"alpha\": {\n    \"k1\": \"a\\u0041\",\n    \"k2\": [\n      {\"name\": \"one\"},\n      {\"name\": \"two\"}\n    ],\n    \"k3\": 1e3\n  },\n  \"beta\": {\n    \"k4\": \"plain\",\n    \"k5\": 1e3,\n    \"k6\": [\n      {\"name\": \"one\"},\n      {\"name\": \"two\"}\n    ]\n  },\n  \"gamma\": {\n    \"k7\": null,\n    \"k8\": {\"x\": 1, \"y\": \"two\"},\n    \"k9\": true,\n    \"k10\": {\"x\": 1, \"y\": \"two\"}\n  },\n  \"delta\": {\n    \"k11\": true,\n    \"k12\": 1e3,\n    \"k13\": [1, 2, 3]\n  }\n}\n",
+        &[
+            Op::Cut {
+                line: 58,
+                how: Take::Entry,
+            },
+            Op::Switch { to: 4 },
+            Op::Paste {
+                line: 57,
+                how: Put::OverLine,
+            },
+        ],
+    );
+}
+
+/// P2: in a YAML view of a TOML host, a key the session left alone keeps
+/// its bare spelling (`ignore`, not `"ignore"`) after a line above it is
+/// deleted and a typed character taken back.
+#[test]
+fn a_key_left_alone_keeps_its_spelling_after_a_line_above_goes() {
+    replay(
+        Language::TOML,
+        Language::YAML,
+        "[project]\nname = \"tool\"\nreleased = 1979-05-27T07:32:00Z # first\ndescription = \"\"\"\nA tool\nover lines\"\"\"\npaths = 'C:\\tools'\n[tool.lint]\nline-length = 1_000\nselect = [\"E\", \"F\"] # rules\nmask = 0o755\nignore = { tests = [\"E501\"] }\n[tool.cache]\nday = 1979-05-27\nat = 07:32:00\n",
+        &[
+            Op::Type {
+                line: 54,
+                column: 1001,
+                text: ":",
+            },
+            Op::DeleteLine { line: 11 },
+            Op::Pause,
+            Op::Backspace {
+                line: 51,
+                column: 1000,
+                count: 1,
+            },
+        ],
+    );
+}

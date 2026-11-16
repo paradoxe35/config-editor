@@ -192,12 +192,16 @@ pub(super) fn toml_key_renames(source: &str, pointer: &str, new_key: &str) -> Op
     if edits.is_empty() {
         return None;
     }
+    // The host's quotes are its style only on a key that needs none: a
+    // key quoted for its characters (`"a:"`) renamed to one that needs
+    // none is written in the default form, bare.
+    let styled = wanted.last().is_some_and(|old| !super::suggestions::toml_key(old).starts_with('"'));
     Some(
         edits
             .into_iter()
             .map(|(start, end)| {
                 // A bare new key in the host's quotes.
-                let quoted = source[start..end].starts_with(['"', '\'']) && !new_key.starts_with(['"', '\'']);
+                let quoted = styled && source[start..end].starts_with(['"', '\'']) && !new_key.starts_with(['"', '\'']);
                 (start..end, if quoted { format!("\"{new_key}\"") } else { new_key.to_string() })
             })
             .collect(),

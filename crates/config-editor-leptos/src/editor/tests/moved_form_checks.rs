@@ -93,7 +93,7 @@ fn a_moved_key_is_kept_with_the_same_work_at_any_size() {
 #[test]
 fn a_typed_value_is_saved_without_reading_the_items() {
     use crate::editor::bridge::Bridge;
-    use crate::editor::bridge::links::{Clipboard, Links, Splice};
+    use crate::editor::bridge::links::{Clipboard, Links, pieces};
     let work = |count: usize| {
         let fillers: String = (0..count)
             .map(|at| format!("  k{at} = var.v{at}\n"))
@@ -105,14 +105,18 @@ fn a_typed_value_is_saved_without_reading_the_items() {
         let typed = format!("{}2{}", &shown[..at], &shown[at..]);
         let mut links = Links::fresh(&host, &shown);
         let caret = units(&shown[..at]) + 1;
-        let splices = Splice::of(&shown, &typed, (caret - 1, caret - 1), caret);
+        let made = crate::editor::edit::Edit::input(
+            shown.clone(),
+            (caret - 1, caret - 1),
+            typed.clone(),
+            (caret, caret),
+            "insertText".to_string(),
+            0.0,
+        );
+        let mut clipboard = Clipboard::default();
+        let pieces = pieces(&made, &clipboard);
         let ((), read) = counted(Work::DocumentRead, || {
-            links.edited(
-                Language::YAML.behavior(),
-                &shown,
-                &splices,
-                &mut Clipboard::default(),
-            );
+            links.edited(Language::YAML.behavior(), &shown, &pieces, &mut clipboard);
             assert!(
                 links
                     .told(Language::YAML.behavior(), &typed, &host, false)
@@ -120,7 +124,7 @@ fn a_typed_value_is_saved_without_reading_the_items() {
             );
         });
         assert_eq!(read, 0, "the links read the items");
-        let saved = bridge.to_host_linked(&typed, &host, &host, None);
+        let saved = bridge.to_host_linked(&typed, &host, &host, None, &[]);
         assert!(saved.expect("saved").contains("mid = 12"));
         read
     };

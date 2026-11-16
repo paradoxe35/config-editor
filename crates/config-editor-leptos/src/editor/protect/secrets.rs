@@ -9,14 +9,13 @@ use std::sync::Arc;
 use leptos::prelude::*;
 use web_sys::KeyboardEvent;
 
-use super::super::bridge::links::Splice;
 use super::super::edit::{Change, CodeUnits, Edit};
-use super::super::input::{UNKNOWN_SELECTION, edit_range};
 use super::super::keyboard::utf16_to_byte_index;
 use super::super::language::ConfigLanguage;
 use super::super::parse_cache;
 use super::super::secret_options::SecretOptions;
 use super::super::state::{EditorState, directed_selection, textarea_selection};
+use super::super::text_change::edit_range;
 use super::follow_items;
 use super::foreign::foreign_tokens;
 use super::tokens::{
@@ -195,7 +194,7 @@ fn in_their_fields(
             .all(|(token, count)| held.get(token.as_str()) == Some(count))
 }
 
-use super::super::text_change::{replaces, utf16_len};
+use super::super::text_change::utf16_len;
 
 /// The UTF-16 range of `before` an edit to `after` replaced when the
 /// browser did not say (an `insertFromPaste` input without a `beforeinput`)
@@ -310,25 +309,16 @@ impl EditorState {
         if tokens.is_empty() {
             return;
         }
-        // The selection the edit replaced when it is known and the texts
-        // agree with it: a token pasted over another shares its first
-        // characters, which a diff of the texts would keep.
-        let told = edit.selection != UNKNOWN_SELECTION;
+        // What the edit replaced, as it said: a token pasted over another
+        // shares its first characters, which a diff of the texts would
+        // keep. Read off the texts only when it did not say.
         let recorded = edit
             .change()
             .and_then(|change| change.in_utf16(&edit.before))
             .and_then(|change| change.hull())
             .map(|(was, _)| (was.start, was.end));
         let (start, end) = recorded
-            .or_else(|| {
-                Some(edit.selection)
-                    .filter(|selection| told && replaces(&edit.before, &edit.text, *selection))
-            })
-            .or_else(|| {
-                (!told)
-                    .then(|| ended_at_caret(&tokens, &edit.before, &edit.text, edit.caret()))
-                    .flatten()
-            })
+            .or_else(|| ended_at_caret(&tokens, &edit.before, &edit.text, edit.caret()))
             .unwrap_or_else(|| edit_range(&edit.before, &edit.text, edit.caret()));
         if let Some((text, wide, caret)) = widen(&tokens, &edit.before, &edit.text, start..end) {
             // What the widened edit does, recorded for the followers.
@@ -338,13 +328,7 @@ impl EditorState {
                 .get(from..text.len() - (edit.before.len() - to))
                 .unwrap_or_default()
                 .to_string();
-            edit.splices = Some(vec![Splice {
-                at: from,
-                removed: to - from,
-                inserted,
-                moved: Vec::new(),
-            }]);
-            edit.text = text;
+            edit.rewrite(Change::replace_bytes(&edit.before, from..to, &inserted));
             edit.collapse_to(caret);
         }
     }

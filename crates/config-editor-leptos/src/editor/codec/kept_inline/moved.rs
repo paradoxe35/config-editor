@@ -3,10 +3,9 @@
 //! HCL object attribute `tags = { … }`, a YAML flow map) is written on
 //! one line where it lands, as it was written: the host writer would
 //! write it in its own form (a `[table]`, an object over lines), another
-//! form than the host's, which the line patch could not place either
-//! (QA `E38-3`/`E38-4`).
+//! form than the host's, which the line patch could not place either.
 
-use super::super::super::item_sources::{self, ItemSource};
+use super::super::super::item_sources::{ItemSource, ItemSources};
 use super::super::super::language::ConfigLanguage;
 use super::{Kept, braced_one_line, marker};
 use serde_json::Value;
@@ -32,12 +31,13 @@ pub(super) fn with_moved(
     old: &Value,
     new: &Value,
     kept: Option<Kept>,
+    sources: Option<&ItemSources>,
 ) -> Option<Kept> {
     // Pointers name the value the save writes; each is checked to hold a
     // map or list where its source does, so a step of a save made in
     // several (over the text the one before wrote) reads them too (the
     // read-back checks the rest).
-    let Some(sources) = item_sources::told_to_save() else {
+    let Some(sources) = sources else {
         return kept;
     };
     // Those not where they were (there, the patch keeps them as written,

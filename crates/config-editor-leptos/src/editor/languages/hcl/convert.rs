@@ -92,8 +92,8 @@ pub(super) fn host_forms(source: &str) -> HostForms {
 /// The first map `patched` writes as a block that `previous` writes as an
 /// attribute (`name = { … }`), or the other way round: where it is, or
 /// where a save moved it to (`moved_maps`).
-pub(super) fn changed_form(previous: &str, patched: &str) -> Option<String> {
-    let before = super::moved_maps::with_moved(forms_of(previous), previous, forms_of);
+pub(super) fn changed_form(previous: &str, patched: &str, told: crate::editor::item_sources::SaveTold<'_>) -> Option<String> {
+    let before = super::moved_maps::with_moved(forms_of(previous), told, forms_of);
     let ((attributes_before, blocks_before), (attributes_after, blocks_after)) = (before, forms_of(patched));
     let unnumbered = |paths: std::collections::HashSet<Vec<String>>| -> std::collections::HashSet<Vec<String>> {
         paths.into_iter().map(|path| path.into_iter().filter(|segment| crate::editor::language::pointer_index(segment).is_none()).collect()).collect()

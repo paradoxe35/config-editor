@@ -14,8 +14,8 @@ use std::ops::Range;
 
 use leptos::prelude::*;
 
-use super::super::input::edit_range;
 use super::super::state::EditorState;
+use super::super::text_change::edit_range;
 use super::tokens::cuts;
 
 /// The text of each of `ranges` in `units`.

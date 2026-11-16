@@ -34,19 +34,27 @@ fn type_in(language: Language, marked: &str, typed: &str) -> String {
             continue;
         }
         let before_len = units(&text).len();
+        let made = |change: super::super::edit::Change| {
+            let updated = change.apply(&text).expect("made on the text");
+            let end = change.hull().map_or(0, |(_, written)| written.end);
+            let at = updated[..end].encode_utf16().count();
+            (updated, at)
+        };
         let (updated, new_caret, closed, completion) =
-            if let Some((updated, at)) = reindented(behavior, &text, caret, character) {
+            if let Some(change) = reindented(behavior, &text, caret, character) {
+                let (updated, at) = made(change);
                 (updated, at, 0, false)
             } else if let Some(done) = completed(behavior, &text, caret, character) {
-                (done.text, done.caret, done.len, true)
+                let (updated, _) = made(done.change);
+                (updated, done.caret, done.len, true)
             } else if let Some(closing) = behavior.auto_close(&text, caret, character) {
                 let (updated, _) =
                     replace_selection(&text, caret, caret, &format!("{character}{closing}"));
                 (updated, caret + 1, closing.encode_utf16().count(), false)
-            } else if let Some((updated, start, _)) =
+            } else if let Some((change, start, _)) =
                 paired_edit(&text, caret, caret, character, behavior)
             {
-                (updated, start, 1, false)
+                (made(change).0, start, 1, false)
             } else {
                 let (updated, at) = replace_selection(&text, caret, caret, &character.to_string());
                 (updated, at, 0, false)

@@ -2,9 +2,10 @@
 //! line by line on the host's text, so its comments and formatting stay.
 
 use super::super::flow_syntax::Flow;
+use super::super::item_sources::SaveTold;
 use super::super::language::ConfigLanguage;
 use super::compare::{comment_start, comparable, spaced_trailing_comment, trailing_comment};
-use super::{empty_containers, kept_inline, reads_as, serialize};
+use super::{empty_containers, kept_inline, reads_as, serialize_told};
 use serde_json::Value;
 
 /// `previous` with a structural edit (keys or items added or removed) applied
@@ -21,6 +22,7 @@ pub(in super::super) fn patch_structure(
     old: &Value,
     new: &Value,
     schema: Option<&Value>,
+    told: SaveTold<'_>,
 ) -> Option<String> {
     // An empty host is written whole: there is nothing to keep.
     if previous.trim().is_empty() {
@@ -31,7 +33,7 @@ pub(in super::super) fn patch_structure(
     // the comments between them) on lines of their own, patched there and
     // joined back: the line patch keeps what it does not touch.
     if let Some(apart) = language.entries_apart(previous)
-        && let Some(patched) = patch_kept_lines(language, &apart, old, new, schema)
+        && let Some(patched) = patch_kept_lines(language, &apart, old, new, schema, told.later())
     {
         let together = language.entries_together(&patched, previous);
         if reads_as_new(&together) {
@@ -41,14 +43,15 @@ pub(in super::super) fn patch_structure(
     // Empty containers over lines (`block {` then `}`) as the serializer
     // writes them, on one line.
     if let Some(joined) = empty_containers::join(language, previous)
-        && let Some(patched) = patch_kept_lines(language, &joined.host, old, new, schema)
+        && let Some(patched) =
+            patch_kept_lines(language, &joined.host, old, new, schema, told.later())
     {
         let split = joined.split(&patched);
         if reads_as_new(&split) {
             return Some(split);
         }
     }
-    patch_kept_lines(language, previous, old, new, schema)
+    patch_kept_lines(language, previous, old, new, schema, told)
 }
 
 /// [`patch_structure`] with the host's one-line containers kept as written.
@@ -58,17 +61,18 @@ fn patch_kept_lines(
     old: &Value,
     new: &Value,
     schema: Option<&Value>,
+    told: SaveTold<'_>,
 ) -> Option<String> {
     let reads_as_new = |text: &str| reads_as(language, text, schema, new);
-    if let Some(kept) = kept_inline::hide(language, previous, old, new)
-        && let Some(patched) = patch_lines(language, &kept.host, &kept.old, &kept.new)
+    if let Some(kept) = kept_inline::hide(language, previous, old, new, told.sources())
+        && let Some(patched) = patch_lines(language, &kept.host, &kept.old, &kept.new, told.later())
     {
         let restored = kept.restore(&patched);
         if reads_as_new(&restored) {
             return Some(restored);
         }
     }
-    patch_lines(language, previous, old, new).filter(|patched| reads_as_new(patched))
+    patch_lines(language, previous, old, new, told).filter(|patched| reads_as_new(patched))
 }
 
 /// [`patch_structure`]'s line diff, unchecked.
@@ -77,10 +81,11 @@ fn patch_lines(
     previous: &str,
     old: &Value,
     new: &Value,
+    told: SaveTold<'_>,
 ) -> Option<String> {
     use super::super::diff::{DiffEdit, myers_edits};
-    let before = serialize(language, old, Some(previous)).ok()?;
-    let after = serialize(language, new, Some(previous)).ok()?;
+    let before = serialize_told(language, old, Some(previous), told).ok()?;
+    let after = serialize_told(language, new, Some(previous), told).ok()?;
     let rendered_old: Vec<&str> = before.lines().collect();
     let rendered_new: Vec<&str> = after.lines().collect();
     let host: Vec<&str> = previous.lines().collect();

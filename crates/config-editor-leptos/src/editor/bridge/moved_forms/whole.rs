@@ -9,6 +9,7 @@
 //! are written back one by one (see `kept`).
 
 use super::super::super::codec::{self, byte_range, written_range};
+use super::super::super::item_sources::SaveTold;
 use super::super::super::language::ConfigLanguage;
 use super::super::super::paths;
 use super::{Moved, line_indent, reindented};
@@ -294,6 +295,7 @@ pub(super) fn kept(
     before: &Value,
     moved: &[Moved<'_>],
     shape: Option<&Value>,
+    told: SaveTold<'_>,
 ) -> String {
     // Each source text split in lines once.
     let mut sources: Vec<Lines<'_>> = Vec::new();
@@ -327,10 +329,10 @@ pub(super) fn kept(
             .is_some_and(|rest| rest.starts_with('/'))
     };
     // No form changed the save did not change already.
-    let changed = host.changed_form(previous, &saved);
+    let changed = host.changed_form(previous, &saved, told);
     let reads = |text: &str| {
         codec::read(host, text, shape).ok().as_ref() == Some(before) && {
-            let now = host.changed_form(previous, text);
+            let now = host.changed_form(previous, text, told);
             now.is_none() || now == changed
         }
     };

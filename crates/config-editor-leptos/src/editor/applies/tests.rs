@@ -217,7 +217,7 @@ fn keywords_of_one_kind_of_value_pass_every_other_kind() {
             Some(false),
         ),
         (json!({"uniqueItems": true}), json!(3), Some(true)),
-        (json!({"uniqueItems": true}), json!([1, 1]), None),
+        (json!({"uniqueItems": true}), json!([1, 1]), Some(false)),
         (
             json!({"propertyNames": {"maxLength": 1}}),
             json!({"ab": 1}),

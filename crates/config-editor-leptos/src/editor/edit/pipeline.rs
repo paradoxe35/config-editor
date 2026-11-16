@@ -4,12 +4,12 @@
 use leptos::prelude::*;
 
 use super::super::fold_ranges::FoldRange;
-use super::super::history::{Record, Selection, Snapshot, ViewState};
+use super::super::history::{Made, Record, Selection, Snapshot, ViewState};
+use super::super::keyboard::utf16_to_byte_index;
 use super::super::languages::Language;
 use super::super::positioning::set_caret_visible;
-use super::super::state::{EditorState, directed_selection, select, textarea_selection};
-use super::super::sync::map_through_change;
-use super::{After, Edit, Origin};
+use super::super::state::{EditorState, directed_selection, select};
+use super::{After, Assoc, Edit, Origin};
 
 /// The stages, in the order an edit passes them.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -118,6 +118,7 @@ impl EditorState {
         if changed && !edit.origin.is_checked() {
             self.protect().trust_text();
         }
+        let version = self.doc().version.get_value();
         let rewritten = self.write_text(edit.text.clone(), edit.folds.take());
         let links = self.note_view_edit(&edit, &origin, language_before);
         let rewritten = switching
@@ -134,7 +135,14 @@ impl EditorState {
         }
 
         trace(Stage::Record);
-        self.record(&edit, (changed, links), after, language_before, said_folds);
+        let between = (version, self.doc().version.get_value());
+        self.record(
+            &edit,
+            (changed, links),
+            (after, between),
+            language_before,
+            said_folds,
+        );
 
         trace(Stage::Notify);
         if edit.origin.notifies() && !hosts_own {
@@ -147,14 +155,16 @@ impl EditorState {
     }
 
     /// Writes `text` as the document, the only place that does: closed
-    /// folds move with the lines (or are `folds`, when the edit says), and
-    /// the textarea shows the result. Returns whether the textarea's text
-    /// had to be rewritten (its selection is then lost).
+    /// folds move with the lines (or are `folds`, when the edit says), the
+    /// document's version moves on, and the textarea shows the result.
+    /// Returns whether the textarea's text had to be rewritten (its
+    /// selection is then lost).
     fn write_text(&self, text: String, folds: Option<Vec<FoldRange>>) -> bool {
         let moved = folds.or_else(|| self.folds_through(&text));
         self.doc()
             .text
             .with_untracked(|before| self.note_text_change(before, &text));
+        self.doc().version.update_value(|version| *version += 1);
         self.doc().text.set(text);
         self.settle_folds(moved)
     }
@@ -168,12 +178,16 @@ impl EditorState {
             self.restore_folds(folds);
         }
         self.show_text();
-        let (start, end) = edit.replaced(edit.caret());
+        let (anchor, caret) = edit.restore;
+        let (start, end) = (anchor.min(caret), anchor.max(caret));
         match self.textarea() {
             Some(area) => {
                 let _ = area.restore_selection(start as u32, end as u32);
+                if caret < anchor {
+                    select(&area, start, end, true);
+                }
             }
-            None => self.note_caret(start),
+            None => self.note_caret(caret),
         }
         let Some(reason) = reason else {
             self.note_read_only();
@@ -184,7 +198,8 @@ impl EditorState {
 
     /// Puts the selection where the edit leaves it; the caret is recorded
     /// from the textarea (`SourceArea::follow_caret`), or from the edit
-    /// without one. Returns the selection left, for the undo step.
+    /// without one. Returns the selection left as (anchor, caret), for the
+    /// undo step.
     fn place_selection(&self, edit: &Edit, rewritten: bool, kept: Option<KeptView>) -> Selection {
         let area = self.textarea();
         match edit.after {
@@ -196,7 +211,7 @@ impl EditorState {
                 let (start, end) = (anchor.min(caret), anchor.max(caret));
                 let Some(area) = area else {
                     self.note_caret(caret);
-                    return (start, end);
+                    return (anchor, caret);
                 };
                 if reveal {
                     self.doc()
@@ -206,7 +221,7 @@ impl EditorState {
                 // The text between the anchor and the caret stays selected,
                 // the caret at its own end.
                 select(&area, start, end, caret < anchor);
-                (start, end)
+                (anchor, caret)
             }
             After::Typed { selection, forced } => {
                 // A rewritten textarea lost the selection the browser left.
@@ -218,7 +233,7 @@ impl EditorState {
                         } else {
                             area.follow_caret();
                         }
-                        textarea_selection(&area)
+                        directed_selection(&area)
                     }
                     None => {
                         self.note_caret(selection.0);
@@ -232,7 +247,7 @@ impl EditorState {
                 // later `prop:value` (identical text) leaves the selection
                 // alone, and the scroll position writing the value moved
                 // is put back.
-                let map = |offset: usize| map_through_change(&edit.before, &edit.text, offset);
+                let map = |offset: usize| edit.map_units(offset, Assoc::Before);
                 let (Some(area), Some(((anchor, caret), top, left))) = (area, kept) else {
                     let caret = map(self.doc().caret.get_untracked());
                     self.note_caret(caret);
@@ -243,7 +258,7 @@ impl EditorState {
                 select(&area, start, end, caret < anchor);
                 area.set_scroll_top(top);
                 area.set_scroll_left(left);
-                (start, end)
+                (anchor, caret)
             }
             After::Kept => {
                 // The text changed under the caret: its line and path too.
@@ -256,78 +271,93 @@ impl EditorState {
     }
 
     /// The undo history, by origin; `changed` says whether the edit changed
-    /// the text, `after` is the selection the edit left,
-    /// `folds` the folds closed before and after a command that said them,
-    /// `view` what the view kept of the text before (see `history::ViewState`).
+    /// the text, `after` is the selection the edit left ((anchor, caret)),
+    /// `between` the document's versions before and after it, `folds` the
+    /// folds closed before and after a command that said them, `view` what
+    /// the view kept of the text before (see `history::ViewState`). The
+    /// history keeps selections in bytes of their side's text.
     fn record(
         &self,
         edit: &Edit,
-        (changed, links): (bool, ViewState),
-        after: Selection,
+        (changed, view): (bool, ViewState),
+        (after, between): (Selection, (u64, u64)),
         language: Language,
         folds: Option<(Vec<FoldRange>, Vec<FoldRange>)>,
     ) {
-        let before = || Snapshot {
-            value: edit.before.clone(),
-            selection: edit.replaced(after.0),
-            language: None,
-            folds: None,
-            view: links.clone(),
-        };
         let history = self.doc().history;
+        let made = |language: Option<Language>, folds: Option<Vec<FoldRange>>| {
+            Some(Made {
+                before: Snapshot {
+                    selection: bytes(&edit.before, edit.restore),
+                    language,
+                    folds,
+                    view: view.clone(),
+                },
+                after: bytes(&edit.text, after),
+                record: Record::undoing(edit)?,
+                between,
+            })
+        };
         match &edit.origin {
             // An edit writing the text that is there (a replace by the
             // same text, a suggestion already written, a Tab over the
             // indent it writes) is nothing to the history: no step, and
             // typing on where it stopped goes on in the same step.
             Origin::Command | Origin::Reload { .. } | Origin::Input { .. } if !changed => {}
-            Origin::Command => history.update(|history| {
+            Origin::Command => {
                 let (closed, left) = folds.unzip();
-                let before = Snapshot {
-                    folds: closed,
-                    ..before()
-                };
-                history.record_command(before, after, left, Record::undoing(edit));
-            }),
-            Origin::Reload { .. } => {
-                history.update(|history| history.record_action(before(), after));
-            }
-            Origin::Input { kind, time } => {
-                history.update(|history| {
-                    history.record_input_as(
-                        before(),
-                        &edit.text,
-                        after,
-                        (kind, *time),
-                        Record::undoing(edit),
-                    );
+                let made = made(None, closed);
+                history.update(|history| match made {
+                    Some(made) => history.record_command(made, left),
+                    None => history.clear(),
                 });
             }
-            Origin::Undo => history.update(|history| {
-                history.undo_with(edit.before.clone(), links.clone());
-            }),
-            Origin::Redo => history.update(|history| {
-                history.redo_with(edit.before.clone(), links.clone());
-            }),
-            Origin::Switch => match edit.language {
+            Origin::Reload { .. } => {
+                let made = made(None, None);
+                history.update(|history| match made {
+                    Some(made) => history.record_command(made, None),
+                    None => history.clear(),
+                });
+            }
+            Origin::Input { kind, time } => {
+                let made = made(None, None);
+                history.update(|history| match made {
+                    Some(made) => history.record_input(made, &edit.text, (kind, *time)),
+                    None => history.clear(),
+                });
+            }
+            Origin::Undo => {
+                history.update(|history| history.undo_with(&edit.before, view.clone()));
+            }
+            Origin::Redo => {
+                history.update(|history| history.redo_with(&edit.before, view.clone()));
+            }
+            Origin::Switch => {
                 // Its own step, undone into the language it left.
-                Some(next) if next != language => history.update(|history| {
-                    let before = Snapshot {
-                        language: Some(language),
-                        ..before()
-                    };
-                    history.record_switch(before, after, next);
-                }),
-                _ => history.update(|history| history.record_action(before(), after)),
-            },
+                let next = edit.language.filter(|next| *next != language);
+                let made = made(next.map(|_| language), None);
+                history.update(|history| match (made, next) {
+                    (Some(made), Some(next)) => history.record_switch(made, next),
+                    (Some(made), None) => history.record_command(made, None),
+                    (None, _) => history.clear(),
+                });
+            }
             // Not a step: the steps before it take the host's change; ones
             // in the language it left are another language's texts.
             Origin::HostValue => history.update(|history| match edit.language {
                 Some(next) if next != language => history.clear(),
-                _ => history.rebase(&edit.before, &edit.text),
+                _ => history.rebase(edit.made()),
             }),
         }
     }
+}
+
+/// `(anchor, caret)` UTF-16 offsets of `text` as bytes.
+fn bytes(text: &str, (anchor, caret): Selection) -> Selection {
+    (
+        utf16_to_byte_index(text, anchor),
+        utf16_to_byte_index(text, caret),
+    )
 }
 
 #[cfg(test)]

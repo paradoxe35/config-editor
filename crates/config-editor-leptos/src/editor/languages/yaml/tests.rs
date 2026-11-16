@@ -4,7 +4,7 @@ use super::super::super::completion::{
 };
 use super::super::super::diagnostics::{Diagnostic, validate as shared_validate};
 use super::super::super::schema::{SchemaBundle, build_schema};
-use super::super::super::keyboard::paired_edit as shared_paired_edit;
+use super::super::super::keyboard::paired_text as shared_paired_edit;
 use super::super::super::language::ConfigLanguage;
 use super::YamlBehavior;
 use super::super::super::highlight::{TokenKind, runs};

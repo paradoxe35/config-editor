@@ -19,14 +19,27 @@ impl Entry<'_> {
     /// Whether every schema here allows `value` (`None` when one cannot
     /// tell, see [`decides`]): each of an `All`, one of an `Any`.
     pub(crate) fn accepts(&self, value: &Value, root: &Value) -> Option<bool> {
-        accepted(&self.0, value, root, 0)
+        accepted(&self.0, value, root, 0, false)
+    }
+
+    /// [`Self::accepts`] with each `if` not decided read as taking a
+    /// branch that says something of the value: what a value meeting the
+    /// schemas whichever way the `if` goes must meet.
+    pub(crate) fn accepts_in_a_branch(&self, value: &Value, root: &Value) -> Option<bool> {
+        accepted(&self.0, value, root, 0, true)
     }
 
     /// [`Self::accepts`] reading no deeper than a few levels of schemas
     /// and values (`None` past them): a check whose cost does not grow
     /// with what the value holds.
     pub(crate) fn accepts_near(&self, value: &Value, root: &Value) -> Option<bool> {
-        accepted(&self.0, value, root, MAX_DEPTH - NEAR)
+        accepted(&self.0, value, root, MAX_DEPTH - NEAR, false)
+    }
+
+    /// [`Self::accepts_near`] reading twice as deep: for a value a few
+    /// levels below the options deciding it, through a `$ref` or two.
+    pub(crate) fn accepts_below(&self, value: &Value, root: &Value) -> Option<bool> {
+        accepted(&self.0, value, root, MAX_DEPTH - 2 * NEAR, false)
     }
 }
 
@@ -36,18 +49,31 @@ const NEAR: usize = 6;
 /// Levels of schemas and values [`decides`] reads at most.
 const MAX_DEPTH: usize = 32;
 
-fn accepted(node: &Node<'_>, value: &Value, root: &Value, depth: usize) -> Option<bool> {
+/// `in_a_branch`: see [`Entry::accepts_in_a_branch`].
+fn accepted(
+    node: &Node<'_>,
+    value: &Value,
+    root: &Value,
+    depth: usize,
+    in_a_branch: bool,
+) -> Option<bool> {
+    let part = |part: &Node<'_>| accepted(part, value, root, depth, in_a_branch);
     match node {
         Node::Leaf(schema) => decide(schema, value, root, depth),
-        Node::All(parts) => all(parts.iter().map(|part| accepted(part, value, root, depth))),
+        Node::All(parts) => all(parts.iter().map(|one| part(one))),
         Node::Any(parts) | Node::Either(parts) => {
             let mut known = true;
-            for part in parts {
-                match accepted(part, value, root, depth) {
+            for one in parts {
+                match part(one) {
                     Some(true) => return Some(true),
                     None => known = false,
                     Some(false) => {}
                 }
+            }
+            // An `if` not decided whose `then` or `else` says nothing (left
+            // out of the walk) may take the value in that branch.
+            if matches!(node, Node::Either(_)) && parts.len() == 1 && !in_a_branch {
+                return None;
             }
             // No reading at all allows anything.
             (known || parts.is_empty()).then_some(parts.is_empty())
@@ -60,6 +86,37 @@ fn accepted(node: &Node<'_>, value: &Value, root: &Value, depth: usize) -> Optio
 /// cheaply (a keyword left unread, a reference cycle).
 pub(crate) fn decides(schema: &Value, value: &Value, root: &Value) -> Option<bool> {
     decide(schema, value, root, 0)
+}
+
+/// Whether an object holding exactly `keys`, its values unknown, matches
+/// `condition`: not where a key it requires is missing; yes where it asks
+/// nothing but keys there (and annotations); else `None`.
+pub(crate) fn decides_keys(
+    condition: &Value,
+    keys: &std::collections::HashSet<String>,
+) -> Option<bool> {
+    let members = match condition {
+        Value::Bool(allowed) => return Some(*allowed),
+        Value::Object(members) => members,
+        _ => return None,
+    };
+    let required = members
+        .get("required")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str);
+    if required.clone().any(|key| !keys.contains(key)) {
+        return Some(false);
+    }
+    members
+        .iter()
+        .all(|(keyword, argument)| {
+            ANNOTATIONS.contains(&keyword.as_str())
+                || keyword == "required"
+                || (keyword == "type" && (argument == "object"))
+        })
+        .then_some(true)
 }
 
 /// Keywords that never fail a value: annotations and definitions.
@@ -241,11 +298,18 @@ fn decide(schema: &Value, value: &Value, root: &Value, depth: usize) -> Option<b
                     ),
                     _ => Some(true),
                 },
-                // Telling items apart (`1` is `1.0`) is not cheap: undecided
-                // for a list.
-                "uniqueItems" => {
-                    (!value.is_array() || *argument != Value::Bool(true)).then_some(true)
-                }
+                // Items told apart as JSON Schema does (`1` is `1.0`), in a
+                // short list only: undecided for a long one.
+                "uniqueItems" => match value {
+                    Value::Array(items) if *argument == Value::Bool(true) => {
+                        (items.len() <= MAX_UNIQUE_ITEMS).then(|| {
+                            items.iter().enumerate().all(|(at, item)| {
+                                items[..at].iter().all(|before| !equal(before, item))
+                            })
+                        })
+                    }
+                    _ => Some(true),
+                },
                 // What other keywords leave of a list or an object: nothing of
                 // another value, else undecided here.
                 "unevaluatedItems" => (!value.is_array()).then_some(true),
@@ -354,6 +418,27 @@ fn items_keyword(members: &serde_json::Map<String, Value>) -> &'static str {
     }
 }
 
+/// Most items [`decides`] tells apart for `uniqueItems`.
+const MAX_UNIQUE_ITEMS: usize = 64;
+
+/// Whether two values are equal as JSON Schema compares them: numbers by
+/// their value (`1` is `1.0`), lists and objects member by member.
+fn equal(left: &Value, right: &Value) -> bool {
+    match (left, right) {
+        (Value::Number(left), Value::Number(right)) => left.as_f64() == right.as_f64(),
+        (Value::Array(left), Value::Array(right)) => {
+            left.len() == right.len() && left.iter().zip(right).all(|(a, b)| equal(a, b))
+        }
+        (Value::Object(left), Value::Object(right)) => {
+            left.len() == right.len()
+                && left
+                    .iter()
+                    .all(|(key, a)| right.get(key).is_some_and(|b| equal(a, b)))
+        }
+        _ => left == right,
+    }
+}
+
 fn is_of_type(value: &Value, name: &str) -> bool {
     match name {
         "integer" => value
@@ -400,14 +485,29 @@ mod tests {
             Some(true)
         );
         assert_eq!(
-            decides(&json!({"uniqueItems": true}), &json!([1]), &root),
+            decides(&json!({"unevaluatedItems": false}), &json!([1]), &root),
             None,
             "a keyword left unread decides nothing"
         );
         assert_eq!(
-            decides(&json!({"const": 1, "uniqueItems": true}), &json!(2), &root),
+            decides(
+                &json!({"const": 1, "unevaluatedItems": false}),
+                &json!(2),
+                &root
+            ),
             Some(false),
             "a failed keyword decides"
+        );
+        let unique = json!({"uniqueItems": true});
+        assert_eq!(decides(&unique, &json!([1, 2]), &root), Some(true));
+        assert_eq!(decides(&unique, &json!([1, 1.0]), &root), Some(false));
+        assert_eq!(
+            decides(&unique, &json!([{"a": [1]}, {"a": [1.0]}]), &root),
+            Some(false)
+        );
+        assert_eq!(
+            decides(&unique, &json!((0..65).collect::<Vec<_>>()), &root),
+            None
         );
         let thousands = json!({"multipleOf": 1000});
         assert_eq!(decides(&thousands, &json!(3000), &root), Some(true));

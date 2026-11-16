@@ -3,6 +3,7 @@
 //! being rewritten in place under the comments of others.
 
 use super::super::flow_syntax::Flow;
+use super::super::item_sources::SaveTold;
 use super::super::language::ConfigLanguage;
 use super::{byte_range, comment_start, escape, inline_location, reads_as};
 use serde_json::Value;
@@ -19,6 +20,7 @@ pub(in super::super) fn patch_reorder(
     old: &Value,
     new: &Value,
     schema: Option<&Value>,
+    _told: SaveTold<'_>,
 ) -> Option<String> {
     let mut lists = Vec::new();
     permuted_lists(old, new, String::new(), &mut lists)?;
@@ -375,7 +377,9 @@ pub(in super::super) fn unmoved_comments(
 ) -> Option<String> {
     let mut lists = Vec::new();
     permuted_lists(old, new, String::new(), &mut lists)?;
-    if lists.is_empty() || patch_reorder(language, previous, old, new, None).is_some() {
+    if lists.is_empty()
+        || patch_reorder(language, previous, old, new, None, SaveTold::default()).is_some()
+    {
         return None;
     }
     let lines: Vec<&str> = previous.split('\n').collect();

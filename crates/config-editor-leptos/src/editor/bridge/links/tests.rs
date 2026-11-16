@@ -1,21 +1,26 @@
 //! The links follow each kind of edit as it is made, in a YAML view.
 
+use super::super::super::edit::Edit;
 use super::super::super::item_sources::ItemSource;
 use super::super::super::languages::Language;
 use super::super::super::work_count::{Work, counted};
-use super::{Clipboard, Links, Splice};
+use super::{Clipboard, Links, Splice, pieces};
 use std::collections::HashMap;
 
 const HOST: &str = "the host's text";
 
 /// An edit of `text`: `from..to` replaced by `inserted`.
 fn splice(from: usize, to: usize, inserted: &str) -> Splice {
-    Splice {
-        at: from,
-        removed: to - from,
-        inserted: inserted.to_string(),
-        moved: Vec::new(),
-    }
+    Splice::replace(from, to - from, inserted)
+}
+
+/// Every `from` in `text` replaced by `to`, each its own splice (as
+/// Replace all says).
+fn replacing(text: &str, from: &str, to: &str) -> Vec<Splice> {
+    Splice::each(
+        text.match_indices(from)
+            .map(|(at, _)| (at..at + from.len(), to.to_string())),
+    )
 }
 
 /// The view's text and its links as the edits leave them.
@@ -34,12 +39,16 @@ impl View {
         }
     }
 
+    /// The command making `splices` (a paste of a record's text takes its
+    /// links, as the editor's own paste does).
     fn edit(&mut self, splices: Vec<Splice>) {
         let after = Splice::make(&self.text, &splices).expect("the splices fit");
+        let edit = Edit::new(self.text.clone(), (0, 0), after.clone(), 0).splicing(Some(splices));
+        let pieces = pieces(&edit, &self.clipboard);
         self.links.edited(
             Language::YAML.behavior(),
             &self.text,
-            &splices,
+            &pieces,
             &mut self.clipboard,
         );
         self.text = after;
@@ -176,7 +185,7 @@ fn per_line_splices_keep_every_items_link() {
     let mut view = View::new(before);
     // Read before the edit, as a larger edit would.
     view.copy(0, 0);
-    view.edit(Splice::per_line(before, &after).expect("as many lines"));
+    view.edit(replacing(before, "true", "false"));
     assert_eq!(view.text, after);
     for pointer in ["/a/x", "/a/y", "/b/z"] {
         assert_eq!(source(&mut view, pointer).as_deref(), Some(pointer));
@@ -191,10 +200,9 @@ fn many_splices_are_followed_in_one_pass() {
         let before: String = (0..count)
             .map(|at| format!("k{at}:\n  m:\n    l:\n      - h: true\n"))
             .collect();
-        let after = before.replace("true", "false");
         let mut view = View::new(&before);
         view.copy(0, 0);
-        let splices = Splice::per_line(&before, &after).expect("as many lines");
+        let splices = replacing(&before, "true", "false");
         let ((), steps) = counted(Work::LinkStep, || view.edit(splices));
         steps
     };

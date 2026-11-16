@@ -4,6 +4,7 @@
 
 use leptos::prelude::*;
 
+use super::drag_move::DragDelete;
 use super::history::{EditHistory, Selection};
 use super::input::{InputBurst, UNKNOWN_SELECTION};
 use super::state::EditorState;
@@ -42,12 +43,12 @@ pub(super) struct TypingState {
     /// `Ctrl+K` was pressed: the next key may finish a chord (see
     /// `keys::chord`).
     pub(super) chord: StoredValue<bool>,
-    /// The document before the delete of a drag going on (see
+    /// The delete of a drag going on, before it is applied (see
     /// `drag_move`).
-    pub(super) drag_before: StoredValue<Option<String>>,
-    /// The document when a drag of its text began (`dragstart`), until the
-    /// drag ends (see `drag_move`).
-    pub(super) drag_source: StoredValue<Option<String>>,
+    pub(super) drag_before: StoredValue<Option<DragDelete>>,
+    /// The document's version when a drag of its text began
+    /// (`dragstart`), until the drag ends (see `drag_move`).
+    pub(super) drag_source: StoredValue<Option<u64>>,
     /// An input method is composing text (`compositionstart` came, its
     /// `compositionend` not yet): its input is applied once it ends.
     pub(super) composing: StoredValue<bool>,

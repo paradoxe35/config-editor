@@ -3,7 +3,7 @@
 //! paired `'` in JSON and HCL, `(` in YAML, JSON and TOML, and `{ [ '` in
 //! XML element text.
 
-use super::super::keyboard::{delete_empty_pair, paired_edit, replace_selection};
+use super::super::keyboard::{deleted_pair_text, paired_text, replace_selection};
 use super::super::language::ConfigLanguage;
 use super::super::odd_syntax::ODD;
 use super::Language;
@@ -17,7 +17,7 @@ fn typed_in(behavior: &dyn ConfigLanguage, marked: &str, typed: char) -> String 
     let (updated, caret) = if let Some(closing) = behavior.auto_close(&text, caret, typed) {
         let (updated, _) = replace_selection(&text, caret, caret, &format!("{typed}{closing}"));
         (updated, caret + 1)
-    } else if let Some((updated, start, _)) = paired_edit(&text, caret, caret, typed, behavior) {
+    } else if let Some((updated, start, _)) = paired_text(&text, caret, caret, typed, behavior) {
         (updated, start)
     } else {
         replace_selection(&text, caret, caret, &typed.to_string())
@@ -93,14 +93,14 @@ fn what_round_26_paired_is_written_alone() {
 fn backspace_removes_an_empty_pair_of_the_language() {
     let yaml = Language::YAML.behavior();
     assert_eq!(
-        delete_empty_pair("value: []", 8, yaml),
+        deleted_pair_text("value: []", 8, yaml),
         Some(("value: ".to_string(), 7))
     );
-    assert_eq!(delete_empty_pair("value: [x]", 8, yaml), None);
+    assert_eq!(deleted_pair_text("value: [x]", 8, yaml), None);
     // `()` is no pair in YAML, but is in the odd language.
-    assert_eq!(delete_empty_pair("a: ()", 4, yaml), None);
+    assert_eq!(deleted_pair_text("a: ()", 4, yaml), None);
     assert_eq!(
-        delete_empty_pair("a := ()", 6, &ODD),
+        deleted_pair_text("a := ()", 6, &ODD),
         Some(("a := ".to_string(), 5))
     );
 }

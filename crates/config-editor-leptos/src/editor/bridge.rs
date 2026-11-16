@@ -10,7 +10,7 @@ use super::byte_order_mark;
 use super::codec::{self, Conversion, ConvertError};
 use super::diagnostics::{Diagnostic, Severity};
 use super::edit_as::{EditAsProblem, EditAsText, SaveError};
-use super::item_sources::{self, ItemSource, ItemSources};
+use super::item_sources::{ItemSource, ItemSources, SaveTold};
 use super::language::ConfigLanguage;
 use super::schema::SchemaBundle;
 use std::collections::HashMap;
@@ -71,6 +71,7 @@ type Patch = fn(
     &serde_json::Value,
     &serde_json::Value,
     Option<&serde_json::Value>,
+    SaveTold<'_>,
 ) -> Option<String>;
 
 /// The patches that change only what one edit touched, in the order tried.
@@ -155,7 +156,7 @@ impl Bridge {
         previous_host: &str,
         origin: &str,
     ) -> Result<String, SaveError> {
-        self.to_host_linked(edit_text, previous_host, origin, None)
+        self.to_host_linked(edit_text, previous_host, origin, None, &[])
     }
 
     /// [`Self::to_host_since`], told which item of the host each of the
@@ -166,10 +167,11 @@ impl Bridge {
         previous_host: &str,
         origin: &str,
         told: Option<&links::Told>,
+        untouched: &[links::Untouched],
     ) -> Result<String, SaveError> {
         let (previous, _) = byte_order_mark::split(previous_host);
         let (origin, _) = byte_order_mark::split(origin);
-        let conversion = self.to_unmarked_host(edit_text, previous, origin, told)?;
+        let conversion = self.to_unmarked_host(edit_text, previous, origin, told, untouched)?;
         // A value the host would read back otherwise waits (a save written
         // whole is checked here, a patched one before it is read back).
         if let Some(pointer) = conversion.losses.first() {
@@ -180,13 +182,15 @@ impl Bridge {
         Ok(byte_order_mark::restore(previous_host, conversion.text))
     }
 
-    /// `told`: each item's source, by its links.
+    /// `told`: each item's source, by its links; `untouched`: the scalars
+    /// the user left as the editor wrote them.
     fn to_unmarked_host(
         &self,
         edit_text: &str,
         previous_host: &str,
         origin: &str,
         told: Option<&links::Told>,
+        untouched: &[links::Untouched],
     ) -> Result<Conversion, SaveError> {
         // The host text before the last the links name, without its byte
         // order mark.
@@ -207,7 +211,7 @@ impl Bridge {
                 earlier: told.earlier.clone(),
             };
             let base = byte_order_mark::split(base).0;
-            return self.to_unmarked_host(edit_text, base, origin, Some(&told));
+            return self.to_unmarked_host(edit_text, base, origin, Some(&told), untouched);
         }
         let items = told.map(|told| &told.items).zip(earlier.as_deref());
         // The host's last text as it was given, whose comments the save
@@ -241,6 +245,9 @@ impl Bridge {
         };
         codec::convertible(self.edit.behavior(), edit_text)?;
         let host = self.host.behavior();
+        // A scalar left as the editor wrote it is its host value, whatever
+        // the view read it as (see `links::untouched`).
+        let edited = self.host_values(edited, untouched);
         let Ok(old) = codec::read(host, previous_host, self.shape()) else {
             return Ok(codec::render(
                 &edited,
@@ -293,11 +300,12 @@ impl Bridge {
                 .is_some_and(|seen| read_back::reorders(seen, &edited));
         // Which host item each item is, as the edit made it, told to the
         // merge, the writes and the checks that follow.
-        let _told = item_sources::tell(items.map(|(items, earlier)| ItemSources {
+        let sources = items.map(|(items, earlier)| ItemSources {
             previous: previous_host.to_string(),
             origin: earlier.to_string(),
             items: items.clone(),
-        }));
+        });
+        let told = SaveTold::new(sources.as_ref());
         let value = match &seen {
             // An edit where the view could not show the host's value (an
             // XML view of nested or empty lists) that does not map back onto
@@ -311,6 +319,7 @@ impl Bridge {
                     repetition: self.edit.behavior().repetition(),
                     moves: moved,
                     host_repetition: host.repetition(),
+                    told: told.sources(),
                 },
             )
             .map_err(|pointer| {
@@ -351,7 +360,7 @@ impl Bridge {
         // Each changed value in the host's own form (a TOML datetime read
         // back normalized), or the reason the save waits.
         let value = host_scalars(host, previous_host, &old, value)?;
-        let rendered = codec::render(&value, host, Some(previous_host), self.shape())?;
+        let rendered = codec::render_told(&value, host, Some(previous_host), self.shape(), told)?;
         // The host's text is patched to read back exactly as a full render
         // would (losses included), so its comments and formatting survive: a
         // value edit rewrites just those values, a structural one just those
@@ -444,6 +453,15 @@ impl Bridge {
         let restored =
             emptied_quotes::restored(host, previous_host, origin, (&old, &target), shape);
         let previous_host = restored.as_deref().unwrap_or(previous_host);
+        // The text the save patches is the host's last text, of which the
+        // sources tell, unless the save prepared it (parted a shared value,
+        // put emptied quotes back): then it tells each write of a later
+        // text which item is which, but not where the item is.
+        let over = if detached.is_some() || restored.is_some() {
+            told.later()
+        } else {
+            told
+        };
         // The first patch that applies, of those that change only what one
         // edit touched. A patch that writes a map in another form (an HCL
         // block as an attribute) is not taken. Each patch places what it
@@ -451,30 +469,43 @@ impl Bridge {
         let first = |patches: &[Patch],
                      previous: &str,
                      old: &serde_json::Value,
-                     target: &serde_json::Value| {
+                     target: &serde_json::Value,
+                     told: SaveTold<'_>| {
             with_lines(host, previous, || {
                 patches.iter().find_map(|patch| {
-                    patch(host, previous, old, target, shape)
-                        .filter(|patched| host.changed_form(previous, patched).is_none())
+                    patch(host, previous, old, target, shape, told)
+                        .filter(|patched| host.changed_form(previous, patched, told).is_none())
                 })
             })
         };
-        let precise = |previous: &str, old: &serde_json::Value, target: &serde_json::Value| {
-            first(&PRECISE, previous, old, target)
-        };
-        let structure = |previous: &str, old: &serde_json::Value, target: &serde_json::Value| {
-            first(&[codec::patch_structure], previous, old, target)
+        let precise =
+            |previous: &str,
+             old: &serde_json::Value,
+             target: &serde_json::Value,
+             told: SaveTold<'_>| first(&PRECISE, previous, old, target, told);
+        let structure = |previous: &str,
+                         old: &serde_json::Value,
+                         target: &serde_json::Value,
+                         told: SaveTold<'_>| {
+            first(&[codec::patch_structure], previous, old, target, told)
         };
         // `previous` patched to read as `target`, or `Err` when items moved
         // cannot take their comments along: the save waits, rather than
-        // leave the comments on the items now in their places.
+        // leave the comments on the items now in their places. `told` says
+        // whether `previous` is the host's last text.
         let save = |previous: &str,
                     old: &serde_json::Value,
-                    target: &serde_json::Value|
+                    target: &serde_json::Value,
+                    told: SaveTold<'_>|
          -> Result<Option<String>, SaveError> {
             // A shared value this step parts from the rest written out (a
             // stage may part what the whole edit does not).
             let detached = shared::detached(host, previous, (old, target), shape);
+            let told = if detached.is_some() {
+                told.later()
+            } else {
+                told
+            };
             let previous = detached.as_deref().unwrap_or(previous);
             if let Some(pointer) = with_lines(host, previous, || {
                 codec::unmoved_comments(host, previous, old, target)
@@ -485,31 +516,33 @@ impl Bridge {
                 ))
                 .into());
             }
-            // Several edits in one save: one step at a time.
-            let stepwise = |previous: &str, old: &serde_json::Value| {
-                let steps = codec::steps(old, target);
+            // Several edits in one save: one step at a time, the first over
+            // `previous`, each later one over the text the step before wrote.
+            let stepwise = |previous: &str, old: &serde_json::Value, told: SaveTold<'_>| {
+                let steps = codec::steps(old, target, told.sources());
                 if steps.is_empty() {
                     return None;
                 }
                 let (mut text, mut current) = (previous.to_string(), old.clone());
-                for step in steps {
-                    text = precise(&text, &current, &step)
-                        .or_else(|| structure(&text, &current, &step))?;
+                for (index, step) in steps.into_iter().enumerate() {
+                    let told = if index == 0 { told } else { told.later() };
+                    text = precise(&text, &current, &step, told)
+                        .or_else(|| structure(&text, &current, &step, told))?;
                     current = step;
                 }
                 Some(text)
             };
-            let whole_or_steps = |previous: &str, old: &serde_json::Value| {
-                precise(previous, old, target).or_else(|| stepwise(previous, old))
+            let whole_or_steps = |previous: &str, old: &serde_json::Value, told: SaveTold<'_>| {
+                precise(previous, old, target, told).or_else(|| stepwise(previous, old, told))
             };
             // Keys the links tell were renamed are renamed in place first
             // (a patch of the whole edit would write a renamed map anew),
             // then the rest is saved.
-            let renamed = codec::renamed_by_links(old, target)
+            let renamed = codec::renamed_by_links(old, target, told.sources())
                 .filter(|renamed| renamed != target)
                 .and_then(|renamed| {
-                    let text = precise(previous, old, &renamed)?;
-                    whole_or_steps(&text, &renamed)
+                    let text = precise(previous, old, &renamed, told)?;
+                    whole_or_steps(&text, &renamed, told.later())
                 });
             // A step reads the host's forms from the text the one before
             // wrote: a value one step removes and another adds elsewhere
@@ -517,13 +550,13 @@ impl Bridge {
             // in a form that reads the same. The whole save made at once
             // keeps it.
             let patched = renamed
-                .or_else(|| whole_or_steps(previous, old))
-                .filter(|text| host.changed_form(previous, text).is_none());
+                .or_else(|| whole_or_steps(previous, old, told))
+                .filter(|text| host.changed_form(previous, text, told).is_none());
             Ok(patched
-                .or_else(|| structure(previous, old, target))
+                .or_else(|| structure(previous, old, target, told))
                 // Block items no line patch tells apart (tagged maps)
                 // removed whole.
-                .or_else(|| first(&[codec::patch_removed_items], previous, old, target)))
+                .or_else(|| first(&[codec::patch_removed_items], previous, old, target, told)))
         };
         // Items moved while others are added or removed: moved first (with
         // their comments), then the removed ones dropped, then the rest.
@@ -535,14 +568,16 @@ impl Bridge {
         } else {
             let (mut text, mut current) = (previous_host.to_string(), old.clone());
             let mut done = true;
+            let mut at = over;
             for stage in &stages {
-                let Some(next) = save(&text, &current, stage)? else {
+                let Some(next) = save(&text, &current, stage, at)? else {
                     break;
                 };
                 text = next;
                 current = stage.clone();
+                at = over.later();
             }
-            match save(&text, &current, &target)? {
+            match save(&text, &current, &target, at)? {
                 Some(next) => text = next,
                 None => done = false,
             }
@@ -550,16 +585,16 @@ impl Bridge {
             // item changed in place is one removed and one added there):
             // the whole save must keep each item's form as the save made at
             // once does, else it is made at once.
-            (done && current != old && host.changed_form(previous_host, &text).is_none())
+            (done && current != old && host.changed_form(previous_host, &text, over).is_none())
                 .then_some(text)
         };
         let patched = match staged {
             Some(text) => Some(text),
-            None => save(previous_host, &old, &target)?,
+            None => save(previous_host, &old, &target, over)?,
         };
         // Keys the edit put in another order, besides what else it changed.
         let patched = patched.map(|text| match &moved_to {
-            Some(order) => in_order(host, text, order, shape),
+            Some(order) => in_order(host, text, order, shape, over.later()),
             None => text,
         });
         let (conversion, as_text) = match patched {
@@ -611,6 +646,7 @@ impl Bridge {
                     items,
                     (previous_host, &old),
                     earlier,
+                    over,
                 )?;
                 // Values the cut of what they referred to wrote out
                 // (YAML aliases), referring to it again where it is back.
@@ -685,10 +721,47 @@ impl Bridge {
         self.tags_kept(previous_host, &conversion.text, (&old, &target))?;
         // The read-back check cannot tell forms that read the same (an HCL
         // expression and the literal text it reads as): the host can.
-        if let Some(pointer) = host.changed_form(previous_host, &conversion.text) {
+        if let Some(pointer) = host.changed_form(previous_host, &conversion.text, over) {
             return Err(self.changed_form(&pointer, intended));
         }
         Ok(conversion)
+    }
+
+    /// `edited` (the view's value) with each of `untouched` the value it
+    /// stands for in its host text.
+    fn host_values(
+        &self,
+        mut edited: serde_json::Value,
+        untouched: &[links::Untouched],
+    ) -> serde_json::Value {
+        let mut read: Vec<(&Arc<str>, Option<serde_json::Value>)> = Vec::new();
+        for scalar in untouched {
+            let at = match read
+                .iter()
+                .position(|(host, _)| Arc::ptr_eq(host, &scalar.host))
+            {
+                Some(at) => at,
+                None => {
+                    let (text, _) = byte_order_mark::split(&scalar.host);
+                    read.push((
+                        &scalar.host,
+                        codec::read(self.host.behavior(), text, self.shape()).ok(),
+                    ));
+                    read.len() - 1
+                }
+            };
+            // A view that writes a list of one as its item (XML) names the
+            // host's `/l/0/x` as `/l/x`.
+            let held = read[at]
+                .1
+                .as_ref()
+                .and_then(|value| value.pointer(&moved_forms::as_written(value, &scalar.from)))
+                .filter(|value| !value.is_object() && !value.is_array());
+            if let (Some(held), Some(slot)) = (held, edited.pointer_mut(&scalar.pointer)) {
+                *slot = held.clone();
+            }
+        }
+        edited
     }
 
     /// `saved` with the scalars of each item `items` tells the edit moved
@@ -702,6 +775,7 @@ impl Bridge {
         items: &ItemMap,
         (previous, old): (&str, &serde_json::Value),
         origin: &str,
+        told: SaveTold<'_>,
     ) -> Result<String, SaveError> {
         let host = self.host.behavior();
         let read = |text: &str| codec::read(host, text, self.shape()).ok();
@@ -719,7 +793,7 @@ impl Bridge {
                 value,
             }),
         );
-        moved_forms::kept(host, saved, intended, items, sources, self.shape())
+        moved_forms::kept(host, saved, intended, items, sources, self.shape(), told)
             .map_err(|pointer| self.changed_form(&pointer, intended))
     }
 
@@ -820,6 +894,7 @@ fn in_order(
     text: String,
     target: &serde_json::Value,
     shape: Option<&serde_json::Value>,
+    told: SaveTold<'_>,
 ) -> String {
     let Ok(current) = codec::read(host, &text, shape) else {
         return text;
@@ -829,8 +904,8 @@ fn in_order(
         return text;
     }
     with_lines(host, &text, || {
-        codec::patch_key_order(host, &text, &current, target, shape)
-            .filter(|moved| host.changed_form(&text, moved).is_none())
+        codec::patch_key_order(host, &text, &current, target, shape, told)
+            .filter(|moved| host.changed_form(&text, moved, told).is_none())
     })
     .unwrap_or(text)
 }
@@ -857,8 +932,10 @@ fn patched(
             .iter()
             .chain(&[codec::patch_structure as Patch])
             .find_map(|patch| {
-                patch(host, text, old, new, shape)
-                    .filter(|patched| host.changed_form(text, patched).is_none())
+                patch(host, text, old, new, shape, SaveTold::default()).filter(|patched| {
+                    host.changed_form(text, patched, SaveTold::default())
+                        .is_none()
+                })
             })
     })
 }

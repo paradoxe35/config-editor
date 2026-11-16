@@ -35,7 +35,11 @@ fn replace_all_work(host: &str, from: &str, to: &str) -> Vec<usize> {
     let after = before.replace(from, to);
     let replaced = before.matches(from).count();
     let ((), counts) = crate::editor::work_count::counted_all(|| {
-        let splices = crate::editor::bridge::links::Splice::per_line(&before, &after);
+        let splices = Some(crate::editor::bridge::links::Splice::each(
+            before
+                .match_indices(from)
+                .map(|(at, _)| (at..at + from.len(), to.to_string())),
+        ));
         state.commit(Edit::new(before.clone(), (0, 0), after, 0).splicing(splices));
         pause(state);
     });

@@ -4,6 +4,7 @@ use serde_json::Value;
 
 use super::super::super::codec::non_finite;
 use super::super::super::language::ParseError;
+use super::super::super::schema::{Holds, holds};
 use super::super::wide_integers::unheld_all;
 use super::super::yaml::YamlBehavior;
 
@@ -225,7 +226,7 @@ fn plain(value: Value, at: &str, data: bool) -> Result<Value, String> {
                     }
                     // A value a schema holds as data (`const: {type: ~}`)
                     // may be null anywhere.
-                    let data = data || DATA_KEYWORDS.contains(&key.as_str());
+                    let data = data || holds(&key) == Holds::Data;
                     plain(child, &place, data).map(|child| (key, child))
                 })
                 .collect::<Result<_, _>>()?,
@@ -252,9 +253,6 @@ fn plain(value: Value, at: &str, data: bool) -> Result<Value, String> {
         other => other,
     })
 }
-
-/// The keywords whose values are data, not schemas.
-const DATA_KEYWORDS: [&str; 5] = ["const", "default", "enum", "examples", "example"];
 
 /// Refuses a `$ref` or a `type` (or one of its list) that YAML read as
 /// null, at `place`.

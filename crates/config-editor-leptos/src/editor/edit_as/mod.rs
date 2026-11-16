@@ -38,6 +38,15 @@ mod switch_tests;
     feature = "xml"
 ))]
 mod tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod untouched_tests;
 
 pub(super) use notice::NoticeReasons;
 pub(super) use problems::{EditAsProblem, EditAsText, SaveError};

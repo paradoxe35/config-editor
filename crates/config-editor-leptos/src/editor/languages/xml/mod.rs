@@ -65,6 +65,7 @@ use super::super::completion::{Fill, InsertPlan, Planned, RequiredChild, writes_
 use super::super::highlight::{MultilineConstruct, Token as HighlightToken, TokenKind, Tokens};
 use super::super::keyboard::utf16_to_byte_index;
 use super::super::language::pointer_segments;
+use super::super::item_sources::SaveTold;
 use super::super::language::{Text, Typing, Hover, SaveLayout, Markup, Repeats, Repeated};
 use super::super::language::{OneLine, CompletionContext, Newline, EntryPosition, InlineBlock, InsertContext, ConfigLanguage, LanguageInfo, Lexical, Span, ParseError,
     SchemaPathSegment, inline_block,
@@ -157,95 +158,7 @@ impl ConfigLanguage for XmlBehavior {
     /// rootless unless `previous` had a config root, which is kept along with
     /// its declaration.
     fn serialize(&self, value: &Value, previous: Option<&str>) -> Result<String, String> {
-        if let Some(pointer) = empty_key(value, String::new()) {
-            return Err(format!("an empty key cannot be an XML element name (at {pointer})"));
-        }
-        if let Some((pointer, character)) = first_non_xml_char(value, "") {
-            return Err(format!("{} (at {pointer})", not_xml_char_message(character)));
-        }
-        // A character XML holds, in a key that is no name (`/*`).
-        if let Some(reason) = names::first_non_name(value) {
-            return Err(reason);
-        }
-        // Namespace declarations and `xsi:*` are no data (see
-        // `declarations`): a save keeps the host's as written.
-        if let Some(reason) = declarations::first_markup_key(value, previous) {
-            return Err(reason);
-        }
-        let framing = previous.map(xml_framing).unwrap_or_default();
-        let attributes = previous
-            .map(|previous| pasted_attributes::with_pasted_back(attribute_paths(previous), previous))
-            .unwrap_or_default();
-        let old = previous.filter(|_| !attributes.is_empty()).and_then(|previous| xml_parse(previous).ok());
-        if let Some(reason) = attribute_values::first_container_attribute(value, old.as_ref(), &attributes) {
-            return Err(reason);
-        }
-        // An element renamed to a key with a prefix would be an attribute.
-        if has_prefixed_key(value) {
-            let parsed = old.is_none().then(|| previous.and_then(|previous| xml_parse(previous).ok())).flatten();
-            if let Some(old) = old.as_ref().or(parsed.as_ref())
-                && let Some(reason) = prefixed::renamed_element(value, old, &attributes)
-            {
-                return Err(reason);
-            }
-        }
-        let Value::Object(map) = &with_attributes(value, old.as_ref(), &attributes, &mut Vec::new()) else {
-            return Err("the XML document model is an object of elements".to_string());
-        };
-        let mut out = String::new();
-        if let Some(declaration) = &framing.declaration {
-            out.push_str(declaration);
-            out.push('\n');
-        }
-        match &framing.root {
-            Some(root) => {
-                // The marker is an attribute (`@` prefix for quick-xml).
-                let mut wrapped = serde_json::Map::new();
-                wrapped.insert(format!("@{CONFIG_ROOT_ATTRIBUTE}"), Value::Bool(true));
-                wrapped.extend(map.clone());
-                write_element(&mut out, root, &Value::Object(wrapped))?;
-            }
-            None => {
-                for (key, child) in map {
-                    // An attribute at the top, where no element holds it:
-                    // named as the key is written (`x:a`, not `@x:a`).
-                    if let Some(name) = key.strip_prefix('@') {
-                        let written = if value.get(key).is_some() { key.as_str() } else { name };
-                        return Err(top_attribute_message(written));
-                    }
-                    write_element(&mut out, key, child)?;
-                }
-            }
-        }
-        // Empty elements the host closes with an end tag (`<x a="1"></x>`)
-        // are written that way again, not as `<x a="1"/>`, and each tag is
-        // spelled as the host spells it (`<x a='1' />`), its attributes
-        // laid out as the host's (a line each, aligned), each element's
-        // markup back on that element, wherever the edit moved it.
-        // Which host element each element is, as the edit tells it (the
-        // lines the user kept, moved, cut and pasted), else by values.
-        Ok(match previous {
-            Some(previous) => {
-                let host = crate::editor::parse_cache::parsed(self, previous);
-                let sources = crate::editor::item_sources::told(previous);
-                let origin = sources.as_ref().filter(|sources| sources.holds_origin_items()).map(|sources| sources.origin.as_str());
-                let first = origin.map(|origin| crate::editor::parse_cache::parsed(self, origin));
-                let identity = identity::Identity::of(host.as_ref().as_ref().ok(), value)
-                    .told(sources.as_deref(), first.as_ref().and_then(|first| first.as_ref().as_ref().ok()));
-                let laid_out = kept_elements::with_layout_of(
-                    &tag_spelling::with_tag_spelling_of(
-                        &one_line::with_one_line_elements_of(&with_end_tags_of(&out, previous), previous),
-                        previous,
-                    ),
-                    (previous, origin),
-                    &identity,
-                );
-                // An element moved where its names would be in other
-                // namespaces declares its own.
-                moved_declarations::declared_where_moved(laid_out, (previous, origin), &identity)
-            }
-            None => out,
-        })
+        self.written(value, previous, SaveTold::default())
     }
 
     /// An end tag, `</name>`.
@@ -434,6 +347,10 @@ impl Hover for XmlBehavior {
 }
 
 impl SaveLayout for XmlBehavior {
+    fn serialize_over(&self, value: &Value, previous: Option<&str>, told: SaveTold<'_>) -> Option<Result<String, String>> {
+        Some(self.written(value, previous, told))
+    }
+
     fn edits_one_scalar(&self, source: &str, range: std::ops::Range<usize>, inserted: &str) -> bool {
         super::scalar_lines::one_scalar_line(self, source, range, inserted, &SCALAR_LINE).is_some()
     }
@@ -475,8 +392,8 @@ impl SaveLayout for XmlBehavior {
     /// An element holding other markup (`xsi:type`, a namespace
     /// declaration) than the host element it is: it reads the same, yet
     /// XML readers read it otherwise.
-    fn changed_form(&self, previous: &str, patched: &str) -> Option<String> {
-        kept_markup::changed_markup(self, previous, patched)
+    fn changed_form(&self, previous: &str, patched: &str, told: SaveTold<'_>) -> Option<String> {
+        kept_markup::changed_markup(self, previous, patched, told)
     }
 
     fn key_renames(&self, source: &str, pointer: &str, new_key: &str) -> Option<Vec<crate::editor::language::KeyEdit>> {
@@ -633,3 +550,99 @@ fn empty_key(value: &Value, pointer: String) -> Option<String> {
 
 #[cfg(test)]
 mod tests;
+
+impl XmlBehavior {
+    /// [`ConfigLanguage::serialize`], told which host item each item of
+    /// `value` is by an Edit-as save (see `SaveTold`).
+    fn written(&self, value: &Value, previous: Option<&str>, told: SaveTold<'_>) -> Result<String, String> {
+        if let Some(pointer) = empty_key(value, String::new()) {
+            return Err(format!("an empty key cannot be an XML element name (at {pointer})"));
+        }
+        if let Some((pointer, character)) = first_non_xml_char(value, "") {
+            return Err(format!("{} (at {pointer})", not_xml_char_message(character)));
+        }
+        // A character XML holds, in a key that is no name (`/*`).
+        if let Some(reason) = names::first_non_name(value) {
+            return Err(reason);
+        }
+        // Namespace declarations and `xsi:*` are no data (see
+        // `declarations`): a save keeps the host's as written.
+        if let Some(reason) = declarations::first_markup_key(value, previous) {
+            return Err(reason);
+        }
+        let framing = previous.map(xml_framing).unwrap_or_default();
+        let attributes = previous
+            .map(|previous| pasted_attributes::with_pasted_back(attribute_paths(previous), previous, told.sources()))
+            .unwrap_or_default();
+        let old = previous.filter(|_| !attributes.is_empty()).and_then(|previous| xml_parse(previous).ok());
+        if let Some(reason) = attribute_values::first_container_attribute(value, old.as_ref(), &attributes) {
+            return Err(reason);
+        }
+        // An element renamed to a key with a prefix would be an attribute.
+        if has_prefixed_key(value) {
+            let parsed = old.is_none().then(|| previous.and_then(|previous| xml_parse(previous).ok())).flatten();
+            if let Some(old) = old.as_ref().or(parsed.as_ref())
+                && let Some(reason) = prefixed::renamed_element(value, old, &attributes)
+            {
+                return Err(reason);
+            }
+        }
+        let Value::Object(map) = &with_attributes(value, old.as_ref(), &attributes, &mut Vec::new()) else {
+            return Err("the XML document model is an object of elements".to_string());
+        };
+        let mut out = String::new();
+        if let Some(declaration) = &framing.declaration {
+            out.push_str(declaration);
+            out.push('\n');
+        }
+        match &framing.root {
+            Some(root) => {
+                // The marker is an attribute (`@` prefix for quick-xml).
+                let mut wrapped = serde_json::Map::new();
+                wrapped.insert(format!("@{CONFIG_ROOT_ATTRIBUTE}"), Value::Bool(true));
+                wrapped.extend(map.clone());
+                write_element(&mut out, root, &Value::Object(wrapped))?;
+            }
+            None => {
+                for (key, child) in map {
+                    // An attribute at the top, where no element holds it:
+                    // named as the key is written (`x:a`, not `@x:a`).
+                    if let Some(name) = key.strip_prefix('@') {
+                        let written = if value.get(key).is_some() { key.as_str() } else { name };
+                        return Err(top_attribute_message(written));
+                    }
+                    write_element(&mut out, key, child)?;
+                }
+            }
+        }
+        // Empty elements the host closes with an end tag (`<x a="1"></x>`)
+        // are written that way again, not as `<x a="1"/>`, and each tag is
+        // spelled as the host spells it (`<x a='1' />`), its attributes
+        // laid out as the host's (a line each, aligned), each element's
+        // markup back on that element, wherever the edit moved it.
+        // Which host element each element is, as the edit tells it (the
+        // lines the user kept, moved, cut and pasted), else by values.
+        Ok(match previous {
+            Some(previous) => {
+                let host = crate::editor::parse_cache::parsed(self, previous);
+                let sources = told.over_last();
+                let origin = sources.as_ref().filter(|sources| sources.holds_origin_items()).map(|sources| sources.origin.as_str());
+                let first = origin.map(|origin| crate::editor::parse_cache::parsed(self, origin));
+                let identity = identity::Identity::of(host.as_ref().as_ref().ok(), value)
+                    .told(sources, first.as_ref().and_then(|first| first.as_ref().as_ref().ok()));
+                let laid_out = kept_elements::with_layout_of(
+                    &tag_spelling::with_tag_spelling_of(
+                        &one_line::with_one_line_elements_of(&with_end_tags_of(&out, previous), previous),
+                        previous,
+                    ),
+                    (previous, origin),
+                    &identity,
+                );
+                // An element moved where its names would be in other
+                // namespaces declares its own.
+                moved_declarations::declared_where_moved(laid_out, (previous, origin), &identity)
+            }
+            None => out,
+        })
+    }
+}

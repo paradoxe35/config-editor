@@ -88,19 +88,18 @@ pub(super) const KNOWN: &[Known] = &[
         class: "a suggested key adds a problem elsewhere (required)",
         applies: |case| case.schema.to_string().contains("\"dependen"),
     },
-    // FZ38-10 (edge): a key's own list value is written `[]` to type
-    // into (each language's insert), so a list asking items at once
-    // (`minItems`, `contains`, in an option or member) is refused until
-    // they are typed; and list constraints no value meets together
-    // (`contains` beside `items` refusing it).
+    // Each language's insert writes a key's own list as `[]`, the caret
+    // inside to type its items (README, "required children on accept"),
+    // so a list asking items at once (`minItems`, `contains`) is refused
+    // until they are typed.
     Known {
-        finding: "FZ38-10",
+        finding: "documented: a key's own list is written empty, the caret inside",
         property: "fill",
         class: "a fill writes a value its schema refuses (",
         applies: |case| asks_list_items(&case.schema),
     },
     Known {
-        finding: "FZ38-10",
+        finding: "documented: a key's own list is written empty, the caret inside",
         property: "suggestions",
         class: "a suggested key writes a value its schema refuses (",
         applies: |case| asks_list_items(&case.schema),
@@ -123,29 +122,16 @@ pub(super) const KNOWN: &[Known] = &[
         class: "a fill writes a value its schema refuses (",
         applies: |case| meets_nothing(&case.schema),
     },
-    // FZ38-10 too: `oneOf` options a value of one kind meets twice (`{}`
-    // beside `{type: object}`): the object a fill writes for the required
-    // keys matches both.
     Known {
-        finding: "FZ38-10",
+        finding: "documented: a field no value meets has no fill its schema takes",
         property: "fill",
         class: "a fill leaves out a required child",
-        applies: |case| overlapping_one_of(&case.schema),
+        applies: |case| meets_nothing(&case.schema),
     },
-    Known {
-        finding: "FZ38-10",
-        property: "fill",
-        class: "a fill writes a value its schema refuses (oneOf)",
-        applies: |case| overlapping_one_of(&case.schema),
-    },
-    Known {
-        finding: "FZ38-10",
-        property: "suggestions",
-        class: "a suggested key writes a value its schema refuses (oneOf)",
-        applies: |case| overlapping_one_of(&case.schema),
-    },
-    // The same options in an XML view: its text read so that one option
-    // matches (`true` as text) where the host's typed value matches both.
+    // FZ38-10 too: `oneOf` options a value of one kind meets twice (`{}`
+    // beside `{type: object}`) in an XML view: its text read so that one
+    // option matches (`true` as text) where the host's typed value
+    // matches both.
     Known {
         finding: "FZ38-10",
         property: "edit_as",

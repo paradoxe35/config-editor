@@ -4,16 +4,14 @@
 use leptos::prelude::*;
 use wasm_bindgen::JsCast;
 
-use super::bridge::links::Splice;
 use super::commands::{copied_lines, line_range};
 use super::completion::should_auto_trigger;
-use super::edit::{After, Edit};
+use super::edit::{Assoc, Change, Edit};
 use super::history::EditHistory;
-use super::keyboard::replace_selection;
 use super::positioning::pointer_text_position;
 use super::problem_hit::column_at_cell;
 use super::source_area::SourceArea;
-use super::state::{EditorState, normalize_newlines, textarea_selection};
+use super::state::{EditorState, directed_selection, normalize_newlines, textarea_selection};
 use crate::reactive::later;
 
 /// The textarea an event came from, in document offsets.
@@ -45,7 +43,7 @@ pub(super) fn before_input(state: EditorState, event: &web_sys::InputEvent) {
         let (start, end) = textarea_selection(&element);
         let kind = event.input_type();
         if kind == "deleteByDrag" {
-            state.drag_starts();
+            state.drag_starts(start, end);
             // The document was rewritten under the drag: refused, its drop
             // with it.
             if state.rewritten_under_drag() {
@@ -92,7 +90,11 @@ pub(super) fn before_input(state: EditorState, event: &web_sys::InputEvent) {
             insert_whole(state, (start, end), text, event.time_stamp());
             return;
         }
-        state.typing().pre_edit_selection.set_value((start, end));
+        // As (anchor, caret): undo puts a backward selection back backward.
+        state
+            .typing()
+            .pre_edit_selection
+            .set_value(directed_selection(&element));
     }
 }
 
@@ -115,24 +117,10 @@ fn insert_whole(state: EditorState, selection: (usize, usize), text: String, tim
     // Input still pending in this task first, so this lands after it.
     flush_input(state);
     let before = state.doc().text.get_untracked();
-    let (value, caret) = replace_selection(&before, selection.0, selection.1, &text);
+    let change = Change::replace_units(&before, selection.0, selection.1, &text);
     let kind = "insertFromPaste";
-    let edit = Edit {
-        // The textarea still has the text before: written, caret in view.
-        after: After::Select {
-            anchor: caret,
-            caret,
-            reveal: true,
-        },
-        ..Edit::input(
-            before.clone(),
-            selection,
-            value,
-            (caret, caret),
-            kind.to_string(),
-            time,
-        )
-    };
+    // The textarea still has the text before: written, caret in view.
+    let edit = Edit::command(before.clone(), change, selection).typed(kind, time);
     apply_input(state, edit, &before, kind);
 }
 
@@ -140,8 +128,10 @@ fn insert_whole(state: EditorState, selection: (usize, usize), text: String, tim
 /// (`execCommand("insertText")` with line breaks, dictation, some IMEs send
 /// one per line). They are applied once, at the end of the task.
 pub(super) struct InputBurst {
-    /// The document and selection before the first event.
+    /// The document, its version and the selection (anchor, caret) before
+    /// the first event.
     before: String,
+    version: u64,
     selection: (usize, usize),
     /// The first event's type, and how many events came.
     input_type: String,
@@ -154,34 +144,17 @@ pub(super) struct InputBurst {
     latest_selection: (usize, usize),
 }
 
-/// No selection recorded before the input (see [`changed_range`]).
+/// No selection recorded before the input: the browser sent no
+/// `beforeinput` (`execCommand`, a synthetic event), so its change is read
+/// off the texts (see `edit::Edit::input`).
 pub(super) const UNKNOWN_SELECTION: (usize, usize) = (usize::MAX, usize::MAX);
 
-pub(super) use super::text_change::{changed_range, edit_range};
-
-/// The edit that turned `before` into `latest`, made on `current` instead
-/// (where `before` became `current` meanwhile), and the caret after it.
-pub(super) fn replay(before: &str, latest: &str, current: &str) -> (String, usize) {
-    use super::sync::map_through_change;
-    let (start, end) = changed_range(before, latest);
-    let latest_units: Vec<u16> = latest.encode_utf16().collect();
-    let before_len = before.encode_utf16().count();
-    let inserted_len = latest_units.len() + (end - start) - before_len;
-    let inserted = String::from_utf16_lossy(&latest_units[start..start + inserted_len]);
-    let (from, to) = (
-        map_through_change(before, current, start),
-        map_through_change(before, current, end),
-    );
-    let current_units: Vec<u16> = current.encode_utf16().collect();
-    let (from, to) = (
-        from.min(current_units.len()),
-        to.min(current_units.len())
-            .max(from.min(current_units.len())),
-    );
-    let mut result = String::from_utf16_lossy(&current_units[..from]);
-    result.push_str(&inserted);
-    result.push_str(&String::from_utf16_lossy(&current_units[to..]));
-    (result, from + inserted_len)
+/// The input `mine` (made on `before`) made on `current` instead, where the
+/// host made `before` into `current` meanwhile: rebased over the host's
+/// change (read off the two texts, the host's), the input's text first
+/// where both wrote at one place.
+pub(super) fn replay(mine: &Change, before: &str, current: &str) -> Option<Change> {
+    mine.map(&Change::diffed(before, current), true)
 }
 
 /// An edit the browser applied (typing, paste, cut, drop, IME).
@@ -213,8 +186,9 @@ pub(super) fn input(state: EditorState, event: &web_sys::Event) {
         return;
     }
     let before = state.doc().text.get_untracked();
+    let version = state.doc().version.get_value();
     // Without a `beforeinput` (`execCommand`, some synthetic events) the
-    // selection is read off the change when the burst is applied.
+    // change is read off the texts when the burst is applied.
     let selection = state.typing().pre_edit_selection.get_value();
     state
         .typing()
@@ -222,6 +196,7 @@ pub(super) fn input(state: EditorState, event: &web_sys::Event) {
         .set_value(UNKNOWN_SELECTION);
     state.typing().input_burst.set_value(Some(InputBurst {
         before,
+        version,
         selection,
         input_type,
         events: 1,
@@ -286,45 +261,45 @@ pub(super) fn flush_input(state: EditorState) {
     if state.textarea().is_none() {
         return;
     }
-    // What the input made, on the document as it is now: a host value
-    // applied since the input (a `setValue` in the same task) gets the input
-    // replayed on it, and a textarea rewritten meanwhile gets it back.
-    let before = state.doc().text.get_untracked();
-    let (value, replayed_caret) = if before == burst.before {
-        (burst.latest, None)
-    } else {
-        let (value, caret) = replay(&burst.before, &burst.latest, &before);
-        (value, Some(caret))
-    };
-    // Nothing to apply: the browser sends text arriving whole in one
-    // command (an IME commit, a drop, `Input.insertText`) as one input event
-    // per line, each in its own microtask, with the whole text already in
-    // the textarea at the first; the first applies it (or is refused, and
-    // the textarea shows the document again), the rest find nothing new.
-    // Committing each again would redo every per-text step once per line.
-    if value == before {
-        return;
-    }
-    let selection = if replayed_caret.is_some() {
-        UNKNOWN_SELECTION
-    } else {
-        burst.selection
-    };
     // Several events at once are text arriving whole, as a paste does.
     let input_type = if burst.events > 1 {
         "insertFromPaste".to_string()
     } else {
         burst.input_type
     };
-    let typed = replayed_caret.map_or(burst.latest_selection, |caret| (caret, caret));
-    let edit = Edit::input(
-        before.clone(),
-        selection,
-        value,
-        typed,
+    let before = state.doc().text.get_untracked();
+    // Nothing to apply: the browser sends text arriving whole in one
+    // command (an IME commit, a drop, `Input.insertText`) as one input event
+    // per line, each in its own microtask, with the whole text already in
+    // the textarea at the first; the first applies it (or is refused, and
+    // the textarea shows the document again), the rest find nothing new.
+    // Committing each again would redo every per-text step once per line.
+    if burst.latest == before {
+        return;
+    }
+    let input = Edit::input(
+        burst.before.clone(),
+        burst.selection,
+        burst.latest,
+        burst.latest_selection,
         input_type.clone(),
         burst.time,
     );
+    // What the input made, on the document as it is now: a host value
+    // applied since the input (a `setValue` in the same task) gets the input
+    // replayed on it, and a textarea rewritten meanwhile gets it back.
+    let edit = if state.doc().version.get_value() == burst.version {
+        input
+    } else {
+        let Some(change) = replay(input.made(), &burst.before, &before) else {
+            return;
+        };
+        let told = input.told();
+        Edit::replayed(before.clone(), change, told, input_type.clone(), burst.time)
+    };
+    if edit.text == before {
+        return;
+    }
     apply_input(state, edit, &before, &input_type);
 }
 
@@ -715,17 +690,17 @@ fn copy_line(state: EditorState, event: &web_sys::ClipboardEvent, cut: bool) {
     } else {
         line_start
     };
-    let (updated, _) = replace_selection(&text, removed_start, line_end, "");
+    let change = Change::replace_units(&text, removed_start, line_end, "");
+    let edit = Edit::command(text, change, (start, end));
     // The caret keeps its column on the line that moves up.
     let column = start - line_start;
-    let next_line = line_range(&updated, removed_start.min(updated.encode_utf16().count()));
+    let updated = &edit.text;
+    let next_line = line_range(updated, removed_start.min(updated.encode_utf16().count()));
     let ends_with_newline =
         updated.encode_utf16().nth(next_line.1.wrapping_sub(1)) == Some(u16::from(b'\n'));
     let caret = (next_line.0 + column).min(next_line.1 - usize::from(ends_with_newline));
-    let splices = Splice::of(&text, &updated, (removed_start, line_end), caret);
-    state.commit(
-        Edit::new(text, (start, end), updated, caret.max(next_line.0)).splicing(Some(splices)),
-    );
+    let caret = caret.max(next_line.0);
+    state.commit(edit.caret_at(caret));
 }
 
 /// Copy or cut of a selection the textarea's own copy would get wrong:
@@ -760,8 +735,8 @@ fn copy_selection(
     if !cut {
         return;
     }
-    let (updated, _) = replace_selection(&text, start, end, "");
-    state.commit(Edit::new(text, (start, end), updated, start));
+    let change = Change::replace_units(&text, start, end, "");
+    state.commit(Edit::command(text, change, (start, end)));
 }
 
 /// Pasting a line copied with nothing selected puts it above the caret's
@@ -790,15 +765,15 @@ fn paste_line(state: EditorState, event: &web_sys::ClipboardEvent) {
     event.prevent_default();
     let text = state.doc().text.get_untracked();
     let (line_start, _) = line_range(&text, start);
-    let (updated, _) = replace_selection(&text, line_start, line_start, &pasted);
-    let caret = start + pasted.encode_utf16().count();
-    let splices = Splice::of(&text, &updated, (line_start, line_start), caret);
-    state.commit(Edit::new(text, (start, end), updated, caret).splicing(Some(splices)));
+    let change = Change::insert_units(&text, line_start, &pasted);
+    // The caret stays on its text, which the pasted line moves down.
+    state.commit(Edit::command(text, change, (start, end)).keeping_caret(start, Assoc::After));
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{changed_range, press_offset};
+    use super::super::edit::Change;
+    use super::{press_offset, replay};
 
     /// A press lands on the character drawn under it: a tab before a
     /// secret placeholder is drawn wider than one cell, and an accent
@@ -821,35 +796,27 @@ mod tests {
         assert_eq!(press_offset(text, 0, 2), 3, "on its opening mark");
     }
 
-    /// Round 11: the selection an edit replaced, read off the change when
-    /// the browser sent no `beforeinput` (undo puts the caret back there).
-    #[test]
-    fn the_replaced_range_is_read_off_the_change() {
-        assert_eq!(changed_range("abc", "abXc"), (2, 2));
-        assert_eq!(changed_range("abc", "aXYc"), (1, 2));
-        assert_eq!(changed_range("aaa", "aaaa"), (3, 3));
-        assert_eq!(changed_range("a\u{1F600}b", "a\u{1F600}xb"), (3, 3));
-        assert_eq!(changed_range("abc", "ac"), (1, 2));
-        // Placed by the caret where the texts alone are ambiguous (round 12).
-        use super::edit_range;
-        assert_eq!(edit_range("a: 1\nb: 2", "a: 1\nx: 1\nb: 2", 9), (4, 4));
-        assert_eq!(edit_range("k: aaa", "k: aaaa", 6), (5, 5));
-        assert_eq!(edit_range("a: 1\na: 1", "a: 1\na: 1\na: 1", 10), (5, 5));
-    }
-
-    /// Round 11: input made before a host value was applied is made on that
-    /// value instead of being lost.
+    /// Input made before a host value was applied is made on that value
+    /// instead of being lost (P4): the input's change rebased over the
+    /// host's.
     #[test]
     fn input_is_replayed_on_a_document_replaced_meanwhile() {
-        use super::replay;
+        let replayed = |before: &str, latest: &str, current: &str| {
+            let change = replay(&Change::diffed(before, latest), before, current)?;
+            let caret = change.hull().map(|(_, written)| written.end);
+            Some((change.apply(current)?, caret?))
+        };
         assert_eq!(
-            replay("listen: 1\n", "listen: 1\nQ", "x: 1\n"),
-            ("x: 1\nQ".to_string(), 6)
+            replayed("listen: 1\n", "listen: 1\nQ", "x: 1\n"),
+            Some(("x: 1\nQ".to_string(), 6))
         );
         assert_eq!(
-            replay("a: 1\nb: 2\n", "a: 1\nb: 2X\n", "a: 1\nb: 2\nc: 3\n"),
-            ("a: 1\nb: 2X\nc: 3\n".to_string(), 10)
+            replayed("a: 1\nb: 2\n", "a: 1\nb: 2X\n", "a: 1\nb: 2\nc: 3\n"),
+            Some(("a: 1\nb: 2X\nc: 3\n".to_string(), 10))
         );
-        assert_eq!(replay("abc", "aXYc", "abc"), ("aXYc".to_string(), 3));
+        assert_eq!(
+            replayed("abc", "aXYc", "abc"),
+            Some(("aXYc".to_string(), 3))
+        );
     }
 }

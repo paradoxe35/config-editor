@@ -442,6 +442,60 @@ fn left_alone(start: &Value, now: &Value, pointer: &str) -> bool {
 /// What the host holds: the last text `on_change` told it.
 pub(super) type HostCopy = std::sync::Arc<std::sync::Mutex<String>>;
 
+/// `meant` (the view's value) with each scalar that `shown` (the saved
+/// host read) holds with the same text in another type, as the session's
+/// start held it, taken from `shown`.
+fn host_kept(meant: &Value, shown: &Value, start: Option<&Value>) -> Value {
+    // A list of one the view writes as its item (XML).
+    let start = match start {
+        Some(Value::Array(items)) if items.len() == 1 && !shown.is_array() => items.first(),
+        other => other,
+    };
+    match (meant, shown) {
+        (Value::Object(map), Value::Object(held)) => Value::Object(
+            map.iter()
+                .map(|(key, child)| {
+                    let kept = match held.get(key) {
+                        Some(held) => {
+                            host_kept(child, held, start.and_then(|start| start.get(key)))
+                        }
+                        None => child.clone(),
+                    };
+                    (key.clone(), kept)
+                })
+                .collect(),
+        ),
+        (Value::Array(items), Value::Array(held)) if items.len() == held.len() => Value::Array(
+            items
+                .iter()
+                .zip(held)
+                .enumerate()
+                .map(|(index, (child, held))| {
+                    host_kept(child, held, start.and_then(|start| start.get(index)))
+                })
+                .collect(),
+        ),
+        _ if meant != shown
+            && scalar_text(meant).is_some()
+            && scalar_text(meant) == scalar_text(shown)
+            && start == Some(shown) =>
+        {
+            shown.clone()
+        }
+        _ => meant.clone(),
+    }
+}
+
+/// A scalar's text, whatever its type (`"8080"` and `8080` alike).
+fn scalar_text(value: &Value) -> Option<String> {
+    match value {
+        Value::String(text) => Some(text.clone()),
+        Value::Number(number) => Some(number.to_string()),
+        Value::Bool(flag) => Some(flag.to_string()),
+        _ => None,
+    }
+}
+
 /// Numbers as floats: a view and its host may write `1` and `1.0` alike.
 fn loose(value: &Value) -> Value {
     match value {
@@ -657,6 +711,13 @@ fn check_save(state: EditorState, start: &Start, held: &HostCopy) -> Result<(), 
             }
             _ => shown,
         };
+        // A scalar the view reads with the same text as the host's start
+        // but another type (XML text read as a number by a switch) is the
+        // host's value, kept as it was (lossless, see `check_forms`).
+        let meant = match (&shown, meant) {
+            (Some(shown), Some(meant)) => Some(host_kept(&meant, shown, Some(&start.value))),
+            (_, meant) => meant,
+        };
         if shown.as_ref().map(read) != meant.as_ref().map(read) {
             return Err(Failure::new(
                 Broken::Meaning,
@@ -794,6 +855,26 @@ fn check_forms(
         };
         let parent = &pointer[..pointer.rfind('/').unwrap_or(0)];
         let new_parent = !parent.is_empty() && start.value.pointer(parent).is_none();
+        // A scalar left alone across views that read it otherwise (an XML
+        // view reads every scalar as text, a switch writes the next view
+        // from that reading) keeps the host's value and text: `'8080'`
+        // stays a string, not the number with the same text.
+        if let Some(held) = start.value.pointer(&pointer)
+            && held != value
+            && scalar_text(held).is_some()
+            && scalar_text(held) == scalar_text(value)
+            && !changed_before.contains(&pointer)
+            && !users_own(&pointer)
+            && !retyped(form)
+            && let Some(was) = before.get(&pointer)
+        {
+            return Err(Failure::new(
+                Broken::Form,
+                was.clone(),
+                format!("{pointer} left alone, its type changed: `{was}` -> `{form}`"),
+            )
+            .written(form, &pointer, false, new_parent));
+        }
         if start.value.pointer(&pointer) == Some(value) {
             if changed_before.contains(&pointer) {
                 continue;

@@ -9,7 +9,7 @@ use super::checks::{Check, ordinary};
 use super::mount::{Mounted, Setup};
 use super::rng::Rng;
 use crate::editor::edit::Edit;
-use crate::editor::keyboard::{paired_edit, replace_selection};
+use crate::editor::keyboard::{paired_text, replace_selection};
 use crate::editor::keys::line_edit::LineCommand;
 use crate::editor::keys::lines::{Command, run};
 use crate::editor::state::EditorState;
@@ -162,7 +162,7 @@ fn type_at(state: EditorState, at: usize, typed: &str, pairs: bool) -> bool {
             continue;
         }
         let paired = pairs
-            .then(|| paired_edit(&before, caret, caret, character, behavior))
+            .then(|| paired_text(&before, caret, caret, character, behavior))
             .flatten();
         let (after, new_caret, closed) = match paired {
             Some((after, at, _)) => (after, at, true),
