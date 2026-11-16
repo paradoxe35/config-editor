@@ -8,7 +8,7 @@ use std::sync::Arc;
 use leptos::prelude::*;
 
 use super::super::codec;
-use super::super::edit::{Change, CodeUnits, Edit, Origin};
+use super::super::edit::{Assoc, Change, CodeUnits, Edit, Origin};
 use super::super::edit_as::SaveError;
 use super::super::language::ConfigLanguage;
 use super::super::languages::Language;
@@ -25,12 +25,13 @@ use super::glued::{first_glued, glued_elsewhere, glued_in_save, glued_message};
 use super::guard::{Blocked, Carets, judge};
 use super::host_ranges::{HostRanges, followed_to, offsets};
 use super::locate::LineIndex;
-use super::locks::{Protected, Sources, protect};
+use super::locks::{HoldCause, Protected, Sources, protect};
 use super::save::{ReadOnlyChange, check_save, locked_pointers, range_pointers};
 use super::secrets::SecretState;
-use super::texts::{save_held, save_held_placeholder, save_waits};
+use super::texts::{Reason, save_held, save_held_placeholder, save_waits};
 use super::whole_guard::Placeholders;
-use crate::editor::text::{TextSize, byte_of, utf16_of};
+use crate::EditorStrings;
+use crate::editor::text::{self, TextSize, Utf16, byte_of, utf16_of};
 
 /// The host's side of protection (the component's props, when given).
 pub(crate) struct ProtectInit {
@@ -63,6 +64,21 @@ pub(crate) struct Marks {
     /// Every token the host gave since the editor was made (see
     /// `own_placeholders`).
     pub(crate) given: std::collections::HashSet<String>,
+    /// What the edits since the host's last text made of it (see
+    /// [`SinceHost`]).
+    since_host: Option<SinceHost>,
+}
+
+/// The change the edits on screen made of the host's last text (`from`)
+/// to give the text on screen (`to`), recorded edit by edit while the host
+/// has not heard them (a save held): the host's ranges name places in its
+/// text, and are mapped through it to the text on screen, never guessed
+/// from the two texts.
+#[derive(Clone)]
+struct SinceHost {
+    from: Arc<str>,
+    to: Arc<str>,
+    change: Change,
 }
 
 /// An edit the locks follow: the text it was made on and the text it made,
@@ -97,6 +113,12 @@ pub(crate) struct ProtectState {
     /// The host's ranges in its own text while editing as another
     /// language, followed through each conversion back.
     in_host: HostRanges,
+    /// The text of a host range that the text on screen does not hold
+    /// where the range is placed, and the range's index: the edits the
+    /// host has not heard changed it before the host locked it. The range
+    /// locks nothing on screen meanwhile; a save, a change event and the
+    /// value wait (P1) until the text holds it again.
+    pub(super) ranges_changed: RwSignal<Option<(String, usize)>>,
     /// The host's ranges `ranges` was first placed from, until the effect
     /// placing them again first runs: ranges the host changed before then
     /// (an update in the task that mounts the editor) are placed then.
@@ -245,6 +267,7 @@ impl ProtectState {
             host_ranges: ranges,
             ranges: local,
             in_host,
+            ranges_changed: RwSignal::new(None),
             placed_at_mount: StoredValue::new(Some(mounted_with)),
             protected,
             popups: inputs_popups,
@@ -468,6 +491,49 @@ fn text_ranges_kept(old: &str, new: &str, ranges: &[Range<usize>]) -> Result<(),
         }
     }
     Ok(())
+}
+
+/// The host's `given` ranges (UTF-16 of `host`) as `placed` in `text`
+/// (in the same order), each whose text `text` does not hold there made
+/// empty where it starts: an edit the host has not heard changed it
+/// before the host locked it, so it locks nothing on screen, and the first
+/// such range's text and index say why the save waits. Edits that write
+/// the text back (an undo) place it again (see `follow_edit`).
+fn keeping_their_text(
+    host: &str,
+    given: &[Range<usize>],
+    text: &str,
+    mut placed: Vec<Range<usize>>,
+) -> (Vec<Range<usize>>, Option<(String, usize)>) {
+    fn slice<'t>(of: &'t str, range: &Range<usize>) -> Option<&'t str> {
+        let (start, end) = (byte_of(of, range.start), byte_of(of, range.end));
+        (start <= end)
+            .then(|| text::slice::slice(of, text::TextRange::new(start, end)))
+            .flatten()
+    }
+    let mut changed = None;
+    for (index, (given, placed)) in given.iter().zip(placed.iter_mut()).enumerate() {
+        let Some(locked) = slice(host, given) else {
+            continue;
+        };
+        if slice(text, placed) != Some(locked) {
+            *placed = placed.start..placed.start;
+            changed.get_or_insert_with(|| (locked.to_string(), index));
+        }
+    }
+    (placed, changed)
+}
+
+/// Why a save waits on a host range whose text `locked` was changed before
+/// the host locked it.
+pub(super) fn range_changed_message(strings: &EditorStrings, locked: &str) -> String {
+    let quoted = format!("\"{locked}\"");
+    save_held(
+        strings,
+        &quoted,
+        &Reason::Range,
+        HoldCause::ChangedBeforeLock,
+    )
 }
 
 /// What `edit` recorded it did, in UTF-16 code units of its text before.
@@ -717,16 +783,30 @@ impl EditorState {
         // The spans are kept in UTF-16 units of the text on screen.
         let caret = utf16_of(after, edit.caret());
         let change = recorded(edit).map(Arc::new);
+        let (shared_before, shared_after) = (Arc::<str>::from(before), Arc::<str>::from(after));
+        let since = self.since_host(edit, &shared_before, &shared_after);
         self.protect().marks.update_value(|marks| {
             marks.followed = Some(Followed {
-                before: Arc::from(before),
-                after: Arc::from(after),
+                before: shared_before,
+                after: shared_after,
                 caret: edit.written_end().map(|end| utf16_of(after, end)),
                 change: change.clone(),
             });
+            marks.since_host = since;
         });
         self.follow_tokens(before, after, caret, change.as_deref());
         if self.protect().ranges.with_untracked(Vec::is_empty) {
+            return;
+        }
+        // A range whose text the text on screen does not hold is placed
+        // from the host's text again after each edit: the edit writing its
+        // text back releases the save.
+        if self
+            .protect()
+            .ranges_changed
+            .with_untracked(Option::is_some)
+        {
+            self.place_ranges_in(after);
             return;
         }
         self.protect().ranges.update(|ranges| {
@@ -734,35 +814,119 @@ impl EditorState {
         });
     }
 
+    /// What the edits since the host's last text made of it, with `edit`
+    /// (made on `before`, making `after`) added: begun anew by an edit of
+    /// the host's own text, else `edit` composed onto the record of the
+    /// edits before it. `None` in another language than the host's, or
+    /// after a text no recorded edit made.
+    fn since_host(&self, edit: &Edit, before: &Arc<str>, after: &Arc<str>) -> Option<SinceHost> {
+        if self.config().host_language != self.sync().edit_language.get_untracked() {
+            return None;
+        }
+        let change = edit.mapping();
+        if self.sync().host_text.with_value(|host| *host == **before) {
+            return Some(SinceHost {
+                from: before.clone(),
+                to: after.clone(),
+                change,
+            });
+        }
+        let since = self
+            .protect()
+            .marks
+            .with_value(|marks| marks.since_host.clone())
+            .filter(|since| *since.to == **before)?;
+        let composed = since.change.compose(&change)?.narrowed(&since.from)?;
+        Some(SinceHost {
+            from: since.from,
+            to: after.clone(),
+            change: composed,
+        })
+    }
+
     /// Places the host's ranges again (they changed, or the host replaced
     /// the text): on the text on screen in the host's language, else in the
     /// host's text, where each conversion back follows them.
     pub(crate) fn place_ranges(&self) {
-        let host = self.config().host_language == self.sync().edit_language.get_untracked();
-        let placed = self.protect().host_ranges.with_untracked(|ranges| {
-            if host {
-                // They name places in the host's text: the text on screen
-                // when every edit reached the host, else an older one (an
-                // edit held, the text not parsing), followed from there.
-                let host_text = self.sync().host_text.get_value();
-                let placed = offsets(&host_text, ranges);
-                self.doc().text.with_untracked(|text| {
-                    if *text == host_text || placed.is_empty() {
-                        return placed;
-                    }
+        if self.config().host_language == self.sync().edit_language.get_untracked() {
+            let text = self.doc().text.get_untracked();
+            self.place_ranges_in(&text);
+            return;
+        }
+        self.protect().host_ranges.with_untracked(|ranges| {
+            self.sync()
+                .host_text
+                .with_value(|text| self.protect().in_host.place(text, ranges));
+        });
+        self.protect().ranges_changed.set(None);
+        self.protect().ranges.set(Vec::new());
+    }
+
+    /// Places the host's ranges in `text`, the text on screen in the
+    /// host's language. They name places in the host's text: `text` when
+    /// every edit reached the host, else an older one (an edit held), from
+    /// which they are mapped through what the edits since recorded they
+    /// did; followed by reading the two texts only when no record reaches
+    /// back to it. A range whose text `text` does not hold where it lands
+    /// locks nothing there and holds the save (see
+    /// [`ProtectState::ranges_changed`]).
+    fn place_ranges_in(&self, text: &str) {
+        let host_text = self.sync().host_text.get_value();
+        let given = self
+            .protect()
+            .host_ranges
+            .with_untracked(|ranges| offsets(&host_text, ranges));
+        let placed = if *text == host_text || given.is_empty() {
+            given.clone()
+        } else {
+            self.mapped_since_host(&host_text, text, &given)
+                .unwrap_or_else(|| {
                     self.config().schema.with_value(|schema| {
                         let reading = schema.as_deref().map(|bundle| &bundle.schema);
-                        followed_to(self.behavior(), &host_text, text, &placed, reading)
+                        followed_to(self.behavior(), &host_text, text, &given, reading)
                     })
                 })
-            } else {
-                self.sync()
-                    .host_text
-                    .with_value(|text| self.protect().in_host.place(text, ranges));
-                Vec::new()
-            }
-        });
+        };
+        let (placed, changed) = if *text == host_text {
+            (placed, None)
+        } else {
+            keeping_their_text(&host_text, &given, text, placed)
+        };
+        self.protect().ranges_changed.set(changed);
         self.protect().ranges.set(placed);
+    }
+
+    /// `ranges` (UTF-16 of `host`, the host's text) in `text`, mapped
+    /// through the record of the edits that made `text` of `host`; `None`
+    /// when the record does not reach from one to the other. A range an
+    /// edit wrote inside lands where its ends went (see
+    /// [`keeping_their_text`]).
+    fn mapped_since_host(
+        &self,
+        host: &str,
+        text: &str,
+        ranges: &[Range<usize>],
+    ) -> Option<Vec<Range<usize>>> {
+        let since = self
+            .protect()
+            .marks
+            .with_value(|marks| marks.since_host.clone())
+            .filter(|since| *since.from == *host && *since.to == *text)?;
+        let change = since.change.in_utf16(host)?;
+        Some(
+            ranges
+                .iter()
+                .map(|range| {
+                    let range = Utf16::count(range.start)..Utf16::count(range.end);
+                    let mapped = change.map_range(&range).unwrap_or_else(|| {
+                        let start = change.map_pos(range.start, Assoc::After).pos;
+                        let end = change.map_pos(range.end, Assoc::Before).pos;
+                        start..end.max(start)
+                    });
+                    usize::from(mapped.start)..usize::from(mapped.end)
+                })
+                .collect(),
+        )
     }
 
     /// Before a switch away from the host's language, whose text was
@@ -809,6 +973,10 @@ impl EditorState {
             !protected.held.is_empty()
                 || (protected.document.is_none() && locked_key_again(protected))
         }) || self.unplaced_waits().is_some()
+            || self
+                .protect()
+                .ranges_changed
+                .with_untracked(Option::is_some)
             || self.placeholder_held().is_some()
             || self.glued_away().is_some()
     }
@@ -820,6 +988,7 @@ impl EditorState {
     pub(crate) fn save_waits(&self) -> Option<String> {
         self.glued_waits()
             .or_else(|| self.held_waits())
+            .or_else(|| self.range_changed_waits())
             .or_else(|| self.unplaced_waits())
             .or_else(|| {
                 let field = self.placeholder_held()?;
@@ -843,6 +1012,13 @@ impl EditorState {
             let reason = protected.held_reason(pointer);
             Some(self.strings_untracked(|strings| save_held(strings, pointer, &reason, cause)))
         })
+    }
+
+    /// Why a save waits on a host range whose text the text on screen does
+    /// not hold (see [`ProtectState::ranges_changed`]).
+    fn range_changed_waits(&self) -> Option<String> {
+        let (locked, _) = self.protect().ranges_changed.get_untracked()?;
+        Some(self.strings_untracked(|strings| range_changed_message(strings, &locked)))
     }
 
     /// The glued placeholder a save of the text on screen waits on.

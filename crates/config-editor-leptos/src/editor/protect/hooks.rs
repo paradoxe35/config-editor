@@ -13,7 +13,7 @@ use super::super::language::ConfigLanguage;
 use super::super::line_rows::MarkedLines;
 use super::foreign::{DocumentPlaceholders, foreign_placeholders};
 use super::glued::glued_placeholders;
-use super::live::ProtectState;
+use super::live::{ProtectState, range_changed_message};
 use super::locate::LineIndex;
 use super::locks::Lock;
 use super::problems::unknown_placeholders;
@@ -188,9 +188,11 @@ impl ProtectState {
     }
 
     /// A warning at each locked field held (see `locks::Protected::held`),
-    /// and at a placeholder the parse reads with text beside it (see
-    /// `ProtectState::placeholder_held`, `glued_away`): why the change, the
-    /// value and the save wait. `text` is written in `behavior`. Tracked.
+    /// at a host range whose text the text on screen does not hold (see
+    /// `ProtectState::ranges_changed`), and at a placeholder the parse
+    /// reads with text beside it (see `ProtectState::placeholder_held`,
+    /// `glued_away`): why the change, the value and the save wait. `text`
+    /// is written in `behavior`. Tracked.
     pub(crate) fn held_problems(
         &self,
         behavior: &dyn ConfigLanguage,
@@ -198,8 +200,25 @@ impl ProtectState {
         strings: &EditorStrings,
     ) -> Vec<Diagnostic> {
         let mut problems = self.held_lock_problems(text, strings);
+        problems.extend(self.range_changed_problem(text, strings));
         problems.extend(self.held_placeholder_problem(behavior, text, strings));
         problems
+    }
+
+    /// The warning of a host range the text on screen changed before the
+    /// host locked it, where the range is placed now.
+    fn range_changed_problem(&self, text: &str, strings: &EditorStrings) -> Option<Diagnostic> {
+        let (locked, index) = self.ranges_changed.get()?;
+        let start = self
+            .ranges
+            .with(|ranges| ranges.get(index).map_or(0, |range| range.start));
+        let lines = LineIndex::new(text);
+        Some(warning_at(
+            &lines,
+            text,
+            start.min(lines.units_of(text.len())),
+            range_changed_message(strings, &locked),
+        ))
     }
 
     /// The placeholder hold's warning, at the first copy of its token

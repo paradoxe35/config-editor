@@ -85,7 +85,13 @@ impl EditorState {
         let units: Vec<u16> = after.encode_utf16().collect();
         let followed = self.protect().ranges.get_untracked();
         if followed.len() == spans.ranges.len() {
+            // An empty range locks nothing (one whose text an edit the host
+            // has not heard changed): an edit writing its text back places
+            // it on it again.
             for ((old, text), new) in spans.ranges.iter().zip(&followed) {
+                if old.is_empty() {
+                    continue;
+                }
                 assert!(
                     units.get(new.clone()) == Some(text.as_slice()),
                     "a host range {old:?} holds other text after an edit the guard took: \
