@@ -1,5 +1,6 @@
-//! A text that does not parse and has no earlier text to carry locks from
-//! (the host gave it so, or named a lock while it was so), read two ways:
+//! A text that does not parse, for the locks the text before cannot carry
+//! into it (the host gave it so, or named a lock while it was so), read
+//! two ways:
 //! - `stand_in`: the same text with the line breaking it blanked, when that
 //!   parses: its locks fall on the same places, and its values are pinned;
 //! - `written`: each line's path, read by the tolerant path lookup the
@@ -7,9 +8,11 @@
 //!   locked block are found where the stand-in has none (in a large text,
 //!   the lines naming a protected field and the block under each).
 //!
-//! Both only place the locks of such a text, once: from then on they are
-//! followed through edits by position (see `locks`), never read again off
-//! the lines.
+//! `read_off` places a field from these readings, also in a text that does
+//! not parse after one that did, for a field with no lock to follow there
+//! (a path named while it does not parse). A lock placed so is followed
+//! through edits by position (see `locks`), never read again off the
+//! lines; once the text parses, the parse places it.
 
 use serde_json::Value;
 

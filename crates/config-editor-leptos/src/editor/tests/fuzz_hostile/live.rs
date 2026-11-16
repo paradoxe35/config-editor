@@ -606,7 +606,6 @@ fn kind(step: &Step) -> &'static str {
 }
 
 /// Runs one case, failing with what it found (for a pasted repro).
-#[allow(dead_code, reason = "called by pasted repros")]
 pub(super) fn replay(case: LiveCase) {
     if let Err(failure) = check(&case) {
         panic!("{}\n{}", failure.class, failure.detail);
