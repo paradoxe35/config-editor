@@ -6,7 +6,7 @@
 //! - `written`: each line's path, read by the tolerant path lookup the
 //!   caret uses, so the schema's read-only fields and the contents of a
 //!   locked block are found where the stand-in has none (in a large text,
-//!   the lines naming a protected field and the block under each).
+//!   every line naming a protected field and the block under each).
 //!
 //! `read_off` places a field from these readings, also in a text that does
 //! not parse after one that did, for a field with no lock to follow there
@@ -19,19 +19,17 @@ use serde_json::Value;
 use super::super::applies::Applies;
 use super::super::codec;
 use super::super::language::{ConfigLanguage, Repetition};
-use super::super::paths::{FieldPath, field_range, inside, key_range, path_at};
+use super::super::paths::{
+    FieldPath, field_range, in_batch, inside, key_range, path_at, with_spans,
+};
 use super::locate::{Extent, LineIndex, within};
 use super::marks::read_only_in;
 use super::texts::Reason;
 
-/// Lines of a text read line by line at most (each line's path is read
-/// from the top); a larger one is read on the lines `candidates` picks.
+/// Lines of a text whose every line's path is read at most; a larger one
+/// is read on the lines `candidates` picks, every one of them (a line left
+/// unread would leave a protected field there unlocked).
 const MAX_LINES: usize = 500;
-
-/// Line reads a large text gets (each costs a read from the top, so they
-/// are this divided by its lines), as many as a text of `MAX_LINES` lines
-/// gets for every line.
-const LARGE_READS: usize = MAX_LINES * MAX_LINES / 2;
 
 /// Lines tried blanked (their last character, then all of it) in each
 /// round at most: the one the parser stopped
@@ -142,7 +140,9 @@ pub(super) struct Written {
 
 /// The path at the start of each line of `text` holding code (not blank,
 /// not only a comment): of the lines `only`, else of every line, or in a
-/// large text of the lines naming one of `names` (see `candidates`).
+/// large text of the lines naming one of `names` (see `candidates`). The
+/// paths are read with the text read once for all of them, not from its
+/// top for each line.
 pub(super) fn written(
     behavior: &dyn ConfigLanguage,
     text: &str,
@@ -156,10 +156,26 @@ pub(super) fn written(
         None if count > MAX_LINES => {
             let names_one =
                 |content: &str| names.iter().any(|name| content.contains(name.as_str()));
-            candidates(behavior, lines, &names_one, LARGE_READS / count)
+            candidates(behavior, lines, &names_one)
         }
         None => (0..count).collect(),
     };
+    if in_batch(text) {
+        paths_of(behavior, text, lines, chosen)
+    } else {
+        with_spans(behavior, text, &[], || {
+            paths_of(behavior, text, lines, chosen)
+        })
+    }
+}
+
+/// The path at the start of each of the lines `chosen` holding code.
+fn paths_of(
+    behavior: &dyn ConfigLanguage,
+    text: &str,
+    lines: &LineIndex<'_>,
+    chosen: Vec<usize>,
+) -> Vec<Written> {
     let mut found = Vec::new();
     for line in chosen {
         let content = lines.line_text(line);
@@ -178,21 +194,20 @@ pub(super) fn written(
     found
 }
 
-/// Up to `budget` lines of a large text that may hold a protected field:
-/// each line `names_one` accepts (naming a protected field's key), with the
+/// The lines of a large text that may hold a protected field: each line
+/// `names_one` accepts (naming a protected field's key), with the
 /// lines indented under it, or up to the next section after a line that
 /// starts one (TOML's `[limits]`): its block.
 pub(super) fn candidates(
     behavior: &dyn ConfigLanguage,
     lines: &LineIndex<'_>,
     names_one: &dyn Fn(&str) -> bool,
-    budget: usize,
 ) -> Vec<usize> {
     let indent = |text: &str| text.len() - text.trim_start().len();
     let header = |text: &str| behavior.starts_section(text);
     let mut chosen = Vec::new();
     let mut line = 0;
-    while line < lines.line_count() && chosen.len() < budget {
+    while line < lines.line_count() {
         let content = lines.line_text(line);
         line += 1;
         if !names_one(content) {
@@ -201,7 +216,7 @@ pub(super) fn candidates(
         chosen.push(line - 1);
         let own = indent(content);
         let opens_section = header(content);
-        while line < lines.line_count() && chosen.len() < budget {
+        while line < lines.line_count() {
             let next = lines.line_text(line);
             if !next.trim().is_empty() {
                 let inside = if opens_section {

@@ -396,4 +396,83 @@ mod tests {
             None
         );
     }
+
+    /// A list cut to one item in an XML view of any other host stays a
+    /// list in the file: the kept list explains that value, where the host
+    /// held a list and the view is XML, and nothing else.
+    #[test]
+    fn a_list_cut_to_one_in_an_xml_view_is_kept_for_every_host_and_only_there() {
+        let any = json!({});
+        let both = compile(&any).unwrap();
+        let class =
+            |host: Language, edit: Language, (before, view, saved): (Value, Value, Value)| {
+                explained(&Sides {
+                    both: &both,
+                    host,
+                    edit,
+                    before: &before,
+                    view: &view,
+                    saved: &saved,
+                })
+            };
+        let hosts = Language::ALL
+            .iter()
+            .copied()
+            .filter(|language| *language != Language::XML);
+        for host in hosts {
+            let xml = |sides| class(host, Language::XML, sides);
+            // Cut to one, at the top or nested, the item kept or edited.
+            let cut = (
+                json!({"mode": ["x", "t"]}),
+                json!({"mode": "x"}),
+                json!({"mode": ["x"]}),
+            );
+            assert_eq!(xml(cut.clone()), Some(KEPT_LIST), "{host}");
+            let nested = (
+                json!({"a": {"mode": [1, 2, 3]}}),
+                json!({"a": {"mode": 2}}),
+                json!({"a": {"mode": [2]}}),
+            );
+            assert_eq!(xml(nested), Some(KEPT_LIST), "{host}");
+            let edited = (
+                json!({"mode": ["x", "t"]}),
+                json!({"mode": "y"}),
+                json!({"mode": ["y"]}),
+            );
+            assert_eq!(xml(edited), Some(KEPT_LIST), "{host}");
+            // Not where the view is not XML.
+            for edit in Language::ALL.iter().copied() {
+                if edit != Language::XML && edit != host {
+                    assert_eq!(class(host, edit, cut.clone()), None, "{host} from {edit}");
+                }
+            }
+            // Not where the host held no list there.
+            let over_text = (
+                json!({"mode": "x"}),
+                json!({"mode": "x"}),
+                json!({"mode": ["x"]}),
+            );
+            assert_eq!(xml(over_text), None, "{host}");
+            // Not for a list kept whole, nor one whose item reads otherwise.
+            let whole = (
+                json!({"mode": ["x", "t"]}),
+                json!({"mode": "x"}),
+                json!({"mode": ["x", "t"]}),
+            );
+            assert_eq!(xml(whole), None, "{host}");
+            let other_item = (
+                json!({"mode": ["x", "t"]}),
+                json!({"mode": "x"}),
+                json!({"mode": ["t"]}),
+            );
+            assert_eq!(xml(other_item), None, "{host}");
+            // Not where another value reads otherwise too.
+            let beside = (
+                json!({"mode": ["x", "t"], "b": 1}),
+                json!({"mode": "x", "b": 1}),
+                json!({"mode": ["x"], "b": 2}),
+            );
+            assert_eq!(xml(beside), None, "{host}");
+        }
+    }
 }

@@ -331,3 +331,118 @@ fn deleting_many_unrelated_lines_then_repairing_goes_through() {
         failures.len()
     );
 }
+
+/// `filler` lines whose values name the locked keys (`id`, `meta`): a
+/// large text's line scan reads each of them as it reads the locked
+/// fields' own lines.
+fn naming_filler(language: Language, index: usize) -> (String, String) {
+    let (good, bad) = filler(language, index);
+    let name = |line: String| match language.label() {
+        "YAML" | "JSON" => line.replacen(&format!(" {index}"), " \"idmeta\"", 1),
+        "XML" => line.replacen(&format!(">{index}<"), ">idmeta<", 1),
+        _ => line.replacen(&format!("= {index}"), "= \"idmeta\"", 1),
+    };
+    (name(good), name(bad))
+}
+
+/// A copy of the locked `id` line with another value: the text parses to
+/// it where the language lets a later duplicate win (or makes the two a
+/// list).
+fn copied_id(language: Language) -> (&'static str, &'static str) {
+    match language.label() {
+        "YAML" => ("id: abc\n", "id: abc\nid: evil\n"),
+        "JSON" => (
+            "  \"id\": \"abc\",\n",
+            "  \"id\": \"abc\",\n  \"id\": \"evil\",\n",
+        ),
+        "XML" => ("<id>abc</id>\n", "<id>abc</id>\n<id>evil</id>\n"),
+        _ => ("id = \"abc\"\n", "id = \"abc\"\nid = \"evil\"\n"),
+    }
+}
+
+/// P1 in a large text broken in more places than a stand-in mends, with
+/// hundreds of lines naming a locked key before the locked fields: a
+/// locked value changed, or its line copied with another value, while
+/// broken never reaches a text that parses unless that field is held.
+#[test]
+fn a_locked_key_copied_below_many_lines_naming_it_holds_the_save() {
+    let schema = schema();
+    let mut failures = Vec::new();
+    let mut tampered = 0;
+    for (language, text) in documents() {
+        let original = codec::read(language.behavior(), text, Some(&schema)).unwrap();
+        let (size, breaks) = (800, 5);
+        let lines: String = (0..size)
+            .map(|index| format!("{}\n", naming_filler(language, index).0))
+            .collect();
+        let good = match language.label() {
+            "JSON" => text.replacen("{\n", &format!("{{\n{lines}"), 1),
+            _ => format!("{lines}{text}"),
+        };
+        assert!(codec::read(language.behavior(), &good, Some(&schema)).is_ok());
+        let pairs: Vec<(String, String)> = (0..breaks)
+            .map(|at| naming_filler(language, 1 + at * (size - 2) / breaks))
+            .map(|(good, bad)| (format!("{good}\n"), format!("{bad}\n")))
+            .collect();
+        // The line scan reaches the locked fields below every line naming
+        // their keys.
+        let broken_text = broken(&good, &pairs);
+        let scanned = super::scan::written(
+            language.behavior(),
+            &broken_text,
+            &super::locate::LineIndex::new(&broken_text),
+            None,
+            &["id".to_string(), "meta".to_string()],
+        );
+        for locked in LOCKED {
+            assert!(
+                scanned.iter().any(|field| field.pointer == locked),
+                "{language}: the scan missed {locked}"
+            );
+        }
+        let (id_line, copied) = copied_id(language);
+        for from in [From::Schema, From::Paths] {
+            for arrival in [Arrival::Broken, Arrival::PathsAfter, Arrival::UserBreaks] {
+                if matches!(arrival, Arrival::PathsAfter) && matches!(from, From::Schema) {
+                    continue;
+                }
+                let tag = format!("{language} ({from:?}, {arrival:?})");
+                let (shown, protected) =
+                    arrive(language, &good, &pairs, from, arrival, &mut failures);
+                let copy = shown.replacen(id_line, copied, 1);
+                let tampers = edits(language, &shown)
+                    .into_iter()
+                    .filter(|(what, _, _)| TAMPERS.contains(what))
+                    .filter_map(|(what, edited, _)| Some((what, edited?)))
+                    .chain([("copy the locked line with another value", copy)]);
+                for (what, edited) in tampers {
+                    if !allowed(language, &shown, &edited, &protected) {
+                        continue;
+                    }
+                    tampered += 1;
+                    let carried = locks(language, &edited, from, true, Some(&protected));
+                    let (reached, _) = repair_all(language, edited, carried.clone(), &pairs, from);
+                    let Ok(read) = codec::read(language.behavior(), &reached, Some(&schema)) else {
+                        continue;
+                    };
+                    let held = locks(language, &reached, from, true, Some(&carried)).held;
+                    for pointer in LOCKED {
+                        if read.pointer(pointer) != original.pointer(pointer)
+                            && !held.iter().any(|known| known == pointer)
+                        {
+                            failures.push(format!(
+                                "{tag}: {what}, then repaired: {pointer} reads {:?}",
+                                read.pointer(pointer)
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    assert!(
+        failures.is_empty(),
+        "{} failures:\n{failures:#?}\n({tampered} tampering edits went through while broken)",
+        failures.len()
+    );
+}
