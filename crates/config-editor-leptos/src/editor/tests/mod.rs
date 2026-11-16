@@ -201,6 +201,14 @@ mod moved_maps_nested;
     feature = "hcl",
     feature = "xml"
 ))]
+mod moved_through_text;
+#[cfg(all(
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
 mod renamed_moves_memory;
 // Observes what every setting switches, so it needs every optional feature.
 #[cfg(all(feature = "yaml", feature = "toml", feature = "schema-validation"))]

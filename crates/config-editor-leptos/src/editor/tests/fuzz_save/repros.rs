@@ -2465,3 +2465,33 @@ fn a_zero_typed_after_a_copied_float_is_saved_as_typed() {
         ],
     );
 }
+
+/// P3: an HCL template moved by a cut and paste in a YAML view stays a
+/// template in the save.
+#[test]
+fn an_hcl_template_cut_and_pasted_in_yaml_stays_a_template() {
+    replay(
+        Language::HCL,
+        Language::YAML,
+        "resource \"aws_subnet\" \"main\" {\n  vpc_id     = aws_vpc.main.id # the vpc\n  cidr_block = cidrsubnet(var.cidr, 8, 1)\n  tags = { Name = \"main-${var.env}\", Tier = \"app\" }\n}\nlocals {\n  count = 3\n  names = [\"a\", \"b\"]\n  script = <<EOT\n#!/bin/sh\necho hi\nEOT\n}\nmodule \"web\" {\n  source = \"./web\"\n  size   = var.big ? 3 : 1\n  ami = data.aws_ami.ubuntu.id\n}\n",
+        &[
+            Op::Cut {
+                line: 6,
+                how: Take::Entry,
+            },
+            Op::Paste {
+                line: 35,
+                how: Put::OverLine,
+            },
+            Op::Pause,
+            Op::Cut {
+                line: 55,
+                how: Take::Text,
+            },
+            Op::Paste {
+                line: 57,
+                how: Put::Before,
+            },
+        ],
+    );
+}

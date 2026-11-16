@@ -700,6 +700,7 @@ pub(super) fn convert_now(state: EditorState, text: String, language: Language) 
         // The links are the text on screen's.
         let on_screen = state.doc().text.with_untracked(|current| *current == text)
             && state.sync().edit_language.get_untracked() == language;
+        let mut loose = None;
         let result = match known {
             Some(host) => Ok(host),
             None => {
@@ -711,7 +712,10 @@ pub(super) fn convert_now(state: EditorState, text: String, language: Language) 
                 } else {
                     Default::default()
                 };
-                bridge.to_host_linked(&text, &previous, &origin, told.as_ref(), &untouched)
+                let saved =
+                    bridge.to_host_linked(&text, &previous, &origin, told.as_ref(), &untouched);
+                loose = told.map(|told| told.loose);
+                saved
             }
         };
         // However the edit got there, the gate decides whether the host
@@ -735,7 +739,13 @@ pub(super) fn convert_now(state: EditorState, text: String, language: Language) 
         state.note_in_sync(result.is_ok());
         if let Ok(saved) = result {
             if on_screen {
-                let links = Links::fresh(&saved, &text, Some(bridge.reading()));
+                let mut links = state.sync().links.get_value();
+                let links = links.saved(
+                    language.behavior(),
+                    (&saved, &text),
+                    Some(bridge.reading()),
+                    loose,
+                );
                 state.sync().links.set_value(links);
             }
             let changed = saved != previous;
