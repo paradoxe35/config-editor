@@ -608,8 +608,8 @@ pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionConte
             path,
             typed,
             replace_start: crate::editor::paths::units_at(source, current_line_start),
-            // A lookup while a batch asks many places (a count of the text
-            // before it for each was quadratic, QA 36).
+            // A lookup while a batch asks many places (counting
+            // the text before each place again would be quadratic).
             replace_end: crate::editor::paths::units_at(source, if splits || entry_after_space { caret_byte + gap } else { replace_end_byte.min(source.len()) }),
             entry_prefix: siblings.clone(),
             entry_suffix: if splits || entry_after_space { format!("\n{siblings}") } else { String::new() },

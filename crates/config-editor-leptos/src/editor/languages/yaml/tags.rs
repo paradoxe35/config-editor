@@ -44,17 +44,12 @@ fn tags_read(source: &str) -> Vec<(String, String)> {
                 entries
                     .iter()
                     .rev()
-                    .map(|(key, item)| (format!("{pointer}/{}", escape(key)), item)),
+                    .map(|(key, item)| (format!("{pointer}/{}", crate::editor::language::pointer_key(key)), item)),
             ),
             _ => {}
         }
     }
     found
-}
-
-/// `key` as a JSON pointer segment.
-fn escape(key: &str) -> String {
-    crate::editor::language::pointer_key(key)
 }
 
 #[cfg(test)]

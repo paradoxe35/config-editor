@@ -219,7 +219,7 @@ fn plain(value: Value, at: &str, data: bool) -> Result<Value, String> {
         Value::Object(map) => Value::Object(
             map.into_iter()
                 .map(|(key, child)| {
-                    let place = format!("{at}/{}", escape(&key));
+                    let place = format!("{at}/{}", crate::editor::language::pointer_key(&key));
                     if !data {
                         read_as_null(&key, &child, &place)?;
                     }
@@ -273,9 +273,4 @@ fn read_as_null(key: &str, child: &Value, place: &str) -> Result<(), String> {
         )),
         _ => Ok(()),
     }
-}
-
-/// A JSON pointer segment for `key`.
-fn escape(key: &str) -> String {
-    crate::editor::language::pointer_key(key)
 }

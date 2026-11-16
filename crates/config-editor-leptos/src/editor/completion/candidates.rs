@@ -19,7 +19,10 @@ pub(super) fn numeric_example_as_number(value: Value, numeric_allowed: bool) -> 
     value
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "one suggestion run's place, schema and language, passed as they are read"
+)]
 pub(super) fn value_completions(
     here: &Here<'_>,
     typed: &str,
@@ -233,7 +236,10 @@ pub(super) fn default_selection(
 
 /// The keys offered for the object `here` is what applies to (walked for
 /// its keys and value).
-#[allow(clippy::too_many_arguments)]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "one suggestion run's place, schema and language, passed as they are read"
+)]
 pub(super) fn property_completions(
     here: &Here<'_>,
     typed: &str,
@@ -471,7 +477,10 @@ pub(crate) fn completions_for(
 /// [`completions_for`] with the text's multi-line string bodies already
 /// found (`Text::string_body_lines`): the live editor keeps them
 /// in a memo, so a keystroke does not parse the whole document for them.
-#[allow(clippy::too_many_arguments)]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "one suggestion run's place, schema and language, passed as they are read"
+)]
 pub(crate) fn completions_in(
     source: &str,
     cursor: usize,

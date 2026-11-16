@@ -2540,249 +2540,139 @@ impl dyn ConfigLanguage {
 
     /// See [`Markup::closing_markup_len`].
     pub fn closing_markup_len(&self, text: &str) -> Option<usize> {
-        match self.markup() {
-            Some(group) => group.closing_markup_len(text),
-            None => {
-                let _ = text;
-                None
-            }
-        }
+        self.markup()
+            .and_then(|group| group.closing_markup_len(text))
     }
 
     /// See [`Markup::key_markup_len`].
     pub fn key_markup_len(&self, text: &str) -> Option<usize> {
-        match self.markup() {
-            Some(group) => group.key_markup_len(text),
-            None => {
-                let _ = text;
-                None
-            }
-        }
+        self.markup().and_then(|group| group.key_markup_len(text))
     }
 
     /// See [`Markup::element_end`].
     pub fn element_end(&self, text: &str, open: usize) -> Option<usize> {
-        match self.markup() {
-            Some(group) => group.element_end(text, open),
-            None => {
-                let _ = (text, open);
-                None
-            }
-        }
+        self.markup()
+            .and_then(|group| group.element_end(text, open))
     }
 
     /// See [`Markup::content_texts`].
     pub fn content_texts(&self, text: &str) -> Vec<std::ops::Range<usize>> {
-        match self.markup() {
-            Some(group) => group.content_texts(text),
-            None => {
-                let _ = text;
-                Vec::new()
-            }
-        }
+        self.markup()
+            .map(|group| group.content_texts(text))
+            .unwrap_or_default()
     }
 
     /// See [`Markup::space_is_content`].
     pub fn space_is_content(&self, before: &str, after: &str) -> bool {
-        match self.markup() {
-            Some(group) => group.space_is_content(before, after),
-            None => {
-                let _ = (before, after);
-                false
-            }
-        }
+        self.markup()
+            .is_some_and(|group| group.space_is_content(before, after))
     }
 
     /// See [`Markup::writes_container_on_line`].
     pub fn writes_container_on_line(&self, line: &str) -> bool {
-        match self.markup() {
-            Some(group) => group.writes_container_on_line(line),
-            None => {
-                let _ = line;
-                false
-            }
-        }
+        self.markup()
+            .is_some_and(|group| group.writes_container_on_line(line))
     }
 
     /// See [`Markup::text_key`].
     pub fn text_key(&self) -> Option<&'static str> {
-        match self.markup() {
-            Some(group) => group.text_key(),
-            None => None,
-        }
+        self.markup().and_then(Markup::text_key)
     }
 
     /// See [`Markup::mixed_content`].
     pub fn mixed_content(&self, source: &str) -> Option<String> {
-        match self.markup() {
-            Some(group) => group.mixed_content(source),
-            None => {
-                let _ = source;
-                None
-            }
-        }
+        self.markup().and_then(|group| group.mixed_content(source))
     }
 
     /// See [`Markup::merged_keys`].
     pub fn merged_keys(&self, source: &str) -> Option<String> {
-        match self.markup() {
-            Some(group) => group.merged_keys(source),
-            None => {
-                let _ = source;
-                None
-            }
-        }
+        self.markup().and_then(|group| group.merged_keys(source))
     }
 
     /// See [`Markup::unconvertible`].
     pub fn unconvertible(&self, source: &str) -> Option<String> {
-        match self.markup() {
-            Some(group) => group.unconvertible(source),
-            None => {
-                let _ = source;
-                None
-            }
-        }
+        self.markup().and_then(|group| group.unconvertible(source))
     }
 
     /// See [`Markup::required_property`].
     pub fn required_property<'a>(&self, name: &'a str) -> &'a str {
-        match self.markup() {
-            Some(group) => group.required_property(name),
-            None => name,
-        }
+        self.markup()
+            .map_or(name, |group| group.required_property(name))
     }
 
     /// See [`Markup::spelled_like`].
     pub fn spelled_like(&self, source: &str, read: Value, like: &Value) -> Value {
         match self.markup() {
             Some(group) => group.spelled_like(source, read, like),
-            None => {
-                let _ = (source, like);
-                read
-            }
+            None => read,
         }
     }
 
     /// See [`Markup::items_hold_unshown`].
     pub fn items_hold_unshown(&self, source: &str) -> bool {
-        match self.markup() {
-            Some(group) => group.items_hold_unshown(source),
-            None => {
-                let _ = source;
-                false
-            }
-        }
+        self.markup()
+            .is_some_and(|group| group.items_hold_unshown(source))
     }
 
     /// See [`Markup::has_processing_instructions`].
     pub fn has_processing_instructions(&self, source: &str) -> bool {
-        match self.markup() {
-            Some(group) => group.has_processing_instructions(source),
-            None => {
-                let _ = source;
-                false
-            }
-        }
+        self.markup()
+            .is_some_and(|group| group.has_processing_instructions(source))
     }
 
     /// See [`Sharing::detach_shared`].
     pub fn detach_shared(&self, previous: &str, old: &Value, new: &Value) -> Option<String> {
-        match self.sharing() {
-            Some(group) => group.detach_shared(previous, old, new),
-            None => {
-                let _ = (previous, old, new);
-                None
-            }
-        }
+        self.sharing()
+            .and_then(|group| group.detach_shared(previous, old, new))
     }
 
     /// See [`Sharing::written_at`].
     pub fn written_at(&self, source: &str, pointer: &str) -> Option<String> {
-        match self.sharing() {
-            Some(group) => group.written_at(source, pointer),
-            None => {
-                let _ = (source, pointer);
-                None
-            }
-        }
+        self.sharing()
+            .and_then(|group| group.written_at(source, pointer))
     }
 
     /// See [`Sharing::references_back`].
     pub fn references_back(&self, saved: &str, origin: &str) -> Option<String> {
-        match self.sharing() {
-            Some(group) => group.references_back(saved, origin),
-            None => {
-                let _ = (saved, origin);
-                None
-            }
-        }
+        self.sharing()
+            .and_then(|group| group.references_back(saved, origin))
     }
 
     /// See [`Sharing::reference_len`].
     pub fn reference_len(&self, text: &str) -> Option<usize> {
-        match self.sharing() {
-            Some(group) => group.reference_len(text),
-            None => {
-                let _ = text;
-                None
-            }
-        }
+        self.sharing().and_then(|group| group.reference_len(text))
     }
 
     /// See [`Sharing::value_properties_len`].
     pub fn value_properties_len(&self, text: &str) -> usize {
-        match self.sharing() {
-            Some(group) => group.value_properties_len(text),
-            None => {
-                let _ = text;
-                0
-            }
-        }
+        self.sharing()
+            .map_or_else(|| 0, |group| group.value_properties_len(text))
     }
 
     /// See [`Sharing::tags`].
     pub fn tags(&self, source: &str) -> Vec<(String, String)> {
-        match self.sharing() {
-            Some(group) => group.tags(source),
-            None => {
-                let _ = source;
-                Vec::new()
-            }
-        }
+        self.sharing()
+            .map(|group| group.tags(source))
+            .unwrap_or_default()
     }
 
     /// See [`Sharing::flow_map_opener`].
     pub fn flow_map_opener(&self, code: &str) -> bool {
-        match self.sharing() {
-            Some(group) => group.flow_map_opener(code),
-            None => {
-                let _ = code;
-                false
-            }
-        }
+        self.sharing()
+            .is_some_and(|group| group.flow_map_opener(code))
     }
 
     /// See [`Sharing::document_marker`].
     pub fn document_marker(&self, code: &str) -> bool {
-        match self.sharing() {
-            Some(group) => group.document_marker(code),
-            None => {
-                let _ = code;
-                false
-            }
-        }
+        self.sharing()
+            .is_some_and(|group| group.document_marker(code))
     }
 
     /// See [`Sharing::expressions`].
     pub fn expressions(&self, source: &str) -> Vec<String> {
-        match self.sharing() {
-            Some(group) => group.expressions(source),
-            None => {
-                let _ = source;
-                Vec::new()
-            }
-        }
+        self.sharing()
+            .map(|group| group.expressions(source))
+            .unwrap_or_default()
     }
 
     /// What the language repeats to write a list (see [`Repeats`]), or

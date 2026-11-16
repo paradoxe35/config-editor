@@ -189,10 +189,9 @@ mod tests {
     use crate::Language;
     use crate::editor::work_count::{Work, counted};
 
-    /// QA 22: every keystroke in a long XML document built the path of
-    /// each of its elements (each a copy of its parent's) for the caret's
-    /// suggestions, a long task at 6000 lines. Only the caret's element
-    /// and its ancestors are built.
+    /// A keystroke in a long XML document builds the paths of the
+    /// caret's element and its ancestors only, not of each element (each
+    /// a copy of its parent's: a long task at 6000 lines).
     #[test]
     fn the_caret_builds_only_its_own_elements_path() {
         let mut text = String::from("<root>\n");
