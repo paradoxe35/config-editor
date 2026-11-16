@@ -134,6 +134,12 @@ impl ProtectState {
         Vec::new()
     }
 
+    /// Whether the lock tooltip shows: never, with no locks.
+    #[cfg(test)]
+    pub(crate) fn tip_open(&self) -> bool {
+        false
+    }
+
     pub(super) fn track(&self) {}
 
     pub(super) fn hide_tip(&self, _hover_only: bool) {}
