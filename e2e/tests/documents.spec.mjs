@@ -474,7 +474,7 @@ const example = (name) => pathToFileURL(join(js, 'examples', name)).href;
 test.describe('JS example documents.html: the "+" and documents added later', () => {
   test.skip(!built, 'js packages not built: run `npm run build` in js/');
 
-  // QA 23: a "+" the host did not answer stayed armed, and a document a
+  // A "+" the host did not answer stayed armed, and a document a
   // server pushed later took the selection and the focus from a field of
   // the page.
   test('only the document added in answer to the "+" is selected; one pushed after the focus left is not', async ({ page }) => {
@@ -507,7 +507,7 @@ test.describe('JS example documents.html: the "+" and documents added later', ()
     await expect.poll(() => focusedDocument(page)).toBe('answer');
   });
 
-  // QA 24: clicking or typing in the document's editor after the "+" left
+  // Clicking or typing in the document's editor after the "+" left
   // the request waiting: a document pushed then took the next keys.
   for (const how of ['click', 'type']) {
     test(`a "+" the user goes on from (${how} in the editor) selects no document added later`, async ({ page }) => {
@@ -559,7 +559,7 @@ const big = `${Array.from({ length: 200 }, (_, index) => `k${index}: ${index}`).
 test.describe('JS example documents.html: sizing and focus from code', () => {
   test.skip(!built, 'js packages not built: run `npm run build` in js/');
 
-  // QA 24: with `height: 100%` the strip collapsed to a pixel and the
+  // With `height: 100%` the strip collapsed to a pixel and the
   // editor ran past the container.
   for (const count of [1, 3]) {
     test(`height 100% fills a 60vh container: the strip shows, the editor fills the rest (${count} document${count > 1 ? 's' : ''})`, async ({ page }) => {
@@ -597,7 +597,7 @@ test.describe('JS example documents.html: sizing and focus from code', () => {
     expect(heights.surface).toBeGreaterThanOrEqual(200);
   });
 
-  // QA 24: at phone width long names sharing a start were cut alike.
+  // At phone width long names sharing a start were cut alike.
   test('at phone width long names sharing a start keep the end that tells them apart', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 700 });
     const names = ['conf.d/service-config-production.yaml', 'conf.d/service-config-staging.yaml'];
@@ -615,7 +615,7 @@ test.describe('JS example documents.html: sizing and focus from code', () => {
     expect(ends.some(({ cut }) => cut)).toBe(true);
   });
 
-  // QA 24: on a document not shown they answered true and did nothing.
+  // On a document not shown they answered true and did nothing.
   for (const call of ['reveal', 'revealRange', 'focus']) {
     test(`${call} on the editor of a document not shown selects it first`, async ({ page }) => {
       await sizedView(page, '', [{ id: 'a', fileName: 'a.yaml', value: big }, { id: 'b', fileName: 'b.yaml', value: big }]);

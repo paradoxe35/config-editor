@@ -34,7 +34,7 @@ async function select(page, text, from, to) {
   return e;
 }
 
-// QA round 21 typing: a YAML block scalar holding an empty line froze the
+// A YAML block scalar holding an empty line froze the
 // tab (loading it, Enter in it, Edit as YAML of a string with a blank line);
 // copy and cut on a folded header take the whole block; Enter on an empty
 // `- ` item and inside a flow sequence; XML's `</` and an attribute quote
@@ -246,7 +246,7 @@ test.describe(() => {
     test('a closing tag typed closes the open element instead of renaming it', async ({ page }) => {
       const e = await at(page, '<websocket>\n  <path>/x</path>\n  ¦');
       // `</` writes the open element's end tag, lined up with its start tag
-      // (round 21); the name typed after it types over it.
+      //; the name typed after it types over it.
       await page.keyboard.type('</we');
       expect(await e.value()).toBe('<websocket>\n  <path>/x</path>\n</websocket>');
       await page.keyboard.press('Enter');
@@ -301,7 +301,7 @@ test.describe('HCL typing', () => {
   });
 });
 
-// QA round 23 editing: HCL's `${` and `%{` close inside a heredoc body as
+// HCL's `${` and `%{` close inside a heredoc body as
 // in a quoted string (the key handler skipped what the language closes
 // in every multi-line string body), typed over and deleted with their
 // opener; brackets there still do not pair.

@@ -3,7 +3,7 @@ import { replay } from '../runner.mjs';
 
 // Shrunk by the browser fuzz from seed 15 on documents-react.
 // Fails the `secret-cross` check after step 0: main: line 2 "public_address: tunnel.«secret 9b1c»example.com" holds another document's «secret 9b1c», and no problem is listed there
-test('GP38-4 documents-react: secret-cross (seed 15)', async ({ browser }) => {
+test('documents-react: secret-cross (seed 15)', async ({ browser }) => {
   await replay(
     browser,
     'documents-react',

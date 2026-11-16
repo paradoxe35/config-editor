@@ -3,7 +3,7 @@ import { replay } from '../runner.mjs';
 
 // Shrunk by the browser fuzz from seed 31 on vanilla.
 // Fails the `value-text` check after step 3: value "# Tunnel server configuration\nlisten: 7835\npublic_address: tunnel.example.com\ninsecure_plaintext: false\n" text "# Tunnel server configuration\nlisten: 7835\npublic_address: tunnel.example.com\nΩnsecure_plaintext: false\n"
-test('GP38-5 vanilla: value-text (seed 31)', async ({ browser }) => {
+test('vanilla: value-text (seed 31)', async ({ browser }) => {
   await replay(
     browser,
     'vanilla',

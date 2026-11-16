@@ -89,7 +89,7 @@ async function mountEchoing(page, host, delay) {
   );
 }
 
-// QA round 27 (host API). A host echoing `value` late (a store that
+// A host echoing `value` late (a store that
 // re-renders after a delay) never rolls typing back, in a ConfigEditor and a
 // ConfigDocuments with one or several documents, while a text of the host's
 // own still wins; `destroy()` works from a callback a method of the same
@@ -120,7 +120,7 @@ test.describe('host API', () => {
     expect(failures).toEqual([]);
     expect(page.errors).toEqual([]);
   });
-  // A host still handing back every text it was sent (round 29: a text of
+  // A host still handing back every text it was sent (a text of
   // its own given through `update` makes the texts sent before it its own
   // too, so going back to one applies) resets through `replaceValue`.
   test("a host text of its own set with replaceValue still wins over echoes on their way, and the host hears the document again", async ({ page }) => {
@@ -178,7 +178,7 @@ test.describe('host API', () => {
 
 // A group of its own (its own helpers).
 test.describe(() => {
-  // QA round 28 (host API). By default every `value` a host gives applies: a
+  // By default every `value` a host gives applies: a
   // host that only saves `onChange` texts switches files, discards and resets
   // with `update`, however soon after typing. A host that hands every text
   // back says so with `echoes: true`: its echoes, late and in any order, never
@@ -372,7 +372,7 @@ test.describe(() => {
   /** What the page shows and its host stores once the echoes are back. */
   const settled = (page) => page.evaluate(() => ({ text: window.textOf(), store: window.store }));
 
-  /** Types the QA's sequence: letters, backspaces, more letters, an undo. */
+  /** Types a sequence: letters, backspaces, more letters, an undo. */
   async function typeSequence(page) {
     await page.keyboard.type('abcdefghij', { delay: 25 });
     await page.keyboard.press('Backspace');
@@ -683,7 +683,7 @@ test.describe(() => {
 
 // A group of its own (its own helpers).
 test.describe(() => {
-  // QA round 29 (host API). A text the host gives of its own replaces the
+  // A text the host gives of its own replaces the
   // document, and the texts the editor sent before it belong to the text it
   // replaced: going back to one of them (a file picker back on the first
   // file) applies, with `echoes: true` (ConfigEditor, ConfigDocuments) and in
@@ -747,7 +747,7 @@ test.describe(() => {
 
   const shownText = (page) => page.evaluate(() => document.querySelector('.config-editor__input').value);
 
-  // --- H29-1: a file picker over one editor. -----------------------------------
+  // --- a file picker over one editor. -----------------------------------
 
   // How the parent stores each edit of the file shown and renders it back:
   // - debounce: stored at once, rendered 300 ms after the last edit (a switch
@@ -816,7 +816,7 @@ test.describe(() => {
 
   const PICKED = { onB: 'b: 2\n', backOnA: 'a: 19\n', backOnB: 'b: 27\n', files: { A: 'a: 19\n', B: 'b: 27\n' } };
 
-  // --- H29-2: ranges given with a skipped echo. --------------------------------
+  // --- ranges given with a skipped echo. --------------------------------
 
   const START = `name: web\nid: srv-42\nnote: ${'x'.repeat(30)}\n`;
 
@@ -1030,7 +1030,7 @@ test.describe(() => {
 
 // A group of its own (its own helpers).
 test.describe(() => {
-  // QA round 30 (documents view): the handle's `setValue` wins over echoes
+  // The handle's `setValue` wins over echoes
   // still on their way in every framework (React's render right after it
   // listed the text it replaced, which rolled it back); a `replaceValue`
   // leaves the language another document is edited as; a host reordering the
@@ -1057,7 +1057,7 @@ test.describe(() => {
     await page.locator('.config-editor__input').first().waitFor();
   }
 
-  // --- setValue against echoes still on their way (F30-2). --------------------
+  // --- setValue against echoes still on their way. --------------------
 
   /** The orders the held echoes come back in: all at once backwards or in
    * order, or one at a time backwards. */
@@ -1169,14 +1169,14 @@ test.describe(() => {
   }
 
 
-  // --- HO32-3: in Edit-as, `update({ value })` with the text the host stored
+  // --- in Edit-as, `update({ value })` with the text the host stored
   // from onChange, during the typing pause, keeps what was typed (the update
   // first sends the edit to onChange, then used to apply the older value), with
   // and without echoes; one call, and a host rendering on a timer while the
   // user types. -------------------------------------------------------------------
 
   for (const echoes of [false, true]) {
-    test(`HO32-3: a stored text given back during the Edit-as pause keeps the typing (echoes ${echoes})`, async ({ page }) => {
+    test(`a stored text given back during the Edit-as pause keeps the typing (echoes ${echoes})`, async ({ page }) => {
       test.skip(!built, 'run `npm run build` in js/ first');
       await open(page);
       // One call, right after a key.
@@ -1226,13 +1226,13 @@ test.describe(() => {
     });
   }
 
-  // --- HO32-5: with echoes, a store that writes each text another way (the
+  // --- with echoes, a store that writes each text another way (the
   // byte order mark dropped, LF for CRLF) hands back echoes the editor still
   // tells apart: typing in a BOM and CRLF document is never rolled back, and
   // the document keeps its own form. -----------------------------------------------
 
   for (const store of ['strip-bom', 'crlf-to-lf']) {
-    test(`HO32-5: echoes written another way keep the typing (${store})`, async ({ page }) => {
+    test(`echoes written another way keep the typing (${store})`, async ({ page }) => {
       test.skip(!built, 'run `npm run build` in js/ first');
       await open(page);
       await page.evaluate((store) => {

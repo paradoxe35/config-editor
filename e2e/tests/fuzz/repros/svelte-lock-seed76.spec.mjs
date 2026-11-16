@@ -1,12 +1,12 @@
 import { test } from '@playwright/test';
 import { replay } from '../runner.mjs';
 
-// Shrunk by the browser fuzz from seed 76 on react.
+// Shrunk by the browser fuzz from seed 76 on svelte.
 // Fails the `lock` check after step 5: locked "public_address: tunnel.example.com\n" gone from "# Tunnel server configuration\nlisten: 7835\ninsecure_plaintext: \npublic_address: tunnel.example.com "
-test('BR38-3 react: lock (seed 76)', async ({ browser }) => {
+test('svelte: lock (seed 76)', async ({ browser }) => {
   await replay(
     browser,
-    'react',
+    'svelte',
     '',
     [
       {

@@ -141,7 +141,7 @@ test.describe('a never-shown document with an Edit-as text', () => {
   });
 });
 
-// QA round 37 (HO37-4): in the same task as `new ConfigDocuments(...)`, a
+// In the same task as `new ConfigDocuments(...)`, a
 // document with `editAsText` answers as after a pause: `isDirty`,
 // `saveAll()`, `editor(id).save()` and what it sends, `value`,
 // `unifiedDiff`. Before, until one tick it answered as if the text were

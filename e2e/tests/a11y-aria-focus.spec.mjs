@@ -42,19 +42,19 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const built = existsSync(join(root, 'js', 'config-editor', 'pkg', 'config_editor_bg.wasm'));
 
 // Every example page (found on disk, so a new page is covered by itself): one
-// heading, one main landmark and no control under 24x24 (A35-3, A36-1).
+// heading, one main landmark and no control under 24x24.
 const examples = join(root, 'js', 'examples');
 
-// Accessibility fixes found by QA, as a user meets them:
-//  - D1.a11y-1 / D21.a11y-1: the demo's "Unsaved changes" question is a
+// Accessibility fixes, as a user meets them:
+//  - the demo's "Unsaved changes" question is a
 //    modal dialog (focus in, Tab kept inside, Escape cancels, focus back,
 //    inside the window at 400% zoom);
-//  - D2.a11y-1: a refused save is said through the live region;
-//  - D3.ux-1: Ctrl+K Ctrl+I and a tap on a read-only key show its docs card
+//  - a refused save is said through the live region;
+//  - Ctrl+K Ctrl+I and a tap on a read-only key show its docs card
 //    and say why it is read-only;
-//  - D4.a11y-1: a user's line-height (WCAG 1.4.12) moves the painted rows
+//  - a user's line-height (WCAG 1.4.12) moves the painted rows
 //    with the textarea's lines.
-test.describe("the unsaved-changes question is a modal dialog (D1.a11y-1, D21.a11y-1)", () => {
+test.describe("the unsaved-changes question is a modal dialog", () => {
   setupEditor(test, "?documents");
 
   test("from the keyboard: focus moves in, Tab stays inside, Escape cancels and focus goes back", async ({
@@ -88,7 +88,7 @@ test.describe("the unsaved-changes question is a modal dialog (D1.a11y-1, D21.a1
     ).toHaveValue(/# unsaved$/);
   });
 
-  // QA 30 (A30-2): it starts on the choice that loses nothing, names the
+  // It starts on the choice that loses nothing, names the
   // tab's file and describes itself.
   test("it starts on Cancel, names the tab's file and has its message as description", async ({
     page,
@@ -179,7 +179,7 @@ test.describe('the suggestion list, for screen readers', () => {
     await page.keyboard.press('Escape');
     await expect(list.locator('[role="option"]')).toHaveCount(0);
     await expect(e.input).not.toHaveAttribute('aria-activedescendant', /./);
-    // Closed: it controls no list (QA 23: the open state shows by it).
+    // Closed: it controls no list (the open state shows by it).
     await expect(e.input).not.toHaveAttribute('aria-controls', /./);
   });
 });
@@ -207,7 +207,7 @@ test.describe(() => {
 
   test.skip(!built, 'run `npm run build` in js/ first');
 
-  test.describe('U21-8: the textarea, Ctrl+K Ctrl+I, docs links and the footer', () => {
+  test.describe('the textarea, Ctrl+K Ctrl+I, docs links and the footer', () => {
     test.use({ viewport: { width: 1000, height: 600 } });
     test('the textarea is a multi-line text box; the open list shows through aria-controls, not aria-expanded', async ({ page }) => {
       const errors = await open(page, { value: 'port: 1\n', schema: JSON.stringify({ type: 'object', properties: { port: {}, host: {} } }) });
@@ -237,7 +237,7 @@ test.describe(() => {
 
 // A group of its own (needs the built npm packages).
 test.describe(() => {
-  // QA round 23 (accessibility): closing a tab with Delete keeps the focus on
+  // Closing a tab with Delete keeps the focus on
   // the tabs; the hover card's Documentation link is reached by Alt+Enter,
   // named to screen readers and reached by Tab in `Ctrl+M` mode; the editor
   // stays left to right in a right-to-left page; forced colors mark the
@@ -266,7 +266,7 @@ test.describe(() => {
 
   test.skip(!built, 'run `npm run build` in js/ first');
 
-  test.describe('L23-A4: the open suggestion list', () => {
+  test.describe('the open suggestion list', () => {
     test('the textarea controls the list only while it is open', async ({ page }) => {
       const errors = await open(page, 'vanilla.html', {
         value: 'port: 1\n',
@@ -314,11 +314,11 @@ test.describe(() => {
   test.skip(!built, 'run `npm run build` in js/ first');
   test.use({ viewport: { width: 900, height: 500 } });
 
-  // L26-U3: the notice that the text changed outside the editor said how to
+  // The notice that the text changed outside the editor said how to
   // reach its choices with F6 on a touch screen too, where they are tapped
   // (as the footer's hint says "tap" there).
   for (const touch of [true, false]) {
-    test.describe(`L26-U3 ${touch ? 'touch' : 'mouse'}`, () => {
+    test.describe(`in ${touch ? 'touch' : 'mouse'}`, () => {
       test.use(touch ? { viewport: { width: 360, height: 700 }, hasTouch: true, isMobile: true } : {});
       test('the changed-outside notice names F6 only with a keyboard', async ({ page }) => {
         const errors = await open(page, { value: 'listen: 7835\n' });
@@ -366,7 +366,7 @@ test.describe(() => {
   });
 });
 
-test.describe('aria-keyshortcuts (A31-2)', () => {
+test.describe('aria-keyshortcuts', () => {
   setupEditor(test, '?language=yaml');
 
   test('names the line, comment, fold and move chords the README lists', async ({ page }) => {
@@ -380,7 +380,7 @@ test.describe('aria-keyshortcuts (A31-2)', () => {
   });
 });
 
-test.describe('Ctrl+M in an editable editor (A32-1)', () => {
+test.describe('Ctrl+M in an editable editor', () => {
   setupEditor(test, '');
 
   test('switches Tab and is named', async ({ page }) => {
@@ -394,7 +394,7 @@ test.describe('Ctrl+M in an editable editor (A32-1)', () => {
 });
 
 for (const name of readdirSync(examples).filter((file) => file.endsWith('.html')).sort()) {
-  test.describe(`${name} (A35-3, A36-1)`, () => {
+  test.describe(`${name}`, () => {
     test.skip(!built, 'js packages not built: run `npm run build` in js/');
 
     test('has a heading, a main landmark and controls of 24px', async ({ page }) => {

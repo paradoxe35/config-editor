@@ -7,7 +7,7 @@ import { FRAMEWORK_PAGES } from './helpers.mjs';
 // However many texts the editor sent wait for their echo (a busy page: a
 // host's echo timers queued behind thousands of keys), each echo is told
 // from the host's own text, in order or not: none rolls the document back,
-// and the host ends on the document (QA 29: past 256 waiting, the oldest
+// and the host ends on the document (past 256 waiting, the oldest
 // was forgotten and its echo taken for the host's text, losing what was
 // typed since). For `echoes: true` (ConfigEditor, ConfigDocuments) and the
 // framework components (`ValueSync`). The host holds every echo until all

@@ -5,7 +5,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 // A shown document's dirty state follows `update({ documents })` in the same
 // task, as a hidden one's does: `isDirty` and `saveAll()` right after the
-// update act on the new text and baseline (round 15's `D15.host-1`: one
+// update act on the new text and baseline (one
 // microtask late, so a same-task `saveAll()` saved the stale set).
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');

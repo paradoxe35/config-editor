@@ -5,12 +5,12 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { setupEditor } from './helpers.mjs';
 
 // Focus is never dropped to BODY when the focused control goes away: a
-// footer count emptied or removed by a host text (D13.a11y-2), a change
-// preview a host push edits away (D18.a11y-1), a fold chip or chevron a host
-// update moves (D15.a11y-1), the Edit-as notice's Dismiss (D12.a11y-2), the
-// demo's "Apply changes" (D20.a11y-1), and, in a documents view, tabs the host
-// reorders (D9.a11y-1), an unselected tab closed (D16.a11y-2) and the last
-// tab closed (D22.a11y-1). One keeper (`focus::keep_focus`) serves them all.
+// footer count emptied or removed by a host text, a change
+// preview a host push edits away, a fold chip or chevron a host
+// update moves, the Edit-as notice's Dismiss, the
+// demo's "Apply changes", and, in a documents view, tabs the host
+// reorders, an unselected tab closed and the last
+// tab closed. One keeper (`focus::keep_focus`) serves them all.
 
 const js = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'js');
 const built = existsSync(join(js, 'config-editor', 'pkg', 'config_editor_bg.wasm'));
@@ -55,7 +55,6 @@ test.describe('a control of the editor that goes while it has the focus', () => 
 
   test.beforeEach(async ({ page }) => openExample(page, 'vanilla.html'));
 
-  // D13.a11y-2
   test('the problem status emptied by a host text hands the focus to the text', async ({ page }) => {
     await page.evaluate(() => window.editor.update({ value: 'a: [1\n' }));
     const status = page.locator('.config-editor__diagnostic-status');
@@ -67,7 +66,6 @@ test.describe('a control of the editor that goes while it has the focus', () => 
     await onText(page);
   });
 
-  // D13.a11y-2
   test('the change count removed by a host text hands the focus to the text', async ({ page }) => {
     await input(page).click();
     await page.keyboard.press('Control+End');
@@ -81,7 +79,6 @@ test.describe('a control of the editor that goes while it has the focus', () => 
     await onText(page);
   });
 
-  // D18.a11y-1
   test('a change preview a host push edits away hands the focus to the text', async ({ page }) => {
     await input(page).click();
     await page.keyboard.press('Control+End');
@@ -96,7 +93,6 @@ test.describe('a control of the editor that goes while it has the focus', () => 
     await onText(page);
   });
 
-  // D15.a11y-1
   for (const [label, selector, value] of [
     ['a chip a host update moves', '.config-editor__fold-chip', MOVED],
     ['a chip a host update removes', '.config-editor__fold-chip', 'b:\n  c: 3\n  d: 4\n'],
@@ -126,7 +122,7 @@ test.describe('a control of the editor that goes while it has the focus', () => 
   });
 });
 
-// D12.a11y-2, D20.a11y-1: the demo.
+// The demo.
 test.describe('the demo: the Edit-as notice', () => {
   setupEditor(test, '?edit=toml');
 
@@ -155,7 +151,7 @@ test.describe('the demo: Apply changes', () => {
   });
 });
 
-// D9.a11y-1, D16.a11y-2, D22.a11y-1: tabs.
+// Tabs.
 test.describe('documents: a tab that goes or moves while it has the focus', () => {
   test.skip(!built, 'run `npm run build` in js/ first');
 
@@ -163,7 +159,6 @@ test.describe('documents: a tab that goes or moves while it has the focus', () =
 
   const tab = (page, id) => page.locator(`[role="tab"][data-document-id="${id}"]`);
 
-  // D9.a11y-1
   for (const [label, focus, check] of [
     ['the selected tab', '[role="tab"][data-document-id="main"]', (state) => state.id === 'main' && state.role === 'tab'],
     [
@@ -192,7 +187,6 @@ test.describe('documents: a tab that goes or moves while it has the focus', () =
     });
   }
 
-  // D16.a11y-2
   test('closing an unselected focused tab hands the focus to the selected tab', async ({ page }) => {
     await tab(page, 'main').click();
     await focusOn(page, '[role="tab"][data-document-id="limits"]');
@@ -202,7 +196,6 @@ test.describe('documents: a tab that goes or moves while it has the focus', () =
     expect((await active(page)).role).toBe('tab');
   });
 
-  // D22.a11y-1
   test('closing the last document hands the focus to the note of the empty view', async ({ page }) => {
     await page.evaluate(() => window.updateFile('main', { closable: true }));
     await tab(page, 'main').click();

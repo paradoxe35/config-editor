@@ -3,8 +3,8 @@ import { setupEditor } from './helpers.mjs';
 
 // Every built-in theme keeps its text readable: the theme's own variables,
 // read off the editor in each theme, measured with the WCAG contrast ratio.
-// Text is held to 4.5:1 (QA 21: code, line numbers and the selected
-// suggestion's type were 3.4 to 4.4 in some themes; QA 24: tab names, the
+// Text is held to 4.5:1 (code, line numbers and the selected
+// suggestion's type were 3.4 to 4.4 in some themes; tab names, the
 // hover card's link, preview code, kind icons, code on tinted lines and the
 // empty documents view's text),
 // the editor's other interface parts (glyphs, outlines) to 3:1, and a
@@ -26,8 +26,7 @@ const LINES = [
   ...TINTS.slice(1).map((tint) => [` on the active ${tint}`, ['bg', tint, 'active-line']]),
 ];
 // Code the text area's selection and find's matches sit under (they are
-// painted below the code, which keeps its own colours over them: hard
-// round 3's `D25.a11y-1`/`-2`, 2.8:1 in some themes), alone, over each
+// painted below the code, which keeps its own colours over them), alone, over each
 // other and on the active line.
 const MARKED = [
   [' selected', ['bg', 'selection']],
@@ -43,8 +42,8 @@ const PAIRS = [
   ...TOKENS.flatMap((name) => LINES.map(([where, layers]) => [`code ${name}${where}`, CODE, name, layers])),
   ...TOKENS.flatMap((name) => MARKED.map(([where, layers]) => [`code ${name}${where}`, CODE, name, layers])),
   ['line number', CODE, 'line-number', ['bg']],
-  // A changed or broken line's number, as its rule colors it (QA 23:
-  // Solarized Light's added lines were 2.97:1).
+  // A changed or broken line's number, as its rule colors it (Solarized
+  // Light's added lines were 2.97:1).
   ['line number, added line', CODE, '.config-editor__line-number-added', ['bg']],
   ['line number, modified line', CODE, '.config-editor__line-number-modified', ['bg']],
   ['line number, error line', CODE, '.config-editor__line-number-error', ['bg']],
@@ -60,7 +59,7 @@ const PAIRS = [
   ['edit-as notice text', CODE, '.config-editor__edit-as-notice', ['panel']],
   ['popup text', CODE, 'raised-text', ['raised']],
   ['popup muted', UI, 'raised-muted', ['raised']],
-  // The hover card's "deprecated" badge (QA 23: 2.1:1 in light themes).
+  // The hover card's "deprecated" badge (2.1:1 in light themes).
   ['deprecated badge on the hover card', CODE, 'status-warning', ['raised']],
   ['completion kind icon', CODE, 'completion-icon-text', ['raised']],
   ['completion kind icon, selected', CODE, 'completion-icon-text', ['raised', 'completion-active']],
@@ -69,7 +68,7 @@ const PAIRS = [
   ['deprecated completion key, selected', CODE, '.config-editor__completion--deprecated .config-editor__completion-key', ['raised', 'completion-active']],
   ['completion type', CODE, 'completion-type', ['raised']],
   ['completion detail', CODE, 'completion-detail', ['raised']],
-  // The selected row's detail, as its rule colors it (QA 30: 4.06:1 in
+  // The selected row's detail, as its rule colors it (4.06:1 in
   // VS Code Dark).
   ['completion detail, selected', CODE, '.config-editor__completion-active .config-editor__completion-detail', ['raised', 'completion-active']],
   // The hover card's Documentation link, the tips' text and the change
@@ -195,7 +194,7 @@ test.describe('theme contrast', () => {
     expect(failures, failures.join('\n')).toEqual([]);
   });
 
-  // QA 29 (L29-T1): a YAML alias or an HCL `${…}` reference was hard to
+  // A YAML alias or an HCL `${…}` reference was hard to
   // tell from a key in Nord (ΔE 7) and Vira (ΔE 15), and from a plain value
   // in VS Code Light (ΔE 5). A reference stands apart from every token it
   // sits among: keys, strings, plain values and literals.
@@ -214,8 +213,8 @@ test.describe('theme contrast', () => {
 });
 
 // How far apart (CIEDE2000) a reference stays from the tokens around it:
-// clearly another colour at a glance (the closest pair judged distinct in
-// QA 29 was 16).
+// clearly another colour at a glance (the closest pair judged distinct
+// was 16).
 const APART = 15;
 const APART_FROM = ['key', 'string', 'value', 'literal'];
 

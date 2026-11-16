@@ -115,10 +115,3 @@ Timed specs (latency budgets) are listed in `TIMED` in
 ## Size and speed
 
 - `large-files`, `large-samples`, `insert-text-burst` (all timed), `memory`.
-
-## The former QA-round files
-
-Each test of a `qa-roundNN-*` file now lives in the feature file above that
-matches what it checks, with its title (only the round words left out, as
-"QA round NN: "). `qa-leftovers` is now `assorted-demo-host` and
-`qa-round37-typed-entries` is now `locks-typed-entries`.

@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-// QA round 28, UX: a hover card that still shows keeps a pointer that gets
+// A hover card that still shows keeps a pointer that gets
 // onto it after a detour (into the indentation or the gutter, past its
 // key's end, onto the next line), while the lines it covers stay the
 // text's for a pointer that comes onto them from beside it. Mice move as

@@ -7,8 +7,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 // editor takes no key (Enter does not accept a suggestion over the composed
 // text, Tab does not indent), and the composition is applied once, when it
 // ends (each update written back mid-composition cost seconds on a long
-// text, and over part of a secret placeholder landed twice). Round 6's
-// `D6.a11y-1`, round 5's `D5.ux-1` and round 6's `D6.perf-1`.
+// text, and over part of a secret placeholder landed twice).
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const js = join(root, 'js');

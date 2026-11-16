@@ -4,7 +4,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { setupEditor } from './helpers.mjs';
 
-// ARIA state and screen-reader announcements (normal-bar round findings):
+// ARIA state and screen-reader announcements:
 // what the editor says through its one polite live region
 // (`.config-editor__announcement`), and which states its controls expose.
 
@@ -36,8 +36,8 @@ async function selectIn(page, needle, after, length = 0) {
 test.describe('suggestions', () => {
   setupEditor(test, '?schema=help');
 
-  // D13.a11y-1: Backspace out of a filter that matched nothing refilters.
-  test('Backspace from an empty filter brings the list back (D13.a11y-1)', async ({ page }) => {
+  // Backspace out of a filter that matched nothing refilters.
+  test('Backspace from an empty filter brings the list back', async ({ page }) => {
     await input(page).click();
     await page.keyboard.type('lev');
     await expect(options(page)).toHaveCount(1);
@@ -48,8 +48,8 @@ test.describe('suggestions', () => {
     await expect(options(page)).toHaveCount(1);
   });
 
-  // D4.a11y-3: the documented single-key shortcuts are exposed.
-  test('the text exposes the shortcuts that work in it (D4.a11y-3)', async ({ page }) => {
+  // the documented single-key shortcuts are exposed.
+  test('the text exposes the shortcuts that work in it', async ({ page }) => {
     const shortcuts = (await input(page).getAttribute('aria-keyshortcuts')) ?? '';
     const list = shortcuts.split(' ');
     for (const key of ['Control+F', 'Control+H', 'Control+G', 'Control+Space', 'Control+S', 'F8', 'Shift+F8', 'Alt+F5']) {
@@ -58,8 +58,8 @@ test.describe('suggestions', () => {
     for (const key of ['Meta+F', 'Meta+G', 'Meta+S']) expect(list, key).toContain(key);
   });
 
-  // D5.a11y-2: a first query with no matches says so (an empty query has no count).
-  test('a find query that matches nothing is announced (D5.a11y-2)', async ({ page }) => {
+  // a first query with no matches says so (an empty query has no count).
+  test('a find query that matches nothing is announced', async ({ page }) => {
     await input(page).click();
     await page.keyboard.press('Control+f');
     await page.keyboard.type('zzzz');
@@ -67,8 +67,8 @@ test.describe('suggestions', () => {
     await expect(said(page)).toHaveText(/No results/);
   });
 
-  // D2.a11y-3: the tip closes when the focus moves on to the footer.
-  test('the problems tip closes when focus leaves it for the footer (D2.a11y-3)', async ({ page }) => {
+  // the tip closes when the focus moves on to the footer.
+  test('the problems tip closes when focus leaves it for the footer', async ({ page }) => {
     await input(page).click();
     await page.keyboard.type('mode: bogus');
     await page.keyboard.press('Control+Home');
@@ -88,8 +88,8 @@ test.describe('suggestions', () => {
 test.describe('protected fields', () => {
   setupEditor(test, '?schema=protected');
 
-  // D5.a11y-3: accepting a read-only key from the list says why it stays.
-  test('accepting a read-only suggestion announces the reason (D5.a11y-3)', async ({ page }) => {
+  // accepting a read-only key from the list says why it stays.
+  test('accepting a read-only suggestion announces the reason', async ({ page }) => {
     await selectIn(page, 'id: srv-42', 2);
     await page.keyboard.press('Control+Space');
     await expect(options(page)).not.toHaveCount(0);
@@ -99,8 +99,8 @@ test.describe('protected fields', () => {
     await expect(said(page)).toHaveText(/Assigned by the server/);
   });
 
-  // D5.a11y-3: a secret placeholder has no suggestions; Ctrl+Space says why.
-  test('Ctrl+Space on a secret placeholder announces what it is (D5.a11y-3)', async ({ page }) => {
+  // a secret placeholder has no suggestions; Ctrl+Space says why.
+  test('Ctrl+Space on a secret placeholder announces what it is', async ({ page }) => {
     await selectIn(page, '«secret 3f2a»', 0, '«secret 3f2a»'.length);
     await page.keyboard.press('Control+Space');
     await expect(options(page)).toHaveCount(0);
@@ -111,8 +111,8 @@ test.describe('protected fields', () => {
 test.describe('folds and the change preview', () => {
   setupEditor(test, '?language=yaml&sample=large');
 
-  // D15.a11y-2: the chip says it is closed, as the chevron does.
-  test('a fold chip exposes aria-expanded like its chevron (D15.a11y-2)', async ({ page }) => {
+  // the chip says it is closed, as the chevron does.
+  test('a fold chip exposes aria-expanded like its chevron', async ({ page }) => {
     const row = page.locator('.config-editor__gutter-content > div[data-line="7"]');
     await row.hover();
     await page.locator('.config-editor__fold-toggle[data-line="7"]').click();
@@ -122,8 +122,8 @@ test.describe('folds and the change preview', () => {
     await expect(page.locator('.config-editor__fold-toggle[data-line="7"]')).toHaveAttribute('aria-expanded', 'false');
   });
 
-  // D6.a11y-3: the preview sits between the text and the footer in both directions.
-  test('Tab and Shift+Tab walk text, preview, footer in order (D6.a11y-3)', async ({ page }) => {
+  // the preview sits between the text and the footer in both directions.
+  test('Tab and Shift+Tab walk text, preview, footer in order', async ({ page }) => {
     await input(page).evaluate((element) => {
       element.focus();
       element.setSelectionRange(0, 0);
@@ -162,16 +162,16 @@ test.describe('folds and the change preview', () => {
 test.describe('documents', () => {
   setupEditor(test, '?documents');
 
-  // D2.a11y-2: the demo says it renamed a tab.
-  test('renaming a tab is announced by the demo page (D2.a11y-2)', async ({ page }) => {
+  // the demo says it renamed a tab.
+  test('renaming a tab is announced by the demo page', async ({ page }) => {
     const note = page.locator('.demo__announcement');
     await page.locator('.demo__rename').click();
     await expect(note).toHaveText(/conf\.d\/10-limits\.toml/);
   });
 
-  // D7.a11y-1: a conflict in a document that is not shown is said, and said
+  // a conflict in a document that is not shown is said, and said
   // again when that document is shown.
-  test('a baseline conflict in a background document is announced (D7.a11y-1)', async ({ page }) => {
+  test('a baseline conflict in a background document is announced', async ({ page }) => {
     const note = page.locator('.config-editor-documents__announcement');
     await input(page).first().click();
     await page.keyboard.press('Control+End');
@@ -200,9 +200,9 @@ test.describe('documents', () => {
 test.describe('the footer', () => {
   setupEditor(test, '?language=yaml');
 
-  // D9.a11y-2: the problems count is a live region, the change count is not
+  // the problems count is a live region, the change count is not
   // (Alt+F5 announces each change), and the README says exactly that.
-  test('the README names the live footer count as the problems (D9.a11y-2)', async ({ page }) => {
+  test('the README names the live footer count as the problems', async ({ page }) => {
     await expect(page.locator('.config-editor__diagnostic-status')).toHaveAttribute('aria-live', 'polite');
     await page.locator('.config-editor__input').click();
     await page.keyboard.type('x');
@@ -222,8 +222,8 @@ test.describe('the handle', () => {
   const page = (options = {}) =>
     `${pathToFileURL(join(js, 'examples', 'vanilla.html')).href}?options=${encodeURIComponent(JSON.stringify(options))}`;
 
-  // D11.a11y-1: foldAll() and unfoldAll() say what they did, as the keys do.
-  test('foldAll() and unfoldAll() announce like the keyboard commands (D11.a11y-1)', async ({ page: browser }) => {
+  // foldAll() and unfoldAll() say what they did, as the keys do.
+  test('foldAll() and unfoldAll() announce like the keyboard commands', async ({ page: browser }) => {
     await browser.goto(page());
     await browser.locator('.config-editor__input').waitFor();
     const value = 'clients:\n  web:\n    a: 1\n    b: 2\n  api:\n    a: 1\n    b: 2\nserver:\n  port: 1\n  host: x\n';

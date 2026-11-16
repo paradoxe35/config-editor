@@ -27,7 +27,7 @@ async function open(page, options) {
   return errors;
 }
 
-// QA round 21 typing: a YAML block scalar holding an empty line froze the
+// A YAML block scalar holding an empty line froze the
 // tab (loading it, Enter in it, Edit as YAML of a string with a blank line);
 // copy and cut on a folded header take the whole block; Enter on an empty
 // `- ` item and inside a flow sequence; XML's `</` and an attribute quote
@@ -65,7 +65,7 @@ test.describe('a closed fold hiding a problem', () => {
     await page.evaluate(() => window.editor.foldAll());
     const chip = page.locator('.config-editor__fold-chip');
     await expect(chip).toHaveCount(1);
-    // QA 21: two problems, counted (they were worded as one).
+    // Two problems, counted (they were worded as one).
     await expect(chip).toHaveAttribute('aria-label', 'Unfold lines 1–3, hides 2 problems, the most serious: Error');
     await expect(chip).toHaveAttribute('title', 'Unfold lines 1–3, hides 2 problems, the most serious: Error');
     expect(errors).toEqual([]);
@@ -93,7 +93,7 @@ for (const [language, [text, header, block, left]] of Object.entries(FOLDED)) {
   });
 }
 
-test.describe('fold keys with nothing to do (A32-2)', () => {
+test.describe('fold keys with nothing to do', () => {
   setupEditor(test, '?sample=large');
 
   /** Puts the caret on 1-based `line`. */

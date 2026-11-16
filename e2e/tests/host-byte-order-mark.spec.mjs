@@ -206,7 +206,7 @@ test.describe(() => {
     await page.keyboard.type(key);
   }
 
-  // --- L30-4: a byte order mark is a string index but no column, everywhere.
+  // --- a byte order mark is a string index but no column, everywhere.
 
   // Documents with a byte order mark, one schema problem on line 1 each.
   const SCHEMA = JSON.stringify({ type: 'object', properties: { port: { type: 'integer' } } });
@@ -338,7 +338,7 @@ test.describe(() => {
     });
   }
 
-  // --- HO31-1: a text with a byte order mark through every headless tool, in
+  // --- a text with a byte order mark through every headless tool, in
   // every language, with astral, other non-ASCII and ASCII characters in each
   // kind of place (keys, values, element text, attributes, comments; the first
   // line too; documents that read and ones that do not): no tool crashes, and
@@ -452,7 +452,7 @@ test.describe(() => {
 
 // A group of its own (its own helpers).
 test.describe(() => {
-  // QA round 32 (FW32-1, FW32-2): a leading byte order mark is no part of a
+  // A leading byte order mark is no part of a
   // document, shown or never shown. `save(id)`, `saveAll()` and
   // `editor(id).save()` of a never-shown document answer as they do once it
   // is shown, in every language, whatever characters it holds (a marked XML

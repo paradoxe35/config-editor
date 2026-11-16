@@ -6,10 +6,10 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 // A pair the editor types itself (a quote or bracket opened, a selection
 // wrapped in one, an empty pair deleted) is one undo step with the typing
 // around it: one undo never leaves half-typed text such as `a: ""one""`,
-// which the next save would have sent (round 8's `D8.editing-2`). Typing
+// which the next save would have sent. Typing
 // goes on in the same step past a closer the editor wrote and stepped over
 // (`"` before its `"`) and through Enter, so one undo takes back a member
-// typed in one go (round 30's `E30-3`).
+// typed in one go.
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const js = join(root, 'js');

@@ -48,9 +48,8 @@ async function caretAt(browserPage, marker, delta = 0) {
 }
 
 test.describe('vanilla.html', () => {
-  // Indices are into `text`, folded lines included (round 14's
-  // `D14.ux-1`: the docs promised the textarea's `selectionStart`, which
-  // leaves a closed fold's lines out).
+  // Indices are into `text`, folded lines included (the textarea's
+  // `selectionStart` leaves a closed fold's lines out).
   test('rangeOf and pathAt count in text, closed folds included', async ({ page: browserPage }) => {
     const errors = await open(browserPage, 'vanilla.html');
     const found = await browserPage.evaluate(async () => {

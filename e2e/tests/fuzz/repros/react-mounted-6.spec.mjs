@@ -3,7 +3,7 @@ import { replay } from '../runner.mjs';
 
 // Shrunk by the browser fuzz on react (?random).
 // Fails the `mounted` check after step 3: no editor on screen
-test('BR38-4 react: mounted', async ({ browser }) => {
+test('react: mounted', async ({ browser }) => {
   await replay(
     browser,
     'react',

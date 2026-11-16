@@ -122,7 +122,7 @@ for (const [language, text] of Object.entries(LIST_STARTS)) {
 }
 
 for (const [language, typed] of NOTHING_TO_OFFER) {
-  test.describe(`${language}: Ctrl+Space with nothing to offer (A31-1)`, () => {
+  test.describe(`${language}: Ctrl+Space with nothing to offer`, () => {
     setupEditor(test, `?language=${language}&schema=help`);
 
     test('says "No suggestions"', async ({ page }) => {
@@ -137,7 +137,7 @@ for (const [language, typed] of NOTHING_TO_OFFER) {
   });
 }
 
-test.describe('Ctrl+Space with something to offer (A31-1)', () => {
+test.describe('Ctrl+Space with something to offer', () => {
   setupEditor(test, '?language=yaml&schema=help');
 
   test('shows the list and says no "No suggestions"', async ({ page }) => {
@@ -187,7 +187,7 @@ test.describe(() => {
 
   test.skip(!built, "run `npm run build` in js/ first");
 
-  test.describe("the wheel over the suggestion list (UX35-1)", () => {
+  test.describe("the wheel over the suggestion list", () => {
     const filler = Array.from({ length: 200 }, (_, i) => `# line ${i}\n`).join(
       "",
     );

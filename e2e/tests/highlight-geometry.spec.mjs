@@ -2,9 +2,9 @@ import { expect, test } from '@playwright/test';
 import { editor, setupEditor } from './helpers.mjs';
 
 // Find highlights cover the glyphs the browser paints for the found text, as
-// it lays them out: under the user's letter and word spacing (hard-bar
-// `D4.a11y-2`: 20 px short and left of the painted word) and in right-to-left
-// runs (`D4.a11y-5`: a substring's box landed over the neighbouring word).
+// it lays them out: under the user's letter and word spacing (a box once
+// came out 20 px short and left of the painted word) and in right-to-left
+// runs (a substring's box landed over the neighbouring word).
 
 const DOCUMENT = [
   'name: مرحبا بالعالم',
@@ -56,13 +56,13 @@ async function expectCovers(page, needle) {
 test.describe('find highlights follow the painted text', () => {
   setupEditor(test, '?language=yaml');
 
-  test('under the user letter and word spacing (D4.a11y-2)', async ({ page }) => {
+  test('under the user letter and word spacing', async ({ page }) => {
     await editor(page).paste(DOCUMENT);
     await page.addStyleTag({ content: '* { letter-spacing: 0.12em !important; word-spacing: 0.16em !important; }' });
     for (const needle of ['public_address', 'here', 'again', 'hello']) await expectCovers(page, needle);
   });
 
-  test('in right-to-left runs (D4.a11y-5)', async ({ page }) => {
+  test('in right-to-left runs', async ({ page }) => {
     await editor(page).paste(DOCUMENT);
     for (const needle of ['مرحبا', 'بالعالم', 'שלום', 'עולם', 'مرحبا بالعالم', 'hello']) await expectCovers(page, needle);
   });

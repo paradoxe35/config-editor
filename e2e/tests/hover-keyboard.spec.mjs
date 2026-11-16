@@ -54,7 +54,7 @@ test.describe('Alt+Enter', () => {
   });
 });
 
-test.describe('U19-M6: hover docs from the keyboard', () => {
+test.describe('hover docs from the keyboard', () => {
   setupEditor(test, '?language=yaml');
 
   test('Ctrl+K Ctrl+I shows the docs of the key at the caret and says them; Escape closes them', async ({ page }) => {
@@ -169,7 +169,7 @@ test.describe(() => {
 
   test.skip(!built, 'run `npm run build` in js/ first');
 
-  test.describe('U21-8: the textarea, Ctrl+K Ctrl+I, docs links and the footer', () => {
+  test.describe('the textarea, Ctrl+K Ctrl+I, docs links and the footer', () => {
     test.use({ viewport: { width: 1000, height: 600 } });
     const listenSchema = JSON.stringify({
       type: 'object',
@@ -248,7 +248,7 @@ test.describe(() => {
 
   test.skip(!built, 'run `npm run build` in js/ first');
 
-  test.describe("M23-A2: the hover card's Documentation link, by keyboard", () => {
+  test.describe("the hover card's Documentation link, by keyboard", () => {
     const url = 'https://example.com/docs/listen';
     const schema = JSON.stringify({
       type: 'object',
@@ -363,7 +363,7 @@ test.describe(() => {
   test.skip(!built, 'run `npm run build` in js/ first');
   test.use({ viewport: { width: 1000, height: 700 } });
 
-  test.describe('L25-A3, A6: the focused hover card', () => {
+  test.describe('the focused hover card', () => {
     const schema = JSON.stringify({
       type: 'object',
       properties: { mode: { enum: ['a', 'b'], description: 'How it runs.', 'x-docs-url': 'https://example.com/mode' } },
@@ -407,7 +407,7 @@ test.describe(() => {
   });
 });
 
-test.describe('L27-A2', () => {
+test.describe('Escape and the keyboard with a card or tip showing', () => {
   test.skip(!built, 'run `npm run build` in js/ first');
   test.use({ viewport: { width: 900, height: 500 } });
   for (const language of LANGUAGES) {
@@ -455,7 +455,7 @@ test.describe('L27-A2', () => {
 
 // A group of its own (needs the built npm packages, a 1000×700 window).
 test.describe(() => {
-  // QA round 28, accessibility: Escape closes the hover card or the problem
+  // Escape closes the hover card or the problem
   // tip with the pointer on what it shows for while the focus is on a
   // documents view's tabs or "+" (controls with no Escape of their own); the
   // line commands (Alt+↑/↓ move lines, Shift+Alt+↑/↓ copy them,
@@ -501,9 +501,9 @@ test.describe(() => {
   test.skip(!built, 'run `npm run build` in js/ first');
   test.use({ viewport: { width: 1000, height: 700 } });
 
-  // L28-A1: with the focus on a documents view's tab or "+", Escape left the
+  // With the focus on a documents view's tab or "+", Escape left the
   // popup under the pointer open (it acted only with the focus nowhere).
-  test.describe('L28-A1', () => {
+  test.describe('Escape from a documents tab or the "+" button', () => {
     const schema = JSON.stringify({
       type: 'object',
       properties: { listen: { type: 'integer', description: 'Listen docs' }, port: { type: 'integer' } },

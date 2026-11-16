@@ -95,7 +95,7 @@ test.describe('undo in Edit-as', () => {
   });
 });
 
-// Twelfth-round findings, replayed with real keys. The classes behind them
+// Further cases, replayed with real keys. The classes behind them
 // are covered by the unit tests (`editor/tests/save/`, `editing_matrix`).
 test.describe('toml', () => {
   setupEditor(test, '?language=toml');
@@ -227,7 +227,7 @@ test.describe(() => {
 
 // A group of its own (its own helpers).
 test.describe(() => {
-  // QA round 26 (host API). A new host value the language on screen cannot
+  // A new host value the language on screen cannot
   // hold is edited in the host's language until it converts (every host and
   // editAs pair, an editor and a documents view, one and two documents per
   // update); an index is found only on a list; a custom language's span
@@ -448,7 +448,7 @@ test.describe(() => {
       const element = await page.evaluateHandle(() => {
         const element = window.mountPoint();
         window.languages = [];
-        window.binding = new window.bindings.EditorBinding('qa26');
+        window.binding = new window.bindings.EditorBinding('edit-as-switching');
         window.props = { value: 'name: web\n', onEditAsChange: (language) => window.languages.push(language) };
         window.binding.attach(element, window.props);
         return element;
@@ -527,7 +527,7 @@ test.describe(() => {
   }
 
 
-  // --- replaceValue keeps another document's Edit-as (L30-4). ------------------
+  // --- replaceValue keeps another document's Edit-as. ------------------
 
   test.describe('ConfigDocuments: a document edited as another language through the handle', () => {
     test.skip(!built, 'js packages not built: run `npm run build` in js/');

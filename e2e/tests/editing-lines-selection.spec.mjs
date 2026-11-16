@@ -253,14 +253,14 @@ test.describe('Ctrl+Delete at the end of a line joins it with the next', () => {
   });
 });
 
-// QA round 20 (U20-3): text of several lines arriving whole in one command
+// Text of several lines arriving whole in one command
 // (an IME commit, `Input.insertText`) is applied by the editor as a paste,
 // not line by line by the textarea: over the selection, line breaks as LF,
 // the caret after it, one undo step; read-only refuses it.
 test.describe('lines arriving whole in one command', () => {
   test.skip(!built, 'run `npm run build` in js/ first');
 
-  test('U20-3: replace the selection as a paste does, in one undo step, and stay out of read-only', async ({ page }) => {
+  test('replace the selection as a paste does, in one undo step, and stay out of read-only', async ({ page }) => {
     const errors = [];
     page.on('pageerror', (error) => errors.push(String(error)));
     await page.goto(vanilla({ value: 'a: 1\nb: 2\n', schema: '{}' }));
@@ -316,7 +316,7 @@ test.describe(() => {
   test.skip(!built, 'run `npm run build` in js/ first');
   test.use({ viewport: { width: 1000, height: 700 } });
 
-  test.describe('L28-A2', () => {
+  test.describe('line commands with a selection', () => {
     test('the line commands edit the lines, each one undo step', async ({ page }) => {
       const errors = await open(page, { value: 'a: 1\nb: 2\nc: 3\n' });
       for (const [key, expected] of [

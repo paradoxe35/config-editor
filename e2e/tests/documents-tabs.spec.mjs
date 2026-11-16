@@ -52,7 +52,7 @@ async function mountDocuments(page, documents, options = {}) {
   );
 }
 
-// --- Keys right after a focus move (L30-6). ----------------------------------
+// --- Keys right after a focus move. ----------------------------------
 
 /** The keys the burst helper knows: `[key, code, key code]`. */
 const KEYS = {
@@ -110,7 +110,7 @@ test.describe(() => {
 
   test.skip(!built, 'run `npm run build` in js/ first');
 
-  test.describe('M23-A1: Delete on a tab', () => {
+  test.describe('Delete on a tab', () => {
     for (const name of ['documents.html', ...DOCUMENTS_FRAMEWORK_PAGES]) {
       test(`${name}: the focus stays on the tabs, so a second Delete closes the next tab, never edits it`, async ({ page }) => {
         const errors = await open(page, name);
@@ -179,7 +179,7 @@ test.describe(() => {
 
   test.skip(!built, 'run `npm run build` in js/ first');
 
-  test.describe('L23-U7: narrow tabs leave their folder out', () => {
+  test.describe('narrow tabs leave their folder out', () => {
     test.use({ viewport: { width: 390, height: 600 } });
 
     test('the names that tell the tabs apart show; the title and the name read keep the folder', async ({ page }) => {
@@ -230,7 +230,7 @@ test.describe('host API', () => {
           const name = tab.querySelector('.config-editor-documents__name').getBoundingClientRect();
           const end = tab.querySelector('.config-editor-documents__name-end');
           const start = tab.querySelector('.config-editor-documents__name-start');
-          // The letters that tell it apart, kept whole (QA 26).
+          // The letters that tell it apart, kept whole.
           const kept = tab.querySelector('.config-editor-documents__name-kept');
           const box = end.getBoundingClientRect();
           return {
@@ -263,12 +263,12 @@ test.describe(() => {
   test.skip(!built, 'run `npm run build` in js/ first');
   test.use({ viewport: { width: 900, height: 500 } });
 
-  // L26-U4: at phone width (a touch screen's wider tab buttons) tabs sharing
+  // At phone width (a touch screen's wider tab buttons) tabs sharing
   // a file's name in different folders read alike ("e…limits.toml"): each
   // keeps the letters that tell it apart whole, then an ellipsis, then the
   // whole file's name.
   for (const [width, touch] of [[360, true], [600, false], [1200, false]]) {
-    test.describe(`L26-U4 at ${width} px`, () => {
+    test.describe(`at ${width} px`, () => {
       test.use({ viewport: { width, height: 400 }, hasTouch: touch, isMobile: touch });
       test('tabs sharing a file name never read alike', async ({ page }) => {
         await page.goto(pathToFileURL(join(js, 'examples', 'documents.html')).href);
@@ -318,12 +318,12 @@ test.describe(() => {
   test.skip(!built, 'run `npm run build` in js/ first');
   test.use({ viewport: { width: 900, height: 500 } });
 
-  // L27-U3: at phone width a short folder before a shared file's name
+  // At phone width a short folder before a shared file's name
   // (prod/limits.toml) was cut by a pixel or four (the touch screen's
   // wider close button took its room), and a tab that cannot be closed
   // kept the close button's room empty.
   for (const [width, touch] of [[360, true], [600, false], [1200, false]]) {
-    test.describe(`L27-U3 at ${width} px`, () => {
+    test.describe(`at ${width} px`, () => {
       test.use({ viewport: { width, height: 400 }, hasTouch: touch, isMobile: touch });
       test('a short folder shows whole, and a tab that cannot close keeps no empty room', async ({ page }) => {
         await page.goto(pathToFileURL(join(js, 'examples', 'documents.html')).href);
@@ -364,7 +364,7 @@ test.describe(() => {
   }
 });
 
-// --- The active tab in view after a reorder (L30-5). -------------------------
+// --- The active tab in view after a reorder. -------------------------
 
 test.describe('ConfigDocuments: a host reordering the tabs', () => {
   test.skip(!built, 'js packages not built: run `npm run build` in js/');

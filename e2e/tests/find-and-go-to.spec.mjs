@@ -7,7 +7,7 @@ import { editor, setupEditor } from './helpers.mjs';
 // The find widget and go to line: empty and no-match queries, the count, right-to-left pages, short
 // windows, the query field's size.
 
-// QA round 21 typing: a YAML block scalar holding an empty line froze the
+// A YAML block scalar holding an empty line froze the
 // tab (loading it, Enter in it, Edit as YAML of a string with a blank line);
 // copy and cut on a folded header take the whole block; Enter on an empty
 // `- ` item and inside a flow sequence; XML's `</` and an attribute quote
@@ -107,7 +107,7 @@ test.describe(() => {
 
   test.skip(!built, 'run `npm run build` in js/ first');
 
-  test.describe('L24-A3: a short window', () => {
+  test.describe('a short window', () => {
     for (const [width, height] of [
       [320, 180],
       [320, 256],
@@ -176,14 +176,14 @@ test.describe(() => {
   });
 });
 
-// QA round 32, accessibility and UX: a read-only editor has no `Ctrl+M`
-// (A32-1); a fold key with nothing to do says so (A32-2); the find
+// A read-only editor has no `Ctrl+M`
+//; a fold key with nothing to do says so; the find
 // widget's stepping and replacing buttons say they are unavailable, and do
-// nothing, while the query finds nothing (UX32-4); the query field never
-// narrows as the window widens (UX32-5); the demo's own toolbar
+// nothing, while the query finds nothing; the query field never
+// narrows as the window widens; the demo's own toolbar
 // (`ConfigEditorToolbar`) keeps the page's look under the host shield
-// (UX32-2).
-test.describe('the find widget with no match (UX32-4)', () => {
+//.
+test.describe('the find widget with no match', () => {
   setupEditor(test, '');
 
   test('marks stepping and replacing unavailable, and they do nothing', async ({ page }) => {
@@ -226,7 +226,7 @@ test.describe('the find widget with no match (UX32-4)', () => {
 });
 
 for (const query of ['', '?readonly']) {
-  test.describe(`the query field as the window widens${query ? ', read-only' : ''} (UX32-5)`, () => {
+  test.describe(`the query field as the window widens${query ? ', read-only' : ''}`, () => {
     setupEditor(test, query);
 
     for (const typed of ['nothing-matches-this', 'listen']) {
@@ -248,12 +248,12 @@ for (const query of ['', '?readonly']) {
   });
 }
 
-// QA round 33, accessibility: an empty find query shows and announces no
-// count (A33-1); in a right-to-left page the find widget stays at the end of the code lines
-// side, though the editor's text stays left to right (A33-2); the demo's
+// An empty find query shows and announces no
+// count; in a right-to-left page the find widget stays at the end of the code lines
+// side, though the editor's text stays left to right; the demo's
 // unsaved-changes dot is a graphic (3:1 needed, 4.5:1 held, as it is also a glyph) against its background in every
-// theme (A33-3).
-test.describe("the find count (A33-1)", () => {
+// theme.
+test.describe("the find count", () => {
   setupEditor(test, "");
 
   test("is empty, and says nothing, for an empty query", async ({ page }) => {
@@ -270,7 +270,7 @@ test.describe("the find count (A33-1)", () => {
   });
 });
 
-test.describe("the find widget in a right-to-left page (A33-2)", () => {
+test.describe("the find widget in a right-to-left page", () => {
   setupEditor(test, "");
 
   // The editor's text is always left to right, so its widgets stay at the end
@@ -353,7 +353,7 @@ test.describe(() => {
 
   test.skip(!built, "run `npm run build` in js/ first");
 
-  test("clearing a query that said “No results” takes it back from the live region (UX34-5)", async ({
+  test("clearing a query that said “No results” takes it back from the live region", async ({
     page,
   }) => {
     const errors = await open(page, { value: "a: 1\n" });

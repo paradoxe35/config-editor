@@ -7,8 +7,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 // drop as two edits, and when the editor refuses one (it reaches into a
 // closed fold, or changes a locked field), the other is refused too. Before,
 // a refused drop left the dragged line deleted (and saved), and a refused
-// delete let the drop copy the text, a fold's header twice (round 8's
-// `D8.editing-1`, hard round 4's drag onto a lock).
+// delete let the drop copy the text, a fold's header twice (and a drag onto a lock).
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const js = join(root, 'js');
@@ -164,7 +163,7 @@ test.describe('a drag near a closed fold is one move', () => {
   // The closing line a closed fold leaves shown (`},`, `</server>`): taken
   // away, the fold would run to another closer and the textarea be written
   // again under the drag, its drop landing at the text's start. The drag is
-  // refused, whole (round 30's `E30-4`).
+  // refused, whole.
   for (const language of ['json', 'hcl', 'xml']) {
     const { text, fold, header, plain } = CASES[language];
     for (const [where, target] of [

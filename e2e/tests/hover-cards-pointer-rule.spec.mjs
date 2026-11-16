@@ -3,14 +3,14 @@ import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-// QA round 29, UX: one rule for a popup that still shows when the pointer
+// One rule for a popup that still shows when the pointer
 // gets onto it, wherever the popup sits (flush with the text's left edge
 // or indented with its key) and whatever way the pointer took (left, up and
 // right through the gutter or the indentation; right past the popup's far
 // side, up and left; beside it on a line it covers, then onto it). It
-// keeps the pointer (M29-U1), as VS Code's hiding delay keeps a hover;
+// keeps the pointer, as VS Code's hiding delay keeps a hover;
 // and a line it covers stays the text's from beside it, from the gutter
-// too, without a pause (L29-U2): a pointer that goes along that line onto
+// too, without a pause: a pointer that goes along that line onto
 // its text and stops there gets that text's docs, and a click there
 // places the caret. Mice move as hands do: steps of at most 8 px, 8 to
 // 16 ms apart. In every language, cards above and below their line, at
@@ -207,7 +207,7 @@ for (const [position, build] of Object.entries(POSITIONS)) {
       const hostLine = value.split('\n').findIndex((text) => /\bhost\b/.test(text));
 
       test.describe(`${language}, ${position} keys, card ${side}`, () => {
-        test('M29-U1: a card that still shows keeps a pointer that gets onto it after any detour', async ({ page }) => {
+        test('a card that still shows keeps a pointer that gets onto it after any detour', async ({ page }) => {
           const errors = await open(page, { value, language, schema });
           for (const [name, way] of Object.entries(DETOURS)) {
             const { port, at, box } = await hoverPort(page, side);
@@ -226,7 +226,7 @@ for (const [position, build] of Object.entries(POSITIONS)) {
           expect(errors).toEqual([]);
         });
 
-        test('L29-U2: the line next to the key stays the text’s under its card, from beside it', async ({ page }) => {
+        test('the line next to the key stays the text’s under its card, from beside it', async ({ page }) => {
           const errors = await open(page, { value, language, schema });
           for (const [name, way] of Object.entries(TO_HOST)) {
             for (const click of ['after its docs show', 'at once']) {
@@ -262,7 +262,7 @@ const TIP_DOCS = {
   xml: (more) => `<c>\n<port>3</port>\n<host>x</host>\n${more.map((i) => `<fill_${i}>${i}</fill_${i}>`).join('\n')}\n</c>\n`,
 };
 for (const [language, doc] of Object.entries(TIP_DOCS)) {
-  test(`M29-U1 ${language}: a problem tip that still shows keeps a pointer that gets onto it past its far side`, async ({ page }) => {
+  test(`in ${language}: a problem tip that still shows keeps a pointer that gets onto it past its far side`, async ({ page }) => {
     const value = doc(Array.from({ length: 12 }, (_, i) => i));
     const portLine = value.split('\n').findIndex((text) => /\bport\b/.test(text)) + 1;
     const problems = Array.from({ length: 4 }, (_, i) => ({

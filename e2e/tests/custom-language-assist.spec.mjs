@@ -501,7 +501,7 @@ test.describe('react.html: a registered nested language', () => {
   });
 });
 
-// D26.docs-2: a language nested by indentation alone, with no brackets: a
+// a language nested by indentation alone, with no brackets: a
 // key accepted on an indented line stays in the object `contextAt` names.
 test.describe('a JS language nested by indentation, without brackets', () => {
   test.beforeEach(async ({ page }) => {

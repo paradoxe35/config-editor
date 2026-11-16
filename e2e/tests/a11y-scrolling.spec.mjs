@@ -8,7 +8,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 // A group of its own (needs the built npm packages).
 test.describe(() => {
-  // QA round 24 (accessibility and mobile): PageDown / PageUp in an editor
+  // PageDown / PageUp in an editor
   // that fits the window scroll the editor only, never the page; in a short
   // window the text stays within its surface (every row has its line
   // number) and the find widget within the window; under forced colors the
@@ -46,7 +46,7 @@ test.describe(() => {
 
   test.skip(!built, 'run `npm run build` in js/ first');
 
-  test.describe('L24-A2: PageDown / PageUp in an editor that fits the window', () => {
+  test.describe('PageDown / PageUp in an editor that fits the window', () => {
     test.use({ viewport: { width: 1100, height: 700 } });
 
     for (const [language, value] of Object.entries(DOCUMENTS)) {
@@ -87,7 +87,7 @@ test.describe(() => {
 
 // A group of its own (needs the built npm packages, a 1000×700 window).
 test.describe(() => {
-  // QA round 25 (accessibility and mobile): PageDown / PageUp never move the
+  // PageDown / PageUp never move the
   // host page or a host's scroll box, not even for a frame, from the text
   // (in view, partly below the fold, in a host box) or from any of the
   // editor's controls, while the text still pages; Enter and Alt+Enter in
@@ -210,7 +210,7 @@ test.describe(() => {
   test.skip(!built, 'run `npm run build` in js/ first');
   test.use({ viewport: { width: 1000, height: 700 } });
 
-  test.describe('L25-A1, A2, H25-L4: page keys never move the host page', () => {
+  test.describe('page keys never move the host page', () => {
     for (const [layout, setUp] of Object.entries(LAYOUTS)) {
       for (const [language, value] of Object.entries(SIXTY)) {
         test(`${layout}, ${language}: the text pages, the host stays`, async ({ page }) => {
@@ -310,7 +310,7 @@ test.describe(() => {
     });
   });
 
-  test.describe('U25-3: the wheel and a swipe go on to the page once the text has nowhere to scroll', () => {
+  test.describe('the wheel and a swipe go on to the page once the text has nowhere to scroll', () => {
     for (const lines of [2, 100]) {
       test(`${lines} lines: the wheel over the editor scrolls the page at the text's end`, async ({ page }) => {
         const value = Array.from({ length: lines }, (_, i) => `k${i}: ${i}\n`).join('');
@@ -348,7 +348,7 @@ test.describe(() => {
 
 // A group of its own (needs the built npm packages, a 1000×700 window).
 test.describe(() => {
-  // QA round 26 (accessibility and mobile): PageDown / PageUp in an editor
+  // PageDown / PageUp in an editor
   // taller than the window page by the rows in the window and keep the
   // caret in view, at the on-screen column ArrowDown keeps; every editing
   // command in a read-only editor says it cannot edit, as typing does; the
@@ -427,7 +427,7 @@ test.describe(() => {
   test.skip(!built, 'run `npm run build` in js/ first');
   test.use({ viewport: { width: 1000, height: 700 } });
 
-  test.describe('N26-A1: page keys in an editor taller than the window', () => {
+  test.describe('page keys in an editor taller than the window', () => {
     for (const [layout, setUp] of Object.entries(TALL)) {
       test(`${layout}: a page is the rows in the window, and the caret stays in view`, async ({ page }) => {
         const errors = await open(page, { value: LINES });
@@ -472,7 +472,7 @@ test.describe(() => {
     }
   });
 
-  test.describe('N26-A2: page keys keep the on-screen column, as ArrowDown does', () => {
+  test.describe('page keys keep the on-screen column, as ArrowDown does', () => {
     const filler = (count) => Array.from({ length: count }, (_, i) => `k${i + 2}: ${'y'.repeat(40)}\n`).join('');
     // [first line, the line a page down lands on]: from the first line's end.
     const CASES = {
@@ -573,11 +573,11 @@ test.describe(() => {
 
 // A group of its own (needs the built npm packages).
 test.describe(() => {
-  // QA round 34, UX: the wheel and a finger over the line numbers scroll the
-  // text as over the text itself, the page only at the text's ends (UX34-1);
+  // The wheel and a finger over the line numbers scroll the
+  // text as over the text itself, the page only at the text's ends;
   // clearing a find query that said "No results" takes that back from the
-  // live region (UX34-5); the wheel over the suggestion list (UX35-1). Ctrl+Enter on a folded line is in
-  // line-commands.spec.mjs (UX34-4). Through the npm package's page (run
+  // live region; the wheel over the suggestion list. Ctrl+Enter on a folded line is in
+  // line-commands.spec.mjs. Through the npm package's page (run
   // `npm run build` in js/ first).
   const js = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "js");
 
@@ -640,7 +640,7 @@ test.describe(() => {
 
   test.skip(!built, "run `npm run build` in js/ first");
 
-  test.describe("the line numbers scroll the text (UX34-1)", () => {
+  test.describe("the line numbers scroll the text", () => {
     for (const language of ["yaml", "json"]) {
       test(`${language}: the wheel over the gutter scrolls the text, then the page at its end`, async ({
         page,

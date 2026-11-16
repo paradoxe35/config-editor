@@ -155,7 +155,7 @@ test.describe('editing', () => {
     'Alt+Down': (page) => press(page, 'Alt+ArrowDown'),
     'Shift+Alt+Up': (page) => press(page, 'Shift+Alt+ArrowUp'),
   };
-  // QA 36: the copy is flagged, never the original (as in every language).
+  // The copy is flagged, never the original (as in every language).
   test('a secret element copied in an XML view is flagged as a copy and the save waits', async ({ page }) => {
     const token = '«secret 3f2a»';
     const schema = JSON.stringify({ type: 'object', properties: { db: { type: 'object', properties: { password: { type: 'string', writeOnly: true } } } } });

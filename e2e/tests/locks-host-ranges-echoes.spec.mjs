@@ -218,7 +218,7 @@ async function check(page, kind, language, style, order, edit) {
   return failures;
 }
 
-// QA round 33 (FW33-1, HO33-2, HO33-3): `readOnlyRanges` a host gives again
+// `readOnlyRanges` a host gives again
 // unchanged, with an echo of a text the editor sent (`echoes: true`), keep
 // where the editor moved them, whatever order the echoes come back in (in
 // order and late, newest first, random delays), for a ConfigDocuments host
@@ -236,7 +236,7 @@ test.describe('ranges given again with echoes keep the lock', () => {
         test.setTimeout(300_000);
         await open(page);
         const failures = [];
-        for (const language of (process.env.QA33_LANGUAGES ?? Object.keys(SAMPLES).join(',')).split(',')) {
+        for (const language of (process.env.LANGUAGES ?? Object.keys(SAMPLES).join(',')).split(',')) {
           for (const style of ['lines', 'indices']) {
             for (const edit of ['above', 'before', 'below']) {
               try {
@@ -298,7 +298,7 @@ test.describe('the framework documents pages keep a lock under random echoes', (
 
 // A group of its own (its own helpers).
 test.describe(() => {
-  // QA round 35 (HO35-1, FW35-1): with `echoes: true`, the user types on
+  // With `echoes: true`, the user types on
   // past texts the editor sent, and the host lists those echoes with
   // `readOnlyRanges` worked out in each (by `rangeOf`, by lines or by index),
   // more than once: the same echo twice (a double render), two echoes giving

@@ -3,7 +3,7 @@ import { replay } from '../runner.mjs';
 
 // Shrunk by the browser fuzz on vanilla.
 // Fails the `selection-head` check after step 1: caret on line 3, active [1]
-test('BR38-1 vanilla: selection-head', async ({ browser }) => {
+test('vanilla: selection-head', async ({ browser }) => {
   await replay(
     browser,
     'vanilla',

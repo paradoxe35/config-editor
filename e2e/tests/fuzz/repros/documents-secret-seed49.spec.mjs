@@ -3,7 +3,7 @@ import { replay } from '../runner.mjs';
 
 // Shrunk by the browser fuzz from seed 49 on documents.
 // Fails the `secret` check after step 1: "«s«secret 3f2a»" in "[clients.acme]\nsec«secret 3f2a»\"\nret = \"«s«secret 3f2a»ecret 3f2a»\"\n"
-test('GP38-8 documents: secret (seed 49)', async ({ browser }) => {
+test('documents: secret (seed 49)', async ({ browser }) => {
   await replay(
     browser,
     'documents',

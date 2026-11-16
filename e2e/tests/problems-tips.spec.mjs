@@ -166,7 +166,7 @@ test.describe('yaml', () => {
   });
 });
 
-// QA round 19, problem display, hover and keyboard access: multi-line host
+// Multi-line host
 // ranges counted line by line in the underline cap, several problems at one
 // place each with its own source, code and docs link (the underline in the
 // most serious one's colour), a tall problem tip kept inside the editor and
@@ -177,7 +177,7 @@ test.describe('yaml', () => {
 test.describe('problems at scale and at one place', () => {
   test.skip(!built, 'run `npm run build` in js/ first');
 
-  test('U19-H1: ranges over hundreds of lines draw at most 200 underlines in all; every problem is counted and walked', async ({ page }) => {
+  test('ranges over hundreds of lines draw at most 200 underlines in all; every problem is counted and walked', async ({ page }) => {
     const errors = await open(page, { value: lines(3000), schema: '{}' });
     const ranges = Array.from({ length: 20 }, (_, index) => ({
       range: { startLine: 1 + index * 7, startColumn: 1, endLine: 201 + index * 7, endColumn: 2 },
@@ -195,7 +195,7 @@ test.describe('problems at scale and at one place', () => {
     expect(errors).toEqual([]);
   });
 
-  test('U19-M2: several problems at one place each show their own source, code and docs link, the error first and in its colour', async ({ page }) => {
+  test('several problems at one place each show their own source, code and docs link, the error first and in its colour', async ({ page }) => {
     const errors = await open(page);
     await setHost(page, [
       { path: '/listen', severity: 'warning', message: 'deprecated port', source: 'lint', code: 'W7' },
@@ -228,7 +228,7 @@ test.describe('problems at scale and at one place', () => {
     expect(errors).toEqual([]);
   });
 
-  test('U19-M3: a tall tip near the bottom stays inside the editor, scrolls, and F8 scrolls to the problem it went to', async ({ page }) => {
+  test('a tall tip near the bottom stays inside the editor, scrolls, and F8 scrolls to the problem it went to', async ({ page }) => {
     await page.setViewportSize({ width: 900, height: 600 });
     const errors = await open(page, { value: lines(60), schema: '{}' });
     const box = await input(page).boundingBox();
@@ -301,7 +301,7 @@ test.describe('problems at scale and at one place', () => {
 test.describe('host problems', () => {
   test.skip(!built, 'run `npm run build` in js/ first');
 
-  test('H19-F4: host hints on fields hide none of their schema errors, past the cap included', async ({ page }) => {
+  test('host hints on fields hide none of their schema errors, past the cap included', async ({ page }) => {
     const value = Array.from({ length: 30 }, (_, index) => `k${index}: x${index}`).join('\n') + '\n';
     const schema = JSON.stringify({ type: 'object', additionalProperties: { type: 'integer' } });
     const errors = await open(page, { value, schema });
@@ -312,7 +312,7 @@ test.describe('host problems', () => {
     expect(errors).toEqual([]);
   });
 
-  test('H19-F7: a range with its end left out is marked on an empty line and at a line end', async ({ page }) => {
+  test('a range with its end left out is marked on an empty line and at a line end', async ({ page }) => {
     const errors = await open(page);
     // Line 5 is the empty line after the last line break; line 2 is 12 characters.
     const thrown = await page.evaluate(() => {
@@ -333,7 +333,7 @@ test.describe('host problems', () => {
     expect(errors).toEqual([]);
   });
 
-  test('H19-F10: a closed fold hiding a warning shows it on its chip', async ({ page }) => {
+  test('a closed fold hiding a warning shows it on its chip', async ({ page }) => {
     const errors = await open(page, { value: 'web:\n  http: 80\n  hosts: []\nlisten: 1\n', schema: '{}' });
     await setHost(page, [{ range: { startLine: 3, startColumn: 3, endColumn: 8 }, severity: 'warning', message: 'hidden' }]);
     await page.evaluate(() => window.editor.foldAll());
@@ -342,7 +342,7 @@ test.describe('host problems', () => {
   });
 });
 
-// QA round 20 (UX): a click or a tap on the underline of a problem with a
+// A click or a tap on the underline of a problem with a
 // docs link moves the caret there and shows its tip (the tip, not yet
 // measured, covered the underline and took the click), and the link in the
 // tip still opens; the underline cap draws the most serious problems first
@@ -352,7 +352,7 @@ test.describe('host problems', () => {
 // full stop, and finds the XML element with the caret on its `<`; a closed
 // fold's chip names the most serious problem it hides. Through the npm
 // package's vanilla page (run `npm run build` in js/ first).
-test.describe('U20-1: an underline with a docs link', () => {
+test.describe('an underline with a docs link', () => {
   test.skip(!built, 'run `npm run build` in js/ first');
 
   for (const mode of ['mouse', 'touch']) {
@@ -396,7 +396,7 @@ test.describe('U20-1: an underline with a docs link', () => {
   }
 });
 
-test.describe('U20-2: the underline cap', () => {
+test.describe('the underline cap', () => {
   test.skip(!built, 'run `npm run build` in js/ first');
   test.use({ viewport: { width: 1000, height: 600 } });
 
@@ -461,7 +461,7 @@ test.describe('the problem tip in a short editor', () => {
 
 // A group of its own (needs the built npm packages).
 test.describe(() => {
-  // QA round 21 (UX): a click, double-click, drag or tap on underlined text
+  // A click, double-click, drag or tap on underlined text
   // reaches the text (the underline jumped the caret to the problem's start,
   // and a host's info over the whole file made selecting with the mouse
   // impossible), while hovering or tapping it still shows the tip, which
@@ -542,7 +542,7 @@ test.describe(() => {
 
   test.skip(!built, 'run `npm run build` in js/ first');
 
-  test.describe('U21-1: the pointer on underlined text reaches the text', () => {
+  test.describe('the pointer on underlined text reaches the text', () => {
     test.use({ viewport: { width: 1000, height: 600 } });
 
     for (const [language, doc] of Object.entries(DOCS)) {
@@ -596,7 +596,7 @@ test.describe(() => {
     });
   });
 
-  test.describe('U21-8: the textarea, Ctrl+K Ctrl+I, docs links and the footer', () => {
+  test.describe('the textarea, Ctrl+K Ctrl+I, docs links and the footer', () => {
     test.use({ viewport: { width: 1000, height: 600 } });
     const listenSchema = JSON.stringify({
       type: 'object',
@@ -734,7 +734,7 @@ test.describe(() => {
 
   test.skip(!built, 'run `npm run build` in js/ first');
 
-  test.describe('M23-U2: a host problem hides the editor’s own only when it says the same', () => {
+  test.describe('a host problem hides the editor’s own only when it says the same', () => {
     for (const [language, doc] of Object.entries(MINIMUM)) {
       test(`${language}: a whole-line host error with another message shows beside it`, async ({ page }) => {
         const errors = await open(page, { value: doc.value, language, schema: minimumSchema });
@@ -837,7 +837,7 @@ test.describe(() => {
   test.skip(!built, 'run `npm run build` in js/ first');
   test.use({ viewport: { width: 1000, height: 700 } });
 
-  test.describe('U25-6: the problems tip takes the focus as the docs card does', () => {
+  test.describe('the problems tip takes the focus as the docs card does', () => {
     const many = Array.from({ length: 25 }, (_, i) => ({
       path: '/z',
       severity: 'warning',
@@ -920,7 +920,7 @@ test.describe(() => {
   test.skip(!built, 'run `npm run build` in js/ first');
   test.use({ viewport: { width: 1000, height: 700 } });
 
-  test.describe('N26-A4: the problems tip closes when the focus leaves the editor', () => {
+  test.describe('the problems tip closes when the focus leaves the editor', () => {
     const schema = JSON.stringify({ type: 'object', properties: { a: { type: 'integer' } }, additionalProperties: false });
     const value = 'a: x\nzz: 1\n';
     const withHostButton = (page) =>
@@ -978,7 +978,7 @@ test.describe(() => {
     });
   });
 
-  test.describe('N26-A5: a tip listing many problems with docs', () => {
+  test.describe('a tip listing many problems with docs', () => {
     const many = Array.from({ length: 30 }, (_, i) => ({
       path: '/zz',
       severity: 'warning',

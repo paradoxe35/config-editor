@@ -90,7 +90,7 @@ const SCHEMA = JSON.stringify({
 
 const TEXT = '# c\nID=srv-1\nNAME=a\nPORT=80\n';
 
-// Each edit QA made on the locked `ID` (schema) and `PORT` (host path).
+// Each edit a tester made on the locked `ID` (schema) and `PORT` (host path).
 const LOCKED_EDITS = {
   'type in a locked value': async (page) => {
     await caretAt(page, 'srv-1', 3);
@@ -119,7 +119,7 @@ const LOCKED_EDITS = {
   },
 };
 
-// QA round 20 (host): registered languages. Read-only fields hold in a
+// Registered languages. Read-only fields hold in a
 // language that gives no spans (found on a flat language's lines, else
 // checked by value); a language that cannot write documents is never
 // edited as another, either way; a document's language comes from its
@@ -562,7 +562,7 @@ test.describe(() => {
   }
 
 
-  // --- L29-4: a custom language's unknown token kind. --------------------------
+  // --- a custom language's unknown token kind. --------------------------
 
   test.describe('custom language token kinds', () => {
   test.skip(!built, 'js packages not built: run `npm run build` in js/');

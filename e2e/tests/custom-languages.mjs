@@ -462,7 +462,7 @@ export const DOT = `(() => {
 
 // INDENTED: `key: value` lines nested by indentation alone (no brackets),
 // with `contextAt`, `insertKey` and `keyAt`: what the README's nested
-// section says is enough for objects inside objects (D26.docs-2).
+// section says is enough for objects inside objects.
 export const INDENTED = `(() => {
   const lines = (text) => text.split("\\n").map((raw) => {
     const indent = raw.length - raw.trimStart().length;

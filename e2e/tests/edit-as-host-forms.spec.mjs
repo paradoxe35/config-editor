@@ -20,7 +20,7 @@ async function at(page, marked) {
 
 const saved = (page) => page.locator('.demo__output-text').textContent();
 
-// --- Fourth-round findings: Edit-as saving and diagnostics ---
+// --- Edit-as saving and diagnostics ---
 
 const savedText = (page) => page.locator('.demo__output-text').textContent();
 
@@ -298,7 +298,7 @@ test.describe(() => {
   });
 });
 
-// QA round 17 Edit-as saves, typed in another language's view: a value
+// A value
 // starting with a YAML indicator is quoted, a block in a list item's map and
 // a compact nested sequence are spliced in place with the comments kept, a
 // carriage return is escaped, an XML comment in text survives.
@@ -377,7 +377,7 @@ test.describe('XML text around a comment edited as YAML', () => {
   });
 });
 
-// QA round 18 Edit-as saves, typed in another language's view: an
+// An
 // indentless YAML sequence and a quoted YAML scalar over lines are spliced
 // in place with the comments kept, a renamed YAML key YAML 1.1 would read as
 // a boolean is quoted, and a TOML datetime typed half-way waits and is
@@ -437,7 +437,7 @@ test.describe('TOML edited as JSON', () => {
   });
 });
 
-// QA round 19 Edit-as saves, typed in another language's view: an edit
+// An edit
 // elsewhere keeps XML's `1.0` as written, a value typed in the XML view
 // keeps the host's type (an emptied element is no `{}`, a TOML datetime
 // retyped there stays a datetime), and YAML list items of maps moved in
@@ -559,7 +559,7 @@ test.describe('YAML edited in other views', () => {
     await e.paste('# top\nf: 1.0\nn: x\n');
     await expect.poll(() => saved(page)).toContain('f: 1.0');
     await pick(page, 'hcl');
-    // Shown as written (round 21), and an integer typed over it is a float.
+    // Shown as written, and an integer typed over it is a float.
     await expect.poll(() => e.value()).toContain('f = 1.0');
     await select(e, '1.0');
     await page.keyboard.type('2');
@@ -573,7 +573,7 @@ test.describe('YAML edited in other views', () => {
     await expect.poll(() => e.value()).toContain('<port>80</port>');
     await select(e, '>80<');
     await page.keyboard.type('>0x51<');
-    // A number, kept as typed (round 21): YAML reads `0x51` as 81 too.
+    // A number, kept as typed: YAML reads `0x51` as 81 too.
     await expect.poll(() => saved(page)).toBe('# top\nport: 0x51  # pc\nn: x\n');
   });
 });
@@ -611,7 +611,7 @@ test.describe('YAML tags and several documents', () => {
 
 // A group of its own (its own helpers).
 test.describe(() => {
-  // QA round 21 Edit-as saves: list items moved while others are added or
+  // List items moved while others are added or
   // removed keep their comments (scalars, XML elements with children, TOML
   // inline tables), numbers and booleans typed in their own spelling in the
   // XML view keep the host's type and the spelling, a quoted string emptied
@@ -726,7 +726,7 @@ test.describe(() => {
 
 // A group of its own (its own helpers).
 test.describe(() => {
-  // QA round 21 typing: a YAML block scalar holding an empty line froze the
+  // A YAML block scalar holding an empty line froze the
   // tab (loading it, Enter in it, Edit as YAML of a string with a blank line);
   // copy and cut on a folded header take the whole block; Enter on an empty
   // `- ` item and inside a flow sequence; XML's `</` and an attribute quote
@@ -766,7 +766,7 @@ test.describe(() => {
 
 // A group of its own (its own helpers).
 test.describe(() => {
-  // QA round 24 editing, as a user makes the saves: a leading byte order
+  // A leading byte order
   // mark stays through an edit of the first key from another view, a YAML
   // root written as a flow collection keeps its form, an XML attribute stays
   // one when the child of its name goes, and tagged YAML list items move
@@ -845,7 +845,7 @@ test.describe(() => {
 
 // A group of its own (needs the built npm packages).
 test.describe(() => {
-  // QA round 25 (editing), through the npm package's example page with real
+  // Through the npm package's example page with real
   // keys: folds stay closed through an Edit-as switch (carried by their
   // field); an XML child removed and added back in one Edit-as session is a
   // child again, its attribute kept; a YAML merge key stays when a merged
@@ -903,7 +903,7 @@ test.describe(() => {
   });
 
   // The override goes above the merge line's comment, which stays on it
-  // (round 26).
+  //.
   test('a YAML merge stays when a merged value is edited from another view', async ({ page }) => {
     const value = 'defaults: &D\n  a: 1 # da\n  b: 2\nsvc:\n  # merged\n  <<: *D\n  b: 20 # own\n';
     const errors = await open(page, { language: 'yaml', value, editAs: 'json' });
@@ -918,7 +918,7 @@ test.describe(() => {
 
 // A group of its own (its own helpers).
 test.describe(() => {
-  // QA round 29 (editing). The host's byte order mark survives every edit of
+  // The host's byte order mark survives every edit of
   // the first line, once, at the start; keys reordered beside members a view
   // shows but the host writes elsewhere (XML attributes, YAML merged keys)
   // reach the host; an HCL expression moved to another block stays an

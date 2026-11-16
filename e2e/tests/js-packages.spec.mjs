@@ -330,7 +330,7 @@ test.describe('vanilla API: languages described by configuration', () => {
   });
 });
 
-test.describe('vanilla API: fourth-round findings', () => {
+test.describe('vanilla API: assorted cases', () => {
   test('an editor nobody references stays mounted through garbage collection', async ({ page: browserPage }) => {
     const errors = await open(browserPage, 'vanilla.html');
     await browserPage.evaluate(async () => {
@@ -644,7 +644,7 @@ test.describe('vanilla API: mounting into an element that holds an editor', () =
   });
 });
 
-test.describe('round 5: package polish', () => {
+test.describe('package polish', () => {
   test('the toolbar shows the default file name', async ({ page: browserPage }) => {
     await open(browserPage, 'vanilla.html');
     await browserPage.evaluate(async () => {
@@ -732,7 +732,7 @@ test.describe('round 5: package polish', () => {
   });
 });
 
-test.describe('round 11', () => {
+test.describe('package behaviour, second set', () => {
   test('vanilla: input right after the constructor or update({ value }), in the same task, is kept', async ({ page: browserPage }) => {
     await open(browserPage, 'vanilla.html');
     const result = await browserPage.evaluate(async () => {
@@ -801,7 +801,7 @@ test.describe('round 11', () => {
   });
 });
 
-test.describe('round 12', () => {
+test.describe('package behaviour, third set', () => {
   test('vanilla: value and update({ value }) see an Edit-as edit still waiting out the typing pause', async ({ page: browserPage }) => {
     await open(browserPage, 'vanilla.html');
     const result = await browserPage.evaluate(async () => {

@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-// QA round 27, UX: the hover card and the problem tip are reached the way
+// The hover card and the problem tip are reached the way
 // a mouse goes there, above their line or below it: many small moves at
 // 60 to 125 events a second, across the few pixels between the popup and
 // its line (which belong to the next line) and, from a long value's end,
@@ -145,7 +145,7 @@ test.use({ viewport: { width: 900, height: 500 } });
 for (const [language, doc] of Object.entries(LANGUAGES)) {
   test.describe(language, () => {
     for (const [side, value] of Object.entries(SIDES)) {
-      test(`M27-U1: a mouse reaches a card ${side} its line and opens its docs link`, async ({ page, context }) => {
+      test(`a mouse reaches a card ${side} its line and opens its docs link`, async ({ page, context }) => {
         const errors = await open(page, { value: value(doc), language, schema: schemaWith(WORDS) });
         const port = await wordAt(page, 'port', 1);
         for (const steps of STEPS) {
@@ -166,7 +166,7 @@ for (const [language, doc] of Object.entries(LANGUAGES)) {
         expect(errors).toEqual([]);
       });
 
-      test(`M27-U1: a mouse reaches a card ${side} its line and selects its text`, async ({ page }) => {
+      test(`a mouse reaches a card ${side} its line and selects its text`, async ({ page }) => {
         const errors = await open(page, { value: value(doc), language, schema: schemaWith(WORDS) });
         const port = await wordAt(page, 'port', 1);
         await hoverAt(page, port, card(page));
@@ -182,7 +182,7 @@ for (const [language, doc] of Object.entries(LANGUAGES)) {
         expect(errors).toEqual([]);
       });
 
-      test(`M27-U1: a mouse reaches a long card ${side} its line and scrolls it`, async ({ page }) => {
+      test(`a mouse reaches a long card ${side} its line and scrolls it`, async ({ page }) => {
         // Line 1 for below; for above, the last line of a short window's
         // text, with more room above than below.
         const lines = side === 'above' ? [...fill(14), ['port', 3]] : [['port', 3], ...fill(3)];
@@ -202,7 +202,7 @@ for (const [language, doc] of Object.entries(LANGUAGES)) {
         expect(errors).toEqual([]);
       });
 
-      test(`M27-U1: a mouse reaches a card ${side} a long value from the value's end`, async ({ page, context }) => {
+      test(`a mouse reaches a card ${side} a long value from the value's end`, async ({ page, context }) => {
         const errors = await open(page, { value: value(doc, LONG), language, schema: schemaWith(WORDS) });
         const end = await wordAt(page, 'end', 1);
         for (const steps of STEPS) {
@@ -221,7 +221,7 @@ for (const [language, doc] of Object.entries(LANGUAGES)) {
         expect(errors).toEqual([]);
       });
 
-      test(`M27-U1: a mouse reaches a problem tip ${side} a long underline from its end`, async ({ page, context }) => {
+      test(`a mouse reaches a problem tip ${side} a long underline from its end`, async ({ page, context }) => {
         const text = value(doc, LONG);
         const line = text.split('\n').findIndex((line) => line.includes('port')) + 1;
         const problem = {
@@ -254,11 +254,11 @@ for (const [language, doc] of Object.entries(LANGUAGES)) {
   });
 }
 
-// L27-U2: from the card back onto its key, the card closed and opened
+// From the card back onto its key, the card closed and opened
 // again a moment later; back on the very pixel the pointer left the key
 // at, it closed for good.
 for (const [language, doc] of Object.entries(LANGUAGES)) {
-  test(`L27-U2 ${language}: back from the card onto its key, the card stays`, async ({ page }) => {
+  test(`in ${language}: back from the card onto its key, the card stays`, async ({ page }) => {
     const errors = await open(page, { value: SIDES.above(doc), language, schema: schemaWith(WORDS) });
     const port = await wordAt(page, 'port', 1);
     for (const back of [(at) => glide(page, at, port, 10), () => page.mouse.move(port.x, port.y)]) {
@@ -273,9 +273,9 @@ for (const [language, doc] of Object.entries(LANGUAGES)) {
   });
 }
 
-// L27-U2: from a tab the card covers, back onto its key at once, the card
+// From a tab the card covers, back onto its key at once, the card
 // was gone for a second and more.
-test('L27-U2: from a tab under the card back onto its key, the card stays', async ({ page }) => {
+test('from a tab under the card back onto its key, the card stays', async ({ page }) => {
   await page.goto(pathToFileURL(join(js, 'examples', 'documents.html')).href);
   await expect(page.locator('body')).toHaveAttribute('data-ready', 'true', { timeout: 20000 });
   const schema = JSON.stringify({ type: 'object', properties: { listen: { type: 'integer', description: `${WORDS}\n${WORDS}` } } });

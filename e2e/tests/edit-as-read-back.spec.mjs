@@ -1,8 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { editor, setupEditor } from './helpers.mjs';
 
-// Edit-as saves of an XML host are read back as the view holds them
-// (hard-bar QA D23/D24/D25): a structural edit keeps the comments and
+// Edit-as saves of an XML host are read back as the view holds them: a structural edit keeps the comments and
 // processing instructions an element shares one line with, and an edit the
 // host would read back otherwise (an attribute moved below the text, a
 // prefix left unbound) waits with the reason on the value. Namespace

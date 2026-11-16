@@ -104,7 +104,7 @@ test.describe(() => {
 
   test.skip(!built, 'run `npm run build` in js/ first');
 
-  test.describe('L22-U5: the change preview stays inside the editor on a phone', () => {
+  test.describe('the change preview stays inside the editor on a phone', () => {
     test.use({ hasTouch: true, isMobile: true, viewport: { width: 390, height: 700 } });
 
     test('Alt+F3 on a changed line', async ({ page }) => {
@@ -148,7 +148,7 @@ test.describe(() => {
 
   test.skip(!built, 'run `npm run build` in js/ first');
 
-  test.describe('L23-A1, L23-A2: the change preview from the keyboard', () => {
+  test.describe('the change preview from the keyboard', () => {
     const options = { value: 'a: 1\nb: 2\nc: 3\n', baseline: 'a: 1\nb: 9\nc: 3\n' };
 
     test('Enter on a diff marker focuses Revert; the preview is right after the text in the Tab order', async ({ page }) => {
@@ -181,7 +181,7 @@ test.describe(() => {
   });
 });
 
-// --- L30-3: `update({ value, baseline })` never reports the document dirty.
+// --- `update({ value, baseline })` never reports the document dirty.
 
 test.describe('a file loaded with its baseline is never dirty', () => {
   test.skip(!built, 'js packages not built: run `npm run build` in js/');

@@ -1,10 +1,8 @@
 import { expect, test } from '@playwright/test';
 
 // The demo pages give a screen reader something to orient by: a heading, a
-// `main` landmark and a skip link to the editor (hard round 28's
-// `D28.a11y-1`), their pickers named with their visible label (hard round
-// 23's `D23.a11y-1`), and the settings switches named in words (hard round
-// 23's `D23.a11y-3`).
+// `main` landmark and a skip link to the editor, their pickers named with their visible label, and the settings
+// switches named in words.
 
 for (const query of ['', '?documents']) {
   test(`demo${query}: a heading, a main landmark and a skip link`, async ({ page }) => {
@@ -16,7 +14,7 @@ for (const query of ['', '?documents']) {
     await expect(page.locator('.demo__skip')).toBeFocused();
     await page.keyboard.press('Enter');
     // The editor's text area, not `main` (which holds the toolbar too:
-    // nothing would be skipped; QA 30's A30-6).
+    // nothing would be skipped).
     await expect(page.locator('.config-editor__input').first()).toBeFocused();
   });
 }

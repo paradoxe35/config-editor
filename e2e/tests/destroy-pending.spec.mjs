@@ -8,7 +8,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 // nothing traps, and nothing runs afterwards. For a `ConfigDocuments`
 // document and a `ConfigEditor`, in a converted (Edit-as) view and the
 // host's own language, called directly, from a callback, and from the
-// binding's unmount (QA D8.memory-1: a documents view destroyed inside the
+// binding's unmount (a documents view destroyed inside the
 // pause disposed the documents' state before unmounting their editors, so
 // the editor's last report read a disposed value and trapped, losing the
 // edit and stranding the view).

@@ -16,7 +16,7 @@ async function at(page, marked) {
   return e;
 }
 
-// Regressions found by the first hands-on QA round, replayed with real keys.
+// Regressions found by hands-on testing, replayed with real keys.
 test.describe('json: suggestions', () => {
   setupEditor(test, '?language=json');
 
@@ -102,7 +102,7 @@ test.describe('xml: child names typed inside an element', () => {
   });
 });
 
-// Regressions found by the second hands-on QA round, replayed with real keys.
+// Regressions found by hands-on testing, replayed with real keys.
 test.describe('json: editing', () => {
   setupEditor(test, '?language=json');
   test('nothing is suggested after the root object closes', async ({ page }) => {
@@ -174,7 +174,7 @@ test.describe('xml: values and end tags', () => {
   });
 });
 
-// Features deferred from the second QA round, replayed with real keys.
+// Features deferred from hands-on testing, replayed with real keys.
 test.describe('yaml: Tab through an accepted block', () => {
   setupEditor(test, '?language=yaml');
 
@@ -248,8 +248,8 @@ test.describe('toml: headers by bracket kind', () => {
   });
 });
 
-// Leftovers from earlier rounds and fourth-round findings, replayed with real keys.
-// --- Fourth-round findings: completion ---
+// Further cases, replayed with real keys.
+// --- completion ---
 
 test.describe('json: Enter after a value typed in suggested quotes, before a comma', () => {
   setupEditor(test, '?language=json');
@@ -339,7 +339,7 @@ test.describe('yaml: Tab walks the empty values of a flow map', () => {
   });
 });
 
-// Fifth-round findings, replayed with real keys.
+// Further cases, replayed with real keys.
 test.describe('Tab at the end of the last empty value steps out of it', () => {
   test.describe('toml', () => {
     setupEditor(test, '?language=toml');
@@ -375,7 +375,7 @@ test.describe('Tab at the end of the last empty value steps out of it', () => {
 
 // A group of its own (its own helpers).
 test.describe(() => {
-  // Sixth-round findings, replayed with real keys.
+  // Further cases, replayed with real keys.
   async function select(page, text, from, to) {
     const e = editor(page);
     await e.paste(text);
@@ -476,7 +476,7 @@ test.describe(() => {
 
 // A group of its own (its own helpers).
 test.describe(() => {
-  // Seventh-round findings, replayed with real keys. The language-wide classes
+  // Further cases, replayed with real keys. The language-wide classes
   // behind them are covered by the unit matrices (`completion_matrix`,
   // `editing_matrix`, `save_properties`).
   async function at(page, marked) {
@@ -534,7 +534,7 @@ test.describe(() => {
 
 // A group of its own (its own helpers).
 test.describe(() => {
-  // Eighth-round findings, replayed with real keys. The classes behind them are
+  // Further cases, replayed with real keys. The classes behind them are
   // covered by the unit matrices (`completion_matrix`, `editing_matrix`,
   // `save_properties`).
   async function at(page, marked) {
@@ -587,7 +587,7 @@ test.describe(() => {
 
 // A group of its own (its own helpers).
 test.describe(() => {
-  // Ninth-round findings, replayed with real keys. The classes behind them are
+  // Further cases, replayed with real keys. The classes behind them are
   // covered by the unit matrices (`completion_matrix`, `editing_matrix`).
   async function at(page, marked) {
     const e = editor(page);
@@ -670,7 +670,7 @@ test.describe(() => {
 
 // A group of its own (its own helpers).
 test.describe(() => {
-  // Tenth-round findings, replayed with real keys. The classes behind them are
+  // Further cases, replayed with real keys. The classes behind them are
   // covered by the unit matrices (`completion_matrix`, `editing_matrix`).
   async function at(page, marked) {
     const e = editor(page);

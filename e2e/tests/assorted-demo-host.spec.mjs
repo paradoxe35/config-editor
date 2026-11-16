@@ -4,7 +4,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { editor, setupEditor } from './helpers.mjs';
 
-// Gaps earlier rounds (16-18) left: each replayed in the demo with real
+// Assorted gaps: each replayed in the demo with real
 // keys, failing before its fix.
 
 for (const query of ['?language=yaml', '?documents']) {

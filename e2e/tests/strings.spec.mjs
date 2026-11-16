@@ -57,9 +57,9 @@ const ELSEWHERE = {
   problemsIncomplete:
     "needs a schema whose explanation outgrows its budget: schema_error_bound tests",
   underlinesCut:
-    "needs more than 200 underlines: problem_summary tests and the qa-round20-ux spec",
+    "needs more than 200 underlines: problem_summary tests and the problems-tips spec",
   foldedProblemOne:
-    "a fold hiding a host problem: folding tests and the qa-round20-ux spec",
+    "a fold hiding a host problem: folding tests and the problems-tips spec",
   foldedProblemOther: "as foldedProblemOne (two problems: folding tests)",
   changesOther: "one change on this page; status_bar tests",
   changeDetailsOther: "as changesOther",
@@ -105,26 +105,26 @@ const ELSEWHERE = {
   revertTitle:
     "the change previewed here spans two lines (revertLinesTitle): changes spec",
   problemsHintTouch:
-    "a touch screen: problem_summary tests and the qa-round24-ux spec",
+    "a touch screen: problem_summary tests and the problems-tips spec",
   suggestionsHintTouch:
     "a touch screen: status_bar tests and the shortcut-hints spec",
-  hoverFocused: "a second Ctrl+K Ctrl+I on a card: the qa-round24-ux spec",
-  hoverLabel: "the focused hover card: the qa-round25-a11y spec",
-  problemTipLabel: "the focused problem tip: the qa-round25-a11y spec",
-  changePosition: "Alt+F5 with a baseline: the qa-round25-a11y spec",
-  walkNoProblems: "F8 with no problems: the qa-round30-a11y spec",
-  noChanges: "Alt+F5 with no changes: the qa-round30-a11y spec",
-  reverted: "reverting a change: the qa-round30-a11y spec",
-  reloaded: "Reload in the changed-baseline notice: the qa-round30-a11y spec",
+  hoverFocused: "a second Ctrl+K Ctrl+I on a card: the hover-keyboard spec",
+  hoverLabel: "the focused hover card: the hover-keyboard spec",
+  problemTipLabel: "the focused problem tip: the hover-keyboard spec",
+  changePosition: "Alt+F5 with a baseline: the a11y-announcements spec",
+  walkNoProblems: "F8 with no problems: the a11y-announcements spec",
+  noChanges: "Alt+F5 with no changes: the a11y-announcements spec",
+  reverted: "reverting a change: the a11y-announcements spec",
+  reloaded: "Reload in the changed-baseline notice: the a11y-announcements spec",
   foldedLines:
-    "fold commands: the qa-round25-a11y spec and folding change_tests",
+    "fold commands: the folding-commands spec and folding change_tests",
   unfoldedLines: "as foldedLines",
   foldedRanges: "as foldedLines",
   unfoldedRanges: "as foldedLines",
   nothingToFold:
-    "a fold key with nothing to fold: the qa-round32-a11y-ux spec and editor/tests/nothing_to_fold.rs",
+    "a fold key with nothing to fold: the folding-commands spec and editor/tests/nothing_to_fold.rs",
   nothingToUnfold: "as nothingToFold",
-  readOnlyEditor: "typing in a read-only editor: the qa-round25-a11y spec",
+  readOnlyEditor: "typing in a read-only editor: the a11y-read-only-editor spec",
   readOnlyEditorReason:
     "typing in a read-only editor with a `readOnlyReason`: the documents-screen spec, framework-cases and a11y tests",
   readOnlyTabTitle:
@@ -141,17 +141,17 @@ const ELSEWHERE = {
   openDocs: "host problems with a docs link: host diagnostics tests",
   openDocsTouch: "a touch screen: the hover-card-text spec",
   openDocsLabel:
-    "the docs links of a tip listing host problems: the qa-round26-a11y spec",
+    "the docs links of a tip listing host problems: the hover-keyboard spec",
   examples: "schema help tests",
   readOnlyText: "read-only ranges: protect tests",
   holdsReadOnly: "renaming a locked field’s key: protect tests",
   saveRefused: "an Edit-as save over a read-only value: protect tests",
   saveWaits:
-    "a broken text in a custom language without spans: qa-round21-host spec",
+    "a broken text in a custom language without spans: custom-languages-host spec",
   secretHint: "the page gives its own hint",
   secretValue: "schema messages on secret fields: protect tests",
   unknownPlaceholder: "protect tests",
-  movedPlaceholder: "protect tests (moved_token_tests) and the qa-round15 spec",
+  movedPlaceholder: "protect tests (moved_token_tests) and the locks-read-only spec",
   foreignPlaceholder:
     "another document's placeholder pasted: protect tests (foreign) and the browser fuzz on the documents pages",
   extraPlaceholder: "a secret line copied: protect tests (many_copies_tests)",

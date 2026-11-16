@@ -6,7 +6,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 // An item deleted in an Edit-as view of XML, then `update({ editAs })`
 // switched inside the typing pause (at once, 50 ms or 250 ms after): the
 // save that follows keeps each remaining item's own `xsi:type`, whichever
-// view it was deleted in and switched to (QA E33-1: the edits that tell
+// view it was deleted in and switched to (the edits that tell
 // the items apart were lost at the switch, and the save paired the items
 // by place, `Circle` landing on the second item).
 

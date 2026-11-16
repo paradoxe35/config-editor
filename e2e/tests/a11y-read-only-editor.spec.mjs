@@ -36,7 +36,7 @@ test.describe(() => {
   test.skip(!built, 'run `npm run build` in js/ first');
   test.use({ viewport: { width: 1000, height: 700 } });
 
-  test.describe('L25-A5: typing in a read-only editor', () => {
+  test.describe('typing in a read-only editor', () => {
     for (const [what, act] of [
       ['a character', (page) => page.keyboard.type('x')],
       ['Backspace', (page) => page.keyboard.press('Backspace')],
@@ -98,7 +98,7 @@ test.describe(() => {
   test.skip(!built, 'run `npm run build` in js/ first');
   test.use({ viewport: { width: 1000, height: 700 } });
 
-  test.describe('N26-A3: editing commands in a read-only editor say it cannot edit', () => {
+  test.describe('editing commands in a read-only editor say it cannot edit', () => {
     const COMMANDS = {
       'Ctrl+X without a selection (cut the line)': 'Control+x',
       'Ctrl+/ (toggle a comment)': 'Control+Slash',
@@ -186,7 +186,7 @@ test.describe(() => {
     return errors;
   }
 
-  // L28-A2: the line commands did nothing at all, so next to a lock or in a
+  // The line commands did nothing at all, so next to a lock or in a
   // read-only editor they said nothing either.
   const COMMANDS = {
     'Alt+↑': 'Alt+ArrowUp',
@@ -208,7 +208,7 @@ test.describe(() => {
   test.skip(!built, 'run `npm run build` in js/ first');
   test.use({ viewport: { width: 1000, height: 700 } });
 
-  test.describe('L28-A2', () => {
+  test.describe('line commands in a read-only editor or beside a lock', () => {
     for (const [command, key] of Object.entries(COMMANDS)) {
       test(`a read-only editor: ${command} says it cannot edit`, async ({ page }) => {
         const errors = await open(page, { value: 'a: 1\nb: 2\n', readOnly: true });
@@ -223,7 +223,7 @@ test.describe(() => {
   });
 });
 
-test.describe('Ctrl+M in a read-only editor (A32-1)', () => {
+test.describe('Ctrl+M in a read-only editor', () => {
   setupEditor(test, '?readonly');
 
   test('is not taken, said or named', async ({ page }) => {

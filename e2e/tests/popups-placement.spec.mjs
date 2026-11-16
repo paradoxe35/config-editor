@@ -70,7 +70,7 @@ test.describe('popups in a transformed container', () => {
   test.skip(!built, 'run `npm run build` in js/ first');
 
   for (const [name, css] of Object.entries(CONTAINERS)) {
-    test(`U20-N1: the tip, the hover card and the suggestion list sit at what they point at (${name})`, async ({ page }) => {
+    test(`the tip, the hover card and the suggestion list sit at what they point at (${name})`, async ({ page }) => {
       const errors = [];
       page.on('pageerror', (error) => errors.push(String(error)));
       await page.setViewportSize({ width: 1100, height: 700 });

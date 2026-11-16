@@ -3,7 +3,7 @@ import { editor, setupEditor } from './helpers.mjs';
 
 // The small controls are at least 24x24 CSS px, by their own box or through
 // the invisible hit area their `::before`/`::after` gives them (WCAG 2.5.8;
-// hard-bar `D5.a11y-1`: the chevrons were 14x22, the change bars 11x22, the
+// the chevrons were 14x22, the change bars 11x22, the
 // find buttons 22x22 and the settings rows 19 px tall, with hit areas that
 // met their neighbours', for a mouse: only a coarse pointer had the larger
 // areas).

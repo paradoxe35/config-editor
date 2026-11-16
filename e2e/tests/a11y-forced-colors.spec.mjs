@@ -36,7 +36,7 @@ test.describe(() => {
 
   test.skip(!built, 'run `npm run build` in js/ first');
 
-  test.describe('U21-3: forced colors keep every mark visible', () => {
+  test.describe('forced colors keep every mark visible', () => {
     test.use({ viewport: { width: 900, height: 500 } });
 
     const schema = JSON.stringify({
@@ -142,7 +142,7 @@ test.describe(() => {
 
   test.skip(!built, 'run `npm run build` in js/ first');
 
-  test.describe('L22-U7: forced colors keep the severities apart', () => {
+  test.describe('forced colors keep the severities apart', () => {
     test('errors, warnings and infos have their own underline style', async ({ browser }) => {
       const context = await browser.newContext({ forcedColors: 'active', viewport: { width: 900, height: 400 } });
       const page = await context.newPage();
@@ -187,7 +187,7 @@ test.describe(() => {
 
   test.skip(!built, 'run `npm run build` in js/ first');
 
-  test.describe('M23-A4: forced colors', () => {
+  test.describe('forced colors', () => {
     test.use({ forcedColors: 'active' });
 
     test('the selected tab has a system-color bar, closable or not', async ({ page }) => {
@@ -243,7 +243,7 @@ test.describe(() => {
 
   test.skip(!built, 'run `npm run build` in js/ first');
 
-  test.describe('L24-A6: forced colors', () => {
+  test.describe('forced colors', () => {
     test.use({ forcedColors: 'active', colorScheme: 'dark' });
 
     test('every part of the selected suggestion is HighlightText', async ({ page }) => {

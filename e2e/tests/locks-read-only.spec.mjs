@@ -65,7 +65,7 @@ const WHITESPACE = [
   ['yaml', '  burst', 0, 'Enter'],
 ];
 
-test.describe("a read-only key shows its docs and says why (D3.ux-1)", () => {
+test.describe("a read-only key shows its docs and says why", () => {
   test.describe("keyboard", () => {
     setupEditor(test, "?schema=protected");
 
@@ -121,7 +121,7 @@ test.describe("a read-only key shows its docs and says why (D3.ux-1)", () => {
   });
 });
 
-// QA round 15: read-only blocks never grow, infinities stay numbers,
+// Read-only blocks never grow, infinities stay numbers,
 // placeholders are real only in their own field, serialize writes only what
 // reads back the same, host inputs are checked, and a drag from a secret
 // chip takes it whole.
@@ -268,7 +268,7 @@ test.describe('yaml: a locked line', () => {
 
 // A group of its own (its own helpers).
 test.describe(() => {
-  // QA round 17 (host): read-only values hold whatever order the text and the
+  // Read-only values hold whatever order the text and the
   // locks arrive in (a host text that never parsed, at mount or as a new
   // value; paths named while the text does not parse), no callback fires
   // after `destroy()`, and `ConfigDocuments` refuses an unknown `activeId`
@@ -453,7 +453,7 @@ test.describe(() => {
 
 // A group of its own (its own helpers).
 test.describe(() => {
-  // QA round 18 (host): the rule for a host text that does not parse holds
+  // The rule for a host text that does not parse holds
   // both ways. A read-only value never reaches the host changed, also in a
   // text of hundreds of lines broken in more places than the editor can mend
   // to read it; and a repair that keeps every read-only value goes through:
@@ -652,7 +652,7 @@ test.describe(() => {
 
 // A group of its own (its own helpers).
 test.describe(() => {
-  // QA round 21 (host API, locks, headless). A read-only field in a language
+  // A read-only field in a language
   // without spans holds through broken text, and a save waits for a text that
   // parses; a refusal takes back only what it is about; a host update while
   // editing as another language sends no onChange; YAML tags are valid YAML
@@ -829,7 +829,7 @@ test.describe(() => {
     return errors;
   }
 
-  // L28-A2: the line commands did nothing at all, so next to a lock or in a
+  // The line commands did nothing at all, so next to a lock or in a
   // read-only editor they said nothing either.
   const COMMANDS = {
     'Alt+↑': 'Alt+ArrowUp',
@@ -860,7 +860,7 @@ test.describe(() => {
   test.skip(!built, 'run `npm run build` in js/ first');
   test.use({ viewport: { width: 1000, height: 700 } });
 
-  test.describe('L28-A2', () => {
+  test.describe('line commands beside a lock', () => {
     for (const [language, value] of Object.entries(LOCKED)) {
       test(`${language}: next to a lock, a line command changes the locked value never, and says why when refused`, async ({ page }) => {
         const errors = await open(page, { value, language, readOnlyPaths: ['/name'] });

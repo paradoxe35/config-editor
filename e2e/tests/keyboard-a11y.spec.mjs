@@ -272,7 +272,7 @@ test.describe('a host problem at the caret', () => {
 });
 
 // Per-line controls (change markers, fold chevrons) stay out of the Tab
-// order (QA 24: thirty markers took thirty-one Shift+Tab presses to leave
+// order (thirty markers took thirty-one Shift+Tab presses to leave
 // the editor backwards); Alt+F3 / Alt+F5 reach the changes instead, and a
 // click on a marker still opens its preview.
 test.describe('per-line controls and the Tab order', () => {

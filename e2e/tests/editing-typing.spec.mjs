@@ -13,7 +13,7 @@ const built = existsSync(join(js, 'config-editor', 'pkg', 'config_editor_bg.wasm
 const vanilla = (options) =>
   `${pathToFileURL(join(js, 'examples', 'vanilla.html')).href}?options=${encodeURIComponent(JSON.stringify(options))}`;
 
-// QA round 21 typing: a YAML block scalar holding an empty line froze the
+// A YAML block scalar holding an empty line froze the
 // tab (loading it, Enter in it, Edit as YAML of a string with a blank line);
 // copy and cut on a folded header take the whole block; Enter on an empty
 // `- ` item and inside a flow sequence; XML's `</` and an attribute quote

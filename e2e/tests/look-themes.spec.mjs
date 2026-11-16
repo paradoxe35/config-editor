@@ -96,7 +96,7 @@ test.describe(() => {
 
   test.skip(!built, 'run `npm run build` in js/ first');
 
-  test.describe('L23-U8: the deprecated badge reads in every theme', () => {
+  test.describe('the deprecated badge reads in every theme', () => {
     const luminance = (rgb) =>
       rgb
         .map((part) => part / 255)
@@ -134,7 +134,7 @@ test.describe(() => {
   });
 });
 
-test.describe("the unsaved-changes dot (A33-3)", () => {
+test.describe("the unsaved-changes dot", () => {
   setupEditor(test, "");
 
   test("is 4.5:1 against its background in every theme", async ({ page }) => {

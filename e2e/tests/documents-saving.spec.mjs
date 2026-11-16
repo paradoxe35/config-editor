@@ -77,7 +77,7 @@ async function mount(page, documents) {
   }, documents);
 }
 
-// QA round 31 (FW31-1): `save(id)` and `saveAll()` of a `ConfigDocuments`
+// `save(id)` and `saveAll()` of a `ConfigDocuments`
 // view apply one gate to every document, shown or never shown: text that
 // does not read in its language is not sent (it was, before the document
 // was first shown), and text that reads is, in every language.
@@ -121,7 +121,7 @@ test.describe('a byte order mark on a document shown or never shown', () => {
 
 // A group of its own (its own helpers).
 test.describe(() => {
-  // QA round 33 (FW32-3): a ConfigDocuments document saves alike shown and
+  // A ConfigDocuments document saves alike shown and
   // never shown, whatever its line breaks (LF, CRLF, a lone CR, a mix), in
   // every language: the save gate reads the text with LF line breaks as the
   // editor does, and the text sent is the host's as given. Through the npm

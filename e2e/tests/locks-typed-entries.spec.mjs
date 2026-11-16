@@ -5,10 +5,10 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 // Entries typed a key at a time beside a protected field, through the real
 // keys: a new HCL block of a protected block's type with other labels is
-// taken with auto-closing off (QA 37: the line was wiped when `{` was
+// taken with auto-closing off (the line was wiped when `{` was
 // typed); a real second copy of the block, and a second copy of a
-// read-only JSON key typed with auto-closing on or off (QA 37:
-// `"password" "x",` was left), are taken whole too, the locked value kept
+// read-only JSON key typed with auto-closing on or off (`"password" "x",`
+// was left), are taken whole too, the locked value kept
 // and the save waiting while the copy is there.
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');

@@ -5,8 +5,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 // `saveAll()` and `save(id)` answer only for what reached `onSave`: a save
 // whose host callback is gone (the view destroyed, or `onSave` removed, by
-// an earlier save's callback) is not counted as sent (round 6's
-// `D6.host-1`).
+// an earlier save's callback) is not counted as sent.
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const js = join(root, 'js');

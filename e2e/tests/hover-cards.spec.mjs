@@ -6,7 +6,7 @@ import { editor, pointAt, setupEditor } from './helpers.mjs';
 
 // Hover cards: docs and a problem in one card, the pointer reaching the card, long cards, taps.
 
-test.describe('U19-M6: hover docs by a tap', () => {
+test.describe('hover docs by a tap', () => {
   test.use({ hasTouch: true, isMobile: true, viewport: { width: 390, height: 740 } });
   setupEditor(test, '?language=yaml');
 
@@ -24,7 +24,7 @@ test.describe('U19-M6: hover docs by a tap', () => {
 
 // A group of its own (needs the built npm packages).
 test.describe(() => {
-  // QA round 22 (UX): a key with docs and a problem shows one popup, the
+  // A key with docs and a problem shows one popup, the
   // hover card listing the problems above the docs, by the pointer, the
   // keyboard (`Ctrl+K Ctrl+I`) and a tap, while F8 and a problem without
   // docs keep the problem tip. Through the npm package's vanilla page (run
@@ -122,7 +122,7 @@ test.describe(() => {
 
   test.skip(!built, 'run `npm run build` in js/ first');
 
-  test.describe('M22-U1: docs and a problem at one place show in one popup', () => {
+  test.describe('docs and a problem at one place show in one popup', () => {
     test.use({ viewport: { width: 900, height: 500 } });
 
     for (const [language, doc] of Object.entries(DOCS)) {
@@ -183,7 +183,7 @@ test.describe(() => {
 
 // A group of its own (needs the built npm packages).
 test.describe(() => {
-  // QA round 23 (UX): the hover card stays while the pointer travels to it;
+  // The hover card stays while the pointer travels to it;
   // a host problem saying something else never hides the editor's own; hover
   // docs on values; the card fits the window; a tap outside closes it; the
   // footer keeps one row on a phone; tabs drop their folder when narrow; the
@@ -277,7 +277,7 @@ test.describe(() => {
 
   test.skip(!built, 'run `npm run build` in js/ first');
 
-  test.describe('M23-U1: the card with docs and a problem stays on the way to it', () => {
+  test.describe('the card with docs and a problem stays on the way to it', () => {
     test.use({ viewport: { width: 800, height: 400 } });
 
     for (const [language, doc] of Object.entries(DOCS)) {
@@ -337,7 +337,7 @@ test.describe(() => {
     }
   });
 
-  test.describe('L23-U2: the pointer on a value shows its property’s docs', () => {
+  test.describe('the pointer on a value shows its property’s docs', () => {
     for (const [language, doc] of Object.entries(VALUES)) {
       test(`${language}: with its problem, and without one`, async ({ page }) => {
         const errors = await open(page, { value: doc.value, language, schema: valueSchema });
@@ -359,7 +359,7 @@ test.describe(() => {
     }
   });
 
-  test.describe('L23-U3: a card with many problems fits the window and scrolls', () => {
+  test.describe('a card with many problems fits the window and scrolls', () => {
     test.use({ viewport: { width: 800, height: 400 } });
 
     for (const line of [1, 12]) {
@@ -397,7 +397,7 @@ test.describe(() => {
     }
   });
 
-  test.describe('L23-U5: a tap outside the editor closes the card', () => {
+  test.describe('a tap outside the editor closes the card', () => {
     test.use({ hasTouch: true, isMobile: true, viewport: { width: 390, height: 700 } });
 
     for (const [language, doc] of Object.entries(DOCS)) {
@@ -418,7 +418,7 @@ test.describe(() => {
 
 // A group of its own (needs the built npm packages, a 800×400 window).
 test.describe(() => {
-  // QA round 24 (UX): a long hover card scrolls with the wheel and the
+  // A long hover card scrolls with the wheel and the
   // keyboard whether or not it has a link; the pointer resting in the gap
   // between the line and the card keeps it. Through the npm package's pages
   // (run `npm run build` in js/ first).
@@ -532,7 +532,7 @@ test.describe(() => {
   test.skip(!built, 'run `npm run build` in js/ first');
   test.use({ viewport: { width: 800, height: 400 } });
 
-  test.describe('M24-U1: a long card without a link stays under the pointer and scrolls', () => {
+  test.describe('a long card without a link stays under the pointer and scrolls', () => {
     for (const [language, value] of Object.entries(DOCS)) {
       test(`${language}: long docs, the wheel`, async ({ page }) => {
         const errors = await open(page, { value, language, schema: portSchema(LONG) });
@@ -616,7 +616,7 @@ test.describe(() => {
     });
   });
 
-  test.describe('L24-U1: the pointer resting between the line and the card keeps it', () => {
+  test.describe('the pointer resting between the line and the card keeps it', () => {
     for (const [language, value] of Object.entries(DOCS)) {
       for (const link of [true, false]) {
         test(`${language}: ${link ? 'with a link' : 'long, no link'}`, async ({ page }) => {
@@ -626,7 +626,7 @@ test.describe(() => {
           await page.mouse.move(key.x, key.y);
           await expect(card(page)).toBeVisible();
           const box = await card(page).boundingBox();
-          // Below the line, or above it when it fits there (QA 26).
+          // Below the line, or above it when it fits there.
           const below = box.y > key.bottom;
           if (!below) expect(box.y + box.height).toBeLessThan(key.top);
           // In the gap between the line and the card.

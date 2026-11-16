@@ -12,7 +12,7 @@ const panel = (page, id) =>
 
 const LANGUAGES = ['yaml', 'json', 'toml', 'hcl', 'xml'];
 
-test.describe("a refused save is announced (D2.a11y-1)", () => {
+test.describe("a refused save is announced", () => {
   setupEditor(test, "?language=yaml");
 
   test("Ctrl+S on text the host language cannot hold says why", async ({
@@ -32,7 +32,7 @@ test.describe("a refused save is announced (D2.a11y-1)", () => {
   });
 });
 
-test.describe("a refused save in the documents view is announced (D2.a11y-1)", () => {
+test.describe("a refused save in the documents view is announced", () => {
   setupEditor(test, "?documents");
 
   test("Ctrl+S in an unconvertible Edit-as view says why", async ({ page }) => {
@@ -78,7 +78,7 @@ test.describe(() => {
   test.skip(!built, 'run `npm run build` in js/ first');
   test.use({ viewport: { width: 1000, height: 700 } });
 
-  test.describe('L25-A4: change and fold commands are announced', () => {
+  test.describe('change and fold commands are announced', () => {
     test('Alt+F5 and Shift+Alt+F5 say which change, where', async ({ page }) => {
       const value = 'name: a\nport: 2\nmode: fast\nextra: 1\n';
       const errors = await open(page, { value, baseline: 'name: a\nport: 1\nmode: fast\n' });
@@ -117,15 +117,15 @@ test.describe(() => {
   });
 });
 
-// QA round 27, accessibility: why an edit was refused is said through the
+// Why an edit was refused is said through the
 // editor's live region (one there from the start), not a region made with
 // its text; Escape closes the hover card or the problem tip with the
 // pointer on the text it shows for and the focus nowhere (WCAG 1.4.13).
-// L27-A1: a refused edit on a read-only field showed its message in a
+// A refused edit on a read-only field showed its message in a
 // `role="status"` region made together with it, and made again for each
 // refused key: screen readers may never say it.
 for (const language of LANGUAGES) {
-  test.describe(`L27-A1 ${language}`, () => {
+  test.describe(`in ${language}`, () => {
     setupEditor(test, `?schema=protected&language=${language}`);
 
     test('a refused edit is said through the live region', async ({ page }) => {
@@ -156,7 +156,7 @@ for (const language of LANGUAGES) {
 
 // A group of its own (needs the built npm packages).
 test.describe(() => {
-  // QA round 30, accessibility: results that were silent are said through the
+  // Results that were silent are said through the
   // live region (a revert, F8 with no problems, Alt+F5 / Alt+F3 with no
   // changes, the notice's Reload), and `aria-keyshortcuts` names F8 only while
   // the problems are on. Through the npm package's vanilla page (run
@@ -220,7 +220,7 @@ test.describe(() => {
   });
 });
 
-test.describe('the problem summary live region (A35-4)', () => {
+test.describe('the problem summary live region', () => {
   setupEditor(test, '?language=json');
 
   test('is not written again while typing leaves its text as it is', async ({ page }) => {

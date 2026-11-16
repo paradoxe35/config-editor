@@ -818,7 +818,7 @@ test.describe(() => {
   }
 
 
-  // --- L30-5: an option's default is what a view built without it has.
+  // --- an option's default is what a view built without it has.
 
   test.describe("an option's default is what a view left without it was built with", () => {
   test.skip(!built, 'js packages not built: run `npm run build` in js/');

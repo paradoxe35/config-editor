@@ -101,7 +101,7 @@ test.describe('host API', () => {
   });
 });
 
-// QA round 24 (host API): a constructor takes a nested `undefined` in
+// A constructor takes a nested `undefined` in
 // `colors` and `strings` as `update` does (the entry takes its default),
 // in ConfigEditor and ConfigDocuments alike.
 test.describe('host API', () => {
@@ -140,7 +140,7 @@ test.describe('host API', () => {
   });
 });
 
-// QA round 25 (host API): `height: 100%` fills its element both ways (a
+// `height: 100%` fills its element both ways (a
 // short one: the text area shrinks and the footer stays inside; a tall one:
 // no band past the window's 80%), for an editor and a documents view.
 test.describe('host API', () => {

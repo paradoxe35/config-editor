@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-// QA round 26, UX: the hover card and the problem tip take the pointer
+// The hover card and the problem tip take the pointer
 // (their text can be selected and copied) without taking the lines they
 // cover. As in VS Code, a card goes above its line when the window has
 // room for it there; one below its line lets a pointer that came onto it
@@ -113,7 +113,7 @@ test.use({ viewport: { width: 900, height: 500 } });
 
 for (const [language, doc] of Object.entries(DOCS)) {
   test.describe(language, () => {
-    test('M26-U1: a card that fits above its line goes there, leaving the next line to the pointer', async ({ page }) => {
+    test('a card that fits above its line goes there, leaving the next line to the pointer', async ({ page }) => {
       const errors = await open(page, { value: doc(4), language, schema: schemaWith('Port docs') });
       const port = await hover(page, 'port');
       const box = await card(page).boundingBox();
@@ -128,7 +128,7 @@ for (const [language, doc] of Object.entries(DOCS)) {
       expect(errors).toEqual([]);
     });
 
-    test('M26-U1: a card below its line lets a pointer from elsewhere through to the lines it covers', async ({ page }) => {
+    test('a card below its line lets a pointer from elsewhere through to the lines it covers', async ({ page }) => {
       const errors = await open(page, { value: doc(30), language, schema: schemaWith(TALL) });
       const port = await hover(page, 'port');
       const box = await card(page).boundingBox();
@@ -160,7 +160,7 @@ for (const [language, doc] of Object.entries(DOCS)) {
       expect(errors).toEqual([]);
     });
 
-    test('M26-U1: the wheel over a card that cannot scroll scrolls the text and closes it', async ({ page }) => {
+    test('the wheel over a card that cannot scroll scrolls the text and closes it', async ({ page }) => {
       const errors = await open(page, { value: doc(300), language, schema: schemaWith('Port docs') });
       await hover(page, 'key_number_3');
       const box = await card(page).boundingBox();
@@ -171,7 +171,7 @@ for (const [language, doc] of Object.entries(DOCS)) {
       expect(errors).toEqual([]);
     });
 
-    test('M26-U1: the wheel over a card at the text’s end scrolls the page and closes it', async ({ page }) => {
+    test('the wheel over a card at the text’s end scrolls the page and closes it', async ({ page }) => {
       const errors = await open(page, { value: doc(0), language, schema: schemaWith('Port docs') });
       await page.addStyleTag({ content: 'body { padding-bottom: 2000px; }' });
       await hover(page, 'port');
@@ -183,7 +183,7 @@ for (const [language, doc] of Object.entries(DOCS)) {
       expect(errors).toEqual([]);
     });
 
-    test('M26-U1: Escape with the pointer on the card and nothing focused closes it', async ({ page }) => {
+    test('Escape with the pointer on the card and nothing focused closes it', async ({ page }) => {
       const errors = await open(page, { value: doc(4), language, schema: schemaWith('Port docs') });
       await hover(page, 'key_number_3');
       const box = await card(page).boundingBox();
@@ -194,7 +194,7 @@ for (const [language, doc] of Object.entries(DOCS)) {
       expect(errors).toEqual([]);
     });
 
-    test('M26-U1: a problem tip below its line lets a pointer from elsewhere through, and the wheel scrolls the text', async ({ page }) => {
+    test('a problem tip below its line lets a pointer from elsewhere through, and the wheel scrolls the text', async ({ page }) => {
       const problems = Array.from({ length: 14 }, (_, i) => ({
         range: { startLine: 1, startColumn: 1, endColumn: 30 },
         severity: 'warning',
@@ -230,7 +230,7 @@ for (const [language, doc] of Object.entries(DOCS)) {
       expect(errors).toEqual([]);
     });
 
-    test('L26-U1: back on the key within the moment, the card stays', async ({ page }) => {
+    test('back on the key within the moment, the card stays', async ({ page }) => {
       const errors = await open(page, { value: doc(4), language, schema: schemaWith('Port docs') });
       const port = await hover(page, 'key_number_3');
       // Off the text (onto the page above it) and back at once.
@@ -244,7 +244,7 @@ for (const [language, doc] of Object.entries(DOCS)) {
       expect(errors).toEqual([]);
     });
 
-    test('L26-U6: Ctrl+A in the focused card selects its text', async ({ page }) => {
+    test('Ctrl+A in the focused card selects its text', async ({ page }) => {
       const errors = await open(page, { value: doc(4), language, schema: schemaWith('Port docs and more words') });
       await hover(page, 'port');
       const description = card(page).locator('.config-editor__hover-description');
@@ -261,10 +261,10 @@ for (const [language, doc] of Object.entries(DOCS)) {
   });
 }
 
-// L26-U2: a JSON item's `{` showed the item's docs on its left half only:
+// A JSON item's `{` showed the item's docs on its left half only:
 // coming back onto it at once (another part of it) hid the card. Every
 // part of each language's item marker shows them, however reached.
-test.describe('L26-U2: the whole item marker shows the item docs', () => {
+test.describe('the whole item marker shows the item docs', () => {
   const schema = JSON.stringify({
     type: 'object',
     properties: {

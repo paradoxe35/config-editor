@@ -39,7 +39,7 @@ async function expectFingerSized(page, selector) {
 
 const input = (page) => page.locator('.config-editor__input');
 
-// --- Every pointer target is at least 24×24 px (A31-3). ----------------------
+// --- Every pointer target is at least 24×24 px. ----------------------
 
 const MINIMUM = 24 - 0.5;
 
@@ -65,7 +65,7 @@ function targets(page) {
       if (!element.getClientRects().length || !isTarget(element) || exempt(element)) continue;
       if (element.parentElement.closest('button, a[href], [role="tab"], [role="option"]')) continue;
       // A line number's parts are the number's (exempt), but for its
-      // change markers, buttons of their own (QA 32, A32-3).
+      // change markers, buttons of their own.
       if (element.parentElement.closest('.config-editor__gutter-content > div') && !element.matches('button')) continue;
       if (getComputedStyle(element).visibility === 'hidden') continue;
       const box = element.getBoundingClientRect();
@@ -203,7 +203,7 @@ test.describe(() => {
 
   test.skip(!built, 'run `npm run build` in js/ first');
 
-  test.describe('L24-A7: touch targets', () => {
+  test.describe('touch targets', () => {
     test.use({ viewport: { width: 390, height: 800 }, hasTouch: true, isMobile: true });
 
     const size = (locator) => locator.evaluate((element) => {
@@ -248,12 +248,12 @@ test.describe(() => {
   });
 });
 
-// QA round 31, accessibility: `Ctrl+Space` where nothing is offered says
-// "No suggestions" in every language (A31-1); `aria-keyshortcuts` names the
-// documented single chords (A31-2, the table itself is checked in
+// `Ctrl+Space` where nothing is offered says
+// "No suggestions" in every language; `aria-keyshortcuts` names the
+// documented single chords (the table itself is checked in
 // `editor/a11y/keyboard_tests.rs`); every pointer target the editor draws
-// is at least 24×24 px (A31-3).
-test.describe('every pointer target of an editor (A31-3)', () => {
+// is at least 24×24 px.
+test.describe('every pointer target of an editor', () => {
   setupEditor(test, '?sample=large');
 
   test('in the text, the footer and each popup', async ({ page }) => {
@@ -286,7 +286,7 @@ test.describe('every pointer target of an editor (A31-3)', () => {
     await expectSized(page, 'a fold');
   });
 
-  // QA 32, A32-3: change markers on adjacent lines (added, modified and
+  // Change markers on adjacent lines (added, modified and
   // removed) and fold chips on adjacent lines (every range folded).
   test('change markers and fold chips on adjacent lines', async ({ page }) => {
     await input(page).click();
@@ -312,7 +312,7 @@ test.describe('every pointer target of an editor (A31-3)', () => {
   });
 });
 
-test.describe('every pointer target of the suggestions and the hover card (A31-3)', () => {
+test.describe('every pointer target of the suggestions and the hover card', () => {
   setupEditor(test, '?language=yaml');
 
   test('in the list and the card', async ({ page }) => {
@@ -335,7 +335,7 @@ test.describe('every pointer target of the suggestions and the hover card (A31-3
   });
 });
 
-test.describe('every pointer target of a documents view (A31-3)', () => {
+test.describe('every pointer target of a documents view', () => {
   setupEditor(test, '?documents');
 
   test('the tabs, their close buttons and the add button', async ({ page }) => {

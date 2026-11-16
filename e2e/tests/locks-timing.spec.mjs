@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-// Many read-only fields stay cheap (QA 23): each lock looked its field up
+// Many read-only fields stay cheap: each lock looked its field up
 // with a read of the whole document, so with 50 locks an Enter in an
 // 8000-line document took 2.1 s (288 ms with one), and 2000 read-only paths
 // took 100 s to mount and crashed the tab on repeated updates. Timed: runs
@@ -75,7 +75,7 @@ const lockedInput = (page) => page.locator('#locked .config-editor__input');
 test.describe('lock timing', () => {
   test.skip(!built, 'run `npm run build` in js/ first');
 
-  test('P23-1: Enter with 50 read-only fields in an 8000-line document costs about what it costs without them, in every language', async ({ page }) => {
+  test('Enter with 50 read-only fields in an 8000-line document costs about what it costs without them, in every language', async ({ page }) => {
     test.setTimeout(600_000);
     await open(page, {});
     const failures = [];
@@ -100,7 +100,7 @@ test.describe('lock timing', () => {
     expect(failures).toEqual([]);
   });
 
-  test('P23-1: 2000 read-only fields mount and update in a moment, by path and by the schema', async ({ page }) => {
+  test('2000 read-only fields mount and update in a moment, by path and by the schema', async ({ page }) => {
     test.setTimeout(600_000);
     await open(page, {});
     const language = 'yaml';

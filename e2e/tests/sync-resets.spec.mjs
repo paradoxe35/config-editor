@@ -43,7 +43,7 @@ async function open(page) {
   });
 }
 
-// --- M29-3: a reset while echoes are on their way (replaceValue; QA 34: the text --
+// --- a reset while echoes are on their way (replaceValue; the text --
 // given last, given again in an update, is a render, no news). ------------------
 
 test.describe('a reset to the text the host gave last', () => {
@@ -188,7 +188,7 @@ test.describe(() => {
 
 // A group of its own (its own helpers).
 test.describe(() => {
-  // QA round 36 (FW36-1): a documents view's reset (the handle's `setValue`,
+  // A documents view's reset (the handle's `setValue`,
   // `ConfigDocuments.replaceValue`) then typing, with the parent applying
   // every text late and in any order, the reset's own too: the typing stays.
   // Before, the reset's text listed after the typing was taken for the
@@ -289,7 +289,7 @@ test.describe(() => {
     });
   }
 
-  // --- QA round 37 (HO37-1): a reset to the text the host listed last. -------
+  // --- A reset to the text the host listed last. -------
 
   // A discard back to the file as loaded (its echoes of what was typed still
   // held, so the host lists that text last), or back to the echo that came
@@ -568,14 +568,14 @@ test.describe(() => {
 
 // A group of its own (needs the built npm packages).
 test.describe(() => {
-  // QA round 37: a reset while echoes are still on their way.
+  // A reset while echoes are still on their way.
   //
-  // - FW37-2: a host handing every text back late with `readOnlyRanges`
+  // - a host handing every text back late with `readOnlyRanges`
   //   worked out on its own copy, a reset (`replaceValue`, the handle's
   //   `setValue`) after typing a line above a locked one: the lock stays on
   //   its field. Before, it was placed again where it was last given, a line
   //   below, and the field could be edited (and was saved).
-  // - FW37-1: two resets to the same text (a double Discard), then typing,
+  // - two resets to the same text (a double Discard), then typing,
   //   then the host's own revert to that text: it applies. Before, the
   //   second reset waited for a listing of its own, so for 5 seconds the
   //   revert was taken for its echo and the editor overwrote the host.
@@ -681,7 +681,7 @@ test.describe(() => {
 
   const lockedLine = (text) => text.split('\n').find((line) => line.startsWith('public_address'));
 
-  // --- FW37-1: a double Discard, typing, then the host's own revert. --------
+  // --- a double Discard, typing, then the host's own revert. --------
 
   const LIMITS = '[limits]\nmax_pending = 1\n';
 
@@ -882,18 +882,18 @@ test.describe(() => {
 
 // A group of its own (needs the built npm packages).
 test.describe(() => {
-  // QA round 38: a host's texts and the ranges it works out on them.
-  // - FW38-1: right after a reset, a host still listing the text it held
+  // A host's texts and the ranges it works out on them.
+  // - right after a reset, a host still listing the text it held
   //   before (its own copy lags) with the lock it worked out on that text:
   //   typing on the line above the lock is taken. Before, those ranges were
   //   moved across the reset as if it were an edit, the lock grew over the
   //   line above, and the typing was refused.
-  // - FW38-3: a framework's render listing a newer text with the lock worked
+  // - a framework's render listing a newer text with the lock worked
   //   out on the text it rendered before (line ranges): the lock stays on its
   //   field. Before, they were read in the newer text, on the line above.
-  // - FW38-2: a framework page's `setValue(id, text)` twice in one task
+  // - a framework page's `setValue(id, text)` twice in one task
   //   reports the reset once (the second changes nothing).
-  // - H38-4: a document listed with an Edit-as text, reset in the same task
+  // - a document listed with an Edit-as text, reset in the same task
   //   as `new ConfigDocuments`: its value is the reset's text at once.
   const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 

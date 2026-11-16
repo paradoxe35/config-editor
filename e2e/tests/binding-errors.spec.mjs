@@ -4,8 +4,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 // A host `onError` that throws is the host's bug: the binding every
-// framework wrapper builds on logs it and keeps the editor (round 5's
-// `D5.host-1`: in React the throw escaped and unmounted the editor, or a
+// framework wrapper builds on logs it and keeps the editor (in React the throw escaped and unmounted the editor, or a
 // documents view with every document).
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');

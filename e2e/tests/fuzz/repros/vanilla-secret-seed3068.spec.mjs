@@ -3,7 +3,7 @@ import { replay } from '../runner.mjs';
 
 // Shrunk by the browser fuzz from seed 3068 on vanilla.
 // Fails the `secret` check after step 8: "«sec#3f2a»" in "  clients:\n  acme:\n    secret: «sec#3f2a»\n"
-test('BR38-5 vanilla: secret (seed 3068)', async ({ browser }) => {
+test('vanilla: secret (seed 3068)', async ({ browser }) => {
   await replay(
     browser,
     'vanilla',

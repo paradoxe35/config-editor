@@ -3,7 +3,7 @@ import { replay } from '../runner.mjs';
 
 // Shrunk by the browser fuzz from seed 11 on documents.
 // Fails the `secret-cross` check after step 0: main: line 2 "public_address: tunnel.exam«secret 9b1c»ple.com" holds another document's «secret 9b1c», and no problem is listed there
-test('GP38-4 documents: secret-cross (seed 11)', async ({ browser }) => {
+test('documents: secret-cross (seed 11)', async ({ browser }) => {
   await replay(
     browser,
     'documents',

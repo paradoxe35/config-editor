@@ -59,7 +59,7 @@ async function typeAfter(page, marker, key) {
   await page.keyboard.type(key);
 }
 
-// --- H30-1: locks given by `update` in the task that mounts the editor apply
+// --- locks given by `update` in the task that mounts the editor apply
 // as if given at construction (`ConfigEditor`, `ConfigDocuments`, a
 // component's re-mount). ------------------------------------------------------
 
@@ -119,7 +119,7 @@ const REMOUNTS = {
   'language spelling': { language: 'yml' },
 };
 
-// --- H30-2: ranges given for a text several separate edits away are moved
+// --- ranges given for a text several separate edits away are moved
 // exactly. ----------------------------------------------------------------------
 
 /** Whether typing at the end of each of `lines` (one-based) is refused;
@@ -142,7 +142,7 @@ async function refusedOn(page, lines) {
   return refused;
 }
 
-// QA round 30 (host API), one section per finding below.
+// One section per finding below.
 test.describe('locks given in the task that mounts the editor', () => {
   test.skip(!built, 'js packages not built: run `npm run build` in js/');
 
@@ -291,7 +291,7 @@ test.describe('ranges for a text two edits away', () => {
 
 // A group of its own (its own helpers).
 test.describe(() => {
-  // QA round 31 (host API), one section per finding below.
+  // One section per finding below.
   const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 
   const js = join(root, 'js');
@@ -329,7 +329,7 @@ test.describe(() => {
   }
 
 
-  // --- HO31-2: the async-check flow after Replace All over 300 lines: the
+  // --- the async-check flow after Replace All over 300 lines: the
   // host's locks and problems for the text it checked stay on their own
   // lines (past ~512 diff steps everything between the first and last change
   // was one changed stretch, locked and underlined whole). ----------------------
@@ -394,7 +394,7 @@ test.describe(() => {
 
 // A group of its own (its own helpers).
 test.describe(() => {
-  // QA round 32 (host API), one section per finding below.
+  // One section per finding below.
   const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 
   const js = join(root, 'js');
@@ -447,7 +447,7 @@ test.describe(() => {
     );
   }
 
-  // --- HO32-2: ranges the host gives again unchanged (a ConfigEditor host
+  // --- ranges the host gives again unchanged (a ConfigEditor host
   // passing all its options again with the `value` onChange gave; the README's
   // ConfigDocuments `{ ...document, ...change }` list) keep where the editor
   // moved them: the lock stays on its field and its value saves unchanged, in
@@ -546,7 +546,7 @@ test.describe(() => {
 
 
   for (const pattern of ['editor', 'documents']) {
-    test(`HO32-2: ranges given again unchanged keep the lock on its field (${pattern})`, async ({ page }) => {
+    test(`ranges given again unchanged keep the lock on its field (${pattern})`, async ({ page }) => {
       test.skip(!built, 'run `npm run build` in js/ first');
       test.setTimeout(240_000);
       await open(page);
@@ -586,12 +586,12 @@ test.describe(() => {
     });
   }
 
-  // --- HO32-1: the shipped example's "Lock line 1", then Ctrl+Home, Enter,
+  // --- the shipped example's "Lock line 1", then Ctrl+Home, Enter,
   // ArrowUp and a comment typed: the new line is free and the locked line
   // stays locked (the line break used to join the lock, and every key after
   // it was refused). -------------------------------------------------------------
 
-  test('HO32-1: a line added above the shipped example\'s locked line is free', async ({ page }) => {
+  test('a line added above the shipped example\'s locked line is free', async ({ page }) => {
     test.skip(!built, 'run `npm run build` in js/ first');
     listen(page);
     await page.goto(example('vanilla.html'));

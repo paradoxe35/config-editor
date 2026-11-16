@@ -114,7 +114,7 @@ test.describe('multi-line string bodies are text, not code', () => {
   });
 });
 
-// QA round 18: a comment written over several lines (XML `<!-- … -->`, HCL
+// A comment written over several lines (XML `<!-- … -->`, HCL
 // `/* … */`) was colored as a comment on its first line only; the lines
 // after it showed as tags and values. Every line of it is a comment now, up
 // to its end, and the rest of its last line is colored by the language.
@@ -151,7 +151,7 @@ for (const [language, { text, comments, after }] of Object.entries(CASES)) {
 
 // A group of its own (its own helpers).
 test.describe(() => {
-  // QA round 19 (UX): every line of a construct written over several lines is
+  // Every line of a construct written over several lines is
   // colored as what it is (TOML arrays and `"""` strings, YAML quoted, plain
   // and flow nodes, XML start tags, attribute values and CDATA, HCL
   // heredocs); an HCL comment marker inside a string in a template sequence
@@ -196,7 +196,7 @@ test.describe(() => {
     },
     hcl: {
       text: 'a = "${"/*"}"\nd = "a${"#"}b" # c\nh = <<EOT\nx ${"/*"} y\nEOT\nlisten = 7835\n',
-      // QA 28: the template sequences in strings and heredocs are interpolations.
+      // The template sequences in strings and heredocs are interpolations.
       rows: ['k(a) p(=) s(") i(${"/*"}) s(")', 'k(d) p(=) s("a) i(${"#"}) s(b") c(# c)', 'k(h) p(=) s(<<EOT)', 's(x) i(${"/*"}) s(y)', 's(EOT)', 'k(listen) p(=) l(7835)'],
     },
   };

@@ -3,15 +3,15 @@ import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-// QA round 38: the read-only ranges a host gave, through its own new texts
+// The read-only ranges a host gave, through its own new texts
 // (`replaceValue`, a new `value` given alone). Each reset shows the locks
 // carried afresh from the ranges as given and the text they were given for:
-// - H38-1: two resets in one task left the lock on the wrong line (the
+// - two resets in one task left the lock on the wrong line (the
 //   second moved the editor's ranges, still in the first text, as if they
 //   were in the first reset's), and the locked value was edited and saved.
-// - H38-2: a reset wrote its carried ranges over the given ones, so a later
+// - a reset wrote its carried ranges over the given ones, so a later
 //   `update({ value })` without ranges read them as given for it.
-// - H38-3: a reset to a newer version of the file locked every changed line
+// - a reset to a newer version of the file locked every changed line
 //   after the lock, and a lock whose line moved further down was dropped.
 // Every reset kind, for a `ConfigEditor` and a document of a
 // `ConfigDocuments` (shown, hidden, never shown), both range forms, with
@@ -77,7 +77,7 @@ const RANGES_ALONE = ['a reset, then the first text alone', 'a reset, then anoth
 const FALLBACK_LINE = 2;
 
 /** The kinds whose host gives its ranges again for its new text: they lock
- * the places they name there (QA 38, FW38-1: a host re-sending its static
+ * the places they name there (a host re-sending its static
  * ranges after a reset means them for the text it now holds). */
 const GIVEN_FOR_NEW_TEXT = { 'a reset, then the reset text with the ranges again': 2 };
 
@@ -220,7 +220,7 @@ for (const where of WHERE) {
   }
 }
 
-// H38-3 in each language: a reset to a newer version of the file, every
+// In each language: a reset to a newer version of the file, every
 // line changed, the header (or version) locked: only its line stays locked.
 const VERSIONS = {
   yaml: ['# managed by ops v1\nname: a\nport: 1\n', '# managed by ops v2\nname: b\nport: 2\nmode: m\n', 1],

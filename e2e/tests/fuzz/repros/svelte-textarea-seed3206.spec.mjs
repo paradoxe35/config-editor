@@ -6,7 +6,7 @@ import { replay } from '../runner.mjs';
 // in 30 replays alone. Fails the `textarea` check after the last step: textarea "日本"
 // but the editor's text (folds cut) "\n": the IME commit is in the textarea, not
 // in the document.
-test('BR38-6 svelte: textarea (seed 3206)', async ({ browser }) => {
+test('svelte: textarea (seed 3206)', async ({ browser }) => {
   // Twenty replays of about 2.5 s each (every echo 0-200 ms late, and the
   // check after the pause): more than the default minute on a busy runner.
   test.setTimeout(20 * 10_000);

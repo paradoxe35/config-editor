@@ -320,7 +320,7 @@ test.describe('typing triggers', () => {
     await expect.poll(() => e.keys()).toContain('allow');
     await e.clickKey('allow');
     // `allow` has `default: []`: the empty list is written as one, the
-    // caret inside it, so it reads back as the default (SC30-10).
+    // caret inside it, so it reads back as the default.
     await expect(e.input).toHaveValue('self:\n  allow: []');
     expect(await e.isOpen()).toBe(false);
 

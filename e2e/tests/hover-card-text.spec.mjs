@@ -92,7 +92,7 @@ const overflowing = (page) =>
       .map((part) => part.className || part.tagName);
   });
 
-test.describe('U25-1: long words wrap in the card and line breaks show', () => {
+test.describe('long words wrap in the card and line breaks show', () => {
   for (const [language, value] of Object.entries(DOCS)) {
     test(language, async ({ page }) => {
       const errors = await open(page, { value, language, schema: DOCUMENTED });
@@ -109,7 +109,7 @@ test.describe('U25-1: long words wrap in the card and line breaks show', () => {
   }
 });
 
-test.describe('U25-9: the card text can be selected and copied', () => {
+test.describe('the card text can be selected and copied', () => {
   for (const [language, value] of Object.entries(DOCS)) {
     test(language, async ({ page }) => {
       const schema = JSON.stringify({
@@ -139,7 +139,7 @@ test.describe('U25-9: the card text can be selected and copied', () => {
   }
 });
 
-test.describe('U25-7: a list item has a card with its own docs', () => {
+test.describe('a list item has a card with its own docs', () => {
   const schema = JSON.stringify({
     type: 'object',
     properties: {
@@ -178,7 +178,7 @@ test.describe('U25-7: a list item has a card with its own docs', () => {
   }
 });
 
-test.describe('U25-10: a problem docs link on a touch screen', () => {
+test.describe('a problem docs link on a touch screen', () => {
   const schema = JSON.stringify({ type: 'object', properties: { port: { type: 'integer' } } });
   const problem = (value) => {
     const line = value.split('\n').findIndex((text) => text.includes('port')) + 1;

@@ -71,7 +71,7 @@ async function onWords(label) {
   return [box.x + box.width - 6, box.y + box.height / 2];
 }
 
-// QA round 15: the suggestion list as screen readers follow it, the change
+// The suggestion list as screen readers follow it, the change
 // preview on phones, the go-to-line field, touch targets, and the demo page
 // (its controls, its theme on every part of the page, phone widths).
 test.describe('the demo page', () => {
@@ -175,7 +175,7 @@ test.describe('the documents demo', () => {
   });
 });
 
-// QA round 16, UX: the demo's Settings dropdown inside the window at every
+// The demo's Settings dropdown inside the window at every
 // width and closing like a menu, the toolbar on one row while editing as
 // another language, Alt+Enter with no docs link, and touch targets (the
 // fold chip, the demo's checkboxes).
@@ -223,7 +223,7 @@ test.describe('the Settings dropdown', () => {
   });
 });
 
-// QA round 17, UX: the demo's Settings list closing when focus moves on and
+// The demo's Settings list closing when focus moves on and
 // re-placed when the window resizes (Escape in the editor stays the
 // editor's), secret placeholder warnings capped like the schema's problems,
 // and Ctrl+/ over a mixed XML selection keeping the document well-formed.
@@ -294,7 +294,7 @@ test.describe(() => {
 
   test.skip(!built, 'run `npm run build` in js/ first');
 
-  test.describe('L22-U6: the demo tab is as wide as its name', () => {
+  test.describe('the demo tab is as wide as its name', () => {
     test('at 2560 px', async ({ browser, baseURL }) => {
       const context = await browser.newContext({ viewport: { width: 2560, height: 800 } });
       const page = await context.newPage();
@@ -312,7 +312,7 @@ test.describe(() => {
   });
 });
 
-test.describe("the demo's own toolbar under the host shield (UX32-2)", () => {
+test.describe("the demo's own toolbar under the host shield", () => {
   setupEditor(test, '');
 
   test("keeps the page's rules for its contents", async ({ page }) => {
@@ -323,13 +323,13 @@ test.describe("the demo's own toolbar under the host shield (UX32-2)", () => {
   });
 });
 
-// QA round 35, accessibility: a press on a settings label's words toggles it
-// and keeps the list open (A35-1); the checkboxes keep their size in wrapping
-// rows (A35-2); the example pages have a heading, a main landmark and 24px
-// controls (A35-3); the problem summary's live region is written only when
-// its text changes (A35-4).
+// A press on a settings label's words toggles it
+// and keeps the list open; the checkboxes keep their size in wrapping
+// rows; the example pages have a heading, a main landmark and 24px
+// controls; the problem summary's live region is written only when
+// its text changes.
 for (const [how, touch] of [['click', false], ['tap', true]]) {
-  test.describe(`a ${how} on a setting's words (A35-1)`, () => {
+  test.describe(`a ${how} on a setting's words`, () => {
     test.use({ hasTouch: touch, viewport: { width: 900, height: 800 } });
     setupEditor(test, '?language=json');
 
@@ -357,7 +357,7 @@ for (const [how, touch] of [['click', false], ['tap', true]]) {
   });
 }
 
-test.describe('the settings checkboxes (A35-2)', () => {
+test.describe('the settings checkboxes', () => {
   test.use({ viewport: { width: 320, height: 800 } });
   setupEditor(test, '?language=json');
 

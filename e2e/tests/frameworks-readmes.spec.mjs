@@ -36,7 +36,7 @@ test('the framework READMEs list every type and tool their packages export', () 
   expect(missing).toEqual([]);
 });
 
-// The hooks a README's React snippet calls are imported in it (QA 27: the
+// The hooks a README's React snippet calls are imported in it (the
 // root README's snippet called useState without importing it).
 test("the READMEs' React snippets import the hooks they call", () => {
   const readmes = [

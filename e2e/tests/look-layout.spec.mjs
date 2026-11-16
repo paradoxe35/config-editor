@@ -45,7 +45,7 @@ async function open(page) {
   });
 }
 
-test.describe("a user line-height keeps the painted rows on the textarea lines (D4.a11y-1)", () => {
+test.describe("a user line-height keeps the painted rows on the textarea lines", () => {
   for (const lineHeight of ["1.5", "2"]) {
     test.describe(`line-height ${lineHeight} !important`, () => {
       setupEditor(test, "?sample=large");
@@ -210,7 +210,7 @@ test.describe(() => {
 
   test.skip(!built, 'run `npm run build` in js/ first');
 
-  test.describe('U21-8: the textarea, Ctrl+K Ctrl+I, docs links and the footer', () => {
+  test.describe('the textarea, Ctrl+K Ctrl+I, docs links and the footer', () => {
     test.use({ viewport: { width: 1000, height: 600 } });
     const listenSchema = JSON.stringify({
       type: 'object',
@@ -288,7 +288,7 @@ test.describe(() => {
 
   test.skip(!built, 'run `npm run build` in js/ first');
 
-  test.describe('L22-U2, L22-U3: the toolbar and the footer fit', () => {
+  test.describe('the toolbar and the footer fit', () => {
     const portSchema = JSON.stringify({ type: 'object', properties: { port: { type: 'integer' } } });
 
     for (const width of [260, 390, 480]) {
@@ -339,7 +339,7 @@ test.describe(() => {
         await expect.poll(async () => (await hintLayout(page)).shown).toBe(true);
         const long = 'The upstream refused the configuration because the port is reserved for the metrics endpoint';
         for (const problems of [
-          // Counts and the hint to hover them (QA's case), then an unplaced
+          // Counts and the hint to hover them, then an unplaced
           // problem's long message.
           [{ range: { startLine: 1, startColumn: 1, endColumn: 5 }, severity: 'warning', message: 'w' }],
           [{ severity: 'error', message: long }],
@@ -407,7 +407,7 @@ test.describe(() => {
 
   test.skip(!built, 'run `npm run build` in js/ first');
 
-  test.describe('M23-A3: in a right-to-left page', () => {
+  test.describe('in a right-to-left page', () => {
     const rtl = (page) => page.evaluate(() => document.documentElement.setAttribute('dir', 'rtl'));
 
     test('the editor, its footer and its popups stay left to right; right-to-left values stay text', async ({ page }) => {
@@ -523,7 +523,7 @@ test.describe(() => {
 
   test.skip(!built, 'run `npm run build` in js/ first');
 
-  test.describe('L23-U1: the footer keeps one row on a phone', () => {
+  test.describe('the footer keeps one row on a phone', () => {
     for (const width of [390, 480]) {
       test(`at ${width} px`, async ({ browser }) => {
         const context = await browser.newContext({ viewport: { width, height: 500 } });
@@ -571,7 +571,7 @@ test.describe(() => {
   test.skip(!built, 'run `npm run build` in js/ first');
   test.use({ viewport: { width: 800, height: 400 } });
 
-  test.describe('L24-U6: the footer hint says tap on a touch screen', () => {
+  test.describe('the footer hint says tap on a touch screen', () => {
     for (const touch of [true, false]) {
       test(touch ? 'a phone' : 'a mouse', async ({ browser }) => {
         const context = await browser.newContext(

@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import { editor, setupEditor } from './helpers.mjs';
 
 // A value moved or copied in an Edit-as view with the editor's own
-// commands keeps its host form (QA E38-1, E38-2, E38-5). The view items
+// commands keeps its host form. The view items
 // carry links to their host items: Ctrl+X / Ctrl+C record the copied text
 // with its links, Ctrl+V of that text takes them, Alt+Up/Down move them.
 

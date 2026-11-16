@@ -15,7 +15,7 @@ async function at(page, marked) {
   return e;
 }
 
-// QA round 20 editing: items moved in another view take their comments, an
+// Items moved in another view take their comments, an
 // emptied YAML list keeps the gap before its comment, a YAML string over
 // lines keeps its lines, the HCL view keeps whole floats, the XML view reads
 // `0x50` as a number, Enter in a plain YAML scalar over lines, and the
@@ -76,7 +76,7 @@ test.describe('yaml: editing', () => {
     const e = await at(page, 'hosts:\n  - a|\n');
     await page.keyboard.press('Enter');
     await page.keyboard.press('Enter');
-    // At the column of the key holding the list (round 21).
+    // At the column of the key holding the list.
     expect(await e.value()).toBe('hosts:\n  - a\n\n');
   });
   test('Ctrl+Shift+Enter opens a line above', async ({ page }) => {
@@ -112,7 +112,7 @@ test.describe('xml: typed values and end tags', () => {
   });
 });
 
-// --- Fourth-round findings: editing ---
+// --- editing ---
 
 test.describe('yaml: Enter at column 0 keeps the line where it is', () => {
   setupEditor(test, '?language=yaml');
@@ -179,7 +179,7 @@ test.describe(() => {
 
 // A group of its own (its own helpers).
 test.describe(() => {
-  // Eleventh-round findings, replayed with real keys. The classes behind them
+  // Further cases, replayed with real keys. The classes behind them
   // are covered by the unit matrices (`completion_matrix`, `editing_matrix`).
   async function at(page, marked) {
     const e = editor(page);
@@ -266,7 +266,7 @@ test.describe('YAML Enter', () => {
   });
 });
 
-// QA round 25 editing LOWs, with real keys: Enter after an opener with a
+// Enter after an opener with a
 // trailing comment indents as without it, Enter on a blank line of a YAML
 // block scalar keeps the scalar's indentation, and Enter before a closer
 // after an entry's comma opens the brackets with no spacing left behind.
