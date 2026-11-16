@@ -3,7 +3,9 @@
 //! without the typed text only, so the item keeps its place and its
 //! keys, and a `oneOf` or an `if` is decided by this item, never by the
 //! next one sliding into its slot. In each language, before, between and
-//! after other items, and in the JSON view of each host.
+//! after other items, and in the JSON view of each host: items written by
+//! hand in each built-in language's syntax, and as every language writes
+//! them itself (each that suggests keys).
 //!
 //! `|` marks the caret; `@` stands for the caret's item in a frame.
 
@@ -11,6 +13,8 @@ use super::super::bridge::Bridge;
 use super::super::completion::completions;
 use super::super::schema::build_schema;
 use super::Language;
+use super::harness::{At, completing, every_language_but, text, write};
+use serde_json::json;
 
 /// Two options told apart by `kind`'s `const`.
 const ONE_OF: &str = r#"{"type":"object","properties":{"outs":{"type":"array","items":{"oneOf":[
@@ -221,11 +225,24 @@ fn offered(schema: &str, source: &str, at: usize, language: Language) -> Vec<Str
 fn check(name: &str, marked: &str, language: Language, state: &State, failures: &mut Vec<String>) {
     let at = marked.find('|').unwrap();
     let source = marked.replacen('|', "", 1);
+    check_at(name, &source, at, language, state, failures);
+}
+
+/// [`check`] of `source` with the caret at byte `at`.
+fn check_at(
+    name: &str,
+    source: &str,
+    at: usize,
+    language: Language,
+    state: &State,
+    failures: &mut Vec<String>,
+) {
+    let marked = format!("{}|{}", &source[..at], &source[at..]);
     for (schema_name, schema, wanted) in [
         ("oneOf", ONE_OF, state.one_of),
         ("if", IF_THEN, state.if_then),
     ] {
-        let labels = offered(schema, &source, at, language);
+        let labels = offered(schema, source, at, language);
         if labels != wanted {
             failures.push(format!(
                 "{name} {schema_name} {marked:?}: offered {labels:?}, wanted {wanted:?}"
@@ -258,6 +275,39 @@ fn a_one_line_item_is_its_own_in_every_place() {
             }
         }
     }
+    // Each language's own one-line items: the items of
+    // `outs` each on one line, the caret's with its entries and `typed`.
+    for language in completing() {
+        for state in STATES {
+            let (other_kind, other_key) = other(state.kind);
+            let neighbour = json!({"kind": other_kind, other_key: "x"});
+            let caret_item = match state.kind {
+                Some(kind) => json!({ "kind": kind }),
+                None => json!({}),
+            };
+            for (place, index) in PLACES {
+                let mut items = vec![neighbour.clone(), neighbour.clone()];
+                items.insert(*index, caret_item.clone());
+                let object = format!("/outs/{index}");
+                let at = At::NewKey {
+                    object: &object,
+                    typed: state.typed,
+                };
+                let one_line = ["/outs/0", "/outs/1", "/outs/2"];
+                match write(language, &json!({ "outs": items }), &one_line, at) {
+                    Ok(written) => check_at(
+                        &format!("{language} {place}"),
+                        &written.text,
+                        written.byte,
+                        language,
+                        state,
+                        &mut failures,
+                    ),
+                    Err(error) => failures.push(error),
+                }
+            }
+        }
+    }
     assert!(
         failures.is_empty(),
         "{} failures:\n{}",
@@ -273,11 +323,17 @@ fn a_one_line_item_in_a_json_view_is_its_own() {
         {"kind": "http", "url": "a"}, {"kind": "http", "url": "b"}
     ]});
     let mut failures = Vec::new();
-    for host in [Language::YAML, Language::TOML, Language::HCL, Language::XML] {
+    for host in every_language_but(&["JSON"]) {
         let Some(bridge) = Bridge::new(host, Language::JSON, None) else {
             continue;
         };
-        let host_text = host.serialize(&value).unwrap();
+        let host_text = match text(host, &value, &[]) {
+            Ok(text) => text,
+            Err(error) => {
+                failures.push(error);
+                continue;
+            }
+        };
         let shown = bridge.to_edit(&host_text).expect("shows").text;
         let Some(first) = shown
             .find("{\n")

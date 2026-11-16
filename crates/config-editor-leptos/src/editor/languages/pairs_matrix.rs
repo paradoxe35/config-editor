@@ -1,8 +1,9 @@
 //! What a typed opener pairs with comes from the language's own brackets
-//! and quotes ([`ConfigLanguage::config`]), not a fixed set: round 26
-//! paired `'` in JSON and HCL, `(` in YAML, JSON and TOML, and `{ [ '` in
-//! XML element text.
+//! and quotes ([`ConfigLanguage::config`]), not a fixed set: no `'` in JSON
+//! and HCL, no `(` in YAML, JSON and TOML, no `{ [ '` in XML element text,
+//! and the custom languages' own pairs.
 
+use super::super::declared_syntax::{DOT, DOT_BARE};
 use super::super::keyboard::{deleted_pair_text, paired_text, replace_selection};
 use super::super::language::ConfigLanguage;
 use super::super::odd_syntax::ODD;
@@ -32,13 +33,15 @@ fn typed_in(behavior: &dyn ConfigLanguage, marked: &str, typed: char) -> String 
 
 #[test]
 fn only_the_languages_own_brackets_and_quotes_pair() {
-    let languages: [(&dyn ConfigLanguage, &str); 6] = [
+    let languages: [(&dyn ConfigLanguage, &str); 8] = [
         (Language::YAML.behavior(), "a: |\n"),
         (Language::JSON.behavior(), "{\"a\": |}"),
         (Language::TOML.behavior(), "a = |\n"),
         (Language::HCL.behavior(), "a = |\n"),
         (Language::XML.behavior(), "<a>\n  |\n</a>"),
         (&ODD, "a := |\n"),
+        (&DOT, "a: |\n"),
+        (&DOT_BARE, "a: |\n"),
     ];
     let mut failures = Vec::new();
     for (behavior, marked) in languages {
@@ -66,7 +69,7 @@ fn only_the_languages_own_brackets_and_quotes_pair() {
 }
 
 #[test]
-fn what_round_26_paired_is_written_alone() {
+fn an_opener_the_language_does_not_pair_is_written_alone() {
     let cases: [(Language, &str, char, &str); 10] = [
         (Language::JSON, "{\"a\": |}", '\'', "{\"a\": '|}"),
         (Language::JSON, "{\"a\": |}", '(', "{\"a\": (|}"),

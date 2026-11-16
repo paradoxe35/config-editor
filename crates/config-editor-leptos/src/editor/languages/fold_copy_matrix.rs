@@ -1,12 +1,15 @@
 //! Copy and cut with nothing selected on a folded header take the whole
 //! block it folds, in every language, as Ctrl+/ does: the hidden lines and
-//! the closing bracket or end tag the fold leaves shown (round 21: only
-//! the header line went, the children were left behind and XML kept an
-//! orphan end tag).
+//! the closing bracket or end tag the fold leaves shown (not the header line
+//! alone, its children left behind, an orphan end tag kept). Written by hand
+//! per language (what closes a block is its syntax), and on the documents
+//! every language writes itself, custom ones too.
 
 use super::super::commands::copied_lines;
 use super::super::projection::Projection;
 use super::Language;
+use super::harness::{every_language, report, text};
+use serde_json::json;
 
 /// Language, document, the folded header line (0-based), what is copied.
 const CASES: &[(Language, &str, usize, &str)] = &[
@@ -136,4 +139,56 @@ fn copy_on_a_folded_header_takes_the_whole_block() {
         }
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+/// Each fold of a document a language writes itself, copied on its header:
+/// the copy is whole lines, from the header's through every line the fold
+/// hides, and at most the one line after them it leaves shown (a closer).
+#[test]
+fn copy_on_a_folded_header_takes_a_whole_block_of_what_each_language_writes() {
+    let document = json!({
+        "a": {"b": {"c": 1}, "e": [1, 2], "g": [{"h": true}, {"h": false}]},
+        "f": 4
+    });
+    let mut failures = Vec::new();
+    for language in every_language() {
+        let text = match text(language, &document, &[]) {
+            Ok(text) => text,
+            Err(error) => {
+                failures.push(error);
+                continue;
+            }
+        };
+        let lines: Vec<&str> = text.split('\n').collect();
+        for fold in language.fold_ranges(&text) {
+            let projection = Projection::new(&text, &[fold]);
+            let line_start: usize = lines[..fold.start]
+                .iter()
+                .map(|line| line.encode_utf16().count() + 1)
+                .sum();
+            let hidden_end: usize = lines[..=fold.end]
+                .iter()
+                .map(|line| line.encode_utf16().count() + 1)
+                .sum::<usize>()
+                - 1;
+            let (start, end) = copied_lines(language.behavior(), &text, line_start, &projection);
+            let units: Vec<u16> = text.encode_utf16().collect();
+            let copied = String::from_utf16_lossy(&units[start..end]);
+            let shown_after = lines
+                .get(fold.end + 1)
+                .map_or(0, |line| line.encode_utf16().count() + 1);
+            let whole_lines = copied.ends_with('\n') || end == units.len();
+            if start != line_start
+                || end < hidden_end
+                || end > hidden_end + 1 + shown_after
+                || !whole_lines
+            {
+                failures.push(format!(
+                    "{language} {text:?} folded {}..={}: copied {copied:?}",
+                    fold.start, fold.end
+                ));
+            }
+        }
+    }
+    report(&failures);
 }

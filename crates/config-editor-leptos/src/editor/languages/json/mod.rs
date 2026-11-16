@@ -228,5 +228,14 @@ impl SaveLayout for JsonBehavior {
 
 // Conversion
 
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod completion_tests;
 #[cfg(test)]
 mod tests;

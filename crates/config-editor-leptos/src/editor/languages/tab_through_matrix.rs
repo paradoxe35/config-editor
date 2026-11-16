@@ -7,23 +7,18 @@ use super::super::completion::{apply_completion, completions, next_stop, stop_ra
 use super::super::edit::{Assoc, Change};
 use super::super::schema::build_schema;
 use super::Language;
+use super::harness::{At, completing, holds, write};
 use serde_json::{Value, json};
 
-const LANGUAGES: [Language; 5] = [
-    Language::YAML,
-    Language::JSON,
-    Language::TOML,
-    Language::HCL,
-    Language::XML,
-];
-
-/// Where a new top-level key is typed, per language.
-fn root(language: Language) -> &'static str {
-    match language.label() {
-        "JSON" => "{\n  |\n}\n",
-        "XML" => "<|\n",
-        _ => "|\n",
-    }
+/// Where a new top-level key is typed in an empty document.
+fn root(language: Language) -> String {
+    let at = At::NewKey {
+        object: "",
+        typed: "",
+    };
+    write(language, &json!({}), &[], at)
+        .map(|written| written.marked())
+        .unwrap_or_else(|error| panic!("{error}"))
 }
 
 /// `svc` accepted at the root, then each of `typed` typed at the caret
@@ -32,6 +27,7 @@ fn root(language: Language) -> &'static str {
 fn typed_through(language: Language, schema: &str, typed: &[&str]) -> String {
     let bundle = build_schema(schema).unwrap();
     let marked = root(language);
+    let marked = marked.as_str();
     let at = marked.find('|').unwrap();
     let source = marked.replacen('|', "", 1);
     let options = completions(&source, at, true, Some(&bundle), true, language.behavior());
@@ -88,7 +84,7 @@ fn tab_walks_the_values_of_an_accepted_block_with_a_nested_required_object() {
     let wanted =
         json!({"svc": {"name": "web", "port": 80, "limits": {"cpu": 3, "mem": "1G"}, "mode": "b"}});
     let mut failures = Vec::new();
-    for language in LANGUAGES {
+    for language in completing() {
         let text = typed_through(language, schema, &["web", "80", "3", "1G", "b"]);
         if read(language, schema, &text).as_ref() != Some(&wanted) {
             failures.push(format!("{language}:\n{text}"));
@@ -112,7 +108,7 @@ fn tab_walks_the_values_of_an_accepted_block_nested_two_deep() {
         }}}}"#;
     let wanted = json!({"svc": {"name": "web", "limits": {"io": {"read": 6, "write": 7}, "mem": "1G"}, "mode": "b"}});
     let mut failures = Vec::new();
-    for language in LANGUAGES {
+    for language in completing() {
         let text = typed_through(language, schema, &["web", "6", "7", "1G", "b"]);
         if read(language, schema, &text).as_ref() != Some(&wanted) {
             failures.push(format!("{language}:\n{text}"));
@@ -166,7 +162,7 @@ fn tab_walks_the_items_a_required_list_is_written_with() {
                 }
             }
             let wanted = json!({ "svc": wanted });
-            for language in LANGUAGES {
+            for language in completing() {
                 let text = typed_through(language, &schema, &typed);
                 let read = read(language, &schema, &text);
                 if read.as_ref() != Some(&wanted) {
@@ -240,11 +236,11 @@ fn tab_walks_the_items_of_lists_filled_at_every_depth() {
     for (svc, typed, wanted) in &cases {
         let schema = format!(r#"{{"type":"object","properties":{{"svc":{svc}}}}}"#);
         let wanted = json!({ "svc": wanted });
-        for language in LANGUAGES {
-            // XML writes a list as its key's element repeated, one per
-            // item: an item that is a list itself has no element of its
-            // own to repeat, so the block leaves such a list out.
-            if language == Language::XML && svc.contains("grid") {
+        for language in completing() {
+            // A language writing a list as its key repeated (XML elements)
+            // has no key of its own for an item that is a list itself, so
+            // the block leaves such a list out.
+            if svc.contains("grid") && !holds(language, &json!({"grid": [[1, 2], [3]]})) {
                 continue;
             }
             let text = typed_through(language, &schema, typed);

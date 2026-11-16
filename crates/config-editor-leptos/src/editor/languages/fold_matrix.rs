@@ -1,9 +1,14 @@
 //! Fold ranges across the five languages: nested containers, empty and
 //! one-line ones (never foldable), comments, multi-line strings and
-//! unterminated structures. Every failing case is listed at once.
+//! unterminated structures, written by hand in each language's syntax (what
+//! folds rests on it: brackets, indentation, tags, headers). Every language,
+//! custom ones too, keeps its ranges well formed on the documents it writes
+//! itself. Every failing case is listed at once.
 
 use super::super::language::FoldRange;
 use super::Language;
+use super::harness::{every_language, text};
+use serde_json::json;
 
 /// A case: language, name, document, expected `(start, end)` pairs.
 type Case = (
@@ -198,7 +203,23 @@ fn fold_ranges_match_across_languages() {
 #[test]
 fn fold_ranges_stay_well_formed_while_typing() {
     let mut failures = Vec::new();
-    for (language, case, source, _) in CASES {
+    let nested = json!({
+        "a": {"b": 1, "c": [1, 2], "d": {"e": "x", "f": [{"g": true}, {"g": false}]}},
+        "h": "é•"
+    });
+    let mut cases: Vec<(Language, &str, String)> = CASES
+        .iter()
+        .map(|(language, case, source, _)| (*language, *case, (*source).to_string()))
+        .collect();
+    for language in every_language() {
+        for one_line in [&[][..], &["/a/d"][..]] {
+            match text(language, &nested, one_line) {
+                Ok(source) => cases.push((language, "written", source)),
+                Err(error) => failures.push(error),
+            }
+        }
+    }
+    for (language, case, source) in &cases {
         for cut in (0..=source.len()).filter(|cut| source.is_char_boundary(*cut)) {
             let text = &source[..cut];
             let lines = text.split('\n').count();

@@ -7,7 +7,8 @@
 
 use super::super::completion::completions;
 use super::super::schema::build_schema;
-use super::Language;
+use super::harness::{At, completing, hovering, key_place, name_range, report, text, write};
+use serde_json::json;
 
 const SCHEMA: &str = r#"{"type":"object","properties":{"dep":{"type":"object",
     "properties":{
@@ -24,17 +25,16 @@ const SCHEMA: &str = r#"{"type":"object","properties":{"dep":{"type":"object",
 #[test]
 fn each_key_of_an_at_least_one_of_idiom_is_offered_once_with_its_type() {
     let schema = build_schema(SCHEMA).unwrap();
-    let cases = [
-        (Language::YAML, "dep:\n  |\n"),
-        (Language::JSON, "{\n  \"dep\": {\n    |\n  }\n}\n"),
-        (Language::TOML, "[dep]\n|\n"),
-        (Language::HCL, "dep {\n  |\n}\n"),
-        (Language::XML, "<dep>\n  |\n</dep>\n"),
-    ];
     let mut failures = Vec::new();
-    for (language, marked) in cases {
-        let at = marked.find('|').unwrap();
-        let source = marked.replacen('|', "", 1);
+    for language in completing() {
+        let at = At::NewLine { object: "/dep" };
+        let (source, at) = match write(language, &json!({"dep": {}}), &[], at) {
+            Ok(written) => (written.text, written.byte),
+            Err(error) => {
+                failures.push(error);
+                continue;
+            }
+        };
         let offered = completions(
             &source,
             source[..at].encode_utf16().count(),
@@ -64,7 +64,7 @@ fn each_key_of_an_at_least_one_of_idiom_is_offered_once_with_its_type() {
             failures.push(format!("{language}: {shown:?}"));
         }
     }
-    assert!(failures.is_empty(), "{}", failures.join("\n"));
+    report(&failures);
 }
 
 /// The hover card of a key says what its suggestion says: the type a
@@ -87,34 +87,29 @@ fn a_key_s_hover_card_agrees_with_its_suggestion() {
         "oneOf":[{"required":["version"]},{"required":["git"]}]}}}"#;
     let compiled = crate::editor::schema::Schema::compile(schema).unwrap();
     let bundle = build_schema(schema).unwrap();
-    // Each text, and the lines of `name` and `version` in it.
-    let cases = [
-        (Language::YAML, "dep:\n  name: n\n  version: \"1\"\n", 3),
-        (
-            Language::JSON,
-            "{\n  \"dep\": {\n    \"name\": \"n\",\n    \"version\": \"1\"\n  }\n}\n",
-            6,
-        ),
-        (Language::TOML, "[dep]\nname = \"n\"\nversion = \"1\"\n", 1),
-        (
-            Language::HCL,
-            "dep {\n  name = \"n\"\n  version = \"1\"\n}\n",
-            3,
-        ),
-        (
-            Language::XML,
-            "<dep>\n  <name>n</name>\n  <version>1</version>\n</dep>\n",
-            4,
-        ),
-    ];
     let mut failures = Vec::new();
-    for (language, text, column) in cases {
-        let first = text.lines().position(|line| line.contains("name")).unwrap() + 1;
-        for (key, line, required) in [("name", first, true), ("version", first + 1, false)] {
+    let document = json!({"dep": {"name": "n", "version": "1"}});
+    for language in completing()
+        .into_iter()
+        .filter(|language| hovering().contains(language))
+    {
+        let text = match text(language, &document, &[]) {
+            Ok(text) => text,
+            Err(error) => {
+                failures.push(error);
+                continue;
+            }
+        };
+        let text = text.as_str();
+        for (key, required) in [("name", true), ("version", false)] {
+            let Ok((line, column)) = key_place(language, text, &format!("/dep/{key}"), 0) else {
+                failures.push(format!("{language} {key}: not placed in {text:?}"));
+                continue;
+            };
             let hover = compiled.hover(
                 language,
                 text,
-                crate::editor::TextPosition::new(line, column),
+                crate::editor::TextPosition::new(line + 1, column + 1),
             );
             let shown = hover
                 .as_ref()
@@ -123,15 +118,13 @@ fn a_key_s_hover_card_agrees_with_its_suggestion() {
                 failures.push(format!("{language} {key}: {hover:?}"));
             }
         }
-        // The suggestion of the key not written says the same.
-        let at = text.find("version").unwrap();
-        let line_start = text[..at].rfind('\n').unwrap() + 1;
-        let source = format!(
-            "{}{}",
-            &text[..line_start],
-            text[line_start..].replacen("version", "vers", 1)
-        );
-        let caret = source[..line_start].len() + text[line_start..at].len() + 4;
+        // The suggestion of the key not written says the same: `version`
+        // cut to `vers`, the caret after it.
+        let Ok((start, end)) = name_range(language, text, "/dep/version") else {
+            continue;
+        };
+        let source = format!("{}vers{}", &text[..start], &text[end..]);
+        let caret = start + 4;
         let offered = completions(
             &source,
             source[..caret].encode_utf16().count(),
@@ -148,5 +141,5 @@ fn a_key_s_hover_card_agrees_with_its_suggestion() {
             ));
         }
     }
-    assert!(failures.is_empty(), "{}", failures.join("\n"));
+    report(&failures);
 }

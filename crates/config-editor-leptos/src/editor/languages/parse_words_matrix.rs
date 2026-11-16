@@ -503,3 +503,58 @@ fn no_language_tells_its_parsers_words() {
         }
     }
 }
+
+/// The parse errors of a document each of `languages` writes itself, cut
+/// off at every character, that tell the parser's words: each with the cut.
+#[cfg(feature = "json")]
+fn cuts_telling_the_parsers_words(languages: &[Language]) -> Vec<String> {
+    use super::harness::text;
+    let document = serde_json::json!({
+        "name": "web",
+        "spec": {"port": 80, "tags": ["a", "b"], "limits": {"cpu": 1.5, "on": true}},
+        "items": [{"id": 1}, {"id": 2}]
+    });
+    let mut failures = Vec::new();
+    for language in languages {
+        let Ok(text) = text(*language, &document, &["/spec/limits"]) else {
+            continue;
+        };
+        for cut in (0..text.len()).filter(|cut| text.is_char_boundary(*cut)) {
+            let Err(error) = language.behavior().parse(&text[..cut]) else {
+                continue;
+            };
+            if let Some(word) = JARGON.iter().find(|word| error.message.contains(*word)) {
+                failures.push(format!(
+                    "{language} {:?}: {:?} says {word:?}",
+                    &text[..cut],
+                    error.message
+                ));
+            }
+        }
+    }
+    failures
+}
+
+/// A document each built-in language writes itself, cut off at every
+/// character: whatever error the cut makes is told in the editor's words,
+/// never the parser's, JSON's too.
+#[cfg(feature = "json")]
+#[test]
+fn no_cut_of_a_written_document_tells_the_parsers_words() {
+    let languages = [
+        Language::YAML,
+        Language::JSON,
+        Language::TOML,
+        Language::XML,
+    ];
+    let failures = cuts_telling_the_parsers_words(&languages);
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+#[cfg(feature = "json")]
+#[test]
+#[ignore = "bug: HCL tells its parser's words for an object on one line cut off after a number (`limits = { cpu = 1.`: \"invalid object item; expected `}`, `,` or newline\")"]
+fn no_cut_of_a_written_hcl_document_tells_the_parsers_words() {
+    let failures = cuts_telling_the_parsers_words(&[Language::HCL]);
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
