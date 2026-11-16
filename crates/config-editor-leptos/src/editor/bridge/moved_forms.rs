@@ -1,12 +1,13 @@
 //! A key or item an Edit-as edit moved or copied (cut or copied and
 //! pasted, a line moved or copied, in one save or across a pause, a
-//! switch, the host's language: its link tells which, see `links`) is written in the form the host wrote it in where it was cut
-//! from, which no view shows: an HCL expression or heredoc, a TOML
-//! datetime or hex number, a YAML tag or quoting (QA `E36-1`). Each of
-//! its scalars the save wrote otherwise, reading the same, takes its
-//! written text back, and so does each of its keys; a scalar that cannot
-//! (its text would read otherwise there) makes the save wait, never pass
-//! written in another form.
+//! switch, the host's language: its link tells which, see `links`) is
+//! written in the form the host wrote it in where it was cut from, which
+//! no view shows: an HCL expression or heredoc, a TOML datetime or hex
+//! number, a YAML tag or quoting. Each of its scalars the save wrote
+//! otherwise, reading the same, takes its written text back, and so does
+//! each of its keys; a scalar that cannot (its text would read otherwise
+//! there) makes the save wait, never pass written in another form. So do
+//! the scalars left beside it in the map or list it landed in.
 
 use super::super::codec::{self, byte_range, written_range};
 use super::super::item_sources::ItemSource;
@@ -302,9 +303,9 @@ pub(super) fn kept(
     let saved = relocated(host, saved, intended, items, (previous, origin), shape)?;
     // An item left where it was, holding what it held, that the save wrote
     // anew all the same (a list item's first entry removed: the next one
-    // written onto the item's first line, QA `FZ38-8`): written back as
-    // it was, where that reads the same. Not one inside an item moved,
-    // which is that item's.
+    // written onto the item's first line): written back as it was, where
+    // that reads the same. Not one inside an item moved, which is that
+    // item's.
     let moved = moved(items, previous, origin);
     let inside = |inner: &str| {
         moved.iter().any(|item| {

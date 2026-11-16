@@ -11,7 +11,7 @@ use crate::editor::keys::lines::{Command, run};
 use crate::editor::languages::Language;
 use crate::editor::test_state::TestEditor;
 
-/// FE38-7: Ctrl+/ on a line holding overlapping comment markers panics.
+/// Ctrl+/ on a line holding overlapping comment markers does not panic.
 #[test]
 fn toggling_an_xml_line_of_overlapping_comment_markers_does_not_panic() {
     for text in ["<!--->", "<!--->\n", "<a/>\n<!--->\n"] {
@@ -19,8 +19,8 @@ fn toggling_an_xml_line_of_overlapping_comment_markers_does_not_panic() {
     }
 }
 
-/// FE38-8: suggestions in a TOML view whose header ends with a character
-/// of several bytes panic (`toml::style::key_places` cuts it in half).
+/// Suggestions in a TOML view whose header ends with a character
+/// of several bytes do not panic (no key place is cut inside it).
 #[test]
 fn suggestions_beside_a_toml_header_ending_in_non_ascii_do_not_panic() {
     super::undo::replay(super::undo::UndoCase {
@@ -39,8 +39,8 @@ fn suggestions_beside_a_toml_header_ending_in_non_ascii_do_not_panic() {
     });
 }
 
-/// FE38-5: moving the last lines down in a text without a last newline
-/// leaves the caret past the text's end.
+/// Moving the last lines down in a text without a last newline
+/// keeps the caret in the text.
 #[test]
 fn moving_a_line_down_to_the_end_keeps_the_caret_in_the_text() {
     let text = "a\nb";
@@ -62,7 +62,7 @@ fn moving_a_line_down_to_the_end_keeps_the_caret_in_the_text() {
     });
 }
 
-/// FE38-3: Ctrl+/ twice on an XML element holding a comment gives the
+/// Ctrl+/ twice on an XML element holding a comment gives the
 /// text back.
 #[test]
 fn an_xml_element_holding_a_comment_is_commented_and_uncommented() {
@@ -80,7 +80,7 @@ fn an_xml_element_holding_a_comment_is_commented_and_uncommented() {
     assert_eq!(twice, text);
 }
 
-/// FE38-2: a replace that changes nothing is no undo step.
+/// A replace that changes nothing is no undo step.
 #[test]
 fn a_replace_changing_nothing_is_no_undo_step() {
     super::undo::replay(super::undo::UndoCase {
@@ -97,7 +97,7 @@ fn a_replace_changing_nothing_is_no_undo_step() {
     });
 }
 
-/// FE38-6: Enter after a YAML block's opening line indents to where its
+/// Enter after a YAML block's opening line indents to where its
 /// entries are written (four spaces in a file indented by two elsewhere).
 #[test]
 fn enter_after_a_yaml_key_indents_to_its_entries() {
@@ -109,7 +109,7 @@ fn enter_after_a_yaml_key_indents_to_its_entries() {
     });
 }
 
-/// FE38-1: a decimal with more digits than a double holds converts with
+/// A decimal with more digits than a double holds converts with
 /// its digits, or the conversion lists it as a loss.
 #[test]
 fn long_decimals_convert_exactly_or_are_listed() {
@@ -120,7 +120,7 @@ fn long_decimals_convert_exactly_or_are_listed() {
     );
 }
 
-/// FE38-9: Enter after a top-level YAML entry keeps its column.
+/// Enter after a top-level YAML entry keeps its column.
 #[test]
 fn enter_after_a_top_level_yaml_entry_keeps_its_column() {
     super::valid::replay(super::valid::ValidCase {
@@ -131,7 +131,7 @@ fn enter_after_a_top_level_yaml_entry_keeps_its_column() {
     });
 }
 
-/// FE38-4: Ctrl+/ twice on a YAML comment of prose gives the text back.
+/// Ctrl+/ twice on a YAML comment of prose gives the text back.
 #[test]
 fn a_yaml_comment_of_prose_is_uncommented_and_commented_back() {
     super::valid::replay(super::valid::ValidCase {
@@ -142,7 +142,7 @@ fn a_yaml_comment_of_prose_is_uncommented_and_commented_back() {
     });
 }
 
-/// FE38-10: suggestions in a half-typed TOML header do not panic.
+/// Suggestions in a half-typed TOML header do not panic.
 #[test]
 fn suggestions_in_a_half_typed_toml_header_do_not_panic() {
     super::undo::replay(super::undo::UndoCase {
@@ -238,7 +238,7 @@ fn commenting_xml_lines_after_wide_typing_does_not_panic() {
     });
 }
 
-/// FE38-11: suggestions accepted in a row on a YAML key line do not
+/// Suggestions accepted in a row on a YAML key line do not
 /// panic.
 #[test]
 fn suggestions_accepted_in_a_row_do_not_panic() {
@@ -291,8 +291,8 @@ fn suggestions_accepted_in_a_row_do_not_panic() {
     });
 }
 
-/// SW38-5: an indent, Enter and Shift+Tab in an HCL view leave an empty
-/// link: each link stays a range of the text after an edit.
+/// An indent, Enter and Shift+Tab in an HCL view keep every link in
+/// the text: each link stays a range of the text after an edit.
 #[test]
 fn an_indent_enter_and_outdent_in_a_view_keep_every_link_in_the_text() {
     super::undo::replay(super::undo::UndoCase {

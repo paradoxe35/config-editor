@@ -4,7 +4,9 @@
 //! typed into, broken into lines, cut, pasted over, undone, redone, paused
 //! and saved at random. After each step what the host hears (`on_change`,
 //! `on_save`) keeps the mark exactly when the file had one, reads as the
-//! text on screen, keeps the ending of every line the step left alone,
+//! text on screen (a U+FEFF of the text an edit brings to its start
+//! included, written after the mark), keeps the ending of every line the
+//! step left alone,
 //! and, when the text heard before had one kind of ending, has only that
 //! kind (a lone CR its language cannot read aside). As `line_endings`
 //! promises.
@@ -275,7 +277,6 @@ fn pause(state: EditorState) {
     convert_now(state, text, state.sync().edit_language.get_untracked());
 }
 
-/// Whether the language reads a lone CR as a line break.
 /// Whether the language reads the lone CRs of `text` as line breaks, as
 /// `line_endings` decides it.
 fn reads_lone_cr(language: Language, text: &str) -> bool {
@@ -437,7 +438,6 @@ pub(super) fn check(case: &EndingsCase) -> Result<(), Failure> {
 }
 
 /// Runs one case, failing with what it found (for a pasted repro).
-#[allow(dead_code, reason = "called by pasted repros")]
 pub(super) fn replay(case: EndingsCase) {
     if let Err(failure) = check(&case) {
         panic!("{}\n{}", failure.class, failure.detail);
