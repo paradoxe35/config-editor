@@ -14,15 +14,15 @@
 //! - a text of the host's own that replaces the document without ranges (a
 //!   reset, a new `value` alone) hands them carried there by line
 //!   (`remap::carried`), afresh from the given ones each time, so resets in
-//!   one task compose (QA 38, H38-1, H38-2, H38-3);
+//!   one task compose;
 //! - the same ranges given again (the same JSON, no new host text: a
 //!   framework's render, a list given again) stay where the editor moved
 //!   them; after a text of the host's own they are a statement about that
-//!   text, read in it (QA 38, FW38-1);
+//!   text, read in it;
 //! - ranges that name places the text they come with lacks, but fit the
 //!   text the last ones came with, were worked out on that one (a render
-//!   listing a newer text with ranges from the one it rendered before: QA
-//!   38, FW38-3) and are read there (`protect::ranges_in`);
+//!   listing a newer text with ranges from the one it rendered before)
+//!   and are read there (`protect::ranges_in`);
 //! - ranges given with a text from before a reset the host has not given
 //!   back yet (`Echoes::before_reset`) are for a text it replaced: they are
 //!   not taken, and the carried ones stay.
@@ -127,10 +127,10 @@ impl HostLocks {
     }
 
     /// A text of the host's own replaces the document: the ranges to hand
-    /// the editor there, carried from the given ones. The same ranges given
-    /// next are read in the text they come with.
-    /// The host holds that text now: ranges it gives next were worked out
-    /// on it, not on the one the last ones came with.
+    /// the editor there, carried from the given ones. The host holds that
+    /// text now, so the ranges it gives next (the same ones too) are read
+    /// in the text they come with, worked out on it rather than on the one
+    /// the last ones came with.
     pub(crate) fn replaced(&mut self, text: &str) -> Vec<TextRange> {
         self.print = None;
         self.version = next_version();

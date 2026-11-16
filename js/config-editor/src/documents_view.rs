@@ -673,9 +673,8 @@ impl ConfigDocuments {
             return Ok(false);
         }
         // An editor still to open with an Edit-as text opens first: its
-        // text converts and is sent now, before the reset replaces it (QA
-        // 38, H38-4: converted after it, the value read back was that
-        // text's).
+        // text converts and is sent now, before the reset replaces it
+        // (converted after it, the value read back would be that text's).
         let edits = self.edits();
         // The text it held: the host's, or the last edit's (see `Texts`).
         if self
@@ -994,7 +993,7 @@ struct Edited {
 /// Lists each document with the text its editor holds and the language it
 /// is edited as (`edits`): a list the view gives its documents again (a
 /// `replaceValue` of another one, the view's settings) is no discard of
-/// their edits, nor of an `editAs` the handle made (QA 30, L30-4), as a
+/// their edits, nor of an `editAs` the handle made, as a
 /// list the host gives is.
 fn keep_edits(documents: &mut [Document], edits: &HashMap<String, Edited>) {
     for document in documents {

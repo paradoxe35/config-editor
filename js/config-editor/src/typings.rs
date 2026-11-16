@@ -33,8 +33,7 @@ export interface EditorOptions extends EditorSettings {
   className?: string;
   /** Set it when you hand every `onChange` text back through `update({ value })`, possibly late and in any order (a store that re-renders after a delay, a fetch per edit): a `value` that `onChange` gave and that has not come back yet is then its echo and keeps the document, so nothing typed is lost. A text it never gave applies; go back to one it gave with `replaceValue`. Without it (the default) every `value` applies. Fixed for the editor's life. */
   echoes?: boolean;
-  /** Called with the document, in `language`, after every edit. */
-  /** Called with the document after every edit, and the text's `revision`: pass it back as `valueRevision` with the value for an exact echo match (no pause, see `valueRevision`). */
+  /** Called with the document, in `language`, after every edit, and the text's `revision`: pass it back as `valueRevision` with the value for an exact echo match (no pause, see `valueRevision`). */
   onChange?: (value: string, revision: number) => void;
   /** Called with the language on screen: once on mount, then each time an `editAs` switch completes and when undo or redo steps back across one (it waits while the document cannot convert yet, the host's language staying on screen). */
   onEditAsChange?: (language: LanguageName) => void;

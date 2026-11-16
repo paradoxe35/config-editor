@@ -380,7 +380,6 @@ export function frameworkCases(name) {
       expect(errors.some((error) => error.includes('not-a-theme') || error.includes('theme'))).toBe(true);
     });
 
-    // round 5
     test('a re-mount while the parent is late keeps the newest document', async ({ page: browserPage }) => {
       await browserPage.goto(page(name) + '?late');
       await expect(browserPage.locator('body')).toHaveAttribute('data-ready', 'true', { timeout: 20000 });
@@ -446,7 +445,6 @@ export function frameworkCases(name) {
       expect(value).toContain('debug: true');
     });
 
-    // round 11
     test('setValue before the editor mounts applies and reaches the parent', async ({ page: browserPage }) => {
       await browserPage.goto(page(name) + '?reset-early');
       await expect(browserPage.locator('body')).toHaveAttribute('data-ready', 'true', { timeout: 20000 });
@@ -476,7 +474,6 @@ export function frameworkCases(name) {
       await expect(saved(browserPage)).toHaveText('listen: 9000\nqrstuvw', { timeout: 5000 });
     });
 
-    // round 12
     test('a reset made before mount survives a late parent', async ({ page: browserPage }) => {
       await browserPage.goto(page(name) + '?reset-early&late');
       await expect(browserPage.locator('body')).toHaveAttribute('data-ready', 'true', { timeout: 20000 });
@@ -492,7 +489,6 @@ export function frameworkCases(name) {
       await expect(input(browserPage)).toHaveValue(/listen: 7835/, { timeout: 10000 });
     });
 
-    // round 13
     for (const [query, delay] of [['', 250], ['?late', 500], ['?late', 650]]) {
       test(`${query || '(controlled)'}: typing while editing as JSON every ${delay} ms keeps every letter in order`, async ({ page: browserPage }) => {
         await browserPage.goto(page(name) + query);
@@ -529,7 +525,6 @@ export function frameworkCases(name) {
       await expect(input(browserPage)).not.toHaveValue(/78359/);
     });
 
-    // round 14
     test('a re-mount prop changed while typing keeps focus, caret and keystrokes', async ({ page: browserPage }) => {
       await browserPage.goto(page(name));
       await expect(browserPage.locator('body')).toHaveAttribute('data-ready', 'true', { timeout: 20000 });

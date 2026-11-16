@@ -814,8 +814,8 @@ mod tests {
     /// A host whose store writes each text another way (the byte order
     /// mark dropped, LF for CRLF, both) hands back echoes all the same: in
     /// any order, none rolls a BOM and CRLF document back, and the document
-    /// keeps its own form (QA 32: they were taken for the host's own texts
-    /// and applied, losing what was typed since).
+    /// keeps its own form: taken for the host's own texts, they would be
+    /// applied and lose what was typed since.
     #[test]
     fn echoes_written_another_way_are_still_echoes() {
         type Store = fn(&str) -> String;
@@ -1035,7 +1035,7 @@ mod tests {
         assert_eq!(echoes.received("reset", "reset", NONE), Echo::Apply);
     }
 
-    /// QA 30 (F30-2): after `replaceValue`, a list as the host gave it
+    /// After `replaceValue`, a list as the host gave it
     /// last (React's render right after `setValue`, before the host took
     /// the new text) is no news, nor are the echoes of what was typed
     /// before, in any order: the document stays the replaced text.
@@ -1070,18 +1070,15 @@ mod tests {
         }
     }
 
-    /// QA 36 (FW36-1): a reset through `replaceValue` (one or two, with the
-    /// echoes of what was typed before still on their way or all back),
-    /// then typing, with the host listing every text, the resets' too,
-    /// late and in any order: nothing rolls the document back, and the
-    /// host ends on it. Before, the reset's text listed after the typing
-    /// was taken for the host's own and threw the typing away. QA 37
-    /// (HO37-1): the same for a reset to the text the host listed last
-    /// (a discard to the file as loaded, or to the echo that came back
-    /// last), to the first text, to an earlier echo and to the text of the
-    /// reset before (a double Discard, its text listed once): before, a reset to
-    /// the text listed last was not on its way, so its listing after the
-    /// typing applied.
+    /// P4: a reset through `replaceValue` (one or two, with the echoes of
+    /// what was typed before still on their way or all back), then typing,
+    /// with the host listing every text, the resets' too, late and in any
+    /// order: nothing rolls the document back, and the host ends on it.
+    /// The same for a reset to the text the host listed last (a discard to
+    /// the file as loaded, or to the echo that came back last), to the
+    /// first text, to an earlier echo and to the text of the reset before
+    /// (a double Discard, its text listed once): the reset's text is on its
+    /// way, so its listing after the typing is its echo.
     #[test]
     fn a_reset_listed_late_in_any_order_keeps_the_typing() {
         const FIRST: &str = "[limits]\n";
@@ -1165,12 +1162,11 @@ mod tests {
         assert_eq!(echoes.received("a: 1\n", "a: 12\n", NONE), Echo::Apply);
     }
 
-    /// QA 37 (FW37-1): two resets to the same text (a double Discard),
-    /// listed once or twice by the host, then typing, every text listed in
-    /// any order: the host ends on the document, and its own revert to the
-    /// reset's text then applies. Before, each reset waited for a listing
-    /// of its own, the host's listing again read as its render, so one
-    /// stayed on its way and the revert was taken for its echo.
+    /// Two resets to the same text (a double Discard), listed once or twice
+    /// by the host, then typing, every text listed in any order: the host
+    /// ends on the document, and its own revert to the reset's text then
+    /// applies (the second reset waits for no listing of its own, so the
+    /// revert is not taken for its echo).
     #[test]
     fn a_reset_made_twice_waits_for_one_listing() {
         const RESET: &str = "[limits]\nmax_pending = 1\n";
@@ -1265,7 +1261,7 @@ mod tests {
         }
     }
 
-    /// QA 34 (n8): a host rendering again for another reason (another
+    /// A host rendering again for another reason (another
     /// prop changed) passes its store's text, the text it gave last, while
     /// the store lags behind the typing: no news (an update's as a list's,
     /// one rule), written as the editor wrote it or another way, whether
@@ -1317,7 +1313,7 @@ mod tests {
     /// An update giving a text of the host's own, the constructor's again
     /// once the host took a text the editor sent (a discard, a reset),
     /// applies; given while the echoes of what was typed are still to come,
-    /// the text the host gave last is its render again (QA 34, see
+    /// the text the host gave last is its render again (see
     /// `the_stores_older_text_given_again_while_typing_is_no_news`): a
     /// reset then is `replaceValue`'s.
     #[test]
@@ -1338,11 +1334,11 @@ mod tests {
         assert_eq!(checked(&mut echoes, "aRS", "aRS"), Echo::Apply);
     }
 
-    /// QA 33 (HO33-3): the text given last, given again in an update with
+    /// The text given last, given again in an update with
     /// nothing typed in between (a framework rendering twice), is no news,
     /// written as the editor wrote it or another way (a store writing LF or
     /// dropping the byte order mark), whether the typing ran ahead or not,
-    /// and so it stays with a key typed in between (QA 34).
+    /// and so it stays with a key typed in between.
     #[test]
     fn the_same_update_twice_with_nothing_typed_between_is_no_news() {
         type Store = fn(&str) -> String;
@@ -1415,7 +1411,7 @@ mod tests {
         );
     }
 
-    /// A host switching files over one editor (QA 29): a text sent for file
+    /// A host switching files over one editor: a text sent for file
     /// A still on its way when file B replaces the document belongs to A;
     /// switching back to A applies it, whichever way the host gives it,
     /// and nothing tells the host B's text again.
@@ -1473,8 +1469,8 @@ mod tests {
     }
 
     /// However many texts wait for their echo (a busy page: thousands of
-    /// keys typed before the first echo; QA 29: past 256 the oldest was
-    /// forgotten and its echo rolled typing back), each echo is told apart,
+    /// keys typed before the first echo: none is forgotten, so no echo
+    /// rolls typing back), each echo is told apart,
     /// in order, backwards or shuffled, and once all are back none waits.
     #[test]
     fn every_text_waiting_is_an_echo_however_many_wait() {
@@ -1601,7 +1597,7 @@ mod tests {
 
     /// An echo costs one read of the text handed back and a look at a copy
     /// or two of it, however many copies wait: never a pass over them, nor
-    /// another read of the document (QA 29: typing slowed with echoes
+    /// another read of the document (P5: typing stays fast with echoes
     /// late on a long file).
     #[test]
     fn an_echo_costs_the_same_however_many_wait() {
@@ -1927,7 +1923,7 @@ mod tests {
             .is_some_and(|found| column <= found.chars().count() + 1)
     }
 
-    /// QA 34 (HO34-1): ranges given again unchanged (`readOnlyRanges`) are
+    /// Ranges given again unchanged (`readOnlyRanges`) are
     /// read only in a text that replaces the document (`replaces`), never
     /// in an echo nor the text the host gave last: typing that moves the
     /// locked line, Edit-as switches rewriting the text, a store writing
@@ -2003,7 +1999,7 @@ mod tests {
         }
     }
 
-    /// QA 38, FW38-1: after a reset, the texts the host held before it
+    /// After a reset, the texts the host held before it
     /// (an echo still to come, the text it listed last given again) are
     /// from before the reset until the host gives the reset's text or one
     /// typed after it; the host's own text ends it too; without echoes
