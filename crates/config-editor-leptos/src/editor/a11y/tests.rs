@@ -286,10 +286,10 @@ fn a_problem_covers_its_underline_and_the_caret_just_past_it() {
 #[test]
 fn the_caret_position_counts_characters_not_units() {
     let text = "a: 1\nb: \"é😀x\"\n";
-    // UTF-16 offset of `x`: line 2 is `b: "é😀x"`.
-    let x = text[..text.find('x').unwrap()].encode_utf16().count();
-    assert_eq!(caret_position(text, 0), (1, 1));
-    assert_eq!(caret_position(text, 5), (2, 1));
+    // The byte of `x`: line 2 is `b: "é😀x"`.
+    let x = crate::editor::text::text_size(text.find('x').unwrap());
+    assert_eq!(caret_position(text, 0.into()), (1, 1));
+    assert_eq!(caret_position(text, 5.into()), (2, 1));
     assert_eq!(caret_position(text, x), (2, 7));
 }
 
@@ -463,7 +463,7 @@ fn the_caret_note_says_why_a_locked_value_is_read_only_in_every_language() {
         .mount();
         let note_at = |needle: &str, past: usize| {
             let byte = text.find(needle).unwrap() + past;
-            state.doc().caret.set(text[..byte].encode_utf16().count());
+            state.set_caret_units(text[..byte].encode_utf16().count());
             update_note(state);
             state.a11y().caret_note.get_untracked()
         };
@@ -634,7 +634,7 @@ fn every_edit_refused_in_a_read_only_editor_says_so() {
         ] {
             state.a11y().announcement.set(String::new());
             state.hide_read_only_notice();
-            let edit = Edit::new(text.into(), selection, updated.into(), caret);
+            let edit = Edit::new_units(text.into(), selection, updated.into(), caret);
             assert!(!state.commit(edit), "{language:?}");
             assert_eq!(state.doc().text.get_untracked(), text, "{language:?}");
             assert_eq!(

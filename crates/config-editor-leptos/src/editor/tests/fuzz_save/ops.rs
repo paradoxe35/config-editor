@@ -13,6 +13,7 @@ use crate::editor::languages::Language;
 use crate::editor::save_properties::Random;
 use crate::editor::state::EditorState;
 use crate::editor::sync::{convert_now, switch_to};
+use crate::editor::text::text_size;
 
 /// A column at or past this is counted back from the line's end (`END`
 /// is the end itself, `END + 1` one character before it).
@@ -241,7 +242,7 @@ fn replace(state: EditorState, (from, to): (usize, usize), typed: &str) {
     let before = state.doc().text.get_untracked();
     let text = format!("{}{typed}{}", &before[..from], &before[to..]);
     let start = units(&before[..from]);
-    state.commit(Edit::new(
+    state.commit(Edit::new_units(
         before.clone(),
         (start, units(&before[..to])),
         text,
@@ -256,7 +257,7 @@ fn input(state: EditorState, (from, to): (usize, usize), typed: &str, kind: &str
     let text = format!("{}{typed}{}", &before[..from], &before[to..]);
     let start = units(&before[..from]);
     let caret = start + units(typed);
-    state.commit(Edit::input(
+    state.commit(Edit::input_units(
         before.clone(),
         (start, units(&before[..to])),
         text,
@@ -378,7 +379,7 @@ pub(super) fn apply(
             }
             *clipboard = Some(text[from..to].to_string());
             // As Ctrl+C and Ctrl+X tell the editor what they copy.
-            state.note_copied(&text[from..to], (units(&text[..from]), units(&text[..to])));
+            state.note_copied(&text[from..to], (text_size(from), text_size(to)));
             if matches!(op, Op::Cut { .. }) {
                 input(state, (from, to), "", "deleteByCut", *time);
                 // A cut line's text leaves its line blank: deleted too.
@@ -436,7 +437,7 @@ pub(super) fn apply(
             let caret = units(&replaced);
             // As the Replace all command says what it replaced.
             let splices = Some(crate::editor::bridge::links::Splice::each(pieces));
-            state.commit(Edit::new(text, (0, 0), replaced, caret).splicing(splices));
+            state.commit(Edit::new_units(text, (0, 0), replaced, caret).splicing(splices));
         }
         Op::PasteWhole { line } => {
             let changed = changed_a_little(&text, line_of(&text, line));

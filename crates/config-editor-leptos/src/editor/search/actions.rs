@@ -6,13 +6,13 @@ use leptos::prelude::*;
 
 use super::super::edit::Edit;
 use super::super::input::flush_input;
-use super::super::keyboard::utf16_to_byte_index;
 use super::super::state::{EditorState, directed_selection, textarea_selection};
 use super::matcher::MAX_MATCHES;
 use super::replace;
 use super::reveal::reveal_centered;
 use super::{SearchOptions, SearchResults};
 use crate::EditorStrings;
+use crate::editor::text::{TextRange, slice, text_size};
 use crate::strings::{counted, fill};
 
 /// What Replace All adds when it left `count` matches in protected text
@@ -100,10 +100,8 @@ pub(in crate::editor) fn select_nearest(state: EditorState, reveal: bool) {
         return;
     };
     let (start, _) = textarea_selection(&element);
-    let from = state
-        .doc()
-        .text
-        .with_untracked(|text| utf16_to_byte_index(text, start));
+    // The matches are byte ranges (the regex engine's).
+    let from = usize::from(start);
     let current = search.results.with_untracked(|results| {
         let index = results.matches.partition_point(|found| found.start < from);
         (!results.matches.is_empty()).then(|| index % results.matches.len())
@@ -144,11 +142,8 @@ pub(in crate::editor) fn step(state: EditorState, backward: bool) {
         return;
     };
     let (start, end) = textarea_selection(&element);
-    let next = state.doc().text.with_untracked(|text| {
-        let (start, end) = (
-            utf16_to_byte_index(text, start),
-            utf16_to_byte_index(text, end),
-        );
+    let next = {
+        let (start, end) = (usize::from(start), usize::from(end));
         search.results.with_untracked(|results| {
             let matches = &results.matches;
             if matches.is_empty() {
@@ -173,7 +168,7 @@ pub(in crate::editor) fn step(state: EditorState, backward: bool) {
                     .unwrap_or(count - 1),
             })
         })
-    });
+    };
     if next.is_some() {
         search.set_current(next);
         show_current(state);
@@ -207,7 +202,7 @@ pub(in crate::editor) fn replace_current(state: EditorState) {
     let replacement = search.replacement.get_untracked();
     let (change, inserted) =
         replace::replace_one(&before, &matcher, found.start..found.end, &replacement);
-    let selection = (utf16(&before, found.start), utf16(&before, found.end));
+    let selection = (text_size(found.start), text_size(found.end));
     state.commit(Edit::command(before, change, selection));
     // The next match after the replacement, wrapping around.
     let next = search.results.with_untracked(|results| {
@@ -248,11 +243,11 @@ pub(in crate::editor) fn replace_all(state: EditorState) {
     };
     let selection = state
         .textarea()
-        .map_or((0, 0), |element| directed_selection(&element));
+        .map_or(Default::default(), |element| directed_selection(&element));
     // Each match its own replacement (an Edit-as view's items keep their
     // links), the caret after the first.
     let edit = Edit::command(before, replaced.change, selection);
-    let caret = utf16(&edit.text, replaced.first.end);
+    let caret = text_size(replaced.first.end);
     if !state.commit(edit.caret_at(caret)) {
         return;
     }
@@ -333,11 +328,8 @@ fn show_current(state: EditorState) {
     let Some(element) = state.textarea() else {
         return;
     };
-    let (start, end) = state
-        .doc()
-        .text
-        .with_untracked(|text| (utf16(text, found.start), utf16(text, found.end)));
-    let _ = element.set_selection_range(start as u32, end as u32);
+    let (start, end) = (text_size(found.start), text_size(found.end));
+    let _ = element.set_selection_range(start, end);
     let inset = search
         .widget_ref
         .get_untracked()
@@ -354,15 +346,6 @@ fn selected_text(state: EditorState) -> Option<String> {
     let element = state.textarea()?;
     let (start, end) = textarea_selection(&element);
     state.doc().text.with_untracked(|text| {
-        let (start, end) = (
-            utf16_to_byte_index(text, start),
-            utf16_to_byte_index(text, end),
-        );
-        text.get(start..end).map(str::to_string)
+        slice::slice(text, TextRange::new(start, end.max(start))).map(str::to_string)
     })
-}
-
-/// UTF-16 offset (as the textarea counts) of byte `index`.
-fn utf16(text: &str, index: usize) -> usize {
-    text[..index].encode_utf16().count()
 }

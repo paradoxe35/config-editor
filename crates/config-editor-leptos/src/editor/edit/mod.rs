@@ -84,13 +84,11 @@ use leptos::prelude::*;
 #[cfg(test)]
 use super::bridge::links::Splice;
 use super::fold_ranges::FoldRange;
-use super::history::{Kept, Selection};
+use super::history::Selection;
 use super::input::UNKNOWN_SELECTION;
-use super::keyboard::utf16_to_byte_index;
 use super::languages::Language;
-use super::paths::utf16_len;
 use super::state::{EditorState, directed_selection};
-use super::text::{TextRange, TextSize, text_size};
+use super::text::{TextRange, TextSize, byte_of, text_size};
 
 /// A change to the document: the text before, what the edit did to it
 /// (the text after is made from that), the selection it was made on,
@@ -106,8 +104,8 @@ pub(super) struct Edit {
     told: bool,
     /// The document after: `made` made of `before`.
     pub(super) text: String,
-    /// The selection the edit was made on, as (anchor, caret) UTF-16
-    /// offsets of `before`: undo and a refusal put it back.
+    /// The selection the edit was made on, as (anchor, caret) bytes of
+    /// `before`: undo and a refusal put it back.
     pub(super) restore: Selection,
     pub(super) after: After,
     pub(super) origin: Origin,
@@ -125,8 +123,8 @@ pub(super) enum After {
     /// `anchor..caret` selected, the caret scrolled into view with
     /// `reveal`.
     Select {
-        anchor: usize,
-        caret: usize,
+        anchor: TextSize,
+        caret: TextSize,
         reveal: bool,
     },
     /// Where the browser left it after its own edit; set again only when
@@ -146,7 +144,7 @@ pub(super) struct Stepped {
     pub(super) change: Change,
     pub(super) told: bool,
     /// The selection it puts back, (anchor, caret) bytes of the text after.
-    pub(super) selection: Kept,
+    pub(super) selection: Selection,
     pub(super) language: Option<Language>,
     pub(super) folds: Option<Vec<FoldRange>>,
 }
@@ -177,7 +175,7 @@ impl Edit {
     }
 
     /// A command making `change` of `before` from the selection `restore`
-    /// ((anchor, caret), UTF-16, where undo puts it back), the caret left
+    /// ((anchor, caret), bytes, where undo puts it back), the caret left
     /// where the text it wrote ends, in view.
     pub(super) fn command(before: String, change: Change, restore: Selection) -> Self {
         let mut edit = Self::making(before, change, true, restore, After::Kept);
@@ -190,17 +188,14 @@ impl Edit {
         edit
     }
 
-    /// A command giving `text` from `before`, whose change is the UTF-16
+    /// A command giving `text` from `before`, whose change is the
     /// `selection` replaced when the texts agree it is, else read off the
-    /// texts by the caret `caret` (UTF-16 of `text`) it leaves: the host's
+    /// texts by the caret `caret` (a byte of `text`) it leaves: the host's
     /// text a reload writes, and the tests'.
-    pub(super) fn new(before: String, selection: Selection, text: String, caret: usize) -> Self {
+    pub(super) fn new(before: String, selection: Selection, text: String, caret: TextSize) -> Self {
         let (start, end) = (selection.0.min(selection.1), selection.0.max(selection.1));
-        let byte = |at: usize| text_size(utf16_to_byte_index(&before, at));
         let said = (selection != UNKNOWN_SELECTION)
-            .then(|| {
-                Change::replacing_selection(&before, &text, TextRange::new(byte(start), byte(end)))
-            })
+            .then(|| Change::replacing_selection(&before, &text, TextRange::new(start, end)))
             .flatten();
         let (made, told) = match said {
             Some(change) => (change, true),
@@ -227,8 +222,8 @@ impl Edit {
         self
     }
 
-    /// Leaves `anchor..caret` selected (UTF-16 offsets of the text after).
-    pub(super) fn selecting(mut self, anchor: usize, caret: usize) -> Self {
+    /// Leaves `anchor..caret` selected (bytes of the text after).
+    pub(super) fn selecting(mut self, anchor: TextSize, caret: TextSize) -> Self {
         if let After::Select {
             anchor: at,
             caret: to,
@@ -240,8 +235,72 @@ impl Edit {
         self
     }
 
-    /// Leaves the caret at UTF-16 `caret` of the text after.
-    pub(super) fn caret_at(self, caret: usize) -> Self {
+    /// [`Self::selecting`] at UTF-16 offsets of the text after, for the code
+    /// that still counts in UTF-16 units (see `state::textarea_units`).
+    pub(super) fn selecting_units(self, anchor: usize, caret: usize) -> Self {
+        let (anchor, caret) = (byte_of(&self.text, anchor), byte_of(&self.text, caret));
+        self.selecting(anchor, caret)
+    }
+
+    /// [`Self::caret_at`] UTF-16 `caret` of the text after (see
+    /// [`Self::selecting_units`]).
+    pub(super) fn caret_at_units(self, caret: usize) -> Self {
+        let caret = byte_of(&self.text, caret);
+        self.caret_at(caret)
+    }
+
+    /// [`Self::keeping_caret`] for UTF-16 `at` of the text before (see
+    /// [`Self::selecting_units`]).
+    pub(super) fn keeping_caret_units(self, at: usize, assoc: Assoc) -> Self {
+        let at = byte_of(&self.before, at);
+        self.keeping_caret(at, assoc)
+    }
+
+    /// [`Self::command`] from the UTF-16 selection `restore` of `before`
+    /// (see [`Self::selecting_units`]).
+    pub(super) fn command_units(before: String, change: Change, restore: (usize, usize)) -> Self {
+        let restore = (byte_of(&before, restore.0), byte_of(&before, restore.1));
+        Self::command(before, change, restore)
+    }
+
+    /// [`Self::new`] from UTF-16 offsets, as the tests write them: the
+    /// selection of `before`, the caret of `text`.
+    #[cfg(test)]
+    pub(super) fn new_units(
+        before: String,
+        selection: (usize, usize),
+        text: String,
+        caret: usize,
+    ) -> Self {
+        let selection = units_selection(&before, selection);
+        let caret = byte_of(&text, caret);
+        Self::new(before, selection, text, caret)
+    }
+
+    /// [`Self::input`] from UTF-16 offsets, as the tests write them: the
+    /// selection of `before`, the one left in `text`.
+    #[cfg(test)]
+    pub(super) fn input_units(
+        before: String,
+        selection: (usize, usize),
+        text: String,
+        typed: (usize, usize),
+        kind: String,
+        time: f64,
+    ) -> Self {
+        let selection = units_selection(&before, selection);
+        let typed = (byte_of(&text, typed.0), byte_of(&text, typed.1));
+        Self::input(before, selection, text, typed, kind, time)
+    }
+
+    /// The caret the edit leaves, as a UTF-16 offset of the text after.
+    #[cfg(test)]
+    pub(super) fn caret_units(&self) -> usize {
+        super::text::utf16_of(&self.text, self.caret())
+    }
+
+    /// Leaves the caret at byte `caret` of the text after.
+    pub(super) fn caret_at(self, caret: TextSize) -> Self {
         self.selecting(caret, caret)
     }
 
@@ -249,43 +308,32 @@ impl Edit {
     #[cfg(test)]
     #[allow(dead_code, reason = "used by the tests of some builds only")]
     pub(super) fn selecting_from(mut self, from: usize) -> Self {
+        // The tests write it as a UTF-16 offset of the text after.
+        let from = byte_of(&self.text, from);
         if let After::Select { anchor, .. } = &mut self.after {
             *anchor = from;
         }
         self
     }
 
-    /// Leaves the caret where the change takes UTF-16 `at` of the text
+    /// Leaves the caret where the change takes byte `at` of the text
     /// before, keeping to `assoc`'s side of text written right there.
-    pub(super) fn keeping_caret(self, at: usize, assoc: Assoc) -> Self {
-        let caret = self.map_units(at, assoc);
+    pub(super) fn keeping_caret(self, at: TextSize, assoc: Assoc) -> Self {
+        let caret = self.map(at, assoc);
         self.caret_at(caret)
     }
 
-    /// [`Self::keeping_caret`] for byte `at` of the text before.
-    pub(super) fn keeping_byte(self, at: TextSize, assoc: Assoc) -> Self {
-        let caret = units(&self.text, self.made.map_pos(at, assoc).pos);
-        self.caret_at(caret)
+    /// Where the change takes byte `at` of the text before, in the text
+    /// after.
+    pub(super) fn map(&self, at: TextSize, assoc: Assoc) -> TextSize {
+        self.made.map_pos(at, assoc).pos
     }
 
-    /// Leaves `anchor..caret` selected, as byte offsets of the text after.
-    pub(super) fn selecting_bytes(self, anchor: TextSize, caret: TextSize) -> Self {
-        let (anchor, caret) = (units(&self.text, anchor), units(&self.text, caret));
-        self.selecting(anchor, caret)
-    }
-
-    /// Where the change takes UTF-16 `at` of the text before, in UTF-16 of
-    /// the text after.
-    pub(super) fn map_units(&self, at: usize, assoc: Assoc) -> usize {
-        let byte = text_size(utf16_to_byte_index(&self.before, at));
-        units(&self.text, self.made.map_pos(byte, assoc).pos)
-    }
-
-    /// Where the text the change wrote ends (UTF-16 of the text after);
-    /// with nothing written, the caret it was made at.
-    fn written_to(&self) -> usize {
+    /// Where the text the change wrote ends (in the text after); with
+    /// nothing written, the caret it was made at.
+    fn written_to(&self) -> TextSize {
         match self.made.hull() {
-            Some((_, written)) => units(&self.text, written.end()),
+            Some((_, written)) => written.end(),
             None => self.restore.1,
         }
     }
@@ -397,7 +445,7 @@ impl Edit {
             selection
         } else {
             made.hull().map_or((typed.0, typed.0), |(range, _)| {
-                (units(&before, range.start()), units(&before, range.end()))
+                (range.start(), range.end())
             })
         };
         let after = After::Typed {
@@ -422,11 +470,13 @@ impl Edit {
         time: f64,
     ) -> Self {
         let hull = change.hull();
-        let restore = hull.as_ref().map_or((0, 0), |(range, _)| {
-            (units(&before, range.start()), units(&before, range.end()))
-        });
+        let restore = hull
+            .as_ref()
+            .map_or((TextSize::default(), TextSize::default()), |(range, _)| {
+                (range.start(), range.end())
+            });
         let mut edit = Self::making(before, change, told, restore, After::Kept);
-        let caret = hull.map_or(restore.1, |(_, written)| units(&edit.text, written.end()));
+        let caret = hull.map_or(restore.1, |(_, written)| written.end());
         edit.after = After::Typed {
             selection: (caret, caret),
             forced: false,
@@ -445,7 +495,7 @@ impl Edit {
         to: Stepped,
     ) -> Option<Self> {
         let text = to.change.apply(&current)?;
-        let (anchor, caret) = (units(&text, to.selection.0), units(&text, to.selection.1));
+        let (anchor, caret) = to.selection;
         Some(Self {
             before: current,
             made: to.change,
@@ -502,7 +552,7 @@ impl Edit {
             told: false,
             text,
             // Not checked, and no step of its own.
-            restore: (0, 0),
+            restore: (TextSize::default(), TextSize::default()),
             after,
             origin,
             language: None,
@@ -518,7 +568,7 @@ impl Edit {
         text: String,
         language: Language,
         selection: Selection,
-        caret: Option<usize>,
+        caret: Option<TextSize>,
     ) -> Self {
         let mut edit = Self::replacing(before, text, Origin::Switch);
         edit.language = Some(language);
@@ -533,23 +583,23 @@ impl Edit {
         edit
     }
 
-    /// The selection the edit leaves, as (start, end) UTF-16 offsets of the
-    /// text after; a caret at the start for one the textarea keeps.
+    /// The selection the edit leaves, as (start, end) bytes of the text
+    /// after; a caret at the start for one the textarea keeps.
     pub(super) fn selected(&self) -> Selection {
         match self.after {
             After::Select { anchor, caret, .. } => (anchor.min(caret), anchor.max(caret)),
             After::Typed { selection, .. } => selection,
-            After::Mapped | After::Kept => (0, 0),
+            After::Mapped | After::Kept => (TextSize::default(), TextSize::default()),
         }
     }
 
     /// The caret the edit leaves (where the browser or the command put it).
     #[cfg(any(test, feature = "protect"))]
-    pub(super) fn caret(&self) -> usize {
+    pub(super) fn caret(&self) -> TextSize {
         match self.after {
             After::Select { caret, .. } => caret,
             After::Typed { selection, .. } => selection.0,
-            After::Mapped | After::Kept => 0,
+            After::Mapped | After::Kept => TextSize::default(),
         }
     }
 
@@ -558,14 +608,14 @@ impl Edit {
     /// the caret it leaves, but for an undo or redo, whose caret is the
     /// selection it puts back.
     #[cfg(feature = "protect")]
-    pub(super) fn written_end(&self) -> Option<usize> {
+    pub(super) fn written_end(&self) -> Option<TextSize> {
         (!matches!(self.origin, Origin::Undo | Origin::Redo)).then(|| self.caret())
     }
 
     /// Puts the caret at `caret` with nothing selected (an edit widened
     /// over a placeholder).
     #[cfg(feature = "protect")]
-    pub(super) fn collapse_to(&mut self, caret: usize) {
+    pub(super) fn collapse_to(&mut self, caret: TextSize) {
         match &mut self.after {
             After::Select {
                 anchor, caret: at, ..
@@ -582,10 +632,19 @@ impl Edit {
     }
 }
 
-/// The UTF-16 offset of byte `at` of `text`.
-pub(super) fn units(text: &str, at: TextSize) -> usize {
-    utf16_len(text.get(..usize::from(at)).unwrap_or(text))
+/// The UTF-16 `selection` of `text` in bytes; [`UNKNOWN_UNITS`] is
+/// [`UNKNOWN_SELECTION`] (the tests' forms).
+#[cfg(test)]
+fn units_selection(text: &str, selection: (usize, usize)) -> Selection {
+    if selection == UNKNOWN_UNITS {
+        return UNKNOWN_SELECTION;
+    }
+    (byte_of(text, selection.0), byte_of(text, selection.1))
 }
+
+/// [`UNKNOWN_SELECTION`] as the tests write a selection, in UTF-16 units.
+#[cfg(test)]
+pub(super) const UNKNOWN_UNITS: (usize, usize) = (usize::MAX, usize::MAX);
 
 /// The change `splices` (sorted, apart) make of `before`, each one's
 /// moved stretches carried to where its inserted text writes them.

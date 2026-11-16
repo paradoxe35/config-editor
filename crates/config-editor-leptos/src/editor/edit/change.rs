@@ -33,7 +33,7 @@ use std::ops::{Add, AddAssign, Range, Sub, SubAssign};
 
 use super::super::diff::{DiffEdit, myers_edits};
 use super::super::keyboard::utf16_to_byte_index;
-use super::super::text::{TextRange, TextSize, Utf16, text_size};
+use super::super::text::{TextRange, TextSize, Utf16, text_size, utf16_of};
 use super::super::text_change::{changed_bytes, edit_range};
 
 /// A position or a length in a [`Unit`].
@@ -455,11 +455,11 @@ impl Change<Bytes> {
     }
 
     /// [`Self::diffed`], for browser input that did not say what it did:
-    /// placed by the caret it left (UTF-16 `caret` of `after`), where text
+    /// placed by the caret it left (byte `caret` of `after`), where text
     /// it inserted ends, which tells apart places the texts alone cannot
     /// (`aa|a` + `a`).
-    pub(crate) fn diffed_at(before: &str, after: &str, caret: usize) -> Self {
-        let (start, end) = edit_range(before, after, caret);
+    pub(crate) fn diffed_at(before: &str, after: &str, caret: TextSize) -> Self {
+        let (start, end) = edit_range(before, after, utf16_of(after, caret));
         let range = TextRange::new(
             text_size(utf16_to_byte_index(before, start)),
             text_size(utf16_to_byte_index(before, end)),

@@ -9,6 +9,7 @@ use leptos::prelude::*;
 use super::super::popups::caret_tip_style;
 use super::super::state::EditorState;
 use crate::cssom::cssom;
+use crate::editor::text::utf16_of;
 use crate::reactive::later;
 use crate::strings::fill;
 
@@ -22,8 +23,11 @@ impl EditorState {
         let a11y = self.a11y();
         let said = untrack(|| self.read_only_message());
         a11y.announce(said);
-        a11y.read_only_notice
-            .set(Some(self.doc().caret.get_untracked()));
+        // Placed on screen, in UTF-16 units of the text.
+        let caret = self.doc().caret.get_untracked();
+        a11y.read_only_notice.set(Some(
+            self.doc().text.with_untracked(|text| utf16_of(text, caret)),
+        ));
         if later::defers() {
             let timer = later::after(a11y.read_only_notice, NOTICE_MS, |notice| notice.set(None));
             if let Some(old) = a11y

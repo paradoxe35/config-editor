@@ -27,7 +27,7 @@ fn type_at(state: EditorState, mut at: usize, typed: &str) {
         } else {
             "insertText"
         };
-        let edit = Edit::input(before, (at, at), text, (at + 1, at + 1), kind.into(), 0.0);
+        let edit = Edit::input_units(before, (at, at), text, (at + 1, at + 1), kind.into(), 0.0);
         if state.commit(edit) {
             at += 1;
         }

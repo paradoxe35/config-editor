@@ -109,7 +109,7 @@ fn locked(language: Language, text: &str, pointer: &str, at: &str) -> bool {
     let offset = text[..byte].encode_utf16().count();
     let mut edited = text.to_string();
     edited.insert(byte, '9');
-    !state.commit(Edit::new(
+    !state.commit(Edit::new_units(
         text.to_string(),
         (offset, offset),
         edited,

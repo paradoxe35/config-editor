@@ -19,8 +19,9 @@ use super::super::metrics::read_editor_metrics;
 use super::super::positioning::reveal_offset;
 use super::super::projection::Projection;
 use super::super::source_area::SourceArea;
-use super::super::state::{EditorState, directed_selection, select};
+use super::super::state::{EditorState, directed_units, select_units};
 use super::page_ruler::Ruler;
+use crate::editor::text::byte_of;
 use crate::page_scroll::{band_in_view, reveal_band, scale_of};
 
 /// Pages the text on `PageDown` / `PageUp` (with Shift, selecting).
@@ -41,7 +42,7 @@ pub(super) fn page(state: EditorState, event: &KeyboardEvent) -> bool {
     let metrics = read_editor_metrics(area.element());
     let line_height = metrics.line_height.max(1.0);
     let rows = page_rows(rows_height(&area), line_height);
-    let (anchor, caret) = directed_selection(&area);
+    let (anchor, caret) = directed_units(&area);
     let target = state.doc().text.with_untracked(|text| {
         let ruler = Ruler::new(&area, metrics.char_width);
         let goal = state
@@ -65,14 +66,14 @@ pub(super) fn page(state: EditorState, event: &KeyboardEvent) -> bool {
         target
     });
     if event.shift_key() {
-        select(
+        select_units(
             &area,
             anchor.min(target),
             anchor.max(target),
             target < anchor,
         );
     } else {
-        let _ = area.set_selection_range(target as u32, target as u32);
+        select_units(&area, target, target, false);
     }
     let step = (rows as f64 * line_height).round() as i32;
     let top = area.scroll_top();
@@ -80,7 +81,7 @@ pub(super) fn page(state: EditorState, event: &KeyboardEvent) -> bool {
     state
         .doc()
         .text
-        .with_untracked(|text| reveal_offset(&area, text, target));
+        .with_untracked(|text| reveal_offset(&area, text, byte_of(text, target)));
     reveal_in_page(&area, target, metrics.padding_top, line_height);
     true
 }

@@ -12,6 +12,7 @@ use super::super::state::EditorState;
 use super::super::sync::take_host_value;
 use super::super::test_state::TestEditor;
 use super::{Edit, Stage, take_trace};
+use crate::editor::text::text_size;
 
 /// `a: 1` (line 1) is read-only; `b:` (line 2) opens a block that folds.
 const TEXT: &str = "a: 1\nb:\n  c: 2\n  d: 3\n";
@@ -49,7 +50,7 @@ fn editor() -> (Owner, EditorState) {
             let state = STATE.with(std::cell::Cell::get).expect("mounted");
             let seen = Seen {
                 text,
-                caret: state.doc().caret.get_untracked(),
+                caret: state.caret_units(),
                 can_undo: state
                     .doc()
                     .history
@@ -102,7 +103,7 @@ fn read_only_changed() -> String {
 fn an_edit_passes_the_stages_in_order_and_on_change_sees_it_whole() {
     let (_owner, state) = editor();
     let (after, caret) = typed_after_b(" # note");
-    assert!(state.commit(Edit::new(TEXT.into(), (7, 7), after.clone(), caret)));
+    assert!(state.commit(Edit::new_units(TEXT.into(), (7, 7), after.clone(), caret)));
     assert_eq!(
         take_trace(),
         [
@@ -130,7 +131,7 @@ fn a_refused_edit_changes_nothing() {
     let (_owner, state) = editor();
     let dirty = state.editing().dirty.get_untracked();
 
-    let refused = Edit::new(TEXT.into(), (7, 7), read_only_changed(), 7);
+    let refused = Edit::new_units(TEXT.into(), (7, 7), read_only_changed(), 7);
     assert!(!state.commit(refused));
 
     assert_eq!(take_trace(), [Stage::Prepare, Stage::Check, Stage::Refused]);
@@ -138,11 +139,7 @@ fn a_refused_edit_changes_nothing() {
     assert!(!can_undo(state), "nothing recorded");
     assert_eq!(state.editing().dirty.get_untracked(), dirty);
     assert_eq!(seen(), [], "no on_change");
-    assert_eq!(
-        state.doc().caret.get_untracked(),
-        7,
-        "the selection it started from"
-    );
+    assert_eq!(state.caret_units(), 7, "the selection it started from");
     // The reason shows at the caret.
     assert!(state.protect().tip_open());
 }
@@ -156,7 +153,7 @@ fn refusals_keep_one_timer_hiding_the_tip() {
     let (_owner, state) = editor();
     hold(|| {
         for _ in 0..3 {
-            let refused = Edit::new(TEXT.into(), (7, 7), read_only_changed(), 7);
+            let refused = Edit::new_units(TEXT.into(), (7, 7), read_only_changed(), 7);
             assert!(!state.commit(refused));
             assert!(state.protect().tip_open());
         }
@@ -174,10 +171,10 @@ fn a_refused_edit_closes_the_folds_it_opened_again() {
     // A key about to edit at the end of a folded line opens the fold.
     assert!(state.fold_line(1));
     let closed = state.fold().folded.get_untracked();
-    state.open_folds_for_edit(FOLDED_LINE_END, FOLDED_LINE_END);
+    state.open_folds_for_edit(text_size(FOLDED_LINE_END), text_size(FOLDED_LINE_END));
     assert!(state.fold().folded.with_untracked(Vec::is_empty));
 
-    let refused = Edit::new(TEXT.into(), (7, 7), read_only_changed(), 7);
+    let refused = Edit::new_units(TEXT.into(), (7, 7), read_only_changed(), 7);
     assert!(!state.commit(refused));
 
     assert_eq!(text(state), TEXT);
@@ -196,7 +193,7 @@ fn read_only_refuses_every_edit_of_the_user() {
     }
     .mount();
     let (after, caret) = typed_after_b(" x");
-    assert!(!state.commit(Edit::new(TEXT.into(), (7, 7), after, caret)));
+    assert!(!state.commit(Edit::new_units(TEXT.into(), (7, 7), after, caret)));
     assert_eq!(text(state), TEXT);
     // Silently: there is no field to blame.
     assert!(!state.protect().tip_open());
@@ -207,16 +204,16 @@ fn read_only_refuses_every_edit_of_the_user() {
 fn undo_of_an_edit_that_opened_a_fold_restores_the_text_and_leaves_it_open() {
     let (_owner, state) = editor();
     assert!(state.fold_line(1));
-    state.open_folds_for_edit(FOLDED_LINE_END, FOLDED_LINE_END);
+    state.open_folds_for_edit(text_size(FOLDED_LINE_END), text_size(FOLDED_LINE_END));
     let (after, caret) = typed_after_b(" # note");
-    assert!(state.commit(Edit::new(TEXT.into(), (7, 7), after.clone(), caret)));
+    assert!(state.commit(Edit::new_units(TEXT.into(), (7, 7), after.clone(), caret)));
     assert!(state.fold().folded.with_untracked(Vec::is_empty));
     seen();
 
     let undo = state.history_edit(false).expect("one step");
     assert!(state.commit(undo));
     assert_eq!(text(state), TEXT);
-    assert_eq!(state.doc().caret.get_untracked(), FOLDED_LINE_END);
+    assert_eq!(state.caret_units(), FOLDED_LINE_END);
     assert!(
         state.fold().folded.with_untracked(Vec::is_empty),
         "the fold stays open"
@@ -241,11 +238,11 @@ fn undo_of_an_edit_that_opened_a_fold_restores_the_text_and_leaves_it_open() {
 #[test]
 fn the_hosts_own_text_passes_the_read_only_check() {
     let (_owner, state) = editor();
-    let edit = || Edit::new(TEXT.into(), (0, 0), read_only_changed(), 0);
+    let edit = || Edit::new_units(TEXT.into(), (0, 0), read_only_changed(), 0);
     assert!(!state.commit(edit()));
     assert!(state.commit(Edit::reload(
         TEXT.into(),
-        (0, 0),
+        Default::default(),
         read_only_changed(),
         read_only_changed()
     )));
@@ -261,7 +258,7 @@ fn a_refused_undo_keeps_the_history() {
     // The host's text changed the read-only value; undoing it would too.
     assert!(state.commit(Edit::reload(
         TEXT.into(),
-        (0, 0),
+        Default::default(),
         read_only_changed(),
         read_only_changed()
     )));
@@ -282,7 +279,7 @@ fn typing_is_grouped_into_one_undo_step() {
     let (one, after_one) = typed_after_b(" x");
     let (two, after_two) = typed_after_b(" xy");
     let input = |before: &str, text: &str, caret: usize, time: f64| {
-        Edit::input(
+        Edit::input_units(
             before.into(),
             (caret - 1, caret - 1),
             text.into(),
@@ -335,7 +332,7 @@ fn typed_then_host(edit_as: Option<Language>, start: &str, host: &str) -> (Owner
     let at = before.find('1').expect("a 1 to type after") + 1;
     let mut typed = before.clone();
     typed.insert(at, 'x');
-    assert!(state.commit(Edit::input(
+    assert!(state.commit(Edit::input_units(
         before,
         (at, at),
         typed,
@@ -391,14 +388,15 @@ fn undo_puts_a_backward_selection_back_backward() {
     let (start, end) = (10, 14);
     // It leaves the `x` it wrote selected backward too.
     let change = super::Change::replace_units(&before, start, end, "x");
-    let edit = Edit::command(before.clone(), change, (end, start)).selecting(start + 1, start);
+    let edit =
+        Edit::command_units(before.clone(), change, (end, start)).selecting_units(start + 1, start);
     assert!(state.commit(edit));
     let undo = state.history_edit(false).expect("one step");
     assert_eq!(
         undo.after,
         super::After::Select {
-            anchor: end,
-            caret: start,
+            anchor: text_size(end),
+            caret: text_size(start),
             reveal: true
         }
     );
@@ -408,8 +406,8 @@ fn undo_puts_a_backward_selection_back_backward() {
     assert_eq!(
         redo.after,
         super::After::Select {
-            anchor: start + 1,
-            caret: start,
+            anchor: text_size(start + 1),
+            caret: text_size(start),
             reveal: true
         }
     );
@@ -424,7 +422,7 @@ fn every_write_moves_the_version_on() {
     let before = text(state);
     let version = state.doc().version.get_value();
     let change = super::Change::insert_units(&before, 10, "x");
-    assert!(state.commit(Edit::command(before.clone(), change, (10, 10))));
+    assert!(state.commit(Edit::command_units(before.clone(), change, (10, 10))));
     assert!(state.commit(state.history_edit(false).expect("one step")));
     assert_eq!(text(state), before);
     assert_eq!(state.doc().version.get_value(), version + 2);

@@ -54,7 +54,7 @@ fn write(state: EditorState, at: std::ops::Range<usize>, with: &str) -> bool {
     let after = format!("{}{with}{}", &before[..at.start], &before[at.end..]);
     let units = |byte: usize| before[..byte].encode_utf16().count();
     let caret = units(at.start) + with.encode_utf16().count();
-    state.commit(Edit::input(
+    state.commit(Edit::input_units(
         before.clone(),
         (units(at.start), units(at.end)),
         after,

@@ -10,6 +10,7 @@ use super::paths::{
 };
 use super::protect::DocumentPlaceholders;
 use super::state::EditorState;
+use crate::editor::text::byte_of;
 use crate::reactive::later::Alive;
 use std::sync::Arc;
 
@@ -337,6 +338,10 @@ impl EditorHandle {
         let Some((start, end)) = self.offsets_of(range) else {
             return false;
         };
+        let (start, end) = state
+            .doc()
+            .text
+            .with_untracked(|text| (byte_of(text, start), byte_of(text, end)));
         self.show();
         state.hide_shown_problem();
         state.focus_range(start, end).is_some()
@@ -358,6 +363,10 @@ impl EditorHandle {
         let Some((start, end)) = self.offsets_of(range) else {
             return false;
         };
+        let (start, end) = state
+            .doc()
+            .text
+            .with_untracked(|text| (byte_of(text, start), byte_of(text, end)));
         self.show();
         state.hide_shown_problem();
         state.focus_range(start, end).is_some()

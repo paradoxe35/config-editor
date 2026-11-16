@@ -52,7 +52,7 @@ fn moving_a_line_down_to_the_end_keeps_the_caret_in_the_text() {
         false,
     );
     assert_eq!(state.doc().text.get_untracked(), "b\na");
-    assert!(state.doc().caret.get_untracked() <= 3);
+    assert!(state.caret_units() <= 3);
     // A blank first line moved down and back up again.
     super::valid::replay(super::valid::ValidCase {
         language: Language::HCL,

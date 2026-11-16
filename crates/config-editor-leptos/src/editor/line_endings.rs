@@ -430,7 +430,7 @@ mod editor_tests {
                 let before = state.doc().text.get_untracked();
                 let at = before.find('1').expect("the value");
                 let after = format!("{}2{}", &before[..at], &before[at + 1..]);
-                state.commit(Edit::new(before, (at, at + 1), after.clone(), at + 1));
+                state.commit(Edit::new_units(before, (at, at + 1), after.clone(), at + 1));
                 if edit != host {
                     convert_now(state, after, edit);
                 }
@@ -483,7 +483,7 @@ mod editor_tests {
                 let before = state.doc().text.get_untracked();
                 let at = before.find('x').expect("the value");
                 let after = format!("{}w{}", &before[..at], &before[at + 1..]);
-                state.commit(Edit::new(before, (at, at + 1), after.clone(), at + 1));
+                state.commit(Edit::new_units(before, (at, at + 1), after.clone(), at + 1));
                 if edit != host {
                     convert_now(state, after, edit);
                 }
@@ -526,7 +526,7 @@ mod editor_tests {
             let before = state.doc().text.get_untracked();
             let at = before.find('x').expect("the value");
             let after = format!("{}w{}", &before[..at], &before[at + 1..]);
-            state.commit(Edit::new(before, (at, at + 1), after.clone(), at + 1));
+            state.commit(Edit::new_units(before, (at, at + 1), after.clone(), at + 1));
             let expected = text.replacen('x', "w", 1);
             if changes.get_untracked().last() != Some(&expected) {
                 failures.push(format!(
@@ -538,7 +538,7 @@ mod editor_tests {
             let before = after;
             let at = before.find('1').expect("the value");
             let after = format!("{}2{}", &before[..at], &before[at + 1..]);
-            state.commit(Edit::new(before, (at, at + 1), after.clone(), at + 1));
+            state.commit(Edit::new_units(before, (at, at + 1), after.clone(), at + 1));
             let heard = changes.get_untracked().last().cloned().unwrap_or_default();
             if rejects == super::has_lone_cr(&heard) || host.parse(&heard).is_err() {
                 failures.push(format!("{host}: after editing the line, heard {heard:?}"));

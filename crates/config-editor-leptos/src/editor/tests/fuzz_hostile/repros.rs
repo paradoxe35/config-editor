@@ -24,7 +24,7 @@ fn lines_left_alone_keep_their_ending_after_the_last_crlf_line_goes() {
         let before = state.doc().text.get_untracked();
         let text = format!("{}{with}{}", &before[..from], &before[to..]);
         let caret = from + with.len();
-        state.commit(Edit::input(
+        state.commit(Edit::input_units(
             before,
             (from, to),
             text,

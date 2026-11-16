@@ -22,6 +22,7 @@ use super::schema::SchemaBundle;
 use super::secret_options::SecretOptions;
 use super::state::EditorState;
 use crate::EditorStrings;
+use crate::editor::text::TextSize;
 
 /// The host's side of protection (the component's props, when given).
 pub(super) struct ProtectInit {
@@ -158,7 +159,7 @@ impl ProtectState {
     pub(super) fn trust_text(&self) {}
 
     /// A refusal's reason has no tooltip to show in.
-    pub(super) fn flash(&self, _message: String, _offset: usize) {}
+    pub(super) fn flash(&self, _message: String, _text: &str, _offset: TextSize) {}
 }
 
 /// Native unit tests have no console.
@@ -204,7 +205,7 @@ impl EditorState {
 
     pub(crate) fn note_held_back(&self, _held: bool) {}
 
-    pub(crate) fn cuts_a_token(&self, _start: usize, _end: usize) -> bool {
+    pub(crate) fn cuts_a_token(&self, _start: TextSize, _end: TextSize) -> bool {
         false
     }
 
@@ -212,7 +213,7 @@ impl EditorState {
 
     pub(super) fn recheck_tokens(&self) {}
 
-    pub(super) fn press_at(&self, _offset: usize) {}
+    pub(super) fn press_at(&self, _offset: TextSize) {}
 
     pub(super) fn release_press(&self) {}
 
@@ -220,7 +221,11 @@ impl EditorState {
         false
     }
 
-    pub(super) fn protected_note(&self, _offset: usize, _ends: bool) -> Option<(String, String)> {
+    pub(super) fn protected_note(
+        &self,
+        _offset: TextSize,
+        _ends: bool,
+    ) -> Option<(String, String)> {
         None
     }
 

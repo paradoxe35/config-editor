@@ -20,7 +20,7 @@ fn cut_line(state: EditorState, name: &str) -> String {
     let lines = before[from..to].to_string();
     let text = format!("{}{}", &before[..from], &before[to..]);
     let caret = units(&before[..from]);
-    state.commit(Edit::new(
+    state.commit(Edit::new_units(
         before,
         (caret, caret + units(&lines)),
         text,
@@ -105,7 +105,7 @@ fn a_typed_value_is_saved_without_reading_the_items() {
         let typed = format!("{}2{}", &shown[..at], &shown[at..]);
         let mut links = Links::fresh(&host, &shown, Some(bridge.reading()));
         let caret = units(&shown[..at]) + 1;
-        let made = crate::editor::edit::Edit::input(
+        let made = crate::editor::edit::Edit::input_units(
             shown.clone(),
             (caret - 1, caret - 1),
             typed.clone(),

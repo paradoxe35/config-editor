@@ -6,7 +6,7 @@
 //! carried over: it and every older one go.
 
 use super::super::edit::{Assoc, Change};
-use super::Kept;
+use super::Selection;
 use crate::editor::text::TextSize;
 
 /// `undo` (popping a step) and the host's change `host`, both made on the
@@ -27,7 +27,7 @@ pub(super) fn carried(undo: &Change, host: &Change) -> Option<(Change, Change)> 
 
 /// `selection` (bytes of the text `host` is made on) where the host's
 /// change takes it: a position inside what it replaced goes to its start.
-pub(super) fn mapped(host: &Change, (anchor, caret): Kept) -> Kept {
+pub(super) fn mapped(host: &Change, (anchor, caret): Selection) -> Selection {
     let map = |at: TextSize| host.map_pos(at, Assoc::Before).pos;
     (map(anchor), map(caret))
 }

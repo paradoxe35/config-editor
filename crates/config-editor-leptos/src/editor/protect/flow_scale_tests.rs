@@ -129,7 +129,7 @@ fn typed_in_view(host: Language, view: Language, count: usize) -> usize {
     let at = before[..byte].encode_utf16().count();
     let mut after = before.clone();
     after.insert(byte, ' ');
-    let typed = Edit::input(
+    let typed = Edit::input_units(
         before,
         (at, at),
         after,

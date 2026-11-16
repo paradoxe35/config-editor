@@ -143,7 +143,7 @@ fn input(state: EditorState, range: std::ops::Range<usize>, with: &str) -> bool 
         _ if with.starts_with('\n') => "insertLineBreak",
         _ => "insertText",
     };
-    state.commit(Edit::input(
+    state.commit(Edit::input_units(
         before,
         (start, end),
         after,

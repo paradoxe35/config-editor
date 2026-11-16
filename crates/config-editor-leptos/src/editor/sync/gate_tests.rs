@@ -111,7 +111,7 @@ fn paste(state: EditorState, text: &str) -> bool {
     let before = state.doc().text.get_untracked();
     let end = before.encode_utf16().count();
     let caret = text.encode_utf16().count();
-    state.commit(Edit::input(
+    state.commit(Edit::input_units(
         before,
         (0, end),
         text.to_string(),

@@ -136,13 +136,13 @@ pub(super) fn check(case: &CommandCase) -> Result<(), Failure> {
         let mut editor = TestEditor::new(language, text);
         editor.schema = Some(crate::editor::save_properties::schema());
         let (_owner, state) = editor.mount();
-        state.doc().caret.set(range.0);
+        state.set_caret_units(range.0);
         state.set_list_mode(crate::editor::completion::ListMode::TYPED);
         let options = state.completion().suggestions.get_untracked();
         if let Some(option) = options.first() {
             state.accept(option, false);
         }
-        let caret = state.doc().caret.get_untracked();
+        let caret = state.caret_units();
         let after = state.doc().text.get_untracked();
         if caret > units(&after) {
             return Err(Failure::new(
@@ -162,10 +162,10 @@ pub(super) fn check(case: &CommandCase) -> Result<(), Failure> {
         _ => Command::Indent { outdent: true },
     };
     let (_owner, state) = TestEditor::new(language, text).mount();
-    state.doc().caret.set(range.1);
+    state.set_caret_units(range.1);
     run_command(state, command, range, false);
     let after = state.doc().text.get_untracked();
-    let caret = state.doc().caret.get_untracked();
+    let caret = state.caret_units();
     if caret > units(&after) {
         return Err(Failure::new(
             format!("{command:?} leaves the caret past the text's end ({language})"),

@@ -93,7 +93,7 @@ fn insert(state: EditorState, at: usize, with: &str) -> bool {
         "insertText"
     };
     let start = units(&before, at);
-    let edit = Edit::input(
+    let edit = Edit::input_units(
         before,
         (start, start),
         after,
@@ -109,7 +109,7 @@ fn backspace(state: EditorState, at: usize) -> bool {
     let before = state.doc().text.get_untracked();
     let after = format!("{}{}", &before[..at - 1], &before[at..]);
     let start = units(&before, at - 1);
-    let edit = Edit::input(
+    let edit = Edit::input_units(
         before,
         (start + 1, start + 1),
         after,

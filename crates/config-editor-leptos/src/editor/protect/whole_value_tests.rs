@@ -109,7 +109,7 @@ fn a_value_written_over_lines_is_locked_whole() {
         let at = before.len();
         let mut typed = text.to_string();
         typed.insert(at, '9');
-        let taken = state.commit(Edit::input(
+        let taken = state.commit(Edit::input_units(
             text.to_string(),
             (at, at),
             typed,

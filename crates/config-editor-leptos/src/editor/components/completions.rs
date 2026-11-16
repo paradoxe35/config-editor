@@ -12,6 +12,7 @@ use super::super::completion::{
 use super::super::popups::list_wheel;
 use super::super::state::EditorState;
 use crate::cssom::{Declarations, cssom};
+use crate::editor::text::utf16_of;
 use crate::reactive::{KeyedList, Relay, RowSpacer};
 
 #[component]
@@ -59,7 +60,7 @@ pub(crate) fn CompletionList(state: EditorState) -> impl IntoView {
                     .get()
                     .map(|editor| {
                         state.view().projection.with(|projection| {
-                            completion_popup_style(state, &editor, projection, &state.doc().text.get(), state.doc().caret.get(), count, state.completion().row_size.get())
+                            completion_popup_style(state, &editor, projection, &state.doc().text.get(), state.doc().text.with(|text| utf16_of(text, state.doc().caret.get())), count, state.completion().row_size.get())
                         })
                     })
                     .unwrap_or_else(hidden)

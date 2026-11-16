@@ -180,8 +180,8 @@ fn keystroke(case: &LinearCase, raw: &str) -> Vec<usize> {
         let at = before[..byte].encode_utf16().count();
         let mut text = before.clone();
         text.insert(byte, 'x');
-        state.doc().caret.set(at);
-        state.commit(Edit::input(
+        state.set_caret_units(at);
+        state.commit(Edit::input_units(
             before,
             (at, at),
             text,

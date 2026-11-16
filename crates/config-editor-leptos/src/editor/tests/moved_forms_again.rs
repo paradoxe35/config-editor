@@ -10,6 +10,7 @@ use super::super::state::EditorState;
 use super::super::test_state::TestEditor;
 use super::moved_forms::{key_line, line_offset, pause, units};
 use crate::editor::save_matrix::report;
+use crate::editor::text::text_size;
 use leptos::prelude::*;
 
 /// A key `d` its host writes in a form of its own, in three blocks `a`
@@ -93,7 +94,7 @@ pub(super) fn replace(state: EditorState, (from, to): (usize, usize), typed: &st
     let before = state.doc().text.get_untracked();
     let text = format!("{}{typed}{}", &before[..from], &before[to..]);
     let start = units(&before[..from]);
-    state.commit(Edit::new(
+    state.commit(Edit::new_units(
         before.clone(),
         (start, units(&before[..to])),
         text,
@@ -105,7 +106,7 @@ pub(super) fn replace(state: EditorState, (from, to): (usize, usize), typed: &st
 /// clipboard's record keeps their items' links.
 pub(super) fn copy(state: EditorState, (from, to): (usize, usize)) {
     let text = state.doc().text.get_untracked();
-    state.note_copied(&text[from..to], (units(&text[..from]), units(&text[..to])));
+    state.note_copied(&text[from..to], (text_size(from), text_size(to)));
 }
 
 /// How the key's line is cut.

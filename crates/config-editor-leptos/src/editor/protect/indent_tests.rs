@@ -74,7 +74,7 @@ fn indenting_a_locked_line_is_free_except_in_yaml() {
             let Some((start, end, updated, caret)) = pressed(text, press, "  ") else {
                 continue;
             };
-            state.commit(Edit::new(
+            state.commit(Edit::new_units(
                 text.to_string(),
                 (start, end),
                 updated.clone(),

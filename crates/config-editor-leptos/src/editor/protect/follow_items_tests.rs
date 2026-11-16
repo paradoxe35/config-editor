@@ -100,7 +100,7 @@ fn type_value(
     let (start, stop) = (utf16(&before, prefix), utf16(&before, end));
     let caret = start + with.encode_utf16().count();
     let text = format!("{}{with}{}", &before[..prefix], &before[end..]);
-    if !state.commit(Edit::new(before, (start, stop), text, caret)) {
+    if !state.commit(Edit::new_units(before, (start, stop), text, caret)) {
         return Err("refused".to_string());
     }
     Ok(())

@@ -142,7 +142,7 @@ fn paste(state: EditorState, start: usize, end: usize, with: &str) -> bool {
     let after = format!("{}{with}{}", &before[..start], &before[end..]);
     let (from, to) = (utf16(&before, start), utf16(&before, end));
     let caret = from + with.encode_utf16().count();
-    state.commit(Edit::new(before, (from, to), after, caret))
+    state.commit(Edit::new_units(before, (from, to), after, caret))
 }
 
 /// Types `typed` at byte `at` a key at a time (with `pairs`, an opening
@@ -176,7 +176,7 @@ fn type_at(state: EditorState, at: usize, typed: &str, pairs: bool) -> bool {
         } else {
             "insertText"
         };
-        let edit = Edit::input(
+        let edit = Edit::input_units(
             before,
             (caret, caret),
             after,

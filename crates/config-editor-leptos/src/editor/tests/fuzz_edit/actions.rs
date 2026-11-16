@@ -222,7 +222,7 @@ fn shown(state: EditorState) -> String {
 /// Puts the caret (and the textarea's selection, natively the caret) at
 /// `at`.
 fn place(state: EditorState, at: usize) {
-    state.doc().caret.set(at);
+    state.set_caret_units(at);
 }
 
 fn typed(state: EditorState, (start, end): (usize, usize), text: &str, kind: &str, time: f64) {
@@ -231,7 +231,7 @@ fn typed(state: EditorState, (start, end): (usize, usize), text: &str, kind: &st
     if updated == before {
         return;
     }
-    state.commit(Edit::input(
+    state.commit(Edit::input_units(
         before,
         (start, end),
         updated,
@@ -257,12 +257,12 @@ fn tab(state: EditorState, (start, end): (usize, usize), shift: bool) {
         if let Some((updated, from, to)) = indent_lines(&text, start, end, shift, &unit)
             && updated != text
         {
-            state.commit(Edit::new(text, (start, end), updated, to).selecting_from(from));
+            state.commit(Edit::new_units(text, (start, end), updated, to).selecting_from(from));
         }
         return;
     }
     let (updated, caret) = replace_selection(&text, start, end, &tab_insert(&text, start, &unit));
-    state.commit(Edit::new(text, (start, end), updated, caret));
+    state.commit(Edit::new_units(text, (start, end), updated, caret));
 }
 
 /// Ctrl+/ as `keys::typing::toggle_comments` makes it.
@@ -274,7 +274,7 @@ fn comment(state: EditorState, (start, end): (usize, usize)) {
     let (change, updated) = toggled_change(&before, &toggled).expect("Ctrl+/ edits fit the text");
     let (from, to) = toggled_selection(&before, (start, end), &updated, toggled.selection);
     if updated != before {
-        state.commit(Edit::command(before, change, (start, end)).selecting(from, to));
+        state.commit(Edit::command_units(before, change, (start, end)).selecting_units(from, to));
     }
 }
 
@@ -283,7 +283,7 @@ fn pair(state: EditorState, (start, end): (usize, usize), opening: char, time: f
     let before = shown(state);
     match paired_text(&before, start, end, opening, state.behavior()) {
         Some((updated, from, to)) => {
-            let edit = Edit::new(before, (start, end), updated, to)
+            let edit = Edit::new_units(before, (start, end), updated, to)
                 .selecting_from(from)
                 .typed(
                     if start == end {
@@ -339,7 +339,7 @@ pub(super) fn apply(state: EditorState, action: &Action, context: &mut Context) 
             if from < at {
                 let before = shown(state);
                 let (updated, _) = replace_selection(&before, from, at, "");
-                state.commit(Edit::input(
+                state.commit(Edit::input_units(
                     before,
                     (at, at),
                     updated,
@@ -461,8 +461,8 @@ pub(super) fn apply(state: EditorState, action: &Action, context: &mut Context) 
                 // The browser keeps the textarea's caret inside its new
                 // text (natively nothing does).
                 let end = units(&shown(state));
-                if state.doc().caret.get_untracked() > end {
-                    state.doc().caret.set(end);
+                if state.caret_units() > end {
+                    state.set_caret_units(end);
                 }
             }
         }
@@ -510,7 +510,7 @@ pub(super) fn pause(state: EditorState) {
 
 /// Whether the caret is inside the text.
 pub(super) fn caret_in_range(state: EditorState) -> bool {
-    state.doc().caret.get_untracked() <= units(&shown(state))
+    state.caret_units() <= units(&shown(state))
 }
 
 /// Writes `actions` as Rust, one per line.

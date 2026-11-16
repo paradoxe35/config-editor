@@ -18,13 +18,14 @@ use leptos::prelude::*;
 use super::diagnostics::DIAGNOSTICS_DEBOUNCE_MS;
 use super::edit::{Change, Edit};
 use super::state::EditorState;
+use super::text::{TextRange, TextSize, slice};
 use crate::reactive::later;
 
 /// A drag's delete about to be applied: the version of the document it is
-/// applied to, and the text it deletes, at UTF-16 `at` of that document.
+/// applied to, and the text it deletes, at byte `at` of that document.
 pub(super) struct DragDelete {
     version: u64,
-    at: usize,
+    at: TextSize,
     deleted: String,
 }
 
@@ -68,12 +69,13 @@ impl EditorState {
             .with_value(|source| source.is_some_and(|source| source != version))
     }
 
-    /// A drag's delete of UTF-16 `start..end` is about to be applied to the
+    /// A drag's delete of bytes `start..end` is about to be applied to the
     /// document as it is now.
-    pub(super) fn drag_starts(&self, start: usize, end: usize) {
+    pub(super) fn drag_starts(&self, start: TextSize, end: TextSize) {
         let deleted = self.doc().text.with_untracked(|text| {
-            let units: Vec<u16> = text.encode_utf16().collect();
-            String::from_utf16_lossy(&units[start.min(units.len())..end.min(units.len())])
+            slice::slice(text, TextRange::new(start, end.max(start)))
+                .unwrap_or_default()
+                .to_string()
         });
         let delete = DragDelete {
             version: self.doc().version.get_value(),
@@ -128,7 +130,7 @@ impl EditorState {
         }
         // Else the deleted text is written back where it was.
         let current = self.doc().text.get_untracked();
-        let change = Change::insert_units(&current, delete.at, &delete.deleted);
+        let change = Change::replace(&current, TextRange::empty(delete.at), &delete.deleted);
         self.commit(Edit::command(current, change, (delete.at, delete.at)));
     }
 

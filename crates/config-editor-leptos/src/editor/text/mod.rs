@@ -5,6 +5,7 @@
 //! screen).
 
 mod offset;
+pub(crate) mod slice;
 
-pub(crate) use offset::{Utf16, byte_range, checked_range, text_size};
+pub(crate) use offset::{Utf16, byte_of, byte_range, checked_range, text_size, utf16_of};
 pub(crate) use text_size::{TextRange, TextSize};

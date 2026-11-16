@@ -224,7 +224,7 @@ fn edit_all(language: Language, edit_as: Option<Language>, text: &str) {
         // every write of the text).
         let now = state.doc().text.get_untracked();
         let end = now.encode_utf16().count();
-        state.commit(super::edit::Edit::new(now, (0, end), before, 0));
+        state.commit(super::edit::Edit::new_units(now, (0, end), before, 0));
     }
 }
 

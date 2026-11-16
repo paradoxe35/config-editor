@@ -49,7 +49,7 @@ fn typed(state: EditorState, from: &str, to: &str) {
     let at = before.find(from).expect("the text");
     let text = before.replacen(from, to, 1);
     let caret = before[..at].encode_utf16().count() + to.encode_utf16().count();
-    state.commit(Edit::new(before, (caret, caret), text.clone(), caret));
+    state.commit(Edit::new_units(before, (caret, caret), text.clone(), caret));
     state.problems().diagnosed_text.set(text.clone());
     convert_now(state, text, Language::XML);
 }

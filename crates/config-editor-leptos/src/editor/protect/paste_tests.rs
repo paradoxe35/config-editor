@@ -9,7 +9,7 @@
 use leptos::prelude::*;
 
 use super::super::edit::Edit;
-use super::super::input::UNKNOWN_SELECTION;
+use super::super::edit::UNKNOWN_UNITS;
 use super::super::state::EditorState;
 use super::super::test_state::TestEditor;
 use super::secret_tests::{PIN, SECRET, documents};
@@ -25,8 +25,8 @@ fn paste(state: EditorState, range: std::ops::Range<usize>, with: &str, known: b
     let after = format!("{}{with}{}", &before[..range.start], &before[range.end..]);
     let selection = (utf16(&before, range.start), utf16(&before, range.end));
     let caret = selection.0 + with.encode_utf16().count();
-    let told = if known { selection } else { UNKNOWN_SELECTION };
-    state.commit(Edit::input(
+    let told = if known { selection } else { UNKNOWN_UNITS };
+    state.commit(Edit::input_units(
         before,
         told,
         after,
@@ -83,8 +83,8 @@ fn a_placeholder_pasted_whole_stays_whole_in_every_language() {
             let (_owner, state) = TestEditor::new(language, &text).mount();
             let end = utf16(&text, pin_end);
             let after = format!("{}{}", &text[..pin_end - "»".len()], &text[pin_end..]);
-            let told = if known { (end, end) } else { UNKNOWN_SELECTION };
-            state.commit(Edit::input(
+            let told = if known { (end, end) } else { UNKNOWN_UNITS };
+            state.commit(Edit::input_units(
                 text.clone(),
                 told,
                 after,

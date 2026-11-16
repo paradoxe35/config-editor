@@ -198,7 +198,7 @@ fn a_key_holding_a_lock_moved_out_of_its_object_is_never_saved() {
         ..TestEditor::new(Language::JSON, text)
     }
     .mount();
-    let edit = super::super::edit::Edit::new(text.to_string(), (0, 0), moved.clone(), 0);
+    let edit = super::super::edit::Edit::new_units(text.to_string(), (0, 0), moved.clone(), 0);
     state.commit(edit);
     assert!(!state.save(), "{moved}");
 }

@@ -88,7 +88,7 @@ fn no_edit_of_the_first_line_reaches_the_byte_order_mark() {
                     failures.push(format!("{case}: the screen holds the mark: {before:?}"));
                 }
                 let caret = edited.len();
-                state.commit(Edit::new(
+                state.commit(Edit::new_units(
                     before.clone(),
                     (0, before.len()),
                     edited.clone(),
@@ -135,14 +135,19 @@ fn an_emptied_document_written_again_is_marked() {
         }));
         let (_owner, state) = editor.mount();
         let before = state.doc().text.get_untracked();
-        state.commit(Edit::new(
+        state.commit(Edit::new_units(
             before.clone(),
             (0, before.len()),
             String::new(),
             0,
         ));
         let plain = sample(language).to_string();
-        state.commit(Edit::new(String::new(), (0, 0), plain.clone(), plain.len()));
+        state.commit(Edit::new_units(
+            String::new(),
+            (0, 0),
+            plain.clone(),
+            plain.len(),
+        ));
         assert_eq!(
             changes.get_untracked(),
             vec![BOM.to_string(), format!("{BOM}{plain}")],
@@ -173,7 +178,7 @@ fn edits_from_every_view_keep_the_byte_order_mark() {
                 continue;
             };
             let after = format!("{}2{}", &before[..at], &before[at + 1..]);
-            state.commit(Edit::new(before, (at, at + 1), after.clone(), at + 1));
+            state.commit(Edit::new_units(before, (at, at + 1), after.clone(), at + 1));
             convert_now(state, after, view);
             let heard = changes.get_untracked();
             match heard.last() {
@@ -198,8 +203,8 @@ fn undoing_to_an_empty_screen_keeps_the_byte_order_mark() {
         }));
         let (_owner, state) = editor.mount();
         assert_eq!(state.doc().text.get_untracked(), "", "{language}");
-        state.commit(Edit::new(String::new(), (0, 0), "Z".to_string(), 1));
-        state.commit(Edit::new("Z".to_string(), (0, 1), String::new(), 0));
+        state.commit(Edit::new_units(String::new(), (0, 0), "Z".to_string(), 1));
+        state.commit(Edit::new_units("Z".to_string(), (0, 1), String::new(), 0));
         assert_eq!(
             changes.get_untracked().last(),
             Some(&BOM.to_string()),

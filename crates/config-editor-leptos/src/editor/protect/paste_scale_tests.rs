@@ -75,7 +75,7 @@ fn paste_work(language: Language, text: &str, ranges: usize) -> usize {
         let before = state.doc().text.get_untracked();
         let after = format!("{}{copy}{}", &before[..at], &before[at..]);
         let caret = at + copy.len();
-        state.commit(Edit::input(
+        state.commit(Edit::input_units(
             before,
             (at, at),
             after,

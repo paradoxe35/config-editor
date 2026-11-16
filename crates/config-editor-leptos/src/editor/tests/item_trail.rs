@@ -28,7 +28,7 @@ fn cut(state: EditorState, removed: &str) {
     let at = before.find(removed).expect("the lines");
     let text = before.replacen(removed, "", 1);
     let caret = before[..at].encode_utf16().count();
-    state.commit(Edit::new(before, (caret, caret), text, caret));
+    state.commit(Edit::new_units(before, (caret, caret), text, caret));
 }
 
 fn paste(state: EditorState, inserted: &str, before_line: &str) {
@@ -38,7 +38,7 @@ fn paste(state: EditorState, inserted: &str, before_line: &str) {
     let text = format!("{}{inserted}{}", &before[..at], &before[at..]);
     let caret = before[..at].encode_utf16().count() + inserted.encode_utf16().count();
     let start = before[..at].encode_utf16().count();
-    state.commit(Edit::new(before, (start, start), text, caret));
+    state.commit(Edit::new_units(before, (start, start), text, caret));
 }
 
 fn pause(state: EditorState) {
@@ -130,7 +130,7 @@ fn deleted_in(view: Language, sizes: &[u32], deleted: usize) -> (Owner, EditorSt
     let (owner, state) = editor.mount();
     let before = state.doc().text.get_untracked();
     let (next, caret) = without_item(view, &before, deleted);
-    state.commit(Edit::new(before, (caret, caret), next, caret));
+    state.commit(Edit::new_units(before, (caret, caret), next, caret));
     (owner, state)
 }
 
@@ -200,7 +200,7 @@ fn a_switch_converting_unsaved_edits_keeps_the_links() {
             "{}\n",
             serde_json::to_string_pretty(&value).expect("written")
         );
-        let switch = Edit::switching(before, converted, Language::JSON, (0, 0), None);
+        let switch = Edit::switching(before, converted, Language::JSON, Default::default(), None);
         state.commit(switch);
         pause(state);
         let saved = state.sync().host_text.get_value();
@@ -253,7 +253,7 @@ fn a_controlled_echo_keeps_the_host_text_an_undo_back_saves_as() {
     };
     let before = state.doc().text.get_untracked();
     let (next, caret) = without_item(Language::YAML, &before, 0);
-    state.commit(Edit::new(before, (caret, caret), next, caret));
+    state.commit(Edit::new_units(before, (caret, caret), next, caret));
     pause(state);
     echo(state);
     let saved = state.sync().host_text.get_value();
@@ -262,7 +262,7 @@ fn a_controlled_echo_keeps_the_host_text_an_undo_back_saves_as() {
     let before = state.doc().text.get_untracked();
     let typed = before.replacen("</shapes>", "  <shape />\n</shapes>", 1);
     let end = before.encode_utf16().count();
-    state.commit(Edit::new(before, (end, end), typed, end));
+    state.commit(Edit::new_units(before, (end, end), typed, end));
     echo(state);
     for _ in 0..2 {
         let undo = state.history_edit(false).expect("a step to undo");

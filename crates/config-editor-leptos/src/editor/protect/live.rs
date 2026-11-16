@@ -30,6 +30,7 @@ use super::save::{ReadOnlyChange, check_save, locked_pointers, range_pointers};
 use super::secrets::SecretState;
 use super::texts::{save_held, save_held_placeholder, save_waits};
 use super::whole_guard::Placeholders;
+use crate::editor::text::{TextSize, byte_of, utf16_of};
 
 /// The host's side of protection (the component's props, when given).
 pub(crate) struct ProtectInit {
@@ -340,9 +341,11 @@ impl ProtectState {
         });
     }
 
-    /// Shows `message` at `offset` for a moment: why an edit was refused.
-    pub(crate) fn flash(&self, message: String, offset: usize) {
-        self.popups.flash_lock(message, offset);
+    /// Shows `message` at byte `offset` of `text` for a moment: why an
+    /// edit was refused.
+    pub(crate) fn flash(&self, message: String, text: &str, offset: TextSize) {
+        // Placed on screen, in UTF-16 units of the text.
+        self.popups.flash_lock(message, utf16_of(text, offset));
     }
 
     /// Hides the lock tip (only a hover one with `hover_only`).
@@ -586,8 +589,9 @@ impl EditorState {
     pub(crate) fn check_edit(&self, edit: &Edit) -> Result<(), String> {
         let change = recorded(edit);
         let carets = Carets {
-            caret: Some(edit.caret()),
-            written: edit.written_end(),
+            // The spans are kept in UTF-16 units of the text on screen.
+            caret: Some(utf16_of(&edit.text, edit.caret())),
+            written: edit.written_end().map(|end| utf16_of(&edit.text, end)),
             change: change.as_ref(),
         };
         let followed = self
@@ -709,13 +713,15 @@ impl EditorState {
     /// Follows an applied edit with what is kept by position (the host's
     /// ranges, the secret placeholders).
     pub(crate) fn follow_edit(&self, edit: &Edit) {
-        let (before, after, caret) = (edit.before.as_str(), edit.text.as_str(), edit.caret());
+        let (before, after) = (edit.before.as_str(), edit.text.as_str());
+        // The spans are kept in UTF-16 units of the text on screen.
+        let caret = utf16_of(after, edit.caret());
         let change = recorded(edit).map(Arc::new);
         self.protect().marks.update_value(|marks| {
             marks.followed = Some(Followed {
                 before: Arc::from(before),
                 after: Arc::from(after),
-                caret: edit.written_end(),
+                caret: edit.written_end().map(|end| utf16_of(after, end)),
                 change: change.clone(),
             });
         });
@@ -990,7 +996,12 @@ impl EditorState {
     /// secret placeholder's hint, or why a read-only field is read-only.
     /// With `ends`, an offset just at either end of it counts (the caret
     /// beside it).
-    pub(crate) fn protected_note(&self, offset: usize, ends: bool) -> Option<(String, String)> {
+    pub(crate) fn protected_note(&self, offset: TextSize, ends: bool) -> Option<(String, String)> {
+        // The protected spans are kept in UTF-16 units of the text on screen.
+        let offset = self
+            .doc()
+            .text
+            .with_untracked(|text| utf16_of(text, offset));
         let covers = |range: &Range<usize>| {
             range.start <= offset && (offset < range.end || (ends && offset == range.end))
         };
@@ -1035,7 +1046,7 @@ impl EditorState {
         }
         let found = self.doc().text.with_untracked(|text| {
             let offset = LineIndex::new(text).offset(line + 1, column + 1);
-            self.protected_note(offset, false)
+            self.protected_note(byte_of(text, offset), false)
                 .map(|(_, message)| (message, offset))
         });
         let Some((message, offset)) = found else {

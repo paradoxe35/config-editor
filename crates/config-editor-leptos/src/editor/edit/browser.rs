@@ -13,14 +13,12 @@
 
 use super::super::history::Selection;
 use super::super::input::UNKNOWN_SELECTION;
-use super::super::keyboard::utf16_to_byte_index;
-use super::super::paths::utf16_len;
 use super::Change;
-use crate::editor::text::byte_range;
+use crate::editor::text::{TextRange, TextSize, slice};
 
 /// The change input of `kind` made of `before` to give `after`: made on
-/// `selection` (UTF-16 of `before`, either direction), leaving `typed`
-/// (UTF-16 of `after`); `None` when the browser did not say (see the
+/// `selection` (bytes of `before`, either direction), leaving `typed`
+/// (bytes of `after`); `None` when the browser did not say (see the
 /// module).
 pub(super) fn said(
     before: &str,
@@ -66,35 +64,37 @@ pub(super) fn said(
     // Where what it wrote ends: the caret, the end of dropped text left
     // selected.
     let written = typed.0.max(typed.1);
-    let kept = utf16_len(after).checked_sub(written)?;
-    let to = utf16_len(before).checked_sub(kept)?;
+    let kept = TextSize::of(after).checked_sub(written)?;
+    let to = TextSize::of(before).checked_sub(kept)?;
     let from = if drop { to } else { start.min(written) };
     if from > to || from > written {
         return None;
     }
-    let (from_before, to_before) = (
-        utf16_to_byte_index(before, from),
-        utf16_to_byte_index(before, to),
-    );
-    let (from_after, written_after) = (
-        utf16_to_byte_index(after, from),
-        utf16_to_byte_index(after, written),
-    );
-    let agree = before.get(..from_before)? == after.get(..from_after)?
-        && before.get(to_before..)? == after.get(written_after..)?;
+    let agree = slice::before(before, from)? == slice::before(after, from)?
+        && slice::after(before, to)? == slice::after(after, written)?;
     agree.then(|| {
         Change::replace(
             before,
-            byte_range(from_before..to_before),
-            &after[from_after..written_after],
+            TextRange::new(from, to),
+            slice::slice(after, TextRange::new(from, written)).unwrap_or_default(),
         )
     })
 }
 
 #[cfg(test)]
 mod tests {
+    use super::super::super::history::Selection;
     use super::super::super::input::UNKNOWN_SELECTION;
+    use super::super::super::keyboard::utf16_to_byte_index;
+    use super::super::super::text::text_size;
     use super::said;
+
+    /// The UTF-16 selection `(anchor, caret)` of `text` (as the browser
+    /// counts it) in bytes.
+    fn at(text: &str, (anchor, caret): (usize, usize)) -> Selection {
+        let byte = |units| text_size(utf16_to_byte_index(text, units));
+        (byte(anchor), byte(caret))
+    }
 
     fn edits(change: Option<super::Change>) -> Option<Vec<(std::ops::Range<usize>, String)>> {
         change.map(|change| {
@@ -109,26 +109,62 @@ mod tests {
     /// cannot tell `aa|a` + `a` from `a|aa` + `a`.
     #[test]
     fn typing_is_placed_where_the_browser_typed() {
-        let change = said("aaa", "aaaa", (1, 1), (2, 2), "insertText");
+        let change = said(
+            "aaa",
+            "aaaa",
+            at("aaa", (1, 1)),
+            at("aaaa", (2, 2)),
+            "insertText",
+        );
         assert_eq!(edits(change), Some(vec![(1..1, "a".to_string())]));
         // Backspace after the second `a` of `aa`.
-        let change = said("aa", "a", (2, 2), (1, 1), "deleteContentBackward");
+        let change = said(
+            "aa",
+            "a",
+            at("aa", (2, 2)),
+            at("a", (1, 1)),
+            "deleteContentBackward",
+        );
         assert_eq!(edits(change), Some(vec![(1..2, String::new())]));
         // Delete before it.
-        let change = said("aa", "a", (0, 0), (0, 0), "deleteContentForward");
+        let change = said(
+            "aa",
+            "a",
+            at("aa", (0, 0)),
+            at("a", (0, 0)),
+            "deleteContentForward",
+        );
         assert_eq!(edits(change), Some(vec![(0..1, String::new())]));
         // A selection typed over, made backward.
-        let change = said("a: one", "a: 1", (6, 3), (4, 4), "insertText");
+        let change = said(
+            "a: one",
+            "a: 1",
+            at("a: one", (6, 3)),
+            at("a: 1", (4, 4)),
+            "insertText",
+        );
         assert_eq!(edits(change), Some(vec![(3..6, "1".to_string())]));
         // A word deleted backward, past characters of two units.
-        let change = said("é😀 ab", "é😀 ", (6, 6), (4, 4), "deleteWordBackward");
+        let change = said(
+            "é😀 ab",
+            "é😀 ",
+            at("é😀 ab", (6, 6)),
+            at("é😀 ", (4, 4)),
+            "deleteWordBackward",
+        );
         assert_eq!(edits(change), Some(vec![(7..9, String::new())]));
     }
 
     /// A drop inserts where it lands, its text left selected.
     #[test]
     fn a_drop_is_placed_where_it_landed() {
-        let change = said("ab\ncd", "ab\nabcd", (0, 2), (3, 5), "insertFromDrop");
+        let change = said(
+            "ab\ncd",
+            "ab\nabcd",
+            at("ab\ncd", (0, 2)),
+            at("ab\nabcd", (3, 5)),
+            "insertFromDrop",
+        );
         assert_eq!(edits(change), Some(vec![(3..3, "ab".to_string())]));
     }
 
@@ -136,9 +172,36 @@ mod tests {
     /// not confirm, has no change said.
     #[test]
     fn input_that_does_not_say_has_none() {
-        assert!(said("ab", "ab!", UNKNOWN_SELECTION, (3, 3), "insertText").is_none());
-        assert!(said("teh", "the", (3, 3), (3, 3), "insertReplacementText").is_none());
+        assert!(
+            said(
+                "ab",
+                "ab!",
+                UNKNOWN_SELECTION,
+                at("ab!", (3, 3)),
+                "insertText"
+            )
+            .is_none()
+        );
+        assert!(
+            said(
+                "teh",
+                "the",
+                at("teh", (3, 3)),
+                at("the", (3, 3)),
+                "insertReplacementText"
+            )
+            .is_none()
+        );
         // The caret said is not where the text was typed.
-        assert!(said("ab", "xab", (2, 2), (3, 3), "insertText").is_none());
+        assert!(
+            said(
+                "ab",
+                "xab",
+                at("ab", (2, 2)),
+                at("xab", (3, 3)),
+                "insertText"
+            )
+            .is_none()
+        );
     }
 }

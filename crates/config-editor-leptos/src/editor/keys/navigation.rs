@@ -11,7 +11,8 @@ use super::super::keyboard::utf16_to_byte_index;
 use super::super::metrics::read_editor_metrics;
 use super::super::positioning::reveal_offset;
 use super::super::problem_walk::next_stop;
-use super::super::state::{EditorState, directed_selection, textarea_selection};
+use super::super::state::{EditorState, directed_units, select_units, textarea_units};
+use crate::editor::text::{byte_of, utf16_of};
 
 /// Smart Home: the first non-blank character, then the line start.
 pub(super) fn smart_home(state: EditorState, event: &KeyboardEvent) -> bool {
@@ -21,7 +22,7 @@ pub(super) fn smart_home(state: EditorState, event: &KeyboardEvent) -> bool {
     let Some(element) = state.textarea() else {
         return false;
     };
-    let (anchor, caret) = directed_selection(&element);
+    let (anchor, caret) = directed_units(&element);
     let target = state
         .doc()
         .text
@@ -33,13 +34,14 @@ pub(super) fn smart_home(state: EditorState, event: &KeyboardEvent) -> bool {
         } else {
             "forward"
         };
-        let _ = element.set_selection_range_with_direction(
-            anchor.min(target) as u32,
-            anchor.max(target) as u32,
-            direction,
+        select_units(
+            &element,
+            anchor.min(target),
+            anchor.max(target),
+            direction == "backward",
         );
     } else {
-        let _ = element.set_selection_range(target as u32, target as u32);
+        select_units(&element, target, target, false);
     }
     // Bring the caret back into view when the line is scrolled sideways.
     let column = state.doc().text.with_untracked(|text| {
@@ -56,7 +58,7 @@ pub(super) fn smart_home(state: EditorState, event: &KeyboardEvent) -> bool {
     state
         .doc()
         .text
-        .with_untracked(|text| reveal_offset(&element, text, target));
+        .with_untracked(|text| reveal_offset(&element, text, byte_of(text, target)));
     true
 }
 
@@ -75,7 +77,7 @@ pub(super) fn keep_placeholder(state: EditorState, event: &KeyboardEvent) -> boo
         return false;
     };
     state.completion().placeholder.set_value(None);
-    if textarea_selection(&element) != (start, end) {
+    if textarea_units(&element) != (start, end) {
         return false;
     }
     let end = state.doc().text.with_untracked(|text| {
@@ -88,7 +90,7 @@ pub(super) fn keep_placeholder(state: EditorState, event: &KeyboardEvent) -> boo
         };
         end + rest[..skip].encode_utf16().count()
     });
-    let _ = element.set_selection_range(end as u32, end as u32);
+    select_units(&element, end, end, false);
     state.close_suggestions();
     if key == "Tab" {
         event.prevent_default();
@@ -132,7 +134,11 @@ pub(super) fn next_problem(state: EditorState, event: &KeyboardEvent) -> bool {
     }
     event.prevent_default();
     check_before_walk(state);
-    let here = state.doc().caret.get_untracked();
+    // The walk's stops are UTF-16 offsets of the text.
+    let here = state
+        .doc()
+        .text
+        .with_untracked(|text| utf16_of(text, state.doc().caret.get_untracked()));
     let problems = state.problems();
     let stops = problems.walk.get_untracked();
     // Where the last press left off, if the caret is still there.
@@ -155,7 +161,10 @@ pub(super) fn next_problem(state: EditorState, event: &KeyboardEvent) -> bool {
     };
     let index = stops[position].index;
     state.go_to_diagnostic(index);
-    let caret = state.doc().caret.get_untracked();
+    let caret = state
+        .doc()
+        .text
+        .with_untracked(|text| utf16_of(text, state.doc().caret.get_untracked()));
     // "Error 2 of 5: …" for screen readers, which do not see the message
     // the marker shows (an unplaced problem has none).
     let walked = problems
@@ -192,10 +201,10 @@ pub(super) fn escape(state: EditorState, event: &KeyboardEvent) {
         return;
     }
     if let Some(element) = state.textarea() {
-        let (start, end) = textarea_selection(&element);
+        let (start, end) = textarea_units(&element);
         if start != end {
-            let (_, caret) = directed_selection(&element);
-            let _ = element.set_selection_range(caret as u32, caret as u32);
+            let (_, caret) = directed_units(&element);
+            select_units(&element, caret, caret, false);
         }
     }
 }

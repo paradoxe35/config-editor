@@ -169,7 +169,7 @@ pub(super) fn type_at(state: EditorState, at: usize, typed: &str, pairs: bool) {
         } else {
             "insertText"
         };
-        let edit = Edit::input(
+        let edit = Edit::input_units(
             before,
             (caret, caret),
             after,
@@ -178,7 +178,7 @@ pub(super) fn type_at(state: EditorState, at: usize, typed: &str, pairs: bool) {
             0.0,
         );
         if !state.commit(edit) {
-            caret = state.doc().caret.get_untracked();
+            caret = state.caret_units();
             closers.retain(|at| *at < caret);
             continue;
         }
@@ -205,7 +205,7 @@ fn value_refuses_typing(state: EditorState, value: &str) -> bool {
     let at = utf16(&text, inside);
     let mut typed = text.clone();
     typed.insert(inside, 'x');
-    let edit = Edit::input(
+    let edit = Edit::input_units(
         text,
         (at, at),
         typed,

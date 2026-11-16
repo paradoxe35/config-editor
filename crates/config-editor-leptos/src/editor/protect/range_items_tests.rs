@@ -249,7 +249,7 @@ fn add(state: EditorState, at: usize, add: &str, way: Way) -> bool {
             after.insert_str(at, add);
             let start = units(&text, at);
             let caret = start + add.encode_utf16().count();
-            let edit = Edit::input(
+            let edit = Edit::input_units(
                 text,
                 (start, start),
                 after,
@@ -280,7 +280,7 @@ fn add(state: EditorState, at: usize, add: &str, way: Way) -> bool {
                 } else {
                     "insertText"
                 };
-                let edit = Edit::input(
+                let edit = Edit::input_units(
                     text,
                     (start, start),
                     after,
@@ -310,7 +310,7 @@ fn value_refuses_typing(state: EditorState, value: &str) -> bool {
     let at = units(&text, inside);
     let mut typed = text.clone();
     typed.insert(inside, 'x');
-    let edit = Edit::input(
+    let edit = Edit::input_units(
         text,
         (at, at),
         typed,
@@ -374,7 +374,7 @@ fn a_range_locked_line_moved_into_another_item_is_still_refused() {
             adds: Vec::new(),
         };
         let (_owner, state) = mount(&case, form);
-        let edit = Edit::new(
+        let edit = Edit::new_units(
             text.to_string(),
             (0, units(text, text.len())),
             moved.to_string(),

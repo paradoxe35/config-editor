@@ -46,7 +46,7 @@ fn cut_line(state: EditorState, line: &str) {
     let end = at + line.len() + 1;
     let after = format!("{}{}", &before[..at], &before[end..]);
     let units = |byte: usize| before[..byte].encode_utf16().count();
-    assert!(state.commit(Edit::input(
+    assert!(state.commit(Edit::input_units(
         before.clone(),
         (units(at), units(end)),
         after,

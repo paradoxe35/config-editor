@@ -105,7 +105,7 @@ fn locked_below(cases: &[(Language, &str, &str, &str)]) {
         let at = text.rfind(value).expect("the value is written");
         let mut typed = text.to_string();
         typed.insert(at, '9');
-        let taken = state.commit(Edit::input(
+        let taken = state.commit(Edit::input_units(
             text.to_string(),
             (at, at),
             typed,

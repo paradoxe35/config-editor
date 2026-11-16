@@ -222,8 +222,8 @@ fn replace(state: EditorState, (start, end): (usize, usize), typed: &str, kind: 
         return;
     }
     let caret = start + units(typed);
-    state.doc().caret.set(caret);
-    state.commit(Edit::input(
+    state.set_caret_units(caret);
+    state.commit(Edit::input_units(
         before,
         (start, end),
         text,
@@ -246,7 +246,7 @@ fn apply(state: EditorState, step: &Step, time: f64) {
         }
         Step::Enter { at } => {
             let at = offset(&text, at);
-            state.doc().caret.set(at);
+            state.set_caret_units(at);
             enter_at(state, (at, at), Pressed::Enter, Some(time));
         }
         Step::Cut { at, to } => replace(state, range(at, to), "", "deleteByCut", time),

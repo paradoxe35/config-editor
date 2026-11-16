@@ -38,7 +38,7 @@ fn replace(state: EditorState, (start, end): (usize, usize), with: &str) -> bool
     let before = state.doc().text.get_untracked();
     let after = format!("{}{with}{}", &before[..start], &before[end..]);
     let caret = start + with.len();
-    state.commit(Edit::input(
+    state.commit(Edit::input_units(
         before,
         (start, end),
         after,

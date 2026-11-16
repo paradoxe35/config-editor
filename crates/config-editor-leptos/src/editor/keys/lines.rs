@@ -14,8 +14,9 @@ use super::super::bridge::links::Splice;
 use super::super::commands::indent_lines_through;
 use super::super::edit::{Edit, change_of_splices};
 use super::super::fold_ranges::FoldRange;
-use super::super::state::{EditorState, is_backward, select, textarea_selection};
+use super::super::state::{EditorState, is_backward, select, textarea_units};
 use super::line_edit::{Folded, LineCommand, block_lines, fold_units, line_edit, neighbor_units};
+use crate::editor::text::byte_of;
 
 /// A line command.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -63,7 +64,7 @@ pub(super) fn line_commands(state: EditorState, event: &KeyboardEvent) -> bool {
     run(
         state,
         command,
-        textarea_selection(&element),
+        textarea_units(&element),
         is_backward(&element),
     );
     true
@@ -113,11 +114,15 @@ pub(in crate::editor) fn run(
                     .and_then(|splice| change_of_splices(&text, &[splice]))
                     .filter(|change| change.apply(&text).as_deref() == Some(edit.text.as_str()));
                 let made = match change {
-                    Some(change) => Edit::command(text, change, restore),
-                    None => Edit::new(text, restore, edit.text, caret),
+                    Some(change) => Edit::command_units(text, change, restore),
+                    None => {
+                        let restore = (byte_of(&text, restore.0), byte_of(&text, restore.1));
+                        let written = byte_of(&edit.text, caret);
+                        Edit::new(text, restore, edit.text, written)
+                    }
                 };
                 state.commit(with_folds(
-                    made.selecting(anchor, caret),
+                    made.selecting_units(anchor, caret),
                     &folds,
                     edit.folds,
                 ));
@@ -191,7 +196,7 @@ fn indent(
     };
     let restore = if backward { (end, start) } else { (start, end) };
     let edit = super::tab::selected_through(
-        Edit::command(text, indented.change, restore),
+        Edit::command_units(text, indented.change, restore),
         indented.selection,
         backward,
     );

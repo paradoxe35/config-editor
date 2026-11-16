@@ -18,7 +18,7 @@ fn type_at(state: EditorState, at: usize, typed: &str, kind: &str) {
     let after = format!("{}{typed}{}", &before[..at], &before[at..]);
     let start = utf16(&before, at);
     let caret = start + typed.encode_utf16().count();
-    state.commit(Edit::input(
+    state.commit(Edit::input_units(
         before,
         (start, start),
         after,

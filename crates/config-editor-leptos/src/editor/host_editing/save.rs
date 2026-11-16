@@ -29,8 +29,10 @@ impl EditorState {
         match self.to_host(Route::Save) {
             Err(Held::Guarded(Some(message))) => {
                 self.show_conversion_problem();
-                self.protect()
-                    .flash(message, self.doc().caret.get_untracked());
+                let caret = self.doc().caret.get_untracked();
+                self.doc()
+                    .text
+                    .with_untracked(|text| self.protect().flash(message, text, caret));
                 false
             }
             Ok(text) => {

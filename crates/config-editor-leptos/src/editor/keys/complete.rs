@@ -89,8 +89,8 @@ pub(super) fn complete(
         return false;
     };
     event.prevent_default();
-    let edit = Edit::command(before, done.change, (start, start))
-        .caret_at(done.caret)
+    let edit = Edit::command_units(before, done.change, (start, start))
+        .caret_at_units(done.caret)
         .typed("insertText", event.time_stamp());
     // Opened by the `<` before the typed `/`, so Enter right after it steps
     // past the completion rather than splitting it.
@@ -119,7 +119,7 @@ pub(super) fn reindent(
     };
     event.prevent_default();
     state.commit(
-        Edit::command(before, change, (start, start)).typed("insertText", event.time_stamp()),
+        Edit::command_units(before, change, (start, start)).typed("insertText", event.time_stamp()),
     );
     state.close_suggestions();
     true

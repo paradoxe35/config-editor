@@ -204,7 +204,7 @@ pub(super) fn check(case: &UndoCase) -> Result<(), Failure> {
                 format!("caret past the text's end after {} ({at})", kind(action)),
                 format!(
                     "after edit {index} {action:?} the caret is {} in {:?}",
-                    state.doc().caret.get_untracked(),
+                    state.caret_units(),
                     after.0
                 ),
             ));
@@ -227,7 +227,7 @@ pub(super) fn check(case: &UndoCase) -> Result<(), Failure> {
         if before == after {
             continue;
         }
-        let caret_after = state.doc().caret.get_untracked();
+        let caret_after = state.caret_units();
         let this = group(action);
         // The edit's own selection: the caret where it was placed.
         let selection_before = super::docs::offset(&before.0, position(action));
@@ -268,7 +268,7 @@ pub(super) fn check(case: &UndoCase) -> Result<(), Failure> {
         if !caret_in_range(state) {
             return Err(Failure::new(
                 format!("caret past the text's end after undo ({at})"),
-                format!("caret {} in {:?}", state.doc().caret.get_untracked(), now.0),
+                format!("caret {} in {:?}", state.caret_units(), now.0),
             ));
         }
         if !seen.contains(&now) {

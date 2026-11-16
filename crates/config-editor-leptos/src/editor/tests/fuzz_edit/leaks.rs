@@ -127,7 +127,7 @@ fn put(state: EditorState, text: &str) {
     let before = shown(state);
     if before != text {
         let all = units(&before);
-        state.commit(Edit::new(before, (0, all), text.to_string(), 0));
+        state.commit(Edit::new_units(before, (0, all), text.to_string(), 0));
     }
 }
 

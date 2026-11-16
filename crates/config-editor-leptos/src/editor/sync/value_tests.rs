@@ -19,7 +19,7 @@ fn type_at_line_end(state: EditorState, text: &str) {
     let mut after = before.clone();
     after.insert_str(at, text);
     let end = at + text.len();
-    let typed = Edit::input(
+    let typed = Edit::input_units(
         before,
         (at, at),
         after,

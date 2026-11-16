@@ -21,7 +21,7 @@ fn a_waiting_switch_is_placed_on_the_text_f8_walks() {
     // A line put above the line that cannot convert (line 3, then 4).
     let at = text.rfind("''").expect("the line");
     let after = format!("{}\n{}", &text[..at], &text[at..]);
-    state.commit(Edit::new(text.to_string(), (at, at), after, at + 1));
+    state.commit(Edit::new_units(text.to_string(), (at, at), after, at + 1));
     state.check_text_now();
     let listed = state.problems().own.get_untracked();
     assert!(
@@ -57,7 +57,7 @@ fn f8_walks_the_problems_of_the_placeholders_as_they_are_now() {
         let start = before[..at].encode_utf16().count();
         let end = start + find.encode_utf16().count();
         let caret = start + with.encode_utf16().count();
-        state.commit(Edit::new(before, (start, end), after, caret));
+        state.commit(Edit::new_units(before, (start, end), after, caret));
         check_before_walk(state);
         let walked = state.problems().own.get_untracked();
         // What the typing pause lists for the same text.

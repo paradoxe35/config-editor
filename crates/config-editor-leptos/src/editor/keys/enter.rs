@@ -6,7 +6,7 @@ use web_sys::KeyboardEvent;
 use super::super::commands::copied_lines;
 use super::super::edit::{Assoc, Change, Edit};
 use super::super::keyboard::utf16_to_byte_index;
-use super::super::state::{EditorState, textarea_selection};
+use super::super::state::{EditorState, textarea_units};
 use super::enter_newline::newline_at;
 
 pub(super) fn enter(state: EditorState, event: &KeyboardEvent) {
@@ -29,7 +29,7 @@ pub(super) fn enter(state: EditorState, event: &KeyboardEvent) {
     };
     enter_at(
         state,
-        textarea_selection(&element),
+        textarea_units(&element),
         pressed,
         Some(event.time_stamp()),
     );
@@ -89,7 +89,8 @@ pub(in crate::editor) fn enter_at(
         && !modified
         && let Some(change) = break_in_indentation(&text, start)
     {
-        let edit = Edit::command(text, change, selection).keeping_caret(start, Assoc::After);
+        let edit =
+            Edit::command_units(text, change, selection).keeping_caret_units(start, Assoc::After);
         state.commit(typed(edit));
         state.close_suggestions();
         return;
@@ -147,7 +148,7 @@ pub(in crate::editor) fn enter_at(
     // Where the language puts the caret in what it writes.
     let caret = start + newline.text[..newline.caret].encode_utf16().count();
     state.commit(typed(
-        Edit::command(text, change, selection).caret_at(caret),
+        Edit::command_units(text, change, selection).caret_at_units(caret),
     ));
     state.close_suggestions();
 }
@@ -178,7 +179,7 @@ fn open_line_above(state: EditorState, text: String, selection: (usize, usize)) 
     let change = Change::insert_units(&text, line_start, &format!("{indent}\n"));
     // On the new line, after its indent.
     let caret = line_start + indent.encode_utf16().count();
-    state.commit(Edit::command(text, change, selection).caret_at(caret));
+    state.commit(Edit::command_units(text, change, selection).caret_at_units(caret));
     state.close_suggestions();
 }
 
@@ -210,10 +211,10 @@ fn open_line_after_fold(
     let next_line = block_end + 1;
     let edit = if next_line <= text.encode_utf16().count() {
         let change = Change::insert_units(&text, next_line, &format!("{indent}\n"));
-        Edit::command(text, change, selection).caret_at(next_line + indent.len())
+        Edit::command_units(text, change, selection).caret_at_units(next_line + indent.len())
     } else {
         let change = Change::insert_units(&text, block_end, &format!("\n{indent}"));
-        Edit::command(text, change, selection)
+        Edit::command_units(text, change, selection)
     };
     state.commit(edit);
     state.close_suggestions();

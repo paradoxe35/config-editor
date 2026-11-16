@@ -170,7 +170,7 @@ fn rename(state: EditorState, case: &Case, typed: &str, pairs: bool) -> bool {
     let first = keys.next().unwrap();
     let after = format!("{}{first}{}", &before[..start], &before[end..]);
     let (from, to) = (utf16(&before, start), utf16(&before, end));
-    let edit = Edit::input(
+    let edit = Edit::input_units(
         before,
         (from, to),
         after,

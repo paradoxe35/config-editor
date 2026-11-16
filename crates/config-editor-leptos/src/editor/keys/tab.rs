@@ -7,7 +7,7 @@ use super::super::commands::{indent_lines_through, line_range, tab_insert};
 use super::super::completion::next_stop;
 use super::super::edit::{Change, Edit};
 use super::super::keyboard::utf16_to_byte_index;
-use super::super::state::{EditorState, is_backward, select, textarea_selection};
+use super::super::state::{EditorState, is_backward, select, select_units, textarea_units};
 use crate::editor::text::TextSize;
 
 pub(super) fn tab(state: EditorState, event: &KeyboardEvent) {
@@ -15,7 +15,7 @@ pub(super) fn tab(state: EditorState, event: &KeyboardEvent) {
     let Some(element) = state.textarea() else {
         return;
     };
-    let (start, end) = textarea_selection(&element);
+    let (start, end) = textarea_units(&element);
     let text = state.doc().text.get_untracked();
     if !event.shift_key() && start == end {
         let in_block = in_slot_region(state, start);
@@ -42,7 +42,7 @@ pub(super) fn tab(state: EditorState, event: &KeyboardEvent) {
     // A selection within one line is replaced, as typing would.
     let insert = tab_insert(&text, start, &state.doc().indent.get_value());
     let change = Change::replace_units(&text, start, end, &insert);
-    state.commit(Edit::command(text, change, (start, end)));
+    state.commit(Edit::command_units(text, change, (start, end)));
     state.close_suggestions();
 }
 
@@ -73,11 +73,11 @@ pub(super) fn next_placeholder_slot(state: EditorState, text: &str, caret: usize
         .flatten();
     match next {
         Some((anchor, end)) => {
-            state.place_caret(end);
+            state.place_caret_units(end);
             if anchor != end {
                 // Selected, so typing replaces it; Tab again moves on.
                 if let Some(element) = state.textarea() {
-                    select(&element, anchor, end, false);
+                    select_units(&element, anchor, end, false);
                 }
                 state
                     .completion()
@@ -107,7 +107,7 @@ fn step_out_of_value(state: EditorState, text: &str, caret: usize) -> bool {
         return false;
     }
     state.forget_closer_at(caret);
-    state.place_caret(caret + closer.len);
+    state.place_caret_units(caret + closer.len);
     true
 }
 
@@ -149,7 +149,7 @@ fn indent_block(
     };
     let restore = if backward { (end, start) } else { (start, end) };
     let edit = selected_through(
-        Edit::command(text, indented.change, restore),
+        Edit::command_units(text, indented.change, restore),
         indented.selection,
         backward,
     );
@@ -171,8 +171,8 @@ pub(super) fn selected_through(
     backward: bool,
 ) -> Edit {
     if backward {
-        edit.selecting_bytes(end, start)
+        edit.selecting(end, start)
     } else {
-        edit.selecting_bytes(start, end)
+        edit.selecting(start, end)
     }
 }

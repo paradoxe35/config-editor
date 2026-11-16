@@ -5,7 +5,7 @@ use web_sys::KeyboardEvent;
 
 use super::super::completion::{ListMode, apply_completion};
 use super::super::keyboard::utf16_to_byte_index;
-use super::super::state::EditorState;
+use super::super::state::{EditorState, select_units};
 
 /// Ctrl+Space opens the list, schema examples included.
 pub(super) fn request(state: EditorState, event: &KeyboardEvent) -> bool {
@@ -16,10 +16,8 @@ pub(super) fn request(state: EditorState, event: &KeyboardEvent) -> bool {
     // With a selection, the list opens at its end, the selection let go
     // (otherwise a selection closes the list, and Enter would replace it).
     let selected = state.textarea().and_then(|element| {
-        match (element.selection_start(), element.selection_end()) {
-            (Ok(Some(start)), Ok(Some(end))) if start != end => Some((element, end)),
-            _ => None,
-        }
+        let (start, end) = element.selection();
+        (start != end).then_some((element, end))
     });
     let replace_word = selected.is_some() || state.list_mode().replaces_word();
     if let Some((element, end)) = selected {
@@ -76,7 +74,7 @@ pub(super) fn step_past_unchanged(state: EditorState, event: &KeyboardEvent) -> 
         state.say_why_read_only(option);
     }
     if let Some(element) = state.textarea() {
-        let _ = element.set_selection_range(caret as u32, caret as u32);
+        select_units(&element, caret, caret, false);
     }
     // After an explicit Ctrl+Space, Enter on what is already written only
     // closes the list.
@@ -104,7 +102,7 @@ pub(super) fn step_past_unchanged(state: EditorState, event: &KeyboardEvent) -> 
 pub(super) fn list_keys(state: EditorState, event: &KeyboardEvent) -> bool {
     let count = state.completion().suggestions.with_untracked(Vec::len);
     // With a modifier the keys keep their editing meaning (Shift+arrows
-    // select, Ctrl+Enter opens a line below).
+    // select_units, Ctrl+Enter opens a line below).
     if count == 0 || super::modified(event) {
         return false;
     }

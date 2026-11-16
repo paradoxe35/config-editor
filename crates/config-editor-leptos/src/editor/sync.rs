@@ -19,6 +19,7 @@ use super::languages::Language;
 use super::paths::TextPosition;
 use super::schema::SchemaBundle;
 use super::state::{EditorState, textarea_selection};
+use crate::editor::text::{TextSize, byte_of, utf16_of};
 use crate::reactive::later;
 
 mod echoes;
@@ -361,12 +362,12 @@ impl EditorState {
         (told, untouched)
     }
 
-    /// `text` (UTF-16 `start..end` of the text on screen) copied or cut:
+    /// `text` (bytes `start..end` of the text on screen) copied or cut:
     /// the clipboard's record of it keeps its items' links.
     /// In the host's own language the text on screen is the host's: each
     /// item copied is the host's item at its own pointer, so a paste into
     /// a view after a switch keeps its source.
-    pub(super) fn note_copied(&self, text: &str, (start, end): (usize, usize)) {
+    pub(super) fn note_copied(&self, text: &str, (start, end): (TextSize, TextSize)) {
         let language = self.behavior();
         let own = self.bridge().is_none();
         let mut links = if own {
@@ -376,13 +377,10 @@ impl EditorState {
         } else {
             self.sync().links.get_value()
         };
-        let copied = self.doc().text.with_untracked(|current| {
-            let (start, end) = (
-                super::keyboard::utf16_to_byte_index(current, start),
-                super::keyboard::utf16_to_byte_index(current, end),
-            );
-            links.copied((language, current), start, end)
-        });
+        let copied = self
+            .doc()
+            .text
+            .with_untracked(|current| links.copied((language, current), start.into(), end.into()));
         if !own {
             self.sync().links.set_value(links);
         }
@@ -1042,7 +1040,12 @@ pub(super) fn switch_to(state: EditorState, next: Language) {
                 },
                 |area| textarea_selection(&area),
             );
-            let caret = field_caret(selection.0, (current, &text), (next, &converted));
+            let caret = field_caret(
+                utf16_of(&text, selection.0),
+                (current, &text),
+                (next, &converted),
+            )
+            .map(|caret| byte_of(&converted, caret));
             // Another language's lines: each fold is carried by its field; the
             // switch is an undo step back to this text (see
             // `edit::Origin::Switch`).

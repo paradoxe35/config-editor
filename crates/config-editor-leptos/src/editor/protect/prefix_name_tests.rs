@@ -200,7 +200,7 @@ fn type_at(state: EditorState, mut at: usize, typed: &str) -> bool {
             "insertText"
         };
         let caret = start + character.len_utf16();
-        let edit = Edit::input(
+        let edit = Edit::input_units(
             before,
             (start, start),
             text,

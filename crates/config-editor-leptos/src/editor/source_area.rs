@@ -1,15 +1,18 @@
 //! [`SourceArea`]: the textarea seen through the folds (see `projection`),
-//! and writing the document into it. Every part of the
-//! editor reads and moves the selection through it in document offsets;
-//! only it knows the textarea holds the document with folded lines cut out.
+//! and writing the document into it. Every part of the editor reads and
+//! moves the selection through it in byte offsets of the document; only it
+//! knows the textarea counts UTF-16 code units and holds the document with
+//! folded lines cut out. The offsets are converted here, once, both ways.
 
 use leptos::prelude::*;
 use wasm_bindgen::JsValue;
 
 use std::sync::Arc;
 
+use super::keyboard::utf16_to_byte_index;
 use super::projection::{Projection, Side};
 use super::state::{EditorState, directed_selection};
+use super::text::{TextSize, Utf16, text_size};
 
 /// The textarea, with offsets and lines in the document's terms.
 #[derive(Clone)]
@@ -38,8 +41,11 @@ impl SourceArea {
     /// made to the textarea's text, mapped into the document.
     pub(crate) fn value(&self) -> String {
         let current = self.element.value();
-        // Where the browser left the caret: the end of the text it wrote.
-        let caret = self.element.selection_end().ok().flatten().unwrap_or(0) as usize;
+        // Where the browser left the caret: the end of the text it wrote,
+        // in UTF-16 units of the textarea's text, as `unproject` reads it.
+        let caret = usize::from(Utf16::new(
+            self.element.selection_end().ok().flatten().unwrap_or(0),
+        ));
         self.state.view().projection.with_untracked(|projection| {
             self.state.doc().text.with_untracked(|doc| {
                 if projection.view(doc) == current {
@@ -57,50 +63,89 @@ impl SourceArea {
     #[allow(dead_code)]
     fn set_value(&self, _text: &str) {}
 
-    fn to_doc(&self, offset: Result<Option<u32>, JsValue>) -> Result<Option<u32>, JsValue> {
-        let offset = offset?;
-        Ok(offset.map(|offset| {
-            self.state
-                .view()
-                .projection
-                .with_untracked(|projection| projection.to_doc(offset as usize, Side::Before))
-                as u32
-        }))
+    /// The document's UTF-16 offset of the textarea's `offset`.
+    fn to_doc(&self, offset: u32) -> Utf16 {
+        self.state.view().projection.with_untracked(|projection| {
+            Utf16::count(projection.to_doc(usize::from(Utf16::new(offset)), Side::Before))
+        })
     }
 
-    fn to_view(&self, offset: u32) -> u32 {
-        self.state
+    /// The textarea's offset of the document's UTF-16 `offset`.
+    fn to_view(&self, offset: Utf16) -> u32 {
+        let view = self
+            .state
             .view()
             .projection
-            .with_untracked(|projection| projection.to_view(offset as usize)) as u32
+            .with_untracked(|projection| projection.to_view(usize::from(offset)));
+        u32::from(Utf16::count(view))
     }
 
-    pub(crate) fn selection_start(&self) -> Result<Option<u32>, JsValue> {
-        self.to_doc(self.element.selection_start())
+    /// The byte of `doc` (the document the textarea stands for) at its
+    /// UTF-16 `offset`; one inside a character is the character's end.
+    fn byte_in(doc: &str, offset: Utf16) -> TextSize {
+        text_size(utf16_to_byte_index(doc, usize::from(offset)))
     }
 
-    pub(crate) fn selection_end(&self) -> Result<Option<u32>, JsValue> {
-        self.to_doc(self.element.selection_end())
+    /// The textarea's offset of byte `at` of the document.
+    fn view_offset(&self, at: TextSize) -> u32 {
+        let units = self.state.doc().text.with_untracked(|doc| {
+            let at = at.min(TextSize::of(doc.as_str()));
+            super::paths::units_at(doc, at)
+        });
+        self.to_view(units)
+    }
+
+    /// The selection's start and end as UTF-16 offsets of the document.
+    fn selection_units(&self) -> (Utf16, Utf16) {
+        let start = self.element.selection_start().ok().flatten().unwrap_or(0);
+        let end = self.element.selection_end().ok().flatten().unwrap_or(start);
+        (self.to_doc(start), self.to_doc(end))
+    }
+
+    /// The selection's start and end, as bytes of the document on screen.
+    pub(crate) fn selection(&self) -> (TextSize, TextSize) {
+        self.state
+            .doc()
+            .text
+            .with_untracked(|doc| self.selection_in(doc))
+    }
+
+    /// The selection's start and end as bytes of `doc`: the document the
+    /// textarea now stands for (after the browser's own edit, the text it
+    /// left, not yet the document's).
+    pub(crate) fn selection_in(&self, doc: &str) -> (TextSize, TextSize) {
+        let (start, end) = self.selection_units();
+        (Self::byte_in(doc, start), Self::byte_in(doc, end))
+    }
+
+    /// The selection's start and end as UTF-16 offsets of the document,
+    /// for the browser's own measures of it (a copy of half a character).
+    pub(crate) fn selection_utf16(&self) -> (Utf16, Utf16) {
+        self.selection_units()
     }
 
     pub(crate) fn selection_direction(&self) -> Result<Option<String>, JsValue> {
         self.element.selection_direction()
     }
 
-    /// Selects document offsets `start..end` (the caret at `end`), first
-    /// opening the folds that hide either end: whatever moves the caret
-    /// shows where it went.
-    pub(crate) fn set_selection_range(&self, start: u32, end: u32) -> Result<(), JsValue> {
+    /// Selects bytes `start..end` of the document (the caret at `end`),
+    /// first opening the folds that hide either end: whatever moves the
+    /// caret shows where it went.
+    pub(crate) fn set_selection_range(
+        &self,
+        start: TextSize,
+        end: TextSize,
+    ) -> Result<(), JsValue> {
         self.set_selection_range_with_direction(start, end, "forward")
     }
 
-    /// Selects document offsets `start..end` without opening any fold (a
-    /// selection put back as it was, such as after a refused edit; an end
-    /// inside a fold goes to its edge).
-    pub(crate) fn restore_selection(&self, start: u32, end: u32) -> Result<(), JsValue> {
+    /// Selects bytes `start..end` of the document without opening any fold
+    /// (a selection put back as it was, such as after a refused edit; an
+    /// end inside a fold goes to its edge).
+    pub(crate) fn restore_selection(&self, start: TextSize, end: TextSize) -> Result<(), JsValue> {
         let moved = self
             .element
-            .set_selection_range(self.to_view(start), self.to_view(end));
+            .set_selection_range(self.view_offset(start), self.view_offset(end));
         self.follow_caret();
         moved
     }
@@ -109,14 +154,14 @@ impl SourceArea {
     /// the caret at `start` when it is `"backward"`.
     pub(crate) fn set_selection_range_with_direction(
         &self,
-        start: u32,
-        end: u32,
+        start: TextSize,
+        end: TextSize,
         direction: &str,
     ) -> Result<(), JsValue> {
-        self.state.reveal_offsets(start as usize, end as usize);
+        self.state.reveal_offsets(start, end);
         let moved = self.element.set_selection_range_with_direction(
-            self.to_view(start),
-            self.to_view(end),
+            self.view_offset(start),
+            self.view_offset(end),
             direction,
         );
         self.follow_caret();
@@ -124,8 +169,8 @@ impl SourceArea {
     }
 
     /// The caret: the selection's end that moves (its start when the
-    /// selection is backward), in document offsets.
-    pub(crate) fn caret(&self) -> usize {
+    /// selection is backward), in bytes of the document.
+    pub(crate) fn caret(&self) -> TextSize {
         directed_selection(self).1
     }
 
@@ -252,10 +297,11 @@ impl EditorState {
 fn replace_changed(element: &web_sys::HtmlTextAreaElement, shown: &str, view: &str) {
     use super::text_change::{changed_bytes, utf16_len};
     let (start, old_end, new_end) = changed_bytes(shown, view);
-    let from = utf16_len(&shown[..start]);
-    let to = from + utf16_len(&shown[start..old_end]);
+    // The browser counts the textarea's text in UTF-16 units.
+    let from = Utf16::count(utf16_len(&shown[..start]));
+    let to = from + Utf16::count(utf16_len(&shown[start..old_end]));
     if element
-        .set_range_text_with_start_and_end(&view[start..new_end], from as u32, to as u32)
+        .set_range_text_with_start_and_end(&view[start..new_end], from.into(), to.into())
         .is_err()
     {
         element.set_value(view);

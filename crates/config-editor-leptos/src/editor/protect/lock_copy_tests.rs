@@ -80,7 +80,7 @@ fn replace(state: EditorState, range: std::ops::Range<usize>, with: &str, kind: 
     let before = state.doc().text.get_untracked();
     let after = format!("{}{with}{}", &before[..range.start], &before[range.end..]);
     let caret = range.start + with.len();
-    state.commit(Edit::input(
+    state.commit(Edit::input_units(
         before,
         (range.start, range.end),
         after,

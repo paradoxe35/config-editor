@@ -128,7 +128,7 @@ fn lines_selection(text: &str, first: usize, last: usize) -> (usize, usize) {
 }
 
 fn command(state: EditorState, command: Command, selection: (usize, usize)) {
-    state.doc().caret.set(selection.1);
+    state.set_caret_units(selection.1);
     run_command(state, command, selection, false);
 }
 
@@ -163,14 +163,14 @@ fn inverse(case: &ValidCase) -> Result<(), Failure> {
         let (_owner, state) = mount(case, original);
         command(state, there, selection);
         let middle = shown(state);
-        if state.doc().caret.get_untracked() > super::docs::units(&middle) {
+        if state.caret_units() > super::docs::units(&middle) {
             return Err(Failure::new(
                 format!("caret past the text's end after {name} ({language})"),
                 format!(
                     "lines {}..={}: caret {} in {middle:?}",
                     case.first,
                     last,
-                    state.doc().caret.get_untracked()
+                    state.caret_units()
                 ),
             ));
         }
@@ -413,12 +413,12 @@ fn enter_indents(case: &ValidCase) -> Result<(), Failure> {
     };
     let (_owner, state) = mount(case, text);
     let end = offset_at(text, case.first, usize::MAX);
-    state.doc().caret.set(end);
+    state.set_caret_units(end);
     enter_at(state, (end, end), Pressed::Enter, Some(0.0));
     let before = shown(state);
-    let caret = state.doc().caret.get_untracked();
+    let caret = state.caret_units();
     let (typed, after_caret) = replace_selection(&before, caret, caret, new_entry(language));
-    state.commit(Edit::input(
+    state.commit(Edit::input_units(
         before,
         (caret, caret),
         typed,

@@ -14,7 +14,7 @@ use super::super::keyboard::utf16_to_byte_index;
 use super::super::language::ConfigLanguage;
 use super::super::parse_cache;
 use super::super::secret_options::SecretOptions;
-use super::super::state::{EditorState, directed_selection, textarea_selection};
+use super::super::state::{EditorState, directed_units, select_units, textarea_units};
 use super::super::text_change::edit_range;
 use super::follow_items;
 use super::foreign::foreign_tokens;
@@ -24,7 +24,7 @@ use super::tokens::{
 };
 use super::unplaced::placed_where_written;
 use super::whole_guard::{Held, WholeIndex};
-use crate::editor::text::byte_range;
+use crate::editor::text::{TextSize, byte_of, byte_range, utf16_of};
 
 /// Known tokens one edit may write and still have found by path (a
 /// paste); more (an undo restoring a whole text) are found by text.
@@ -313,14 +313,16 @@ impl EditorState {
         // What the edit replaced, as it said: a token pasted over another
         // shares its first characters, which a diff of the texts would
         // keep. Read off the texts only when it did not say.
+        // The tokens are kept in UTF-16 units of the text on screen.
+        let caret_units = utf16_of(&edit.text, edit.caret());
         let recorded = edit
             .change()
             .and_then(|change| change.in_utf16(&edit.before))
             .and_then(|change| change.hull())
             .map(|(was, _)| (usize::from(was.start), usize::from(was.end)));
         let (start, end) = recorded
-            .or_else(|| ended_at_caret(&tokens, &edit.before, &edit.text, edit.caret()))
-            .unwrap_or_else(|| edit_range(&edit.before, &edit.text, edit.caret()));
+            .or_else(|| ended_at_caret(&tokens, &edit.before, &edit.text, caret_units))
+            .unwrap_or_else(|| edit_range(&edit.before, &edit.text, caret_units));
         if let Some((text, wide, caret)) = widen(&tokens, &edit.before, &edit.text, start..end) {
             // What the widened edit does, recorded for the followers.
             let byte = |at: usize| utf16_to_byte_index(&edit.before, at);
@@ -334,6 +336,7 @@ impl EditorState {
                 byte_range(from..to),
                 &inserted,
             ));
+            let caret = byte_of(&edit.text, caret);
             edit.collapse_to(caret);
         }
     }
@@ -613,7 +616,12 @@ impl EditorState {
     /// placeholder, not all of it. A drag of such a selection is refused:
     /// its delete would take the placeholder whole while its drop writes
     /// only the dragged part, losing the rest.
-    pub(crate) fn cuts_a_token(&self, start: usize, end: usize) -> bool {
+    pub(crate) fn cuts_a_token(&self, start: TextSize, end: TextSize) -> bool {
+        // The placeholders are kept in UTF-16 units of the text on screen.
+        let (start, end) = self
+            .doc()
+            .text
+            .with_untracked(|text| (utf16_of(text, start), utf16_of(text, end)));
         self.solid_tokens_on_screen()
             .iter()
             .any(|token| super::tokens::cuts(token, &(start..end)))
@@ -626,21 +634,26 @@ impl EditorState {
         let Some(element) = self.textarea() else {
             return;
         };
-        let (anchor, caret) = directed_selection(&element);
+        let (anchor, caret) = directed_units(&element);
         let (start, end) = (anchor.min(caret), anchor.max(caret));
         let snapped = snap_selection(&self.solid_tokens_on_screen(), start, end);
         if snapped == (start, end) {
             return;
         }
         let backward = caret < anchor;
-        super::super::state::select(&element, snapped.0, snapped.1, backward);
-        self.note_caret(if backward { snapped.0 } else { snapped.1 });
+        select_units(&element, snapped.0, snapped.1, backward);
+        self.note_caret_units(if backward { snapped.0 } else { snapped.1 });
     }
 
     /// A mouse press at UTF-16 `offset` (read off the pointer, since the
     /// browser's own anchor inside a placeholder is not reliable): a press
     /// inside one is remembered, for the release to anchor at its edge.
-    pub(crate) fn press_at(&self, offset: usize) {
+    pub(crate) fn press_at(&self, offset: TextSize) {
+        // The placeholders are kept in UTF-16 units of the text on screen.
+        let offset = self
+            .doc()
+            .text
+            .with_untracked(|text| utf16_of(text, offset));
         let pressed = self
             .solid_tokens_on_screen()
             .into_iter()
@@ -664,7 +677,7 @@ impl EditorState {
             self.snap_to_tokens();
             return;
         };
-        let (start, end) = textarea_selection(&element);
+        let (start, end) = textarea_units(&element);
         let inside = |at: usize| token.start < at && at < token.end;
         // The end the pointer moved: the one outside the placeholder.
         let focus = if !inside(start) && (start < end || !inside(end)) {
@@ -673,11 +686,11 @@ impl EditorState {
             end
         };
         if focus <= token.start {
-            super::super::state::select(&element, focus, token.end, true);
-            self.note_caret(focus);
+            select_units(&element, focus, token.end, true);
+            self.note_caret_units(focus);
         } else if focus >= token.end {
-            super::super::state::select(&element, token.start, focus, false);
-            self.note_caret(focus);
+            select_units(&element, token.start, focus, false);
+            self.note_caret_units(focus);
         } else {
             self.snap_to_tokens();
         }
@@ -698,7 +711,7 @@ impl EditorState {
         let Some(element) = self.textarea() else {
             return false;
         };
-        let (anchor, caret) = directed_selection(&element);
+        let (anchor, caret) = directed_units(&element);
         if anchor != caret && !event.shift_key() {
             return false;
         }
@@ -713,13 +726,13 @@ impl EditorState {
         }
         event.prevent_default();
         let anchor = if event.shift_key() { anchor } else { target };
-        super::super::state::select(
+        select_units(
             &element,
             anchor.min(target),
             anchor.max(target),
             target < anchor,
         );
-        self.note_caret(target);
+        self.note_caret_units(target);
         true
     }
 }

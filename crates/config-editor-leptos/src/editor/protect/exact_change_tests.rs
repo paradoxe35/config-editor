@@ -100,7 +100,12 @@ fn on_change_hands_back_the_hosts_text_with_exactly_the_edit() {
                     let byte = name_value(&before) + 1;
                     format!("{}b{}", &before[..byte], &before[byte..])
                 };
-                state.commit(Edit::new(before.clone(), (at, at), after.clone(), at + 1));
+                state.commit(Edit::new_units(
+                    before.clone(),
+                    (at, at),
+                    after.clone(),
+                    at + 1,
+                ));
                 let host_at = name_value(&text) + 1;
                 let expected = format!("{}b{}", &text[..host_at], &text[host_at..]);
                 if heard.get_untracked() != vec![expected.clone()] {
@@ -110,7 +115,7 @@ fn on_change_hands_back_the_hosts_text_with_exactly_the_edit() {
                     ));
                 }
                 // And deleted again: the host's own text, byte for byte.
-                state.commit(Edit::new(after, (at, at + 1), before, at));
+                state.commit(Edit::new_units(after, (at, at + 1), before, at));
                 if heard.get_untracked().last() != Some(&text) {
                     failures.push(format!(
                         "{case}: back to {:?}, expected {text:?}",

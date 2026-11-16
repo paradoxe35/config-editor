@@ -43,7 +43,7 @@ fn cut(state: EditorState, name: &str) -> String {
     let cut = before[from..to].to_string();
     let text = format!("{}{}", &before[..from], &before[to..]);
     let at = units(&before[..from]);
-    state.commit(Edit::new(before, (at, at + units(&cut)), text, at));
+    state.commit(Edit::new_units(before, (at, at + units(&cut)), text, at));
     cut
 }
 
@@ -52,7 +52,7 @@ fn paste_at(state: EditorState, lines: &str, at: usize) {
     let before = state.doc().text.get_untracked();
     let text = format!("{}{lines}{}", &before[..at], &before[at..]);
     let start = units(&before[..at]);
-    state.commit(Edit::new(
+    state.commit(Edit::new_units(
         before,
         (start, start),
         text,
@@ -83,7 +83,7 @@ fn commas(state: EditorState, view: Language) {
     let text = format!("{}\n", lines.join("\n"));
     if text != before {
         let end = units(&before);
-        state.commit(Edit::new(before, (0, end), text, 0));
+        state.commit(Edit::new_units(before, (0, end), text, 0));
     }
 }
 

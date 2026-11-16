@@ -339,7 +339,7 @@ fn change(state: EditorState, old: &str, new: &str) -> bool {
     let before = state.doc().text.get_untracked();
     let at = before.find(old).expect("the text to change");
     let after = format!("{}{new}{}", &before[..at], &before[at + old.len()..]);
-    state.commit(Edit::new(
+    state.commit(Edit::new_units(
         before,
         (at, at + old.len()),
         after,

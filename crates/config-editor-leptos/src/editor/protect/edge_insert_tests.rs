@@ -130,7 +130,7 @@ fn insert(state: EditorState, at: usize, inserted: &str, kind: &str) -> bool {
     let mut after = text.clone();
     after.insert_str(byte, inserted);
     let caret = at + inserted.encode_utf16().count();
-    state.commit(Edit::input(
+    state.commit(Edit::input_units(
         text,
         (at, at),
         after,
@@ -316,7 +316,7 @@ fn a_line_break_at_a_ranges_end_stays_outside_it_in_every_language() {
             let shown = state.doc().text.get_untracked();
             let mut back = shown.clone();
             back.remove(end);
-            let edit = Edit::input(
+            let edit = Edit::input_units(
                 shown,
                 (end + 1, end + 1),
                 back,

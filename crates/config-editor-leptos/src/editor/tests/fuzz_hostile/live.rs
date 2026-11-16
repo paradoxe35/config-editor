@@ -343,8 +343,8 @@ fn replace(state: EditorState, (start, end): (usize, usize), typed: &str, kind: 
         return;
     }
     let caret = start + units(typed);
-    state.doc().caret.set(start);
-    state.commit(Edit::input(
+    state.set_caret_units(start);
+    state.commit(Edit::input_units(
         before,
         (start, end),
         text,
@@ -455,7 +455,7 @@ pub(super) fn check(case: &LiveCase) -> Result<(), Failure> {
             }
             Step::Enter { at } => {
                 let at = offset(&before, *at);
-                state.doc().caret.set(at);
+                state.set_caret_units(at);
                 enter_at(state, (at, at), Pressed::Enter, Some(time));
             }
             Step::Cut { at, to } => {

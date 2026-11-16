@@ -12,7 +12,7 @@ use super::super::keyboard::{
     delete_empty_pair, is_closer, is_closing_bracket, is_quote, paired_edit, skip_closing_pair,
     utf16_to_byte_index,
 };
-use super::super::state::{EditorState, is_backward, select, textarea_selection};
+use super::super::state::{EditorState, is_backward, select_units, textarea_units};
 use super::super::typing::Closer;
 use super::{complete, typed_character, unmodified};
 use crate::editor::text::{byte_range, text_size};
@@ -21,7 +21,7 @@ use crate::editor::text::{byte_range, text_size};
 fn caret_in_string_body(state: EditorState) -> bool {
     state
         .textarea()
-        .map(|element| textarea_selection(&element).0)
+        .map(|element| textarea_units(&element).0)
         .is_some_and(|caret| state.in_string_body(caret))
 }
 
@@ -37,7 +37,7 @@ pub(super) fn toggle_comments(state: EditorState, event: &KeyboardEvent) -> bool
     let Some(element) = state.textarea() else {
         return true;
     };
-    let (start, end) = textarea_selection(&element);
+    let (start, end) = textarea_units(&element);
     let backward = is_backward(&element);
     let before = state.doc().text.get_untracked();
     let Some(toggled) = state.behavior().toggle_comments(&before, start, end) else {
@@ -55,12 +55,12 @@ pub(super) fn toggle_comments(state: EditorState, event: &KeyboardEvent) -> bool
         (selection_start, selection_end)
     };
     let restore = if backward { (end, start) } else { (start, end) };
-    let edit = Edit::command(before.clone(), change, restore);
+    let edit = Edit::command_units(before.clone(), change, restore);
     // Refused (a read-only editor or field): the selection stays.
-    if updated != before && !state.commit(edit.selecting(anchor, caret)) {
+    if updated != before && !state.commit(edit.selecting_units(anchor, caret)) {
         return true;
     }
-    select(&element, selection_start, selection_end, backward);
+    select_units(&element, selection_start, selection_end, backward);
     state.close_suggestions();
     true
 }
@@ -77,7 +77,7 @@ pub(super) fn pairs_and_tags(state: EditorState, event: &KeyboardEvent) -> bool 
     let Some(element) = state.textarea() else {
         return false;
     };
-    let (start, end) = textarea_selection(&element);
+    let (start, end) = textarea_units(&element);
     let typed = typed_character(event);
     if start == end
         && let Some(typed) = typed
@@ -105,7 +105,7 @@ fn string_body_pairs(state: EditorState, event: &KeyboardEvent) -> bool {
     let Some(element) = state.textarea() else {
         return false;
     };
-    let (start, end) = textarea_selection(&element);
+    let (start, end) = textarea_units(&element);
     if start != end {
         return false;
     }
@@ -140,7 +140,7 @@ fn type_over_closer(state: EditorState, event: &KeyboardEvent, start: usize, typ
         {
             event.prevent_default();
             stepped_over(state, event, start, start + 1);
-            state.place_caret(start + 1);
+            state.place_caret_units(start + 1);
             return true;
         }
         return false;
@@ -174,7 +174,7 @@ fn type_over_closer(state: EditorState, event: &KeyboardEvent, start: usize, typ
         });
     }
     stepped_over(state, event, start, next);
-    state.place_caret(next);
+    state.place_caret_units(next);
     // The value or container is finished: its suggestions are done too.
     state.close_suggestions();
     true
@@ -245,8 +245,8 @@ fn closer_already_there(
         let change = Change::replace(&source, byte_range(typed_from..byte), "");
         let past = byte + closer.len();
         state.commit(
-            Edit::command(source, change, (start, start))
-                .keeping_byte(text_size(past), Assoc::After)
+            Edit::command_units(source, change, (start, start))
+                .keeping_caret(text_size(past), Assoc::After)
                 .typed("insertText", event.time_stamp()),
         );
         state.close_suggestions();
@@ -272,8 +272,8 @@ fn closer_already_there(
     let change = Change::replace(&source, byte_range(line_start..next_start), "");
     let past = next_start + indent_of(next_line) + closer.len();
     state.commit(
-        Edit::command(source, change, (start, start))
-            .keeping_byte(text_size(past), Assoc::After)
+        Edit::command_units(source, change, (start, start))
+            .keeping_caret(text_size(past), Assoc::After)
             .typed("insertText", event.time_stamp()),
     );
     state.close_suggestions();
@@ -333,7 +333,7 @@ fn delete_pair(state: EditorState, event: &KeyboardEvent, start: usize) -> bool 
             let quote_len = after.map_or(1, char::len_utf8);
             let change =
                 Change::replace(&before, byte_range(byte - quote_len..byte + quote_len), "");
-            let edit = Edit::command(before, change, (start, start))
+            let edit = Edit::command_units(before, change, (start, start))
                 .typed("deleteContentBackward", event.time_stamp());
             // The edit takes the closer it cuts; what is left of it stays.
             if state.commit(edit) {
@@ -347,7 +347,7 @@ fn delete_pair(state: EditorState, event: &KeyboardEvent, start: usize) -> bool 
     };
     event.prevent_default();
     state.commit(
-        Edit::command(before, change, (start, start))
+        Edit::command_units(before, change, (start, start))
             .typed("deleteContentBackward", event.time_stamp()),
     );
     true
@@ -364,8 +364,8 @@ fn auto_close(state: EditorState, event: &KeyboardEvent, start: usize, typed: ch
     let change = Change::insert_units(&before, start, &format!("{typed}{closing}"));
     // The caret after the typed character, the closing after it.
     let caret = start + typed.len_utf16();
-    let edit = Edit::command(before, change, (start, start))
-        .caret_at(caret)
+    let edit = Edit::command_units(before, change, (start, start))
+        .caret_at_units(caret)
         .typed("insertText", event.time_stamp());
     if state.commit(edit)
         && let Some((len, opener)) = kept_closer(state.behavior(), &closing, typed)
@@ -434,8 +434,8 @@ fn open_pair(
     // undo step.
     let kind = if start == end { "insertText" } else { WRAP };
     let restore = if backward { (end, start) } else { (start, end) };
-    let edit = Edit::command(before, change, restore)
-        .selecting(anchor, caret)
+    let edit = Edit::command_units(before, change, restore)
+        .selecting_units(anchor, caret)
         .typed(kind, event.time_stamp());
     // A prevented keydown fires no input event, so open suggestions here
     // when the pair starts an entry.
@@ -452,7 +452,7 @@ fn open_pair(
         && selection_start != selection_end
         && let Some(element) = state.textarea()
     {
-        select(&element, selection_start, selection_end, true);
+        select_units(&element, selection_start, selection_end, true);
     }
     state.set_list_mode(if opens_entry {
         ListMode::TYPED
@@ -471,7 +471,7 @@ pub(super) fn join_with_next_line(state: EditorState, event: &KeyboardEvent) -> 
     let Some(element) = state.textarea() else {
         return false;
     };
-    let (start, end) = textarea_selection(&element);
+    let (start, end) = textarea_units(&element);
     let text = state.doc().text.get_untracked();
     let byte = utf16_to_byte_index(&text, start);
     if start != end || !text[byte..].starts_with('\n') {
@@ -481,7 +481,7 @@ pub(super) fn join_with_next_line(state: EditorState, event: &KeyboardEvent) -> 
     let rest = &text[byte + 1..];
     let indentation = rest.len() - rest.trim_start_matches([' ', '\t']).len();
     let change = Change::replace(&text, byte_range(byte..byte + 1 + indentation), "");
-    state.commit(Edit::command(text, change, (start, end)));
+    state.commit(Edit::command_units(text, change, (start, end)));
     true
 }
 
@@ -494,7 +494,7 @@ pub(super) fn indentation(state: EditorState, event: &KeyboardEvent) -> bool {
     let Some(element) = state.textarea() else {
         return false;
     };
-    let (start, end) = textarea_selection(&element);
+    let (start, end) = textarea_units(&element);
     if start != end {
         return false;
     }
@@ -511,6 +511,6 @@ pub(super) fn indentation(state: EditorState, event: &KeyboardEvent) -> bool {
         return false;
     };
     event.prevent_default();
-    state.commit(Edit::command(text, change, (start, end)));
+    state.commit(Edit::command_units(text, change, (start, end)));
     true
 }

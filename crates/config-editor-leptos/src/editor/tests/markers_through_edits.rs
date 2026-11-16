@@ -49,7 +49,7 @@ fn markers_follow_an_edit_at_two_places_on_their_lines() {
         ],
     )
     .expect("fits");
-    assert!(state.commit(Edit::command(text.to_string(), change, (0, 0))));
+    assert!(state.commit(Edit::command_units(text.to_string(), change, (0, 0))));
     let edited = state.doc().text.get_untracked();
     assert_eq!(edited, "x: one\nx2: two\n");
     assert_eq!(marked(state, &edited), ["one", "two"]);
@@ -76,7 +76,7 @@ fn a_marker_stays_on_its_line_when_a_line_like_it_is_added_above() {
         [(byte_range(5..5), "b: bad\n".to_string())],
     )
     .expect("fits");
-    assert!(state.commit(Edit::command(text.to_string(), change, (5, 5))));
+    assert!(state.commit(Edit::command_units(text.to_string(), change, (5, 5))));
     let lines: Vec<Option<usize>> = state
         .problems()
         .diagnostics

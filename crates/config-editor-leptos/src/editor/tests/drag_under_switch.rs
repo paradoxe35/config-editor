@@ -19,7 +19,7 @@ fn a_waiting_switch_waits_for_a_drag_and_is_made_when_it_ends() {
     state.drag_began();
     // The document converts now; the pause comes while the drag goes on.
     let fixed = "a: false\n";
-    state.commit(Edit::new(text.to_string(), (9, 11), fixed.into(), 9));
+    state.commit(Edit::new_units(text.to_string(), (9, 11), fixed.into(), 9));
     state.check_text_now();
     assert_eq!(state.sync().edit_language.get_untracked(), Language::YAML);
     assert_eq!(state.doc().text.get_untracked(), fixed);
@@ -35,7 +35,12 @@ fn a_drop_into_a_document_rewritten_under_its_drag_is_refused() {
     assert!(!state.drop_refused_early());
     // Rewritten while the drag goes on (a host value).
     let rewritten = "c: 3\n";
-    state.commit(Edit::new(text.to_string(), (0, 10), rewritten.into(), 0));
+    state.commit(Edit::new_units(
+        text.to_string(),
+        (0, 10),
+        rewritten.into(),
+        0,
+    ));
     assert!(state.rewritten_under_drag());
     assert!(state.drop_refused_early());
     state.drag_ended();

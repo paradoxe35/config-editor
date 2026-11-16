@@ -6,11 +6,11 @@ use super::*;
 /// A selection as the tests write it: (anchor, caret) bytes.
 type Pair = (u32, u32);
 
-fn kept((anchor, caret): Pair) -> Kept {
+fn kept((anchor, caret): Pair) -> Selection {
     (anchor.into(), caret.into())
 }
 
-fn pair((anchor, caret): Kept) -> Pair {
+fn pair((anchor, caret): Selection) -> Pair {
     (anchor.into(), caret.into())
 }
 
@@ -415,7 +415,7 @@ fn undo_and_redo_make_the_change_their_step_recorded() {
     let typed = |before: &str, at: usize, text: &str| {
         let after = format!("{}{text}{}", &before[..at], &before[at..]);
         let caret = at + text.len();
-        Edit::input(
+        Edit::input_units(
             before.into(),
             (at, at),
             after,
@@ -429,7 +429,7 @@ fn undo_and_redo_make_the_change_their_step_recorded() {
     let first = typed("a\na\n", 3, "a");
     let second = typed("a\naa\n", 4, "a");
     for (edit, time) in [(&first, 0.0), (&second, 100.0)] {
-        let caret = u32::try_from(edit.caret()).expect("a short text");
+        let caret = u32::try_from(edit.caret_units()).expect("a short text");
         history.record_input(
             Made {
                 before: side((caret - 1, caret - 1)),

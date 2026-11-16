@@ -132,7 +132,7 @@ fn cut(state: EditorState, view: Language) -> String {
     let lines = before[from..to].to_string();
     let text = format!("{}{}", &before[..from], &before[to..]);
     let caret = units(&before[..from]);
-    state.commit(Edit::new(before, (caret, caret), text, caret));
+    state.commit(Edit::new_units(before, (caret, caret), text, caret));
     lines
 }
 
@@ -174,7 +174,7 @@ fn paste(state: EditorState, view: Language, lines: &str, place: Place) -> Optio
     let text = format!("{}{inserted}{}", &before[..at], &before[at..]);
     let start = units(&before[..at]);
     let caret = start + units(&inserted);
-    state.commit(Edit::new(before, (start, start), text, caret));
+    state.commit(Edit::new_units(before, (start, start), text, caret));
     Some(())
 }
 
@@ -184,7 +184,7 @@ fn type_at(state: EditorState, (from, to): (usize, usize), typed: &str) {
     let text = format!("{}{typed}{}", &before[..from], &before[to..]);
     let start = units(&before[..from]);
     let caret = start + units(typed);
-    state.commit(Edit::new(
+    state.commit(Edit::new_units(
         before.clone(),
         (start, units(&before[..to])),
         text,

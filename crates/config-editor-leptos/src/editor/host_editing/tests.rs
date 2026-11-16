@@ -171,9 +171,9 @@ fn a_reload_keeps_the_caret_on_its_text_past_changes_elsewhere() {
     let mut failures = Vec::new();
     for (mine, host, caret, expected) in cases {
         let (_owner, state) = TestEditor::new(Language::YAML, HOST).mount();
-        let unsaved = Edit::new(HOST.into(), (0, HOST.len()), mine.into(), mine.len());
+        let unsaved = Edit::new_units(HOST.into(), (0, HOST.len()), mine.into(), mine.len());
         assert!(state.commit(unsaved), "{mine:?}");
-        state.doc().caret.set(caret);
+        state.set_caret_units(caret);
         state.offer_baseline(host.to_string());
         if state.editing().conflict.with_untracked(Option::is_none) {
             failures.push(format!("{mine:?} → {host:?}: no conflict"));
@@ -181,7 +181,7 @@ fn a_reload_keeps_the_caret_on_its_text_past_changes_elsewhere() {
         }
         state.reload_baseline();
         let text = state.doc().text.get_untracked();
-        let at = state.doc().caret.get_untracked();
+        let at = state.caret_units();
         if text != host || at != expected {
             failures.push(format!(
                 "{mine:?} → {host:?} at {caret}: {text:?} at {at}, expected at {expected}"

@@ -87,7 +87,7 @@ fn type_x(state: EditorState, at: usize) {
     let mut text = before.clone();
     text.insert(byte, 'x');
     state.set_list_mode(crate::editor::completion::ListMode::TYPED);
-    let typed = Edit::input(
+    let typed = Edit::input_units(
         before,
         (at, at),
         text,
@@ -217,7 +217,7 @@ fn a_keystroke_keeping_the_lines_reads_the_whole_text_once_the_frame_is_drawn() 
             broken.insert(byte, '\n');
             assert_eq!(
                 readings(|| {
-                    assert!(state.commit(Edit::new(before, (at, at), broken, at + 1)));
+                    assert!(state.commit(Edit::new_units(before, (at, at), broken, at + 1)));
                     read_view(state);
                 }),
                 [1; 4],

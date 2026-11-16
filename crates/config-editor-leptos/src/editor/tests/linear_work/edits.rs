@@ -147,7 +147,7 @@ fn type_at(state: EditorState, at: usize, typed: &str) {
     let mut text = before.clone();
     text.insert_str(byte, typed);
     let caret = at + units(typed);
-    state.commit(Edit::input(
+    state.commit(Edit::input_units(
         before,
         (at, at),
         text,
@@ -187,7 +187,7 @@ fn cut_middle(state: EditorState, last: &str) -> String {
     let stop = crate::editor::keyboard::utf16_to_byte_index(&before, to);
     let lines = before[start..stop].to_string();
     let text = format!("{}{}", &before[..start], &before[stop..]);
-    state.commit(Edit::new(before, (from, to), text, from));
+    state.commit(Edit::new_units(before, (from, to), text, from));
     lines
 }
 
@@ -198,7 +198,7 @@ fn paste_after_first(state: EditorState, lines: &str, last: &str) {
     let at = line_start(&before, line);
     let byte = crate::editor::keyboard::utf16_to_byte_index(&before, at);
     let text = format!("{}{lines}{}", &before[..byte], &before[byte..]);
-    state.commit(Edit::new(before, (at, at), text, at + units(lines)));
+    state.commit(Edit::new_units(before, (at, at), text, at + units(lines)));
 }
 
 /// Every item's `port` key replaced with `listen` by the find widget's
@@ -227,7 +227,12 @@ fn paste_whole(state: EditorState) {
     }
     let text = written.join("\n");
     let caret = units(&text);
-    state.commit(Edit::new(before.clone(), (0, units(&before)), text, caret));
+    state.commit(Edit::new_units(
+        before.clone(),
+        (0, units(&before)),
+        text,
+        caret,
+    ));
 }
 
 /// The setup an edit needs before it is counted (the edit to undo).
@@ -267,7 +272,7 @@ pub(super) fn make(state: EditorState, kind: EditKind, last: &str) {
             let byte = crate::editor::keyboard::utf16_to_byte_index(&before, from);
             let stop = crate::editor::keyboard::utf16_to_byte_index(&before, to);
             let text = format!("{}zz{}", &before[..byte], &before[stop..]);
-            state.commit(Edit::input(
+            state.commit(Edit::input_units(
                 before,
                 (from, to),
                 text,
@@ -331,7 +336,7 @@ pub(super) fn make(state: EditorState, kind: EditKind, last: &str) {
             let at = line_end(&text, middle(&text, "port"));
             enter_at(state, (at, at), Pressed::Enter, None);
             state.set_list_mode(crate::editor::completion::ListMode::TYPED);
-            let at = state.doc().caret.get_untracked();
+            let at = state.caret_units();
             type_at(state, at, "h");
             let _ = state.completion().suggestions.get_untracked();
             type_at(state, at + 1, "o");

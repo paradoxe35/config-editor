@@ -81,7 +81,7 @@ pub(super) fn type_in_middle(state: EditorState, blocks: usize) {
         let at = before[..byte + typed].encode_utf16().count();
         let mut text = before.clone();
         text.insert(byte + typed, 'q');
-        let key = Edit::input(
+        let key = Edit::input_units(
             before,
             (at, at),
             text,

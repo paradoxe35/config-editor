@@ -308,7 +308,7 @@ pub(super) fn type_at(state: EditorState, at: usize, typed: &str, pairs: bool) -
         } else {
             "insertText"
         };
-        let edit = Edit::input(
+        let edit = Edit::input_units(
             before,
             (caret, caret),
             after,

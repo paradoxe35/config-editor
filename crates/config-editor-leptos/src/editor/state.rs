@@ -57,6 +57,7 @@ use super::schema::SchemaBundle;
 use super::search::{GoToLine, SearchState};
 use super::source_area::SourceArea;
 use super::sync::SyncState;
+use super::text::{TextSize, byte_of};
 use super::typing::TypingState;
 use crate::{EditorSettings, EditorStrings};
 
@@ -433,21 +434,47 @@ pub(super) fn line_count(text: &str) -> usize {
     text.bytes().filter(|byte| *byte == b'\n').count() + 1
 }
 
+/// The textarea's selection as (start, end) bytes of the document.
 pub(super) fn textarea_selection(element: &SourceArea) -> Selection {
-    let start = element.selection_start().ok().flatten().unwrap_or(0) as usize;
-    let end = element
-        .selection_end()
-        .ok()
-        .flatten()
-        .map_or(start, |end| end as usize);
-    (start, end)
+    element.selection()
 }
 
-/// Selects `start..end`, keeping the caret at the start when `backward`
-/// (as a selection made with Shift+Left), so Shift+arrows extend the same end.
-pub(super) fn select(element: &SourceArea, start: usize, end: usize, backward: bool) {
+/// Selects bytes `start..end`, keeping the caret at the start when
+/// `backward` (as a selection made with Shift+Left), so Shift+arrows extend
+/// the same end.
+pub(super) fn select(element: &SourceArea, start: TextSize, end: TextSize, backward: bool) {
     let direction = if backward { "backward" } else { "forward" };
-    let _ = element.set_selection_range_with_direction(start as u32, end as u32, direction);
+    let _ = element.set_selection_range_with_direction(start, end, direction);
+}
+
+/// [`textarea_selection`] as (start, end) UTF-16 offsets of the document:
+/// for the code that still counts the text in UTF-16 units (the keys,
+/// which hand carets to the public language API).
+pub(super) fn textarea_units(element: &SourceArea) -> (usize, usize) {
+    let (start, end) = element.selection_utf16();
+    (usize::from(start), usize::from(end))
+}
+
+/// [`directed_selection`] as (anchor, caret) UTF-16 offsets (see
+/// [`textarea_units`]).
+pub(super) fn directed_units(element: &SourceArea) -> (usize, usize) {
+    let (start, end) = textarea_units(element);
+    if is_backward(element) {
+        (end, start)
+    } else {
+        (start, end)
+    }
+}
+
+/// [`select`] of UTF-16 `start..end` of the document (see
+/// [`textarea_units`]).
+pub(super) fn select_units(element: &SourceArea, start: usize, end: usize, backward: bool) {
+    let (start, end) = element
+        .state()
+        .doc()
+        .text
+        .with_untracked(|text| (byte_of(text, start), byte_of(text, end)));
+    select(element, start, end, backward);
 }
 
 /// Whether the selection's caret is at its start.
@@ -456,7 +483,7 @@ pub(super) fn is_backward(element: &SourceArea) -> bool {
 }
 
 /// The selection as (anchor, caret): the caret is the end that moves.
-pub(super) fn directed_selection(element: &SourceArea) -> (usize, usize) {
+pub(super) fn directed_selection(element: &SourceArea) -> Selection {
     let (start, end) = textarea_selection(element);
     let backward = element.selection_direction().ok().flatten().as_deref() == Some("backward");
     if backward { (end, start) } else { (start, end) }

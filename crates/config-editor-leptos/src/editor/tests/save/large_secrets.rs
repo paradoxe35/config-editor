@@ -60,7 +60,7 @@ fn one_value_changed_in_a_view_of_a_large_host_with_secrets_saves_one_line() {
         let after = shown.replacen("7835", "7999", 1);
         let units = shown[..at].encode_utf16().count();
         assert!(
-            state.commit(Edit::input(
+            state.commit(Edit::input_units(
                 shown,
                 (units, units + 4),
                 after.clone(),

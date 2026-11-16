@@ -4,13 +4,13 @@
 
 use leptos::prelude::*;
 
-use super::super::commands::line_at_cursor;
 use super::super::edit::Change;
 use super::super::fold_ranges::FoldRange;
 use super::super::metrics::read_editor_metrics;
 use super::super::positioning::reveal_offset;
 use super::super::state::{EditorState, directed_selection};
 use super::follow::{follow_edit, keep_valid};
+use crate::editor::text::{TextRange, TextSize, Utf16, byte_of, utf16_of};
 
 impl EditorState {
     /// The closed folds moved through `change`, which makes `new` of the
@@ -45,16 +45,16 @@ impl EditorState {
         self.show_text()
     }
 
-    /// Whether deleting UTF-16 `start..end` changes a closed fold beyond
+    /// Whether deleting bytes `start..end` changes a closed fold beyond
     /// moving it (the closing line a fold leaves shown taken away: the fold
     /// would run on to another closer, or go), so the textarea's text is
     /// written again: a drag's drop would land at its start.
-    pub(crate) fn delete_reshapes_folds(&self, start: usize, end: usize) -> bool {
+    pub(crate) fn delete_reshapes_folds(&self, start: TextSize, end: TextSize) -> bool {
         if start >= end || self.fold().folded.with_untracked(Vec::is_empty) {
             return false;
         }
         let (change, new) = self.doc().text.with_untracked(|doc| {
-            let change = Change::replace_units(doc, start, end, "");
+            let change = Change::replace(doc, TextRange::new(start, end), "");
             let new = change.apply(doc).unwrap_or_else(|| doc.clone());
             (change, new)
         });
@@ -65,12 +65,15 @@ impl EditorState {
         keep_valid(&moved, &ranges) != moved
     }
 
-    /// Whether an edit of UTF-16 `start..end` touches a closed fold (see
+    /// Whether an edit of bytes `start..end` touches a closed fold (see
     /// [`unfold_touched`](Self::unfold_touched)).
-    pub(crate) fn touches_fold(&self, start: usize, end: usize) -> bool {
+    pub(crate) fn touches_fold(&self, start: TextSize, end: TextSize) -> bool {
         !self.fold().folded.with_untracked(Vec::is_empty)
             && self.fold().folded.with_untracked(|folds| {
                 self.doc().text.with_untracked(|doc| {
+                    // The folds' spans are in UTF-16 units, as the
+                    // projection counts the textarea's text.
+                    let (start, end) = (utf16_of(doc, start), utf16_of(doc, end));
                     hidden_spans(doc, folds)
                         .iter()
                         .any(|(from, to)| start <= *to && end >= *from)
@@ -121,6 +124,10 @@ impl EditorState {
         else {
             return;
         };
+        let (anchor, caret) = self
+            .doc()
+            .text
+            .with_untracked(|doc| (utf16_of(doc, anchor), utf16_of(doc, caret)));
         let (anchor, caret) = self.view().projection.with_untracked(|projection| {
             let shown = |offset: usize| projection.hidden_at(offset).map_or(offset, |(at, _)| at);
             (shown(anchor), shown(caret))
@@ -135,7 +142,11 @@ impl EditorState {
         } else {
             (view_anchor, view_caret, "forward")
         };
-        let _ = element.set_selection_range_with_direction(start as u32, end as u32, direction);
+        let _ = element.set_selection_range_with_direction(
+            Utf16::count(start).into(),
+            Utf16::count(end).into(),
+            direction,
+        );
         // The line that was at the top stays there.
         let new_row = area.row_of_line(top_line);
         let scroll = (top + (new_row as f64 - top_row as f64) * line_height).max(0.0);
@@ -144,21 +155,25 @@ impl EditorState {
         if caret_shown {
             self.doc()
                 .text
-                .with_untracked(|text| reveal_offset(&area, text, caret));
+                .with_untracked(|text| reveal_offset(&area, text, byte_of(text, caret)));
         }
         area.follow_caret();
     }
 
-    /// The 0-based line of UTF-16 `offset`.
-    fn caret_line_of(&self, offset: usize) -> usize {
+    /// The 0-based line of byte `offset`.
+    fn caret_line_of(&self, offset: TextSize) -> usize {
         self.doc()
             .text
-            .with_untracked(|text| line_at_cursor(text, offset).saturating_sub(1))
+            .with_untracked(|text| super::super::paths::line_of_byte(text, offset))
     }
 
-    /// Opens the folds hiding UTF-16 `start` or `end`, so a selection moved
+    /// Opens the folds hiding byte `start` or `end`, so a selection moved
     /// there shows.
-    pub(crate) fn reveal_offsets(&self, start: usize, end: usize) {
+    pub(crate) fn reveal_offsets(&self, start: TextSize, end: TextSize) {
+        let (start, end) = self
+            .doc()
+            .text
+            .with_untracked(|doc| (utf16_of(doc, start), utf16_of(doc, end)));
         let hidden = self.view().projection.with_untracked(|projection| {
             projection.hidden_at(start).is_some() || projection.hidden_at(end).is_some()
         });
@@ -182,11 +197,11 @@ impl EditorState {
         self.show_text();
     }
 
-    /// Opens the folds an edit about to be made of UTF-16 `start..end`
+    /// Opens the folds an edit about to be made of bytes `start..end`
     /// would touch (see [`unfold_touched`](Self::unfold_touched)), keeping
     /// the folds as they were: a refused edit closes them again (see
     /// `before_edit`).
-    pub(crate) fn open_folds_for_edit(&self, start: usize, end: usize) {
+    pub(crate) fn open_folds_for_edit(&self, start: TextSize, end: TextSize) {
         if self.fold().folded.with_untracked(Vec::is_empty) {
             return;
         }
@@ -220,14 +235,16 @@ impl EditorState {
         }
     }
 
-    /// Opens the folds an edit of UTF-16 `start..end` touches: from a fold's
+    /// Opens the folds an edit of bytes `start..end` touches: from a fold's
     /// first line end through its last line end, both included.
-    pub(crate) fn unfold_touched(&self, start: usize, end: usize) {
+    pub(crate) fn unfold_touched(&self, start: TextSize, end: TextSize) {
         if self.fold().folded.with_untracked(Vec::is_empty) {
             return;
         }
         let kept = self.fold().folded.with_untracked(|folds| {
             self.doc().text.with_untracked(|doc| {
+                // The folds' spans are in UTF-16 units (see `touches_fold`).
+                let (start, end) = (utf16_of(doc, start), utf16_of(doc, end));
                 folds
                     .iter()
                     .zip(hidden_spans(doc, folds))
@@ -251,8 +268,8 @@ impl EditorState {
                     "forward"
                 };
                 let _ = area.set_selection_range_with_direction(
-                    anchor.min(caret) as u32,
-                    anchor.max(caret) as u32,
+                    anchor.min(caret),
+                    anchor.max(caret),
                     direction,
                 );
             }

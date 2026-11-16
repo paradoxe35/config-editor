@@ -12,6 +12,7 @@ use super::super::Language;
 use super::super::test_state::TestEditor;
 use super::guarantee_tests::{problems, replace};
 use super::secret_tests::{ID, PIN, SECRET, documents};
+use crate::editor::text::text_size;
 
 /// Another document's placeholder.
 const OTHER: &str = "«secret 9b1c»";
@@ -102,8 +103,7 @@ fn another_documents_placeholder_pasted_in_is_never_cut() {
         };
         let (_theirs, _owner, state) = pasted();
         let shown = state.doc().text.get_untracked();
-        let units = |byte: usize| shown[..byte].encode_utf16().count();
-        if !state.cuts_a_token(units(at + '«'.len_utf8()), units(end)) {
+        if !state.cuts_a_token(text_size(at + '«'.len_utf8()), text_size(end)) {
             failures.push(format!("{language} ({own}): a drag of part of it taken"));
         }
         // Replace All exists only with find and replace.

@@ -68,7 +68,7 @@ pub(super) fn write(
         } else {
             "insertText"
         };
-        let edit = Edit::input(
+        let edit = Edit::input_units(
             before,
             (start, end),
             after,

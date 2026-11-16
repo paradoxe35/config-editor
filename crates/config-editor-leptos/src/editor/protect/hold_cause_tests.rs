@@ -73,7 +73,7 @@ fn replace_every(state: EditorState, old: &str, new: &str) {
     let change =
         Change::replacing(text_size(before.len()), matches).expect("the matches fit the text");
     assert!(
-        state.commit(Edit::command(before.clone(), change, (0, 0))),
+        state.commit(Edit::command_units(before.clone(), change, (0, 0))),
         "the Replace all of {old:?} is taken"
     );
     assert_ne!(state.doc().text.get_untracked(), before);

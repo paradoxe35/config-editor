@@ -332,7 +332,7 @@ fn fix_commas(state: EditorState, view: Language) {
         let text = format!("{}{typed}{}", &before[..start], &before[end..]);
         let (from, to) = (units(&before[..start]), units(&before[..end]));
         let caret = from + units(&typed);
-        state.commit(Edit::new(before, (from, to), text, caret));
+        state.commit(Edit::new_units(before, (from, to), text, caret));
     }
 }
 
@@ -364,7 +364,7 @@ fn cut(state: EditorState, view: Language, without: &str) -> String {
     let lines = before[from..to].to_string();
     let text = format!("{}{}", &before[..from], &before[to..]);
     let caret = units(&before[..from]);
-    state.commit(Edit::new(
+    state.commit(Edit::new_units(
         before,
         (caret, caret + units(&lines)),
         text,
@@ -380,7 +380,7 @@ pub(super) fn paste(state: EditorState, lines: &str, name: &str, after: bool) {
     let at = line_offset(&before, line);
     let text = format!("{}{lines}{}", &before[..at], &before[at..]);
     let start = units(&before[..at]);
-    state.commit(Edit::new(
+    state.commit(Edit::new_units(
         before,
         (start, start),
         text,
@@ -395,7 +395,7 @@ fn paste_over(state: EditorState, lines: &str, name: &str) {
     let (from, to) = (line_offset(&before, line), line_offset(&before, line + 1));
     let text = format!("{}{lines}{}", &before[..from], &before[to..]);
     let start = units(&before[..from]);
-    state.commit(Edit::new(
+    state.commit(Edit::new_units(
         before.clone(),
         (start, units(&before[..to])),
         text,
@@ -409,7 +409,7 @@ fn paste_at_end(state: EditorState, lines: &str) {
     let inserted = format!("\n{}", lines.trim_end());
     let text = format!("{}{inserted}\n", before.trim_end());
     let start = units(before.trim_end());
-    state.commit(Edit::new(
+    state.commit(Edit::new_units(
         before,
         (start, start),
         text,
@@ -463,14 +463,14 @@ fn moved(kind: &Kind, view: Language, at: At, step: Between, place: Place) -> Re
             let at = line_offset(&before, key_line(&before, "mid"));
             let broken = format!("{}[<\n{}", &before[..at], &before[at..]);
             let caret = units(&before[..at]);
-            state.commit(Edit::new(
+            state.commit(Edit::new_units(
                 before.clone(),
                 (caret, caret),
                 broken.clone(),
                 caret + 3,
             ));
             pause(state);
-            state.commit(Edit::new(broken, (caret, caret + 3), before, caret));
+            state.commit(Edit::new_units(broken, (caret, caret + 3), before, caret));
         }
         Between::OtherView => {
             fix_commas(state, view);
@@ -510,7 +510,7 @@ fn moved(kind: &Kind, view: Language, at: At, step: Between, place: Place) -> Re
             let before = text.clone();
             let after = format!("{}b{}", &text[..block], &text[block + 1..]);
             let at = units(&text[..block]);
-            state.commit(Edit::new(before, (at, at + 1), after, at + 1));
+            state.commit(Edit::new_units(before, (at, at + 1), after, at + 1));
         }
     } else {
         paste(state, &lines, name, after);

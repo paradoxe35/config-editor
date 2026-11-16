@@ -26,20 +26,16 @@ mod record;
 
 pub(super) use record::Record;
 
-/// A selection as `(start, end)` UTF-16 offsets; equal for a caret. Where
-/// a direction matters (`Edit::restore`, the history), it is
+/// A selection as `(start, end)` byte offsets of its text; equal for a
+/// caret. Where a direction matters (`Edit::restore`, the history), it is
 /// `(anchor, caret)`.
-pub(super) type Selection = (usize, usize);
-
-/// A selection as the history keeps it: (anchor, caret) byte offsets of
-/// its side's text.
-pub(super) type Kept = (TextSize, TextSize);
+pub(super) type Selection = (TextSize, TextSize);
 
 /// One side of a step, besides its text: the selection there (anchor,
 /// caret, bytes of that side's text), and what else the step puts back.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct Snapshot {
-    pub(super) selection: Kept,
+    pub(super) selection: Selection,
     /// The language the side's text is in, for a step that changed the
     /// language on screen (an Edit-as switch); `None` for every other step.
     pub(super) language: Option<Language>,
@@ -99,7 +95,7 @@ impl ViewState {
 struct Step {
     before: Snapshot,
     /// The selection the step left (anchor, caret, bytes of its text).
-    after: Kept,
+    after: Selection,
     /// The language the step left, when it changed it.
     after_language: Option<Language>,
     /// The folds the step left closed, when it said them.
@@ -165,7 +161,7 @@ pub(super) const UNDO_GROUPING_WINDOW_MS: f64 = 800.0;
 /// leaves, what pops it, and the document versions it was made between.
 pub(super) struct Made {
     pub(super) before: Snapshot,
-    pub(super) after: Kept,
+    pub(super) after: Selection,
     pub(super) record: Record,
     pub(super) between: (u64, u64),
 }

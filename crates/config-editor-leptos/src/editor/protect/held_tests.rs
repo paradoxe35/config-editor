@@ -54,7 +54,7 @@ fn paste_copy(state: EditorState, language: Language) -> String {
     let after = format!("{}{block}{}", &text[..byte], &text[byte..]);
     let caret = at + block.encode_utf16().count();
     assert!(
-        state.commit(Edit::input(
+        state.commit(Edit::input_units(
             text,
             (at, at),
             after.clone(),
@@ -77,7 +77,7 @@ fn port_refuses_typing(state: EditorState, language: Language) -> bool {
     let mut typed = text.clone();
     typed.insert(digit, '7');
     let _ = language;
-    !state.commit(Edit::input(
+    !state.commit(Edit::input_units(
         text,
         (at, at),
         typed,
@@ -104,7 +104,7 @@ fn a_second_copy_of_a_locked_block_is_taken_and_holds_the_save_until_it_goes() {
         assert!(message.contains(copy(language).0), "{language}: {message}");
         // Taking the copy out frees the save.
         let now = state.doc().text.get_untracked();
-        assert!(state.commit(Edit::new(now, (0, 0), text.clone(), 0)));
+        assert!(state.commit(Edit::new_units(now, (0, 0), text.clone(), 0)));
         assert_eq!(state.doc().text.get_untracked(), text);
         assert!(state.save(), "{language}: saves once the copy is gone");
     }

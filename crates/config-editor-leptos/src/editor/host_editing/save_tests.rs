@@ -78,7 +78,12 @@ pub(super) fn mount(
 pub(super) fn replace_all(state: super::super::state::EditorState, text: &str) {
     let before = state.doc().text.get_untracked();
     let end = before.len();
-    state.commit(Edit::new(before, (0, end), text.to_string(), text.len()));
+    state.commit(Edit::new_units(
+        before,
+        (0, end),
+        text.to_string(),
+        text.len(),
+    ));
 }
 
 #[test]
@@ -116,7 +121,7 @@ fn a_host_text_that_does_not_parse_is_not_saved_after_an_unrelated_edit() {
             // An edit away from the problem: a line break added at the end.
             let before = state.doc().text.get_untracked();
             let end = before.len();
-            state.commit(Edit::new(
+            state.commit(Edit::new_units(
                 before.clone(),
                 (end, end),
                 format!("{before}\n"),

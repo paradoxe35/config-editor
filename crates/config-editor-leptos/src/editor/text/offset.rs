@@ -36,6 +36,7 @@ impl Utf16 {
 
     /// The byte offset of this offset in `text`, when it falls on a
     /// character boundary there.
+    #[cfg(test)]
     pub(crate) fn to_byte(self, text: &str) -> Option<TextSize> {
         let mut units = 0;
         for (at, character) in text.char_indices() {
@@ -104,6 +105,20 @@ pub(crate) fn text_size(len: usize) -> TextSize {
 pub(crate) fn byte_range(range: std::ops::Range<usize>) -> TextRange {
     let start = text_size(range.start);
     TextRange::new(start, text_size(range.end).max(start))
+}
+
+/// The UTF-16 offset of byte `at` of `text`, as a `usize`: for the code
+/// that still counts the text in UTF-16 units (the public language API's
+/// carets and ranges, and the areas that pass them on).
+pub(crate) fn utf16_of(text: &str, at: TextSize) -> usize {
+    let at = at.min(TextSize::of(text));
+    usize::from(super::super::paths::units_at(text, at))
+}
+
+/// The byte of `text` at UTF-16 offset `units` (a `usize` from code that
+/// counts in UTF-16, see [`utf16_of`]); one inside a character is its end.
+pub(crate) fn byte_of(text: &str, units: usize) -> TextSize {
+    text_size(super::super::keyboard::utf16_to_byte_index(text, units))
 }
 
 /// A byte range given from outside (a custom language's edits), `None`

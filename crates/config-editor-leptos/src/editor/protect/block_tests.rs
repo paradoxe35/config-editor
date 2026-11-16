@@ -277,7 +277,7 @@ fn a_placeholder_s_multi_line_form_keeps_its_value_in_every_view() {
                 "deleteContentBackward"
             };
             let after = format!("{}{}", &shown[..newline], &shown[newline + 1..]);
-            state.commit(super::super::edit::Edit::input(
+            state.commit(super::super::edit::Edit::input_units(
                 shown.clone(),
                 (start, start + 1),
                 after,

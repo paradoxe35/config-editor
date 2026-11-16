@@ -8,12 +8,13 @@ use wasm_bindgen::JsCast;
 use super::commands::{copied_lines, line_range};
 use super::completion::should_auto_trigger;
 use super::edit::{Assoc, Change, Edit};
-use super::history::EditHistory;
+use super::history::{EditHistory, Selection};
 use super::keyboard::utf16_to_byte_index;
 use super::positioning::pointer_text_position;
 use super::problem_hit::column_at_cell;
 use super::source_area::SourceArea;
 use super::state::{EditorState, directed_selection, normalize_newlines, textarea_selection};
+use crate::editor::text::{TextRange, TextSize, Utf16, byte_of, slice, utf16_of};
 use crate::reactive::later;
 
 /// The textarea an event came from, in document offsets.
@@ -68,17 +69,22 @@ pub(super) fn before_input(state: EditorState, event: &web_sys::InputEvent) {
             state.drop_done();
             return;
         }
-        let reach = match kind.as_str() {
-            kind if kind.starts_with("deleteContentBackward")
-                || kind.starts_with("deleteWordBackward")
-                || kind.starts_with("deleteSoftLineBackward")
-                || kind.starts_with("deleteHardLineBackward") =>
+        // A deletion with nothing selected reaches over the character
+        // beside the caret.
+        let reach = state.doc().text.with_untracked(|text| match kind.as_str() {
+            kind if start == end
+                && (kind.starts_with("deleteContentBackward")
+                    || kind.starts_with("deleteWordBackward")
+                    || kind.starts_with("deleteSoftLineBackward")
+                    || kind.starts_with("deleteHardLineBackward")) =>
             {
-                (start.saturating_sub(usize::from(start == end)), end)
+                (slice::step_back(text, start), end)
             }
-            kind if kind.starts_with("delete") => (start, end + usize::from(start == end)),
+            kind if start == end && kind.starts_with("delete") => {
+                (start, slice::step_forward(text, end))
+            }
             _ => (start, end),
-        };
+        });
         if state.touches_fold(reach.0, reach.1) {
             event.prevent_default();
             if kind == "insertFromDrop" {
@@ -113,13 +119,14 @@ fn whole_lines(event: &web_sys::InputEvent) -> Option<String> {
         .map(normalize_newlines)
 }
 
-/// Puts `text` over the document's UTF-16 `selection` as a paste does: one
-/// change, one undo step.
-fn insert_whole(state: EditorState, selection: (usize, usize), text: String, time: f64) {
+/// Puts `text` over the document's `selection` (bytes) as a paste does:
+/// one change, one undo step.
+fn insert_whole(state: EditorState, selection: Selection, text: String, time: f64) {
     // Input still pending in this task first, so this lands after it.
     flush_input(state);
     let before = state.doc().text.get_untracked();
-    let change = Change::replace_units(&before, selection.0, selection.1, &text);
+    let range = TextRange::new(selection.0, selection.1.max(selection.0));
+    let change = Change::replace(&before, range, &text);
     let kind = "insertFromPaste";
     // The textarea still has the text before: written, caret in view.
     let edit = Edit::command(before.clone(), change, selection).typed(kind, time);
@@ -134,7 +141,7 @@ pub(super) struct InputBurst {
     /// the first event.
     before: String,
     version: u64,
-    selection: (usize, usize),
+    selection: Selection,
     /// The first event's type, and how many events came.
     input_type: String,
     events: usize,
@@ -143,13 +150,13 @@ pub(super) struct InputBurst {
     /// what the input made, even if something rewrites the textarea before
     /// the burst is applied.
     latest: String,
-    latest_selection: (usize, usize),
+    latest_selection: Selection,
 }
 
 /// No selection recorded before the input: the browser sent no
 /// `beforeinput` (`execCommand`, a synthetic event), so its change is read
 /// off the texts (see `edit::Edit::input`).
-pub(super) const UNKNOWN_SELECTION: (usize, usize) = (usize::MAX, usize::MAX);
+pub(super) const UNKNOWN_SELECTION: Selection = (TextSize::new(u32::MAX), TextSize::new(u32::MAX));
 
 /// The input `mine` (made on `before`) made on `current` instead, where the
 /// host made `before` into `current` meanwhile: rebased over the host's
@@ -174,9 +181,18 @@ pub(super) fn input(state: EditorState, event: &web_sys::Event) {
     {
         end_composition_unannounced(state);
     }
+    // The selection the browser left is in the text it left, not yet the
+    // document's.
     let (latest, latest_selection) = target_textarea(state, event)
-        .map(|element| (element.value(), textarea_selection(&element)))
-        .unwrap_or_else(|| (state.doc().text.get_untracked(), (0, 0)));
+        .map(|element| {
+            let latest = element.value();
+            let selection = element.selection_in(&latest);
+            (latest, selection)
+        })
+        .unwrap_or_else(|| {
+            let none = TextSize::default();
+            (state.doc().text.get_untracked(), (none, none))
+        });
     if state.typing().input_burst.with_value(Option::is_some) {
         state.typing().input_burst.update_value(|burst| {
             if let Some(burst) = burst {
@@ -452,12 +468,13 @@ fn mouse_down(state: EditorState, event: &web_sys::MouseEvent) {
     state.press_at(offset);
 }
 
-/// The UTF-16 offset a press on rendered cell `cell` of zero-based `line`
-/// lands on: the character drawn there (a tab is wider than a cell, a
-/// joined accent takes none).
-fn press_offset(text: &str, line: usize, cell: usize) -> usize {
+/// The byte a press on rendered cell `cell` of zero-based `line` lands
+/// on: the character drawn there (a tab is wider than a cell, a joined
+/// accent takes none).
+fn press_offset(text: &str, line: usize, cell: usize) -> TextSize {
     let column = column_at_cell(super::paths::split_line(text, line).unwrap_or(""), cell);
-    super::paths::TextPosition::new(line + 1, column).to_offset(text)
+    let units = super::paths::TextPosition::new(line + 1, column).to_offset(text);
+    byte_of(text, units)
 }
 
 /// The end of a mouse selection: a drag that started on a secret
@@ -627,32 +644,34 @@ fn copy_line(state: EditorState, event: &web_sys::ClipboardEvent, cut: bool) {
     };
     // A selection cutting a secret placeholder copies it whole. The
     // browser's own copy takes the selection it had before the snap, so a
-    // snapped selection is copied here.
-    let selected_before = textarea_selection(&element);
+    // snapped selection is copied here. The copy is cut as the browser's
+    // own is, in UTF-16 units: a selection may end inside a character.
+    let selected_before = element.selection_utf16();
     state.snap_to_tokens();
+    let (start_units, end_units) = element.selection_utf16();
     let (start, end) = textarea_selection(&element);
     if start != end {
         let (selected, split) = state.doc().text.with_untracked(|text| {
             let units: Vec<u16> = text.encode_utf16().collect();
+            let (from, to) = (usize::from(start_units), usize::from(end_units));
             let selected =
-                String::from_utf16_lossy(&units[start.min(units.len())..end.min(units.len())]);
-            (selected, splits_a_character(text, (start, end)))
+                String::from_utf16_lossy(&units[from.min(units.len())..to.min(units.len())]);
+            (selected, splits_a_character(text, (start_units, end_units)))
         });
         state.note_copied(&selected, (start, end));
         // The browser's own copy of a selection splitting a character
         // drawn as one writes nothing: the editor copies it.
-        let ours = selected_before != (start, end) || split;
-        copy_selection(state, event, (start, end), cut, ours);
+        let ours = selected_before != (start_units, end_units) || split;
+        copy_selection(state, event, (start_units, end_units), cut, ours);
         return;
     }
     let Some(clipboard) = event.clipboard_data() else {
         return;
     };
     let text = state.doc().text.get_untracked();
-    let (line_start, line_end) = state
-        .view()
-        .projection
-        .with_untracked(|projection| copied_lines(state.behavior(), &text, start, projection));
+    let (line_start, line_end) = state.view().projection.with_untracked(|projection| {
+        copied_lines(state.behavior(), &text, utf16_of(&text, start), projection)
+    });
     let units: Vec<u16> = text.encode_utf16().collect();
     let mut line = String::from_utf16_lossy(&units[line_start..line_end]);
     if !line.ends_with('\n') {
@@ -662,7 +681,10 @@ fn copy_line(state: EditorState, event: &web_sys::ClipboardEvent, cut: bool) {
         return;
     }
     event.prevent_default();
-    state.note_copied(&line, (line_start, line_end));
+    state.note_copied(
+        &line,
+        (byte_of(&text, line_start), byte_of(&text, line_end)),
+    );
     state.typing().copied_line.set_value(Some(line));
     // In a read-only editor the cut is refused, and says so.
     if !cut {
@@ -677,25 +699,25 @@ fn copy_line(state: EditorState, event: &web_sys::ClipboardEvent, cut: bool) {
         line_start
     };
     let change = Change::replace_units(&text, removed_start, line_end, "");
+    let column = utf16_of(&text, start) - line_start;
     let edit = Edit::command(text, change, (start, end));
     // The caret keeps its column on the line that moves up.
-    let column = start - line_start;
     let updated = &edit.text;
     let next_line = line_range(updated, removed_start.min(updated.encode_utf16().count()));
     let ends_with_newline =
         updated.encode_utf16().nth(next_line.1.wrapping_sub(1)) == Some(u16::from(b'\n'));
     let caret = (next_line.0 + column).min(next_line.1 - usize::from(ends_with_newline));
-    let caret = caret.max(next_line.0);
+    let caret = byte_of(updated, caret.max(next_line.0));
     state.commit(edit.caret_at(caret));
 }
 
 /// Whether the selection `(start, end)` (UTF-16 units of `text`) has an
 /// edge inside a character drawn as one: inside a surrogate pair, or
 /// inside a grapheme (an emoji joined to others, a letter and its accent).
-fn splits_a_character(text: &str, (start, end): (usize, usize)) -> bool {
+fn splits_a_character(text: &str, (start, end): (Utf16, Utf16)) -> bool {
     [start, end].into_iter().any(|edge| {
-        let byte = utf16_to_byte_index(text, edge);
-        text[..byte].encode_utf16().count() != edge
+        let byte = utf16_to_byte_index(text, usize::from(edge));
+        Utf16::of(&text[..byte]) != edge
             || GraphemeCursor::new(byte, text.len(), true).is_boundary(text, 0) != Ok(true)
     })
 }
@@ -707,10 +729,11 @@ fn splits_a_character(text: &str, (start, end): (usize, usize)) -> bool {
 fn copy_selection(
     state: EditorState,
     event: &web_sys::ClipboardEvent,
-    (start, end): (usize, usize),
+    (start, end): (Utf16, Utf16),
     cut: bool,
     ours: bool,
 ) {
+    let (start, end) = (usize::from(start), usize::from(end));
     if !ours
         && !state
             .view()
@@ -734,7 +757,8 @@ fn copy_selection(
         return;
     }
     let change = Change::replace_units(&text, start, end, "");
-    state.commit(Edit::command(text, change, (start, end)));
+    let selection = (byte_of(&text, start), byte_of(&text, end));
+    state.commit(Edit::command(text, change, selection));
 }
 
 /// Pasting a line copied with nothing selected puts it above the caret's
@@ -762,7 +786,7 @@ fn paste_line(state: EditorState, event: &web_sys::ClipboardEvent) {
     }
     event.prevent_default();
     let text = state.doc().text.get_untracked();
-    let (line_start, _) = line_range(&text, start);
+    let (line_start, _) = line_range(&text, utf16_of(&text, start));
     let change = Change::insert_units(&text, line_start, &pasted);
     // The caret stays on its text, which the pasted line moves down.
     state.commit(Edit::command(text, change, (start, end)).keeping_caret(start, Assoc::After));
@@ -770,6 +794,17 @@ fn paste_line(state: EditorState, event: &web_sys::ClipboardEvent) {
 
 #[cfg(test)]
 mod tests {
+    use crate::editor::text::Utf16;
+
+    /// Where a press lands, as a UTF-16 offset of `text`.
+    fn press_units(text: &str, line: usize, cell: usize) -> usize {
+        crate::editor::text::utf16_of(text, press_offset(text, line, cell))
+    }
+
+    /// A selection written as UTF-16 offsets.
+    fn units(start: usize, end: usize) -> (Utf16, Utf16) {
+        (Utf16::count(start), Utf16::count(end))
+    }
     use super::super::edit::Change;
     use super::{press_offset, replay, splits_a_character};
 
@@ -780,15 +815,21 @@ mod tests {
     fn a_selection_inside_a_joined_character_splits_it() {
         // `é`, then a man and a woman joined, then `5`, in UTF-16 units.
         let text = "é👨\u{200d}👩\u{200d}5";
-        assert!(!splits_a_character(text, (0, 1)), "the é");
-        assert!(!splits_a_character(text, (1, 7)), "the joined pair");
-        assert!(splits_a_character(text, (3, 4)), "the first joiner");
-        assert!(splits_a_character(text, (4, 6)), "the woman alone");
-        assert!(splits_a_character(text, (1, 2)), "half the man");
-        assert!(!splits_a_character(text, (7, 8)), "the 5");
+        assert!(!splits_a_character(text, units(0, 1)), "the é");
+        assert!(!splits_a_character(text, units(1, 7)), "the joined pair");
+        assert!(splits_a_character(text, units(3, 4)), "the first joiner");
+        assert!(splits_a_character(text, units(4, 6)), "the woman alone");
+        assert!(splits_a_character(text, units(1, 2)), "half the man");
+        assert!(!splits_a_character(text, units(7, 8)), "the 5");
         let accented = "e\u{301}x";
-        assert!(splits_a_character(accented, (0, 1)), "e without its accent");
-        assert!(!splits_a_character(accented, (0, 2)), "e and its accent");
+        assert!(
+            splits_a_character(accented, units(0, 1)),
+            "e without its accent"
+        );
+        assert!(
+            !splits_a_character(accented, units(0, 2)),
+            "e and its accent"
+        );
     }
 
     /// Every caret place inside a character drawn as one splits it, in
@@ -829,7 +870,7 @@ mod tests {
         }
         for edge in 0..=text.encode_utf16().count() {
             assert_eq!(
-                splits_a_character(&text, (edge, edge)),
+                splits_a_character(&text, units(edge, edge)),
                 !starts.contains(&edge),
                 "unit {edge} of {text:?}"
             );
@@ -847,14 +888,14 @@ mod tests {
         let text = "x: 1\na:\t\u{ab}secret\u{bb}\n";
         let line_start = 5;
         assert_eq!(
-            press_offset(text, 1, 4),
+            press_units(text, 1, 4),
             line_start + 3,
             "on its opening mark"
         );
-        assert_eq!(press_offset(text, 1, 5), line_start + 4, "inside it");
+        assert_eq!(press_units(text, 1, 5), line_start + 4, "inside it");
         // `e` and its accent are one cell.
         let text = "e\u{301}=\u{ab}s\u{bb}";
-        assert_eq!(press_offset(text, 0, 2), 3, "on its opening mark");
+        assert_eq!(press_units(text, 0, 2), 3, "on its opening mark");
     }
 
     /// Input made before a host value was applied is made on that value

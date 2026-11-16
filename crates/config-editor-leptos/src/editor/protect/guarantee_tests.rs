@@ -124,7 +124,7 @@ pub(crate) fn replace(state: EditorState, range: std::ops::Range<usize>, with: &
     let after = format!("{}{with}{}", &before[..range.start], &before[range.end..]);
     let (start, end) = (utf16(&before, range.start), utf16(&before, range.end));
     let caret = start + with.encode_utf16().count();
-    state.commit(Edit::new(before, (start, end), after, caret));
+    state.commit(Edit::new_units(before, (start, end), after, caret));
     state.recheck_tokens();
 }
 

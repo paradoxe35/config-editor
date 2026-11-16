@@ -4,12 +4,11 @@
 use leptos::prelude::*;
 
 use super::super::fold_ranges::FoldRange;
-use super::super::history::{Kept, Made, Record, Selection, Snapshot, ViewState};
-use super::super::keyboard::utf16_to_byte_index;
+use super::super::history::{Made, Record, Selection, Snapshot, ViewState};
 use super::super::languages::Language;
 use super::super::positioning::set_caret_visible;
 use super::super::state::{EditorState, directed_selection, select};
-use super::super::text;
+use super::super::text::TextSize;
 use super::{After, Assoc, Change, Edit, Origin};
 
 /// The stages, in the order an edit passes them.
@@ -141,7 +140,13 @@ impl EditorState {
         let after = self.place_selection(&edit, rewritten, kept);
         #[cfg(test)]
         if let Some((spans, stepped)) = spans {
-            self.assert_spans_kept(&spans, &edit.before, &edit.text, edit.caret(), stepped);
+            self.assert_spans_kept(
+                &spans,
+                &edit.before,
+                &edit.text,
+                edit.caret_units(),
+                stepped,
+            );
         }
 
         trace(Stage::Record);
@@ -193,7 +198,7 @@ impl EditorState {
         let (start, end) = (anchor.min(caret), anchor.max(caret));
         match self.textarea() {
             Some(area) => {
-                let _ = area.restore_selection(start as u32, end as u32);
+                let _ = area.restore_selection(start, end);
                 if caret < anchor {
                     select(&area, start, end, true);
                 }
@@ -204,7 +209,7 @@ impl EditorState {
             self.note_read_only();
             return;
         };
-        self.protect().flash(reason, start);
+        self.protect().flash(reason, &edit.before, start);
     }
 
     /// Puts the selection where the edit leaves it; the caret is recorded
@@ -239,8 +244,7 @@ impl EditorState {
                 match area {
                     Some(area) => {
                         if rewritten || forced {
-                            let _ =
-                                area.set_selection_range(selection.0 as u32, selection.1 as u32);
+                            let _ = area.set_selection_range(selection.0, selection.1);
                         } else {
                             area.follow_caret();
                         }
@@ -258,7 +262,7 @@ impl EditorState {
                 // later `prop:value` (identical text) leaves the selection
                 // alone, and the scroll position writing the value moved
                 // is put back.
-                let map = |offset: usize| edit.map_units(offset, Assoc::Before);
+                let map = |offset: TextSize| edit.map(offset, Assoc::Before);
                 let (Some(area), Some(((anchor, caret), top, left))) = (area, kept) else {
                     let caret = map(self.doc().caret.get_untracked());
                     self.note_caret(caret);
@@ -276,7 +280,7 @@ impl EditorState {
                 if let Some(area) = area {
                     area.follow_caret();
                 }
-                (0, 0)
+                (TextSize::default(), TextSize::default())
             }
         }
     }
@@ -299,12 +303,12 @@ impl EditorState {
         let made = |language: Option<Language>, folds: Option<Vec<FoldRange>>| {
             Some(Made {
                 before: Snapshot {
-                    selection: bytes(&edit.before, edit.restore),
+                    selection: edit.restore,
                     language,
                     folds,
                     view: view.clone(),
                 },
-                after: bytes(&edit.text, after),
+                after,
                 record: Record::undoing(edit)?,
                 between,
             })
@@ -361,14 +365,6 @@ impl EditorState {
             }),
         }
     }
-}
-
-/// `(anchor, caret)` UTF-16 offsets of `text` as bytes.
-fn bytes(text: &str, (anchor, caret): Selection) -> Kept {
-    (
-        text::text_size(utf16_to_byte_index(text, anchor)),
-        text::text_size(utf16_to_byte_index(text, caret)),
-    )
 }
 
 #[cfg(test)]

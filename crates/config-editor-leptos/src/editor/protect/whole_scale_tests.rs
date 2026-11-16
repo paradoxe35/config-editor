@@ -39,7 +39,7 @@ fn insert(state: EditorState, byte: usize, typed: char) {
     let at = before[..byte].encode_utf16().count();
     let mut text = before.clone();
     text.insert(byte, typed);
-    let _ = state.commit(Edit::input(
+    let _ = state.commit(Edit::input_units(
         before,
         (at, at),
         text,

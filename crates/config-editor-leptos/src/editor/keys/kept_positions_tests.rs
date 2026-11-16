@@ -65,9 +65,7 @@ fn tab_after_host_value(host: impl Fn(&str) -> String) -> (String, Vec<(usize, u
     take_host_value(state, host(&written));
     let text = state.doc().text.get_untracked();
     let mut selected = Vec::new();
-    while selected.len() < 3
-        && next_placeholder_slot(state, &text, state.doc().caret.get_untracked())
-    {
+    while selected.len() < 3 && next_placeholder_slot(state, &text, state.caret_units()) {
         selected.extend(state.completion().placeholder.get_value());
     }
     (text, selected)
@@ -99,7 +97,7 @@ fn a_host_value_after_a_typed_closer_leaves_it_to_type_over() {
     let text = "{\n  \n}\n";
     let (_owner, state) = accepted(Language::JSON, schema, text, 4, "name");
     let written = state.doc().text.get_untracked();
-    let caret = state.doc().caret.get_untracked();
+    let caret = state.caret_units();
     assert!(state.closer_at(caret).is_some(), "{written:?} at {caret}");
     take_host_value(state, format!("{written}\n"));
     assert!(
@@ -121,7 +119,7 @@ fn typing_before_a_folded_lines_end_keeps_it_closed_whatever_the_character() {
     // `c: # |n` + `n`.
     let at = text.find("n\n").expect("the line's end");
     let change = Change::insert_units(text, at, "n");
-    assert!(state.commit(Edit::command(text.to_string(), change, (at, at))));
+    assert!(state.commit(Edit::command_units(text.to_string(), change, (at, at))));
     assert_eq!(
         state.doc().text.get_untracked(),
         "a:\n  b: 1\nc: # nn\n  d: 2\n"

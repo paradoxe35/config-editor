@@ -91,7 +91,7 @@ fn input(state: EditorState, at: usize, typed: Option<char>) {
             ("deleteContentBackward", at - 1)
         }
     };
-    let edit = Edit::input(
+    let edit = Edit::input_units(
         before.clone(),
         (at, at),
         text,

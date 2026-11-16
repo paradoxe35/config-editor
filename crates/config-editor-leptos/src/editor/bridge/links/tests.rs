@@ -43,7 +43,8 @@ impl View {
     /// links, as the editor's own paste does).
     fn edit(&mut self, splices: Vec<Splice>) {
         let after = Splice::make(&self.text, &splices).expect("the splices fit");
-        let edit = Edit::new(self.text.clone(), (0, 0), after.clone(), 0).splicing(Some(splices));
+        let edit =
+            Edit::new_units(self.text.clone(), (0, 0), after.clone(), 0).splicing(Some(splices));
         let pieces = pieces(&edit, &self.clipboard);
         self.links.edited(
             Language::YAML.behavior(),

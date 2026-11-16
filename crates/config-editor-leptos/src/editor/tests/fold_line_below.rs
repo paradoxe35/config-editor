@@ -79,11 +79,7 @@ fn ctrl_enter_on_a_folded_line_opens_after_the_block_and_keeps_the_fold() {
             .unwrap();
         let indent = expected.split('\n').nth(new_line).unwrap().len();
         let caret = end_of_line(expected, new_line - 1) + 1 + indent;
-        assert_eq!(
-            state.doc().caret.get_untracked(),
-            caret,
-            "{language:?}: caret"
-        );
+        assert_eq!(state.caret_units(), caret, "{language:?}: caret");
     }
 }
 

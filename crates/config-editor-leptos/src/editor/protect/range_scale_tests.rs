@@ -87,7 +87,7 @@ fn typing_work(language: Language, text: &str, locked: &str) -> Vec<usize> {
         let at = before[..byte].encode_utf16().count();
         let after = format!("{}{typed}{}", &before[..byte], &before[byte..]);
         let caret = at + typed.len();
-        let key = Edit::input(
+        let key = Edit::input_units(
             before,
             (at, at),
             after,

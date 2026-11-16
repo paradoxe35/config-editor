@@ -91,7 +91,7 @@ fn copied(case: &Case, view: Language, pausing: bool) -> Result<(), String> {
     let before = state.doc().text.get_untracked();
     let after = format!("{}{lines}{}", &before[..*next], &before[*next..]);
     let start = units(&before[..*next]);
-    state.commit(Edit::new(
+    state.commit(Edit::new_units(
         before,
         (start, start),
         after,
@@ -137,7 +137,7 @@ fn an_item_copied_into_another_document_keeps_its_hosts_form() {
     let (at, _) = first_items(Language::JSON, &before)[0];
     let after = format!("{}{line}{}", &before[..at], &before[at..]);
     let start = units(&before[..at]);
-    second.commit(Edit::new(
+    second.commit(Edit::new_units(
         before,
         (start, start),
         after,

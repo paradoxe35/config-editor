@@ -2,16 +2,16 @@
 
 use wasm_bindgen::JsCast;
 
-use super::super::keyboard::utf16_to_byte_index;
 use super::super::metrics::read_editor_metrics;
 use super::super::positioning::reveal_offset;
 use super::super::source_area::SourceArea;
+use crate::editor::text::TextSize;
 
-/// Scrolls UTF-16 `offset` into view as VS Code reveals a find match: left
+/// Scrolls byte `offset` into view as VS Code reveals a find match: left
 /// alone when already in view below `top_inset` pixels (a widget over the
 /// text), else its line centered.
-pub(super) fn reveal_centered(editor: &SourceArea, text: &str, offset: usize, top_inset: f64) {
-    let byte_offset = utf16_to_byte_index(text, offset);
+pub(super) fn reveal_centered(editor: &SourceArea, text: &str, offset: TextSize, top_inset: f64) {
+    let byte_offset = usize::from(offset.min(TextSize::of(text)));
     let line = text[..byte_offset]
         .bytes()
         .filter(|byte| *byte == b'\n')

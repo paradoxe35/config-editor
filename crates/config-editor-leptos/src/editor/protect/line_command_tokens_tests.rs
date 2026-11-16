@@ -47,7 +47,7 @@ fn run(
     let edit = line_edit(&before, selection, command, none)?;
     let (anchor, caret) = edit.selection;
     state.commit(
-        Edit::new(before.clone(), selection, edit.text.clone(), caret)
+        Edit::new_units(before.clone(), selection, edit.text.clone(), caret)
             .selecting_from(anchor)
             .folding(edit.folds),
     );

@@ -9,7 +9,7 @@
 use super::edit::Change;
 use super::fold_ranges::FoldRange;
 use super::keyboard::utf16_to_byte_index;
-use crate::editor::text::{TextSize, byte_range};
+use crate::editor::text::{TextSize, byte_of, byte_range};
 
 /// Which document offset a textarea offset at a fold's first line end
 /// stands for: before the hidden text (`Before`, where the caret shows) or
@@ -246,7 +246,7 @@ impl Projection {
         let Some(view) = self.view.as_deref() else {
             return edited.to_string();
         };
-        let on_screen = Change::diffed_at(view, edited, caret);
+        let on_screen = Change::diffed_at(view, edited, byte_of(edited, caret));
         let in_doc = on_screen.edits().map(|(range, inserted)| {
             let start = view[..usize::from(range.start())].encode_utf16().count();
             let end = start + view[range].encode_utf16().count();

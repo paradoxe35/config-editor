@@ -191,7 +191,7 @@ fn a_live_editor_never_saves_a_locked_block_extended_in_any_edit_as_language() {
                     let before = state.doc().text.get_untracked();
                     let edited = format!("{}{step}{}", &before[..at], &before[at..]);
                     let caret = at + step.len();
-                    if state.commit(Edit::new(before, (at, at), edited, caret)) {
+                    if state.commit(Edit::new_units(before, (at, at), edited, caret)) {
                         at = caret;
                     }
                 }
@@ -217,7 +217,7 @@ fn take_host_shown(state: super::super::state::EditorState, shown: &str) {
     use leptos::prelude::*;
     let before = state.doc().text.get_untracked();
     if before != shown {
-        let mut edit = Edit::new(before, (0, 0), shown.to_string(), 0);
+        let mut edit = Edit::new_units(before, (0, 0), shown.to_string(), 0);
         edit.origin = super::super::edit::Origin::Switch;
         state.commit(edit);
     }

@@ -49,7 +49,7 @@ fn replace_all(state: EditorState, text: &str) {
     let before = state.doc().text.get_untracked();
     let end = before.encode_utf16().count();
     let caret = text.encode_utf16().count();
-    state.commit(Edit::new(before, (0, end), text.to_string(), caret));
+    state.commit(Edit::new_units(before, (0, end), text.to_string(), caret));
 }
 
 fn pause(state: EditorState) {

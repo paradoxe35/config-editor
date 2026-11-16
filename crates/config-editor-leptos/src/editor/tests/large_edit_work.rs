@@ -122,7 +122,7 @@ fn work(
         Large::Paste => (0, end),
         Large::ReplaceAll | Large::RenameAll => (caret, caret),
     };
-    state.commit(Edit::new(before, selection, text, caret));
+    state.commit(Edit::new_units(before, selection, text, caret));
     let (((), steps), reads) = counted(Work::DocumentRead, || {
         counted(Work::LinkStep, || pause(state))
     });

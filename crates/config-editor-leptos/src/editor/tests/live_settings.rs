@@ -80,7 +80,7 @@ fn every_switch_follows_the_signal_both_ways() {
     // An edit, so there is a diff against the baseline.
     let after = format!("{TEXT}x: 1\n");
     let caret = after.encode_utf16().count();
-    assert!(state.commit(Edit::new(TEXT.into(), (caret, caret), after, caret)));
+    assert!(state.commit(Edit::new_units(TEXT.into(), (caret, caret), after, caret)));
     let failures = |wanted: bool| -> Vec<String> {
         observed(state)
             .into_iter()
@@ -115,7 +115,7 @@ fn each_switch_changes_only_its_own_part() {
         let (_owner, state) = editor(settings);
         let after = format!("{TEXT}x: 1\n");
         let caret = after.encode_utf16().count();
-        assert!(state.commit(Edit::new(TEXT.into(), (caret, caret), after, caret)));
+        assert!(state.commit(Edit::new_units(TEXT.into(), (caret, caret), after, caret)));
         settings.update(switch_off);
         for (part, on) in observed(state) {
             if on == (part == name) {
@@ -159,13 +159,18 @@ fn switching_keeps_the_text_caret_and_history() {
     let (_owner, state) = editor(settings);
     let after = format!("{TEXT}x: 1\n");
     let caret = after.encode_utf16().count();
-    assert!(state.commit(Edit::new(TEXT.into(), (caret, caret), after.clone(), caret)));
+    assert!(state.commit(Edit::new_units(
+        TEXT.into(),
+        (caret, caret),
+        after.clone(),
+        caret
+    )));
     for on in [false, true, false] {
         settings.set(all(on));
         settings.update(|settings| settings.theme = EditorTheme::Dracula);
     }
     assert_eq!(state.doc().text.get_untracked(), after);
-    assert_eq!(state.doc().caret.get_untracked(), caret);
+    assert_eq!(state.caret_units(), caret);
     assert!(
         state
             .doc()

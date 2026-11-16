@@ -12,7 +12,7 @@ use crate::editor::Language;
 use crate::editor::bridge::Bridge;
 use crate::editor::bridge::links::{Clipboard, Links, pieces};
 use crate::editor::edit::Edit;
-use crate::editor::input::UNKNOWN_SELECTION;
+use crate::editor::edit::UNKNOWN_UNITS;
 use crate::editor::save_matrix::report;
 
 const XSI: &str = "xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\"";
@@ -95,7 +95,7 @@ fn session(
         match step {
             Step::Edit(next, caret) => {
                 // An edit that says nothing of what it replaced.
-                let made = Edit::new(view.clone(), UNKNOWN_SELECTION, next.clone(), caret);
+                let made = Edit::new_units(view.clone(), UNKNOWN_UNITS, next.clone(), caret);
                 let pieces = pieces(&made, &clipboard);
                 links.edited(edit.behavior(), &view, &pieces, &mut clipboard);
                 view = next;

@@ -7,6 +7,7 @@ use super::metrics::read_editor_metrics;
 use super::source_area::SourceArea;
 use super::state::EditorState;
 use crate::cssom::Declarations;
+use crate::editor::text::{TextSize, slice};
 use leptos::prelude::*;
 use wasm_bindgen::JsCast;
 
@@ -281,19 +282,17 @@ pub(super) fn hover_card_geometry(anchor: CardAnchor, natural: f64) -> Declarati
 /// Places the caret and scrolls it into view.
 ///
 /// `set_selection_range` alone does not reliably scroll the textarea.
-pub(super) fn set_caret_visible(editor: &SourceArea, text: &str, offset: usize) {
-    let offset = offset.min(text.encode_utf16().count());
-    let _ = editor.set_selection_range(offset as u32, offset as u32);
+pub(super) fn set_caret_visible(editor: &SourceArea, text: &str, offset: TextSize) {
+    let offset = offset.min(TextSize::of(text));
+    let _ = editor.set_selection_range(offset, offset);
     reveal_offset(editor, text, offset);
 }
 
-/// Scrolls UTF-16 `offset` into view without touching the selection.
-pub(super) fn reveal_offset(editor: &SourceArea, text: &str, offset: usize) {
-    use super::keyboard::utf16_to_byte_index;
-
-    let offset = offset.min(text.encode_utf16().count());
-    let byte_offset = utf16_to_byte_index(text, offset);
-    let line = text[..byte_offset]
+/// Scrolls byte `offset` into view without touching the selection.
+pub(super) fn reveal_offset(editor: &SourceArea, text: &str, offset: TextSize) {
+    let offset = offset.min(TextSize::of(text));
+    let line = slice::before(text, offset)
+        .unwrap_or(text)
         .bytes()
         .filter(|byte| *byte == b'\n')
         .count();
@@ -334,6 +333,7 @@ pub(super) fn reveal_offset(editor: &SourceArea, text: &str, offset: usize) {
     editor.set_scroll_top(next_top as i32);
     // Horizontally too: a caret back at the start of a line after a long one
     // must not stay scrolled off to the left.
+    let byte_offset = usize::from(offset);
     let line_start = text[..byte_offset].rfind('\n').map_or(0, |index| index + 1);
     let caret_x =
         super::completion::visual_column(&text[line_start..byte_offset]) * metrics.char_width;

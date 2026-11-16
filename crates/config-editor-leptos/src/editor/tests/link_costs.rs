@@ -17,7 +17,7 @@ fn replace(state: EditorState, (from, to): (usize, usize), typed: &str) {
     let before = state.doc().text.get_untracked();
     let text = format!("{}{typed}{}", &before[..from], &before[to..]);
     let start = units(&before[..from]);
-    state.commit(Edit::new(
+    state.commit(Edit::new_units(
         before.clone(),
         (start, units(&before[..to])),
         text,
@@ -40,7 +40,7 @@ fn replace_all_work(host: &str, from: &str, to: &str) -> Vec<usize> {
                 .match_indices(from)
                 .map(|(at, _)| (at..at + from.len(), to.to_string())),
         ));
-        state.commit(Edit::new(before.clone(), (0, 0), after, 0).splicing(splices));
+        state.commit(Edit::new_units(before.clone(), (0, 0), after, 0).splicing(splices));
         pause(state);
     });
     let saved = state.sync().host_text.get_value();

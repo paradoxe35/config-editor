@@ -234,7 +234,7 @@ fn press(
                     .toggled_text(&text, selection.0, selection.1)
                 && updated != text
             {
-                let edit = Edit::new(text, selection, updated, end).selecting_from(start);
+                let edit = Edit::new_units(text, selection, updated, end).selecting_from(start);
                 let _ = state.commit(edit);
             }
         }
@@ -250,7 +250,7 @@ pub(super) fn typed_into(state: EditorState) -> Vec<usize> {
         let at = units(&text, found + 1);
         let mut typed = text.clone();
         typed.insert(found + 1, '9');
-        let edit = Edit::input(
+        let edit = Edit::input_units(
             text.clone(),
             (at, at),
             typed,

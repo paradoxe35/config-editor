@@ -93,7 +93,7 @@ impl EditorState {
             element.set_scroll_top(top);
             element.set_scroll_left(left);
         }
-        let edit = Edit::command(before, change, selection).selecting_bytes(caret, caret);
+        let edit = Edit::command(before, change, selection).caret_at(caret);
         if self.commit(edit) {
             let said = self.strings_untracked(|strings| strings.reverted.clone());
             self.a11y().announce(said);

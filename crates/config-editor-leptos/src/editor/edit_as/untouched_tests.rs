@@ -32,7 +32,7 @@ fn type_over(state: EditorState, from: &str, to: &str) {
     let end = start + units(from);
     let text = format!("{}{to}{}", &before[..at], &before[at + from.len()..]);
     let caret = start + units(to);
-    state.commit(Edit::input(
+    state.commit(Edit::input_units(
         before,
         (start, end),
         text,

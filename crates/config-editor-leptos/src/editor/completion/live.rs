@@ -18,6 +18,7 @@ use super::{
     stop_ranges,
 };
 use crate::EditorStrings;
+use crate::editor::text::{TextSize, utf16_of};
 use crate::strings::fill;
 
 /// The suggestions part of the editor state.
@@ -66,7 +67,7 @@ pub(crate) struct SuggestionPlace<'a> {
 /// What the list is computed from.
 pub(crate) struct Sources {
     pub(crate) text: RwSignal<String>,
-    pub(crate) caret: RwSignal<usize>,
+    pub(crate) caret: RwSignal<TextSize>,
     pub(crate) edit_language: RwSignal<Language>,
     pub(crate) schema: Option<Arc<SchemaBundle>>,
     pub(crate) read_only: Signal<bool>,
@@ -111,6 +112,9 @@ impl CompletionState {
             let behavior = edit_language.get_untracked().behavior();
             let at = caret.get();
             text.with(|text| {
+                // Suggestions are placed at UTF-16 offsets (the public
+                // language API's).
+                let at = utf16_of(text, at);
                 let options = string_bodies.with(|bodies| {
                     completions_in(
                         text,
@@ -205,15 +209,13 @@ impl EditorState {
         let at = self.doc().caret.get_untracked();
         let edit = Edit::command(before.clone(), change, (at, at));
         // The caret where the option puts it in its insert, a default it
-        // wrote left selected.
+        // wrote left selected. The option counts in UTF-16 units.
         let inserted = option.insert.encode_utf16().count();
-        let caret = edit
-            .selected()
-            .1
+        let caret = utf16_of(&edit.text, edit.selected().1)
             .saturating_sub(inserted)
             .saturating_add(option.cursor_offset);
         let anchor = caret.saturating_sub(option.selected);
-        let edit = edit.selecting(anchor, caret);
+        let edit = edit.selecting_units(anchor, caret);
         let updated = edit.text.clone();
         if updated == before {
             self.say_why_read_only(option);

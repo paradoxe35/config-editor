@@ -28,7 +28,7 @@ fn typed(state: EditorState, old: &str, new: &str) {
     let start = units(&before[..at]);
     let end = start + units(old);
     let caret = start + units(new);
-    state.commit(Edit::new(before, (start, end), text, caret));
+    state.commit(Edit::new_units(before, (start, end), text, caret));
 }
 
 fn pause(state: EditorState) -> String {

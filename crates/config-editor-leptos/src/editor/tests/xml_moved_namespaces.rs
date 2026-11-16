@@ -17,6 +17,7 @@ use super::super::state::EditorState;
 use super::super::sync::{convert_now, switch_to};
 use super::super::test_state::TestEditor;
 use crate::editor::save_matrix::report;
+use crate::editor::text::text_size;
 use leptos::prelude::*;
 
 struct Case {
@@ -200,7 +201,7 @@ fn cut(state: EditorState, view: Language, key: &str) -> String {
     let (from, to) = (line_offset(&before, start), line_offset(&before, end));
     let text = format!("{}{}", &before[..from], &before[to..]);
     let caret = units(&before[..from]);
-    state.commit(Edit::new(before, (caret, caret), text, caret));
+    state.commit(Edit::new_units(before, (caret, caret), text, caret));
     lines
 }
 
@@ -223,7 +224,7 @@ fn paste(state: EditorState, lines: &str, sibling: &str, table: &str) {
             let at = before.len();
             let text = format!("{before}{lines}");
             let start = units(&before);
-            state.commit(Edit::new(
+            state.commit(Edit::new_units(
                 before,
                 (start, start),
                 text.clone(),
@@ -232,7 +233,12 @@ fn paste(state: EditorState, lines: &str, sibling: &str, table: &str) {
             let (from, to) = (at + 1, at + 1 + parent.len());
             let renamed = format!("{}{table}{}", &text[..from], &text[to..]);
             let (from, to) = (units(&text[..from]), units(&text[..to]));
-            state.commit(Edit::new(text, (from, to), renamed, from + units(table)));
+            state.commit(Edit::new_units(
+                text,
+                (from, to),
+                renamed,
+                from + units(table),
+            ));
             return;
         }
         None => {
@@ -255,7 +261,7 @@ fn paste(state: EditorState, lines: &str, sibling: &str, table: &str) {
     let text = format!("{}{inserted}{}", &before[..at], &before[at..]);
     let start = units(&before[..at]);
     let caret = start + units(&inserted);
-    state.commit(Edit::new(before, (start, start), text, caret));
+    state.commit(Edit::new_units(before, (start, start), text, caret));
 }
 
 /// What happens between the cut and the paste.
@@ -293,10 +299,7 @@ fn an_element_moved_keeps_its_namespace() {
                         let text = state.doc().text.get_untracked();
                         let (start, end) = entry_lines(view, &text, case.key);
                         let (from, to) = (line_offset(&text, start), line_offset(&text, end));
-                        state.note_copied(
-                            &text[from..to],
-                            (units(&text[..from]), units(&text[..to])),
-                        );
+                        state.note_copied(&text[from..to], (text_size(from), text_size(to)));
                         copy(view, &text, case.key)
                     }
                     _ => cut(state, view, case.key),
