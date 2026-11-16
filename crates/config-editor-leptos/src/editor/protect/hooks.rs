@@ -18,7 +18,7 @@ use super::locate::LineIndex;
 use super::locks::Lock;
 use super::problems::unknown_placeholders;
 use super::suggest::{Around, adjust};
-use super::texts::{Reason, save_held};
+use super::texts::{save_held, save_held_placeholder};
 use super::view::line_marks;
 use crate::EditorStrings;
 use crate::strings::fill;
@@ -216,24 +216,25 @@ impl ProtectState {
                     .or_else(|| found.first().copied())
             })
             .unwrap_or(0);
-        let reason = Reason::Given(strings.secret_label.clone());
         Some(warning_at(
             &lines,
             text,
             start,
-            save_held(strings, &field, &reason),
+            save_held_placeholder(strings, &field),
         ))
     }
 
-    /// [`Self::held_problems`]' warnings at the locked fields held.
+    /// [`Self::held_problems`]' warnings at the locked fields held, each
+    /// naming the cause recorded for it.
     fn held_lock_problems(&self, text: &str, strings: &EditorStrings) -> Vec<Diagnostic> {
         self.protected.with(|protected| {
             let lines = LineIndex::new(text);
             protected
                 .held
-                .iter()
-                .map(|pointer| {
-                    let message = save_held(strings, pointer, &protected.held_reason(pointer));
+                .causes()
+                .map(|(pointer, cause)| {
+                    let reason = protected.held_reason(pointer);
+                    let message = save_held(strings, pointer, &reason, cause);
                     // Marked where its lock starts; one the text no longer
                     // has (commented out, cut), where the lock nearest to
                     // it by path starts (a field holding it first), else

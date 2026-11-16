@@ -20,9 +20,10 @@ use serde_json::Value;
 use super::super::super::codec;
 use super::super::super::paths::{inside, key_range};
 use super::super::carry::Moves;
-use super::super::locate::{Extent, extent, lookup, values_under};
+use super::super::locate::{Extent, LineIndex, extent, lookup, values_under};
 use super::super::scan;
 use super::super::texts::Reason;
+use super::holds::{EditMade, HoldCause, Holds};
 use super::reading::Reading;
 use super::{Lock, Protected};
 
@@ -39,14 +40,22 @@ pub(super) struct Placer<'r, 'a> {
     /// The values pinned in the texts before, then those of each stand-in
     /// lock placed.
     pins: Vec<(String, Value)>,
-    /// The fields held, with their pinned values (see `Protected::held`).
-    held: Vec<(String, Value)>,
+    /// The fields held, with their pinned values and why (see
+    /// `Protected::held`).
+    held: Vec<Pin>,
     /// Whether the text is the host's own (the one the locks follow): it
     /// writes every field where the host did, so its paths place them.
     hosts_own: bool,
     /// The fields placed so far whose locks are a reading of a text that
     /// does not parse (see `Protected::read_off`).
     read_off: Vec<String>,
+}
+
+/// A field held: the value pinned for it, and why it is held.
+struct Pin {
+    pointer: String,
+    value: Value,
+    cause: HoldCause,
 }
 
 /// What became of one field.
@@ -70,45 +79,60 @@ impl<'r, 'a> Placer<'r, 'a> {
         let hosts_own = previous
             .and_then(|previous| previous.origin.as_deref())
             .is_some_and(|origin| origin == reading.text);
-        // Held through a text that does not parse, as pinned.
-        let held = match (before, carried, &reading.document) {
-            _ if hosts_own => Vec::new(),
-            (Some(before), _, Some(document)) => {
-                let mut held = held_pins(before, document);
-                for item in items_read_fewer(before, document) {
-                    if !held.iter().any(|(pointer, _)| *pointer == item.0) {
-                        held.push(item);
+        // Held through a text that does not parse, as pinned. Each keeps
+        // the cause it was held for; one held by this edit has its cause
+        // read off the edit below (`None` until then).
+        let held: Vec<(String, Value, Option<HoldCause>)> =
+            match (before, carried, &reading.document) {
+                _ if hosts_own => Vec::new(),
+                (Some(before), _, Some(document)) => {
+                    let mut held: Vec<(String, Value, Option<HoldCause>)> =
+                        held_pins(before, document)
+                            .into_iter()
+                            .map(|(pointer, value)| {
+                                let cause = before.held.cause(&pointer);
+                                (pointer, value, cause)
+                            })
+                            .collect();
+                    for (pointer, value) in items_read_fewer(before, document) {
+                        if !held.iter().any(|(known, ..)| *known == pointer) {
+                            let cause =
+                                before.held.cause(&pointer).unwrap_or(HoldCause::RangeMoved);
+                            held.push((pointer, value, Some(cause)));
+                        }
                     }
+                    // A field named by its path reading as in the host's text
+                    // (both without it included) reaches the host unchanged: a
+                    // value pinned in a text the user made (a cut put a block's
+                    // key at the root) is not the host's. A field a host range
+                    // covers is no path: its list index moves with items added.
+                    let by_path = |pointer: &str| {
+                        before.locks.iter().any(|lock| {
+                            lock.pointer.as_deref() == Some(pointer) && lock.reason != Reason::Range
+                        })
+                    };
+                    if held.iter().any(|(pointer, ..)| by_path(pointer))
+                        && let Some(origin) = origin_document(reading, before)
+                    {
+                        held.retain(|(pointer, ..)| {
+                            !by_path(pointer)
+                                || lookup(&origin, pointer) != lookup(document, pointer)
+                        });
+                    }
+                    held
                 }
-                // A field named by its path reading as in the host's text
-                // (both without it included) reaches the host unchanged: a
-                // value pinned in a text the user made (a cut put a block's
-                // key at the root) is not the host's. A field a host range
-                // covers is no path: its list index moves with items added.
-                let by_path = |pointer: &str| {
-                    before.locks.iter().any(|lock| {
-                        lock.pointer.as_deref() == Some(pointer) && lock.reason != Reason::Range
+                (_, Some(carried), None) => carried
+                    .pins
+                    .iter()
+                    .filter_map(|(pointer, value)| {
+                        let cause = carried.held.cause(pointer)?;
+                        Some((pointer.clone(), value.clone(), Some(cause)))
                     })
-                };
-                if held.iter().any(|(pointer, _)| by_path(pointer))
-                    && let Some(origin) = origin_document(reading, before)
-                {
-                    held.retain(|(pointer, _)| {
-                        !by_path(pointer) || lookup(&origin, pointer) != lookup(document, pointer)
-                    });
-                }
-                held
-            }
-            (_, Some(carried), None) => carried
-                .pins
-                .iter()
-                .filter(|(pointer, _)| carried.held.contains(pointer))
-                .cloned()
-                .collect(),
-            _ => Vec::new(),
-        };
+                    .collect(),
+                _ => Vec::new(),
+            };
         let followed = carried.or(before);
-        Placer {
+        let mut placer = Placer {
             reading,
             carried,
             before,
@@ -123,10 +147,76 @@ impl<'r, 'a> Placer<'r, 'a> {
             pins: carried
                 .map(|previous| previous.pins.clone())
                 .unwrap_or_default(),
-            held,
+            held: Vec::new(),
             hosts_own,
             read_off: Vec::new(),
-        }
+        };
+        placer.held = placer.with_causes(held);
+        placer
+    }
+
+    /// `held` with the cause of each field this edit holds read off the
+    /// edit (see `holds::EditMade`), the others' kept.
+    fn with_causes(&self, held: Vec<(String, Value, Option<HoldCause>)>) -> Vec<Pin> {
+        let edit = self
+            .before
+            .zip(self.moves.as_ref())
+            .filter(|_| held.iter().any(|(_, _, cause)| cause.is_none()));
+        let Some((before, moves)) = edit else {
+            return held
+                .into_iter()
+                .map(|(pointer, value, cause)| Pin {
+                    pointer,
+                    value,
+                    cause: cause.unwrap_or(HoldCause::Unclear),
+                })
+                .collect();
+        };
+        let Reading {
+            behavior,
+            text,
+            lines,
+            document,
+            ..
+        } = self.reading;
+        let comments = behavior.comments(text);
+        let in_comment = |offset: usize| {
+            let byte = lines.byte_of(offset);
+            comments
+                .iter()
+                .any(|range| range.start <= byte && byte < range.end)
+        };
+        let (replaced, wrote, written) = moves.replaced();
+        let before_lines = LineIndex::new(&before.text);
+        let made = EditMade {
+            before,
+            lines: &before_lines,
+            replaced,
+            wrote,
+            written: &written,
+            in_comment: &in_comment,
+        };
+        held.into_iter()
+            .map(|(pointer, value, cause)| {
+                let cause = cause.unwrap_or_else(|| {
+                    let gone = document
+                        .as_ref()
+                        .is_none_or(|document| lookup(document, &pointer).is_none());
+                    // Where the parse writes it now, looked up only when the
+                    // edit's place says no more.
+                    let now = || {
+                        let ranges = self.located(&pointer)?.ranges;
+                        Some(ranges.first()?.start..ranges.last()?.end)
+                    };
+                    made.cause(&pointer, self.moved(&pointer).as_ref(), gone, &now)
+                });
+                Pin {
+                    pointer,
+                    value,
+                    cause,
+                }
+            })
+            .collect()
     }
 
     /// Holds a locked field with no value pinned yet (the host's text never
@@ -154,7 +244,7 @@ impl<'r, 'a> Placer<'r, 'a> {
             .chain(named);
         for pointer in pointers {
             if previous.pins.iter().any(|(known, _)| *known == pointer)
-                || self.held.iter().any(|(known, _)| *known == pointer)
+                || self.held.iter().any(|pin| pin.pointer == pointer)
             {
                 continue;
             }
@@ -164,7 +254,16 @@ impl<'r, 'a> Placer<'r, 'a> {
             if let Some(host) = host
                 && lookup(document, &pointer) != Some(&host)
             {
-                self.held.push((pointer, host));
+                let cause = if lookup(document, &pointer).is_none() {
+                    HoldCause::Removed
+                } else {
+                    HoldCause::ChangedBeforeLock
+                };
+                self.held.push(Pin {
+                    pointer,
+                    value: host,
+                    cause,
+                });
             }
         }
     }
@@ -216,7 +315,7 @@ impl<'r, 'a> Placer<'r, 'a> {
             .filter_map(|(pointer, _)| Some((keys_of(pointer), lookup(document, pointer)?)))
             .collect();
         let earlier = before.document.as_deref();
-        self.held.retain(|(pointer, value)| {
+        self.held.retain(|Pin { pointer, value, .. }| {
             let range = before.locks.iter().any(|lock| {
                 lock.pointer.as_deref() == Some(pointer.as_str()) && lock.reason == Reason::Range
             });
@@ -313,12 +412,13 @@ impl<'r, 'a> Placer<'r, 'a> {
         };
         self.held
             .iter()
-            .filter(|(pointer, _)| {
+            .map(|pin| &pin.pointer)
+            .filter(|pointer| {
                 !placed
                     .iter()
-                    .any(|lock| lock.pointer.as_deref() == Some(pointer))
+                    .any(|lock| lock.pointer.as_deref() == Some(pointer.as_str()))
             })
-            .filter_map(|(pointer, _)| {
+            .filter_map(|pointer| {
                 let lock = before
                     .locks
                     .iter()
@@ -331,32 +431,22 @@ impl<'r, 'a> Placer<'r, 'a> {
     /// The fields held whose lock was followed into this text, those kept
     /// unplaced (`unplaced`: no span says where they are), and those the
     /// text no longer has.
-    pub(super) fn held_pointers(
-        &self,
-        locks: &[Lock],
-        unplaced: &[(String, Reason)],
-    ) -> Vec<String> {
+    pub(super) fn held_pointers(&self, locks: &[Lock], unplaced: &[(String, Reason)]) -> Holds {
+        let entry = |pin: &Pin| (pin.pointer.clone(), pin.cause);
         // A text that does not parse carries every one held.
         let Some(document) = &self.reading.document else {
-            return self
-                .held
-                .iter()
-                .map(|(pointer, _)| pointer.clone())
-                .collect();
+            return Holds::new(self.held.iter().map(entry).collect());
         };
         let gone: Vec<&String> = self.held_gone(document).collect();
-        self.held
-            .iter()
-            .map(|(pointer, _)| pointer)
-            .filter(|pointer| {
-                gone.contains(pointer)
-                    || unplaced.iter().any(|(known, _)| known == *pointer)
-                    || locks
-                        .iter()
-                        .any(|lock| lock.pointer.as_deref() == Some(pointer.as_str()))
-            })
-            .cloned()
-            .collect()
+        let kept = self.held.iter().filter(|pin| {
+            let pointer = &pin.pointer;
+            gone.contains(&pointer)
+                || unplaced.iter().any(|(known, _)| known == pointer)
+                || locks
+                    .iter()
+                    .any(|lock| lock.pointer.as_deref() == Some(pointer.as_str()))
+        });
+        Holds::new(kept.map(entry).collect())
     }
 
     /// The field at `pointer`, locked for `reason`, placed by the first
@@ -367,7 +457,7 @@ impl<'r, 'a> Placer<'r, 'a> {
         // nothing else says where its pinned text is.
         let moved = self.moved(&pointer);
         let follow =
-            self.reading.document.is_none() || self.held.iter().any(|(held, _)| *held == pointer);
+            self.reading.document.is_none() || self.held.iter().any(|pin| pin.pointer == pointer);
         if follow && let Some(lock) = moved.clone() {
             if self.was_read_off(&pointer) {
                 self.read_off.push(pointer.clone());
@@ -453,7 +543,9 @@ impl<'r, 'a> Placer<'r, 'a> {
                 .filter_map(|pointer| {
                     // A field held keeps the host's value (see
                     // `hold_unpinned` for one named late).
-                    if let Some((_, value)) = self.held.iter().find(|(known, _)| known == pointer) {
+                    if let Some(Pin { value, .. }) =
+                        self.held.iter().find(|pin| pin.pointer == *pointer)
+                    {
                         return Some((pointer.clone(), value.clone()));
                     }
                     Some((pointer.clone(), lookup(document, pointer).cloned()?))
@@ -467,7 +559,7 @@ impl<'r, 'a> Placer<'r, 'a> {
     fn held_gone<'s>(&'s self, document: &'s Value) -> impl Iterator<Item = &'s String> {
         self.held
             .iter()
-            .map(|(pointer, _)| pointer)
+            .map(|pin| &pin.pointer)
             .filter(move |pointer| lookup(document, pointer).is_none())
     }
 
@@ -514,8 +606,19 @@ impl<'r, 'a> Placer<'r, 'a> {
             .collect()
     }
 
-    /// Holds the field at `pointer` at the value pinned in the text before.
+    /// Holds the field at `pointer` at the value pinned in the text before,
+    /// its path naming other text than its own: a list item's index naming
+    /// another item, else its key written again ahead of it.
     fn hold(&mut self, pointer: &str) {
+        let item = pointer
+            .rsplit('/')
+            .next()
+            .is_some_and(|last| last.parse::<usize>().is_ok());
+        let cause = if item {
+            HoldCause::ListItem
+        } else {
+            HoldCause::Duplicate
+        };
         let pin = self.before.and_then(|before| {
             before
                 .pins
@@ -524,9 +627,13 @@ impl<'r, 'a> Placer<'r, 'a> {
                 .map(|(_, value)| value.clone())
         });
         if let Some(value) = pin
-            && !self.held.iter().any(|(known, _)| known == pointer)
+            && !self.held.iter().any(|pin| pin.pointer == pointer)
         {
-            self.held.push((pointer.to_string(), value));
+            self.held.push(Pin {
+                pointer: pointer.to_string(),
+                value,
+                cause,
+            });
         }
     }
 

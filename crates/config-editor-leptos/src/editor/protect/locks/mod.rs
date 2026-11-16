@@ -21,8 +21,11 @@
 //! text before and its pinned value, and the save waits until it reads as
 //! pinned again (`live::ProtectState`'s save check). The edits that made it
 //! so were let through: the guard refuses an edit only for the spans' text.
+//! Each hold records its cause where it is decided (`holds`), for the
+//! message that says why the save waits.
 
 mod fields;
+mod holds;
 mod place;
 mod reading;
 
@@ -36,6 +39,7 @@ use super::super::language::ConfigLanguage;
 use super::super::paths::{FieldPath, with_spans};
 use super::reach::out_of_reach;
 use super::texts::Reason;
+pub(crate) use holds::{HoldCause, Holds};
 use place::{Placed, Placer};
 use reading::Reading;
 
@@ -100,8 +104,9 @@ pub(crate) struct Protected {
     pub(crate) epoch: u64,
     /// The locked fields whose value, in this text (which parses), reads
     /// otherwise than pinned: their spans are those followed from the text
-    /// before, and a save waits until they read as pinned again.
-    pub(crate) held: Vec<String>,
+    /// before, and a save waits until they read as pinned again. Each
+    /// carries why it is held, recorded when the hold was decided.
+    pub(crate) held: Holds,
     /// The text from the host the locks follow (see `ProtectState::
     /// trust_text`): a lock named while the text does not parse takes its
     /// value from it, not from what was typed before the lock came.
