@@ -70,10 +70,19 @@ fn seed() -> u64 {
         .unwrap_or(0x2545_f491_4f6c_dd1d)
 }
 
+/// Random cases per property: `CHANGE_CASES`, else `default` (the sweep
+/// raises it).
+fn cases(default: usize) -> usize {
+    std::env::var("CHANGE_CASES")
+        .ok()
+        .and_then(|cases| cases.parse().ok())
+        .unwrap_or(default)
+}
+
 #[test]
 fn a_change_and_its_inverse_give_the_text_back() {
     let mut rng = Rng(seed());
-    for _ in 0..2000 {
+    for _ in 0..cases(2000) {
         let before = text(&mut rng);
         let change = change(&mut rng, &before);
         let after = change.apply(&before).expect("made for it");
@@ -86,7 +95,7 @@ fn a_change_and_its_inverse_give_the_text_back() {
 #[test]
 fn a_composed_change_makes_what_the_two_make_in_turn() {
     let mut rng = Rng(seed() ^ 1);
-    for _ in 0..2000 {
+    for _ in 0..cases(2000) {
         let before = text(&mut rng);
         let first = change(&mut rng, &before);
         let middle = first.apply(&before).expect("made for it");
@@ -104,7 +113,7 @@ fn a_composed_change_makes_what_the_two_make_in_turn() {
 #[test]
 fn two_changes_rebased_over_each_other_meet() {
     let mut rng = Rng(seed() ^ 2);
-    for _ in 0..2000 {
+    for _ in 0..cases(2000) {
         let text = text(&mut rng);
         let a = change(&mut rng, &text);
         let b = change(&mut rng, &text);
@@ -121,7 +130,7 @@ fn two_changes_rebased_over_each_other_meet() {
 #[test]
 fn positions_map_in_order_and_kept_text_stays_on_its_text() {
     let mut rng = Rng(seed() ^ 3);
-    for _ in 0..2000 {
+    for _ in 0..cases(2000) {
         let before = text(&mut rng);
         let change = change(&mut rng, &before);
         let after = change.apply(&before).expect("made for it");

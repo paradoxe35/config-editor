@@ -212,6 +212,10 @@ fn the_fast_path_answers_as_the_full_rule_on_random_edits() {
         .ok()
         .and_then(|seed| seed.parse().ok())
         .unwrap_or(0x9e37_79b9_7f4a_7c15);
+    let cases: usize = std::env::var("REACH_CASES")
+        .ok()
+        .and_then(|cases| cases.parse().ok())
+        .unwrap_or(400);
     let mut next = move |below: usize| {
         seed ^= seed << 13;
         seed ^= seed >> 7;
@@ -245,7 +249,7 @@ fn the_fast_path_answers_as_the_full_rule_on_random_edits() {
         ];
         for sources in sources {
             let protected = protect(behavior, text, sources);
-            for _ in 0..400 {
+            for _ in 0..cases {
                 let starts: Vec<usize> = text.char_indices().map(|(at, _)| at).collect();
                 let at = starts[next(starts.len())];
                 let end = (at + next(3)).min(text.len());
