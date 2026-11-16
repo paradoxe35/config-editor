@@ -11,8 +11,8 @@ use leptos::prelude::*;
 use web_sys::KeyboardEvent;
 
 use super::super::bridge::links::Splice;
-use super::super::commands::{Indented, indented_through};
-use super::super::edit::Edit;
+use super::super::commands::indent_lines_through;
+use super::super::edit::{Edit, change_of_splices};
 use super::super::fold_ranges::FoldRange;
 use super::super::state::{EditorState, is_backward, select, textarea_selection};
 use super::line_edit::{Folded, LineCommand, block_lines, fold_units, line_edit, neighbor_units};
@@ -103,12 +103,24 @@ pub(in crate::editor) fn run(
                 } else {
                     edit.selection
                 };
-                let splices =
-                    Splice::lines(&text, &edit.text, &edit.pieces).map(|splice| vec![splice]);
-                let made = Edit::new(text, selection, edit.text, caret)
-                    .selecting_from(anchor)
-                    .splicing(splices);
-                state.commit(with_folds(made, &folds, edit.folds));
+                let restore = if backward {
+                    (selection.1, selection.0)
+                } else {
+                    selection
+                };
+                // The lines it rewrote, those it moved or copied with them.
+                let change = Splice::lines(&text, &edit.text, &edit.pieces)
+                    .and_then(|splice| change_of_splices(&text, &[splice]))
+                    .filter(|change| change.apply(&text).as_deref() == Some(edit.text.as_str()));
+                let made = match change {
+                    Some(change) => Edit::command(text, change, restore),
+                    None => Edit::new(text, restore, edit.text, caret),
+                };
+                state.commit(with_folds(
+                    made.selecting(anchor, caret),
+                    &folds,
+                    edit.folds,
+                ));
             }
         }
     }
@@ -174,27 +186,19 @@ fn indent(
         return;
     };
     let unit = state.doc().indent.get_value();
-    let Some(Indented {
-        text: updated,
-        start: selection_start,
-        end: selection_end,
-        pieces,
-    }) = indented_through(&text, (start, end), through, outdent, &unit)
-    else {
+    let Some(indented) = indent_lines_through(&text, (start, end), through, outdent, &unit) else {
         return;
     };
-    let (anchor, caret) = if backward {
-        (selection_end, selection_start)
-    } else {
-        (selection_start, selection_end)
-    };
-    let made = if updated != text {
-        let splices = Some(Splice::each(pieces));
-        let made = Edit::new(text, (start, end), updated, caret)
-            .selecting_from(anchor)
-            .splicing(splices);
+    let restore = if backward { (end, start) } else { (start, end) };
+    let edit = super::tab::selected_through(
+        Edit::command(text, indented.change, restore),
+        indented.selection,
+        backward,
+    );
+    let (selection_start, selection_end) = edit.selected();
+    let made = if edit.before != edit.text {
         let kept = folds.clone();
-        state.commit(with_folds(made, &folds, kept))
+        state.commit(with_folds(edit, &folds, kept))
     } else {
         true
     };

@@ -10,7 +10,7 @@ use super::docs::{LANGUAGES, offset, selection, units};
 use super::runner::Rng;
 use crate::editor::commands::{indent_lines, tab_insert, toggled_selection};
 use crate::editor::edit::Edit;
-use crate::editor::keyboard::{paired_edit, replace_selection, utf16_to_byte_index};
+use crate::editor::keyboard::{paired_text, replace_selection, utf16_to_byte_index};
 use crate::editor::keys::enter::{Pressed, enter_at};
 use crate::editor::keys::line_edit::LineCommand;
 use crate::editor::keys::lines::{Command, run};
@@ -280,7 +280,7 @@ fn comment(state: EditorState, (start, end): (usize, usize)) {
 /// An opener typed with auto-closing on, over `selection`.
 fn pair(state: EditorState, (start, end): (usize, usize), opening: char, time: f64) {
     let before = shown(state);
-    match paired_edit(&before, start, end, opening, state.behavior()) {
+    match paired_text(&before, start, end, opening, state.behavior()) {
         Some((updated, from, to)) => {
             let edit = Edit::new(before, (start, end), updated, to)
                 .selecting_from(from)

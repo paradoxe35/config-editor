@@ -5,37 +5,37 @@
 use leptos::prelude::*;
 use web_sys::KeyboardEvent;
 
-use super::super::edit::Edit;
-use super::super::keyboard::{replace_selection, utf16_to_byte_index};
+use super::super::edit::{Change, Edit};
+use super::super::keyboard::utf16_to_byte_index;
 use super::super::language::ConfigLanguage;
 use super::super::state::EditorState;
 use super::super::typing::Closer;
 
-/// `source` with `typed` typed at `start` (UTF-16) on a line that re-indents
-/// for it, and the caret after it; `None` when the line keeps its indent.
+/// `typed` typed at `start` (UTF-16 of `source`) on a line that re-indents
+/// for it: the line up to it written again at the new indent, the caret
+/// after it; `None` when the line keeps its indent.
 pub(in crate::editor) fn reindented(
     behavior: &dyn ConfigLanguage,
     source: &str,
     start: usize,
     typed: char,
-) -> Option<(String, usize)> {
+) -> Option<Change> {
     let indent = behavior.reindent_on_type(source, start, typed)?;
     let byte = utf16_to_byte_index(source, start);
     let line_start = source[..byte].rfind('\n').map_or(0, |index| index + 1);
     let content = source[line_start..byte].trim_start();
-    let line_start_utf16 = source[..line_start].encode_utf16().count();
-    Some(replace_selection(
+    Some(Change::replace_bytes(
         source,
-        line_start_utf16,
-        start,
+        line_start..byte,
         &format!("{indent}{content}{typed}"),
     ))
 }
 
 /// What typing a character that finishes markup writes.
 pub(in crate::editor) struct Completed {
-    pub(in crate::editor) text: String,
-    /// Right after the typed character: the completion follows it.
+    pub(in crate::editor) change: Change,
+    /// Right after the typed character (UTF-16 of the text after): the
+    /// completion follows it.
     pub(in crate::editor) caret: usize,
     /// The completion's length (UTF-16), typed over as a closer is.
     pub(in crate::editor) len: usize,
@@ -54,13 +54,21 @@ pub(in crate::editor) fn completed(
     let written = format!("{typed}{rest}");
     let last = written.chars().next_back()?;
     let leading = &written[..written.len() - last.len_utf8()];
-    let (probe, probe_caret) = replace_selection(source, start, start, leading);
-    let (text, end) = reindented(behavior, &probe, probe_caret, last)
-        .unwrap_or_else(|| replace_selection(source, start, start, &written));
+    // All but its last character written, then the last typed there (the
+    // line re-indented for it), as one change.
+    let lead = Change::insert_units(source, start, leading);
+    let probe = lead.apply(source)?;
+    let probe_caret = start + leading.encode_utf16().count();
+    let change = match reindented(behavior, &probe, probe_caret, last) {
+        Some(reindent) => lead.compose(&reindent)?,
+        None => Change::insert_units(source, start, &written),
+    };
+    let end = change.hull().map(|(_, written)| written.end)?;
+    let text = change.apply(source)?;
     let len = rest.encode_utf16().count();
     Some(Completed {
-        text,
-        caret: end - len,
+        caret: text[..end].encode_utf16().count() - len,
+        change,
         len,
     })
 }
@@ -80,18 +88,18 @@ pub(super) fn complete(
         return false;
     };
     event.prevent_default();
+    let edit = Edit::command(before, done.change, (start, start))
+        .caret_at(done.caret)
+        .typed("insertText", event.time_stamp());
     // Opened by the `<` before the typed `/`, so Enter right after it steps
     // past the completion rather than splitting it.
     state.remember(Closer {
-        distance: done.text.encode_utf16().count() - done.caret,
+        distance: edit.text.encode_utf16().count() - done.caret,
         len: done.len,
         opener: Some('<'),
         completion: true,
     });
-    state.commit(
-        Edit::new(before, (start, start), done.text, done.caret)
-            .typed("insertText", event.time_stamp()),
-    );
+    state.commit(edit);
     state.close_suggestions();
     true
 }
@@ -104,12 +112,12 @@ pub(super) fn reindent(
     typed: char,
 ) -> bool {
     let before = state.doc().text.get_untracked();
-    let Some((updated, caret)) = reindented(state.behavior(), &before, start, typed) else {
+    let Some(change) = reindented(state.behavior(), &before, start, typed) else {
         return false;
     };
     event.prevent_default();
     state.commit(
-        Edit::new(before, (start, start), updated, caret).typed("insertText", event.time_stamp()),
+        Edit::command(before, change, (start, start)).typed("insertText", event.time_stamp()),
     );
     state.close_suggestions();
     true

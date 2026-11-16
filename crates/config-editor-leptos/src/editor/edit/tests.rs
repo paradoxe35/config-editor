@@ -372,3 +372,52 @@ fn a_host_change_over_the_users_edit_ends_the_history() {
     assert_eq!(text(state), "a: 7\nb: 2\n");
     assert!(!can_undo(state));
 }
+
+/// Undo puts a selection made backward back backward, its caret at its
+/// start (the history keeps (anchor, caret), not a sorted pair).
+#[test]
+fn undo_puts_a_backward_selection_back_backward() {
+    let (_owner, state) = editor();
+    let before = text(state);
+    // `c: 2` on line 3, selected from its end back to its start, typed over.
+    let (start, end) = (10, 14);
+    // It leaves the `x` it wrote selected backward too.
+    let change = super::Change::replace_units(&before, start, end, "x");
+    let edit = Edit::command(before.clone(), change, (end, start)).selecting(start + 1, start);
+    assert!(state.commit(edit));
+    let undo = state.history_edit(false).expect("one step");
+    assert_eq!(
+        undo.after,
+        super::After::Select {
+            anchor: end,
+            caret: start,
+            reveal: true
+        }
+    );
+    assert!(state.commit(undo));
+    assert_eq!(text(state), before);
+    let redo = state.history_edit(true).expect("the step again");
+    assert_eq!(
+        redo.after,
+        super::After::Select {
+            anchor: start + 1,
+            caret: start,
+            reveal: true
+        }
+    );
+}
+
+/// Every write moves the document's version on, also one giving back a
+/// text it had (an edit and its undo): the version, not the text, says
+/// which document it is.
+#[test]
+fn every_write_moves_the_version_on() {
+    let (_owner, state) = editor();
+    let before = text(state);
+    let version = state.doc().version.get_value();
+    let change = super::Change::insert_units(&before, 10, "x");
+    assert!(state.commit(Edit::command(before.clone(), change, (10, 10))));
+    assert!(state.commit(state.history_edit(false).expect("one step")));
+    assert_eq!(text(state), before);
+    assert_eq!(state.doc().version.get_value(), version + 2);
+}

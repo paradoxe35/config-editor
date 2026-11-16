@@ -1,3 +1,4 @@
+use super::edit::{Assoc, Change};
 use super::keyboard::utf16_to_byte_index;
 use super::language::{ConfigLanguage, LanguageConfig};
 use super::projection::Projection;
@@ -184,6 +185,8 @@ fn read_indent_unit(source: &str) -> String {
     " ".repeat(width)
 }
 
+/// [`indent_lines_through`] on the selection's lines only, as the text
+/// after and the selection then (UTF-16), for the tests.
 #[cfg(test)]
 pub(super) fn indent_lines(
     source: &str,
@@ -192,35 +195,25 @@ pub(super) fn indent_lines(
     outdent: bool,
     unit: &str,
 ) -> Option<(String, usize, usize)> {
-    indent_lines_through(source, (selection_start, selection_end), 0, outdent, unit)
+    let indented =
+        indent_lines_through(source, (selection_start, selection_end), 0, outdent, unit)?;
+    let updated = indented.change.apply(source)?;
+    let units = |byte: usize| updated[..byte].encode_utf16().count();
+    let (start, end) = indented.selection;
+    Some((updated.clone(), units(start), units(end)))
 }
 
-/// [`indent_lines`] on the selection's lines and on through line
-/// `through` (0-based): the hidden lines of a folded line.
-#[cfg(test)]
-pub(super) fn indent_lines_through(
-    source: &str,
-    selection: (usize, usize),
-    through: usize,
-    outdent: bool,
-    unit: &str,
-) -> Option<(String, usize, usize)> {
-    indented_through(source, selection, through, outdent, unit)
-        .map(|indented| (indented.text, indented.start, indented.end))
-}
-
-/// Lines indented or outdented: the text, the selection after (UTF-16),
-/// and each line's change (a byte range of the text before and what was
-/// written there), which the Edit-as links follow.
+/// What indenting (or outdenting) lines makes: the change, and the
+/// selection then, as byte offsets of the text after.
 pub(super) struct Indented {
-    pub(super) text: String,
-    pub(super) start: usize,
-    pub(super) end: usize,
-    pub(super) pieces: Vec<(std::ops::Range<usize>, String)>,
+    pub(super) change: Change,
+    pub(super) selection: (usize, usize),
 }
 
-/// [`indent_lines_through`], with each line's change.
-pub(super) fn indented_through(
+/// The selection's lines (UTF-16 offsets of `source`) and on through line
+/// `through` (0-based: the hidden lines of a folded line) indented by
+/// `unit`, or with `outdent` outdented one stop; `None` past the text.
+pub(super) fn indent_lines_through(
     source: &str,
     (selection_start, selection_end): (usize, usize),
     through: usize,
@@ -242,9 +235,9 @@ pub(super) fn indented_through(
         return None;
     }
 
-    let unit = unit.to_string();
+    // Each line's edit: where, how many bytes it removes, how many it
+    // inserts (the unit).
     let mut edits: Vec<(usize, usize, usize)> = Vec::new();
-    let mut updated = String::with_capacity(source.len() + lines.len() * 2);
     let mut offset = 0;
     for (line_index, line) in lines.iter().enumerate() {
         if (first_line..=last_line.min(lines.len() - 1)).contains(&line_index) {
@@ -265,37 +258,27 @@ pub(super) fn indented_through(
                     }
                 };
                 edits.push((offset, remove, 0));
-                updated.push_str(&line[remove..]);
-            } else if body.trim().is_empty() {
+            } else if !body.trim().is_empty() {
                 // Indenting a blank line would only leave trailing whitespace.
-                updated.push_str(line);
-            } else {
                 edits.push((offset + indent, 0, unit.len()));
-                updated.push_str(&line[..indent]);
-                updated.push_str(&unit);
-                updated.push_str(&line[indent..]);
             }
-        } else {
-            updated.push_str(line);
         }
         offset += line.len();
     }
-
+    let change = Change::replacing(
+        source.len(),
+        edits
+            .iter()
+            .map(|&(at, removed, inserted)| (at..at + removed, unit[..inserted].to_string())),
+    )?;
+    let len_after = change.len_after();
     let map_offset = |position: usize, right_biased: bool| {
-        let mut delta = 0isize;
-        for (edit_position, removed, inserted) in &edits {
-            if position < *edit_position {
-                break;
-            }
-            if position == *edit_position && *removed == 0 && !right_biased {
-                return (*edit_position as isize + delta) as usize;
-            }
-            if position <= *edit_position + *removed {
-                return (*edit_position as isize + delta + *inserted as isize) as usize;
-            }
-            delta += *inserted as isize - *removed as isize;
-        }
-        (position as isize + delta) as usize
+        let assoc = if right_biased {
+            Assoc::After
+        } else {
+            Assoc::Before
+        };
+        change.map_pos(position, assoc).pos
     };
     // As in VS Code, a selection starting at a line's start keeps covering
     // the new indent; one starting in the line moves with its text, and one
@@ -328,29 +311,21 @@ pub(super) fn indented_through(
         }
         _ => map_offset(start, start == end || !at_line_start),
     }
-    .min(updated.len());
+    .min(len_after);
     let updated_end = if start == end {
         updated_start
     } else {
-        map_offset(end, true).min(updated.len())
+        map_offset(end, true).min(len_after)
     };
-    let updated_selection_start = updated[..updated_start].encode_utf16().count();
-    let updated_selection_end = updated[..updated_end].encode_utf16().count();
-    let pieces = edits
-        .iter()
-        .map(|&(at, removed, inserted)| (at..at + removed, unit[..inserted].to_string()))
-        .collect();
     Some(Indented {
-        text: updated,
-        start: updated_selection_start,
-        end: updated_selection_end,
-        pieces,
+        change,
+        selection: (updated_start, updated_end),
     })
 }
 
-/// Backspace in leading spaces deletes back to the previous indent stop.
-/// Returns the text and caret, or `None` for a plain Backspace.
-pub(super) fn backspace_indent(source: &str, cursor: usize, unit: &str) -> Option<(String, usize)> {
+/// Backspace in leading spaces deletes back to the previous indent stop;
+/// `None` for a plain Backspace.
+pub(super) fn backspace_indent(source: &str, cursor: usize, unit: &str) -> Option<Change> {
     let byte = utf16_to_byte_index(source, cursor);
     let line_start = source[..byte].rfind('\n').map_or(0, |index| index + 1);
     let before = &source[line_start..byte];
@@ -365,21 +340,18 @@ pub(super) fn backspace_indent(source: &str, cursor: usize, unit: &str) -> Optio
         0 => unit.len(),
         partial => partial,
     };
-    let mut updated = String::with_capacity(source.len());
-    updated.push_str(&source[..byte - remove]);
-    updated.push_str(&source[byte..]);
-    Some((updated, cursor - remove))
+    Some(Change::replace_bytes(source, byte - remove..byte, ""))
 }
 
 /// Typing `}`, `]`, or `)` on a blank line re-indents it to match the opening
-/// bracket's line. Returns the text (closer included) and caret, or `None`
-/// when typing it plainly is already right.
+/// bracket's line: the line's indent replaced by the opener's, the closer
+/// after it; `None` when typing it plainly is already right.
 pub(super) fn typed_closer(
     source: &str,
     cursor: usize,
     closer: char,
     behavior: &dyn ConfigLanguage,
-) -> Option<(String, usize)> {
+) -> Option<Change> {
     let config = behavior.config();
     let opener = config
         .brackets
@@ -424,13 +396,11 @@ pub(super) fn typed_closer(
     if indent == before {
         return None;
     }
-    let mut updated = String::with_capacity(source.len() + 1);
-    updated.push_str(&source[..line_start]);
-    updated.push_str(&indent);
-    updated.push(closer);
-    updated.push_str(&source[byte..]);
-    let caret = source[..line_start].encode_utf16().count() + indent.encode_utf16().count() + 1;
-    Some((updated, caret))
+    Some(Change::replace_bytes(
+        source,
+        line_start..byte,
+        &format!("{indent}{closer}"),
+    ))
 }
 
 #[cfg(test)]
@@ -495,6 +465,7 @@ mod toggle_tests {
 
 #[cfg(test)]
 mod tests {
+    use super::super::edit::Change;
     use super::super::language::{ConfigLanguage, LanguageConfig, LanguageInfo, ParseError};
     use super::{backspace_indent, indent_lines, typed_closer};
 
@@ -525,10 +496,13 @@ mod tests {
     }
 
     /// Applies `edit` at the `|` and returns the text with `|` at the new caret.
-    fn at(marked: &str, edit: impl Fn(&str, usize) -> Option<(String, usize)>) -> Option<String> {
+    fn at(marked: &str, edit: impl Fn(&str, usize) -> Option<Change>) -> Option<String> {
         let at = marked.find('|').unwrap();
         let source = marked.replace('|', "");
-        let (updated, caret) = edit(&source, source[..at].encode_utf16().count())?;
+        let change = edit(&source, source[..at].encode_utf16().count())?;
+        let updated = change.apply(&source)?;
+        // The caret after the text it wrote (bytes).
+        let caret = change.hull().map(|(_, written)| written.end)?;
         Some(format!("{}|{}", &updated[..caret], &updated[caret..]))
     }
 

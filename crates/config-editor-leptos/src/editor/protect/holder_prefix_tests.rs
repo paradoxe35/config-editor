@@ -19,7 +19,7 @@ use leptos::prelude::*;
 use super::super::Language;
 use super::super::edit::Edit;
 use super::super::host_editing::SaveRequest;
-use super::super::keyboard::{paired_edit, replace_selection};
+use super::super::keyboard::{paired_text, replace_selection};
 use super::super::language::Repetition;
 use super::super::paths::{FieldPath, TextPosition, TextRange};
 use super::super::save_matrix::report;
@@ -292,7 +292,7 @@ pub(super) fn type_at(state: EditorState, at: usize, typed: &str, pairs: bool) -
             continue;
         }
         let paired = if pairs {
-            paired_edit(&before, caret, caret, character, behavior)
+            paired_text(&before, caret, caret, character, behavior)
         } else {
             None
         };

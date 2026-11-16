@@ -83,7 +83,9 @@ pub(super) fn changed_bytes(before: &str, after: &str) -> (usize, usize, usize) 
 }
 
 /// The UTF-16 range of `before` that changed into `after`: the two texts
-/// are the same before and after it.
+/// are the same before and after it (the tests check the shared ends by
+/// it).
+#[cfg(test)]
 pub(super) fn changed_range(before: &str, after: &str) -> (usize, usize) {
     let shared = shared(before, after);
     let start = utf16_len(&before[..shared.prefix]);
@@ -118,21 +120,6 @@ pub(super) fn edit_range(before: &str, after: &str, caret: usize) -> (usize, usi
         return (from, from + removed);
     }
     (start, end)
-}
-
-/// Whether `after` is `before` with the UTF-16 range `start..end` replaced.
-#[cfg_attr(
-    not(feature = "protect"),
-    allow(dead_code, reason = "only protection asks")
-)]
-pub(super) fn replaces(before: &str, after: &str, (start, end): (usize, usize)) -> bool {
-    let shared = shared(before, after);
-    let prefix = utf16_len(&before[..shared.prefix]);
-    let full_tail = utf16_len(&before[before.len() - shared.full_suffix..]);
-    let old_len = prefix + utf16_len(&before[shared.prefix..]);
-    let new_len = prefix + utf16_len(&after[shared.prefix..]);
-    let kept = old_len.checked_sub(end).filter(|_| start <= end);
-    kept.is_some_and(|kept| new_len >= start + kept && start <= prefix && kept <= full_tail)
 }
 
 /// Where UTF-16 `offset` in `old` lands in `new`, when one region between a

@@ -3,11 +3,10 @@
 use leptos::prelude::*;
 use web_sys::KeyboardEvent;
 
-use super::super::bridge::links::Splice;
-use super::super::commands::{Indented, indented_through, line_range, tab_insert};
+use super::super::commands::{indent_lines_through, line_range, tab_insert};
 use super::super::completion::next_stop;
-use super::super::edit::Edit;
-use super::super::keyboard::{replace_selection, utf16_to_byte_index};
+use super::super::edit::{Change, Edit};
+use super::super::keyboard::utf16_to_byte_index;
 use super::super::state::{EditorState, is_backward, select, textarea_selection};
 
 pub(super) fn tab(state: EditorState, event: &KeyboardEvent) {
@@ -40,13 +39,9 @@ pub(super) fn tab(state: EditorState, event: &KeyboardEvent) {
         return;
     }
     // A selection within one line is replaced, as typing would.
-    let (updated, caret) = replace_selection(
-        &text,
-        start,
-        end,
-        &tab_insert(&text, start, &state.doc().indent.get_value()),
-    );
-    state.commit(Edit::new(text, (start, end), updated, caret));
+    let insert = tab_insert(&text, start, &state.doc().indent.get_value());
+    let change = Change::replace_units(&text, start, end, &insert);
+    state.commit(Edit::command(text, change, (start, end)));
     state.close_suggestions();
 }
 
@@ -154,41 +149,32 @@ fn indent_block(
     outdent: bool,
     backward: bool,
 ) {
-    let Some(Indented {
-        text: updated,
-        start: selection_start,
-        end: selection_end,
-        pieces,
-    }) = indented_through(
-        &text,
-        (start, end),
-        0,
-        outdent,
-        &state.doc().indent.get_value(),
-    )
-    else {
+    let unit = state.doc().indent.get_value();
+    let Some(indented) = indent_lines_through(&text, (start, end), 0, outdent, &unit) else {
         return;
     };
-    // The caret is the end that moves: the start of a backward selection.
-    let (anchor, caret) = if backward {
-        (selection_end, selection_start)
-    } else {
-        (selection_start, selection_end)
-    };
-    let made = if updated != text {
-        let splices = Some(Splice::each(pieces));
-        state.commit(
-            Edit::new(text, (start, end), updated, caret)
-                .selecting_from(anchor)
-                .splicing(splices),
-        )
-    } else {
-        true
-    };
+    let restore = if backward { (end, start) } else { (start, end) };
+    let edit = selected_through(
+        Edit::command(text, indented.change, restore),
+        indented.selection,
+        backward,
+    );
+    let (selection_start, selection_end) = edit.selected();
+    let made = edit.before == edit.text || state.commit(edit);
     // Keep the block selected, in the same direction (a refused edit
     // left the selection it started from).
     if made && let Some(element) = state.textarea() {
         select(&element, selection_start, selection_end, backward);
     }
     state.close_suggestions();
+}
+
+/// `edit` leaving `selection` (bytes of the text after) selected, its
+/// caret at the start with `backward` (the end that moves).
+pub(super) fn selected_through(edit: Edit, (start, end): (usize, usize), backward: bool) -> Edit {
+    if backward {
+        edit.selecting_bytes(end, start)
+    } else {
+        edit.selecting_bytes(start, end)
+    }
 }

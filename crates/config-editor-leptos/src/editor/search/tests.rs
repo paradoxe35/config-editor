@@ -227,8 +227,8 @@ fn regex_replacements_expand_groups_and_escapes() {
 fn replace_one_reports_where_the_replacement_went() {
     let text = "a: 1\nb: 1";
     let matcher = matcher_for("1");
-    let (result, range) = replace_one(text, &matcher, 8..9, "22");
-    assert_eq!(result, "a: 1\nb: 22");
+    let (change, range) = replace_one(text, &matcher, 8..9, "22");
+    assert_eq!(change.apply(text).as_deref(), Some("a: 1\nb: 22"));
     assert_eq!(range, 8..10);
 }
 

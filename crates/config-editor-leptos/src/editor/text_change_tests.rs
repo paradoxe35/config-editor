@@ -2,7 +2,7 @@
 //! random texts and edits (ASCII, 2- and 3-byte characters, characters
 //! outside the BMP, line breaks).
 
-use super::{changed_range, edit_range, map_through_change, replaces, utf16_len};
+use super::{changed_range, edit_range, map_through_change, utf16_len};
 
 /// What the texts' UTF-16 units read (the reference).
 mod units {
@@ -36,17 +36,6 @@ mod units {
             return (from, from + removed);
         }
         (start, end)
-    }
-
-    pub(super) fn replaces(before: &str, after: &str, (start, end): (usize, usize)) -> bool {
-        let old: Vec<u16> = before.encode_utf16().collect();
-        let new: Vec<u16> = after.encode_utf16().collect();
-        let kept = old.len().checked_sub(end).filter(|_| start <= end);
-        kept.is_some_and(|kept| {
-            new.len() >= start + kept
-                && old[..start] == new[..start]
-                && old[end..] == new[new.len() - kept..]
-        })
     }
 
     pub(super) fn map_through_change(old: &str, new: &str, offset: usize) -> usize {
@@ -119,18 +108,6 @@ fn reads_what_the_utf16_units_read() {
             units::edit_range(&before, &after, caret),
             "{before:?} → {after:?} at {caret}"
         );
-        let selection = (offset_of(&before, from), offset_of(&before, to));
-        let guess = (
-            offset_of(&before, random.below(chars.len() + 1)),
-            offset_of(&before, random.below(chars.len() + 1)),
-        );
-        for range in [selection, guess] {
-            assert_eq!(
-                replaces(&before, &after, range),
-                units::replaces(&before, &after, range),
-                "{before:?} → {after:?} replacing {range:?}"
-            );
-        }
         let offset = offset_of(&before, random.below(chars.len() + 1));
         assert_eq!(
             map_through_change(&before, &after, offset),
@@ -163,11 +140,6 @@ fn reads_long_texts_as_the_utf16_units_do() {
         assert_eq!(
             edit_range(&before, &after, caret),
             units::edit_range(&before, &after, caret)
-        );
-        let range = (utf16_len(&head), utf16_len(&head) + utf16_len(&removed));
-        assert_eq!(
-            replaces(&before, &after, range),
-            units::replaces(&before, &after, range)
         );
         let offset = offset_of(&before, random.below(before.chars().count() + 1));
         assert_eq!(
