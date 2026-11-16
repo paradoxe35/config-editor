@@ -43,6 +43,7 @@ mod stretch;
 
 use serde_json::Value;
 
+use super::super::edit::{Change, CodeUnits};
 use super::super::language::ConfigLanguage;
 use super::super::paths::FieldPath;
 use super::follow::follow_ranges;
@@ -81,13 +82,16 @@ impl Blocked {
 /// Where the edit left its caret (UTF-16, in the text after), as the
 /// followers take it.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(crate) struct Carets {
+pub(crate) struct Carets<'a> {
     /// The caret the host's ranges follow by (`ProtectState::follow_edit`);
     /// unknown, where the edited region ends.
     pub(crate) caret: Option<usize>,
     /// Where the text the edit wrote ends, which the locks follow by
     /// (`Sources::caret`); `None` for an undo or redo.
     pub(crate) written: Option<usize>,
+    /// What the edit recorded it did (`Edit::change`, in UTF-16), when it
+    /// did: both followers move the spans through it.
+    pub(crate) change: Option<&'a Change<CodeUnits>>,
 }
 
 /// Checks the edit turning `before` (whose locks are `protected`) into
@@ -116,6 +120,7 @@ pub(crate) fn check_at(
     let carets = Carets {
         caret,
         written: caret,
+        change: None,
     };
     judge(behavior, reading_schema, protected, texts, carets).map(|_| ())
 }
@@ -133,7 +138,7 @@ pub(crate) fn judge(
     reading_schema: Option<&Value>,
     protected: &Protected,
     (before, after): (&str, &str),
-    carets: Carets,
+    carets: Carets<'_>,
 ) -> Result<Option<Protected>, Blocked> {
     if protected.is_empty() || before == after {
         return Ok(None);
@@ -144,7 +149,7 @@ pub(crate) fn judge(
         return Ok(None);
     }
     let caret = carets.caret.unwrap_or_else(|| edited_end(before, after));
-    let ranges = follow_ranges(&protected.ranges, before, after, caret);
+    let ranges = follow_ranges(&protected.ranges, before, after, caret, carets.change);
     let paths: Vec<FieldPath> = protected
         .paths
         .iter()
@@ -161,6 +166,7 @@ pub(crate) fn judge(
             range_fields: &protected.range_fields,
             previous: Some(protected),
             caret: carets.written,
+            change: carets.change,
         },
     );
     spans::kept(
@@ -169,7 +175,7 @@ pub(crate) fn judge(
         &next,
         (before, after),
         (&protected.ranges, &ranges),
-        carets.written,
+        carets,
     )?;
     if !protected.unplaced.is_empty() {
         let reason = match &next.document {

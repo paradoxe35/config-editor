@@ -31,6 +31,7 @@ use std::sync::Arc;
 
 use serde_json::Value;
 
+use super::super::edit::{Change, CodeUnits};
 use super::super::language::ConfigLanguage;
 use super::super::paths::{FieldPath, with_spans};
 use super::reach::out_of_reach;
@@ -168,6 +169,9 @@ pub(crate) struct Sources<'a> {
     /// (UTF-16), when known: the locks follow the region it replaced as
     /// the guard placed it.
     pub(crate) caret: Option<usize>,
+    /// What that edit recorded it did, when it did (UTF-16): the locks are
+    /// moved through it.
+    pub(crate) change: Option<&'a Change<CodeUnits>>,
 }
 
 /// The locks of `text`, written in `behavior`: the host's ranges, then each

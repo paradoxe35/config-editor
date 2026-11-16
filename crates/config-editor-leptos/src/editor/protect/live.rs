@@ -9,7 +9,7 @@ use leptos::prelude::*;
 
 use super::super::codec;
 use super::super::diagnostics::SchemaBundle;
-use super::super::edit::{Edit, Origin};
+use super::super::edit::{Change, CodeUnits, Edit, Origin};
 use super::super::edit_as::SaveError;
 use super::super::language::ConfigLanguage;
 use super::super::languages::Language;
@@ -69,14 +69,23 @@ pub(crate) struct Marks {
     /// [`EditorState::hold_change`]): new locks from the host that release
     /// it send the text on screen then.
     held_back: bool,
-    /// The last edit followed: the length (bytes) of the text it made and
-    /// the caret it left there (UTF-16), so the locks follow it as the
-    /// guard judged it (see `locks::Sources::caret`).
-    followed: Option<(usize, usize)>,
+    /// The last edit followed, so the locks follow it as the guard judged
+    /// it (see `locks::Sources::caret` and `change`).
+    followed: Option<Followed>,
     /// The locks the guard found for the text of the edit it took (see
     /// `guard::judge`): the memo of locks takes them for that text instead
     /// of finding them again, so the editor holds the spans as judged.
     foreseen: Option<(String, Protected)>,
+}
+
+/// An edit the locks follow: the length (bytes) of the text it made, the
+/// caret it left there (UTF-16; none for an undo or redo) and what it
+/// recorded it did (`Edit::change`, in UTF-16).
+#[derive(Clone)]
+struct Followed {
+    len: usize,
+    caret: Option<usize>,
+    change: Option<Arc<Change<CodeUnits>>>,
 }
 
 /// The protection signals of one editor.
@@ -181,10 +190,13 @@ impl ProtectState {
                     Vec::new()
                 };
                 source.with(|text| {
-                    let caret = marks
-                        .with_value(|marks| marks.followed)
-                        .filter(|(length, _)| *length == text.len())
-                        .map(|(_, caret)| caret);
+                    let followed = marks
+                        .with_value(|marks| marks.followed.clone())
+                        .filter(|followed| followed.len == text.len());
+                    let caret = followed.as_ref().and_then(|followed| followed.caret);
+                    let change = followed
+                        .as_ref()
+                        .and_then(|followed| followed.change.clone());
                     // Taken only for the text it was found for: the memo may
                     // run between the check and the write (the host's
                     // ranges followed first), on the text before.
@@ -219,6 +231,7 @@ impl ProtectState {
                             range_fields: &range_fields,
                             previous,
                             caret,
+                            change: change.as_deref(),
                         },
                     );
                     protected.epoch = epoch;
@@ -410,6 +423,11 @@ fn text_ranges_kept(
     Ok(())
 }
 
+/// What `edit` recorded it did, in UTF-16 code units of its text before.
+fn recorded(edit: &Edit) -> Option<Change<CodeUnits>> {
+    edit.change()?.in_utf16(&edit.before)
+}
+
 /// Whether the locks the guard found (`foreseen`) are those the memo would
 /// find for `text`: from the same locks before, paths and host ranges.
 fn foreseen_fits(
@@ -524,9 +542,11 @@ impl EditorState {
     /// The edit pipeline's check stage: whether `edit` keeps every lock;
     /// when not, why the field is locked.
     pub(crate) fn check_edit(&self, edit: &Edit) -> Result<(), String> {
+        let change = recorded(edit);
         let carets = Carets {
             caret: Some(edit.caret()),
             written: edit.written_end(),
+            change: change.as_ref(),
         };
         let followed = self
             .protect()
@@ -648,15 +668,20 @@ impl EditorState {
     /// ranges, the secret placeholders).
     pub(crate) fn follow_edit(&self, edit: &Edit) {
         let (before, after, caret) = (edit.before.as_str(), edit.text.as_str(), edit.caret());
+        let change = recorded(edit).map(Arc::new);
         self.protect().marks.update_value(|marks| {
-            marks.followed = edit.written_end().map(|end| (after.len(), end));
+            marks.followed = Some(Followed {
+                len: after.len(),
+                caret: edit.written_end(),
+                change: change.clone(),
+            });
         });
-        self.follow_tokens(before, after, caret);
+        self.follow_tokens(before, after, caret, change.as_deref());
         if self.protect().ranges.with_untracked(Vec::is_empty) {
             return;
         }
         self.protect().ranges.update(|ranges| {
-            *ranges = follow_ranges(ranges, before, after, caret);
+            *ranges = follow_ranges(ranges, before, after, caret, change.as_deref());
         });
     }
 
@@ -899,6 +924,7 @@ impl EditorState {
                     range_fields: &[],
                     previous: None,
                     caret: None,
+                    change: None,
                 },
             );
             check_save(behavior, reading, old, new, &pointers)?;

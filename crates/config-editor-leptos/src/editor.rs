@@ -94,6 +94,8 @@ mod sync;
 mod platform;
 #[cfg(all(test, feature = "yaml"))]
 mod test_state;
+#[cfg(feature = "protect")]
+mod text;
 mod text_change;
 mod theme;
 mod touch;

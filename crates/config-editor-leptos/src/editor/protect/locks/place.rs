@@ -99,8 +99,14 @@ impl<'r, 'a> Placer<'r, 'a> {
             reading,
             carried,
             before,
-            moves: followed
-                .map(|previous| Moves::at(&previous.text, reading.text, reading.sources.caret)),
+            moves: followed.map(|previous| {
+                Moves::at(
+                    &previous.text,
+                    reading.text,
+                    reading.sources.caret,
+                    reading.sources.change,
+                )
+            }),
             pins: carried
                 .map(|previous| previous.pins.clone())
                 .unwrap_or_default(),

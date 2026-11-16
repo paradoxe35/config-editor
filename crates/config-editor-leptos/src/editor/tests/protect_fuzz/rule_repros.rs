@@ -221,3 +221,70 @@ fn an_entry_below_a_half_typed_item_is_taken() {
         ],
     );
 }
+
+/// A list item a host range covers, at another index after a line typed
+/// above it in a custom language: the range keeps its text, and the next
+/// entry typed there is taken.
+#[test]
+fn an_entry_above_a_range_covered_item_is_taken() {
+    let setup = Setup {
+        case: 10,
+        lock: Lock::Range,
+        host: None,
+        pairs: false,
+    };
+    assert_ok(
+        &setup,
+        &[
+            Act::Entry {
+                anchor: 0,
+                name: 10,
+                paste: false,
+            },
+            Act::ReplaceAll { pair: 5 },
+            Act::Type { at: 2118, text: 5 },
+            Act::ReplaceAll { pair: 5 },
+            Act::Cut { line: 38781 },
+            Act::Entry {
+                anchor: 0,
+                name: 1,
+                paste: false,
+            },
+        ],
+    );
+}
+
+/// A TOML table typed a key at a time below a range's table, after a line
+/// moved and undone: taken. Open (over-refusal, also before the one rule):
+/// the lock of the field the range covers runs on over the blank lines
+/// after it, so a key typed there writes inside its span.
+#[test]
+#[ignore = "open: a range-covered field's span runs on over blank lines after an undone line move"]
+fn a_table_typed_below_a_range_after_an_undone_move_is_taken() {
+    let setup = Setup {
+        case: 4,
+        lock: Lock::Range,
+        host: None,
+        pairs: false,
+    };
+    assert_ok(
+        &setup,
+        &[
+            Act::Entry {
+                anchor: 2,
+                name: 12,
+                paste: false,
+            },
+            Act::Line {
+                line: 10085,
+                command: 1,
+            },
+            Act::Undo,
+            Act::Entry {
+                anchor: 2,
+                name: 5,
+                paste: false,
+            },
+        ],
+    );
+}

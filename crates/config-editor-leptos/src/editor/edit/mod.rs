@@ -60,11 +60,18 @@
 //! What a caller does around an edit (closing suggestions, typing aids) is
 //! its own; [`EditorState::commit`] returns whether the edit was made.
 
+// Only protection follows positions through a change so far.
+#[cfg(feature = "protect")]
+mod change;
+#[cfg(all(test, feature = "protect"))]
+mod change_tests;
 mod origin;
 mod pipeline;
 #[cfg(all(test, feature = "yaml"))]
 mod tests;
 
+#[cfg(feature = "protect")]
+pub(super) use change::{Assoc, Change, CodeUnits, Moved};
 pub(super) use origin::Origin;
 #[cfg(all(test, feature = "yaml"))]
 pub(super) use pipeline::{Stage, take_trace};
@@ -75,8 +82,12 @@ use super::bridge::links::Splice;
 use super::fold_ranges::FoldRange;
 use super::history::{Selection, Snapshot};
 use super::input::{UNKNOWN_SELECTION, edit_range};
+#[cfg(feature = "protect")]
+use super::keyboard::utf16_to_byte_index;
 use super::languages::Language;
 use super::state::{EditorState, textarea_selection};
+#[cfg(feature = "protect")]
+use super::text::{TextRange, TextSize};
 
 /// A change to the document: the text before and after, the selection it
 /// was made on, where the selection goes, and what made it.
@@ -190,6 +201,44 @@ impl Edit {
             }
             _ => Splice::of(&self.before, &self.text, self.selection, self.caret()),
         }
+    }
+
+    /// What the edit did, exactly, as the code making it recorded it: the
+    /// splices a command gave (a line command's lines moved with them),
+    /// else the selection the edit replaced, when the texts agree it did
+    /// (typing, paste, cut, drop, a command replacing its selection); each
+    /// replacement without the text it writes back as it was at its ends.
+    /// `None` for an edit with no record, whose followers read the change
+    /// off the two texts: an undo or redo (the history keeps texts, not
+    /// changes), input whose selection the browser did not give
+    /// (`UNKNOWN_SELECTION`), a command whose new text is not its selection
+    /// replaced and that gave no splices (a comment toggle, a suggestion
+    /// rewriting its line, Revert), and the host's own texts (a value, a
+    /// reload, an Edit-as switch), which no check or follower judges.
+    #[cfg(feature = "protect")]
+    pub(super) fn change(&self) -> Option<Change> {
+        self.recorded()?.narrowed(&self.before)
+    }
+
+    /// [`Self::change`] as recorded, before it is narrowed.
+    #[cfg(feature = "protect")]
+    fn recorded(&self) -> Option<Change> {
+        if !matches!(self.origin, Origin::Command | Origin::Input { .. }) {
+            return None;
+        }
+        if let Some(splices) = self.splices.as_ref().filter(|splices| {
+            Splice::make(&self.before, splices).as_deref() == Some(self.text.as_str())
+        }) {
+            return change_of_splices(&self.before, splices);
+        }
+        if self.selection == UNKNOWN_SELECTION {
+            return None;
+        }
+        let (start, end) = self.selection;
+        let byte = |at: usize| utf16_to_byte_index(&self.before, at);
+        (start <= end)
+            .then(|| Change::replacing_selection(&self.before, &self.text, byte(start)..byte(end)))
+            .flatten()
     }
 
     /// Leaves the scroll position alone (an edit made with the mouse, where
@@ -342,6 +391,30 @@ impl Edit {
             self.selection
         }
     }
+}
+
+/// The change `splices` (sorted, apart) make of `before`, each one's
+/// moved stretches carried to where its inserted text writes them.
+#[cfg(feature = "protect")]
+fn change_of_splices(before: &str, splices: &[Splice]) -> Option<Change> {
+    let mut shift: isize = 0;
+    let mut moved = Vec::new();
+    for splice in splices {
+        let at = splice.at.checked_add_signed(shift)?;
+        moved.extend(splice.moved.iter().map(|piece| Moved {
+            from: piece.from,
+            len: piece.len,
+            to: at + piece.to,
+        }));
+        shift += splice.inserted.len() as isize - splice.removed as isize;
+    }
+    let edits = splices.iter().map(|splice| {
+        let start = TextSize::try_from(splice.at).ok()?;
+        let len = TextSize::try_from(splice.removed).ok()?;
+        Some((TextRange::at(start, len), splice.inserted.clone()))
+    });
+    let edits: Option<Vec<_>> = edits.collect();
+    Some(Change::of_ranges(TextSize::of(before), edits?)?.with_moved(moved))
 }
 
 impl EditorState {

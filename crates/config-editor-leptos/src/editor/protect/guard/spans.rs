@@ -26,19 +26,19 @@ use super::content::{content_areas, in_lock, in_locked_content};
 use super::pins::all_pinned;
 use super::spacing::between_tokens;
 use super::stretch::{glued, is_blank};
-use super::{Blocked, Why, refused};
+use super::{Blocked, Carets, Why, refused};
 
 /// Checks that every span of `before` (its locks `protected`, its host
 /// ranges `ranges.0`) is kept in `after` (its locks `next`, the ranges
-/// followed `ranges.1`); the locks were moved through the edit by its
-/// caret `written`.
+/// followed `ranges.1`); the locks were moved through the edit as
+/// `carets` say.
 pub(super) fn kept(
     behavior: &dyn ConfigLanguage,
     protected: &Protected,
     next: &Protected,
     (before, after): (&str, &str),
     (was, now): (&[Range<usize>], &[Range<usize>]),
-    written: Option<usize>,
+    carets: Carets<'_>,
 ) -> Result<(), Blocked> {
     let old: Vec<u16> = before.encode_utf16().collect();
     let new: Vec<u16> = after.encode_utf16().collect();
@@ -81,7 +81,7 @@ pub(super) fn kept(
         lines: OnceCell::new(),
         content: OnceCell::new(),
     };
-    let moves = Moves::at(before, after, written);
+    let moves = Moves::at(before, after, carets.written, carets.change);
     for lock in protected.locks.iter().filter(|lock| lock.pointer.is_some()) {
         spans.lock_kept(protected, lock, &moves)?;
     }
@@ -142,16 +142,14 @@ impl Spans<'_> {
         let kept = |now: &Lock| self.same_text(lock, now) || self.respaced(lock, now);
         // A list item sits at another index when items before it went (a
         // field a host range covers is found again from the range there):
-        // in a text that parses no longer holding its pointer, a lock
-        // holding its text, under another pointer or the host's range
-        // itself, keeps it.
+        // when the text after no longer holds its pointer, a lock holding
+        // its text keeps it: the host's range itself, or, in a text that
+        // parses, the lock of another pointer.
         let by_text = || {
-            self.next.document.is_some().then(|| {
-                self.next
-                    .locks
-                    .iter()
-                    .find(|other| self.same_value_text(lock, other))
-            })
+            Some(self.next.locks.iter().find(|other| {
+                (self.next.document.is_some() || other.pointer.is_none())
+                    && self.same_value_text(lock, other)
+            }))
         };
         // A text that does not parse holds its locks where the follower
         // moved them: a lock read again off it (the same text found on a
@@ -187,7 +185,11 @@ impl Spans<'_> {
                 why: Why::Holds,
             });
         }
+        // A field a host range covers is found again from the range in a
+        // text that parses (the range keeps its own text): never lost there.
+        let found_again = lock.reason == Reason::Range && self.next.document.is_some();
         let lost = placed.is_none()
+            && !found_again
             && by_text().flatten().is_none()
             && !held
             && !self
