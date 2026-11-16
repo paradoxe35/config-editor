@@ -201,6 +201,8 @@ mod read_back;
     feature = "xml"
 ))]
 mod renamed_aliases;
+#[cfg(all(feature = "yaml", feature = "json"))]
+mod renamed_by_links;
 #[cfg(all(feature = "yaml", feature = "xml"))]
 mod schema_meanings;
 #[cfg(all(

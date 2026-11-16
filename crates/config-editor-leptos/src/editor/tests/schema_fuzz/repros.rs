@@ -682,3 +682,16 @@ fn xml_view_text_saves_as_read_where_the_schema_takes_only_that_reading() {
         json!({"x_two": {"a": "true"}}),
     );
 }
+
+/// A number typed in an XML view where an overlapping `oneOf` (`{}`
+/// beside a string option) would take the host's string twice saves as
+/// the view reads it (P2, PutGet).
+#[test]
+fn a_number_under_an_overlapping_one_of_saves_as_the_view_reads_it() {
+    holds_everywhere(
+        super::edit_as::check,
+        json!({"properties": {"x_one": {"oneOf": [{}, {"properties": {"x_one": {"type": "string"}}}]}}}),
+        json!({"x_one": {"x_one": "-"}}),
+        json!({"x_one": {"x_one": 0}}),
+    );
+}

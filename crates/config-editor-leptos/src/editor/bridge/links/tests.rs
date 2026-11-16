@@ -34,7 +34,7 @@ impl View {
     fn new(text: &str) -> Self {
         View {
             text: text.to_string(),
-            links: Links::fresh(HOST, text),
+            links: Links::fresh(HOST, text, None),
             clipboard: Clipboard::default(),
         }
     }
@@ -193,7 +193,7 @@ fn per_line_splices_keep_every_items_link() {
 }
 
 /// A Replace all over many items follows their links with work in
-/// proportion to them (QA `SP38-1`).
+/// proportion to them (P5).
 #[test]
 fn many_splices_are_followed_in_one_pass() {
     let work = |count: usize| {
@@ -214,7 +214,7 @@ fn many_splices_are_followed_in_one_pass() {
 }
 
 /// An XML view's list starts on its first item's line: both have lines
-/// (QA `E38-5`: a copy of the first item had no link), told apart by how
+/// (a copy of the first item has a link too), told apart by how
 /// far they go; a flow list's items, side by side on one line, have none.
 #[cfg(feature = "xml")]
 #[test]

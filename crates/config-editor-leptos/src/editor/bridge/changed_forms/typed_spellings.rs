@@ -4,9 +4,10 @@
 //! `6`, `.5`); a number typed in the view's own form is saved in the form
 //! of the one it replaces (`0x1F90` edited to 8083 is `0x1F93`).
 
-use super::super::codec;
-use super::super::language::ConfigLanguage;
-use super::changed_scalars;
+use super::super::changed_scalars;
+use crate::editor::codec;
+use crate::editor::item_sources::ItemSources;
+use crate::editor::language::ConfigLanguage;
 use serde_json::Value;
 
 /// `saved` (the host text `previous` patched to read as `target`) with
@@ -23,15 +24,25 @@ use serde_json::Value;
 /// A host whose values are all text reads a number kept as typed as that
 /// text (`4.10`): [`Spelled::as_text`] says which, so the save's read-back
 /// check reads them as the numbers they are.
-pub(super) fn kept(
+pub(in crate::editor::bridge) fn kept(
     (host, edit): (&dyn ConfigLanguage, &dyn ConfigLanguage),
     (previous, edit_text): (&str, &str),
     (old, target): (&Value, &Value),
     (saved, respelled): (String, Vec<String>),
     shape: Option<&Value>,
+    sources: Option<&ItemSources>,
 ) -> Spelled {
+    // A key renamed holds its number where the host held it under its
+    // old name: its form is read there.
+    let renames = codec::renames(old, target, sources);
+    let from = |pointer: &str| codec::source_pointer(&renames, pointer);
     let mut changed = Vec::new();
-    changed_scalars(old, target, String::new(), &mut changed);
+    changed_scalars(
+        &codec::with_renames(old, &renames, true),
+        target,
+        String::new(),
+        &mut changed,
+    );
     changed.retain(|pointer| {
         target
             .pointer(pointer)
@@ -81,14 +92,15 @@ pub(super) fn kept(
     let numbers: Vec<String> = places
         .iter()
         .filter(|(pointer, value, _)| {
-            value.is_number() && old.pointer(pointer).is_some_and(Value::is_number)
+            value.is_number() && old.pointer(&from(pointer)).is_some_and(Value::is_number)
         })
         .map(|(pointer, ..)| (*pointer).clone())
         .collect();
+    let held: Vec<String> = numbers.iter().map(|pointer| from(pointer)).collect();
     let was: std::collections::HashMap<String, std::ops::Range<usize>> = numbers
         .iter()
         .cloned()
-        .zip(ranges(host, previous, &numbers))
+        .zip(ranges(host, previous, &held))
         .filter_map(|(pointer, range)| Some((pointer, range?)))
         .collect();
     let mut edits = Vec::new();
@@ -143,9 +155,9 @@ pub(super) fn kept(
 
 /// A save's text with numbers spelled as typed, and those a host whose
 /// values are all text holds as the typed text (pointer, text).
-pub(super) struct Spelled {
-    pub(super) text: String,
-    pub(super) as_text: Vec<(String, String)>,
+pub(in crate::editor::bridge) struct Spelled {
+    pub(in crate::editor::bridge) text: String,
+    pub(in crate::editor::bridge) as_text: Vec<(String, String)>,
 }
 
 impl Spelled {
@@ -161,7 +173,7 @@ impl Spelled {
 /// as `seen` (its value of `shown`, the view of the host before the edit)
 /// held them but spelled otherwise there: `4.80` typed over `4.8`. Only
 /// numbers in the part of the text the edit changed are looked at.
-pub(super) fn respelled(
+pub(in crate::editor::bridge) fn respelled(
     edit: &dyn ConfigLanguage,
     (shown, edit_text): (&str, &str),
     (seen, edited): (&Value, &Value),
@@ -240,7 +252,7 @@ fn ranges(
     text: &str,
     pointers: &[String],
 ) -> Vec<Option<std::ops::Range<usize>>> {
-    super::super::paths::with_spans(language, text, &[], || {
+    crate::editor::paths::with_spans(language, text, &[], || {
         language
             .value_spans(text, pointers)
             .into_iter()
@@ -284,7 +296,7 @@ fn inside_quotes(
     range: std::ops::Range<usize>,
 ) -> std::ops::Range<usize> {
     let written = &text[range.clone()];
-    let flow = super::super::flow_syntax::Flow::of(language);
+    let flow = crate::editor::flow_syntax::Flow::of(language);
     match written.chars().next() {
         Some(quote)
             if written.len() >= 2 * quote.len_utf8()
@@ -332,13 +344,13 @@ fn spelled(
 /// Whether the host writes a string `written` so bare: unquoted, on one
 /// line.
 fn bare_string(host: &dyn ConfigLanguage, written: &str) -> bool {
-    !super::super::flow_syntax::Flow::of(host).starts_quoted(written) && !written.contains('\n')
+    !crate::editor::flow_syntax::Flow::of(host).starts_quoted(written) && !written.contains('\n')
 }
 
 /// `typed` (as `edit` writes it) without the quotes around it, when it
 /// holds no escape, quote or line break.
 fn unquoted<'a>(edit: &dyn ConfigLanguage, typed: &'a str) -> Option<&'a str> {
-    let flow = super::super::flow_syntax::Flow::of(edit);
+    let flow = crate::editor::flow_syntax::Flow::of(edit);
     let inner = typed
         .chars()
         .next()
@@ -355,7 +367,7 @@ fn unquoted<'a>(edit: &dyn ConfigLanguage, typed: &'a str) -> Option<&'a str> {
 /// `number` written in decimal (`4.10`, `1e3`): what a reader takes for
 /// it where a number is wanted. Another language's spelling (`47_2`,
 /// `0x1F`) is other text there.
-pub(super) fn text_reads_as_number(text: &str, number: &Value) -> bool {
+pub(in crate::editor::bridge) fn text_reads_as_number(text: &str, number: &Value) -> bool {
     let Some(number) = number.as_number() else {
         return false;
     };

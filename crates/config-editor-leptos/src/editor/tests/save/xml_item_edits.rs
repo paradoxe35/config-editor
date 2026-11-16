@@ -86,7 +86,7 @@ fn session(
         .to_edit(host)
         .map_err(|error| error.to_string())?
         .text;
-    let mut links = Links::fresh(host, &view);
+    let mut links = Links::fresh(host, &view, Some(bridge.reading()));
     let mut clipboard = Clipboard::default();
     let mut saved = host.to_string();
     let mut steps = steps(&view);
@@ -106,7 +106,7 @@ fn session(
                 saved = bridge
                     .to_host_linked(&view, &saved, host, told.as_ref(), &[])
                     .map_err(|error| format!("{error:?}"))?;
-                links = Links::fresh(&saved, &view);
+                links = Links::fresh(&saved, &view, Some(bridge.reading()));
             }
         }
     }

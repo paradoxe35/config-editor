@@ -282,23 +282,12 @@ pub(super) fn kept(
     shape: Option<&Value>,
     told: SaveTold<'_>,
 ) -> Result<String, String> {
-    // The view's pointers as the host spells them: a view that writes a
-    // list of one as its item (XML) names `/l/x` for the host's `/l/0/x`.
+    // The view's pointers as the save spells them: a view that writes a
+    // list of one as its item (XML) names `/l/x` for the save's `/l/0/x`.
+    // The sources name the host's paths already.
     let items: ItemMap = items
         .iter()
-        .map(|(to, source)| {
-            let to = as_written(intended, to);
-            let source = match source {
-                ItemSource::Previous(from) => {
-                    ItemSource::Previous(as_written(previous.value, from))
-                }
-                ItemSource::Origin(from) => ItemSource::Origin(match origin {
-                    Some(origin) => as_written(origin.value, from),
-                    None => from.clone(),
-                }),
-            };
-            (to, source)
-        })
+        .map(|(to, source)| (super::links::spelled_in(intended, to), source.clone()))
         .collect();
     let items = &items;
     let saved = relocated(
@@ -536,49 +525,4 @@ fn relocated(
         }
     }
     Ok(text)
-}
-
-/// `pointer` as `value` holds it: where `value` has a list of one and the
-/// pointer names no index in it, the index `0` put in (a view that writes
-/// a list of one as its item names it without one), and left out where
-/// `value` holds the item itself; `pointer` itself when
-/// it names nothing there either way.
-pub(super) fn as_written(value: &Value, pointer: &str) -> String {
-    if value.pointer(pointer).is_some() {
-        return pointer.to_string();
-    }
-    let mut out = String::new();
-    let mut at = value;
-    for segment in pointer.split('/').skip(1) {
-        if let Value::Array(items) = at
-            && items.len() == 1
-            && segment.parse::<usize>().is_err()
-        {
-            out.push_str("/0");
-            at = &items[0];
-        }
-        // The other way: a view's list of one the host writes as its
-        // item (an HCL block written once).
-        if segment == "0"
-            && let Value::Object(map) = at
-            && !map.contains_key("0")
-        {
-            continue;
-        }
-        out.push('/');
-        out.push_str(segment);
-        let child = match at {
-            Value::Object(map) => map.get(&segment.replace("~1", "/").replace("~0", "~")),
-            Value::Array(items) => segment
-                .parse::<usize>()
-                .ok()
-                .and_then(|index| items.get(index)),
-            _ => None,
-        };
-        match child {
-            Some(child) => at = child,
-            None => return pointer.to_string(),
-        }
-    }
-    out
 }

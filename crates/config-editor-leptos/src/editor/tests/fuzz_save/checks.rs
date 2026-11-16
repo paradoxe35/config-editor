@@ -112,6 +112,10 @@ pub(super) struct Start {
     shown_values: std::cell::RefCell<std::collections::HashSet<String>>,
     /// The views' texts at each save since: what the user wrote.
     written: std::cell::RefCell<String>,
+    /// The texts of the values the user wrote as no view showed them
+    /// (`350.00` typed over `350.0`): their own spelling, whatever views
+    /// built from a save show it after.
+    typed: std::cell::RefCell<std::collections::HashSet<String>>,
     /// Each view text shown or saved in sync, with its language and the
     /// host text it stands for: a view back to one saves that text.
     synced: std::cell::RefCell<Vec<(Language, String, String)>>,
@@ -134,6 +138,7 @@ impl Start {
             shown_comments: comment_bodies(view, view_text),
             shown: view_text.to_string(),
             written: Default::default(),
+            typed: Default::default(),
             changed: Default::default(),
             edited: Default::default(),
             made: Default::default(),
@@ -154,9 +159,15 @@ impl Start {
         }
     }
 
-    /// The user wrote `view_text` (before a save or a switch).
-    pub(super) fn note(&self, view_text: &str) {
+    /// The user wrote `view_text` (in `view`, before a save or a switch).
+    pub(super) fn note(&self, view: Language, view_text: &str) {
         self.written.borrow_mut().push_str(view_text);
+        let shown = self.shown_values.borrow();
+        let typed: Vec<String> = value_texts(view, view_text)
+            .into_iter()
+            .filter(|text| !shown.contains(text))
+            .collect();
+        self.typed.borrow_mut().extend(typed);
     }
 
     /// A switch shows the comments `view_text` writes.
@@ -801,8 +812,9 @@ fn check_forms(
             .trim()
             .trim_matches(['"', '\'']);
         !spelled.is_empty()
-            && (view_text.contains(spelled) || start.written.borrow().contains(spelled))
-            && !start.shown.contains(spelled)
+            && ((view_text.contains(spelled) || start.written.borrow().contains(spelled))
+                && !start.shown.contains(spelled)
+                || start.typed.borrow().contains(spelled))
     };
     // A list item's name: its list's and its index.
     let named = |pointer: &str| {
@@ -916,6 +928,7 @@ fn check_forms(
         let reordered_moved = candidates.iter().any(|from| reordered(&pointer, from));
         if !textless
             && !users_own(&pointer)
+            && !retyped(form)
             && !reordered_moved
             && !sources.is_empty()
             && !sources.contains(&form)

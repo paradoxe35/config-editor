@@ -1,8 +1,8 @@
 //! Values edited while editing as a language that writes every scalar as
 //! text (XML), saved in the host's types.
 
-use super::super::decimal_text::decimal;
-use super::schema_readings;
+use super::super::schema_readings;
+use crate::editor::decimal_text::decimal;
 use serde_json::Value;
 
 /// `value` (the host value with the edit merged in) with each scalar the
@@ -21,7 +21,7 @@ use serde_json::Value;
 /// it otherwise (`edited`): a key renamed onto one the schema types (the
 /// host's string `"true"` under a key whose schema is `boolean`) is saved
 /// as the view means it.
-pub(super) fn in_host_types(
+pub(in crate::editor::bridge) fn in_host_types(
     old: &Value,
     (seen, edited): (&Value, &Value),
     value: Value,

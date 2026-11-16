@@ -145,22 +145,49 @@ fn merge_at(
             // map of thousands is no pass over all of them per key.)
             // The host's keys the edit no longer has, by what the edit
             // language showed for them (its text), in the host's order.
+            let mut renamed_to: std::collections::HashMap<&String, &String> =
+                std::collections::HashMap::new();
+            let mut renamed_keys: std::collections::HashSet<&String> =
+                std::collections::HashSet::new();
+            // A key the links tell is a host key of this map the edit no
+            // longer has: that key renamed, whatever it holds.
+            if let Some(told) = view.told {
+                for key in edited.keys().filter(|key| !host.contains_key(*key)) {
+                    note(Work::MergeKeyVisit);
+                    let Some(ItemSource::Previous(from)) = told.items.get(&child(key)) else {
+                        continue;
+                    };
+                    let Some((parent, name)) = from.rsplit_once('/') else {
+                        continue;
+                    };
+                    let name = crate::editor::language::unescaped_key(name);
+                    if parent == at
+                        && !edited.contains_key(&name)
+                        && let Some((old, _)) = host.get_key_value(&name)
+                        && !renamed_to.contains_key(old)
+                    {
+                        renamed_to.insert(old, key);
+                        renamed_keys.insert(key);
+                    }
+                }
+            }
             let mut gone: std::collections::HashMap<String, std::collections::VecDeque<&String>> =
                 std::collections::HashMap::new();
-            if edited.keys().any(|key| !host.contains_key(key)) {
-                for old in host.keys().filter(|old| visit(!edited.contains_key(*old))) {
+            if edited
+                .keys()
+                .any(|key| !host.contains_key(key) && !renamed_keys.contains(key))
+            {
+                for old in host.keys().filter(|old| {
+                    visit(!edited.contains_key(*old) && !renamed_to.contains_key(*old))
+                }) {
                     if let Some(shown) = seen.get(old) {
                         gone.entry(canonical(shown)).or_default().push_back(old);
                     }
                 }
             }
-            let mut renamed_to: std::collections::HashMap<&String, &String> =
-                std::collections::HashMap::new();
-            let mut renamed_keys: std::collections::HashSet<&String> =
-                std::collections::HashSet::new();
             for (key, value) in edited {
                 note(Work::MergeKeyVisit);
-                if host.contains_key(key) || gone.is_empty() {
+                if host.contains_key(key) || gone.is_empty() || renamed_keys.contains(key) {
                     continue;
                 }
                 let from = gone

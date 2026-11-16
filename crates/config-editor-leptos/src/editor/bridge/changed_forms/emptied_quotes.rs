@@ -3,9 +3,9 @@
 //! alone does not say whether quotes were the text's style or only how an
 //! empty string is written.
 
-use super::super::codec;
-use super::super::language::ConfigLanguage;
-use super::changed_scalars;
+use super::super::changed_scalars;
+use crate::editor::codec;
+use crate::editor::language::ConfigLanguage;
 use serde_json::Value;
 
 /// `previous` with each string the edit fills again (empty in `old`, text
@@ -13,7 +13,7 @@ use serde_json::Value;
 /// wrote it, when it was quoted there and `previous` writes only `""` or
 /// `''`: the patch then writes the new text in those quotes. `None` when
 /// nothing applies.
-pub(super) fn restored(
+pub(in crate::editor::bridge) fn restored(
     host: &dyn ConfigLanguage,
     previous: &str,
     origin: &str,
@@ -50,7 +50,7 @@ pub(super) fn restored(
             continue;
         };
         let was_text = &origin[was];
-        let flow = super::super::flow_syntax::Flow::of(host);
+        let flow = crate::editor::flow_syntax::Flow::of(host);
         let quoted = was_text
             .chars()
             .next()

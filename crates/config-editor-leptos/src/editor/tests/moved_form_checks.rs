@@ -103,7 +103,7 @@ fn a_typed_value_is_saved_without_reading_the_items() {
         let shown = bridge.to_edit(&host).expect("shown").text;
         let at = shown.find("mid: 1").expect("mid") + "mid: 1".len();
         let typed = format!("{}2{}", &shown[..at], &shown[at..]);
-        let mut links = Links::fresh(&host, &shown);
+        let mut links = Links::fresh(&host, &shown, Some(bridge.reading()));
         let caret = units(&shown[..at]) + 1;
         let made = crate::editor::edit::Edit::input(
             shown.clone(),

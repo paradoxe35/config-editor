@@ -7,9 +7,9 @@
 
 use serde_json::{Value, json};
 
-use super::super::languages::Language;
-use super::super::work_count::{Work, counted};
-use super::Bridge;
+use super::super::Bridge;
+use crate::editor::languages::Language;
+use crate::editor::work_count::{Work, counted};
 
 /// The `work` saving a digit typed after the middle service's `typed`
 /// value (its `port`, a number, or its `image`, a string), in a `view` of

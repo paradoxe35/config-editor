@@ -12,6 +12,12 @@
 
 use std::collections::HashMap;
 
+mod pairing;
+
+pub(crate) use pairing::Pairing;
+#[cfg(feature = "xml")]
+pub(crate) use pairing::{Side, Step, renamed_from};
+
 /// Where an item of the saved value comes from, by its pointer.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum ItemSource {
@@ -31,9 +37,10 @@ pub(crate) struct ItemSources {
     /// The earlier host text the [`ItemSource::Origin`] items are in.
     pub(crate) origin: String,
     /// Each item's (and map entry's) source, by its pointer in the view's
-    /// value: an item of a list at `/l/1` is at `/l/1`, and its list's
-    /// lone item at `/l/0` or `/l`. Items not listed are not told by the
-    /// edit.
+    /// value (an item of a list at `/l/1` is at `/l/1`, and its list's
+    /// lone item at `/l/0` or `/l`, as the view writes it), and its path in
+    /// the host text it is in, as that text writes it. Items not listed
+    /// are not told by the edit.
     pub(crate) items: HashMap<String, ItemSource>,
 }
 
@@ -47,9 +54,10 @@ impl ItemSource {
 }
 
 impl ItemSources {
-    /// The source of the item at `pointer` (`lone` when its list holds it
-    /// alone, which the view may write either way: the view's item at
-    /// `{pointer}/0` first, else the key or item at `pointer`).
+    /// The source of the item at `pointer` of a value written (`lone`
+    /// when its list holds it alone there, which the view may write
+    /// either way: the view's item at `{pointer}/0` first, else the key or
+    /// item at `pointer`).
     pub(crate) fn of(&self, pointer: &str, lone: bool) -> Option<&ItemSource> {
         lone.then(|| self.items.get(&format!("{pointer}/0")))
             .flatten()

@@ -39,7 +39,7 @@ pub(super) fn first_mismatch(
     for (pointer, text) in saved.as_text {
         if let (Some(slot), Some(number)) = (read.pointer_mut(pointer), target.pointer(pointer))
             && slot.as_str() == Some(text.as_str())
-            && super::typed_spellings::text_reads_as_number(text, number)
+            && super::changed_forms::typed_spellings::text_reads_as_number(text, number)
         {
             *slot = number.clone();
         }

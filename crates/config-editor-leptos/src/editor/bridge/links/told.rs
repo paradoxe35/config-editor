@@ -245,6 +245,24 @@ impl Links {
                     link_used[*link] = true;
                 }
             }
+            // Of the rest, a link names the item of its own name first (a
+            // TOML `[a.b]` header left heading `a` once `[a]` is cut is
+            // `b`'s, and a line moved into `b` moved its end), then they
+            // pair by place.
+            let name = |pointer: &str| pointer.rsplit('/').next().map(str::to_string);
+            for (index, link) in links.iter().enumerate() {
+                if link_used[index] {
+                    continue;
+                }
+                let own = (0..items.len()).find(|at| {
+                    !item_used[*at] && name(&items[*at].1) == name(&link.source.pointer)
+                });
+                if let Some(at) = own {
+                    paired.push((items[at].1.clone(), link.source.clone()));
+                    item_used[at] = true;
+                    link_used[index] = true;
+                }
+            }
             let left: Vec<&String> = items
                 .iter()
                 .zip(&item_used)
@@ -293,7 +311,7 @@ impl Links {
         // spells it.
         let before = parse_cache::parsed(from_language, from_text);
         let spelled = |pointer: &str| match before.as_ref() {
-            Ok(before) => super::super::moved_forms::as_written(before, pointer),
+            Ok(before) => super::spelled_in(before, pointer),
             Err(_) => pointer.to_string(),
         };
         // The switch wrote the new text: its items are shown there.
