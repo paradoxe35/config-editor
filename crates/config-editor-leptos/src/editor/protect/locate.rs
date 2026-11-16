@@ -172,22 +172,38 @@ pub(crate) fn extent(
                 .map(|range| over_constructs(range, constructs)),
         );
     }
-    // Lines written inside it, each from its indent to its last character.
+    // Lines written inside it, each from its indent to its last character
+    // of its own (as a fresh reading of the text places it).
     for field in written.unwrap_or_default() {
         if field.pointer != pointer && within(behavior, &field.pointer, pointer) {
             let bounds = lines.line_bounds(field.line);
             let content = lines.line_text(field.line);
+            let code = content.trim();
             let indent = content.len() - content.trim_start().len();
             let start = bounds.start + content[..indent].encode_utf16().count();
-            let end = bounds.start + content.trim_end().encode_utf16().count();
-            ranges.push(start..end);
+            ranges.push(start..start + without_separator(behavior, code).encode_utf16().count());
         }
     }
     if let Some(value) = value {
         for child in &inside(value, pointer) {
-            if let Some(range) = written_range(child) {
-                ranges.push(range);
+            let Some(range) = written_range(child) else {
+                continue;
+            };
+            // A scalar inside it written below its key, as above.
+            let scalar = value
+                .pointer(&child[pointer.len()..])
+                .is_some_and(|child| !child.is_object() && !child.is_array());
+            if scalar
+                && key_range(behavior, text, child)
+                    .is_some_and(|key| lines.range(key).end == range.end)
+            {
+                ranges.extend(
+                    lines_below(behavior, text, lines, range.end, child)
+                        .into_iter()
+                        .map(|range| over_constructs(range, constructs)),
+                );
             }
+            ranges.push(range);
         }
         if value.as_str().is_some_and(|text| text.contains('\n')) || value.is_object() {
             add_string_bodies(behavior, text, lines, &mut ranges);
@@ -370,26 +386,47 @@ fn lines_below(
         let content = lines.line_text(line);
         let code = content.trim();
         let indent = content.len() - content.trim_start().len();
-        if code.is_empty() || behavior.comment_start(content) == Some(indent) {
+        // A line of punctuation alone (`:`) writes no value: `merge` joins
+        // it when a line of the value follows.
+        if only_punctuation(code) || behavior.comment_start(content) == Some(indent) {
             continue;
         }
         let start = lines.line_bounds(line).start + content[..indent].encode_utf16().count();
-        let own = path_at(behavior, text, start)
+        // The path is read at the value, past the separator before it
+        // (`:  null` when the line break came before the colon).
+        let lead = code.len() - code.trim_start_matches(punctuation).len();
+        let at = start + code[..lead].encode_utf16().count();
+        let own = path_at(behavior, text, at)
             .is_some_and(|path| plain(behavior, &path.to_pointer()) == plain(behavior, pointer));
         if !own {
             break;
         }
-        // An item separator after the value (`8080,`) is the container's.
-        let mut written = code;
-        if let Some(separator) = behavior.config().item_separator {
-            written = written
-                .strip_suffix(separator)
-                .unwrap_or(written)
-                .trim_end();
-        }
-        below.push(start..start + written.encode_utf16().count());
+        below.push(start..start + without_separator(behavior, code).encode_utf16().count());
     }
     below
+}
+
+/// `code` (a line's, trimmed) without the item separator ending it: one
+/// after a value (`8080,`, `],`) is the container's.
+fn without_separator<'c>(behavior: &dyn ConfigLanguage, code: &'c str) -> &'c str {
+    match behavior.config().item_separator {
+        Some(separator) => code.strip_suffix(separator).unwrap_or(code).trim_end(),
+        None => code,
+    }
+}
+
+/// Whether `code` (a line's, trimmed) writes no key, value or name, only
+/// punctuation (`: [`, `= {`, `},`): between two stretches of one field,
+/// the field's own.
+fn only_punctuation(code: &str) -> bool {
+    code.chars().all(punctuation)
+}
+
+/// Whether `character` is blank or punctuation other than a quote (which
+/// opens a key or value).
+fn punctuation(character: char) -> bool {
+    character.is_whitespace()
+        || (character.is_ascii_punctuation() && !matches!(character, '"' | '\''))
 }
 
 fn gap_is_inside(
@@ -405,8 +442,8 @@ fn gap_is_inside(
     for line in first + 1..last {
         let bounds = lines.line_bounds(line);
         let content = &text[lines.byte_of(bounds.start)..lines.byte_of(bounds.end)];
-        let blank = content.trim();
-        if blank.is_empty()
+        let code = content.trim();
+        if only_punctuation(code)
             || behavior.comment_start(content) == Some(content.len() - content.trim_start().len())
         {
             continue;

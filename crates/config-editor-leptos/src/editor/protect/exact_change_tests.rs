@@ -9,8 +9,8 @@ use leptos::prelude::*;
 
 use super::super::Language;
 use super::super::edit::Edit;
+use super::super::line_endings::editor_text;
 use super::super::save_matrix::{ALL, report};
-use super::super::state::normalize_newlines;
 use super::super::sync::take_host_value;
 use super::super::test_state::TestEditor;
 use super::guarantee_tests::{HOSTS, Tokens, has_comments, sample, utf16};
@@ -55,7 +55,7 @@ fn forms(language: Language, tokens: &Tokens) -> Vec<(&'static str, String)> {
 /// The host's `value` set to `text`, as the component takes it.
 fn host_sends(state: super::super::state::EditorState, text: &str) {
     state.sync().line_endings.note(text);
-    take_host_value(state, normalize_newlines(text.to_string()));
+    take_host_value(state, editor_text(text.to_string()));
 }
 
 /// Byte offset of the name's value (`a`) in `text`, in every form.

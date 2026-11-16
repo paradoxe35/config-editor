@@ -404,7 +404,7 @@ impl Bridge {
         let target = in_order_of(target, &value);
         // So is an emptied map or list the host does not write (an HCL
         // block of labelled blocks, all gone): saved without it, the host
-        // would read back otherwise than the view (QA `FZ38-3`).
+        // would read back otherwise than the view.
         if let Some(pointer) = dropped_empty(&value, &target, &mut String::new()) {
             return Err(SaveError::CannotKeep { pointer });
         }
@@ -549,7 +549,7 @@ impl Bridge {
             // Each stage reads which item is which in its own step (an
             // item changed in place is one removed and one added there):
             // the whole save must keep each item's form as the save made at
-            // once does (QA `E32-4`), else it is made at once.
+            // once does, else it is made at once.
             (done && current != old && host.changed_form(previous_host, &text).is_none())
                 .then_some(text)
         };
@@ -640,6 +640,21 @@ impl Bridge {
         ) {
             return Err(ConvertError::Unsupported(format!(
                 "this edit would drop the comment `{words}` of a line it leaves as it was: make it editing as {} (at {pointer})",
+                self.host.label()
+            ))
+            .into());
+        }
+        // Nor one the view still shows (its item gone, the comment's line
+        // kept or pasted back): the save writes values, not the view's
+        // comments, so it waits.
+        if let Some(words) = kept_comments::dropped_but_shown(
+            host,
+            self.edit.behavior(),
+            (host_previous, &conversion.text),
+            edit_text,
+        ) {
+            return Err(ConvertError::Unsupported(format!(
+                "this edit would drop the comment `{words}`, which the view still shows: delete it in the view too, or make the edit editing as {}",
                 self.host.label()
             ))
             .into());
@@ -1178,7 +1193,7 @@ mod tests {
 
     /// The XML view repeats elements for nested lists and shows a one-item
     /// list as its item: a value edited there lands in its place in the
-    /// host, the nesting and the list kept (round 17 flattened them).
+    /// host, the nesting and the list kept.
     #[cfg(all(feature = "yaml", feature = "xml"))]
     #[test]
     fn a_value_edited_in_a_view_without_nested_lists_keeps_the_nesting() {
