@@ -534,6 +534,10 @@ editor.update({ hostDiagnostics: problems, onSave: null });
   ones came with are read in that one and moved to the document (a
   framework's render listing a newer text with ranges worked out on the one
   it rendered before).
+  While a save is held, the document has moved on by edits you have not
+  heard yet; ranges given then are moved through those edits. A range
+  whose text one of those edits changed before the lock locks nothing, and
+  the save waits with a "Not saved: …" reason until that text is back.
 - `rangesFor` names the text an update's (or the constructor's)
   `readOnlyRanges` and host `range`s were worked out for, when it is not the document (a check of a text the
   user has typed past since): they are checked in it and moved to the
@@ -784,10 +788,10 @@ editor.update({ readOnlyPaths: ["/limits", "/tls/cert"] }); // at runtime
   listed with the reason).
 - With `editAs`, the same fields are locked in the other language, and a
   save that would change one is refused (shown as an error, not sent).
-- In a custom language without `spans`, a field is checked by value: an
-  edit whose text parses with another read-only value is refused; while
-  the text does not parse, edits go through and `save()` waits (returns
-  `false`, saying which field) until it parses again.
+- In a custom language without `spans`, a field is checked by value: no
+  edit is refused. While the text does not parse, or reads another
+  read-only value, edits go through and `save()` waits (returns `false`,
+  saying which field) until the text holds every locked value again.
 
 </details>
 
