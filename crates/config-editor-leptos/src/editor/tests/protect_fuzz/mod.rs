@@ -25,6 +25,7 @@ mod cases;
 mod checks;
 mod gate_repros;
 mod known;
+mod leak_repros;
 mod mount;
 mod rng;
 mod rule_repros;

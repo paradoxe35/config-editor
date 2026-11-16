@@ -39,6 +39,26 @@ mod wording;
 /// shown and underlined; past it, a note says more follow.
 pub(super) const MAX_DIAGNOSTICS: usize = 20;
 
+/// Finds the placeholders a pattern matches in a text, by byte range.
+pub(super) type PlaceholderPattern = Box<dyn Fn(&str) -> Vec<std::ops::Range<usize>>>;
+
+/// The secret placeholders the problems of a text are found with.
+#[derive(Clone, Copy, Default)]
+#[cfg_attr(
+    not(feature = "schema-validation"),
+    expect(dead_code, reason = "only the schema check reads them")
+)]
+pub(super) struct Placeholders<'p> {
+    /// The host's tokens, each with the field whose current secret it
+    /// stands for: the schema check accepts it there whatever its schema
+    /// says.
+    pub(super) accepted: &'p [(String, String)],
+    /// What finds the placeholders of any document (this editor's host's
+    /// pattern, and each other document's of a documents view): a quoted
+    /// value is never cut inside one.
+    pub(super) patterns: &'p [PlaceholderPattern],
+}
+
 /// The [`Diagnostic::code`] of the note that the problem list was cut.
 pub(super) const MORE_PROBLEMS_CODE: &str = "config-editor/more-problems";
 
@@ -343,21 +363,24 @@ pub(super) fn validate_with(
         schema_error,
         enabled,
         behavior,
-        accepted,
+        Placeholders {
+            accepted,
+            patterns: &[],
+        },
         strings,
     )
     .0
 }
 
-/// [`validate_with`], and the value and keyword of each schema problem
-/// found (see [`ProblemKey`]).
+/// [`validate_with`] with the `placeholders` of every document, and the
+/// value and keyword of each schema problem found (see [`ProblemKey`]).
 pub(super) fn validate_keyed(
     source: &str,
     schema: Option<&SchemaBundle>,
     schema_error: Option<&str>,
     enabled: bool,
     behavior: &dyn ConfigLanguage,
-    accepted: &[(String, String)],
+    placeholders: Placeholders<'_>,
     strings: &EditorStrings,
 ) -> (Vec<Diagnostic>, Vec<ProblemKey>) {
     if !enabled {
@@ -434,7 +457,7 @@ pub(super) fn validate_keyed(
         .unwrap_or_default();
     // Without `schema-validation` no check could reject a placeholder.
     #[cfg(not(feature = "schema-validation"))]
-    let _ = accepted;
+    let _ = placeholders;
     #[cfg(feature = "schema-validation")]
     if let Some(schema) = schema {
         let read = schema_problems::Reading {
@@ -446,7 +469,7 @@ pub(super) fn validate_keyed(
             source,
             (behavior, &reading),
             schema,
-            accepted,
+            placeholders,
             strings,
         );
         let keys = found.iter().map(|(key, _)| key.clone()).collect();
@@ -964,3 +987,14 @@ mod key_placing_tests {
 
 #[cfg(all(test, feature = "schema-validation", feature = "json"))]
 mod placeholder_tests;
+
+#[cfg(all(
+    test,
+    feature = "schema-validation",
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod secret_shape_tests;

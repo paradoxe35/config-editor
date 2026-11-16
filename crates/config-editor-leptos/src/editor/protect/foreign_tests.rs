@@ -174,3 +174,49 @@ fn the_real_placeholder_stays_real_past_an_undo_of_a_copy_written_before_it() {
     }
     assert!(failures.is_empty(), "{failures:#?}");
 }
+
+/// P1: a problem quoting a long value cuts it before another document's
+/// placeholder pasted in, never inside it (a piece of a token on the page
+/// is a piece of that document's secret's stand-in), as it does for this
+/// document's own.
+#[cfg(feature = "schema-validation")]
+#[test]
+fn a_problem_never_quotes_part_of_another_documents_placeholder() {
+    let schema =
+        super::super::schema::build_schema(r#"{"properties": {"note": {"type": "integer"}}}"#)
+            .expect("a schema");
+    let schema = Arc::new(schema);
+    let mut failures = Vec::new();
+    // For some of these leads the token starts before the cut and ends
+    // after it.
+    for lead in 57..80 {
+        let (_theirs_owner, theirs) =
+            TestEditor::new(Language::YAML, &format!("key: {OTHER}\n")).mount();
+        let shared = Signal::derive(move || {
+            let tokens = theirs.protect().own_placeholders("tls.yaml".to_string());
+            Arc::new(tokens.into_iter().collect::<Vec<_>>())
+        });
+        let mut editor = TestEditor::new(Language::YAML, "note: x\n");
+        editor.foreign = Some(shared);
+        editor.schema = Some(schema.clone());
+        let (_owner, state) = editor.mount();
+        let at = "note: ".len();
+        let value = format!("{}{OTHER}{}", "x".repeat(lead), "y".repeat(20));
+        replace(state, at..at + 1, &value);
+        state
+            .problems()
+            .diagnosed_text
+            .set(state.doc().text.get_untracked());
+        let listed = state.problems().own.get_untracked();
+        if !listed.iter().any(|problem| problem.message.contains('…')) {
+            failures.push(format!("lead {lead}: no value cut in {listed:?}"));
+        }
+        for problem in listed {
+            let message = &problem.message;
+            if message.matches('«').count() != message.matches(OTHER).count() {
+                failures.push(format!("lead {lead}: {message}"));
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{failures:#?}");
+}

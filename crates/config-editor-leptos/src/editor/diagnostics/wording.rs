@@ -6,13 +6,14 @@
 //! `oneOf`'s, names the options (their titles) and says what each misses.
 
 use std::collections::{BTreeSet, HashSet};
+use std::ops::Range;
 
 use jsonschema::error::{ValidationError, ValidationErrorKind};
 use serde_json::Value;
 use unicode_segmentation::GraphemeCursor;
 
 use super::fields::Secrets;
-use super::{Explanations, Fields};
+use super::{Explanations, Fields, PlaceholderPattern};
 use crate::EditorStrings;
 use crate::strings::fill;
 
@@ -42,12 +43,13 @@ pub(in crate::editor) struct Wording<'a> {
     pub strings: &'a EditorStrings,
     /// The secrets: a value one of them or inside one is never quoted,
     /// and one holding one is quoted with each hidden.
-    pub secrets: &'a Secrets,
+    pub secrets: &'a Secrets<'a>,
     /// The host's placeholders: an item holding one is told repeated in
     /// a list by no message (see `placeholders`).
     pub placeholders: &'a Fields,
-    /// The host's placeholder tokens, which a cut value never ends inside.
-    pub tokens: &'a Tokens,
+    /// The placeholders a cut value never ends inside: the host's tokens
+    /// and what the placeholder patterns find.
+    pub tokens: &'a Tokens<'a>,
     /// How many levels of options the message being worded is inside.
     pub levels: std::cell::Cell<usize>,
     /// Each option's first explanation, for the places it was not
@@ -676,44 +678,63 @@ pub(super) fn listed_types(message: &str) -> Option<Vec<String>> {
     )
 }
 
-/// Texts a cut never ends inside: the host's placeholder tokens (half a
-/// token on the page is a piece of one, which P1 forbids), looked up by
-/// their lengths rather than searched for one by one.
+/// Texts a cut never ends inside (half a token on the page is a piece of
+/// one, which P1 forbids): the host's placeholder tokens, looked up by
+/// their lengths rather than searched for one by one, and what a
+/// placeholder pattern finds (another document's token pasted here).
 #[derive(Default)]
-pub(in crate::editor) struct Tokens {
+pub(in crate::editor) struct Tokens<'p> {
     texts: HashSet<String>,
     lengths: BTreeSet<usize>,
+    patterns: &'p [PlaceholderPattern],
 }
 
-impl Tokens {
-    pub(super) fn new<'t>(texts: impl IntoIterator<Item = &'t str>) -> Self {
+impl<'p> Tokens<'p> {
+    pub(super) fn new<'t>(
+        texts: impl IntoIterator<Item = &'t str>,
+        patterns: &'p [PlaceholderPattern],
+    ) -> Self {
         let texts: HashSet<String> = texts
             .into_iter()
             .filter(|text| !text.is_empty())
             .map(str::to_string)
             .collect();
         let lengths = texts.iter().map(String::len).collect();
-        Self { texts, lengths }
+        Self {
+            texts,
+            lengths,
+            patterns,
+        }
     }
 
-    /// The start of the first token of `text` that byte `at` falls
-    /// strictly inside.
-    fn around(&self, text: &str, at: usize) -> Option<usize> {
-        self.lengths
+    /// The byte ranges of `text` the patterns find.
+    fn found(&self, text: &str) -> Vec<Range<usize>> {
+        self.patterns
             .iter()
-            .filter_map(|&length| {
-                (at.saturating_sub(length - 1)..at).find(|&start| {
-                    text.get(start..start + length)
-                        .is_some_and(|piece| self.texts.contains(piece))
-                })
+            .flat_map(|pattern| pattern(text))
+            .collect()
+    }
+
+    /// The start of the first token of `text` (`found` holding what the
+    /// patterns find there) that byte `at` falls strictly inside.
+    fn around(&self, text: &str, at: usize, found: &[Range<usize>]) -> Option<usize> {
+        let known = self.lengths.iter().filter_map(|&length| {
+            (at.saturating_sub(length - 1)..at).find(|&start| {
+                text.get(start..start + length)
+                    .is_some_and(|piece| self.texts.contains(piece))
             })
-            .min()
+        });
+        let matched = found
+            .iter()
+            .filter(|range| range.start < at && at < range.end)
+            .map(|range| range.start);
+        known.chain(matched).min()
     }
 }
 
 /// `text` (a value as JSON), cut with `…` past [`MAX_QUOTED_VALUE`]
 /// characters, before a token or a character it would split.
-pub(super) fn cut(text: &str, tokens: &Tokens) -> String {
+pub(super) fn cut(text: &str, tokens: &Tokens<'_>) -> String {
     match cut_point(text, MAX_QUOTED_VALUE, tokens) {
         Some(end) => format!("{}…", &text[..end]),
         None => text.to_string(),
@@ -723,10 +744,11 @@ pub(super) fn cut(text: &str, tokens: &Tokens) -> String {
 /// Where `text` longer than `max` characters is cut: at most `max`
 /// characters in, never inside one of `tokens` nor inside a character as
 /// the user sees it. `None` when it is not longer.
-fn cut_point(text: &str, max: usize, tokens: &Tokens) -> Option<usize> {
+fn cut_point(text: &str, max: usize, tokens: &Tokens<'_>) -> Option<usize> {
     let (mut end, _) = text.char_indices().nth(max)?;
+    let found = tokens.found(text);
     loop {
-        let before = grapheme_floor(text, tokens.around(text, end).unwrap_or(end));
+        let before = grapheme_floor(text, tokens.around(text, end, &found).unwrap_or(end));
         if before == end {
             return Some(end);
         }
@@ -748,14 +770,23 @@ fn grapheme_floor(text: &str, at: usize) -> usize {
 mod tests {
     use super::{MAX_QUOTED_VALUE, Tokens, cut};
 
-    /// A long value is cut before a placeholder it would split, and never
-    /// inside a character drawn as one (P1: no piece of a token shows).
+    /// A long value is cut before a placeholder it would split (the host's
+    /// own, or one a placeholder pattern finds), and never inside a
+    /// character drawn as one (P1: no piece of a token shows).
     #[test]
     fn a_cut_value_keeps_its_tokens_and_characters_whole() {
         let token = "«secret 3f2a»";
-        let tokens = Tokens::new([token]);
+        let other = "«secret 9b1c»";
+        let pattern: super::PlaceholderPattern = Box::new(move |text: &str| {
+            text.match_indices(other)
+                .map(|(at, found)| at..at + found.len())
+                .collect()
+        });
+        let patterns = [pattern];
+        let tokens = Tokens::new([token], &patterns);
         let pieces = [
             token,
+            other,
             "👨\u{200d}👩\u{200d}👧",
             "e\u{301}",
             "🇫🇷",

@@ -50,6 +50,11 @@ impl DocumentPlaceholders {
             tokens: Arc::new(tokens),
         })
     }
+
+    /// The pattern finding its document's placeholders.
+    pub(crate) fn matcher(&self) -> &Arc<SecretMatcher> {
+        &self.matcher
+    }
 }
 
 /// The tokens of `others` written in `text` (byte ranges, in order, apart)

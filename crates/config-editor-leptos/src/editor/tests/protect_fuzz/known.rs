@@ -42,11 +42,6 @@ pub(super) const KNOWN: &[Known] = &[
             ) && class.step == "Entry"
         },
     },
-    Known {
-        finding: "NEW (LOW, deferred): a secret's new value is quoted once an edit moves it \
-                  off its schema path",
-        applies: |class| is(class, Check::Leak, &[], &[Lock::Secret]),
-    },
 ];
 
 /// The finding excusing `class`, if one does.

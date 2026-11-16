@@ -8,8 +8,8 @@ use serde_json::Value;
 use super::fields::Secrets;
 use super::specific::{Explanations, specific_errors};
 use super::{
-    Diagnostic, Fields, MAX_DIAGNOSTICS, ProblemKey, SchemaBundle, Severity, accepted_pointers,
-    escape_pointer, placeholders, unevaluated, wording,
+    Diagnostic, Fields, MAX_DIAGNOSTICS, Placeholders, ProblemKey, SchemaBundle, Severity,
+    accepted_pointers, escape_pointer, placeholders, unevaluated, wording,
 };
 use crate::EditorStrings;
 use crate::editor::data_reading::DataReading;
@@ -33,11 +33,11 @@ pub(super) fn found(
     source: &str,
     (placing, placed): (&dyn ConfigLanguage, &DataReading),
     schema: &SchemaBundle,
-    accepted: &[(String, String)],
+    tokens: Placeholders<'_>,
     strings: &EditorStrings,
 ) -> (Vec<(ProblemKey, Diagnostic)>, bool) {
     let document = reading.data.value();
-    let placeholders = Fields::new(accepted_pointers(document, accepted));
+    let placeholders = Fields::new(accepted_pointers(document, tokens.accepted));
     let secrets = secrets(reading, schema);
     // Infinities and NaN are numbers to the schema (see `non_finite`).
     use crate::editor::codec::non_finite::{StandIn, for_validation};
@@ -127,7 +127,10 @@ pub(super) fn found(
         strings,
         secrets: &secrets,
         placeholders: &placeholders,
-        tokens: &wording::Tokens::new(accepted.iter().map(|(token, _)| token.as_str())),
+        tokens: &wording::Tokens::new(
+            tokens.accepted.iter().map(|(token, _)| token.as_str()),
+            tokens.patterns,
+        ),
         levels: std::cell::Cell::new(0),
         explanations: &explanations,
     };
@@ -286,14 +289,15 @@ pub(super) fn found(
     (found, complete)
 }
 
-/// The secrets of `reading`'s value the schema marks. Where the reading
-/// made a value written once a list of one, the value with each such list
-/// read as its item is walked too: a field one option reads as a list (so
-/// the reading made it one) is a secret's under another option, and its
-/// text is hidden wherever a message quotes it.
-fn secrets(reading: Reading<'_>, schema: &SchemaBundle) -> Secrets {
+/// The secrets of `reading`'s value the schema marks (see [`Secrets`]).
+/// Where the reading made a value written once a list of one, the texts
+/// of the value with each such list read as its item are hidden too: a
+/// field one option reads as a list (so the reading made it one) is a
+/// secret's under another option, and its text is hidden wherever a
+/// message quotes it.
+fn secrets<'s>(reading: Reading<'s>, schema: &'s SchemaBundle) -> Secrets<'s> {
     if !schema.has_marks {
-        return Secrets::new(&[]);
+        return Secrets::none();
     }
     let repeats_arrays = reading.behavior.repetition() != crate::editor::language::Repetition::None;
     let marked = |document: &Value| {
@@ -309,5 +313,5 @@ fn secrets(reading: Reading<'_>, schema: &SchemaBundle) -> Secrets {
     if let Some(written) = &written {
         readings.push((written, marked(written)));
     }
-    Secrets::new(&readings)
+    Secrets::new(document, &schema.schema, repeats_arrays, &readings)
 }

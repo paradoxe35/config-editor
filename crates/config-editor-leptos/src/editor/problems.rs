@@ -8,7 +8,8 @@ use std::sync::Arc;
 use leptos::prelude::*;
 
 use super::diagnostics::{
-    Diagnostic, capped, follow_diagnostics, host_problems, validate_keyed, with_host_problems,
+    Diagnostic, Placeholders, capped, follow_diagnostics, host_problems, validate_keyed,
+    with_host_problems,
 };
 use super::edit::Change;
 use super::edit_as::{EditAsProblem, EditAsText};
@@ -101,6 +102,7 @@ impl ProblemsState {
             let enabled = enabled.get();
             // The host's placeholders stand for the current secrets.
             let accepted = protect.accepted_tokens();
+            let patterns = protect.placeholder_patterns();
             let behavior = edit_language.get().behavior();
             strings.with(|strings| {
                 let (mut found, keys) = diagnosed_text.with(|text| {
@@ -110,7 +112,10 @@ impl ProblemsState {
                         schema_error.as_deref(),
                         enabled,
                         behavior,
-                        &accepted,
+                        Placeholders {
+                            accepted: &accepted,
+                            patterns: &patterns,
+                        },
                         strings,
                     )
                 });
@@ -177,6 +182,7 @@ impl ProblemsState {
                 return None;
             }
             let accepted = protect.accepted_tokens();
+            let patterns = protect.placeholder_patterns();
             let view = session.with_value(|session| session.view.to_string());
             strings.with(|strings| {
                 session.with_value(|session| {
@@ -187,7 +193,10 @@ impl ProblemsState {
                         &view,
                         edit.behavior(),
                         schema,
-                        &accepted,
+                        Placeholders {
+                            accepted: &accepted,
+                            patterns: &patterns,
+                        },
                         strings,
                     )
                 })

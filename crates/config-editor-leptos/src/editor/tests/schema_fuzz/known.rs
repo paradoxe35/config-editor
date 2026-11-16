@@ -4,7 +4,6 @@
 
 use serde_json::{Value, json};
 
-use super::documents::SECRET;
 use super::reference::walk;
 use super::runner::Case;
 use crate::editor::Language;
@@ -153,17 +152,6 @@ pub(super) const KNOWN: &[Known] = &[
         property: "edit_as",
         class: "the view and its saved host disagree on problems",
         applies: |case| overlapping_one_of(&case.schema),
-    },
-    // XML writes no list of lists, nor an empty list in one: the items of
-    // an inner list are items of the outer one, and an empty one is not
-    // written, so a secret after them is read at another index (`[[],
-    // "s"]` reads `["s"]`), one its schema need not mark. The editor
-    // hides what the schema marks where the value is read.
-    Known {
-        finding: "documented: XML writes no list of lists",
-        property: "secrets",
-        class: "a problem message ",
-        applies: |case| case.language == Language::XML && secret_past_inner_list(&case.doc),
     },
     // `data_reading`: an HCL block where the schema wants a list
     // is one item of it (`c {}` reads `[{}]`), as HCL writes lists of
@@ -419,27 +407,6 @@ fn respelled_number(host: &Value, typed: &Value) -> bool {
     }
 }
 
-/// Whether `value` holds a secret in or after an inner list of a list,
-/// where XML reads it at another index.
-fn secret_past_inner_list(value: &Value) -> bool {
-    let holds_secret = |item: &Value| {
-        let mut found = false;
-        walk(item, &mut |node| {
-            found |= node.as_str().is_some_and(|text| text.starts_with(SECRET));
-        });
-        found
-    };
-    let mut found = false;
-    walk(value, &mut |node| {
-        if let Some(items) = node.as_array()
-            && let Some(first) = items.iter().position(Value::is_array)
-        {
-            found |= items[first..].iter().any(holds_secret);
-        }
-    });
-    found
-}
-
 /// Whether `value` holds an empty text.
 fn empty_text(value: &Value) -> bool {
     let mut found = false;
@@ -523,9 +490,8 @@ mod tests {
         }
     }
 
-    /// Fields no value meets, and secrets XML reads at another index, are
-    /// allowed; the same shapes with a value to meet, or the secret before
-    /// any inner list, are not.
+    /// Fields no value meets are allowed; the same shapes with a value to
+    /// meet are not, and no secret shown is.
     #[test]
     fn allowances_reach_exactly_their_shapes() {
         let fill = |schema: Value| {
@@ -562,9 +528,10 @@ mod tests {
                 &case(language, json!({}), doc),
             )
         };
-        assert!(secret(Language::XML, json!({"size": [[], "sekret1q477"]})).is_some());
-        assert!(secret(Language::XML, json!({"name": [{}, [false, "sekret1q625"]]})).is_some());
-        assert!(secret(Language::XML, json!({"size": ["sekret1q477", []]})).is_none());
+        // No allowance excuses a secret shown (P1): the oracle judges XML's
+        // secrets where XML reads them (see `secrets::check`).
+        assert!(secret(Language::XML, json!({"size": [[], "sekret1q477"]})).is_none());
+        assert!(secret(Language::XML, json!({"name": [{}, [false, "sekret1q625"]]})).is_none());
         assert!(secret(Language::JSON, json!({"size": [[], "sekret1q477"]})).is_none());
     }
 }
