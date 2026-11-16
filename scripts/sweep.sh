@@ -64,6 +64,11 @@ host-sync-editor       schema   host_sync HOST_SYNC_CASES    HOST_SYNC_SEED    3
 host-sync-documents    schema   host_sync HOST_SYNC_CASES    HOST_SYNC_SEED    300  random_host_sync_keeps_a_documents_views_locks
 protect                protect  lib       PROTECT_FUZZ_CASES PROTECT_FUZZ_SEED 400  protect_fuzz::random_edits_keep_every_protection_and_take_ordinary_edits
 protect-custom         protect  lib       PROTECT_FUZZ_CASES PROTECT_FUZZ_SEED 2000 protect_fuzz::random_edits_keep_every_protection_and_take_ordinary_edits_in_custom_languages
+change-inverse         edit     lib       CHANGE_CASES       CHANGE_SEED       2000 change_tests::a_change_and_its_inverse_give_the_text_back
+change-compose         edit     lib       CHANGE_CASES       CHANGE_SEED       2000 change_tests::a_composed_change_makes_what_the_two_make_in_turn
+change-rebase          edit     lib       CHANGE_CASES       CHANGE_SEED       2000 change_tests::two_changes_rebased_over_each_other_meet
+change-map             edit     lib       CHANGE_CASES       CHANGE_SEED       2000 change_tests::positions_map_in_order_and_kept_text_stays_on_its_text
+protect-reach          protect  lib       REACH_CASES        REACH_SEED        400  reach_tests::the_fast_path_answers_as_the_full_rule_on_random_edits
 save                   save     lib       FUZZ_CASES         FUZZ_SEED         40   fuzz_save::random_sessions_keep_the_save_promise
 '
 # The browser fuzz's seed variable (its runs and pages come from the spec).
