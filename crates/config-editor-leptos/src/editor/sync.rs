@@ -32,7 +32,9 @@ impl SyncState {
     /// Sends `text`, the document in the host's language, to `on_change`,
     /// recorded as sent: its echo is told apart when it comes back.
     pub(super) fn tell_host(&self, text: String) {
-        self.echoes.update_value(|echoes| echoes.sent(&text));
+        self.echoes.update_value(|echoes| {
+            echoes.sent(&text);
+        });
         if let Some(on_change) = self.host_on_change {
             on_change.run(text);
         }
@@ -904,6 +906,15 @@ pub(super) fn switch_to(state: EditorState, next: Language) {
                 error: error.to_string(),
             },
         }]);
+        return;
+    }
+    // A change held back in the host's language (a locked field reads
+    // otherwise) is no text of the host's: a view of it would save over a
+    // host text it does not show. The switch waits, the hold's reason
+    // shown, until an edit ends the hold.
+    if current == host && state.changes_held() {
+        state.sync().pending_switch.set(Some(next));
+        state.sync().load_problems.set(Vec::new());
         return;
     }
     let text = state.doc().text.get_untracked();
