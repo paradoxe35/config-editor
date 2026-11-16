@@ -94,6 +94,8 @@ fn another_documents_placeholder_pasted_in_is_never_cut() {
         if !state.cuts_a_token(units(at + '«'.len_utf8()), units(end)) {
             failures.push(format!("{language}: a drag of part of it taken"));
         }
+        // Replace All exists only with find and replace.
+        #[cfg(feature = "search")]
         if !state
             .protected_bytes(&shown)
             .iter()

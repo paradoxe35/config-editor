@@ -105,6 +105,9 @@ pub(super) struct Start {
     made: std::cell::RefCell<std::collections::HashSet<String>>,
     /// The scalars a save so far held otherwise than the start.
     changed: std::cell::RefCell<std::collections::HashSet<String>>,
+    /// The items a save so far did not leave alone: the lines of their
+    /// comments were edited, whatever a later save holds there.
+    edited: std::cell::RefCell<std::collections::HashSet<String>>,
     /// Each value's text as a view showed it (at the start, each switch).
     shown_values: std::cell::RefCell<std::collections::HashSet<String>>,
     /// The views' texts at each save since: what the user wrote.
@@ -132,6 +135,7 @@ impl Start {
             shown: view_text.to_string(),
             written: Default::default(),
             changed: Default::default(),
+            edited: Default::default(),
             made: Default::default(),
             shown_values: std::cell::RefCell::new(value_texts(view, view_text)),
             synced: std::cell::RefCell::new(vec![(view, view_text.to_string(), text.to_string())]),
@@ -818,6 +822,18 @@ fn check_comments(
 ) -> Result<(), Box<Failure>> {
     let kept = comment_bodies(start.host, saved);
     let shown = comment_bodies(view, view_text);
+    // An item cut and a key of its name written again later (the line
+    // pasted elsewhere) is the user's edit of the comment's line: the
+    // save that dropped the item may drop its comment.
+    {
+        let mut edited = start.edited.borrow_mut();
+        for pointer in start.comments.iter().flat_map(|(_, owner)| owner) {
+            if !left_alone(&start.value, now, pointer) {
+                edited.insert(pointer.clone());
+            }
+        }
+    }
+    let edited = start.edited.borrow();
     for (words, owner) in &start.comments {
         if kept.contains(words) {
             continue;
@@ -825,7 +841,7 @@ fn check_comments(
         let left_alone = !owner.is_empty()
             && owner
                 .iter()
-                .all(|pointer| left_alone(&start.value, now, pointer));
+                .all(|pointer| !edited.contains(pointer) && left_alone(&start.value, now, pointer));
         let first_shown = start.shown_comments.contains(words);
         let still_shown = shown.contains(words);
         // Deleted from a view that showed it: the user's own edit.

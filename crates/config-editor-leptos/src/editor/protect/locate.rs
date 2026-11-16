@@ -157,6 +157,21 @@ pub(crate) fn extent(
     };
     let mut ranges = vec![written_range(pointer)?];
     let key = key_range(behavior, text, pointer).map(|range| lines.range(range));
+    // `field_range` ends on the key's line, so a scalar written below the
+    // key (`"port":` then `8080`, `port: &p` then `8080`) is covered by the
+    // lines it is written on. A container there is covered through the
+    // fields inside it.
+    if value.is_some_and(|value| !value.is_object() && !value.is_array())
+        && let Some(key) = &key
+        && lines.line_of(key.start) == lines.line_of(ranges[0].end)
+    {
+        let below = lines_below(behavior, text, lines, ranges[0].end, pointer);
+        ranges.extend(
+            below
+                .into_iter()
+                .map(|range| over_constructs(range, constructs)),
+        );
+    }
     // Lines written inside it, each from its indent to its last character.
     for field in written.unwrap_or_default() {
         if field.pointer != pointer && within(behavior, &field.pointer, pointer) {
@@ -337,6 +352,44 @@ fn merge(
         }
     }
     merged
+}
+
+/// The lines after UTF-16 offset `end` that are the field at `pointer`'s
+/// own (where a key's scalar is written below it), each from its indent to
+/// its last character: up to the first line of code that is another
+/// field's. Blank and comment lines between them are left to `merge`.
+fn lines_below(
+    behavior: &dyn ConfigLanguage,
+    text: &str,
+    lines: &LineIndex<'_>,
+    end: usize,
+    pointer: &str,
+) -> Vec<Range<usize>> {
+    let mut below = Vec::new();
+    for line in lines.line_of(end) + 1..lines.line_count() {
+        let content = lines.line_text(line);
+        let code = content.trim();
+        let indent = content.len() - content.trim_start().len();
+        if code.is_empty() || behavior.comment_start(content) == Some(indent) {
+            continue;
+        }
+        let start = lines.line_bounds(line).start + content[..indent].encode_utf16().count();
+        let own = path_at(behavior, text, start)
+            .is_some_and(|path| plain(behavior, &path.to_pointer()) == plain(behavior, pointer));
+        if !own {
+            break;
+        }
+        // An item separator after the value (`8080,`) is the container's.
+        let mut written = code;
+        if let Some(separator) = behavior.config().item_separator {
+            written = written
+                .strip_suffix(separator)
+                .unwrap_or(written)
+                .trim_end();
+        }
+        below.push(start..start + written.encode_utf16().count());
+    }
+    below
 }
 
 fn gap_is_inside(

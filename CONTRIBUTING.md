@@ -57,6 +57,61 @@ A test or helper that needs a built-in language is gated by it
 (`#[cfg(all(test, feature = "yaml"))]`, or `any(feature = "yaml", …)`):
 `scripts/ci.sh languages` builds and tests each language alone.
 
+### Running CI on a branch
+
+CI runs on every push to `main` and every pull request, into any branch (a
+draft pull request into another branch runs the whole CI on its branch).
+It can also be dispatched on any branch (`part`: `all`, `rust` or
+`browser`, the packages and the end-to-end tests only); a newer run of the
+same branch and part cancels the older one:
+
+```sh
+gh workflow run ci.yml --ref my-branch -f part=all
+```
+
+### Random suites at release size
+
+The random suites are seeded and shrink their failures; CI runs each at a
+modest case count. Before a release they run at 20 times that count from
+fresh seeds. `scripts/sweep.sh` holds the one list of every random property
+(`--list` prints it with its release-size cases) and runs them from prebuilt
+test binaries; `scripts/ci.sh docs` fails when a seeded test is missing from
+the list. Locally:
+
+```sh
+scripts/sweep.sh --build                                # the test binaries, into target/sweep
+scripts/sweep.sh --seed 15485863 --only edit,SCHEMA_FUZZ # names, groups or env prefixes
+scripts/sweep.sh --browser vue --seed 15485863          # the browser fuzz on one page
+scripts/sweep.sh --summary target/sweep/out             # the results as a Markdown table
+```
+
+The `Random suite sweep` workflow (`.github/workflows/sweep.yml`) runs a
+whole sweep on many machines: it builds the test binaries and the npm
+packages once, then runs one job per group of properties and seed and one
+per browser fuzz page and seed, and writes a table of suite and seed (with
+each failure's shrunk case) to the run's summary and the `sweep-summary`
+artifact; each job's log is the `sweep-out-…` artifact. Its inputs: `seeds`
+(a comma list; keep them far apart, as most suites run the seeds after the
+one given), `scale` (default 20), `suites` (default `all`; `none` runs only
+the browser part), `browser_runs` (default 100; 0 skips the browser part)
+and `browser_pages` (default all):
+
+```sh
+gh workflow run sweep.yml --ref main -f seeds=15485863,32452843
+```
+
+A push to a branch named `sweep/<name>` runs a sweep too, with the settings
+in that branch's `.github/sweep-request.env`: `KEY=value` lines `SEEDS`
+(required), `SCALE`, `SUITES`, `BROWSER_RUNS` and `BROWSER_PAGES`, the
+inputs above, a missing key taking its default. A newer push to the same
+branch cancels its older sweep:
+
+```sh
+git switch -c sweep/my-fix my-branch
+printf 'SEEDS=15485863,32452843\nSCALE=20\n' > .github/sweep-request.env
+git add .github/sweep-request.env && git commit -m "Sweep" && git push origin sweep/my-fix
+```
+
 ## Design rules
 
 ### The editor state is one handle into the arena

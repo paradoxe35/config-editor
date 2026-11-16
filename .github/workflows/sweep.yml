@@ -1,0 +1,281 @@
+name: Random suite sweep
+
+# The random (seeded) suites at release size, on many machines at once:
+# the Rust properties (the list and runner in scripts/sweep.sh) in groups,
+# one job per group and seed, and the browser fuzz one job per page and
+# seed (CONTRIBUTING.md, "Random suites at release size"). Started by
+# hand (the inputs below) or by a push to a `sweep/<name>` branch, whose
+# .github/sweep-request.env gives the same settings (SEEDS=, SCALE=,
+# SUITES=, BROWSER_RUNS=, BROWSER_PAGES=; the defaults below when missing).
+on:
+  push:
+    branches: ["sweep/**"]
+  workflow_dispatch:
+    inputs:
+      seeds:
+        description: "Seeds, a comma list (each starts every suite there; keep them far apart, e.g. 15485863,32452843)"
+        required: true
+        type: string
+      scale:
+        description: "Cases as a multiple of the CI count (20 is the release size)"
+        default: "20"
+        type: string
+      suites:
+        description: "Rust properties, groups or env prefixes, a comma list (scripts/sweep.sh --list); all, or none for the browser part only"
+        default: all
+        type: string
+      browser_runs:
+        description: "Browser fuzz sequences per page and seed (0 skips the browser part)"
+        default: "100"
+        type: string
+      browser_pages:
+        description: "Browser fuzz pages, a comma list (default all)"
+        default: all
+        type: string
+
+# A newer push to a sweep branch cancels its older sweep; started by hand,
+# each sweep runs to its end.
+concurrency:
+  group: sweep-${{ github.event_name == 'push' && github.ref || github.run_id }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  plan:
+    name: plan the jobs
+    runs-on: ubuntu-latest
+    outputs:
+      rust: ${{ steps.plan.outputs.rust }}
+      pages: ${{ steps.plan.outputs.pages }}
+      seeds: ${{ steps.plan.outputs.seeds }}
+      scale: ${{ steps.plan.outputs.scale }}
+      suites: ${{ steps.plan.outputs.suites }}
+      runs: ${{ steps.plan.outputs.runs }}
+    steps:
+      - uses: actions/checkout@v5
+      - name: The matrices
+        id: plan
+        env:
+          SEEDS: ${{ inputs.seeds }}
+          SCALE: ${{ inputs.scale }}
+          SUITES: ${{ inputs.suites }}
+          RUNS: ${{ inputs.browser_runs }}
+          PAGES: ${{ inputs.browser_pages }}
+        run: |
+          if [[ "$GITHUB_EVENT_NAME" == push ]]; then
+            file=.github/sweep-request.env
+            [[ -f "$file" ]] || { echo "::error::a push to a sweep branch needs $file"; exit 1; }
+            # Read as data, not run: KEY=value lines, the last one of a key wins.
+            setting() { sed -n "s/^$1=//p" "$file" | tail -1 | tr -d "\r\"' "; }
+            SEEDS=$(setting SEEDS)
+            SCALE=$(setting SCALE)
+            SUITES=$(setting SUITES)
+            RUNS=$(setting BROWSER_RUNS)
+            PAGES=$(setting BROWSER_PAGES)
+          fi
+          SCALE=${SCALE:-20} SUITES=${SUITES:-all} RUNS=${RUNS:-100} PAGES=${PAGES:-all}
+          [[ -n "$SEEDS" ]] || { echo "::error::no seeds given"; exit 1; }
+          [[ "$SUITES" =~ ^[A-Za-z0-9_,-]+$ ]] || { echo "::error::suites must be a comma list of names"; exit 1; }
+          [[ "$SCALE" =~ ^[1-9][0-9]*$ ]] || { echo "::error::scale must be a positive whole number"; exit 1; }
+          [[ "$RUNS" =~ ^[0-9]+$ ]] || { echo "::error::browser_runs must be a whole number"; exit 1; }
+          if [[ "$SUITES" == none ]]; then rust='[]'; else rust=$(scripts/sweep.sh --matrix "$SEEDS" --only "$SUITES"); fi
+          seeds=$(scripts/sweep.sh --seeds "$SEEDS")
+          if [[ "$RUNS" == 0 ]]; then pages='[]'; else pages=$(scripts/sweep.sh --pages "$PAGES"); fi
+          {
+            echo "rust=$rust"
+            echo "seeds=$seeds"
+            echo "pages=$pages"
+            echo "scale=$SCALE"
+            echo "suites=$SUITES"
+            echo "runs=$RUNS"
+          } >> "$GITHUB_OUTPUT"
+          {
+            echo "Scale $SCALE, suites $SUITES"
+            echo "Rust jobs: $rust"
+            echo "Browser pages: $pages, seeds $seeds, $RUNS runs each"
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
+  # The test binaries, built once (the lib tests, config-editor-js's
+  # host_sync test); the property jobs only run them.
+  build-tests:
+    name: build the test binaries
+    needs: plan
+    if: ${{ needs.plan.outputs.rust != '[]' }}
+    runs-on: ubuntu-latest
+    env:
+      # Line numbers in backtraces, at a fraction of full debug info's size.
+      CARGO_PROFILE_DEV_DEBUG: line-tables-only
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: sweep
+      - name: scripts/sweep.sh --build
+        run: scripts/sweep.sh --build sweep-bin
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sweep-tests
+          retention-days: 1
+          path: sweep-bin/
+
+  rust:
+    name: ${{ matrix.group }} at seed ${{ matrix.seed }}
+    needs: [plan, build-tests]
+    if: ${{ needs.plan.outputs.rust != '[]' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJson(needs.plan.outputs.rust) }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v4
+        with:
+          name: sweep-tests
+          path: sweep-bin
+      - name: scripts/sweep.sh --group ${{ matrix.group }}
+        env:
+          GROUP: ${{ matrix.group }}
+          SEED: ${{ matrix.seed }}
+          SCALE: ${{ needs.plan.outputs.scale }}
+          SUITES: ${{ needs.plan.outputs.suites }}
+        run: |
+          # Artifacts keep no file modes.
+          chmod +x sweep-bin/*
+          scripts/sweep.sh --group "$GROUP" --only "$SUITES" --seed "$SEED" --scale "$SCALE" --bins sweep-bin --out sweep-out
+      - name: Keep the logs
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: sweep-out-${{ matrix.group }}-${{ matrix.seed }}
+          retention-days: 14
+          path: sweep-out/
+
+  # The npm packages and the demo, built once, as CI's browser-build does.
+  browser-build:
+    name: npm packages and the demo
+    needs: plan
+    if: ${{ needs.plan.outputs.pages != '[]' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: browser
+      - name: wasm-bindgen version from Cargo.lock
+        id: versions
+        run: echo "wasm_bindgen=$(grep -A1 '^name = "wasm-bindgen"$' Cargo.lock | sed -n 's/version = "\(.*\)"/\1/p')" >> "$GITHUB_OUTPUT"
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: trunk,wasm-bindgen@${{ steps.versions.outputs.wasm_bindgen }}
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - name: Cache the pinned wasm-opt download
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/binaryen
+          key: binaryen-${{ hashFiles('scripts/install-binaryen.sh') }}
+      - name: Install wasm-opt (pinned, as the release does)
+        run: scripts/install-binaryen.sh ~/.cache
+      - name: Build the npm packages
+        working-directory: js
+        run: npm ci && npm run build
+      - name: Build the demo
+        run: trunk build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sweep-browser-build
+          retention-days: 1
+          path: |
+            dist/
+            js/config-editor/pkg/
+            js/config-editor-react/dist/
+            js/config-editor-vue/dist/
+            js/config-editor-svelte/dist/
+            js/examples/dist/
+
+  browser:
+    name: browser fuzz on ${{ matrix.page }} at seed ${{ matrix.seed }}
+    needs: [plan, browser-build]
+    if: ${{ needs.plan.outputs.pages != '[]' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      matrix:
+        page: ${{ fromJson(needs.plan.outputs.pages) }}
+        seed: ${{ fromJson(needs.plan.outputs.seeds) }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - uses: actions/download-artifact@v4
+        with:
+          name: sweep-browser-build
+      - name: Install the packages the tests import
+        working-directory: js
+        run: npm ci
+      - name: Install Playwright's Chromium
+        working-directory: e2e
+        run: npm ci && npx playwright install --with-deps chromium
+      - name: scripts/sweep.sh --browser ${{ matrix.page }}
+        env:
+          PAGE: ${{ matrix.page }}
+          SEED: ${{ matrix.seed }}
+          RUNS: ${{ needs.plan.outputs.runs }}
+        run: scripts/sweep.sh --browser "$PAGE" --seed "$SEED" --runs "$RUNS" --out sweep-out
+      - name: Keep the new repros with the log
+        if: ${{ !cancelled() }}
+        run: |
+          mkdir -p sweep-out/repros
+          git ls-files --others --exclude-standard e2e/tests/fuzz/repros | xargs -r cp -t sweep-out/repros
+      - name: Keep the logs
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: sweep-out-browser-${{ matrix.page }}-${{ matrix.seed }}
+          retention-days: 14
+          path: sweep-out/
+
+  summary:
+    name: summary
+    needs: [rust, browser]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: sweep-out-*
+          path: sweep-all
+      - name: The table of suite and seed
+        run: |
+          status=0
+          scripts/sweep.sh --summary sweep-all > sweep-summary.md || status=$?
+          cat sweep-summary.md >> "$GITHUB_STEP_SUMMARY"
+          exit "$status"
+      - name: Keep the summary
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: sweep-summary
+          retention-days: 30
+          path: sweep-summary.md
+      # The built binaries and packages were only for this run's jobs.
+      - name: Remove the shared builds
+        if: ${{ always() }}
+        uses: geekyeggo/delete-artifact@176a747ab7e287e3ff4787bf8a148716375ca118 # v6.0.0
+        with:
+          name: |
+            sweep-tests
+            sweep-browser-build
+          failOnError: false
