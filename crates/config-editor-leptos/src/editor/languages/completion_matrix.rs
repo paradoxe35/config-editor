@@ -1,118 +1,45 @@
 //! The suggestion list's promises, checked in every language and form (block,
 //! inline, XML attributes and elements) against the tunnel schema, so a fix
-//! for one language cannot leave its siblings behind. Each test lists every
-//! failing case at once.
+//! for one language cannot leave its siblings behind: each case on a document
+//! every language that suggests keys writes itself, and on forms written by
+//! hand. Each test lists every failing case at once. Places only one
+//! language's syntax has are in that language's `completion_tests`.
 //!
 //! `|` marks the caret.
 
-use super::super::completion::{apply_completion, completions};
-use super::super::schema::{SchemaBundle, build_schema};
+use super::super::completion::completions;
 use super::Language;
-use serde_json::Value;
+use super::harness::completion::{
+    accepted, accepted_with_selection, burrow, keys_at, offered, parsed,
+};
+use super::harness::{At, completing, report, write};
+use serde_json::{Value, json};
 
-fn burrow() -> SchemaBundle {
-    build_schema(include_str!("../../../tests/fixtures/tunnel.schema.json")).unwrap()
-}
-
-/// The labels offered at the caret (as after Ctrl+Space).
-fn offered(language: Language, marked: &str) -> Vec<String> {
-    let at = marked.find('|').expect("a | caret marker");
-    let source = marked.replacen('|', "", 1);
-    completions(
-        &source,
-        source[..at].encode_utf16().count(),
-        true,
-        Some(&burrow()),
-        true,
-        language.behavior(),
-    )
-    .into_iter()
-    .map(|option| option.label)
-    .collect()
-}
-
-/// The document after accepting `label` at the caret, with the selection
-/// left (anchor, caret) as UTF-16 offsets, or why it could not be.
-fn accepted_with_selection(
-    language: Language,
-    marked: &str,
-    label: &str,
-) -> Result<(String, usize, usize), String> {
-    let at = marked.find('|').expect("a | caret marker");
-    let source = marked.replacen('|', "", 1);
-    let options = completions(
-        &source,
-        source[..at].encode_utf16().count(),
-        true,
-        Some(&burrow()),
-        true,
-        language.behavior(),
-    );
-    let option = options
-        .iter()
-        .find(|option| option.label == label)
-        .ok_or_else(|| {
-            format!(
-                "{label} not offered; offered {:?}",
-                options.iter().map(|o| &o.label).collect::<Vec<_>>()
-            )
-        })?;
-    Ok(apply_completion(&source, option))
-}
-
-/// The document after accepting `label` at the caret, or why it could not be.
-fn accepted(language: Language, marked: &str, label: &str) -> Result<String, String> {
-    let at = marked.find('|').expect("a | caret marker");
-    let source = marked.replacen('|', "", 1);
-    let options = completions(
-        &source,
-        source[..at].encode_utf16().count(),
-        true,
-        Some(&burrow()),
-        true,
-        language.behavior(),
-    );
-    let option = options
-        .iter()
-        .find(|option| option.label == label)
-        .ok_or_else(|| {
-            format!(
-                "{label} not offered; offered {:?}",
-                options.iter().map(|o| &o.label).collect::<Vec<_>>()
-            )
-        })?;
-    Ok(apply_completion(&source, option).0)
-}
-
-fn parsed(language: Language, text: &str) -> Result<Value, String> {
-    language
-        .parse(text)
-        .map_err(|error| format!("does not parse: {error}"))
-}
-
-/// The keys of the object at `path` (keys only) in `value`.
-fn keys_at(value: &Value, path: &[&str]) -> Vec<String> {
-    let mut current = value;
-    for segment in path {
-        current = match current.get(segment) {
-            Some(next) => next,
-            None => return Vec::new(),
-        };
+/// `document` as every language that suggests keys writes it, over lines and
+/// with the value at `one_line` on one line, the caret `at`: each case's
+/// language, form and marked text. A language that cannot place the caret
+/// is a failure.
+fn every_form(
+    document: &Value,
+    one_line: &str,
+    at: At<'_>,
+    failures: &mut Vec<String>,
+) -> Vec<(Language, &'static str, String)> {
+    let mut cases = Vec::new();
+    for language in completing() {
+        for (form, one_line) in [("written", &[][..]), ("one line", &[one_line][..])] {
+            match write(language, document, one_line, at) {
+                Ok(written) => cases.push((language, form, written.marked())),
+                Err(error) => failures.push(format!("{form} {at:?}: {error}")),
+            }
+        }
     }
-    current
-        .as_object()
-        .map(|map| map.keys().cloned().collect())
-        .unwrap_or_default()
+    cases
 }
 
-#[track_caller]
-fn report(failures: Vec<String>) {
-    assert!(
-        failures.is_empty(),
-        "{} failing case(s):\n{}",
-        failures.len(),
-        failures.join("\n")
-    );
+/// `tcp` holding `nodelay = true`.
+fn tcp() -> Value {
+    json!({"tcp": {"nodelay": true}})
 }
 
 const ALL: [Language; 5] = [
@@ -161,30 +88,43 @@ fn tcp_forms(language: Language, entry: &str) -> Vec<(&'static str, String)> {
 #[test]
 fn a_key_accepted_in_front_of_an_entry_is_a_new_entry() {
     let mut failures = Vec::new();
+    let mut cases = Vec::new();
     for language in ALL
         .into_iter()
         .filter(|language| language.label() != "JSON")
     {
         for (form, marked) in tcp_forms(language, "k|nodelay") {
-            let case = format!("{} {form}: {marked:?}", language.label());
-            match accepted(language, &marked, "keepalive_secs").and_then(|text| {
-                let value =
-                    parsed(language, &text).map_err(|error| format!("{error}: {text:?}"))?;
-                Ok((text, value))
-            }) {
-                Ok((text, value)) => {
-                    let keys = keys_at(&value, &["tcp"]);
-                    if !(keys.contains(&"nodelay".to_string())
-                        && keys.contains(&"keepalive_secs".to_string()))
-                    {
-                        failures.push(format!("{case} → {text:?} has keys {keys:?}"));
-                    }
-                }
-                Err(error) => failures.push(format!("{case} → {error}")),
-            }
+            cases.push((language, form, marked));
         }
     }
-    report(failures);
+    let at = At::BeforeKey {
+        pointer: "/tcp/nodelay",
+        typed: "k",
+    };
+    // Not inside a key's quotes (see above).
+    cases.extend(
+        every_form(&tcp(), "/tcp", at, &mut failures)
+            .into_iter()
+            .filter(|(_, _, marked)| !marked.contains("\"k|")),
+    );
+    for (language, form, marked) in cases {
+        let case = format!("{} {form}: {marked:?}", language.label());
+        match accepted(language, &marked, "keepalive_secs").and_then(|text| {
+            let value = parsed(language, &text).map_err(|error| format!("{error}: {text:?}"))?;
+            Ok((text, value))
+        }) {
+            Ok((text, value)) => {
+                let keys = keys_at(&value, &["tcp"]);
+                if !(keys.contains(&"nodelay".to_string())
+                    && keys.contains(&"keepalive_secs".to_string()))
+                {
+                    failures.push(format!("{case} → {text:?} has keys {keys:?}"));
+                }
+            }
+            Err(error) => failures.push(format!("{case} → {error}")),
+        }
+    }
+    report(&failures);
 }
 
 /// The key the caret is inside is offered (it is not a sibling of itself),
@@ -192,20 +132,29 @@ fn a_key_accepted_in_front_of_an_entry_is_a_new_entry() {
 #[test]
 fn the_key_being_edited_is_offered_and_accepting_it_changes_nothing() {
     let mut failures = Vec::new();
+    let mut cases = Vec::new();
     for language in ALL {
         for (form, marked) in tcp_forms(language, "nodela|y") {
-            let case = format!("{} {form}: {marked:?}", language.label());
-            let original = marked.replacen('|', "", 1);
-            match accepted(language, &marked, "nodelay") {
-                Ok(text)
-                    if parsed(language, &text) == parsed(language, &original)
-                        && parsed(language, &text).is_ok() => {}
-                Ok(text) => failures.push(format!("{case} → {text:?}")),
-                Err(error) => failures.push(format!("{case} → {error}")),
-            }
+            cases.push((language, form, marked));
         }
     }
-    report(failures);
+    let at = At::InKey {
+        pointer: "/tcp/nodelay",
+        offset: 6,
+    };
+    cases.extend(every_form(&tcp(), "/tcp", at, &mut failures));
+    for (language, form, marked) in cases {
+        let case = format!("{} {form}: {marked:?}", language.label());
+        let original = marked.replacen('|', "", 1);
+        match accepted(language, &marked, "nodelay") {
+            Ok(text)
+                if parsed(language, &text) == parsed(language, &original)
+                    && parsed(language, &text).is_ok() => {}
+            Ok(text) => failures.push(format!("{case} → {text:?}")),
+            Err(error) => failures.push(format!("{case} → {error}")),
+        }
+    }
+    report(&failures);
 }
 
 /// A key already in the object is not offered again, whether it comes
@@ -247,7 +196,19 @@ fn keys_already_present_before_or_after_the_caret_are_not_offered() {
         (Language::XML, "<tcp nodelay=\"true\" |/>\n"),
     ];
     let mut failures = Vec::new();
-    for (language, marked) in cases {
+    let mut cases: Vec<(Language, String)> = cases
+        .into_iter()
+        .map(|(language, marked)| (language, marked.to_string()))
+        .collect();
+    let at = At::NewKey {
+        object: "/tcp",
+        typed: "",
+    };
+    for (language, _, marked) in every_form(&tcp(), "/tcp", at, &mut failures) {
+        cases.push((language, marked));
+    }
+    for (language, marked) in &cases {
+        let (language, marked) = (*language, marked.as_str());
         let labels = offered(language, marked);
         if labels.contains(&"nodelay".to_string()) {
             failures.push(format!(
@@ -262,65 +223,7 @@ fn keys_already_present_before_or_after_the_caret_are_not_offered() {
             ));
         }
     }
-    report(failures);
-}
-
-/// Where a name is not a property (an HCL block label, quoted or not),
-/// nothing is offered.
-#[test]
-fn block_labels_get_no_property_suggestions() {
-    let cases = [
-        "services \"|\" {\n}\n",
-        "services |",
-        "services we|",
-        "services w| {\n}\n",
-        "clients m|",
-        "clients \"a\" \"|\" {\n}\n",
-    ];
-    let mut failures = Vec::new();
-    for marked in cases {
-        let labels = offered(Language::HCL, marked);
-        if !labels.is_empty() {
-            failures.push(format!("{marked:?} offers {labels:?}"));
-        }
-    }
-    report(failures);
-}
-
-/// An XML element name typed in front of, or inside, an existing tag never
-/// breaks that element: it becomes its own element or renames the tag.
-#[test]
-fn an_xml_element_name_typed_at_an_existing_tag_keeps_it_an_element() {
-    let root = |body: &str| format!("<burrow config-root=\"true\">\n  {body}\n</burrow>\n");
-    let cases = [
-        (root("<pu|tcp/>"), "public_address"),
-        (
-            root("<li|tcp>\n    <nodelay>true</nodelay>\n  </tcp>"),
-            "limits",
-        ),
-        (root("<tc|p/>"), "tcp"),
-    ];
-    let mut failures = Vec::new();
-    for (marked, label) in cases {
-        match accepted(Language::XML, &marked, label).and_then(|text| {
-            let value =
-                parsed(Language::XML, &text).map_err(|error| format!("{error}: {text:?}"))?;
-            Ok((text, value))
-        }) {
-            Ok((text, value)) => {
-                let keys = keys_at(&value, &[]);
-                let text_leak = text.contains(">tcp") || text.contains(">p/>");
-                if !keys.contains(&label.to_string())
-                    || text_leak
-                    || (label != "tcp" && !keys.contains(&"tcp".to_string()))
-                {
-                    failures.push(format!("{marked:?} + {label} → {text:?} (keys {keys:?})"));
-                }
-            }
-            Err(error) => failures.push(format!("{marked:?} + {label} → {error}")),
-        }
-    }
-    report(failures);
+    report(&failures);
 }
 
 /// `tcp` holding a nested object entry written `entry` (caret inside), whose
@@ -358,25 +261,34 @@ fn nested_forms(language: Language, entry: &str, end: &str) -> Vec<(&'static str
 #[test]
 fn a_suggestion_accepted_inside_an_unknown_key_replaces_the_whole_key() {
     let mut failures = Vec::new();
+    let mut cases = Vec::new();
     for language in ALL {
         for (form, marked) in nested_forms(language, "k|delay", "kdelay") {
-            let case = format!("{} {form}: {marked:?}", language.label());
-            match accepted(language, &marked, "keepalive_secs").and_then(|text| {
-                let value =
-                    parsed(language, &text).map_err(|error| format!("{error}: {text:?}"))?;
-                Ok((text, value))
-            }) {
-                Ok((text, value)) => {
-                    let keys = keys_at(&value, &["tcp"]);
-                    if keys != ["keepalive_secs"] {
-                        failures.push(format!("{case} → {text:?} has keys {keys:?}"));
-                    }
-                }
-                Err(error) => failures.push(format!("{case} → {error}")),
-            }
+            cases.push((language, form, marked));
         }
     }
-    report(failures);
+    let at = At::InKey {
+        pointer: "/tcp/kdelay",
+        offset: 1,
+    };
+    let document = json!({"tcp": {"kdelay": true}});
+    cases.extend(every_form(&document, "/tcp", at, &mut failures));
+    for (language, form, marked) in cases {
+        let case = format!("{} {form}: {marked:?}", language.label());
+        match accepted(language, &marked, "keepalive_secs").and_then(|text| {
+            let value = parsed(language, &text).map_err(|error| format!("{error}: {text:?}"))?;
+            Ok((text, value))
+        }) {
+            Ok((text, value)) => {
+                let keys = keys_at(&value, &["tcp"]);
+                if keys != ["keepalive_secs"] {
+                    failures.push(format!("{case} → {text:?} has keys {keys:?}"));
+                }
+            }
+            Err(error) => failures.push(format!("{case} → {error}")),
+        }
+    }
+    report(&failures);
 }
 
 /// A container's own name: the caret inside it (`t|cp`) and a suggestion
@@ -449,7 +361,59 @@ fn a_suggestion_accepted_at_a_container_name_renames_it_or_goes_before_it() {
             }
         }
     }
-    report(failures);
+    // As each language writes the container: renamed from inside its name,
+    // a new entry before it from in front (not inside a key's quotes).
+    let rename = At::InKey {
+        pointer: "/tcp",
+        offset: 1,
+    };
+    for (language, form, marked) in every_form(&tcp(), "/tcp", rename, &mut failures) {
+        match accepted(language, &marked, "metrics")
+            .and_then(|text| parsed(language, &text).map(|value| (text, value)))
+        {
+            Ok((_, value)) if keys_at(&value, &[]) == ["metrics"] => {}
+            other => failures.push(format!("{language} {form} rename {marked:?}: {other:?}")),
+        }
+    }
+    failures.extend(in_front_of_a_written_container(false));
+    report(&failures);
+}
+
+/// A language and a form where a key typed in front of a container's name
+/// breaks the document: open findings, checked by the ignored test below.
+const IN_FRONT_KNOWN: &[(&str, &str)] = &[("YAML", "written")];
+
+/// A key typed in front of a container's name as each language writes it
+/// (not inside a key's quotes), accepted: a new entry before it, the
+/// container kept. The [`IN_FRONT_KNOWN`] forms only (`known`), or all the
+/// others; why each failing one fails.
+fn in_front_of_a_written_container(known: bool) -> Vec<String> {
+    let mut failures = Vec::new();
+    let in_front = At::BeforeKey {
+        pointer: "/tcp",
+        typed: "hea",
+    };
+    for (language, form, marked) in every_form(&tcp(), "/tcp", in_front, &mut failures) {
+        if marked.contains("\"hea|") || IN_FRONT_KNOWN.contains(&(language.label(), form)) != known
+        {
+            continue;
+        }
+        match accepted(language, &marked, "heartbeat")
+            .and_then(|text| parsed(language, &text).map(|value| (text, value)))
+        {
+            Ok((_, value))
+                if keys_at(&value, &[]).contains(&"heartbeat".to_string())
+                    && keys_at(&value, &["tcp"]) == ["nodelay"] => {}
+            other => failures.push(format!("{language} {form} in front {marked:?}: {other:?}")),
+        }
+    }
+    failures
+}
+
+#[test]
+#[ignore = "bug: YAML breaks a document with no line break at its end when a key typed in front of its first key is accepted (`hea|tcp:` gives `  heartbeat:` indented, `tcp` its child)"]
+fn a_key_accepted_in_front_of_a_yaml_container_without_a_final_line_break_is_its_own() {
+    report(&in_front_of_a_written_container(true));
 }
 
 /// The key the caret stands at the start of is already in the document: it
@@ -466,67 +430,25 @@ fn the_key_at_the_caret_is_not_offered_again() {
         ),
     ];
     let mut failures = Vec::new();
-    for (language, marked) in cases {
+    let mut cases: Vec<(Language, String)> = cases
+        .into_iter()
+        .map(|(language, marked)| (language, marked.to_string()))
+        .collect();
+    let at = At::InKey {
+        pointer: "/tcp",
+        offset: 0,
+    };
+    for (language, _, marked) in every_form(&tcp(), "/tcp", at, &mut failures) {
+        cases.push((language, marked));
+    }
+    for (language, marked) in &cases {
+        let (language, marked) = (*language, marked.as_str());
         let labels = offered(language, marked);
         if labels.contains(&"tcp".to_string()) {
             failures.push(format!("{} {marked:?} offers tcp", language.label()));
         }
     }
-    report(failures);
-}
-
-/// A key typed in front of a TOML `[table]` header goes on its own line,
-/// before the table, and the document still parses.
-#[test]
-fn a_toml_key_typed_in_front_of_a_header_goes_before_it() {
-    let text = accepted(Language::TOML, "hea|[tcp]\nnodelay = true\n", "heartbeat").unwrap();
-    let value = parsed(Language::TOML, &text).unwrap_or_else(|error| panic!("{error}: {text:?}"));
-    assert_eq!(keys_at(&value, &[]), ["heartbeat", "tcp"], "{text:?}");
-    assert_eq!(keys_at(&value, &["tcp"]), ["nodelay"], "{text:?}");
-    // A scalar waits for its value on its own line.
-    let text = accepted(Language::TOML, "lis|[tcp]\nnodelay = true\n", "listen").unwrap();
-    assert!(
-        text.starts_with("listen = ") && text.contains("\n[tcp]\nnodelay = true"),
-        "{text:?}"
-    );
-}
-
-/// An XML element name typed right before the tag's end (`<hea|>`,
-/// `<hea|/>`) gets name suggestions like anywhere else in the name.
-#[test]
-fn an_xml_name_before_the_tag_end_gets_suggestions() {
-    let root = |body: &str| format!("<burrow config-root=\"true\">\n  {body}\n</burrow>\n");
-    let mut failures = Vec::new();
-    for marked in [root("<hea|/>"), root("<hea|></hea>"), root("<hea|>")] {
-        let labels = offered(Language::XML, &marked);
-        if !labels.contains(&"heartbeat".to_string()) {
-            failures.push(format!("{marked:?} offers {labels:?}"));
-        }
-    }
-    report(failures);
-}
-
-/// Accepting a name at the end of a complete tag's name renames the
-/// element, end tag included.
-#[test]
-fn an_xml_name_accepted_at_the_end_of_a_complete_tag_renames_it() {
-    let root = |body: &str| format!("<burrow config-root=\"true\">\n  {body}\n</burrow>\n");
-    let mut failures = Vec::new();
-    for (marked, expected) in [
-        (root("<hea|></hea>"), root("<heartbeat></heartbeat>")),
-        (root("<hea|/>"), root("<heartbeat/>")),
-        (
-            root("<hea|>\n    <interval_secs>5</interval_secs>\n  </hea>"),
-            root("<heartbeat>\n    <interval_secs>5</interval_secs>\n  </heartbeat>"),
-        ),
-    ] {
-        match accepted(Language::XML, &marked, "heartbeat") {
-            Ok(text) if text == expected => {}
-            Ok(text) => failures.push(format!("{marked:?} → {text:?}")),
-            Err(error) => failures.push(format!("{marked:?} → {error}")),
-        }
-    }
-    report(failures);
+    report(&failures);
 }
 
 /// A rename leaves the caret right after the new key, with nothing selected,
@@ -559,7 +481,33 @@ fn a_rename_leaves_the_caret_after_the_new_key() {
         (Language::XML, "<tcp keep|x=\"5\"/>\n", "keepalive_secs"),
     ];
     let mut failures = Vec::new();
-    for (language, marked, label) in cases {
+    let mut cases: Vec<(Language, String, &str)> = cases
+        .into_iter()
+        .map(|(language, marked, label)| (language, marked.to_string(), label))
+        .collect();
+    for (document, container, pointer, offset, label) in [
+        (
+            json!({"limits": {"max_hpending": 1}}),
+            "/limits",
+            "/limits/max_hpending",
+            5,
+            "max_handshakes",
+        ),
+        (
+            json!({"tcp": {"keepx": 5}}),
+            "/tcp",
+            "/tcp/keepx",
+            4,
+            "keepalive_secs",
+        ),
+    ] {
+        let at = At::InKey { pointer, offset };
+        for (language, _, marked) in every_form(&document, container, at, &mut failures) {
+            cases.push((language, marked, label));
+        }
+    }
+    for (language, marked, label) in &cases {
+        let (language, marked, label) = (*language, marked.as_str(), *label);
         match accepted_with_selection(language, marked, label) {
             Ok((text, anchor, caret)) => {
                 let before: String = text
@@ -569,7 +517,9 @@ fn a_rename_leaves_the_caret_after_the_new_key() {
                     .iter()
                     .map(|unit| char::from_u32(u32::from(*unit)).unwrap_or('?'))
                     .collect();
-                if anchor != caret || !before.ends_with(label) {
+                // After the key as written: a quoted key's closing quote too.
+                let key_end = before.strip_suffix('"').unwrap_or(&before);
+                if anchor != caret || !key_end.ends_with(label) {
                     failures.push(format!(
                         "{} {marked:?} → {text:?} selection {anchor}..{caret}",
                         language.label()
@@ -579,7 +529,7 @@ fn a_rename_leaves_the_caret_after_the_new_key() {
             Err(error) => failures.push(format!("{} {marked:?} → {error}", language.label())),
         }
     }
-    report(failures);
+    report(&failures);
 }
 
 /// Accepting the key already written, with the caret at its end, changes
@@ -598,7 +548,18 @@ fn accepting_the_key_written_at_its_end_changes_nothing() {
         ),
     ];
     let mut failures = Vec::new();
-    for (language, marked, label) in cases {
+    let mut cases: Vec<(Language, String, &str)> = cases
+        .into_iter()
+        .map(|(language, marked, label)| (language, marked.to_string(), label))
+        .collect();
+    for (pointer, label) in [("/tcp", "tcp"), ("/tcp/nodelay", "nodelay")] {
+        for (language, _, marked) in every_form(&tcp(), "/tcp", At::KeyEnd(pointer), &mut failures)
+        {
+            cases.push((language, marked, label));
+        }
+    }
+    for (language, marked, label) in &cases {
+        let (language, marked, label) = (*language, marked.as_str(), *label);
         let original = marked.replacen('|', "", 1);
         match accepted(language, marked, label) {
             Ok(text) if text == original => {}
@@ -606,60 +567,7 @@ fn accepting_the_key_written_at_its_end_changes_nothing() {
             Err(error) => failures.push(format!("{} {marked:?} → {error}", language.label())),
         }
     }
-    report(failures);
-}
-
-/// An XML attribute accepted right before the tag's end keeps the end and
-/// gets its `="…"`.
-#[test]
-fn an_xml_attribute_accepted_before_the_tag_end_is_whole() {
-    let mut failures = Vec::new();
-    for (marked, expected) in [
-        ("<tcp no|>\n</tcp>\n", "<tcp nodelay=\"true\">\n</tcp>\n"),
-        ("<tcp no|></tcp>\n", "<tcp nodelay=\"true\"></tcp>\n"),
-        ("<tcp no|/>\n", "<tcp nodelay=\"true\"/>\n"),
-    ] {
-        match accepted(Language::XML, marked, "nodelay") {
-            Ok(text) if text.replace("\"\"", "\"true\"") == expected || text == expected => {}
-            Ok(text) => failures.push(format!("{marked:?} → {text:?}")),
-            Err(error) => failures.push(format!("{marked:?} → {error}")),
-        }
-    }
-    report(failures);
-}
-
-/// JSON types in front of a key like the other languages: at a key's
-/// opening quote (`"|tcp"`) or before it (`hea|"tcp"`), a new entry goes
-/// before it on its own line, and the key is not offered.
-#[test]
-fn a_json_key_typed_in_front_of_a_key_goes_before_it_on_its_own_line() {
-    let mut failures = Vec::new();
-    let marked = "{\n  \"|tcp\": {}\n}\n";
-    if offered(Language::JSON, marked).contains(&"tcp".to_string()) {
-        failures.push(format!("{marked:?} offers tcp"));
-    }
-    for (marked, label, expected) in [
-        (
-            "{\n  \"|tcp\": {}\n}\n",
-            "clients",
-            "{\n  \"clients\": {},\n  \"tcp\": {}\n}\n",
-        ),
-        (
-            "{\n  hea|\"tcp\": {}\n}\n",
-            "heartbeat",
-            "{\n  \"heartbeat\": {},\n  \"tcp\": {}\n}\n",
-        ),
-    ] {
-        match accepted(Language::JSON, marked, label) {
-            Ok(text)
-                if parsed(Language::JSON, &text).is_ok()
-                    && text.contains(&expected[4..expected.find(",").unwrap()])
-                    && text.contains(",\n  \"tcp\"") => {}
-            Ok(text) => failures.push(format!("{marked:?} → {text:?}")),
-            Err(error) => failures.push(format!("{marked:?} → {error}")),
-        }
-    }
-    report(failures);
+    report(&failures);
 }
 
 /// After a rename the list does not reopen on the renamed key (it would
@@ -668,7 +576,15 @@ fn a_json_key_typed_in_front_of_a_key_goes_before_it_on_its_own_line() {
 fn a_rename_does_not_reopen_the_list() {
     use super::super::completion::accept_reopens_suggestions;
     let mut failures = Vec::new();
-    for (language, marked, label) in [
+    let at = At::InKey {
+        pointer: "/tcp",
+        offset: 1,
+    };
+    let written: Vec<(Language, String, &str)> = every_form(&tcp(), "/tcp", at, &mut failures)
+        .into_iter()
+        .map(|(language, _, marked)| (language, marked, "metrics"))
+        .collect();
+    let by_hand = [
         (Language::YAML, "t|cp:\n  nodelay: true\n", "metrics"),
         (Language::HCL, "t|cp {\n  nodelay = true\n}\n", "metrics"),
         (Language::TOML, "t|cp = { nodelay = true }\n", "metrics"),
@@ -678,7 +594,13 @@ fn a_rename_does_not_reopen_the_list() {
             "metrics",
         ),
         (Language::TOML, "tcp|.nodelay = true\n", "tcp"),
-    ] {
+    ];
+    let cases = by_hand
+        .into_iter()
+        .map(|(language, marked, label)| (language, marked.to_string(), label))
+        .chain(written);
+    for (language, marked, label) in cases {
+        let marked = marked.as_str();
         let at = marked.find('|').unwrap();
         let source = marked.replacen('|', "", 1);
         let options = completions(
@@ -698,10 +620,10 @@ fn a_rename_does_not_reopen_the_list() {
             )),
         }
     }
-    report(failures);
+    report(&failures);
 }
 
-/// Round 10: typing in front of a key inserts before it in every form,
+/// Typing in front of a key inserts before it in every form,
 /// including text typed after a JSON key's opening quote and TOML table
 /// headers (`[ud|tcp]`).
 #[test]
@@ -748,16 +670,35 @@ fn typing_in_front_of_a_key_inserts_before_it_in_every_form() {
             Err(error) => failures.push(format!("{} {marked:?} → {error}", language.label())),
         }
     }
-    report(failures);
+    report(&failures);
 }
 
-/// Round 10: with the caret inside or before a line's indentation, a
+/// With the caret inside or before a line's indentation, a
 /// suggestion goes where the line's text starts, as at the end of the
 /// indentation.
 #[test]
 fn a_suggestion_accepted_in_the_indentation_goes_where_the_text_starts() {
     let mut failures = Vec::new();
-    for (language, marked, label) in [
+    let mut written = Vec::new();
+    for offset in [0, 1] {
+        let at = At::LineOfKey {
+            pointer: "/tcp/nodelay",
+            offset,
+        };
+        for language in completing() {
+            match write(language, &tcp(), &[], at) {
+                // Only where the line has that much indentation.
+                Ok(written_at)
+                    if written_at.text[written_at.byte..].starts_with(' ') || offset == 0 =>
+                {
+                    written.push((language, written_at.marked(), "keepalive_secs"));
+                }
+                Ok(_) => {}
+                Err(error) => failures.push(error),
+            }
+        }
+    }
+    let by_hand = [
         (Language::YAML, "tcp:\n|  nodelay: true\n", "keepalive_secs"),
         (Language::YAML, "tcp:\n | nodelay: true\n", "keepalive_secs"),
         (
@@ -781,7 +722,13 @@ fn a_suggestion_accepted_in_the_indentation_goes_where_the_text_starts() {
             "<tcp>\n|  <nodelay>true</nodelay>\n</tcp>\n",
             "keepalive_secs",
         ),
-    ] {
+    ];
+    let cases = by_hand
+        .into_iter()
+        .map(|(language, marked, label)| (language, marked.to_string(), label))
+        .chain(written);
+    for (language, marked, label) in cases {
+        let marked = marked.as_str();
         // Not offering the key already on the line.
         if offered(language, marked).contains(&"nodelay".to_string()) {
             failures.push(format!("{} {marked:?} offers nodelay", language.label()));
@@ -807,66 +754,26 @@ fn a_suggestion_accepted_in_the_indentation_goes_where_the_text_starts() {
             Err(error) => failures.push(format!("{} {marked:?} → {error}", language.label())),
         }
     }
-    report(failures);
+    report(&failures);
 }
 
-/// Round 10: the head of a TOML dotted key completed in place keeps the rest
-/// of the key and its value (`ud|.nodelay = true` + udp → `udp.nodelay`).
-#[test]
-fn a_toml_dotted_key_head_completes_in_place() {
-    let text = accepted(
-        Language::TOML,
-        "ud|.nodelay = true\ntcp.keepalive_secs = 3\n",
-        "udp",
-    )
-    .unwrap();
-    assert_eq!(text, "udp.nodelay = true\ntcp.keepalive_secs = 3\n");
-}
-
-/// Round 10: a TOML table renamed by a completion takes its sub-tables and
-/// dotted keys along, so its data stays one table.
-#[test]
-fn a_toml_table_renamed_by_completion_renames_its_sub_tables_and_dotted_keys() {
-    let marked = "[t|cp]\nnodelay = true\n[tcp.x]\na = 1\n";
-    let text = accepted(Language::TOML, marked, "metrics").unwrap();
-    assert!(!text.contains("tcp"), "{marked:?} → {text:?}");
-    assert!(parsed(Language::TOML, &text).is_ok(), "{text:?}");
-    let text = accepted(
-        Language::TOML,
-        "[t|cp]\nnodelay = true\n[tcp.x]\na = 1\n",
-        "metrics",
-    )
-    .unwrap();
-    assert_eq!(text, "[metrics]\nnodelay = true\n[metrics.x]\na = 1\n");
-}
-
-/// Round 10: an XML attribute is not offered when the element already has
-/// that key as a child element, and the reverse.
-#[test]
-fn an_xml_key_is_one_key_whether_attribute_or_child() {
-    let attributes = offered(
-        Language::XML,
-        "<tcp |>\n  <nodelay>true</nodelay>\n</tcp>\n",
-    );
-    assert!(
-        !attributes.contains(&"nodelay".to_string()),
-        "{attributes:?}"
-    );
-    assert!(
-        attributes.contains(&"keepalive_secs".to_string()),
-        "{attributes:?}"
-    );
-    let children = offered(Language::XML, "<tcp nodelay=\"true\">\n  <|\n</tcp>\n");
-    assert!(!children.contains(&"nodelay".to_string()), "{children:?}");
-}
-
-/// Round 10: Ctrl+Space over a selected key offers every key, and accepting
+/// Ctrl+Space over a selected key offers every key, and accepting
 /// one renames the key, in every language.
 #[test]
 fn ctrl_space_over_a_selected_key_offers_every_key_and_renames_it() {
     use super::super::completion::{apply_completion, completions_for};
     let mut failures = Vec::new();
-    for (language, text, key) in [
+    let written: Vec<(Language, String, &str)> = completing()
+        .into_iter()
+        .filter_map(|language| {
+            Some((
+                language,
+                super::harness::text(language, &tcp(), &[]).ok()?,
+                "tcp",
+            ))
+        })
+        .collect();
+    let by_hand = [
         (Language::YAML, "tcp:\n  nodelay: true\n", "tcp"),
         (Language::JSON, "{\"tcp\": {\"nodelay\": true}}\n", "tcp"),
         (Language::TOML, "[tcp]\nnodelay = true\n", "tcp"),
@@ -876,7 +783,13 @@ fn ctrl_space_over_a_selected_key_offers_every_key_and_renames_it() {
             "<burrow config-root=\"true\">\n  <tcp/>\n</burrow>\n",
             "tcp",
         ),
-    ] {
+    ];
+    let cases = by_hand
+        .into_iter()
+        .map(|(language, text, key)| (language, text.to_string(), key))
+        .chain(written);
+    for (language, text, key) in cases {
+        let text = text.as_str();
         let end = text.find(key).unwrap() + key.len();
         let options = completions_for(
             text,
@@ -900,62 +813,27 @@ fn ctrl_space_over_a_selected_key_offers_every_key_and_renames_it() {
             failures.push(format!("{}: {renamed:?}", language.label()));
         }
     }
-    report(failures);
+    report(&failures);
 }
 
-/// Round 10: completing in an XML end tag's name renames the element, its
-/// start tag included.
-#[test]
-fn an_xml_end_tag_name_completes_and_renames_both_tags() {
-    let marked = "<burrow config-root=\"true\">\n  <publ>x</pu|bl>\n</burrow>\n";
-    let text = accepted(Language::XML, marked, "public_address").unwrap();
-    assert_eq!(
-        text,
-        "<burrow config-root=\"true\">\n  <public_address>x</public_address>\n</burrow>\n"
-    );
-}
-
-/// Round 11: a closing tag being typed offers only the element it closes,
-/// and accepting writes that end tag, renaming nothing.
-#[test]
-fn a_closing_tag_being_typed_closes_its_element() {
-    let mut failures = Vec::new();
-    for (marked, name, expected) in [
-        (
-            "<websocket>\n  <path>/x</path>\n  </we|",
-            "websocket",
-            "<websocket>\n  <path>/x</path>\n  </websocket>",
-        ),
-        (
-            "<websocket>\n  <path>/x</|",
-            "path",
-            "<websocket>\n  <path>/x</path>",
-        ),
-        (
-            "<websocket>\n  <path>/x</path>\n  </|\n",
-            "websocket",
-            "<websocket>\n  <path>/x</path>\n  </websocket>\n",
-        ),
-    ] {
-        let labels = offered(Language::XML, marked);
-        if labels != [name] {
-            failures.push(format!("{marked:?}: offered {labels:?}"));
-        }
-        match accepted(Language::XML, marked, name) {
-            Ok(text) if text == expected => {}
-            other => failures.push(format!("{marked:?}: {other:?}")),
-        }
-    }
-    report(failures);
-}
-
-/// Round 11: Ctrl+Space over a selection covering the start of a key
+/// Ctrl+Space over a selection covering the start of a key
 /// replaces the whole key, in every language and form.
 #[test]
 fn ctrl_space_over_part_of_a_key_replaces_all_of_it() {
     use super::super::completion::{apply_completion, completions_for};
     let mut failures = Vec::new();
-    for (language, marked, label, rest) in [
+    let websocket = json!({"websocket": {"path": "/x"}});
+    let mut written = Vec::new();
+    for (pointer, offset, label, rest) in [
+        ("/websocket/path", 2, "host", "th"),
+        ("/websocket", 3, "metrics", "socket"),
+    ] {
+        let at = At::InKey { pointer, offset };
+        for (language, _, marked) in every_form(&websocket, "/websocket", at, &mut failures) {
+            written.push((language, marked, label, rest));
+        }
+    }
+    let by_hand = [
         (Language::YAML, "websocket:\n  pa|th: /x\n", "host", "th"),
         (
             Language::JSON,
@@ -1005,7 +883,13 @@ fn ctrl_space_over_part_of_a_key_replaces_all_of_it() {
             "metrics",
             "socket",
         ),
-    ] {
+    ];
+    let cases = by_hand
+        .into_iter()
+        .map(|(language, marked, label, rest)| (language, marked.to_string(), label, rest))
+        .chain(written);
+    for (language, marked, label, rest) in cases {
+        let marked = marked.as_str();
         let at = marked.find('|').unwrap();
         let text = marked.replacen('|', "", 1);
         let options = completions_for(
@@ -1037,19 +921,10 @@ fn ctrl_space_over_part_of_a_key_replaces_all_of_it() {
             ));
         }
     }
-    report(failures);
+    report(&failures);
 }
 
-/// Round 11: a key typed in front of a dotted key's last segment keeps the
-/// dotted head on both entries.
-#[test]
-fn a_key_typed_inside_a_dotted_toml_key_keeps_the_head_on_both() {
-    let text = accepted(Language::TOML, "websocket.ho|path = \"/x\"\n", "host").unwrap();
-    let value = parsed(Language::TOML, &text).unwrap();
-    assert_eq!(keys_at(&value, &["websocket"]), ["host", "path"], "{text}");
-}
-
-/// Round 11: a key accepted where the caret sits off its siblings' column
+/// A key accepted where the caret sits off its siblings' column
 /// (deeper than they can be, or between its parent's column and theirs in
 /// YAML) is written at their column, with no trailing spaces left.
 #[test]
@@ -1094,10 +969,10 @@ fn a_key_accepted_off_its_siblings_column_lines_up_with_them() {
             failures.push(format!("{}: {marked:?} became {text:?}", language.label()));
         }
     }
-    report(failures);
+    report(&failures);
 }
 
-/// Round 11: a key renamed by completion is renamed everywhere it is
+/// A key renamed by completion is renamed everywhere it is
 /// written: every dotted key and header through it in TOML, every block of
 /// that name in HCL, every element of that name in XML.
 #[test]
@@ -1140,10 +1015,10 @@ fn a_key_renamed_by_completion_is_renamed_everywhere_it_is_written() {
             other => failures.push(format!("{}: {marked:?} became {other:?}", language.label())),
         }
     }
-    report(failures);
+    report(&failures);
 }
 
-/// Round 11: a key typed in an HCL block written on one line opens the
+/// A key typed in an HCL block written on one line opens the
 /// block over lines, each attribute on its own; a header typed in front of
 /// a TOML table leaves the caret in the new table; a TOML table made only by
 /// its sub-tables can still be named in a header.
@@ -1187,54 +1062,46 @@ fn entries_typed_in_one_line_blocks_and_tables_stay_valid() {
             failures.push(format!("TOML {marked:?}: websocket not offered"));
         }
     }
-    report(failures);
+    report(&failures);
 }
-/// Round 11: in an XML document with misspelled end tags, the elements
-/// after one are not nested ever deeper (which made every keystroke slower
-/// with the document's length): a misspelled end closes the innermost.
-#[test]
-fn a_misspelled_xml_end_tag_closes_the_innermost_element() {
-    let mut text = String::new();
-    for index in 0..200 {
-        text.push_str(&format!("<listen>{index}</listn>\n"));
-    }
-    text.push_str("<tcp>\n  <no|");
-    let at = text.find('|').unwrap();
-    let source = text.replacen('|', "", 1);
-    let context = Language::XML
-        .behavior()
-        .completion_context(&source, source[..at].encode_utf16().count());
-    assert_eq!(
-        context.path,
-        vec![super::super::language::SchemaPathSegment::Key("tcp".into())]
-    );
-}
-
-/// Round 11: past the most problems shown, one more without a position says
+/// Past the most problems shown, one more without a position says
 /// that more follow, so a cut list is never taken for the whole one.
 #[cfg(feature = "schema-validation")]
 #[test]
 fn a_cut_problem_list_says_more_follow() {
-    let mut text = String::new();
-    for index in 0..50 {
-        text.push_str(&format!("unknown_{index}: 1\n"));
+    let document: serde_json::Map<String, Value> = (0..50)
+        .map(|index| (format!("unknown_{index}"), json!(1)))
+        .collect();
+    let mut failures = Vec::new();
+    for language in super::harness::every_language() {
+        let text = match super::harness::text(language, &Value::Object(document.clone()), &[]) {
+            Ok(text) => text,
+            Err(error) => {
+                failures.push(error);
+                continue;
+            }
+        };
+        let problems = super::super::diagnostics::validate(
+            &text,
+            Some(&burrow()),
+            None,
+            true,
+            language.behavior(),
+        );
+        let last = problems.get(20);
+        if problems.len() != 21
+            || !last.is_some_and(|last| last.line.is_none() && last.message.contains("more follow"))
+        {
+            failures.push(format!(
+                "{language}: {} problems, the last {last:?}",
+                problems.len()
+            ));
+        }
     }
-    let problems = super::super::diagnostics::validate(
-        &text,
-        Some(&burrow()),
-        None,
-        true,
-        Language::YAML.behavior(),
-    );
-    assert_eq!(problems.len(), 21);
-    assert!(
-        problems[20].line.is_none() && problems[20].message.contains("more follow"),
-        "{:?}",
-        problems[20]
-    );
+    report(&failures);
 }
 
-/// Round 12: a name completed in a block or end tag renames it; a dotted
+/// A name completed in a block or end tag renames it; a dotted
 /// key typed in front of an existing entry leaves that entry as it was.
 #[test]
 fn names_complete_in_place_and_entries_in_front_stay() {
@@ -1303,15 +1170,24 @@ fn names_complete_in_place_and_entries_in_front_stay() {
             other.map(|o| (o.label.clone(), o.insert.clone()))
         )),
     }
-    report(failures);
+    report(&failures);
 }
 
-/// Round 12: inside a repeated HCL block or XML element the keys are offered
+/// Inside a repeated HCL block or XML element the keys are offered
 /// as in the first.
 #[test]
 fn a_repeated_block_or_element_offers_its_keys() {
     let mut failures = Vec::new();
-    for (language, marked) in [
+    let at = At::NewKey {
+        object: "/websocket/1",
+        typed: "",
+    };
+    let document = json!({"websocket": [{"path": "/x"}, {"path": "/y"}]});
+    let written: Vec<(Language, String)> = every_form(&document, "/websocket/1", at, &mut failures)
+        .into_iter()
+        .map(|(language, _, marked)| (language, marked))
+        .collect();
+    let by_hand = [
         (
             Language::HCL,
             "websocket {\n  path = \"/x\"\n}\nwebsocket {\n  |\n}\n",
@@ -1320,7 +1196,13 @@ fn a_repeated_block_or_element_offers_its_keys() {
             Language::XML,
             "<websocket>\n  <path>/x</path>\n</websocket>\n<websocket>\n  |\n</websocket>\n",
         ),
-    ] {
+    ];
+    let cases = by_hand
+        .into_iter()
+        .map(|(language, marked)| (language, marked.to_string()))
+        .chain(written);
+    for (language, marked) in cases {
+        let marked = marked.as_str();
         if !offered(language, marked).contains(&"host".to_string()) {
             failures.push(format!(
                 "{}: {:?}",
@@ -1329,10 +1211,10 @@ fn a_repeated_block_or_element_offers_its_keys() {
             ));
         }
     }
-    report(failures);
+    report(&failures);
 }
 
-/// Round 13: a table key after a dotted head is written inline; a prefixed
+/// A table key after a dotted head is written inline; a prefixed
 /// XML name is renamed keeping its prefix, in both tags; a TOML header with
 /// keys is not renamed onto a table other headers make.
 #[test]
@@ -1384,20 +1266,10 @@ fn dotted_heads_prefixed_names_and_header_renames_stay_valid() {
     if labels.contains(&"clients".to_string()) {
         failures.push(format!("TOML rename offers clients: {labels:?}"));
     }
-    report(failures);
+    report(&failures);
 }
 
-/// Round 13: `/>` inside a quoted attribute value does not end the tag.
-#[test]
-fn a_tag_end_inside_a_quoted_attribute_value_is_text() {
-    let labels = offered(
-        Language::XML,
-        "<websocket path=\"a/>b\">\n  |\n</websocket>\n",
-    );
-    assert!(labels.contains(&"host".to_string()), "{labels:?}");
-}
-
-/// Round 14: quoted keys (TOML dotted, YAML single-quoted) are renamed as
+/// Quoted keys (TOML dotted, YAML single-quoted) are renamed as
 /// keys; prefixed XML attributes keep their prefix; a one-line HCL block
 /// keeps its spacing; nothing is offered right after an HCL block's `}` or
 /// on a YAML explicit key.
@@ -1489,5 +1361,5 @@ fn quoted_and_prefixed_names_rename_as_names() {
             ));
         }
     }
-    report(failures);
+    report(&failures);
 }

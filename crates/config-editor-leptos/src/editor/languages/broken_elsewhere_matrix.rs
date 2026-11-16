@@ -5,6 +5,8 @@
 
 use super::super::schema::Schema;
 use super::Language;
+use super::harness::{At, completing, report, write};
+use serde_json::json;
 
 const SCHEMA: &str = r#"{"type": "object", "properties": {
     "any": {"anyOf": [
@@ -64,19 +66,55 @@ const CASES: &[(Language, &str)] = &[
     ),
 ];
 
+/// The caret on a new entry of `<key>.sub`, over lines and on one line, in
+/// every language that suggests keys, with a syntax error after it: a
+/// `broken` object written after it, cut in the middle of its list.
+fn written_cases(key: &str, failures: &mut Vec<String>) -> Vec<(Language, String)> {
+    let document = json!({ key: {"kind": "b", "sub": {}}, "broken": {"list": [1, 22222]} });
+    let object = format!("/{key}/sub");
+    let at = At::NewKey {
+        object: &object,
+        typed: "",
+    };
+    let mut cases = Vec::new();
+    for language in completing() {
+        for one_line in [
+            &["/broken/list"][..],
+            &[object.as_str(), "/broken/list"][..],
+        ] {
+            match write(language, &document, one_line, at) {
+                // Cut where the list's last item starts: a list left open.
+                Ok(written) => match written.marked().rsplit_once("22222") {
+                    Some((cut, _)) if cut.contains('|') => cases.push((language, cut.to_string())),
+                    _ => failures.push(format!(
+                        "{language}: the list is not after the caret\n{}",
+                        written.text
+                    )),
+                },
+                Err(error) => failures.push(error),
+            }
+        }
+    }
+    cases
+}
+
 #[test]
 fn nested_keys_follow_the_matched_option_with_an_error_elsewhere() {
     let schema = Schema::compile(SCHEMA).unwrap();
     let mut failures = Vec::new();
     for key in ["any", "cond"] {
-        for (language, marked) in CASES {
-            let marked = marked.replace("KEY", key);
+        let mut cases: Vec<(Language, String)> = CASES
+            .iter()
+            .map(|(language, marked)| (*language, marked.replace("KEY", key)))
+            .collect();
+        cases.extend(written_cases(key, &mut failures));
+        for (language, marked) in &cases {
             let cursor = marked.find('|').unwrap();
-            let text = marked.replace('|', "");
-            assert!(
-                language.behavior().parse(&text).is_err(),
-                "{language}: the case has a syntax error\n{text}"
-            );
+            let text = marked.replacen('|', "", 1);
+            if language.behavior().parse(&text).is_ok() {
+                failures.push(format!("{language}: the case has no syntax error\n{text}"));
+                continue;
+            }
             let cursor = text[..cursor].encode_utf16().count();
             let labels: Vec<String> = schema
                 .suggestions(*language, &text, cursor)
@@ -88,5 +126,5 @@ fn nested_keys_follow_the_matched_option_with_an_error_elsewhere() {
             }
         }
     }
-    assert!(failures.is_empty(), "{}", failures.join("\n\n"));
+    report(&failures);
 }

@@ -8,6 +8,7 @@
 use super::super::completion::accept_marked;
 use super::super::schema::build_schema;
 use super::Language;
+use super::harness::{At, completing, holds, report, write};
 use serde_json::{Value, json};
 
 const SCHEMA: &str = r#"{"type":"object","properties":{"svc":{"type":"object",
@@ -21,34 +22,32 @@ const SCHEMA: &str = r#"{"type":"object","properties":{"svc":{"type":"object",
         "port":{"type":"integer","default":80}
     }}}}"#;
 
-const LANGUAGES: [Language; 5] = [
-    Language::YAML,
-    Language::JSON,
-    Language::TOML,
-    Language::HCL,
-    Language::XML,
-];
+/// Whether `language` writes an empty list (XML has none: an empty element
+/// reads as one empty item).
+fn has_empty_list(language: Language) -> bool {
+    holds(language, &json!({"tags": []}))
+}
 
 #[test]
 fn required_children_are_filled_alike_in_every_language() {
     let bundle = build_schema(SCHEMA).unwrap();
     let mut failures = Vec::new();
-    for language in LANGUAGES {
+    for language in completing() {
         let accepted = accept_marked("sv|", "svc", &bundle, language.behavior());
         let text = accepted.replace('|', "");
         let read = super::super::codec::read(language.behavior(), &text, Some(&bundle.schema));
         let svc = read.as_ref().ok().and_then(|read| read.get("svc"));
         let field = |key: &str| svc.and_then(|svc| svc.get(key)).cloned();
         let found = (field("limits"), field("tags"), field("port"));
-        // XML has no empty list (an empty element reads as one empty
-        // item): the list is left out, not written as another value.
-        let tags = (language != Language::XML).then(|| Value::Array(Vec::new()));
+        // A language with no empty list leaves the list out, never writes
+        // it as another value.
+        let tags = has_empty_list(language).then(|| Value::Array(Vec::new()));
         let wanted = (Some(json!({"cpu": 2, "mem": "1G"})), tags, Some(json!(80)));
         if found != wanted {
             failures.push(format!("{language}\n{accepted}\nreads {read:?}"));
         }
     }
-    assert!(failures.is_empty(), "{}", failures.join("\n\n"));
+    report(&failures);
 }
 
 /// The orders `svc` requires its children in.
@@ -84,7 +83,7 @@ fn required_children_are_filled_alike_in_any_order() {
             }
         }}});
         let bundle = build_schema(&schema.to_string()).unwrap();
-        for language in LANGUAGES {
+        for language in completing() {
             let accepted = accept_marked("sv|", "svc", &bundle, language.behavior());
             let text = accepted.replace('|', "");
             let read = super::super::codec::read(language.behavior(), &text, Some(&bundle.schema));
@@ -94,7 +93,7 @@ fn required_children_are_filled_alike_in_any_order() {
                 ));
                 continue;
             };
-            let empty_list = (language != Language::XML).then(|| json!([]));
+            let empty_list = has_empty_list(language).then(|| json!([]));
             for key in *order {
                 let wanted = match *key {
                     "limits" => Some(json!({"cpu": 2})),
@@ -121,7 +120,7 @@ fn required_children_are_filled_alike_in_any_order() {
             }
         }
     }
-    assert!(failures.is_empty(), "{}", failures.join("\n\n"));
+    report(&failures);
 }
 
 /// A required list with `minItems` is written with that many items (each
@@ -144,7 +143,7 @@ fn a_required_list_with_min_items_is_written_with_its_items() {
     }}});
     let bundle = build_schema(&schema.to_string()).unwrap();
     let mut failures = Vec::new();
-    for language in LANGUAGES {
+    for language in completing() {
         let accepted = accept_marked("sv|", "svc", &bundle, language.behavior());
         let text = accepted.replace('|', "");
         let read = super::super::codec::read(language.behavior(), &text, Some(&bundle.schema));
@@ -164,7 +163,7 @@ fn a_required_list_with_min_items_is_written_with_its_items() {
             failures.push(format!("{language}\n{accepted}\nreads {read:?}"));
         }
     }
-    assert!(failures.is_empty(), "{}", failures.join("\n\n"));
+    report(&failures);
 }
 
 /// `opts` requires `x` when `kind` is `a`, `y` otherwise: an `if` the
@@ -183,24 +182,21 @@ const BRANCHED: &str = r#"{"type":"object","properties":{
 #[test]
 fn the_children_written_follow_the_branch_the_document_takes() {
     let bundle = build_schema(BRANCHED).unwrap();
-    let documents: [(Language, &str, &str); 5] = [
-        (Language::YAML, "kind: a\nop|", "kind: b\nop|"),
-        (
-            Language::JSON,
-            "{\n  \"kind\": \"a\",\n  \"op|\"\n}",
-            "{\n  \"kind\": \"b\",\n  \"op|\"\n}",
-        ),
-        (Language::TOML, "kind = \"a\"\nop|", "kind = \"b\"\nop|"),
-        (Language::HCL, "kind = \"a\"\nop|", "kind = \"b\"\nop|"),
-        (
-            Language::XML,
-            "<kind>a</kind>\n<op|",
-            "<kind>b</kind>\n<op|",
-        ),
-    ];
     let mut failures = Vec::new();
-    for (language, with_a, with_b) in documents {
-        for (marked, wanted) in [(with_a, json!({"x": "1"})), (with_b, json!({"y": "2"}))] {
+    for language in completing() {
+        for (kind, wanted) in [("a", json!({"x": "1"})), ("b", json!({"y": "2"}))] {
+            let typed = At::NewKey {
+                object: "",
+                typed: "op",
+            };
+            let marked = match write(language, &json!({ "kind": kind }), &[], typed) {
+                Ok(written) => written.marked(),
+                Err(error) => {
+                    failures.push(error);
+                    continue;
+                }
+            };
+            let marked = marked.as_str();
             let accepted = accept_marked(marked, "opts", &bundle, language.behavior());
             let text = accepted.replace('|', "");
             let read = super::super::codec::read(language.behavior(), &text, Some(&bundle.schema));
@@ -214,5 +210,5 @@ fn the_children_written_follow_the_branch_the_document_takes() {
             }
         }
     }
-    assert!(failures.is_empty(), "{}", failures.join("\n\n"));
+    report(&failures);
 }

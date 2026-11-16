@@ -5,7 +5,7 @@
 
 use super::super::completion::key_hover;
 use super::super::schema::build_schema;
-use super::Language;
+use super::harness::{hovering, key_place, report, text};
 use serde_json::{Value, json};
 
 /// The dependency object: `version` or `git` (at least one), `path`.
@@ -57,42 +57,27 @@ fn variants() -> Vec<(&'static str, Value)> {
     ]
 }
 
-/// The key `version` written, per language.
-const DOCUMENTS: [(Language, &str); 5] = [
-    (Language::TOML, "[deps.serde]\nversion = \"1\"\n"),
-    (Language::YAML, "deps:\n  serde:\n    version: \"1\"\n"),
-    (
-        Language::JSON,
-        "{\"deps\": {\"serde\": {\n  \"version\": \"1\"\n}}}\n",
-    ),
-    (
-        Language::HCL,
-        "deps {\n  serde {\n    version = \"1\"\n  }\n}\n",
-    ),
-    (
-        Language::XML,
-        "<deps>\n  <serde>\n    <version>1</version>\n  </serde>\n</deps>\n",
-    ),
-];
-
 #[test]
 fn hover_says_required_only_where_the_object_requires_the_key() {
     let mut failures = Vec::new();
     for (name, schema) in variants() {
         let bundle = build_schema(&schema.to_string()).unwrap();
         let wanted = name == "required";
-        for (language, text) in DOCUMENTS {
-            let line = text
-                .lines()
-                .position(|line| line.contains("version"))
-                .unwrap();
-            let column = text.lines().nth(line).unwrap().find("version").unwrap() + 2;
-            let hover = key_hover(text, line, column, Some(&bundle), language.behavior());
+        let document = json!({"deps": {"serde": {"version": "1"}}});
+        for language in hovering() {
+            let place = text(language, &document, &[]).and_then(|text| {
+                key_place(language, &text, "/deps/serde/version", 2).map(|place| (text, place))
+            });
+            let Ok((text, (line, column))) = place else {
+                failures.push(format!("{name}, {language}: {place:?}"));
+                continue;
+            };
+            let hover = key_hover(&text, line, column, Some(&bundle), language.behavior());
             let hovered = hover.as_ref().map(|hover| hover.required);
             if hovered != Some(wanted) {
                 failures.push(format!("{name}, {language}: hover required {hovered:?}"));
             }
         }
     }
-    assert!(failures.is_empty(), "{failures:#?}");
+    report(&failures);
 }

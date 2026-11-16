@@ -112,7 +112,14 @@ mod conditional_typing_matrix;
     feature = "xml"
 ))]
 mod default_read_back_matrix;
-#[cfg(all(test, feature = "yaml", feature = "json", feature = "toml"))]
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
 mod dynamic_refs_matrix;
 #[cfg(all(
     test,
@@ -161,6 +168,15 @@ mod fold_copy_matrix;
     feature = "folding"
 ))]
 mod fold_matrix;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod harness;
 #[cfg(all(
     test,
     feature = "yaml",
@@ -276,16 +292,6 @@ mod parse_words_matrix;
 mod present_keys_matrix;
 #[cfg(all(
     test,
-    feature = "schema-validation",
-    feature = "yaml",
-    feature = "json",
-    feature = "toml",
-    feature = "hcl",
-    feature = "xml"
-))]
-mod tunnel_schema;
-#[cfg(all(
-    test,
     feature = "yaml",
     feature = "json",
     feature = "toml",
@@ -320,6 +326,16 @@ mod schema_help_matrix;
     feature = "xml"
 ))]
 mod tab_through_matrix;
+#[cfg(all(
+    test,
+    feature = "schema-validation",
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod tunnel_schema;
 #[cfg(all(
     test,
     feature = "yaml",

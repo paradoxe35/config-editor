@@ -7,6 +7,8 @@
 
 use super::super::highlight::{Token, TokenKind};
 use super::Language;
+use super::harness::{byte_range, highlighting, holds, name_range, report, text};
+use serde_json::{Value, json};
 
 /// The kind of the token covering byte `at` of the line, if any.
 fn kind_at(tokens: &[Token], at: usize) -> Option<TokenKind> {
@@ -206,9 +208,10 @@ fn punctuation() -> Vec<(Language, &'static str, &'static str)> {
     ]
 }
 
-/// QA 21: YAML coloured a key only when it was `[A-Za-z0-9_-]`, numbers
-/// only when Rust parsed them as floats, TOML table headers as one run of
-/// punctuation and HCL object keys not at all.
+/// Every key form and number form written by hand in each language's own
+/// syntax: any key YAML reads (not only `[A-Za-z0-9_-]`), every number it
+/// reads (not only what Rust parses as a float), TOML table headers by
+/// their parts, HCL object keys.
 #[test]
 fn keys_and_literals_are_coloured_in_every_form() {
     let mut failures = Vec::new();
@@ -277,7 +280,8 @@ fn keys_and_literals_are_coloured_in_every_form() {
 }
 
 /// (language, line, a part of it, its kind): YAML's anchors and aliases
-/// (references, QA 28: they were named like keys), tags (like literals), block scalar indicators and the
+/// (references, not named like keys), tags (like literals), block scalar
+/// indicators and the
 /// value indicator of a complex key (punctuation), a flow collection after
 /// an anchor or a tag; TOML's `=` and the dots of a dotted key in an
 /// inline table; HCL's references and function names (named like keys)
@@ -336,13 +340,11 @@ fn marks() -> Vec<(Language, &'static str, &'static str, TokenKind)> {
     ]
 }
 
-/// QA 23 (L23-U4): inside a YAML flow collection an anchor and its node
-/// were one plain value and an alias a value; a complex key written as a
-/// flow collection (`? [a, b]`) was one key; `!!str 123` took the number
-/// colour. Anchors and aliases look as outside a collection, a key's
-/// collection has its brackets, and a scalar tagged `!!str` is a string,
-/// in and out of a collection.
-fn qa23_marks() -> Vec<(Language, &'static str, &'static str, TokenKind)> {
+/// YAML marks inside flow collections: an anchor apart from its node, an
+/// alias a reference (as outside a collection), a complex key's
+/// collection (`? [a, b]`) with its brackets, and a scalar tagged `!!str`
+/// a string (not the number colour), in and out of a collection.
+fn flow_marks() -> Vec<(Language, &'static str, &'static str, TokenKind)> {
     use TokenKind::{Key, Literal, Punctuation, Reference, String, Value};
     vec![
         (Language::YAML, "- {a: &x 1, b: *x}", "&x", Reference),
@@ -366,10 +368,9 @@ fn qa23_marks() -> Vec<(Language, &'static str, &'static str, TokenKind)> {
     ]
 }
 
-/// QA 24 (L24-U4): a complex key written as a block scalar (`? |`) had
-/// its indicator coloured as the key and its text, on the lines below, no
-/// colour: the indicator is punctuation, as after `key:`, and the text a
-/// string body, as a value's.
+/// A complex key written as a block scalar (`? |`): its indicator is
+/// punctuation, as after `key:` (not the key's colour), and its text on the
+/// lines below a string body, as a value's.
 #[test]
 fn a_block_scalar_complex_key_has_its_indicator_and_its_text() {
     let mut failures = Vec::new();
@@ -409,17 +410,18 @@ fn a_block_scalar_complex_key_has_its_indicator_and_its_text() {
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
-/// QA 22: YAML's anchors, aliases, tags and block indicators were plain
-/// values (a flow mapping after an anchor one plain run), TOML's `=` and
-/// an inline table's key dots were not punctuation, and HCL's references
-/// and function calls took the string colour.
+/// Syntax marks have colours of their own: YAML's anchors, aliases, tags
+/// and block indicators (not plain values, nor a flow mapping after an
+/// anchor one plain run), TOML's `=` and an inline table's key dots
+/// (punctuation), HCL's references and function calls (never the string
+/// colour).
 #[test]
 fn syntax_marks_have_their_own_colours() {
     let mut failures = Vec::new();
     for (language, line, part, kind) in marks() {
         check(&mut failures, language, line, part, kind, &[' ']);
     }
-    for (language, line, part, kind) in qa23_marks() {
+    for (language, line, part, kind) in flow_marks() {
         check(&mut failures, language, line, part, kind, &[' ']);
     }
     // The last of a part found twice: the value's `ami`, after the key's.
@@ -430,4 +432,107 @@ fn syntax_marks_have_their_own_colours() {
         failures.push(format!("hcl {line:?}: the reference's ami"));
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+/// A language and a value it writes, where the colour is wrong: open
+/// findings, checked by the ignored test below until fixed.
+const KNOWN: &[(&str, &str)] = &[("HCL", "-7")];
+
+/// The colours of the keys and literals each language that colours its
+/// text writes itself, `known` the (language, value) pairs to check: all
+/// but the [`KNOWN`] ones, or only those.
+fn written_colours(known: bool) -> Vec<String> {
+    let keys = [
+        "plain_key",
+        "quoted key",
+        "server.port",
+        "Content-Type",
+        "名前",
+        "x-y",
+        "1abc",
+    ];
+    let literals = [
+        json!(42),
+        json!(-7),
+        json!(1.5),
+        json!(true),
+        json!(false),
+        Value::Null,
+    ];
+    let mut failures = Vec::new();
+    let line_of = |text: &str, at: usize| {
+        let start = text[..at].rfind('\n').map_or(0, |at| at + 1);
+        let end = text[at..].find('\n').map_or(text.len(), |end| at + end);
+        text[start..end].to_string()
+    };
+    for language in highlighting() {
+        for key in keys.iter().filter(|_| !known) {
+            let document = json!({ *key: "v" });
+            if !holds(language, &document) {
+                continue;
+            }
+            let pointer = format!("/{key}");
+            let placed = text(language, &document, &[])
+                .and_then(|text| Ok((name_range(language, &text, &pointer)?, text)));
+            match placed {
+                Ok(((start, end), text)) => {
+                    let line = line_of(&text, start);
+                    check(
+                        &mut failures,
+                        language,
+                        &line,
+                        &text[start..end],
+                        TokenKind::Key,
+                        &[' '],
+                    );
+                }
+                Err(error) => failures.push(error),
+            }
+        }
+        // Markup has no literals: its numbers are element text, typed by
+        // the schema.
+        if language.behavior().markup().is_some() {
+            continue;
+        }
+        for value in &literals {
+            let is_known = KNOWN.contains(&(language.label(), value.to_string().as_str()));
+            let document = json!({ "k": value });
+            if is_known != known || !holds(language, &document) {
+                continue;
+            }
+            let Ok(text) = text(language, &document, &[]) else {
+                continue;
+            };
+            let Some(span) = language.behavior().value_span(&text, "/k") else {
+                failures.push(format!("{language}: no value span for {value} in {text:?}"));
+                continue;
+            };
+            let (start, end) = byte_range(&text, span);
+            let line = line_of(&text, start);
+            check(
+                &mut failures,
+                language,
+                &line,
+                &text[start..end],
+                TokenKind::Literal,
+                &[],
+            );
+        }
+    }
+    failures
+}
+
+/// Every key and every number, boolean and null a language writes is
+/// coloured as a key or a literal: the documents each language that colours
+/// its text writes itself, keys spelled every way the cases above spell
+/// them (a value the language cannot hold is left out).
+#[test]
+fn written_keys_and_literals_are_coloured_in_every_language() {
+    report(&written_colours(false));
+}
+
+#[test]
+#[ignore = "bug: HCL colours the minus of a negative number it writes (`k = -7`) as punctuation, not as part of the literal"]
+fn a_negative_number_hcl_writes_is_one_literal() {
+    report(&written_colours(true));
 }

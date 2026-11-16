@@ -7,15 +7,8 @@
 use super::super::completion::key_hover;
 use super::super::schema::build_schema;
 use super::Language;
+use super::harness::{hovering, report, text};
 use serde_json::{Value, json};
-
-const LANGUAGES: [Language; 5] = [
-    Language::YAML,
-    Language::JSON,
-    Language::TOML,
-    Language::HCL,
-    Language::XML,
-];
 
 /// The description hover gives each `shared` key of `text`, in order.
 fn said_at_each(
@@ -64,10 +57,18 @@ fn each_list_item_is_documented_by_its_own_option() {
         "items": {"oneOf": [item_option("file", "path"), item_option("http", "url")]}}}})
     .to_string();
     let value = json!({"outs": [{"kind": "file", "shared": "x"}, {"kind": "http", "shared": "y"}]});
-    let mut texts: Vec<(Language, String)> = LANGUAGES
-        .iter()
-        .map(|language| (*language, language.serialize(&value).unwrap()))
-        .collect();
+    let mut failures = Vec::new();
+    // Each language's own forms: the items in blocks, and on one line each.
+    let mut texts: Vec<(Language, String)> = Vec::new();
+    for language in hovering() {
+        for one_line in [&[][..], &["/outs/0", "/outs/1"][..]] {
+            match text(language, &value, one_line) {
+                Ok(text) => texts.push((language, text)),
+                Err(error) => failures.push(error),
+            }
+        }
+    }
+    // Forms of each language's syntax written by hand.
     texts.extend([
         (
             Language::YAML,
@@ -102,14 +103,13 @@ fn each_list_item_is_documented_by_its_own_option() {
         Some("file shared".to_string()),
         Some("http shared".to_string()),
     ];
-    let mut failures = Vec::new();
     for (language, text) in texts {
         let said = said_at_each(&text, "shared", &schema, language);
         if said != wanted {
             failures.push(format!("{language} {text:?}: said {said:?}"));
         }
     }
-    assert!(failures.is_empty(), "{failures:#?}");
+    report(&failures);
 }
 
 fn host_option(name: &str, own: (&str, Value), extra: Value) -> Value {
@@ -197,8 +197,14 @@ fn a_shared_key_is_documented_by_the_option_its_object_fits() {
             let schema =
                 json!({"type": "object", "properties": {"conn": {combinator: [a, b]}}}).to_string();
             let document = json!({ "conn": value });
-            for language in LANGUAGES {
-                let text = language.serialize(&document).unwrap();
+            for language in hovering() {
+                let text = match text(language, &document, &[]) {
+                    Ok(text) => text,
+                    Err(error) => {
+                        failures.push(error);
+                        continue;
+                    }
+                };
                 let said = said_at_each(&text, "host", &schema, language);
                 if said != [Some("B host".to_string())] {
                     failures.push(format!(
@@ -208,5 +214,5 @@ fn a_shared_key_is_documented_by_the_option_its_object_fits() {
             }
         }
     }
-    assert!(failures.is_empty(), "{failures:#?}");
+    report(&failures);
 }

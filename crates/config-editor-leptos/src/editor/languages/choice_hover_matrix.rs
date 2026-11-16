@@ -5,7 +5,7 @@
 
 use super::super::completion::key_hover;
 use super::super::schema::build_schema;
-use super::Language;
+use super::harness::{hovering, key_place, report, text};
 use serde_json::{Value, json};
 
 fn option(kind: &str, own: &str) -> Value {
@@ -54,19 +54,19 @@ fn a_shared_key_is_documented_by_the_matched_option() {
                 ("out", json!({"out": entry})),
                 ("outs", json!({"outs": [entry, entry]})),
             ] {
-                for language in [
-                    Language::YAML,
-                    Language::JSON,
-                    Language::TOML,
-                    Language::HCL,
-                    Language::XML,
-                ] {
-                    let text = language.serialize(&value).unwrap();
-                    let Some(line) = text.lines().position(|line| line.contains("shared")) else {
-                        failures.push(format!("{name} {field} {language}: {text:?}"));
+                for language in hovering() {
+                    let pointer = if field == "out" {
+                        "/out/shared"
+                    } else {
+                        "/outs/0/shared"
+                    };
+                    let place = text(language, &value, &[]).and_then(|text| {
+                        key_place(language, &text, pointer, 2).map(|place| (text, place))
+                    });
+                    let Ok((text, (line, column))) = place else {
+                        failures.push(format!("{name} {field} {language}: {place:?}"));
                         continue;
                     };
-                    let column = text.lines().nth(line).unwrap().find("shared").unwrap() + 2;
                     let hover = key_hover(&text, line, column, Some(&bundle), language.behavior());
                     let said = hover.and_then(|hover| hover.description);
                     let wanted = format!("{kind} shared");
@@ -79,5 +79,5 @@ fn a_shared_key_is_documented_by_the_matched_option() {
             }
         }
     }
-    assert!(failures.is_empty(), "{failures:#?}");
+    report(&failures);
 }

@@ -491,6 +491,15 @@ impl Repeats for HclBehavior {
     }
 }
 
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod completion_tests;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]

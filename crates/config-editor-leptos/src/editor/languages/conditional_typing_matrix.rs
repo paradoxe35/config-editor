@@ -9,6 +9,8 @@
 use super::super::completion::completions;
 use super::super::schema::build_schema;
 use super::Language;
+use super::harness::{At, completing, report, write};
+use serde_json::json;
 
 const SCHEMA: &str = r#"{"type":"object","properties":{"kind":{"enum":["a","b"]}},
     "if":{"properties":{"kind":{"const":"a"}},"required":["kind"]},
@@ -18,7 +20,29 @@ const SCHEMA: &str = r#"{"type":"object","properties":{"kind":{"enum":["a","b"]}
 #[test]
 fn the_branch_an_if_takes_is_offered_while_a_key_is_typed() {
     let schema = build_schema(SCHEMA).unwrap();
-    let cases = [
+    let mut failures = Vec::new();
+    let mut cases: Vec<(Language, String)> = Vec::new();
+    for language in completing() {
+        let ats = [
+            At::NewLine { object: "" },
+            At::NewKey {
+                object: "",
+                typed: "",
+            },
+            At::NewKey {
+                object: "",
+                typed: "al",
+            },
+        ];
+        for at in ats {
+            match write(language, &json!({"kind": "a"}), &[], at) {
+                Ok(written) => cases.push((language, written.marked())),
+                Err(error) => failures.push(error),
+            }
+        }
+    }
+    // Forms of one language's syntax: a JSON key's opening quote typed alone.
+    let by_hand = [
         (Language::YAML, "kind: a\n|\n"),
         (Language::JSON, "{\n  \"kind\": \"a\",\n  |\n}\n"),
         (Language::JSON, "{\n  \"kind\": \"a\",\n  \"|\n}\n"),
@@ -27,7 +51,7 @@ fn the_branch_an_if_takes_is_offered_while_a_key_is_typed() {
         (Language::HCL, "kind = \"a\"\n|\n"),
         (Language::XML, "<kind>a</kind>\n|\n"),
     ];
-    let mut failures = Vec::new();
+    cases.extend(by_hand.map(|(language, marked)| (language, marked.to_string())));
     for (language, marked) in cases {
         let at = marked.find('|').unwrap();
         let source = marked.replacen('|', "", 1);
@@ -47,7 +71,7 @@ fn the_branch_an_if_takes_is_offered_while_a_key_is_typed() {
             failures.push(format!("{language} {marked:?}: {offered:?}"));
         }
     }
-    assert!(failures.is_empty(), "{}", failures.join("\n"));
+    report(&failures);
 }
 
 /// An object with nothing in it yet (a new YAML item `- `, a key with an
