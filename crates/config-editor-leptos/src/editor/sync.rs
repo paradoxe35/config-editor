@@ -355,12 +355,15 @@ impl EditorState {
     /// While the host's own language is on screen, its text is the host's
     /// (each edit reached `on_change` at once): `text`, the text on screen,
     /// is the host's last text, the one a view's next save patches, once
-    /// the language on screen is left (QA `FZ38-1`: a line moved in the
-    /// host's language, then a switch, saved the view over the text before
-    /// the move). Kept only then, not at each key.
+    /// the language on screen is left (else a view of a line moved in the
+    /// host's language would save over the text before the move). Kept
+    /// only then, not at each key.
     pub(super) fn take_text_as_host(&self, text: &str) {
+        // A change held back (a locked field reads otherwise) never reached
+        // the host: the host's text stays the one it has.
         if self.sync().edit_language.get_untracked() != self.config().host_language
             || self.sync().host_text.with_value(|host| host == text)
+            || self.changes_held()
         {
             return;
         }
@@ -623,8 +626,8 @@ pub(super) fn convert_now(state: EditorState, text: String, language: Language) 
         let origin = state.sync().session_host.get_value();
         // Back to a text saved before (an undo, across a switch too), or
         // the host's own (a reloaded baseline): its host text exactly, not
-        // converted again (QA `E33-4`: a list of one undone back to failed
-        // to read back as the lone element the host holds).
+        // converted again (a list of one converted again would not read
+        // back as the lone element the host holds).
         let known = state.sync().synced_hosts.with_value(|saved| {
             saved
                 .iter()
@@ -895,11 +898,20 @@ pub(super) fn switch_to(state: EditorState, next: Language) {
         }]);
         return;
     }
+    // A change held back in the host's language (a locked field reads
+    // otherwise) is no text of the host's: a view of it would save over a
+    // host text it does not show. The switch waits, the hold's reason
+    // shown, until an edit ends the hold.
+    if current == host && state.changes_held() {
+        state.sync().pending_switch.set(Some(next));
+        state.sync().load_problems.set(Vec::new());
+        return;
+    }
     let text = state.doc().text.get_untracked();
     // An edit of a view still waiting out the typing pause is saved first,
-    // with the edits that tell its items apart (QA `E33-1`: converted
-    // straight into the next view, they were lost, and the save paired
-    // the items by place).
+    // with the edits that tell its items apart (converted straight into
+    // the next view, they would be lost, and the save would pair the
+    // items by place).
     if text != state.sync().synced_edit.get_value() && state.bridge_to(current).is_some() {
         convert_now(state, text.clone(), current);
     }

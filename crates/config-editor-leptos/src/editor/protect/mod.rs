@@ -281,6 +281,14 @@ mod held_place_tests;
     feature = "yaml",
     feature = "json",
     feature = "toml",
+    feature = "hcl"
+))]
+mod held_switch_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
     feature = "hcl",
     feature = "xml"
 ))]
@@ -607,6 +615,14 @@ mod tests;
     feature = "xml"
 ))]
 mod typing_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl"
+))]
+mod value_below_key_tests;
 #[cfg(all(
     test,
     feature = "yaml",
