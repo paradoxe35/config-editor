@@ -1608,12 +1608,16 @@ let language = Language::from_path("infra/main.tf");   // Some(Language::HCL)
   host's number unless the user edits it). Schema validation reads them as
   numbers beyond every bound (NaN beyond both `minimum` and `maximum`),
   never integers or multiples of anything. A YAML plain number too large
-  for a float (`1e400`) is an infinity. A custom language says it writes them with
-  `LanguageTraits::writes_non_finite`. A real string spelled that way stays
-  a string: parsers hold it with one more U+FDD0 (`string_value` makes it,
-  `string_of` reads it back), and every writer takes that one off; build a
-  string with `string_value` when its text may start with U+FDD0 (a custom
-  language's parser does it for each string it reads).
+  for a float (`1e400`) is an infinity. A real string spelled that way
+  stays a string: parsers hold it with one more U+FDD0 (`string_value`
+  makes it, `string_of` reads it back); build a string with `string_value`
+  when its text may start with U+FDD0 (a custom language's parser does it
+  for each string it reads). A language's writers never see these marks:
+  the editor gives them plain data, each string as the text to write and
+  each infinity or NaN as the text `inf`, `-inf` or `nan`. A custom language
+  with numbers for them sets `LanguageTraits::writes_non_finite` and is
+  given the data model's values instead, which it reads with `float_of` and
+  `string_of`.
 
 </details>
 

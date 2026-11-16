@@ -350,9 +350,9 @@ fn fill<'a>(
 /// at all is trusted with every key.
 pub fn writes_key(language: &dyn ConfigLanguage, key: &str) -> bool {
     let document = serde_json::json!({ "r": { key: 0 } });
-    let Ok(text) = language.serialize(&document, None) else {
+    let Ok(text) = language.write_document(&document, None) else {
         let empty = serde_json::json!({ "r": {} });
-        return language.serialize(&empty, None).is_err();
+        return language.write_document(&empty, None).is_err();
     };
     language.parse(&text).ok().is_some_and(|read| {
         read.get("r")

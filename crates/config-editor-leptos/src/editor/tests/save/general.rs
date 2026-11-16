@@ -298,9 +298,10 @@ fn a_multi_line_string_under_a_dotted_key_keeps_its_form_and_the_comments() {
     assert_eq!(saved, toml.replace("listen = 1", "listen = 2"));
 }
 
-/// QA round 8 Edit-as findings, as reported.
+/// P2: Edit-as saves of one-line blocks, comments beside them and
+/// repeated values change only the edited lines.
 #[test]
-fn round_8_saves_change_only_the_edit() {
+fn edit_as_saves_beside_one_line_blocks_change_only_the_edit() {
     let mut failures = Vec::new();
     let mut check = |name: &str,
                      host: Language,
@@ -415,9 +416,10 @@ fn round_8_saves_change_only_the_edit() {
     assert!(failures.is_empty(), "{}", failures.join("\n\n"));
 }
 
-/// QA round 9 Edit-as findings, as reported.
+/// P2: more Edit-as saves across languages that change only the edited
+/// lines.
 #[test]
-fn round_9_saves_change_only_the_edit() {
+fn edit_as_saves_across_languages_change_only_the_edit() {
     let mut failures = Vec::new();
     let mut check = |name: &str,
                      host: Language,
@@ -973,7 +975,10 @@ fn round_12_saves_change_only_the_edit() {
         let shown = bridge.to_edit(text).unwrap().text;
         let mut value: Value = edit.parse(&shown).unwrap();
         change(&mut value);
-        let changed = edit.behavior().serialize(&value, Some(&shown)).unwrap();
+        let changed = edit
+            .behavior()
+            .write_document(&value, Some(&shown))
+            .unwrap();
         match bridge.to_host(&changed, text) {
             Ok(saved) if saved == expected => {}
             Ok(saved) => failures.push(format!(
@@ -1109,7 +1114,10 @@ fn round_13_saves_change_only_the_edit() {
         let shown = bridge.to_edit(text).unwrap().text;
         let mut value: Value = edit.parse(&shown).unwrap();
         change(&mut value);
-        let changed = edit.behavior().serialize(&value, Some(&shown)).unwrap();
+        let changed = edit
+            .behavior()
+            .write_document(&value, Some(&shown))
+            .unwrap();
         match bridge.to_host(&changed, text) {
             Ok(saved) if saved == expected => {}
             Ok(saved) => failures.push(format!(
@@ -1304,7 +1312,10 @@ fn round_14_saves_change_only_the_edit() {
         let shown = bridge.to_edit(text).unwrap().text;
         let mut value: Value = edit.parse(&shown).unwrap();
         change(&mut value);
-        let changed = edit.behavior().serialize(&value, Some(&shown)).unwrap();
+        let changed = edit
+            .behavior()
+            .write_document(&value, Some(&shown))
+            .unwrap();
         match bridge.to_host(&changed, text) {
             Ok(saved) if saved == expected => {}
             Ok(saved) => failures.push(format!(
@@ -1406,8 +1417,8 @@ fn round_14_saves_change_only_the_edit() {
 
 /// A YAML block list emptied in another view (the host then holds `l: []`,
 /// the only way YAML writes an empty list) and given items again is a
-/// block list again: an empty `[]` says nothing about the style (round 18
-/// left it `[b]`). A list the host wrote in flow with items stays in flow.
+/// block list again, not `[b]`: an empty `[]` says nothing about the
+/// style. A list the host wrote in flow with items stays in flow.
 #[test]
 fn a_yaml_block_list_emptied_and_refilled_stays_a_block_list() {
     let cases = [

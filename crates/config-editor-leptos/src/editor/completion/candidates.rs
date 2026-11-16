@@ -39,7 +39,7 @@ pub(super) fn value_completions(
     let branches = here.branches();
     // A language without null (TOML) is not offered one.
     let null_writable = behavior
-        .serialize(&serde_json::json!({ "value": null }), None)
+        .write_document(&serde_json::json!({ "value": null }), None)
         .is_ok();
     let numeric_allowed = branches
         .iter()
@@ -64,7 +64,7 @@ pub(super) fn value_completions(
                     continue;
                 }
                 if let Some(score) = match_score(&label, query) {
-                    let insert = format!("{leading}{}", behavior.format_value(&value));
+                    let insert = format!("{leading}{}", behavior.write_value(&value));
                     // The value's own words, else its branch's.
                     let detail = docs
                         .of_value(&value)

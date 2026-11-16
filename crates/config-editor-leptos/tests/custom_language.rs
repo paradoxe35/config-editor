@@ -211,6 +211,40 @@ fn an_external_language_converts_to_and_from_the_built_in_ones() {
     );
 }
 
+/// P2: a language whose writer prints each string as it is (as `.env`
+/// does) still writes infinities, NaN and 64-bit integers from other
+/// languages as their text, never the data model's marks.
+#[cfg(all(feature = "yaml", feature = "toml", feature = "json"))]
+#[test]
+fn a_naive_writer_writes_infinities_nan_and_huge_integers_as_text() {
+    let converted = Language::TOML
+        .convert(
+            "rate = inf\nlow = -inf\nodd = nan\nbig = 9223372036854775807\n",
+            ENV,
+        )
+        .unwrap();
+    assert_eq!(
+        converted.text,
+        "rate=inf\nlow=-inf\nodd=nan\nbig=9223372036854775807\n"
+    );
+    // The text `inf` reads back as a string: a loss, never a silent one.
+    assert_eq!(converted.losses, ["/rate", "/low", "/odd"]);
+    let yaml = Language::YAML
+        .convert("rate: .inf\nbig: 18446744073709551615\n", ENV)
+        .unwrap();
+    assert_eq!(yaml.text, "rate=inf\nbig=18446744073709551615\n");
+    // A string spelled like an infinity's form is written as its text.
+    let forged = Language::JSON
+        .convert("{\"s\": \"\\ufdd0inf\"}", ENV)
+        .unwrap();
+    assert_eq!(forged.text, "s=\u{FDD0}inf\n");
+    // A value written alone takes the same door.
+    let env: &dyn ConfigLanguage = &DOTENV;
+    let value = config_editor_leptos::float_value(f64::NEG_INFINITY);
+    assert_eq!(env.write_value(&value), "\"-inf\"");
+    assert_eq!(env.write_value_like(&value, "1"), "\"-inf\"");
+}
+
 #[test]
 fn highlighting_is_plain_data() {
     let tokens = ENV.parse("A=1").map(|_| DOTENV.highlight("A=1")).unwrap();
