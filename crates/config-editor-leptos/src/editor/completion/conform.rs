@@ -109,8 +109,8 @@ const MAX_REREADS: usize = 8;
 /// (`0` read as the string a `oneOf` option's `port` takes, so that two
 /// options match; `8` where a list's `contains` asks a text; a lone
 /// element where an option asks a list): each value read another way
-/// ([`rereadings`]), one at a time, kept where that makes the schemas
-/// take it.
+/// ([`other_reading`], or as a list's one item), one at a time, kept
+/// where that makes the schemas take it.
 fn reread_for_object(value: &mut Value, at: &Entry<'_>, children: &[Entry<'_>], root: &Value) {
     if !(value.is_object() || value.is_array()) || at.accepts_near(value, root) != Some(false) {
         return;
@@ -147,14 +147,16 @@ fn reread_for_object(value: &mut Value, at: &Entry<'_>, children: &[Entry<'_>], 
         {
             return;
         }
-        if item && read_kept(value, &slot, at, root, Reading::Item) {
+        if !item {
+            continue;
+        }
+        if read_kept(value, &slot, at, root, Reading::Item(None)) {
             return;
         }
         // The one item read the other way (`<x>-3</x>` as `["-3"]` where
         // the list asks a text and the number alone is refused).
-        if item
-            && let Some(other) = value.pointer(&slot).and_then(other_reading)
-            && read_kept(value, &slot, at, root, Reading::ItemOf(other))
+        if let Some(other) = value.pointer(&slot).and_then(other_reading)
+            && read_kept(value, &slot, at, root, Reading::Item(Some(other)))
         {
             return;
         }
@@ -199,10 +201,8 @@ fn reread_for_object(value: &mut Value, at: &Entry<'_>, children: &[Entry<'_>], 
 enum Reading {
     /// This value instead.
     Other(Value),
-    /// The value as a list's one item.
-    Item,
-    /// This value as a list's one item.
-    ItemOf(Value),
+    /// A list's one item: the value itself, or this other reading of it.
+    Item(Option<Value>),
 }
 
 /// The value at `slot` of `value` read as `reading`, kept where the
@@ -219,8 +219,8 @@ fn read_kept(
     };
     let before = match reading {
         Reading::Other(other) => Some(std::mem::replace(held, other)),
-        Reading::ItemOf(other) => Some(std::mem::replace(held, Value::Array(vec![other]))),
-        Reading::Item => {
+        Reading::Item(Some(other)) => Some(std::mem::replace(held, Value::Array(vec![other]))),
+        Reading::Item(None) => {
             *held = Value::Array(vec![held.take()]);
             None
         }
