@@ -513,3 +513,188 @@ fn a_moved_placeholder_after_a_quote_its_parser_reads_as_text_never_glues() {
         ],
     );
 }
+
+/// Over-refusal: in Dot (a later key wins), a locked list item at another
+/// index (held), its list's key copied down above the items, then the
+/// first `keys:` (now empty) cut: taken. The copy holds the items, as the
+/// parse reads them, so it is the item's holder key.
+#[test]
+fn a_cut_of_a_list_key_copied_above_its_held_item_is_taken() {
+    let path = Setup {
+        case: 12,
+        lock: Lock::Path,
+        host: None,
+        pairs: false,
+    };
+    assert_ok(
+        &path,
+        &[
+            Act::Entry {
+                anchor: 3,
+                name: 0,
+                paste: false,
+            },
+            Act::Cut { line: 44898 },
+            Act::Line {
+                line: 41252,
+                command: 2,
+            },
+            Act::Cut { line: 27525 },
+        ],
+    );
+    let schema = Setup {
+        case: 14,
+        lock: Lock::Schema,
+        host: None,
+        pairs: false,
+    };
+    assert_ok(
+        &schema,
+        &[
+            Act::PasteCopy { line: 14625 },
+            Act::Entry {
+                anchor: 3,
+                name: 1,
+                paste: false,
+            },
+            Act::Line {
+                line: 8772,
+                command: 2,
+            },
+            Act::Cut { line: 50351 },
+        ],
+    );
+}
+
+/// P1 and over-refusal: the range's line pasted above it makes two alike
+/// lines, and the range stays on its own line (the second): an entry
+/// typed into the copy is taken, one typed into the range's line refused,
+/// in a declared language and in XML.
+#[test]
+fn of_a_range_line_and_its_copy_only_the_copy_takes_an_entry() {
+    use leptos::prelude::*;
+
+    use super::mount::mount;
+    use crate::editor::edit::Edit;
+
+    for (case, anchor, written) in [
+        (11, "<user: 'app';", " zz: 'x';"),
+        (8, "user=\"app\"", " zz=\"5\""),
+    ] {
+        let setup = Setup {
+            case,
+            lock: Lock::Range,
+            host: None,
+            pairs: false,
+        };
+        let mounted = mount(&setup).expect("the case mounts");
+        let state = mounted.state;
+        let line = usize::from(case == 8);
+        let entry = |line: usize| {
+            let before = state.doc().text.get_untracked();
+            let start: usize = before.split_inclusive('\n').take(line).map(str::len).sum();
+            let at = start + before[start..].find(anchor).expect("the anchor") + anchor.len();
+            let after = format!("{}{written}{}", &before[..at], &before[at..]);
+            let from = before[..at].encode_utf16().count();
+            let caret = from + written.encode_utf16().count();
+            state.commit(Edit::new(before, (from, from), after, caret))
+        };
+        let copied = super::acts::make(&setup, &mounted, &Act::PasteCopy { line: line as u16 });
+        assert!(copied.is_ok(), "the copy is pasted ({case})");
+        assert!(!entry(line + 1), "the range's line takes no entry ({case})");
+        assert!(entry(line), "the copy takes an entry ({case})");
+    }
+    let dot = Setup {
+        case: 11,
+        lock: Lock::Range,
+        host: None,
+        pairs: false,
+    };
+    assert_ok(
+        &dot,
+        &[
+            Act::PasteCopy { line: 62418 },
+            Act::Type { at: 64047, text: 7 },
+            Act::Entry {
+                anchor: 0,
+                name: 15,
+                paste: false,
+            },
+        ],
+    );
+    let xml = Setup {
+        case: 8,
+        lock: Lock::Range,
+        host: None,
+        pairs: false,
+    };
+    assert_ok(
+        &xml,
+        &[
+            Act::PasteCopy { line: 23661 },
+            Act::ReplaceAll { pair: 0 },
+            Act::Entry {
+                anchor: 1,
+                name: 14,
+                paste: true,
+            },
+        ],
+    );
+}
+
+/// Over-refusal: in XML, the list's closing tag moved up above its last
+/// item (the locked item left alone in its list, written once), an item
+/// added to the list, then an entry typed a key at a time: taken. The
+/// field held while written once (`…/key`) is the one locked as a list's
+/// item (`…/key/0`), at the same pinned value, so the hold is not lost.
+#[test]
+fn an_entry_typed_after_an_item_moved_out_of_a_locked_xml_list_is_taken() {
+    for (pairs, acts) in [
+        (
+            false,
+            [
+                Act::Line {
+                    line: 49126,
+                    command: 1,
+                },
+                Act::Entry {
+                    anchor: 0,
+                    name: 12,
+                    paste: true,
+                },
+                Act::Entry {
+                    anchor: 2,
+                    name: 12,
+                    paste: false,
+                },
+            ],
+        ),
+        (
+            true,
+            [
+                Act::Line {
+                    line: 27628,
+                    command: 1,
+                },
+                Act::Entry {
+                    anchor: 0,
+                    name: 8,
+                    paste: true,
+                },
+                Act::Entry {
+                    anchor: 3,
+                    name: 15,
+                    paste: false,
+                },
+            ],
+        ),
+    ] {
+        let setup = Setup {
+            case: 7,
+            lock: Lock::Path,
+            host: None,
+            pairs,
+        };
+        assert_ok(&setup, &acts);
+    }
+}

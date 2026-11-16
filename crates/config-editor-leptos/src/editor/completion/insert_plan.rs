@@ -73,8 +73,12 @@ impl<'a> InsertPlan<'a> {
         at: Option<&Entry<'a>>,
         root: &'a Value,
     ) -> Self {
-        let array = array_branch(property, root);
-        let object = object_branch(property, root);
+        // A list or an object only where every schema at the key allows
+        // one (a pattern typing the key text beside the property's list).
+        let types = at.map(|at| Here::walk(at.clone(), root, Seen::default()).types());
+        let allows = |kind: &str| types.is_none_or(|types| types.allows_type(kind));
+        let array = array_branch(property, root).filter(|_| allows("array"));
+        let object = object_branch(property, root).filter(|_| allows("object"));
         let list_of_objects = array
             .and_then(|array| array.get("items"))
             .is_some_and(|items| object_branch(items, root).is_some());
@@ -106,7 +110,8 @@ impl<'a> InsertPlan<'a> {
             Planned::Value(default)
         } else {
             Planned::Empty {
-                string: placeholder(property, root).is_string(),
+                string: placeholder(property, root).is_string()
+                    || types.is_some_and(|types| types.is_only("string")),
             }
         };
         let children = match value {

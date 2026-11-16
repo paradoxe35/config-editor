@@ -88,6 +88,13 @@ pub(super) fn build_value(source: &str) -> Result<Value, ParseError> {
     if source.trim().is_empty() {
         return Ok(Value::Object(Map::new()));
     }
+    // A U+FEFF first in the text is a character of the document (the
+    // file's byte order mark never reaches a language), so text before the
+    // root. `quick-xml` would drop it as a mark without counting its bytes,
+    // and every position it gives would then point 3 bytes early.
+    if source.starts_with('\u{feff}') {
+        return Err(syntax_error(source, 0, "text outside the root element"));
+    }
     let mut reader = Reader::from_str(source);
     reader.config_mut().trim_text(false);
     let mut buf = Vec::new();

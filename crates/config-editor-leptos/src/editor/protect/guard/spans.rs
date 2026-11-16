@@ -89,11 +89,26 @@ pub(super) fn kept(
     // A field held the text no longer has (its lock gone with its line)
     // stays held, locked, or kept unplaced (pinned, with no span to
     // lock): released, nothing would follow it.
-    let locked = |pointer: &str| {
+    // A field is locked under its own pointer, or under the other spelling
+    // of an element written once (`/l`) or repeated (`/l/0`): a hold made
+    // where the text wrote it the other way, pinned at the value its lock
+    // pins (a list's pin is a list, never its item's value).
+    let pin = |pointer: &str| {
         protected
-            .locks
+            .pins
             .iter()
-            .any(|lock| lock.pointer.as_deref() == Some(pointer))
+            .find(|(known, _)| known == pointer)
+            .map(|(_, value)| value)
+    };
+    let locked = |pointer: &str| {
+        protected.locks.iter().any(|lock| {
+            lock.pointer.as_deref().is_some_and(|known| {
+                known == pointer
+                    || ((known.strip_suffix("/0") == Some(pointer)
+                        || pointer.strip_suffix("/0") == Some(known))
+                        && pin(pointer).is_some_and(|value| pin(known) == Some(value)))
+            })
+        })
     };
     if let Some(lost) = protected.held.iter().find(|pointer| {
         !locked(pointer)

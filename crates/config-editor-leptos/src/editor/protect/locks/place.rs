@@ -650,7 +650,60 @@ impl<'r, 'a> Placer<'r, 'a> {
             .locks
             .iter()
             .find(|lock| lock.pointer.as_deref() == Some(pointer))?;
-        moves.lock(lock)
+        let moved = moves.lock(lock)?;
+        if moved.guards.len() == lock.guards.len() {
+            return Some(moved);
+        }
+        Some(self.held_again(pointer, &previous.text, lock, moved))
+    }
+
+    /// `moved`, the lock of the field at `pointer` (`was` in the text
+    /// `before`) moved through an edit that took away a key holding it:
+    /// in a text that parses, held by the keys the parse writes its text
+    /// under when they read as the keys it lost (the key of a list copied
+    /// above its items, the first one cut: the copy holds the items).
+    /// Else as moved, a holder lost.
+    fn held_again(&self, pointer: &str, before: &str, was: &Lock, moved: Lock) -> Lock {
+        let Reading {
+            behavior,
+            text,
+            lines,
+            document,
+            ..
+        } = self.reading;
+        let span = moved
+            .ranges
+            .first()
+            .map(|first| first.start)
+            .zip(moved.ranges.last().map(|last| last.end));
+        let (Some(_), Some((start, end))) = (document, span) else {
+            return moved;
+        };
+        let (old, new): (Vec<u16>, Vec<u16>) = (
+            before.encode_utf16().collect(),
+            text.encode_utf16().collect(),
+        );
+        let mut keys = Vec::new();
+        for ((key, at), lost) in self.holders(pointer).zip(&was.guards) {
+            let holds = extent(*behavior, text, lines, at).is_some_and(|field| {
+                field
+                    .ranges
+                    .first()
+                    .is_some_and(|first| first.start <= start)
+                    && field.ranges.last().is_some_and(|last| end <= last.end)
+            });
+            if !holds || old.get(lost.clone()) != new.get(key.clone()) {
+                return moved;
+            }
+            keys.push(key);
+        }
+        if keys.len() != was.guards.len() {
+            return moved;
+        }
+        Lock {
+            guards: keys,
+            ..moved
+        }
     }
 
     /// In a text that does not parse, the stand-in's lock with its value
@@ -778,24 +831,30 @@ impl<'r, 'a> Placer<'r, 'a> {
 
     /// The keys of the fields holding `pointer`.
     fn ancestor_keys(&self, pointer: &str) -> Vec<Range<usize>> {
+        self.holders(pointer).map(|(key, _)| key).collect()
+    }
+
+    /// The fields holding `pointer`, innermost first: each one's key and
+    /// path.
+    fn holders<'p>(&self, pointer: &'p str) -> impl Iterator<Item = (Range<usize>, &'p str)> {
         let Reading {
             behavior,
             text,
             lines,
             ..
         } = self.reading;
-        let mut keys = Vec::new();
         let mut at = pointer;
-        while let Some(cut) = at.rfind('/') {
-            at = &at[..cut];
-            if at.is_empty() {
-                break;
+        std::iter::from_fn(move || {
+            loop {
+                at = &at[..at.rfind('/')?];
+                if at.is_empty() {
+                    return None;
+                }
+                if let Some(range) = key_range(*behavior, text, at) {
+                    return Some((lines.range(range), at));
+                }
             }
-            if let Some(range) = key_range(*behavior, text, at) {
-                keys.push(lines.range(range));
-            }
-        }
-        keys
+        })
     }
 }
 

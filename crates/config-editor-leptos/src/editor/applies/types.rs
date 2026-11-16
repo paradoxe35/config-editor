@@ -69,6 +69,11 @@ impl Types {
         self.0 & Types::named(name).0 != 0
     }
 
+    /// Whether only values of the `type` named `name` are allowed.
+    pub(crate) fn is_only(self, name: &str) -> bool {
+        self.0 != 0 && self.0 & !Types::named(name).0 == 0
+    }
+
     fn and(self, other: Types) -> Types {
         Types(self.0 & other.0)
     }

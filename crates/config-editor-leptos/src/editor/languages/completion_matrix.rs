@@ -549,6 +549,20 @@ fn accepting_the_key_written_at_its_end_changes_nothing() {
     report(&failures);
 }
 
+/// The shared suggestion cases run in Dot, a language as a JavaScript host
+/// declares it without `contextAt` (its caret read from the brackets,
+/// item separator and item marker it declares, as the bridge reads one),
+/// so each case here, such as the list not reopening after a rename and
+/// the keys offered in a repeated item, checks that reading too.
+#[test]
+fn the_suggestion_cases_run_in_a_language_declared_from_javascript() {
+    let labels: Vec<&str> = completing()
+        .iter()
+        .map(|language| language.label())
+        .collect();
+    assert!(labels.contains(&"Dot"), "{labels:?}");
+}
+
 /// After a rename the list does not reopen on the renamed key (it would
 /// take the next Enter).
 #[test]

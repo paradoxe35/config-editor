@@ -523,3 +523,44 @@ fn an_undo_after_new_paths_keeps_toml_locks_on_their_fields() {
         ],
     });
 }
+
+/// P5: a U+FEFF after a newline is a plain character, not the file's byte
+/// order mark: XML reads the text without slicing inside it.
+#[test]
+fn a_feff_after_a_newline_is_read_inside_its_character() {
+    super::reading::replay(super::reading::ReadCase {
+        language: "XML",
+        text: "\n\u{feff} <0>".into(),
+        at: 0,
+    });
+}
+
+/// Every language reads a U+FEFF (first in the text or after a line) and
+/// other characters of several bytes right beside its syntax characters
+/// with every place it reports on a character.
+#[test]
+fn every_language_reads_characters_of_several_bytes_beside_its_syntax() {
+    const WIDE: [&str; 4] = ["\u{feff}", "é", "😀", "\u{2028}"];
+    const SYNTAX: [&str; 16] = [
+        "<", ">", "</", "/>", "{", "}", "[", "]", "\"", "'", "=", ":", "#", "-", "&", "<0>",
+    ];
+    for language in super::texts::NAMES {
+        for lead in ["", "\n"] {
+            for wide in WIDE {
+                for syntax in SYNTAX {
+                    for text in [
+                        format!("{lead}{wide}{syntax}"),
+                        format!("{lead}{syntax}{wide}"),
+                        format!("{lead}{wide} {syntax}a{syntax}"),
+                    ] {
+                        super::reading::replay(super::reading::ReadCase {
+                            language,
+                            text,
+                            at: 0,
+                        });
+                    }
+                }
+            }
+        }
+    }
+}

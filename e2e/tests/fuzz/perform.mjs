@@ -167,6 +167,10 @@ export async function host(page, call, arg) {
             const target = language || own;
             if (vanilla) window.documentsView.editAs(id, target);
             else window.documentsHandle.current?.editAs(id, target);
+            // The host keeps the language in its list, as the handle's
+            // contract asks: its next list (an echo of an edit) would
+            // switch back to the one it lists.
+            window.updateFile(id, { editAs: target });
           }
         },
       };
