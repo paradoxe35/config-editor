@@ -50,9 +50,9 @@ impl Children {
         }
     }
 
-    /// The prefix of an element with a name new among its siblings (QA
-    /// `E33-3`): its nearest sibling's in scope, as an item added takes
-    /// its neighbour's (QA `E34-3`): the one written before it
+    /// The prefix of an element with a name new among its siblings: its
+    /// nearest sibling's in scope, as an item added takes its
+    /// neighbour's: the one written before it
     /// (`before`), else the host's first (the one after it), else the
     /// parent's own (`parent_prefix`) when it has none in scope.
     pub(super) fn new_name_prefix(

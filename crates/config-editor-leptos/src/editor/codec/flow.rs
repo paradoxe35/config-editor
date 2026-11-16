@@ -107,8 +107,8 @@ pub(super) fn restyle(
         Value::Array(values) => {
             // Every item still written keeps its text, matched in order
             // before any is written anew: an item added before others
-            // takes none of their places (QA 38: `[0x50, 0x1bb]` with 99
-            // added between became `[0x50, 99, 443]`).
+            // takes none of their places (`[0x50, 0x1bb]` with 99 added
+            // between keeps `0x1bb`, not `[0x50, 99, 443]`).
             let mut used = vec![false; items.len()];
             let mut matches = vec![None; values.len()];
             let mut from = 0;

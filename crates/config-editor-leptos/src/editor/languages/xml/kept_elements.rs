@@ -136,7 +136,7 @@ pub(super) fn with_layout_of(written: &str, (previous, origin): (&str, Option<&s
             Host::Origin => first.as_ref().and_then(|first| Some((first, first.at(&path)?))),
         });
         // A name new among its siblings: in their namespace, else its
-        // parent's (QA `E33-3`).
+        // parent's.
         let mut new_name = None;
         let (like, named, from) = match own {
             // An empty element given content is no longer nil.
