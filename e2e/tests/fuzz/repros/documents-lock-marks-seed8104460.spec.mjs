@@ -2,8 +2,9 @@ import { test } from '@playwright/test';
 import { replay } from '../runner.mjs';
 
 // Shrunk by the browser fuzz from seed 8104460 on documents.
-// Fails the `lock-marks` check after step 2: line 2: locked "listen: 7835", marked ""
-test.fixme("documents: lock-marks (seed 8104460)", async ({ browser }) => {
+// P1: a range the host locks while a save is held (a line copied) is
+// locked, and marked, where the text on screen holds its text whole.
+test("documents: lock-marks (seed 8104460)", async ({ browser }) => {
   await replay(browser, "documents", "", [
     {
       "k": "lock",

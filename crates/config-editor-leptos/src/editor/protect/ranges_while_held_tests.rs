@@ -204,6 +204,43 @@ fn ranges_given_after_a_held_drag_lock_their_text_in_every_language() {
     }
 }
 
+/// A line copied below itself while a save is held (the copy is the new
+/// line, the original keeps its place): a range the host then gives from
+/// that line's end into the next one has its text written whole only from
+/// the copy on, and locks it there.
+#[test]
+fn a_range_across_a_line_copied_while_held_locks_its_text_in_every_language() {
+    for (language, text) in TEXTS {
+        let _owner = Owner::new();
+        _owner.set();
+        let host = Host {
+            ranges: RwSignal::new(Vec::new()),
+            heard: RwSignal::new(Vec::new()),
+        };
+        let state = mount(language, text, &host);
+        hold(language, state, &host, text);
+        let shown = state.doc().text.get_untracked();
+        let port = shown.find("7835").expect("the port");
+        let start = shown[..port].rfind('\n').map_or(0, |newline| newline + 1);
+        let end = port + shown[port..].find('\n').expect("its line end") + 1;
+        let line = shown[start..end].to_string();
+        assert!(
+            input(state, end..end, &line, "insertFromPaste"),
+            "{language:?}: the copy is taken"
+        );
+        let port = text.find("7835").expect("the port");
+        let next = port + text[port..].find('\n').expect("its line end") + 1;
+        let locked_text = &text[port..next + 2];
+        give(state, &host, text, port..next + 2);
+        assert_eq!(
+            locked(state),
+            [locked_text],
+            "{language:?}: in {:?}",
+            state.doc().text.get_untracked()
+        );
+    }
+}
+
 /// Takes back what [`hold`] wrote, by a new edit (not an undo): the lock
 /// it held reads as the host gave it again.
 fn unhold(language: Language, state: EditorState) {
