@@ -1956,11 +1956,6 @@ pub trait ConfigLanguage: Send + Sync + 'static {
         None
     }
 
-    /// Drops what the language keeps of the last texts it read (scans,
-    /// spans), once no editor is mounted: nothing of a closed editor's text
-    /// stays. Nothing by default.
-    fn forget_kept(&self) {}
-
     /// `source` with the members of the map at `pointer` that it writes
     /// together inside one construct, not as entries of lines of their own
     /// (an XML element's attributes, in its start tag), in `order`'s order

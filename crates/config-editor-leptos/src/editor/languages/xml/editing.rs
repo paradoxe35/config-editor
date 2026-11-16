@@ -608,7 +608,7 @@ pub(super) fn highlight(line: &str) -> Vec<HighlightToken> {
     // Text words with only blanks between them: one value run, as the other
     // languages draw a value (a long text line was one span per word).
     let mut text: Option<std::ops::Range<usize>> = None;
-    for token in tokenize(line) {
+    for token in tokenize_text(line) {
         let words = matches!(token.kind, Kind::Text { .. } | Kind::Equals)
             && !line[token.start..token.end].starts_with(CDATA_CLOSE);
         if words {

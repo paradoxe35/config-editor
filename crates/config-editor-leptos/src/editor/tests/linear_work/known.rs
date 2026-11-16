@@ -48,10 +48,11 @@ pub(super) const ALLOWED: &[Known] = &[
     // each from the top of the text, in a text of up to `MAX_LINES` (500)
     // lines; a larger one gets a fixed budget of such reads, so the work
     // stops growing faster than the text past that size. The matrix's
-    // texts are well under it.
+    // texts are well under it. In HCL each of those reads is a scan of
+    // the text from the top at that line (`ScannedBytes`).
     Known {
         finding: "every line's path read below 500 lines",
-        work: &[Work::OffsetSeek, Work::CharacterStep],
+        work: &[Work::OffsetSeek, Work::CharacterStep, Work::ScannedBytes],
         applies: |case| {
             !view(case) && shapes(case, &[Shape::Secrets]) && kinds(case, &[EditKind::Open])
         },

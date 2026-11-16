@@ -753,14 +753,19 @@ fn the_caret_scan_without_spans_finds_the_place_the_full_scan_does() {
 /// next XML text).
 #[test]
 fn the_last_editor_gone_drops_what_xml_keeps() {
-    use super::{plan::plan_kept, parse::spans_kept, scan::scan_kept, tokens::tokens_kept};
+    use crate::editor::parse_cache::any_kept;
+    let kept = || {
+        any_kept::<super::scan::Scan>()
+            || any_kept::<Vec<super::tokens::Token>>()
+            || any_kept::<super::plan::PathPlan>()
+    };
     let text = "<r>\n  <a>1</a>\n  <b k=\"v\">2</b>\n</r>\n";
     crate::editor::parse_cache::hold();
     let behavior = XmlBehavior;
     let _ = behavior.completion_context(text, 12);
     let _ = behavior.value_span(text, "/r/b");
     let _ = behavior.key_span(text, "/r/a");
-    assert!(scan_kept() || spans_kept() || tokens_kept() || plan_kept(), "something kept");
+    assert!(kept(), "something kept");
     crate::editor::parse_cache::release();
-    assert!(!scan_kept() && !spans_kept() && !tokens_kept() && !plan_kept());
+    assert!(!kept());
 }

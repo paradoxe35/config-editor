@@ -12,6 +12,13 @@ pub(super) fn yaml_tags(source: &str) -> Vec<(String, String)> {
     if !source.contains('!') {
         return Vec::new();
     }
+    /// The tags of a text, read once for it: the parse keeps no tags.
+    struct Tags(Vec<(String, String)>);
+    crate::editor::parse_cache::reading(source, (), || Tags(tags_read(source))).0.clone()
+}
+
+/// [`yaml_tags`], read off a parse into YAML's own nodes (the tags kept).
+fn tags_read(source: &str) -> Vec<(String, String)> {
     let Ok(config) = super::limits::parser_config(source) else {
         return Vec::new();
     };

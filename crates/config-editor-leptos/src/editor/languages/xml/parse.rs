@@ -533,29 +533,8 @@ pub(super) fn markup_start(source: &str, from: usize) -> usize {
         .map_or(from, |offset| from + offset)
 }
 
-pub(super) fn span_between(source: &str, start: usize, end: usize) -> (usize, usize, usize) {
-    let (line, column) = line_column(source, start);
-    (line, column, column + source[start..end].chars().count())
-}
-
 /// Name and value spans of a whole document, as `analyze` records them.
-type DocumentSpans = (Vec<(Vec<String>, usize, usize)>, Vec<(Vec<String>, usize, usize)>);
-
-thread_local! {
-    /// The last document's spans: diagnostics, hover and saves look up many
-    /// positions in one text, and each scan reads all of it.
-    static LAST_SPANS: std::cell::RefCell<Option<(u64, std::rc::Rc<DocumentSpans>)>> = const { std::cell::RefCell::new(None) };
-}
-
-/// Forgets the last document's spans.
-pub(super) fn forget_spans() {
-    let _ = LAST_SPANS.try_with(|last| last.borrow_mut().take());
-}
-
-#[cfg(test)]
-pub(super) fn spans_kept() -> bool {
-    LAST_SPANS.with(|last| last.borrow().is_some())
-}
+struct DocumentSpans(Vec<(Vec<String>, usize, usize)>, Vec<(Vec<String>, usize, usize)>);
 
 fn document_spans(source: &str) -> std::rc::Rc<DocumentSpans> {
     // In a batch of problems, read once without hashing the text each time.
@@ -566,19 +545,14 @@ fn document_spans(source: &str) -> std::rc::Rc<DocumentSpans> {
     remembered_spans(source)
 }
 
-/// The spans of `source`, remembered for the last text.
+/// The spans of `source`, shared through the parse cache: diagnostics,
+/// hover and saves look up many positions in one text, and each scan reads
+/// all of it.
 fn remembered_spans(source: &str) -> std::rc::Rc<DocumentSpans> {
-    use std::hash::{Hash, Hasher};
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    source.hash(&mut hasher);
-    let key = hasher.finish();
-    if let Some(spans) = LAST_SPANS.with(|last| last.borrow().as_ref().filter(|(cached, _)| *cached == key).map(|(_, spans)| spans.clone())) {
-        return spans;
-    }
-    let scan = scan_text(source, 0, true);
-    let spans = std::rc::Rc::new((scan.key_spans, scan.value_spans));
-    LAST_SPANS.with(|last| *last.borrow_mut() = Some((key, spans.clone())));
-    spans
+    crate::editor::parse_cache::reading(source, (), || {
+        let scan = scan_text(source, 0, true);
+        DocumentSpans(scan.key_spans, scan.value_spans)
+    })
 }
 
 /// The lines of `text_bodies::text_body_lines` read off the full span scan,

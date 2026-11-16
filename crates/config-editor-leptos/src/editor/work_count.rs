@@ -232,6 +232,15 @@ pub(crate) enum Work {
         allow(dead_code, reason = "only schema validation notes it")
     )]
     HostChecked,
+    /// A byte of a whole text read by a language for something other than
+    /// its parse (its tokens, its scan from the top, its spans, its tags;
+    /// one note per byte, see [`note_many`]), the first time that text is
+    /// read so (see `parse_cache::reading`).
+    #[cfg_attr(
+        not(any(feature = "yaml", feature = "hcl", feature = "xml")),
+        allow(dead_code, reason = "only YAML, HCL and XML keep readings")
+    )]
+    ScannedBytes,
 }
 
 impl Work {
@@ -286,6 +295,7 @@ impl Work {
             Self::AliasScan => 45,
             Self::ItemLinesBytes => 46,
             Self::HostChecked => 47,
+            Self::ScannedBytes => 48,
         }
     }
 
@@ -340,12 +350,13 @@ impl Work {
         Self::AliasScan,
         Self::ItemLinesBytes,
         Self::HostChecked,
+        Self::ScannedBytes,
     ];
 }
 
 /// How many kinds of work there are.
 #[cfg(test)]
-const KINDS: usize = 48;
+const KINDS: usize = 49;
 
 #[cfg(test)]
 thread_local! {

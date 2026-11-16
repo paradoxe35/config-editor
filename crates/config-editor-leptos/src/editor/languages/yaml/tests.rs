@@ -1490,6 +1490,33 @@ fn comments_are_split_only_outside_yaml_quotes() {
     );
 }
 
+/// A quote inside a plain scalar (`don't`) opens no string: the comment
+/// after it is found by every reading of the line, and the caret after
+/// it is in no string.
+#[test]
+fn an_apostrophe_in_a_plain_scalar_opens_no_string() {
+    let line = "key: don't # note";
+    assert_eq!(YamlBehavior.comment_start(line), Some(11));
+    assert_eq!(YamlBehavior.comments(&format!("{line}\n")), vec![11..17]);
+    let tokens = highlighted(line);
+    assert!(
+        tokens
+            .iter()
+            .any(|(kind, text)| *kind == Some(TokenKind::Comment) && text == "# note"),
+        "{tokens:?}"
+    );
+    let caret = "key: don't".len();
+    let state = YamlBehavior.lexical_state(line, caret);
+    assert_eq!((state.quote, state.in_comment), (None, false));
+    let state = YamlBehavior.lexical_state(line, line.len());
+    assert_eq!((state.quote, state.in_comment), (None, true));
+    // A key holding one is a key.
+    assert_eq!(
+        super::mapping_colon("it's: here # note"),
+        Some(4)
+    );
+}
+
 #[cfg(feature = "schema-validation")]
 #[test]
 fn keys_inside_an_inline_mapping_are_suggested_from_the_schema() {

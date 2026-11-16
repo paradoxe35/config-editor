@@ -13,6 +13,7 @@ mod suggestions;
 mod hover;
 mod indent_above;
 mod editing;
+mod lexical;
 mod colors;
 mod style;
 mod block_scalar;

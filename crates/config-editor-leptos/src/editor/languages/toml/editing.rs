@@ -17,18 +17,15 @@ pub(super) fn inline_table_exit(source: &str, cursor: usize) -> Option<Newline> 
     // (`{ a = 1,| b = 2 }`): TOML keeps inline tables on one line, so the
     // new line starts after the whole line's code.
     let mut depth = 0i32;
-    let mut quote: Option<char> = None;
-    for character in before.chars() {
-        match (quote, character) {
-            (Some(open), _) if character == open => quote = None,
-            (Some(_), _) => {}
-            (None, '"' | '\'') => quote = Some(character),
-            (None, '{') => depth += 1,
-            (None, '}') => depth -= 1,
+    let (read, _) = super::lexical::read(before, before.len(), |at| {
+        match before.as_bytes()[at] {
+            b'{' => depth += 1,
+            b'}' => depth -= 1,
             _ => {}
         }
-    }
-    if depth > 0 && quote.is_none() && closers.contains('}') {
+        false
+    });
+    if depth > 0 && read.quote.is_none() && read.comment.is_none() && closers.contains('}') {
         let line = &source[line_start..];
         let indent = &line[..line.len() - line.trim_start_matches([' ', '\t']).len()];
         return Some(Newline {
@@ -60,30 +57,8 @@ pub(super) fn toml_lexical_state(source: &str, cursor: usize) -> (Option<char>, 
     let byte = utf16_to_byte_index(source, cursor);
     let line_start = source[..byte].rfind('\n').map_or(0, |index| index + 1);
     let line = &source[line_start..byte];
-    let mut quote: Option<char> = None;
-    let mut escaped = false;
-    for (index, character) in line.char_indices() {
-        if let Some(active) = quote {
-            if active == '"' && escaped {
-                escaped = false;
-            } else if active == '"' && character == '\\' {
-                escaped = true;
-            } else if character == active {
-                quote = None;
-            }
-        } else if matches!(character, '"' | '\'') {
-            quote = Some(character);
-        } else if character == '#'
-            && (index == 0
-                || line[..index]
-                    .chars()
-                    .next_back()
-                    .is_some_and(char::is_whitespace))
-        {
-            return (None, true);
-        }
-    }
-    (quote, false)
+    let read = super::lexical::read_line(line, line.len());
+    (read.quote, read.comment.is_some())
 }
 
 
@@ -141,32 +116,7 @@ pub(super) fn in_string_lines(lines: &[&str]) -> Vec<bool> {
 
 /// The delimiter of a triple-quoted string `code` opens and leaves open.
 fn opens_unclosed_string(code: &str) -> Option<&'static str> {
-    let mut quote: Option<char> = None;
-    let mut skip_until = 0;
-    for (index, character) in code.char_indices() {
-        if index < skip_until {
-            continue;
-        }
-        match quote {
-            Some('"') if character == '\\' => skip_until = index + 2,
-            Some(open) if character == open => quote = None,
-            Some(_) => {}
-            None if character == '#' => return None,
-            None if matches!(character, '"' | '\'') => {
-                let delimiter = if character == '"' { "\"\"\"" } else { "'''" };
-                if code[index..].starts_with(delimiter) {
-                    match closing_delimiter(&code[index + 3..], delimiter) {
-                        Some(at) => skip_until = index + 3 + at + 3,
-                        None => return Some(delimiter),
-                    }
-                } else {
-                    quote = Some(character);
-                }
-            }
-            None => {}
-        }
-    }
-    None
+    super::lexical::read_line(code, code.len()).multi_line
 }
 
 /// The UTF-16 selection `start..end` widened over the keys of the table

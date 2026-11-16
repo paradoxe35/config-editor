@@ -782,7 +782,8 @@ fn the_last_editor_gone_drops_what_hcl_keeps() {
     crate::editor::parse_cache::hold();
     let behavior = super::HclBehavior;
     let _ = behavior.completion_context(text, 18);
-    assert!(super::scan::scan_kept(), "the scan kept");
+    let kept = crate::editor::parse_cache::any_kept::<super::scan::Scan>;
+    assert!(kept(), "the scan kept");
     crate::editor::parse_cache::release();
-    assert!(!super::scan::scan_kept());
+    assert!(!kept());
 }

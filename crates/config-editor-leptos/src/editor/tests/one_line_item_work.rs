@@ -12,10 +12,11 @@ use crate::editor::languages::Language;
 use crate::editor::work_count::{Work, counted_all};
 
 /// Work noted per byte or character read: it grows with the document.
-const PER_BYTE: [Work; 5] = [
+const PER_BYTE: [Work; 6] = [
     Work::OffsetSeek,
     Work::OffsetBytes,
     Work::ParsedBytes,
+    Work::ScannedBytes,
     Work::RowText,
     Work::CharacterStep,
 ];

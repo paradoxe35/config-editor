@@ -49,6 +49,7 @@ mod namespace_scopes;
 #[cfg(feature = "folding")]
 mod folding;
 
+use crate::editor::paths::{line_column, span_between, utf16_len};
 use tokens::*;
 use scan::*;
 use plan::*;
@@ -107,13 +108,6 @@ const SCALAR_LINE: super::scalar_lines::LineRules = super::scalar_lines::LineRul
 };
 
 impl ConfigLanguage for XmlBehavior {
-    fn forget_kept(&self) {
-        forget_scan();
-        forget_spans();
-        forget_tokens();
-        forget_plan();
-    }
-
     fn edits_one_scalar(&self, source: &str, range: std::ops::Range<usize>, inserted: &str) -> bool {
         super::scalar_lines::one_scalar_line(self, source, range, inserted, &SCALAR_LINE).is_some()
     }

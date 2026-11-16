@@ -34,6 +34,7 @@ mod moved_maps;
 #[cfg(feature = "folding")]
 mod folding;
 
+use crate::editor::paths::{byte_at_column, first_line_span, line_column, span_between, utf16_len};
 use tokens::*;
 use scan::*;
 use parse::*;
@@ -70,10 +71,6 @@ const SCALAR_LINE: super::scalar_lines::LineRules = super::scalar_lines::LineRul
 };
 
 impl ConfigLanguage for HclBehavior {
-    fn forget_kept(&self) {
-        scan::forget_scan();
-    }
-
     fn edits_one_scalar(&self, source: &str, range: std::ops::Range<usize>, inserted: &str) -> bool {
         super::scalar_lines::one_scalar_line(self, source, range, inserted, &SCALAR_LINE).is_some()
     }
@@ -488,15 +485,6 @@ impl ConfigLanguage for HclBehavior {
         interpolation::push_heredoc_line(&mut out, text);
         out.finish()
     }
-}
-
-fn utf16(text: &str) -> usize {
-    text.encode_utf16().count()
-}
-
-/// One-based line and character column of a byte offset.
-fn line_column(source: &str, byte: usize) -> (usize, usize) {
-    crate::editor::paths::line_column(source, byte)
 }
 
 
