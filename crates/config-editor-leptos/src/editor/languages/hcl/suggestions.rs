@@ -529,7 +529,7 @@ fn body_wanted(path: &[SchemaPathSegment]) -> Vec<String> {
 
 /// The types of the blocks without labels the body at `path` holds
 /// (`rule { … }`): another block of each may follow (see
-/// `Repeats::repeated_keys`).
+/// `Typing::rewritable_keys`).
 pub(super) fn repeated_block_types(
     source: &str,
     cursor_byte: usize,

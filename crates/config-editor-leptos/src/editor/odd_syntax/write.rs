@@ -4,6 +4,7 @@
 use serde_json::Value;
 
 use super::read::scalar;
+use crate::string_of;
 
 /// `value` (a map) as a document.
 pub(super) fn document(value: &Value) -> Result<String, String> {
@@ -44,7 +45,9 @@ pub(super) fn inline(value: &Value) -> String {
         Value::Bool(true) => "yes".to_string(),
         Value::Bool(false) => "no".to_string(),
         Value::Number(number) => number.to_string(),
-        Value::String(text) => string(text),
+        // A string is written as the text it holds, not as the model
+        // holds it (see `string_of`).
+        Value::String(text) => string(string_of(value).unwrap_or(text)),
         Value::Array(items) => {
             let items: Vec<String> = items.iter().map(inline).collect();
             if items.is_empty() {

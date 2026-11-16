@@ -375,27 +375,12 @@ fn a_suggestion_accepted_at_a_container_name_renames_it_or_goes_before_it() {
             other => failures.push(format!("{language} {form} rename {marked:?}: {other:?}")),
         }
     }
-    failures.extend(in_front_of_a_written_container(false));
-    report(&failures);
-}
-
-/// A language and a form where a key typed in front of a container's name
-/// breaks the document: open findings, checked by the ignored test below.
-const IN_FRONT_KNOWN: &[(&str, &str)] = &[("YAML", "written")];
-
-/// A key typed in front of a container's name as each language writes it
-/// (not inside a key's quotes), accepted: a new entry before it, the
-/// container kept. The [`IN_FRONT_KNOWN`] forms only (`known`), or all the
-/// others; why each failing one fails.
-fn in_front_of_a_written_container(known: bool) -> Vec<String> {
-    let mut failures = Vec::new();
     let in_front = At::BeforeKey {
         pointer: "/tcp",
         typed: "hea",
     };
     for (language, form, marked) in every_form(&tcp(), "/tcp", in_front, &mut failures) {
-        if marked.contains("\"hea|") || IN_FRONT_KNOWN.contains(&(language.label(), form)) != known
-        {
+        if marked.contains("\"hea|") {
             continue;
         }
         match accepted(language, &marked, "heartbeat")
@@ -407,13 +392,7 @@ fn in_front_of_a_written_container(known: bool) -> Vec<String> {
             other => failures.push(format!("{language} {form} in front {marked:?}: {other:?}")),
         }
     }
-    failures
-}
-
-#[test]
-#[ignore = "bug: YAML breaks a document with no line break at its end when a key typed in front of its first key is accepted (`hea|tcp:` gives `  heartbeat:` indented, `tcp` its child)"]
-fn a_key_accepted_in_front_of_a_yaml_container_without_a_final_line_break_is_its_own() {
-    report(&in_front_of_a_written_container(true));
+    report(&failures);
 }
 
 /// The key the caret stands at the start of is already in the document: it

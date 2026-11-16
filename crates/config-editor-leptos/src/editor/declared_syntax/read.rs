@@ -3,6 +3,7 @@
 use serde_json::{Map, Value, json};
 
 use super::super::language::ParseError;
+use crate::{string_of, string_value};
 
 fn error(message: &str, line: usize) -> ParseError {
     ParseError {
@@ -56,7 +57,7 @@ fn scalar(text: &str) -> Result<Value, String> {
     let text = text.trim();
     if let Some(rest) = text.strip_prefix('\'') {
         let end = rest.find('\'').ok_or("unterminated quote")?;
-        return Ok(json!(&rest[..end]));
+        return Ok(string_value(&rest[..end]));
     }
     Ok(match text {
         "true" => json!(true),
@@ -71,7 +72,7 @@ fn scalar(text: &str) -> Result<Value, String> {
                 {
                     json!(number)
                 }
-                _ => json!(text),
+                _ => string_value(text),
             },
         },
     })
@@ -156,10 +157,15 @@ fn write(value: &Value) -> Result<String, String> {
                 .collect::<Result<Vec<_>, String>>()?
                 .join("; ")
         ),
-        Value::String(text) if text.contains('\'') => {
-            return Err("a quote cannot be written".to_string());
+        // A string is written as the text it holds, not as the model
+        // holds it (see `string_of`).
+        Value::String(text) => {
+            let text = string_of(value).unwrap_or(text);
+            if text.contains('\'') {
+                return Err("a quote cannot be written".to_string());
+            }
+            format!("'{text}'")
         }
-        Value::String(text) => format!("'{text}'"),
         other => other.to_string(),
     })
 }

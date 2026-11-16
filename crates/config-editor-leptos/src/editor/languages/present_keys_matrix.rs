@@ -1,8 +1,8 @@
 //! A key already written is not offered again, whatever its kind (a
 //! scalar, an object, a list of scalars, a list of objects), in every
 //! language; except a list the language writes by repeating its items
-//! (XML elements, HCL blocks), where accepting adds one more item written
-//! the same way. A list of objects written whole in HCL (`containers =
+//! (XML elements, HCL blocks, TOML arrays of tables), where accepting adds
+//! one more item written the same way. A list of objects written whole in HCL (`containers =
 //! [ … ]`) is no such list.
 //!
 //! `|` marks the caret.
@@ -124,7 +124,7 @@ fn labels_and_accept(
 }
 
 /// Whether `language` writes a list of objects by repeating its key, once
-/// per item (XML elements, HCL blocks).
+/// per item (XML elements, HCL blocks, TOML arrays of tables).
 fn repeats_items(language: Language) -> bool {
     repeats(
         language,
@@ -139,11 +139,6 @@ fn repeats(language: Language, key: &str, list: &Value) -> bool {
     text(language, &json!({"spec": { key: list }}), &[])
         .is_ok_and(|text| text.matches(key).count() >= 2)
 }
-
-/// Languages that write a list of objects by repeating its key, but do not
-/// offer the key again to add an item: open findings, checked by the
-/// ignored test below until fixed.
-const NOT_OFFERED_AGAIN: &[&str] = &["TOML"];
 
 /// The caret on a new entry of `spec` holding `spec`, in every language.
 fn written_cases(spec: &Value, failures: &mut Vec<String>) -> Vec<(Language, String)> {
@@ -161,26 +156,14 @@ fn written_cases(spec: &Value, failures: &mut Vec<String>) -> Vec<(Language, Str
     cases
 }
 
+/// A written list of objects, by hand and as each language writes it, is
+/// offered again only where the language repeats its items.
 #[test]
 fn a_written_list_of_objects_is_offered_again_only_where_items_repeat() {
-    report(&lists_offered_again(false));
-}
-
-#[test]
-#[ignore = "bug: TOML does not offer a list of objects written as an array of tables (`[[spec.containers]]`) again, to add one more table, as XML and HCL do for theirs"]
-fn a_toml_array_of_tables_is_offered_again() {
-    report(&lists_offered_again(true));
-}
-
-/// The cases of a written list of objects, by hand and as each language
-/// writes it: those of [`NOT_OFFERED_AGAIN`] only (`known`), or all the
-/// others. Why each failing one fails.
-fn lists_offered_again(known: bool) -> Vec<String> {
     let bundle = build_schema(SCHEMA).unwrap();
     let mut failures = Vec::new();
     let mut cases: Vec<(Language, String, Option<usize>)> = CASES
         .iter()
-        .filter(|_| !known)
         .map(|(language, marked, wanted)| (*language, (*marked).to_string(), *wanted))
         .collect();
     for (items, spec) in [
@@ -188,9 +171,6 @@ fn lists_offered_again(known: bool) -> Vec<String> {
         (2, json!({"containers": [{"name": "a"}, {"name": "b"}]})),
     ] {
         for (language, marked) in written_cases(&spec, &mut failures) {
-            if NOT_OFFERED_AGAIN.contains(&language.label()) != known {
-                continue;
-            }
             let wanted = repeats_items(language).then_some(items + 1);
             cases.push((language, marked, wanted));
         }
@@ -212,7 +192,7 @@ fn lists_offered_again(known: bool) -> Vec<String> {
             ));
         }
     }
-    failures
+    report(&failures);
 }
 
 #[test]

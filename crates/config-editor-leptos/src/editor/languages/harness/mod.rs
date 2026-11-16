@@ -61,15 +61,6 @@ pub(super) fn every_language_but(left_out: &[&str]) -> Vec<Language> {
         .collect()
 }
 
-/// The languages named (by label), for the ignored tests of a case that
-/// fails in them.
-pub(super) fn only(named: &[&str]) -> Vec<Language> {
-    every_language()
-        .into_iter()
-        .filter(|language| named.contains(&language.label()))
-        .collect()
-}
-
 /// The languages a suggestion case fits: those that read where the caret
 /// is (`completion_context`), so a key half typed is told from nothing
 /// typed. A language keeping the trait's default (Odd, and Dot, which

@@ -218,7 +218,7 @@ impl Text for TomlBehavior {
 
 impl Typing for TomlBehavior {
     fn rewritable_keys(&self, source: &str, cursor_byte: usize, path: &[SchemaPathSegment]) -> HashSet<String> {
-        implied_tables(source, cursor_byte, path)
+        rewritable_keys(source, cursor_byte, path)
     }
 
     /// A value follows, or the rest of a dotted key (`tcp|.nodelay`).

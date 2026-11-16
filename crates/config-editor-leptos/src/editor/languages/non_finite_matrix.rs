@@ -8,7 +8,7 @@ use serde_json::{Value, json};
 use super::super::bridge::Bridge;
 use super::super::codec::{self, float_of};
 use super::Language;
-use super::harness::{At, BUILT_IN, every_language, every_language_but, only, text, write};
+use super::harness::{At, BUILT_IN, every_language, text, write};
 
 /// `rate` holds each non-finite number in the languages that have them.
 fn sources() -> Vec<(Language, &'static str)> {
@@ -297,15 +297,9 @@ fn strings_spelled_like_the_reserved_form_stay_strings() {
             }
         }
     }
-    failures.extend(string_values_written_as_they_are(&every_language_but(
-        &CUSTOM,
-    )));
+    failures.extend(string_values_written_as_they_are(&every_language()));
     assert!(failures.is_empty(), "{failures:#?}");
 }
-
-/// The custom test languages, whose writers write a string built with
-/// `string_value` with its marks.
-const CUSTOM: [&str; 3] = ["Odd", "Dot", "DotBare"];
 
 /// Built with `string_value`, a host's string is written as it is, in each
 /// of `languages`: why not, for each that fails.
@@ -323,13 +317,6 @@ fn string_values_written_as_they_are(languages: &[Language]) -> Vec<String> {
         }
     }
     failures
-}
-
-#[test]
-#[ignore = "bug: the custom test languages (Odd, Dot, DotBare) write a string built with `string_value` with its reserved marks (`\u{FDD0}\u{FDD0}inf`), not as the string it is"]
-fn custom_languages_write_string_values_as_they_are() {
-    let failures = string_values_written_as_they_are(&only(&CUSTOM));
-    assert!(failures.is_empty(), "{failures:#?}");
 }
 
 /// Infinities and NaN against each numeric keyword: an infinity is beyond
