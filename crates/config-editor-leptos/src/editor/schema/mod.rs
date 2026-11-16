@@ -12,7 +12,7 @@ pub(crate) use compile::{SchemaBundle, build_schema};
 #[cfg(feature = "schema-validation")]
 pub(crate) use false_schema::{for_validation, message as false_schema_message};
 pub(crate) use subschemas::each_schema;
-#[cfg(feature = "schema-validation")]
+#[cfg(any(feature = "schema-validation", feature = "yaml"))]
 pub(crate) use subschemas::{Holds, holds};
 
 use super::diagnostics::Diagnostic;

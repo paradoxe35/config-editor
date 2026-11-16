@@ -153,25 +153,41 @@ pub fn admits_nothing(schema: &Value) -> bool {
     }
 }
 
-/// The `const` of a property schema, through `$ref` and the combinators.
+/// The `const` of a property schema, through `$ref` and the combinators,
+/// where the schema takes it (a `const` beside a `type` or a `not`
+/// refusing it is no value of the field).
 pub fn schema_const<'a>(schema: &'a Value, root: &'a Value) -> Option<&'a Value> {
     resolve_branches(schema, root)
         .into_iter()
         .find_map(|branch| branch.get("const"))
+        .filter(|value| decides(schema, value, root) != Some(false))
 }
 
-/// The branch of a property schema that describes an object, if any.
+/// The branch of a property schema that describes an object, if any,
+/// where some object meets the schema ([`Here::may_hold`]).
 pub fn object_branch<'a>(schema: &'a Value, root: &'a Value) -> Option<&'a Value> {
-    resolve_branches(schema, root)
-        .into_iter()
-        .find(|branch| describes_object(branch))
+    branch_holding(schema, root, "object", describes_object)
 }
 
-/// The branch of a property schema that describes an array, if any.
+/// The branch of a property schema that describes an array, if any,
+/// where some array meets the schema ([`Here::may_hold`]).
 pub fn array_branch<'a>(schema: &'a Value, root: &'a Value) -> Option<&'a Value> {
-    resolve_branches(schema, root)
-        .into_iter()
-        .find(|branch| describes_array(branch))
+    branch_holding(schema, root, "array", describes_array)
+}
+
+/// The first branch of `schema` that `describes` a value of the kind
+/// `name`, where some value of that kind meets the schema.
+fn branch_holding<'a>(
+    schema: &'a Value,
+    root: &'a Value,
+    name: &str,
+    describes: fn(&Value) -> bool,
+) -> Option<&'a Value> {
+    let here = Here::of(schema, root);
+    if !here.may_hold(name) {
+        return None;
+    }
+    here.branches().into_iter().find(|branch| describes(branch))
 }
 
 /// Whether one schema (a branch) describes an object.

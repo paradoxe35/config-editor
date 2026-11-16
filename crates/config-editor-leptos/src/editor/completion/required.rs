@@ -111,9 +111,10 @@ fn children<'a>(
     if depth >= MAX_DEPTH {
         return Vec::new();
     }
+    // A key a list of objects repeats is its first item.
     let items = || {
         array_branch(schema, root)
-            .and_then(|array| array.get("items"))
+            .and_then(|array| item_schema(array, 0))
             .filter(|items| object_branch(items, root).is_some())
     };
     let (object, at) = if object_branch(schema, root).is_some() {
@@ -124,6 +125,7 @@ fn children<'a>(
             None => return Vec::new(),
         }
     };
+    let caret_before = *caret;
     let mut found = Vec::new();
     for (key, child, at) in required_keys(language, object, at, root) {
         if !writes_key(language, key) {
@@ -138,7 +140,37 @@ fn children<'a>(
             fill,
         });
     }
+    // Keys an option requires, where the object they make is refused and
+    // the empty one taken (an option beside `{}` in a `oneOf`, which the
+    // filled object meets too), are not written.
+    let here = Here::of(object, root);
+    if !found.is_empty()
+        && here.accepts(&preview(&found)) == Some(false)
+        && here.accepts(&Value::Object(serde_json::Map::new())) == Some(true)
+    {
+        *caret = caret_before;
+        return Vec::new();
+    }
     found
+}
+
+/// The object `children` write, a value left to type as an empty one.
+fn preview(children: &[RequiredChild<'_>]) -> Value {
+    Value::Object(
+        children
+            .iter()
+            .map(|child| {
+                let value = match &child.fill {
+                    Fill::Value(value) | Fill::CaretAt(value) => value.clone(),
+                    Fill::Children(nested) => preview(nested),
+                    Fill::Caret { string: true } => Value::String(String::new()),
+                    Fill::Caret { string: false } | Fill::Empty(None) => Value::Null,
+                    Fill::Empty(Some(value)) => value.clone(),
+                };
+                (child.key.to_string(), value)
+            })
+            .collect(),
+    )
 }
 
 /// The schema of a key no schema describes: any value.
@@ -185,12 +217,31 @@ pub(super) fn required_keys<'a>(
         }
         at += 1;
     }
+    // What applies once the object holds these keys: the `then` or
+    // `else` an `if` asking keys takes, the dependent schemas of the keys
+    // written; and the keys those require.
+    let keys: HashSet<String> = names.iter().map(|name| (*name).to_string()).collect();
+    let filled = here.rewalk(Seen {
+        value: None,
+        keys: Some(&keys),
+    });
+    for name in filled
+        .certain()
+        .iter()
+        .filter_map(|source| source.get("required").and_then(Value::as_array))
+        .flatten()
+        .filter_map(Value::as_str)
+    {
+        if !names.contains(&name) && names.len() < MAX_REQUIRED {
+            names.push(name);
+        }
+    }
     for name in names {
         let key = language.required_property(name);
         if found.iter().any(|(known, _, _)| *known == key) {
             continue;
         }
-        let at = here.child(&SchemaPathSegment::Key(key.to_string()));
+        let at = filled.child(&SchemaPathSegment::Key(key.to_string()));
         let described = at.schemas();
         let child = described
             .iter()

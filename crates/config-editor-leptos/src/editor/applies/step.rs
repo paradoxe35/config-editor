@@ -2,7 +2,7 @@
 //! each schema's own child schemas, an option's only where the value may
 //! be in it.
 
-use super::node::{Entry, Node, State, Tree, Walked, all, any};
+use super::node::{Entry, Node, State, Tree, Walked, all, any, either, is_empty};
 use super::query::leaves;
 use super::{item_schema, named_properties};
 use crate::editor::language::SchemaPathSegment;
@@ -92,8 +92,16 @@ impl<'s> Step<'s, '_> {
                 all(own.into_iter().map(|schema| self.leaf(schema)).collect())
             }
             Node::All(parts) => all(parts.iter().map(|part| self.of(part)).collect()),
-            Node::Any(parts) | Node::Either(parts) => {
-                any(parts.iter().map(|part| self.of(part)).collect())
+            Node::Any(parts) => any(parts.iter().map(|part| self.of(part)).collect()),
+            // A branch silent on the child takes any value there: the
+            // child's schemas are those of an `if` not decided too.
+            Node::Either(parts) => {
+                let found: Vec<Tree<'s>> = parts.iter().map(|part| self.of(part)).collect();
+                if parts.len() == 2 && !found.iter().any(is_empty) {
+                    any(found)
+                } else {
+                    either(found)
+                }
             }
             Node::Options(choices) => {
                 // An option its keys or a quick look pick is a guess:

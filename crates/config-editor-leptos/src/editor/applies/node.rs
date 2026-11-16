@@ -21,7 +21,9 @@ pub(crate) enum Node<'s> {
     /// `oneOf` left open, an array and its item. What each says is read
     /// as said of the value (as a flat list of the schemas there would).
     Any(Vec<Tree<'s>>),
-    /// The `then` and `else` of an `if` the value does not decide.
+    /// The `then` and `else` of an `if` the value does not decide (or
+    /// what they say of a child): one part alone stands beside a branch
+    /// saying nothing, which takes any value.
     Either(Vec<Tree<'s>>),
     /// A `oneOf`/`anyOf`, each option with what the value tells of it.
     Options(Vec<Choice<'s>>),
@@ -62,7 +64,7 @@ impl State {
 }
 
 /// What applies to a value before the applicators of its schemas are
-/// walked: `Leaf`, `All` and `Any` only.
+/// walked: `Leaf`, `All`, `Any` and `Either` only.
 #[derive(Clone, Debug)]
 pub(crate) struct Entry<'s>(pub(crate) Tree<'s>);
 
@@ -125,6 +127,13 @@ pub(crate) fn all<'s>(parts: Vec<Tree<'s>>) -> Tree<'s> {
 /// validation of the object in one of those would.
 pub(crate) fn any<'s>(parts: Vec<Tree<'s>>) -> Tree<'s> {
     joined(parts, Node::Any)
+}
+
+/// The branches of an `if` not decided: those naming nothing left out,
+/// the node kept for one alone (the other takes any value).
+pub(crate) fn either<'s>(parts: Vec<Tree<'s>>) -> Tree<'s> {
+    let kept: Vec<Tree<'s>> = parts.into_iter().filter(|part| !is_empty(part)).collect();
+    Rc::new(Node::Either(kept))
 }
 
 fn joined<'s>(parts: Vec<Tree<'s>>, node: fn(Vec<Tree<'s>>) -> Node<'s>) -> Tree<'s> {

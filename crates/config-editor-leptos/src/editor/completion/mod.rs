@@ -30,8 +30,8 @@ mod window;
 pub(crate) use accept::*;
 pub(crate) use around::document_around;
 pub(crate) use candidates::*;
-use conform::conform;
 pub(crate) use conform::conform_arrays;
+use conform::{conform, other_reading};
 pub(crate) use docs::*;
 pub(crate) use excluded::excluded_by_not;
 #[cfg(feature = "schema-validation")]
