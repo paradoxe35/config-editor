@@ -134,23 +134,19 @@ const LANGUAGE = {
 // `separators` replaced by a callback), or why it is Rust-only.
 const RUST_ONLY_REFINEMENT = 'a refinement for one kind of syntax, Rust-only: implement the trait method on a Rust language (`Language::new`) that needs it';
 const SAVE_FORMS = 'how an Edit-as save keeps one built-in syntax\'s own forms; a custom language\'s saves patch the values and lines `keySpan` / `valueSpan` locate and are checked by reading back through `parse`';
+const GROUP = 'the accessor of a group of hooks a Rust language implements beside `ConfigLanguage`; a custom language gives the members its hooks are read from';
 const CONFIG_LANGUAGE = {
   info: { custom: ['label', 'icon', 'extensions'] },
   config: { custom: ['comments', 'brackets', 'separators', 'mapBrackets', 'listBrackets', 'itemSeparator', 'itemMarker', 'literalQuotes', 'writtenSeparator'] },
   parse: { custom: 'parse' },
   serialize: { custom: 'serialize' },
-  one_number_type: { exempt: RUST_ONLY_REFINEMENT },
-  writes_non_finite: { exempt: 'a custom language writes infinities and NaN as the text `inf` / `nan` (JS data holds them as numbers)' },
-  indent_is_structure: { exempt: RUST_ONLY_REFINEMENT },
-  plain_scalars: { exempt: RUST_ONLY_REFINEMENT },
   key_span: { custom: 'keySpan' },
   value_span: { custom: 'valueSpan' },
   value_spans: { custom: 'valueSpan' },
   key_spans: { custom: 'keySpan' },
   first_span: { exempt: 'the first non-blank character: nothing the language says' },
   completion_context: { custom: ['separators', 'contextAt'] },
-  existing_keys: { custom: ['separators', 'contextAt'] },
-  property_insert: { custom: ['separators', 'insertKey'] },
+  write_insert: { custom: ['separators', 'insertKey'] },
   format_value: { custom: ['separators', 'contextAt'] },
   format_value_like: { exempt: RUST_ONLY_REFINEMENT },
   format_value_at: { exempt: RUST_ONLY_REFINEMENT },
@@ -178,7 +174,6 @@ const CONFIG_LANGUAGE = {
   flow_map_opener: { exempt: SAVE_FORMS },
   scalar_reads_as: { exempt: SAVE_FORMS },
   number_in_form: { exempt: SAVE_FORMS },
-  scalars_are_text: { exempt: SAVE_FORMS },
   written_value_range: { exempt: SAVE_FORMS },
   kept_value_end: { exempt: SAVE_FORMS },
   comment_scope: { exempt: RUST_ONLY_REFINEMENT },
@@ -186,12 +181,19 @@ const CONFIG_LANGUAGE = {
   auto_close: { exempt: RUST_ONLY_REFINEMENT },
   complete_on_type: { exempt: RUST_ONLY_REFINEMENT },
   reindent_on_type: { exempt: RUST_ONLY_REFINEMENT },
-  repetition: { exempt: RUST_ONLY_REFINEMENT },
+  repeated: { exempt: RUST_ONLY_REFINEMENT },
   lone_item: { exempt: RUST_ONLY_REFINEMENT },
-  repeated_keys: { exempt: RUST_ONLY_REFINEMENT },
-  caret_line_left_out: { exempt: RUST_ONLY_REFINEMENT },
+  rewritable_keys: { exempt: RUST_ONLY_REFINEMENT },
+  delimiters: { exempt: RUST_ONLY_REFINEMENT },
+  text: { exempt: GROUP },
+  typing: { exempt: GROUP },
+  hover: { exempt: GROUP },
+  layout: { exempt: GROUP },
+  markup: { exempt: GROUP },
+  sharing: { exempt: GROUP },
+  repeats: { exempt: GROUP },
   entry_started: { exempt: RUST_ONLY_REFINEMENT },
-  lexical_state: { custom: 'multilineRanges' },
+  lexical_state: { custom: ['comments', 'multilineRanges'] },
   saved_string_lines: { custom: 'multilineRanges' },
   string_body_lines: { custom: 'multilineRanges' },
   comments: { custom: ['comments', 'multilineRanges'] },
@@ -202,11 +204,9 @@ const CONFIG_LANGUAGE = {
   comment_start: { custom: 'comments' },
   has_comments: { custom: 'comments' },
   value_follows_key: { custom: 'separators' },
-  line_has_value: { custom: 'separators' },
   empty_value_slots: { custom: 'separators' },
   closing_markup_len: { exempt: RUST_ONLY_REFINEMENT },
   key_markup_len: { exempt: RUST_ONLY_REFINEMENT },
-  markup_delimiters: { exempt: RUST_ONLY_REFINEMENT },
   element_end: { exempt: SAVE_FORMS },
   unclosed_containers: { custom: 'brackets' },
   container_closer_len: { custom: 'brackets' },
@@ -232,7 +232,6 @@ const CONFIG_LANGUAGE = {
   entries_together: { exempt: SAVE_FORMS },
   aligned_lines: { exempt: SAVE_FORMS },
   items_hold_unshown: { exempt: SAVE_FORMS },
-  holds_wide_integers: { exempt: SAVE_FORMS },
   unheld_numbers: { exempt: RUST_ONLY_REFINEMENT },
   edits_one_scalar: { exempt: 'a speed-up for locks away from an edit; without it (a custom language) every edit reads the document through `parse` while anything is locked' },
 };
@@ -490,7 +489,9 @@ const rust = {
   documentsHandle: implMethods(crate('documents/handle.rs'), 'DocumentsHandle'),
   document: implMethods(crate('documents/model.rs'), 'Document'),
   settings: structFields(crate('settings.rs'), 'EditorSettings'),
-  configLanguage: traitMethods(crate('editor/language.rs'), 'ConfigLanguage'),
+  // The core trait and the groups of hooks a language implements beside it.
+  configLanguage: ['ConfigLanguage', 'Text', 'Typing', 'Hover', 'SaveLayout', 'Markup', 'Sharing', 'Repeats']
+    .flatMap((name) => traitMethods(crate('editor/language.rs'), name)),
 };
 
 // --- Reading the JS package. ---------------------------------------------------

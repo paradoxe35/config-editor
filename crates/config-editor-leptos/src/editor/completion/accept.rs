@@ -38,7 +38,10 @@ pub(super) fn line_value_before(
     let line_start = source[..cursor_byte]
         .rfind('\n')
         .map_or(0, |index| index + 1);
-    behavior.line_has_value(source[line_start..cursor_byte].trim_end())
+    crate::editor::language::value_after_separator(
+        source[line_start..cursor_byte].trim_end(),
+        &behavior.config(),
+    )
 }
 
 /// Completing a key that already has its separator and value after the caret

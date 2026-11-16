@@ -48,14 +48,14 @@ pub(crate) enum Work {
     )]
     TokenScan,
     /// The lines of a whole text's multi-line string bodies read
-    /// (`ConfigLanguage::string_body_lines`).
+    /// (`Text::string_body_lines`).
     StringBodies,
     /// What the caret is on, for the suggestions
     /// (`ConfigLanguage::completion_context`): a read of the text from the
     /// top.
     CompletionContext,
     /// Whether the caret is in a string or a comment
-    /// (`ConfigLanguage::lexical_state`): a read of the text before it.
+    /// (`Text::lexical_state`): a read of the text before it.
     LexicalState,
     /// The code layer's constructs over several lines (comments, strings,
     /// structure) read off a whole text.
@@ -108,7 +108,7 @@ pub(crate) enum Work {
     ParsedBytes,
     /// A whole text read for the constructs written over its lines
     /// (brackets, strings, elements), to widen a selection over them
-    /// (`ConfigLanguage::whole_constructs`).
+    /// (`Typing::whole_constructs`).
     ConstructScan,
     /// An expression's pointer looked for among another text's (HCL: a
     /// save's check that expressions stay expressions).
@@ -221,7 +221,7 @@ pub(crate) enum Work {
     #[cfg_attr(not(feature = "yaml"), allow(dead_code, reason = "only YAML notes it"))]
     AliasScan,
     /// A byte of a whole text read for the lines an item is written on
-    /// as its own (`ConfigLanguage::item_lines`: a TOML table from its
+    /// as its own (`SaveLayout::item_lines`: a TOML table from its
     /// header; one note per byte, see [`note_many`]).
     #[cfg_attr(not(feature = "toml"), allow(dead_code, reason = "only TOML notes it"))]
     ItemLinesBytes,

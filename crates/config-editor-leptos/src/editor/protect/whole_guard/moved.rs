@@ -67,7 +67,7 @@ fn strings_holding<'v>(
         }
         Value::Object(map) => {
             for (key, item) in map {
-                let key = key.replace('~', "~0").replace('/', "~1");
+                let key = crate::editor::language::pointer_key(key);
                 strings_holding(item, &format!("{pointer}/{key}"), token, found);
             }
         }

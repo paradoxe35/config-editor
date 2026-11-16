@@ -40,7 +40,7 @@ pub(super) fn first_non_xml_char(value: &Value, pointer: &str) -> Option<(String
     match value {
         Value::String(text) => bad(text).map(|character| (pointer.to_string(), character)),
         Value::Object(map) => map.iter().find_map(|(key, child)| {
-            let child_pointer = format!("{pointer}/{}", key.replace('~', "~0").replace('/', "~1"));
+            let child_pointer = format!("{pointer}/{}", crate::editor::language::pointer_key(key));
             bad(key)
                 .map(|character| (child_pointer.clone(), character))
                 .or_else(|| first_non_xml_char(child, &child_pointer))
@@ -341,7 +341,7 @@ fn unbound_prefix(
     let names = stack.iter().map(|open| open.name.as_str()).chain([local.as_str()]);
     let pointer: String = names
         .chain(attribute.then_some(qualified.as_str()))
-        .map(|name| format!("/{}", name.replace('~', "~0").replace('/', "~1")))
+        .map(|name| format!("/{}", crate::editor::language::pointer_key(name)))
         .collect();
     let start = markup_start(source, event_start);
     // At the name, in the start tag.
@@ -646,7 +646,7 @@ fn lone_element(source: &str, names: &[(Vec<String>, usize, usize)], path: &[Str
 }
 
 /// Whether `path` names an element written once (see
-/// `ConfigLanguage::lone_item`).
+/// `Repeats::lone_item`).
 pub(super) fn xml_lone_element(source: &str, path: &str) -> bool {
     let spans = document_spans(source);
     let names = &spans.0;
@@ -726,7 +726,7 @@ pub(super) fn namespace_clash(source: &str) -> Option<String> {
         let pointer: String = stack
             .iter()
             .skip(1)
-            .map(|(name, _)| format!("/{}", name.replace('~', "~0").replace('/', "~1")))
+            .map(|(name, _)| format!("/{}", crate::editor::language::pointer_key(name)))
             .collect();
         let siblings = &mut stack.last_mut()?.1;
         if let Some(other) = siblings.get(&local).filter(|other| **other != qualified) {
@@ -747,7 +747,7 @@ pub(super) fn namespace_clash(source: &str) -> Option<String> {
             let local = text(attribute.key.local_name().as_ref());
             if let Some(other) = attributes.get(&local).filter(|other| **other != qualified) {
                 // At the element holding them.
-                let element = element_local.replace('~', "~0").replace('/', "~1");
+                let element = crate::editor::language::pointer_key(&element_local);
                 return parses().then(|| format!(
                     "the attributes {other} and {qualified} are in different namespaces but read as the same key {local}, which another language cannot tell apart (at {pointer}/{element})"
                 ));
@@ -826,7 +826,7 @@ pub(super) fn mixed_content(source: &str) -> Option<String> {
                     let mut at = &value;
                     for (name, index) in stack.iter().filter_map(|open| open.step.as_ref()) {
                         pointer.push('/');
-                        pointer.push_str(&name.replace('~', "~0").replace('/', "~1"));
+                        pointer.push_str(&crate::editor::language::pointer_key(name));
                         at = at.get(name)?;
                         if let Value::Array(items) = at {
                             pointer.push_str(&format!("/{index}"));

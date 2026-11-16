@@ -420,7 +420,7 @@ fn unwrap(value: &mut Value) {
 
 /// `segment` escaped for a JSON pointer.
 fn escape(segment: &str) -> String {
-    segment.replace('~', "~0").replace('/', "~1")
+    crate::editor::language::pointer_key(segment)
 }
 
 /// The JSON pointer `pointer` written as a URI fragment: each character a

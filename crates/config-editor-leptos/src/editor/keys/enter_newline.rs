@@ -1,5 +1,5 @@
 //! What Enter writes at a caret, before the editor applies it: the
-//! language's [`newline`](ConfigLanguage::newline), except where the line
+//! language's [`newline`](Typing::newline), except where the line
 //! break is text (inside a comment or a multi-line string's body).
 
 use super::super::keyboard::utf16_to_byte_index;

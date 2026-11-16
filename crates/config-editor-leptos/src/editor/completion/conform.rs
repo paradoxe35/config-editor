@@ -103,7 +103,7 @@ fn reread_for_object(value: &mut Value, at: &Entry<'_>, root: &Value) {
         Value::Object(map) => map
             .iter()
             .filter(|(_, child)| other_reading(child).is_some())
-            .map(|(key, _)| format!("/{}", key.replace('~', "~0").replace('/', "~1")))
+            .map(|(key, _)| format!("/{}", crate::editor::language::pointer_key(key)))
             .take(MAX_REREADS)
             .collect(),
         Value::Array(items) => items

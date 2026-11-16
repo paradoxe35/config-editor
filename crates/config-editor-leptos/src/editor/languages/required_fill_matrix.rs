@@ -166,3 +166,53 @@ fn a_required_list_with_min_items_is_written_with_its_items() {
     }
     assert!(failures.is_empty(), "{}", failures.join("\n\n"));
 }
+
+/// `opts` requires `x` when `kind` is `a`, `y` otherwise: an `if` the
+/// document decides, its `then` and `else` naming only what they add.
+const BRANCHED: &str = r#"{"type":"object","properties":{
+    "kind":{"enum":["a","b"]},
+    "opts":{"type":"object","properties":{
+        "x":{"type":"string","default":"1"},"y":{"type":"string","default":"2"}}}},
+    "if":{"properties":{"kind":{"const":"a"}},"required":["kind"]},
+    "then":{"properties":{"opts":{"required":["x"]}}},
+    "else":{"properties":{"opts":{"required":["y"]}}}}"#;
+
+/// The children an accepted key writes are those every schema at the key
+/// requires, the branches of an `if` the document decides included: what
+/// is written beside the key chooses them.
+#[test]
+fn the_children_written_follow_the_branch_the_document_takes() {
+    let bundle = build_schema(BRANCHED).unwrap();
+    let documents: [(Language, &str, &str); 5] = [
+        (Language::YAML, "kind: a\nop|", "kind: b\nop|"),
+        (
+            Language::JSON,
+            "{\n  \"kind\": \"a\",\n  \"op|\"\n}",
+            "{\n  \"kind\": \"b\",\n  \"op|\"\n}",
+        ),
+        (Language::TOML, "kind = \"a\"\nop|", "kind = \"b\"\nop|"),
+        (Language::HCL, "kind = \"a\"\nop|", "kind = \"b\"\nop|"),
+        (
+            Language::XML,
+            "<kind>a</kind>\n<op|",
+            "<kind>b</kind>\n<op|",
+        ),
+    ];
+    let mut failures = Vec::new();
+    for (language, with_a, with_b) in documents {
+        for (marked, wanted) in [(with_a, json!({"x": "1"})), (with_b, json!({"y": "2"}))] {
+            let accepted = accept_marked(marked, "opts", &bundle, language.behavior());
+            let text = accepted.replace('|', "");
+            let read = super::super::codec::read(language.behavior(), &text, Some(&bundle.schema));
+            let opts = read
+                .as_ref()
+                .ok()
+                .and_then(|read| read.get("opts"))
+                .cloned();
+            if opts.as_ref() != Some(&wanted) {
+                failures.push(format!("{language}\n{accepted}\nreads {read:?}"));
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n\n"));
+}

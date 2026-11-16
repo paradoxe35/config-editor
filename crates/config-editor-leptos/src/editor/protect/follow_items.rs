@@ -85,7 +85,7 @@ fn segments(pointer: &str) -> Vec<String> {
     pointer
         .split('/')
         .skip(1)
-        .map(|segment| segment.replace("~1", "/").replace("~0", "~"))
+        .map(crate::editor::language::unescaped_key)
         .collect()
 }
 

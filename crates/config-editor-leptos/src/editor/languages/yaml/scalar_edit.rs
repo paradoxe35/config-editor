@@ -1,5 +1,5 @@
 //! An edit changing one YAML scalar and nothing else (see
-//! `ConfigLanguage::edits_one_scalar`): a `key: value` line (or a `- `
+//! `SaveLayout::edits_one_scalar`): a `key: value` line (or a `- `
 //! item) read alone, as `scalar_lines` does, and two things only the text
 //! around it tells. The line below may not be indented past the line's
 //! key (it would continue a plain scalar, or hold its entries); and neither

@@ -8,7 +8,7 @@ use super::*;
 /// The document `source` holds with the entry typed at `cursor_byte` left
 /// out (or its line, where it is alone on it), when that parses; else,
 /// with an error elsewhere, what the text before the entry holds, each
-/// container it leaves open closed ([`ConfigLanguage::container_closers`]).
+/// container it leaves open closed ([`Text::container_closers`]).
 pub(crate) fn document_around(
     source: &str,
     cursor_byte: usize,
@@ -20,9 +20,16 @@ pub(crate) fn document_around(
         .map_or(source.len(), |at| cursor_byte + at);
     let (before, after) = (&source[..line_start], &source[line_end..]);
     // Read aside: the text with the entry or line left out must not push
-    // the text on screen out of the shared parse. Only the entry typed,
-    // where the line holds more (an item written on one line), so the
-    // item stays in its place.
+    // the text on screen out of the shared parse. Only the word typed,
+    // where entries follow it on its line (`{| nodelay: true}`, a key typed
+    // in front of an entry's indentation), so they stay.
+    if let Some(text) = typed_word_left_out(behavior, source, line_start, cursor_byte, line_end)
+        && let Ok(read) = counted_parse(behavior, &text)
+    {
+        return Some(read);
+    }
+    // Only the entry typed, where the line holds more (an item written on
+    // one line), so the item stays in its place.
     let left_out = super::typed_entry::typed_entry_left_out(behavior, source, cursor_byte);
     if let Some(read) = left_out
         .as_ref()
@@ -31,12 +38,11 @@ pub(crate) fn document_around(
         return Some(read);
     }
     let line_left_out = || {
-        counted_parse(
-            behavior,
-            &behavior.caret_line_left_out(source, line_start, line_end),
-        )
-        .ok()
-        .or_else(|| without_dangling_separator(before, after, behavior))
+        let text = caret_line_left_out(behavior, source, line_start, line_end);
+        counted_parse(behavior, &text)
+            .ok()
+            .or_else(|| without_dangling_separator(before, after, behavior))
+            .or_else(|| errors_left_blank(&text, before.matches('\n').count(), behavior))
     };
     match left_out {
         // The line holds more than the entry (an object on one line):
@@ -44,6 +50,103 @@ pub(crate) fn document_around(
         Some((_, start)) => start_closed(&source[..start], behavior).or_else(line_left_out),
         None => line_left_out().or_else(|| start_closed(before, behavior)),
     }
+}
+
+/// `source` without the word typed before the caret (back to a blank, a
+/// bracket or a separator of the language), when what follows the caret
+/// on its line is more text after a blank, or the word is empty and text
+/// follows: the entries after the caret on its line are read with the
+/// rest. `None` otherwise (the caret inside a word, or nothing after it).
+fn typed_word_left_out(
+    behavior: &dyn ConfigLanguage,
+    source: &str,
+    line_start: usize,
+    cursor_byte: usize,
+    line_end: usize,
+) -> Option<String> {
+    let rest = &source[cursor_byte..line_end];
+    if rest.trim().is_empty() {
+        return None;
+    }
+    let config = behavior.config();
+    let ends_word = |character: char| {
+        character.is_whitespace()
+            || config
+                .brackets
+                .iter()
+                .any(|(open, close)| *open == character || *close == character)
+            || config.item_separator == Some(character)
+            || config
+                .separators
+                .iter()
+                .any(|separator| separator.contains(character))
+    };
+    let line = &source[line_start..cursor_byte];
+    let word_start = line
+        .char_indices()
+        .rev()
+        .find(|(_, character)| ends_word(*character))
+        .map_or(0, |(at, character)| at + character.len_utf8());
+    let typed = &line[word_start..];
+    if !typed.is_empty() && !rest.starts_with([' ', '\t']) {
+        return None;
+    }
+    let start = line_start + word_start;
+    Some(format!("{}{}", &source[..start], &source[cursor_byte..]))
+}
+
+/// `text` (the document with the caret's line left out) read with the
+/// lines its syntax errors are on left blank, a few at most, never line
+/// `caret_line` (0-based): what a text broken elsewhere holds around the
+/// caret, after it too.
+fn errors_left_blank(
+    text: &str,
+    caret_line: usize,
+    behavior: &dyn ConfigLanguage,
+) -> Option<Value> {
+    let mut lines: Vec<&str> = text.split('\n').collect();
+    for _ in 0..MAX_LINES_LEFT_OUT {
+        let blanked = lines.join("\n");
+        let error = match read_aside(behavior, &blanked) {
+            Ok(read) => return Some(read),
+            Err(error) => error,
+        };
+        // The error's line, or the last line with text before it (an
+        // error at the end of the text is that of the line left open).
+        let at = error
+            .line?
+            .checked_sub(1)?
+            .min(lines.len().saturating_sub(1));
+        let index = (0..=at)
+            .rev()
+            .find(|index| !lines[*index].trim().is_empty())?;
+        if index == caret_line {
+            return None;
+        }
+        lines[index] = "";
+    }
+    read_aside(behavior, &lines.join("\n")).ok()
+}
+
+/// The text with the caret's line (`line_start..line_end`, its line break
+/// kept) left out, but for the list items it starts with the language's
+/// [`LanguageConfig::item_marker`](crate::editor::language::LanguageConfig::item_marker)
+/// (`- na|` keeps `-`): the item stays where it is, holding what is
+/// written below it, so the items after it keep their places.
+fn caret_line_left_out(
+    behavior: &dyn ConfigLanguage,
+    source: &str,
+    line_start: usize,
+    line_end: usize,
+) -> String {
+    let flow = crate::editor::flow_syntax::Flow::of(behavior);
+    let line = &source[line_start..line_end];
+    let mut content = line.trim_start_matches([' ', '\t']);
+    while let Some(after) = flow.after_item_marker(content) {
+        content = after.trim_start_matches([' ', '\t']);
+    }
+    let markers = line[..line.len() - content.len()].trim_end();
+    format!("{}{markers}{}", &source[..line_start], &source[line_end..])
 }
 
 /// The document `before` and `after` the caret's line make when the

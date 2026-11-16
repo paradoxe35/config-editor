@@ -7,6 +7,9 @@ use super::read::read;
 use crate::editor::language::ConfigLanguage;
 use crate::editor::test_timing::growth;
 
+/// The language under test, read as the editor reads one.
+const LANGUAGE: &dyn ConfigLanguage = &HclBehavior;
+
 /// `text` read as `hcl-rs` reads it, the heredocs and floats as the
 /// editor reads them.
 fn as_hcl_rs_reads(text: &str) -> Result<serde_json::Value, String> {
@@ -143,7 +146,7 @@ fn expressions_as_hcl_rs_reads(text: &str) -> Vec<String> {
 fn the_expressions_found_are_the_ones_hcl_rs_reads() {
     let mut failures = Vec::new();
     for text in BODIES.iter().map(|text| text.to_string()).chain(big_objects()) {
-        let mut ours = HclBehavior.expressions(&text);
+        let mut ours = LANGUAGE.expressions(&text);
         let mut theirs = expressions_as_hcl_rs_reads(&text);
         ours.sort();
         theirs.sort();
@@ -220,8 +223,8 @@ fn reading_grows_with_the_length_of_the_text() {
         // Timed, not counted: the time is the HCL parser's own.
         let (small, large) = (shape(2_000), shape(16_000));
         let growth = growth(5, (&small, &large), |text: &String| {
-            let value = HclBehavior.parse(text).expect("it parses");
-            (value, HclBehavior.expressions(text))
+            let value = LANGUAGE.parse(text).expect("it parses");
+            (value, LANGUAGE.expressions(text))
         });
         if growth.ratio() > 20.0 {
             failures.push(format!("{name}: 2000 entries, then 16000: {growth}"));
@@ -242,7 +245,7 @@ fn blocks_whose_labels_begin_with_anothers_are_reported_at_the_second() {
         ("o {\n  r \"t\" {}\n  r \"t\" \"n\" {}\n}\n", 3, "`r \"t\"` and `r \"t\" \"n\"`"),
     ];
     for (text, line, named) in cases {
-        let error = HclBehavior.parse(text).expect_err(text);
+        let error = LANGUAGE.parse(text).expect_err(text);
         assert_eq!(error.line, Some(line), "{text}: {error:?}");
         assert!(error.message.contains(named), "{text}: {}", error.message);
     }
@@ -253,6 +256,6 @@ fn blocks_whose_labels_begin_with_anothers_are_reported_at_the_second() {
         "r \"t\" {}\no {\n  r \"t\" \"n\" {}\n}\n",
         "r \"t\" \"n\" {}\nr \"t\" \"n\" {}\n",
     ] {
-        assert!(HclBehavior.parse(text).is_ok(), "{text}: {:?}", HclBehavior.parse(text));
+        assert!(LANGUAGE.parse(text).is_ok(), "{text}: {:?}", LANGUAGE.parse(text));
     }
 }

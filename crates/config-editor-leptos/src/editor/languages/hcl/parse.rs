@@ -207,7 +207,7 @@ fn indexed(source: &str) -> std::rc::Rc<Indexed> {
 }
 
 /// Whether `path` names a block written once (see
-/// `ConfigLanguage::lone_item`).
+/// `Repeats::lone_item`).
 pub(super) fn hcl_lone_block(source: &str, path: &str) -> bool {
     indexed(source).lone_blocks.contains(&pointer_segments(path))
 }

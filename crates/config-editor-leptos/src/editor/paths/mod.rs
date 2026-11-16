@@ -41,7 +41,7 @@ use super::work_count::{Work, note};
 
 /// `pointer`, and for languages that repeat elements or blocks, the pointer
 /// written: without the `/0` after each field the language writes as a lone
-/// item (`ConfigLanguage::lone_item`: an XML element or HCL block written
+/// item (`Repeats::lone_item`: an XML element or HCL block written
 /// once, read as a one-item list too). An index anywhere else (on a scalar,
 /// an attribute, an object of labelled blocks, another index, the document)
 /// is only an index. A list written as one (`ea = []`) has no lone item: its
@@ -399,7 +399,7 @@ pub(crate) fn problem_key_span(
 
 /// `locate` of the pointer the field at `pointer` is written at when the
 /// text writes it once and reads it in several places (a YAML anchor read
-/// through an alias or a merge, `ConfigLanguage::written_at`); `None` when
+/// through an alias or a merge, `Sharing::written_at`); `None` when
 /// it reads through nothing.
 fn through_shared(
     behavior: &dyn ConfigLanguage,

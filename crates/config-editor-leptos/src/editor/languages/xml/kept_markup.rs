@@ -280,7 +280,7 @@ pub(super) fn changed_markup(language: &XmlBehavior, previous: &str, patched: &s
             }
         };
         if !kept {
-            let segments: Vec<String> = strings(path).iter().map(|segment| segment.replace('~', "~0").replace('/', "~1")).collect();
+            let segments: Vec<String> = strings(path).iter().map(|segment| crate::editor::language::pointer_key(segment)).collect();
             return Some(segments.iter().map(|segment| format!("/{segment}")).collect());
         }
     }

@@ -237,6 +237,7 @@ const BRACES: LanguageConfig = LanguageConfig {
     item_separator: None,
     item_marker: None,
     written_separator: None,
+    traits: crate::editor::language::LanguageTraits::NONE,
 };
 
 #[test]

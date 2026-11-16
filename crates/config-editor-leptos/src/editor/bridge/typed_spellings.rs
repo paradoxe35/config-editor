@@ -14,7 +14,7 @@ use serde_json::Value;
 /// that the edit changed from `old` written as `edit_text` spells it (a
 /// string's text without its quotes), when the host reads that text as
 /// the same value, else each number in the form `previous` wrote it in
-/// ([`ConfigLanguage::number_in_form`]); `saved` itself when nothing
+/// ([`SaveLayout::number_in_form`]); `saved` itself when nothing
 /// applies or the result would read back otherwise.
 ///
 /// `respelled` adds the numbers the edit kept but typed in another

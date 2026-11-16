@@ -46,10 +46,6 @@ thread_local! {
 }
 
 /// The reading of type `T` of `text` at `key`, when one is kept.
-#[cfg_attr(
-    not(feature = "xml"),
-    allow(dead_code, reason = "only XML asks without reading")
-)]
 pub(crate) fn kept<T: 'static, K: PartialEq + 'static>(text: &str, key: &K) -> Option<Rc<T>> {
     let kind = TypeId::of::<T>();
     READINGS.with(|readings| {

@@ -5,8 +5,8 @@ use std::collections::HashSet;
 use std::ops::Range;
 
 use config_editor_leptos::language::{
-    CompletionContext, ConfigLanguage, InsertContext, LanguageConfig, LanguageInfo, Lexical,
-    ParseError, SchemaPathSegment, Span, Token, TokenKind, Tokens,
+    CompletionContext, ConfigLanguage, Hover, InsertContext, InsertPlan, LanguageConfig,
+    LanguageInfo, ParseError, SaveLayout, SchemaPathSegment, Span, Text, Token, TokenKind, Tokens,
 };
 use js_sys::{Array, Function};
 use serde_json::Value;
@@ -328,25 +328,6 @@ impl ConfigLanguage for JsLanguage {
         out.finish()
     }
 
-    fn lexical_state(&self, source: &str, cursor: usize) -> Lexical {
-        Lexical {
-            in_comment: ranges::in_comment(&self.multiline(source), source, cursor),
-            ..Lexical::default()
-        }
-    }
-
-    fn comments(&self, source: &str) -> Vec<Range<usize>> {
-        ranges::comments(self, &self.multiline(source), source)
-    }
-
-    fn multiline_strings(&self, source: &str) -> Vec<Range<usize>> {
-        self.multiline(source).strings
-    }
-
-    fn string_body_lines(&self, source: &str) -> Vec<Range<usize>> {
-        ranges::body_lines(source, &self.multiline(source).strings)
-    }
-
     fn completion_context(&self, source: &str, cursor: usize) -> CompletionContext {
         if self.has("contextAt") {
             assist::context_at(self, source, cursor)
@@ -355,30 +336,14 @@ impl ConfigLanguage for JsLanguage {
         }
     }
 
-    fn existing_keys(
-        &self,
-        source: &str,
-        cursor_byte: usize,
-        path: &[SchemaPathSegment],
-    ) -> Option<HashSet<String>> {
-        if self.has("contextAt") {
-            assist::parsed_keys(self, source, cursor_byte, path)
-        } else {
-            self.config
-                .get()
-                .flat_existing_keys(source, cursor_byte, path)
-        }
-    }
-
-    fn property_insert(
+    fn write_insert(
         &self,
         key: &str,
-        property: &Value,
-        root: &Value,
+        plan: &InsertPlan<'_>,
         context: &InsertContext<'_>,
     ) -> Option<(String, usize)> {
         if self.has("insertKey") {
-            assist::insert_key(self, key, property, root, context)
+            assist::insert_key(self, key, plan, context)
         } else {
             self.config.get().flat_property_insert(key)
         }
@@ -394,13 +359,6 @@ impl ConfigLanguage for JsLanguage {
         }
     }
 
-    /// A string edited where the host wrote one in quotes keeps them.
-    fn format_value_like(&self, value: &Value, written: &str) -> String {
-        self.config
-            .get()
-            .quoted_like(value, written, self.format_value(value))
-    }
-
     fn hover_key(&self, line: &str, column: usize) -> Option<(String, usize)> {
         if self.has("keyAt") {
             return None;
@@ -408,6 +366,38 @@ impl ConfigLanguage for JsLanguage {
         self.config.get().flat_hover_key(line, column)
     }
 
+    fn config(&self) -> LanguageConfig {
+        self.config.get()
+    }
+
+    fn text(&self) -> &dyn Text {
+        self
+    }
+
+    fn hover(&self) -> &dyn Hover {
+        self
+    }
+
+    fn layout(&self) -> &dyn SaveLayout {
+        self
+    }
+}
+
+impl Text for JsLanguage {
+    fn comments(&self, _language: &dyn ConfigLanguage, source: &str) -> Vec<Range<usize>> {
+        ranges::comments(self, &self.multiline(source), source)
+    }
+
+    fn multiline_strings(&self, source: &str) -> Vec<Range<usize>> {
+        self.multiline(source).strings
+    }
+
+    fn string_body_lines(&self, source: &str) -> Vec<Range<usize>> {
+        ranges::body_lines(source, &self.multiline(source).strings)
+    }
+}
+
+impl Hover for JsLanguage {
     fn hover_path(
         &self,
         source: &str,
@@ -419,8 +409,18 @@ impl ConfigLanguage for JsLanguage {
         }
         assist::key_at(self, source, line_index, column)
     }
+}
 
-    fn config(&self) -> LanguageConfig {
-        self.config.get()
+impl SaveLayout for JsLanguage {
+    /// A string edited where the host wrote one in quotes keeps them.
+    fn format_value_like(
+        &self,
+        _language: &dyn ConfigLanguage,
+        value: &Value,
+        written: &str,
+    ) -> String {
+        self.config
+            .get()
+            .quoted_like(value, written, self.format_value(value))
     }
 }

@@ -96,7 +96,7 @@ impl<'a> Identity<'a> {
             pointer.push('/');
             pointer.push_str(key);
             new_at.push('/');
-            new_at.push_str(&escaped(key));
+            new_at.push_str(&crate::editor::language::pointer_key(key));
             let new_items = items(new_child);
             let index = match path.get(at + 1) {
                 Some(Seg::Index(index)) => {
@@ -130,7 +130,7 @@ impl<'a> Identity<'a> {
             if let Some((held, from, held_in)) = moved {
                 old = Some(held);
                 new = new_item;
-                host = from.split('/').skip(1).map(|segment| segment.replace("~1", "/").replace("~0", "~")).collect();
+                host = from.split('/').skip(1).map(crate::editor::language::unescaped_key).collect();
                 side = held_in;
                 new_at = item_at(index);
                 old_at = from.clone();
@@ -145,7 +145,7 @@ impl<'a> Identity<'a> {
                 let Some(old_key) = host_key(old_map, new_map, key) else { break 'held None };
                 let old_child = &old_map[old_key];
                 old_at.push('/');
-                old_at.push_str(&escaped(old_key));
+                old_at.push_str(&crate::editor::language::pointer_key(old_key));
                 let old_items = items(old_child);
                 let mut lists = self.lists.borrow_mut();
                 let places = lists.entry(pointer.clone()).or_insert_with(|| {
@@ -225,10 +225,6 @@ fn place_in(pointer: &str, list: &str, repeated: bool) -> Option<usize> {
         return (pointer == list || pointer.strip_prefix(list) == Some("/0")).then_some(0);
     }
     pointer.strip_prefix(list)?.strip_prefix('/')?.parse().ok()
-}
-
-fn escaped(key: &str) -> String {
-    key.replace('~', "~0").replace('/', "~1")
 }
 
 /// The key of `old` that `new`'s `key` is: itself, or the one key `new`

@@ -694,7 +694,7 @@ fn deprecation_diagnostics(
 
 #[cfg(feature = "schema-validation")]
 fn escape_pointer(segment: &str) -> String {
-    segment.replace('~', "~0").replace('/', "~1")
+    crate::editor::language::pointer_key(segment)
 }
 
 #[cfg(all(test, feature = "schema-validation", feature = "yaml"))]

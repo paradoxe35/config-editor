@@ -2,17 +2,6 @@
 
 use super::*;
 
-/// The default a suggestion writes for `property`: one TOML reads back as
-/// it is, else none (the caret stays where the value goes).
-fn written_default<'a>(property: &'a Value, root: &'a Value) -> Option<&'a Value> {
-    kept_default(&TomlBehavior, property, root)
-}
-
-/// The `const` a suggestion writes for `property`, as [`written_default`].
-fn written_const<'a>(property: &'a Value, root: &'a Value) -> Option<&'a Value> {
-    kept_const(&TomlBehavior, property, root)
-}
-
 pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionContext {
     let cursor = utf16_to_byte_index(source, cursor);
     let lines = super::lines::TextLines::new(source, false);
@@ -266,18 +255,6 @@ pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionConte
     }
 }
 
-/// Index of the line containing `byte` and that line's start offset.
-pub(super) fn line_at(source: &str, lines: &[&str], byte: usize) -> (usize, usize) {
-    let mut offset = 0;
-    for (index, line) in lines.iter().enumerate() {
-        if byte <= offset + line.len() {
-            return (index, offset);
-        }
-        offset += line.len() + 1;
-    }
-    (lines.len(), source.len())
-}
-
 /// Length of the scalar value starting at the caret: runs to the comment or
 /// line end for bare scalars, to the closing quote for strings.
 pub(super) fn value_token_len(text: &str) -> usize {
@@ -302,41 +279,33 @@ pub(super) fn value_token_len(text: &str) -> usize {
     code.trim_end().len()
 }
 
-/// Keys already present in the caret's table, ignoring the active line so
-/// its partly typed key can still complete.
-pub(super) fn existing_table_keys(
-    source: &str,
-    cursor_byte: usize,
-    path: &[SchemaPathSegment],
-) -> Option<HashSet<String>> {
-    // A line scan, not a parse: mid-typing the document rarely parses.
+/// The tables of the table at `path` that only headers or dotted keys
+/// deeper than them make (`[clients.acme]` making `clients`), while the
+/// caret is in a header being named whose table has no keys of its own: the
+/// header may name one of them (`[cli|]` above `[clients.acme]`), which
+/// the data, holding the table either way, cannot tell.
+pub(super) fn implied_tables(source: &str, cursor_byte: usize, path: &[SchemaPathSegment]) -> HashSet<String> {
     let lines: Vec<&str> = source.lines().collect();
-    let (line_index, _) = line_at(source, &lines, cursor_byte);
-    // A table header being typed (`[w|]`) is not an inline array.
-    let in_header = lines
-        .get(line_index)
-        .is_some_and(|line| line.trim_start().starts_with('['));
-    if !in_header
-        && let Some(statement) = statement_start_at(source, cursor_byte)
-        && let Some(keys) = inline_sibling_keys(&source[statement..], b'=', cursor_byte - statement)
-    {
-        return Some(keys.into_iter().collect());
+    let line_index = source[..cursor_byte.min(source.len())].matches('\n').count();
+    let in_header = lines.get(line_index).is_some_and(|line| line.trim_start().starts_with('['));
+    // A header naming a table with keys of its own is a rename: the keys
+    // would join a table another header makes.
+    let has_keys = || {
+        lines
+            .iter()
+            .skip(line_index + 1)
+            .map(|line| split_toml_comment(line).0)
+            .take_while(|code| parse_header(code).is_none())
+            .any(|code| key_assignment(code).is_some())
+    };
+    if !in_header || has_keys() {
+        return HashSet::new();
     }
     let child_of = |full: &[SchemaPathSegment]| match full.get(path.len()) {
         Some(SchemaPathSegment::Key(key)) if full.starts_with(path) => Some(key.clone()),
         _ => None,
     };
-    // A header naming a table that has keys of its own is a rename: a table
-    // other headers only make (`[clients.acme]` making `clients`) is taken,
-    // or the keys would join it. A header still being named may name one.
-    let current_has_keys = in_header
-        && lines
-            .iter()
-            .skip(line_index + 1)
-            .map(|line| split_toml_comment(line).0)
-            .take_while(|code| parse_header(code).is_none())
-            .any(|code| key_assignment(code).is_some());
-    let mut keys = HashSet::new();
+    let (mut implied, mut written) = (HashSet::new(), HashSet::new());
     let mut section: Vec<SchemaPathSegment> = Vec::new();
     let mut tables = Tables::default();
     for (index, line) in lines.iter().enumerate() {
@@ -349,11 +318,10 @@ pub(super) fn existing_table_keys(
             if is_array {
                 header.pop();
             }
-            // A header being named may still name a table that only its
-            // sub-tables made (`[websocket]` with `[websocket.tls]` below),
-            // and never counts itself.
-            if index != line_index && (!in_header || current_has_keys || header.len() == path.len() + 1) {
-                keys.extend(child_of(&header));
+            if index != line_index
+                && let Some(key) = child_of(&header)
+            {
+                if header.len() == path.len() + 1 { &mut written } else { &mut implied }.insert(key);
             }
             section = tables.path.clone();
             continue;
@@ -370,130 +338,84 @@ pub(super) fn existing_table_keys(
                     .map(SchemaPathSegment::Key),
             );
             // Keys of a deeper table make its parents only implicitly.
-            if !in_header || current_has_keys || section.len() <= path.len() {
-                keys.extend(child_of(&full));
+            if let Some(key) = child_of(&full) {
+                if section.len() <= path.len() { &mut written } else { &mut implied }.insert(key);
             }
         }
     }
-    Some(keys)
+    implied.retain(|key| !written.contains(key));
+    implied
 }
 
-/// Insert text for a property completion. Scalar values render as TOML
-/// (`key = value`); objects expand to a `[table]` header plus their required
-/// children, with the caret on the first value to fill.
-pub(super) fn property_insert(
-    key: &str,
-    property: &Value,
-    root: &Value,
-    context: &InsertContext<'_>,
-) -> Option<(String, usize)> {
+/// The text a suggestion of `key` inserts for `plan`. A value renders as
+/// TOML (`key = value`); an object at table level is a `[table]` header
+/// over its required children (inline below a list item, or inside an
+/// inline table), a list of objects an `[[array]]` header; the caret on
+/// the first value to fill.
+pub(super) fn write_insert(key: &str, plan: &InsertPlan<'_>, context: &InsertContext<'_>) -> Option<(String, usize)> {
     let toml_key = toml_key(key);
+    let caret_at = |insert: String, caret: Option<usize>| {
+        let caret = insert[..caret.unwrap_or(insert.len())].encode_utf16().count();
+        Some((insert, caret))
+    };
     if context.position == EntryPosition::Name {
         // `[[…]]` names an array of tables; `[…]` a table, or a parent on the
         // way to a deeper header.
-        let array_of_tables = array_branch(property, root)
-            .and_then(|array| array.get("items"))
-            .is_some_and(|items| object_branch(items, root).is_some());
-        let table = if context.array_item {
-            array_of_tables
-        } else {
-            object_branch(property, root).is_some() && array_branch(property, root).is_none()
-        };
+        let table = if context.array_item { plan.list_of_objects } else { plan.object && !plan.list };
         return table.then(|| {
             let length = toml_key.encode_utf16().count();
             (toml_key, length)
         });
     }
-    // Inside an inline table a nested object stays inline; a header is invalid there.
-    if context.position == EntryPosition::Inline
-        && object_branch(property, root).is_some()
-        && schema_const(property, root).is_none()
-        && array_branch(property, root).is_none()
-    {
-        if let Some(default) = written_default(property, root)
-            .filter(|value| !value.as_object().is_some_and(|map| map.is_empty()))
-        {
-            let insert = format!("{toml_key} = {}", toml_inline_table(default));
-            let cursor = insert.encode_utf16().count();
-            return Some((insert, cursor));
+    match plan.value {
+        // Inside an inline table a nested object stays inline; a header is
+        // invalid there.
+        Planned::Object { .. } if context.position == EntryPosition::Inline => {
+            let mut insert = format!("{toml_key} = ");
+            let mut caret = None;
+            write_inline(&plan.children, &mut insert, &mut caret);
+            caret_at(insert, caret)
         }
-        let mut insert = format!("{toml_key} = ");
-        let mut cursor = None;
-        let children = required_children(&TomlBehavior, property, root);
-        write_inline(&children, &mut insert, &mut cursor);
-        let cursor = cursor.map_or_else(|| insert.encode_utf16().count(), |at| insert[..at].encode_utf16().count());
-        return Some((insert, cursor));
-    }
-    if let Some(value) = written_const(property, root) {
-        let insert = format!("{toml_key} = {}", toml_text(value));
-        let cursor = insert.encode_utf16().count();
-        return Some((insert, cursor));
-    }
-    if let Some(array) = array_branch(property, root) {
-        let default = written_default(property, root).filter(|value| !value.as_array().is_some_and(Vec::is_empty));
-        // An array of tables at table level is idiomatic as `[[path.key]]`
-        // with the item's required keys; a default is the list itself.
-        if default.is_none()
-            && context.position == EntryPosition::Block
-            && array.get("items").and_then(|items| object_branch(items, root)).is_some()
-            && let Some(header) = table_header(context.path, &toml_key)
-        {
-            let mut insert = format!("[[{header}]]\n");
-            let mut cursor = None;
-            write_lines(&required_children(&TomlBehavior, property, root), &mut insert, &mut cursor);
-            let cursor = cursor.map_or_else(|| insert.encode_utf16().count(), |at| insert[..at].encode_utf16().count());
-            return Some((insert, cursor));
-        }
-        match default {
-            Some(default) => {
-                let insert = format!("{toml_key} = {}", toml_text(default));
-                let cursor = insert.encode_utf16().count();
-                return Some((insert, cursor));
+        Planned::Value(value) => caret_at(format!("{toml_key} = {}", toml_text(value)), None),
+        Planned::List { .. } => {
+            // An array of tables at table level is idiomatic as
+            // `[[path.key]]` with the item's required keys.
+            let header = (plan.list_of_objects && context.position == EntryPosition::Block)
+                .then(|| table_header(context.path, &toml_key))
+                .flatten();
+            if let Some(header) = header {
+                let mut insert = format!("[[{header}]]\n");
+                let mut caret = None;
+                write_lines(&plan.children, &mut insert, &mut caret);
+                return caret_at(insert, caret);
             }
-            None => {
-                let insert = format!("{toml_key} = []");
-                let cursor = insert.len() - 1;
-                return Some((insert, cursor));
-            }
-        }
-    }
-    if object_branch(property, root).is_some() {
-        if let Some(default) = written_default(property, root)
-            .filter(|value| !value.as_object().is_some_and(|map| map.is_empty()))
-        {
-            let insert = format!("{toml_key} = {}", toml_inline_table(default));
-            let cursor = insert.encode_utf16().count();
-            return Some((insert, cursor));
+            let insert = format!("{toml_key} = []");
+            let caret = insert.len() - 1;
+            caret_at(insert, Some(caret))
         }
         // Headers name the full path (`[web.letsencrypt]` inside `[web]`).
-        // They cannot address array items, so beneath one the object is inline.
-        let Some(header) = table_header(context.path, &toml_key) else {
-            let inline = InsertContext {
-                position: EntryPosition::Inline,
-                ..*context
-            };
-            return property_insert(key, property, root, &inline);
-        };
-        let mut insert = format!("[{header}]\n");
-        let mut cursor = None;
-        write_lines(&required_children(&TomlBehavior, property, root), &mut insert, &mut cursor);
-        let cursor = cursor.map_or_else(|| insert.encode_utf16().count(), |at| insert[..at].encode_utf16().count());
-        return Some((insert, cursor));
-    }
-    if let Some(default) = written_default(property, root) {
-        let insert = format!("{toml_key} = {}", toml_text(default));
-        let cursor = insert.encode_utf16().count();
-        return Some((insert, cursor));
-    }
-    if placeholder(property, root).is_string() {
+        // They cannot address array items, so beneath one the object is
+        // inline.
+        Planned::Object { .. } => match table_header(context.path, &toml_key) {
+            Some(header) => {
+                let mut insert = format!("[{header}]\n");
+                let mut caret = None;
+                write_lines(&plan.children, &mut insert, &mut caret);
+                caret_at(insert, caret)
+            }
+            None => {
+                let inline = InsertContext { position: EntryPosition::Inline, ..*context };
+                write_insert(key, plan, &inline)
+            }
+        },
         // A string value starts quoted, with the caret inside.
-        let insert = format!("{toml_key} = \"\"");
-        let cursor = insert.encode_utf16().count() - 1;
-        return Some((insert, cursor));
+        Planned::Empty { string: true } => {
+            let insert = format!("{toml_key} = \"\"");
+            let caret = insert.len() - 1;
+            caret_at(insert, Some(caret))
+        }
+        Planned::Empty { .. } => caret_at(format!("{toml_key} = "), None),
     }
-    let insert = format!("{toml_key} = ");
-    let cursor = insert.encode_utf16().count();
-    Some((insert, cursor))
 }
 
 /// `children` as the lines of a table (`key = value`), a nested object as

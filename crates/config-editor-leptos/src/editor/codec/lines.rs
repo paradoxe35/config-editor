@@ -489,7 +489,7 @@ fn reads_alias(flow: &Flow, head: &str, wanted: &str) -> bool {
 /// rendered indent (a sibling), else one host unit per rendered unit below
 /// the nearest shallower one (its parent); a list item takes the sibling's
 /// spacing after its dash. A line `aligned` (as the host aligns it, see
-/// [`ConfigLanguage::aligned_lines`]) is neither.
+/// [`SaveLayout::aligned_lines`]) is neither.
 fn in_host_indentation(
     flow: &Flow,
     line: &str,

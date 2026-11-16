@@ -8,6 +8,9 @@ use super::super::super::language::ConfigLanguage;
 use super::super::super::highlight::{TokenKind, runs};
 use super::XmlBehavior;
 
+/// The language under test, read as the editor reads one.
+const LANGUAGE: &dyn ConfigLanguage = &XmlBehavior;
+
 fn schema() -> SchemaBundle {
     build_schema(
         r#"{"type":"object","properties":{
@@ -37,13 +40,13 @@ fn complete(
 }
 
 fn parse_error(source: &str) -> super::super::super::language::ParseError {
-    XmlBehavior
+    LANGUAGE
         .parse(source)
         .expect_err("the document should be rejected")
 }
 
-/// QA 24 (L24-U4): a comment holding `--` was accepted; XML forbids it
-/// (and a `-` right before `-->`). The error points at the dashes; other
+/// A comment holding `--` is refused: XML forbids it (and a `-` right
+/// before `-->`). The error points at the dashes; other
 /// comments, dashes alone included, still parse.
 #[test]
 fn a_comment_holding_two_dashes_is_not_well_formed() {
@@ -63,7 +66,7 @@ fn a_comment_holding_two_dashes_is_not_well_formed() {
         "<r><!----><t>1</t></r>",
         "<r><!-- x --><!-- y --></r>",
     ] {
-        let parsed = XmlBehavior.parse(source);
+        let parsed = LANGUAGE.parse(source);
         assert!(parsed.is_ok(), "{source:?}: {parsed:?}");
     }
 }
@@ -86,14 +89,14 @@ fn unclosed_tags_are_a_parse_error_at_the_open_tag() {
 
 #[test]
 fn repeated_sibling_elements_fold_into_an_array() {
-    let document = XmlBehavior
+    let document = LANGUAGE
         .parse("<root config-root=\"true\"><item>1</item><item>2</item></root>")
         .expect("document should parse");
     assert_eq!(document, serde_json::json!({"item": [1, 2]}));
 }
 
 fn parse_ok(source: &str) -> serde_json::Value {
-    match XmlBehavior.parse(source) {
+    match LANGUAGE.parse(source) {
         Ok(document) => document,
         Err(error) => panic!("{}", error.message),
     }
@@ -303,7 +306,7 @@ fn a_scalar_element_between_tags_stays_compact() {
 
 #[test]
 fn a_lone_scalar_element_is_a_document_property() {
-    let document = XmlBehavior
+    let document = LANGUAGE
         .parse("<listen>7835</listen>")
         .expect("document should parse");
     assert_eq!(document, serde_json::json!({"listen": 7835}));
@@ -311,7 +314,7 @@ fn a_lone_scalar_element_is_a_document_property() {
 
 #[test]
 fn several_top_level_elements_form_an_implicit_root() {
-    let document = XmlBehavior
+    let document = LANGUAGE
         .parse("<listen>1</listen>\n<enabled>true</enabled>")
         .expect("document should parse");
     assert_eq!(document, serde_json::json!({"listen": 1, "enabled": true}));
@@ -319,7 +322,7 @@ fn several_top_level_elements_form_an_implicit_root() {
 
 #[test]
 fn element_text_is_typed_against_the_schema() {
-    let document = XmlBehavior
+    let document = LANGUAGE
         .parse("<root config-root=\"true\"><port>80</port><tls><enabled>true</enabled></tls></root>")
         .expect("document should parse");
     assert_eq!(
@@ -331,7 +334,7 @@ fn element_text_is_typed_against_the_schema() {
 #[test]
 fn same_names_in_different_elements_are_not_duplicates() {
     let source = "<a><host>x</host><b><host>y</host></b></a>";
-    assert!(XmlBehavior.parse(source).is_ok());
+    assert!(LANGUAGE.parse(source).is_ok());
 }
 
 #[test]
@@ -343,7 +346,7 @@ fn duplicate_attributes_are_a_parse_error() {
 
 #[test]
 fn attributes_and_text_make_an_object() {
-    let document = XmlBehavior
+    let document = LANGUAGE
         .parse("<server version=\"1\">up</server>")
         .expect("document should parse");
     assert_eq!(
@@ -463,7 +466,7 @@ fn hover_over_an_element_returns_its_schema_documentation() {
 
 #[test]
 fn toggle_comments_wraps_lines_in_xml_comments() {
-    let (updated, _, _) = XmlBehavior
+    let (updated, _, _) = LANGUAGE
         .toggle_comments("<server>\n  <host>x</host>\n</server>", 0, 8)
         .unwrap();
     assert!(updated.starts_with("<!-- <server> -->"), "{updated}");
@@ -471,7 +474,7 @@ fn toggle_comments_wraps_lines_in_xml_comments() {
 
 #[test]
 fn toggle_comments_unwraps_xml_comments() {
-    let (updated, _, _) = XmlBehavior
+    let (updated, _, _) = LANGUAGE
         .toggle_comments("<!-- <server> -->", 0, 17)
         .unwrap();
     assert_eq!(updated, "<server>");
@@ -479,7 +482,7 @@ fn toggle_comments_unwraps_xml_comments() {
 
 #[test]
 fn enter_between_tags_puts_the_caret_on_an_indented_middle_line() {
-    let super::Newline { text, caret, .. } = XmlBehavior.newline("<a></a>", 3);
+    let super::Newline { text, caret, .. } = LANGUAGE.newline("<a></a>", 3);
     assert_eq!(text, "\n  \n");
     assert_eq!(caret, 3);
 }
@@ -689,19 +692,19 @@ fn highlighting_covers_every_character_of_tricky_lines() {
 #[test]
 fn nesting_deeper_than_the_limit_is_an_error_not_a_crash() {
     let deep = "<a>".repeat(20_000) + &"</a>".repeat(20_000);
-    let error = XmlBehavior.parse(&deep).unwrap_err();
+    let error = LANGUAGE.parse(&deep).unwrap_err();
     assert!(error.message.contains("Elements nest too deeply here"), "{}", error.message);
     assert_eq!(error.line, Some(1));
     let fine = "<a>".repeat(100) + "1" + &"</a>".repeat(100);
-    assert!(XmlBehavior.parse(&fine).is_ok());
+    assert!(LANGUAGE.parse(&fine).is_ok());
 }
 
 #[test]
 fn an_element_with_text_beside_its_children_writes_back() {
-    let value = XmlBehavior.parse("<listen port=\"1\">7835</listen>\n").unwrap();
+    let value = LANGUAGE.parse("<listen port=\"1\">7835</listen>\n").unwrap();
     assert_eq!(value["listen"]["#text"], "7835");
-    let written = XmlBehavior.serialize(&value, None).unwrap();
-    assert_eq!(XmlBehavior.parse(&written).unwrap(), value, "{written}");
+    let written = LANGUAGE.serialize(&value, None).unwrap();
+    assert_eq!(LANGUAGE.parse(&written).unwrap(), value, "{written}");
 }
 
 
@@ -721,7 +724,7 @@ fn a_tag_ending_right_after_a_name_splits_into_finite_tokens() {
 #[test]
 fn a_very_deep_document_is_planned_without_quadratic_memory() {
     let source = format!("{}{}", "<a>".repeat(20000), "</a>".repeat(20000));
-    assert!(XmlBehavior.string_body_lines(&source).is_empty());
+    assert!(LANGUAGE.string_body_lines(&source).is_empty());
 }
 
 /// The caret's place, read without the spans of every name and value
@@ -767,4 +770,30 @@ fn the_last_editor_gone_drops_what_xml_keeps() {
     assert!(kept(), "something kept");
     crate::editor::parse_cache::release();
     assert!(!kept());
+}
+
+/// Ctrl+/ keeps a selection's ends in order, wherever they are cut: inside
+/// an escape (`&#4|5;`) of the comment it unwraps too.
+#[test]
+fn uncommenting_keeps_the_selection_in_order_through_escapes() {
+    let xml: &dyn ConfigLanguage = &XmlBehavior;
+    let sources = [
+        "<a>\n  <!--\n  <b>x&#45;&#45;y &amp; z</b>\n  -->\n</a>\n",
+        "<a>\n  <!-- <b>x&#45;&#45;y &amp; z</b> -->\n</a>\n",
+    ];
+    let mut failures = Vec::new();
+    for source in sources {
+        let first = source.find("<b>").unwrap();
+        let last = source.find("</b>").unwrap();
+        for start in first..last {
+            for end in start..=last {
+                if let Some((text, from, to)) = xml.toggle_comments(source, start, end)
+                    && from > to
+                {
+                    failures.push(format!("{source:?} {start}..{end}: {from}..{to} in {text:?}"));
+                }
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures[..failures.len().min(5)].join("\n"));
 }

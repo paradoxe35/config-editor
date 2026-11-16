@@ -864,7 +864,7 @@ fn patched(
 }
 
 /// `value` with each scalar changed from `old` as the host saves it there
-/// ([`ConfigLanguage::scalar_edit`]), or the reason the save waits.
+/// ([`SaveLayout::scalar_edit`]), or the reason the save waits.
 fn host_scalars(
     host: &dyn ConfigLanguage,
     previous: &str,

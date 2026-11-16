@@ -11,7 +11,9 @@ mod write;
 
 use serde_json::Value;
 
-use super::language::{ConfigLanguage, LanguageConfig, LanguageInfo, ParseError, Span};
+use super::language::{
+    ConfigLanguage, LanguageConfig, LanguageInfo, LanguageTraits, ParseError, Span,
+};
 
 pub(super) struct Odd;
 
@@ -39,6 +41,10 @@ impl ConfigLanguage for Odd {
             item_separator: Some('|'),
             item_marker: Some("@"),
             written_separator: Some(" := "),
+            traits: LanguageTraits {
+                indent_is_structure: true,
+                ..LanguageTraits::NONE
+            },
         }
     }
 
@@ -52,10 +58,6 @@ impl ConfigLanguage for Odd {
 
     fn format_value(&self, value: &Value) -> String {
         write::inline(value)
-    }
-
-    fn indent_is_structure(&self) -> bool {
-        true
     }
 
     fn key_span(&self, source: &str, pointer: &str) -> Option<Span> {
