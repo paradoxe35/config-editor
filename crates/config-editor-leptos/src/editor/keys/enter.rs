@@ -8,6 +8,7 @@ use super::super::edit::{Assoc, Change, Edit};
 use super::super::keyboard::utf16_to_byte_index;
 use super::super::state::{EditorState, textarea_units};
 use super::enter_newline::newline_at;
+use crate::editor::text::text_size;
 
 pub(super) fn enter(state: EditorState, event: &KeyboardEvent) {
     event.prevent_default();
@@ -188,7 +189,8 @@ fn open_line_above(state: EditorState, text: String, selection: (usize, usize)) 
 /// as the other line commands take a fold; `None` on a line not folded.
 fn folded_block_end(state: EditorState, text: &str, caret: usize) -> Option<usize> {
     state.view().projection.with_untracked(|projection| {
-        projection.hidden_from(line_end_of(text, caret))?;
+        let line_end = utf16_to_byte_index(text, line_end_of(text, caret));
+        projection.hidden_from(text_size(line_end))?;
         let (_, end) = copied_lines(state.behavior(), text, caret, projection);
         // Before the line break that ends the block's last line.
         let byte = utf16_to_byte_index(text, end);

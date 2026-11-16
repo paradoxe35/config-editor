@@ -733,7 +733,6 @@ fn copy_selection(
     cut: bool,
     ours: bool,
 ) {
-    let (start, end) = (usize::from(start), usize::from(end));
     if !ours
         && !state
             .view()
@@ -742,6 +741,7 @@ fn copy_selection(
     {
         return;
     }
+    let (start, end) = (usize::from(start), usize::from(end));
     let Some(clipboard) = event.clipboard_data() else {
         return;
     };

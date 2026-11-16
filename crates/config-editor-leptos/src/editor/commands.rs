@@ -3,7 +3,7 @@ use super::keyboard::utf16_to_byte_index;
 use super::language::{ConfigLanguage, LanguageConfig, Toggled};
 use super::projection::Projection;
 use super::work_count::{Work, note};
-use crate::editor::text::{TextSize, byte_range, checked_range, text_size};
+use crate::editor::text::{TextSize, byte_range, checked_range, text_size, utf16_of};
 
 pub(super) fn line_at_cursor(source: &str, cursor: usize) -> usize {
     source[..utf16_to_byte_index(source, cursor)]
@@ -39,10 +39,12 @@ pub(super) fn copied_lines(
 ) -> (usize, usize) {
     let (start, end) = line_range(source, cursor);
     let byte = utf16_to_byte_index(source, end);
-    let header_end = end - usize::from(source[..byte].ends_with('\n'));
-    let Some(hidden_end) = projection.hidden_from(header_end) else {
+    let header_end = byte - usize::from(source[..byte].ends_with('\n'));
+    let Some(hidden_end) = projection.hidden_from(text_size(header_end)) else {
         return (start, end);
     };
+    // The block's ends in UTF-16 units, as the language's hook counts.
+    let hidden_end = utf16_of(source, hidden_end);
     let (first, last) = behavior.whole_constructs(source, start, hidden_end);
     (
         line_range(source, first.min(start)).0,

@@ -3,7 +3,7 @@
 
 use super::super::edit::{Assoc, Change};
 use super::super::fold_ranges::FoldRange;
-use crate::editor::text::text_size;
+use crate::editor::text::{TextSize, text_size};
 
 /// `folds` (closed in `old`) moved through `change`, which makes `new` of
 /// `old`. A replacement at or inside a fold's hidden text, from its first
@@ -24,12 +24,11 @@ pub(crate) fn follow_edit(
     let new_ends = line_ends(new);
     let line_end = |line: usize| old_ends[line.min(old_ends.len() - 1)];
     // The line of byte `at` of `new`: the number of line ends before it.
-    let line_of = |at: usize| new_ends.partition_point(|end| *end < at);
+    let line_of = |at: TextSize| new_ends.partition_point(|end| *end < at);
     folds
         .iter()
         .filter_map(|fold| {
             let (hidden_start, hidden_end) = (line_end(fold.start), line_end(fold.end));
-            let (hidden_start, hidden_end) = (text_size(hidden_start), text_size(hidden_end));
             let moved_whole = change
                 .moved()
                 .iter()
@@ -42,16 +41,16 @@ pub(crate) fn follow_edit(
             }
             let start = change.map_pos(hidden_start, Assoc::Before).pos;
             let end = change.map_pos(hidden_end, Assoc::Before).pos;
-            Some(FoldRange::new(line_of(start.into()), line_of(end.into())))
+            Some(FoldRange::new(line_of(start), line_of(end)))
         })
         .collect()
 }
 
 /// The byte offset of each line's end in `text`, the text's end last.
-fn line_ends(text: &str) -> Vec<usize> {
+pub(super) fn line_ends(text: &str) -> Vec<TextSize> {
     text.match_indices('\n')
-        .map(|(at, _)| at)
-        .chain(std::iter::once(text.len()))
+        .map(|(at, _)| text_size(at))
+        .chain(std::iter::once(TextSize::of(text)))
         .collect()
 }
 

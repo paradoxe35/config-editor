@@ -5,7 +5,7 @@ use super::super::edit::Change;
 use super::super::fold_ranges::*;
 use super::super::projection::{Projection, Side};
 use super::follow::{follow_edit, keep_valid};
-use crate::editor::text::{byte_range, text_size};
+use crate::editor::text::{TextRange, TextSize, Utf16, byte_range, text_size};
 use crate::language::LanguageConfig;
 
 fn fold(start: usize, end: usize) -> FoldRange {
@@ -23,6 +23,11 @@ fn naive_view(doc: &str, folds: &[FoldRange]) -> String {
         .map(|(_, line)| *line)
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+/// The textarea's text of `projection` (of `doc`) up to its byte `at`.
+fn view_text(projection: &Projection, doc: &str, at: TextSize) -> String {
+    projection.view(doc)[..usize::from(at)].to_string()
 }
 
 /// A small deterministic generator, so failures reproduce.
@@ -45,7 +50,8 @@ fn nothing_folded_shows_the_document_itself() {
     let projection = Projection::new(DOC, &[]);
     assert_eq!(projection.view(DOC), DOC);
     assert_eq!(projection.rows(), 7);
-    assert_eq!(projection.to_view(5), 5);
+    assert_eq!(projection.to_view(5.into()), 5.into());
+    assert_eq!(projection.view_units(Utf16::new(5)), Utf16::new(5));
     assert_eq!(projection.line_of_row(4), 4);
 }
 
@@ -54,25 +60,41 @@ fn a_fold_cuts_its_lines_out_and_maps_offsets_and_rows() {
     let projection = Projection::new(DOC, &[fold(0, 2)]);
     assert_eq!(projection.view(DOC), "a:\nd:\n  e: é\n  f: 😀\ng: 3");
     assert_eq!(projection.rows(), 5);
-    // The end of `a:` (offset 2) stays; the hidden text maps there.
-    assert_eq!(projection.to_view(2), 2);
-    assert_eq!(projection.to_view(5), 2);
-    assert_eq!(projection.to_view(16), 2);
+    // The end of `a:` (offset 2) stays; the hidden text maps there. The
+    // text up to `d:` is ASCII: bytes and UTF-16 units agree.
+    let byte = TextSize::from;
+    for (doc, view) in [(2, 2), (5, 2), (16, 2), (17, 3)] {
+        assert_eq!(projection.to_view(byte(doc)), byte(view));
+        assert_eq!(projection.view_units(Utf16::new(doc)), Utf16::new(view));
+    }
     // `d:` starts at 17 in the document, 3 on screen.
-    assert_eq!(projection.to_view(17), 3);
-    assert_eq!(projection.to_doc(3, Side::Before), 17);
-    assert_eq!(projection.to_doc(2, Side::Before), 2);
-    assert_eq!(projection.to_doc(2, Side::After), 16);
+    for (view, side, doc) in [
+        (3, Side::Before, 17),
+        (2, Side::Before, 2),
+        (2, Side::After, 16),
+    ] {
+        assert_eq!(projection.to_doc(byte(view), side), byte(doc));
+        assert_eq!(
+            projection.doc_units(Utf16::new(view), side),
+            Utf16::new(doc)
+        );
+    }
     assert_eq!(projection.row_of_line(0), 0);
     assert_eq!(projection.row_of_line(1), 0);
     assert_eq!(projection.row_of_line(3), 1);
     assert_eq!(projection.line_of_row(1), 3);
     assert!(projection.is_hidden(2) && !projection.is_hidden(3));
-    assert_eq!(projection.hidden_at(5), Some((2, 16)));
-    assert_eq!(projection.hidden_at(2), None);
-    assert!(projection.hides_within(0, 4));
-    assert!(projection.hides_within(2, 3));
-    assert!(!projection.hides_within(17, 20));
+    assert_eq!(
+        projection.hidden_at(byte(5)),
+        Some(TextRange::new(byte(2), byte(16)))
+    );
+    assert_eq!(projection.hidden_at(byte(2)), None);
+    assert_eq!(projection.hidden_from(byte(2)), Some(byte(16)));
+    let units = |start, end| (Utf16::new(start), Utf16::new(end));
+    for (start, end, hides) in [(0, 4, true), (2, 3, true), (17, 20, false)] {
+        let (start, end) = units(start, end);
+        assert_eq!(projection.hides_within(start, end), hides);
+    }
 }
 
 #[test]
@@ -126,13 +148,25 @@ fn the_projection_agrees_with_the_slow_way() {
         if row != projection.rows() {
             failures.push(format!("{case}: {row} rows, said {}", projection.rows()));
         }
-        // Every visible document offset maps there and back.
-        let total = doc.encode_utf16().count();
-        for offset in 0..=total {
+        // Every visible document offset maps there and back, in bytes and
+        // in UTF-16 units alike.
+        let boundaries = doc
+            .char_indices()
+            .map(|(at, _)| at)
+            .chain(std::iter::once(doc.len()));
+        for at in boundaries {
+            let offset = text_size(at);
             if projection.hidden_at(offset).is_none() {
                 let back = projection.to_doc(projection.to_view(offset), Side::Before);
                 if back != offset {
-                    failures.push(format!("{case}: offset {offset} came back {back}"));
+                    failures.push(format!("{case}: offset {offset:?} came back {back:?}"));
+                }
+                let units = Utf16::of(&doc[..at]);
+                let view = projection.view_units(units);
+                if Utf16::of(&view_text(&projection, &doc, projection.to_view(offset))) != view
+                    || projection.doc_units(view, Side::Before) != units
+                {
+                    failures.push(format!("{case}: units at {offset:?} map elsewhere"));
                 }
             }
         }
@@ -160,7 +194,7 @@ fn edits_on_screen_map_into_the_document() {
     for (from, to, expected) in cases {
         let edited = view.replacen(from, to, 1);
         // The caret after the text written, where the browser leaves it.
-        let caret = view.find(from).unwrap() + to.len();
+        let caret = text_size(view.find(from).unwrap() + to.len());
         let doc = projection.unproject(DOC, &edited, caret);
         if !doc.contains(expected) {
             failures.push(format!("{from:?} -> {to:?}: {doc:?}"));
@@ -178,7 +212,7 @@ fn an_edit_on_screen_next_to_like_text_keeps_the_hidden_lines_in_place() {
     let projection = Projection::new(doc, &[fold(0, 1)]);
     assert_eq!(projection.view(doc), "k:\nk:\n");
     // `k:\n` pasted at the start: the caret after it, at 3.
-    let unprojected = projection.unproject(doc, "k:\nk:\nk:\n", 3);
+    let unprojected = projection.unproject(doc, "k:\nk:\nk:\n", 3.into());
     assert_eq!(unprojected, "k:\nk:\n  v: 1\nk:\n");
 }
 

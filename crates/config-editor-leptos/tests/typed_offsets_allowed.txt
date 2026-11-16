@@ -24,7 +24,6 @@ editor/flat_keys/mod.rs 1 flat-key helpers behind the public language API; to ty
 editor/flow_syntax/mod.rs 5 shared syntax helpers behind the public language API; to type with the languages
 editor/flow_syntax/paths.rs 2 shared syntax helpers behind the public language API; to type with the languages
 editor/fold_ranges.rs 4 public fold API counts lines and UTF-16 units (crate edge)
-editor/folding/components.rs 2 folds follow the projection, which counts the textarea in UTF-16; to type with the folding area
 editor/handle.rs 1 still counts in UTF-16 or str `usize` bytes; to type with its area
 editor/highlight/mod.rs 6 public `Token` spans are `usize` by the public API (crate edge)
 editor/highlight/pieces.rs 6 public `Token` spans are `usize` by the public API (crate edge)
@@ -76,7 +75,6 @@ editor/paths/types.rs 1 path lookups take the public API's UTF-16 caret; to type
 editor/popups/caret_tip.rs 1 popups are placed by UTF-16 offsets of the mirror text (browser edge); to type as `Utf16`
 editor/popups/lock.rs 3 popups are placed by UTF-16 offsets of the mirror text (browser edge); to type as `Utf16`
 editor/problem_walk.rs 1 still counts in UTF-16 or str `usize` bytes; to type with its area
-editor/projection.rs 7 maps the textarea's UTF-16 offsets to the document's (browser edge); to type as `Utf16`
 editor/protect/carry.rs 2 locks and secrets still count spans in UTF-16 units; typed at their entry (bytes in, `utf16_of`); to move to bytes with the protect area
 editor/protect/follow.rs 1 locks and secrets still count spans in UTF-16 units; typed at their entry (bytes in, `utf16_of`); to move to bytes with the protect area
 editor/protect/guard/content.rs 2 locks and secrets still count spans in UTF-16 units; typed at their entry (bytes in, `utf16_of`); to move to bytes with the protect area

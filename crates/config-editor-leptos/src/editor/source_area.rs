@@ -48,16 +48,14 @@ impl SourceArea {
     pub(crate) fn value(&self) -> String {
         let current = self.element.value();
         // Where the browser left the caret: the end of the text it wrote,
-        // in UTF-16 units of the textarea's text, as `unproject` reads it.
-        let caret = usize::from(Utf16::new(
-            self.element.selection_end().ok().flatten().unwrap_or(0),
-        ));
+        // as a byte of the textarea's text, as `unproject` reads it.
+        let caret = Utf16::new(self.element.selection_end().ok().flatten().unwrap_or(0));
         self.state.view().projection.with_untracked(|projection| {
             self.state.doc().text.with_untracked(|doc| {
                 if projection.view(doc) == current {
                     doc.clone()
                 } else {
-                    projection.unproject(doc, &current, caret)
+                    projection.unproject(doc, &current, Self::byte_in(&current, caret))
                 }
             })
         })
@@ -71,9 +69,10 @@ impl SourceArea {
 
     /// The document's UTF-16 offset of the textarea's `offset`.
     fn to_doc(&self, offset: u32) -> Utf16 {
-        self.state.view().projection.with_untracked(|projection| {
-            Utf16::count(projection.to_doc(usize::from(Utf16::new(offset)), Side::Before))
-        })
+        self.state
+            .view()
+            .projection
+            .with_untracked(|projection| projection.doc_units(Utf16::new(offset), Side::Before))
     }
 
     /// The textarea's offset of the document's UTF-16 `offset`.
@@ -82,12 +81,13 @@ impl SourceArea {
             .state
             .view()
             .projection
-            .with_untracked(|projection| projection.to_view(usize::from(offset)));
-        u32::from(Utf16::count(view))
+            .with_untracked(|projection| projection.view_units(offset));
+        u32::from(view)
     }
 
-    /// The byte of `doc` (the document the textarea stands for) at its
-    /// UTF-16 `offset`; one inside a character is the character's end.
+    /// The byte of `doc` (the document the textarea stands for, or the
+    /// textarea's own text) at its UTF-16 `offset`; one inside a character
+    /// is the character's end.
     fn byte_in(doc: &str, offset: Utf16) -> TextSize {
         text_size(utf16_to_byte_index(doc, usize::from(offset)))
     }
