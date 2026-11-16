@@ -5,6 +5,7 @@
 use crate::editor::Language;
 use crate::editor::bridge::Bridge;
 use crate::editor::codec;
+use crate::editor::paths::FieldPath;
 use crate::editor::save_matrix::{ALL, from_every_view, report};
 use serde_json::Value;
 
@@ -27,7 +28,9 @@ fn hosts() -> [(Language, &'static str); 5] {
 
 /// `text` with the value at `pointer` replaced by `typed`.
 fn typed_over(language: Language, text: &str, pointer: &str, typed: &str) -> Option<String> {
-    let span = language.behavior().value_span(text, pointer)?;
+    let span = language
+        .behavior()
+        .value_span(text, &FieldPath::from(pointer))?;
     let range = codec::byte_range(text, span)?;
     let mut typed_text = text.to_string();
     typed_text.replace_range(range, typed);
@@ -124,7 +127,7 @@ fn numbers_and_booleans_typed_in_their_own_spelling_keep_the_host_type_and_spell
                 // The spelling, where the host reads it as the same value.
                 let spelled = host
                     .behavior()
-                    .value_span(&saved, &pointer)
+                    .value_span(&saved, &FieldPath::from(&pointer))
                     .and_then(|span| codec::byte_range(&saved, span))
                     .map(|range| saved[range].trim().to_string());
                 if expected.is_number()
@@ -192,7 +195,7 @@ fn a_number_typed_in_a_view_keeps_its_spelling_in_a_host_whose_values_are_text()
                     };
                     let written = host
                         .behavior()
-                        .value_span(&saved, pointer)
+                        .value_span(&saved, &FieldPath::from(*pointer))
                         .and_then(|span| codec::byte_range(&saved, span))
                         .map(|range| saved[range].trim().trim_matches('"').to_string());
                     if written.as_deref() != Some(typed) {

@@ -223,5 +223,21 @@ fn a_change_read_off_two_texts_makes_the_second() {
             Change::diffed(&before, &after).apply(&before).as_deref(),
             Some(after.as_str())
         );
+        assert_eq!(
+            Change::diffed_by_lines(&before, &after)
+                .apply(&before)
+                .as_deref(),
+            Some(after.as_str())
+        );
     }
+    // Lines changed apart, and lines added: a line kept between them keeps
+    // its text.
+    let lines = Change::diffed_by_lines("a: 1\nb: 2\nc: 3x\n", "a: 100\nb: 2\nc: 3\n");
+    assert_eq!(
+        lines.edits().collect::<Vec<_>>(),
+        vec![(4..4, "00"), (14..15, "")]
+    );
+    assert_eq!(lines.map_range(&(5..9)), Some(7..11));
+    let added = Change::diffed_by_lines("b\n", "a\nb\nc\n");
+    assert_eq!(added.map_range(&(0..1)), Some(2..3));
 }

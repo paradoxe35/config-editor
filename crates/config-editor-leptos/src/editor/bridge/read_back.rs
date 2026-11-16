@@ -6,8 +6,8 @@
 //! puts its own way, a key written in another kind of place) shows here,
 //! and the save waits instead of writing what the host reads otherwise.
 
-use super::super::codec::{self, escape};
-use super::super::language::ConfigLanguage;
+use super::super::codec;
+use super::super::language::{ConfigLanguage, pointer_key};
 use serde_json::Value;
 
 /// The host's text a save writes.
@@ -86,7 +86,7 @@ fn out_of_order(
     pointer: String,
     written: &dyn Fn(&str) -> bool,
 ) -> Option<String> {
-    let child = |key: &str| format!("{pointer}/{}", escape(key));
+    let child = |key: &str| format!("{pointer}/{}", pointer_key(key));
     match (read, like) {
         (Value::Object(read), Value::Object(like)) => {
             let read_keys = read.keys().filter(|key| like.contains_key(*key));

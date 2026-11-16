@@ -3,6 +3,7 @@
 //! edit made in the odd view of a built-in host saves as it would from any
 //! other view. Every failing case is listed at once.
 
+use crate::editor::paths::FieldPath;
 use serde_json::{Value, json};
 
 use super::super::Language;
@@ -248,19 +249,19 @@ fn a_key_is_written_as_the_odd_writer_writes_it() {
     use super::super::language::ConfigLanguage;
     assert_eq!(
         (&ODD as &dyn ConfigLanguage)
-            .written_key("", "", "listen")
+            .written_key("", &FieldPath::root(), "listen")
             .as_deref(),
         Some("listen")
     );
     assert_eq!(
         (&ODD as &dyn ConfigLanguage)
-            .written_key("", "", "a b")
+            .written_key("", &FieldPath::root(), "a b")
             .as_deref(),
         Some("\"a b\"")
     );
     assert_eq!(
         (&ODD as &dyn ConfigLanguage)
-            .written_key("", "", "x.y")
+            .written_key("", &FieldPath::root(), "x.y")
             .as_deref(),
         Some("\"x.y\"")
     );

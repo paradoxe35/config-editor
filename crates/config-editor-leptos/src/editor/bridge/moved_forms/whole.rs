@@ -13,6 +13,8 @@ use super::super::super::item_sources::SaveTold;
 use super::super::super::language::ConfigLanguage;
 use super::super::super::paths;
 use super::{Moved, line_indent, reindented};
+use crate::editor::language::pointer_key;
+use crate::editor::paths::FieldPath;
 use serde_json::Value;
 use std::ops::Range;
 
@@ -495,7 +497,7 @@ fn forms_kept(
                 for (key, child) in held {
                     if let Some(other) = now.get(key) {
                         pointer.push('/');
-                        pointer.push_str(&codec::escape(key));
+                        pointer.push_str(&pointer_key(key));
                         leaves(child, other, pointer, out);
                         pointer.truncate(length);
                     }
@@ -520,8 +522,9 @@ fn forms_kept(
     if pointers.is_empty() {
         return false;
     }
+    let paths: Vec<FieldPath> = pointers.iter().map(FieldPath::from).collect();
     let written = |source: &str| -> Vec<Option<String>> {
-        host.value_spans(source, &pointers)
+        host.value_spans(source, &paths)
             .into_iter()
             .zip(&pointers)
             .map(|(span, pointer)| {

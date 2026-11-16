@@ -122,24 +122,6 @@ pub(super) fn edit_range(before: &str, after: &str, caret: usize) -> (usize, usi
     (start, end)
 }
 
-/// Where UTF-16 `offset` in `old` lands in `new`, when one region between a
-/// common prefix and suffix changed: before it stays, after it shifts,
-/// inside it goes to the region's start.
-pub(super) fn map_through_change(old: &str, new: &str, offset: usize) -> usize {
-    let shared = shared(old, new);
-    let start = utf16_len(&old[..shared.prefix]);
-    let removed = utf16_len(&old[shared.prefix..old.len() - shared.suffix]);
-    if offset <= start {
-        offset
-    } else if offset >= start + removed {
-        // Past the change, by as much as the text grew or shrank.
-        let inserted = utf16_len(&new[shared.prefix..new.len() - shared.suffix]);
-        offset + inserted - removed
-    } else {
-        start
-    }
-}
-
 #[cfg(test)]
 #[path = "text_change_tests.rs"]
 mod tests;

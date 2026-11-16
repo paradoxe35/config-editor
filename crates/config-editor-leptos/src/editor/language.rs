@@ -81,6 +81,7 @@ pub(crate) use item_start::cursor_at;
 mod item_start;
 use super::comment_toggle::comment_target;
 use super::parse_cache::string_bodies;
+use super::paths::FieldPath;
 use serde_json::Value;
 use std::collections::HashSet;
 
@@ -937,34 +938,34 @@ pub trait ConfigLanguage: Send + Sync + 'static {
         Err(format!("{} documents cannot be written", self.info().label))
     }
 
-    /// The span of the key at the JSON pointer `pointer`, for diagnostics.
-    fn key_span(&self, source: &str, pointer: &str) -> Option<Span> {
-        let _ = (source, pointer);
+    /// The span of the key of the field at `path`, for diagnostics.
+    fn key_span(&self, source: &str, path: &FieldPath) -> Option<Span> {
+        let _ = (source, path);
         None
     }
 
-    /// The span of the value at the JSON pointer `pointer`, for diagnostics.
-    fn value_span(&self, source: &str, pointer: &str) -> Option<Span> {
-        let _ = (source, pointer);
+    /// The span of the value of the field at `path`, for diagnostics.
+    fn value_span(&self, source: &str, path: &FieldPath) -> Option<Span> {
+        let _ = (source, path);
         None
     }
 
-    /// [`key_span`](Self::key_span) for each of `pointers`. A language
-    /// whose lookup reads the whole document overrides it to read it once
+    /// [`key_span`](Self::key_span) for each of `paths`. A language whose
+    /// lookup reads the whole document overrides it to read it once
     /// (problems by the thousand are placed with it).
-    fn key_spans(&self, source: &str, pointers: &[String]) -> Vec<Option<Span>> {
-        pointers
+    fn key_spans(&self, source: &str, paths: &[FieldPath]) -> Vec<Option<Span>> {
+        paths
             .iter()
-            .map(|pointer| self.key_span(source, pointer))
+            .map(|path| self.key_span(source, path))
             .collect()
     }
 
-    /// [`value_span`](Self::value_span) for each of `pointers`. A language
+    /// [`value_span`](Self::value_span) for each of `paths`. A language
     /// whose lookup reads the whole document overrides it to read it once.
-    fn value_spans(&self, source: &str, pointers: &[String]) -> Vec<Option<Span>> {
-        pointers
+    fn value_spans(&self, source: &str, paths: &[FieldPath]) -> Vec<Option<Span>> {
+        paths
             .iter()
-            .map(|pointer| self.value_span(source, pointer))
+            .map(|path| self.value_span(source, path))
             .collect()
     }
 
@@ -1475,14 +1476,14 @@ pub trait SaveLayout {
         std::borrow::Cow::Borrowed(code)
     }
 
-    /// `source` with the members of the map at `pointer` that it writes
+    /// `source` with the members of the map at `path` that it writes
     /// together inside one construct, not as entries of lines of their own
     /// (an XML element's attributes, in its start tag), in `order`'s order
     /// among themselves, each written as it was. A save moving keys
     /// through another view then keeps their order. Default: `None`, none
     /// such.
-    fn members_in_order(&self, source: &str, pointer: &str, order: &[String]) -> Option<String> {
-        let _ = (source, pointer, order);
+    fn members_in_order(&self, source: &str, path: &FieldPath, order: &[String]) -> Option<String> {
+        let _ = (source, path, order);
         None
     }
 
@@ -1537,21 +1538,21 @@ pub trait SaveLayout {
         range
     }
 
-    /// Whether the map at `pointer` is written in `source` as the labels
+    /// Whether the map at `path` is written in `source` as the labels
     /// of blocks (HCL's `svc "a" { … }` holds `/svc/a`, so `/svc` is such a
     /// map): emptied, it is written as no blocks, not as an empty block.
     /// Default: no.
-    fn writes_as_labels(&self, source: &str, pointer: &str) -> bool {
-        let _ = (source, pointer);
+    fn writes_as_labels(&self, source: &str, path: &FieldPath) -> bool {
+        let _ = (source, path);
         false
     }
 
-    /// The container at `pointer` when the document writes it on one line in
+    /// The container at `path` when the document writes it on one line in
     /// a form other than a `{…}` or `[…]` value: an XML element with its
     /// children on one line, an HCL one-line block. A structural Edit-as
     /// save keeps such a container as written.
-    fn one_line_container(&self, source: &str, pointer: &str) -> Option<OneLine> {
-        let _ = (source, pointer);
+    fn one_line_container(&self, source: &str, path: &FieldPath) -> Option<OneLine> {
+        let _ = (source, path);
         None
     }
 
@@ -1564,7 +1565,7 @@ pub trait SaveLayout {
         None
     }
 
-    /// The edits renaming the key at `pointer` everywhere the language
+    /// The edits renaming the key at `path` everywhere the language
     /// writes it (an XML element's start and end tags, a TOML key's headers
     /// and dotted keys): byte ranges of `source`, apart from each other,
     /// each with its new text; `None` to rename just the text at
@@ -1574,12 +1575,12 @@ pub trait SaveLayout {
     /// batch over `source` (see `paths::with_spans`): what the language
     /// reads of all of it to find them is read once
     /// (`paths::batch_cached`).
-    fn key_renames(&self, source: &str, pointer: &str, new_key: &str) -> Option<Vec<KeyEdit>> {
-        let _ = (source, pointer, new_key);
+    fn key_renames(&self, source: &str, path: &FieldPath, new_key: &str) -> Option<Vec<KeyEdit>> {
+        let _ = (source, path, new_key);
         None
     }
 
-    /// `key` as the language writes it in place of the key at `pointer` of
+    /// `key` as the language writes it in place of the key at `path` of
     /// `source` (a rename): bare, or quoted and escaped where it must be
     /// (YAML quotes `on` and `1_000`, which YAML 1.1 reads as other types).
     /// `None` when the language cannot write it there (an HCL block type is
@@ -1592,14 +1593,14 @@ pub trait SaveLayout {
         &self,
         language: &dyn ConfigLanguage,
         source: &str,
-        pointer: &str,
+        path: &FieldPath,
         key: &str,
     ) -> Option<String> {
-        let _ = (source, pointer);
+        let _ = (source, path);
         key_as_written(language, key)
     }
 
-    /// The value a save writes at `pointer` of `previous` for `value` (a
+    /// The value a save writes at `path` of `previous` for `value` (a
     /// changed scalar): `Ok(None)` keeps `value`; `Ok(Some)` is the
     /// language's own form of it where its reader normalizes what it reads
     /// (TOML reads the datetime `…00.50Z` as `…00.5Z`); `Err` says why the
@@ -1608,10 +1609,10 @@ pub trait SaveLayout {
     fn scalar_edit(
         &self,
         previous: &str,
-        pointer: &str,
+        path: &FieldPath,
         value: &Value,
     ) -> Result<Option<Value>, String> {
-        let _ = (previous, pointer, value);
+        let _ = (previous, path, value);
         Ok(None)
     }
 
@@ -1674,14 +1675,14 @@ pub trait SaveLayout {
             .is_some()
     }
 
-    /// The bytes of the list item or map entry at `pointer` when the
+    /// The bytes of the list item or map entry at `path` when the
     /// document writes it as lines of its own that are no `{…}` or `[…]`
     /// value: a TOML `[[array]]` or `[table]` table from its header, an HCL
     /// repeated block from its type to its `}`. An Edit-as save that moves
     /// the item or entry moves these lines with the comment lines above
     /// them. `None` (the default) for any other.
-    fn item_lines(&self, source: &str, pointer: &str) -> Option<std::ops::Range<usize>> {
-        let _ = (source, pointer);
+    fn item_lines(&self, source: &str, path: &FieldPath) -> Option<std::ops::Range<usize>> {
+        let _ = (source, path);
         None
     }
 
@@ -1913,13 +1914,13 @@ pub trait Sharing {
         None
     }
 
-    /// Where the field at `pointer` is written when `source` writes it once
-    /// and reads it in several places: the pointer under a YAML anchor
+    /// Where the field at `path` is written when `source` writes it once
+    /// and reads it in several places: the path under a YAML anchor
     /// that an alias (`c: *x` reads `/c/b` from `/a/b` of `a: &x`) or a
     /// merge (`<<: *x`) reads it from. `None` (the default) where it reads
     /// through nothing so written. `rangeOf` finds such a field there.
-    fn written_at(&self, source: &str, pointer: &str) -> Option<String> {
-        let _ = (source, pointer);
+    fn written_at(&self, source: &str, path: &FieldPath) -> Option<FieldPath> {
+        let _ = (source, path);
         None
     }
 
@@ -1993,11 +1994,11 @@ pub trait Repeats {
     /// What the language repeats.
     fn repeated(&self) -> Repeated;
 
-    /// Whether the field at `pointer` is written as one of what a list of
+    /// Whether the field at `path` is written as one of what a list of
     /// it repeats, written once (an XML element, an HCL block): it is then
-    /// also that list's only item, so `pointer/0` finds it. Never for an
+    /// also that list's only item, so `path/0` finds it. Never for an
     /// index, an attribute, an object of labelled blocks or the document.
-    fn lone_item(&self, source: &str, pointer: &str) -> bool;
+    fn lone_item(&self, source: &str, path: &FieldPath) -> bool;
 }
 
 /// The defaults of every refinement group, for a language that has none.
@@ -2229,10 +2230,10 @@ impl dyn ConfigLanguage {
     pub fn members_in_order(
         &self,
         source: &str,
-        pointer: &str,
+        path: &FieldPath,
         order: &[String],
     ) -> Option<String> {
-        self.layout().members_in_order(source, pointer, order)
+        self.layout().members_in_order(source, path, order)
     }
 
     /// See [`SaveLayout::entries_apart`].
@@ -2265,13 +2266,13 @@ impl dyn ConfigLanguage {
     }
 
     /// See [`SaveLayout::writes_as_labels`].
-    pub fn writes_as_labels(&self, source: &str, pointer: &str) -> bool {
-        self.layout().writes_as_labels(source, pointer)
+    pub fn writes_as_labels(&self, source: &str, path: &FieldPath) -> bool {
+        self.layout().writes_as_labels(source, path)
     }
 
     /// See [`SaveLayout::one_line_container`].
-    pub fn one_line_container(&self, source: &str, pointer: &str) -> Option<OneLine> {
-        self.layout().one_line_container(source, pointer)
+    pub fn one_line_container(&self, source: &str, path: &FieldPath) -> Option<OneLine> {
+        self.layout().one_line_container(source, path)
     }
 
     /// See [`SaveLayout::one_line_body`].
@@ -2280,23 +2281,28 @@ impl dyn ConfigLanguage {
     }
 
     /// See [`SaveLayout::key_renames`].
-    pub fn key_renames(&self, source: &str, pointer: &str, new_key: &str) -> Option<Vec<KeyEdit>> {
-        self.layout().key_renames(source, pointer, new_key)
+    pub fn key_renames(
+        &self,
+        source: &str,
+        path: &FieldPath,
+        new_key: &str,
+    ) -> Option<Vec<KeyEdit>> {
+        self.layout().key_renames(source, path, new_key)
     }
 
     /// See [`SaveLayout::written_key`].
-    pub fn written_key(&self, source: &str, pointer: &str, key: &str) -> Option<String> {
-        self.layout().written_key(self, source, pointer, key)
+    pub fn written_key(&self, source: &str, path: &FieldPath, key: &str) -> Option<String> {
+        self.layout().written_key(self, source, path, key)
     }
 
     /// See [`SaveLayout::scalar_edit`].
     pub fn scalar_edit(
         &self,
         previous: &str,
-        pointer: &str,
+        path: &FieldPath,
         value: &Value,
     ) -> Result<Option<Value>, String> {
-        self.layout().scalar_edit(previous, pointer, value)
+        self.layout().scalar_edit(previous, path, value)
     }
 
     /// See [`SaveLayout::changed_form`].
@@ -2341,8 +2347,8 @@ impl dyn ConfigLanguage {
     }
 
     /// See [`SaveLayout::item_lines`].
-    pub fn item_lines(&self, source: &str, pointer: &str) -> Option<std::ops::Range<usize>> {
-        self.layout().item_lines(source, pointer)
+    pub fn item_lines(&self, source: &str, path: &FieldPath) -> Option<std::ops::Range<usize>> {
+        self.layout().item_lines(source, path)
     }
 
     /// See [`SaveLayout::number_in_form`].
@@ -2479,9 +2485,9 @@ impl dyn ConfigLanguage {
     }
 
     /// See [`Sharing::written_at`].
-    pub fn written_at(&self, source: &str, pointer: &str) -> Option<String> {
+    pub fn written_at(&self, source: &str, path: &FieldPath) -> Option<FieldPath> {
         self.sharing()
-            .and_then(|group| group.written_at(source, pointer))
+            .and_then(|group| group.written_at(source, path))
     }
 
     /// See [`Sharing::references_back`].
@@ -2538,9 +2544,9 @@ impl dyn ConfigLanguage {
     }
 
     /// See [`Repeats::lone_item`]; never without [`Repeats`].
-    pub fn lone_item(&self, source: &str, pointer: &str) -> bool {
+    pub fn lone_item(&self, source: &str, path: &FieldPath) -> bool {
         self.repeats()
-            .is_some_and(|group| group.lone_item(source, pointer))
+            .is_some_and(|group| group.lone_item(source, path))
     }
 }
 
@@ -2548,7 +2554,7 @@ impl dyn ConfigLanguage {
 /// text its serializer writes for it in a document holding only that key,
 /// when that document reads back with the key.
 fn key_as_written(language: &dyn ConfigLanguage, key: &str) -> Option<String> {
-    let pointer = format!("/{}", crate::editor::language::pointer_key(key));
+    let path = FieldPath::root().key(key);
     [Value::from(0), Value::from("")]
         .into_iter()
         .find_map(|value| {
@@ -2558,7 +2564,7 @@ fn key_as_written(language: &dyn ConfigLanguage, key: &str) -> Option<String> {
             if read.as_object()?.keys().ne([key]) {
                 return None;
             }
-            let span = language.key_span(&text, &pointer)?;
+            let span = language.key_span(&text, &path)?;
             let line = text.split('\n').nth(span.line.checked_sub(1)?)?;
             let written: String = line
                 .chars()

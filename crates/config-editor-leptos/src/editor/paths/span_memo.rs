@@ -9,6 +9,7 @@
 //! ([`batch_cached`]). Several texts can be read at once (the host's and the
 //! one on screen); nothing is kept after.
 
+use super::FieldPath;
 use std::any::Any;
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -158,8 +159,9 @@ fn read(behavior: &dyn ConfigLanguage, source: &str, pointers: &[String]) {
         return;
     }
     note(Work::DocumentRead);
-    let values = behavior.value_spans(source, &wanted);
-    let keys = behavior.key_spans(source, &wanted);
+    let paths: Vec<FieldPath> = wanted.iter().map(FieldPath::from).collect();
+    let values = behavior.value_spans(source, &paths);
+    let keys = behavior.key_spans(source, &paths);
     BATCHES.with(|batches| {
         if let Some(batch) = batches.borrow_mut().last_mut() {
             batch.values.extend(wanted.iter().cloned().zip(values));
@@ -299,7 +301,7 @@ pub(crate) fn value_span(
 ) -> Option<Span> {
     known(behavior, source, pointer, false).unwrap_or_else(|| {
         note_alone(source);
-        let span = behavior.value_span(source, pointer);
+        let span = behavior.value_span(source, &FieldPath::from(pointer));
         remember(behavior, source, pointer, false, span);
         span
     })
@@ -310,7 +312,7 @@ pub(crate) fn value_span(
 pub(crate) fn key_span(behavior: &dyn ConfigLanguage, source: &str, pointer: &str) -> Option<Span> {
     known(behavior, source, pointer, true).unwrap_or_else(|| {
         note_alone(source);
-        let span = behavior.key_span(source, pointer);
+        let span = behavior.key_span(source, &FieldPath::from(pointer));
         remember(behavior, source, pointer, true, span);
         span
     })
@@ -371,7 +373,12 @@ mod tests {
             .collect();
         let alone: Vec<_> = pointers
             .iter()
-            .map(|pointer| (toml.key_span(text, pointer), toml.value_span(text, pointer)))
+            .map(|pointer| {
+                (
+                    toml.key_span(text, &super::FieldPath::from(pointer)),
+                    toml.value_span(text, &super::FieldPath::from(pointer)),
+                )
+            })
             .collect();
         let batched = with_spans(toml, text, &pointers, || {
             pointers

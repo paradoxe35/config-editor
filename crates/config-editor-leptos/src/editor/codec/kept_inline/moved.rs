@@ -8,6 +8,7 @@
 use super::super::super::item_sources::{ItemSource, ItemSources};
 use super::super::super::language::ConfigLanguage;
 use super::{Kept, braced_one_line, marker};
+use crate::editor::paths::FieldPath;
 use serde_json::Value;
 
 /// A map or list of the save that an edit brought from another place.
@@ -82,8 +83,8 @@ pub(super) fn with_moved(
             continue;
         };
         // Looked up together: one read of the text for all of them.
-        let pointers: Vec<String> = here.iter().map(|item| item.from.to_string()).collect();
-        let spans = language.value_spans(text, &pointers);
+        let paths: Vec<FieldPath> = here.iter().map(|item| FieldPath::from(item.from)).collect();
+        let spans = language.value_spans(text, &paths);
         for (item, span) in here.into_iter().zip(spans) {
             let Some(now) = new.pointer(item.to) else {
                 continue;

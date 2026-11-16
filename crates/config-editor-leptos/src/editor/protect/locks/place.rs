@@ -780,7 +780,7 @@ fn reads_under(value: &Value, keys: &[&str], expected: &Value) -> usize {
             .sum(),
         _ if keys.is_empty() => 0,
         Value::Object(map) => map
-            .get(&keys[0].replace("~1", "/").replace("~0", "~"))
+            .get(&crate::editor::language::unescaped_key(keys[0]))
             .map_or(0, |child| reads_under(child, &keys[1..], expected)),
         _ => 0,
     }

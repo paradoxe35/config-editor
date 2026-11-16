@@ -6,6 +6,7 @@
 use super::super::changed_scalars;
 use crate::editor::codec;
 use crate::editor::language::ConfigLanguage;
+use crate::editor::paths::FieldPath;
 use serde_json::Value;
 
 /// `previous` with each string the edit fills again (empty in `old`, text
@@ -37,7 +38,7 @@ pub(in crate::editor::bridge) fn restored(
     }
     let before = codec::read(host, origin, shape).ok()?;
     let written_in = |text: &str, pointer: &str| {
-        let span = host.value_span(text, pointer)?;
+        let span = host.value_span(text, &FieldPath::from(pointer))?;
         codec::byte_range(text, span)
     };
     let mut edits = Vec::new();

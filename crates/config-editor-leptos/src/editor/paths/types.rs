@@ -78,6 +78,18 @@ impl FieldPath {
     pub fn is_root(&self) -> bool {
         self.0.is_empty()
     }
+
+    /// Each segment as text, unescaped: a key as it is, an index in digits
+    /// (the segments of [`to_pointer`](Self::to_pointer)).
+    pub(crate) fn texts(&self) -> Vec<String> {
+        self.0
+            .iter()
+            .map(|segment| match segment {
+                SchemaPathSegment::Key(key) => key.clone(),
+                SchemaPathSegment::ArrayItem(index) => index.to_string(),
+            })
+            .collect()
+    }
 }
 
 impl std::fmt::Display for FieldPath {

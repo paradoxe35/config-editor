@@ -1,3 +1,4 @@
+use crate::editor::paths::FieldPath;
 use super::super::super::completion::{
     accept_marked, apply_completion, completions, key_hover,
 };
@@ -765,8 +766,8 @@ fn the_last_editor_gone_drops_what_xml_keeps() {
     crate::editor::parse_cache::hold();
     let behavior = XmlBehavior;
     let _ = behavior.completion_context(text, 12);
-    let _ = behavior.value_span(text, "/r/b");
-    let _ = behavior.key_span(text, "/r/a");
+    let _ = behavior.value_span(text, &FieldPath::from("/r/b"));
+    let _ = behavior.key_span(text, &FieldPath::from("/r/a"));
     assert!(kept(), "something kept");
     crate::editor::parse_cache::release();
     assert!(!kept());

@@ -8,6 +8,7 @@
 use crate::editor::Language;
 use crate::editor::bridge::WHOLE_RENDERS;
 use crate::editor::diff::{DiffEdit, myers_edits};
+use crate::editor::paths::FieldPath;
 use crate::editor::save_matrix::{ALL, find_slot, save_conversion, slot};
 use serde_json::Value;
 
@@ -284,7 +285,7 @@ fn yaml_1_1_reads_plain_as_text(written: &str, in_flow: bool) -> bool {
 fn yaml_plain_written<'a>(saved: &'a str, pointer: &str) -> Option<(&'a str, bool)> {
     let behavior = Language::YAML.behavior();
     let span = behavior
-        .value_span(saved, pointer)
+        .value_span(saved, &FieldPath::from(pointer))
         .or_else(|| crate::editor::codec::inline_location(behavior, saved, pointer, false))?;
     let line = saved.lines().nth(span.line - 1)?;
     let start = line.char_indices().nth(span.start_column - 1)?.0;
@@ -648,7 +649,10 @@ fn writer_writes_key_plain(key: &str) -> bool {
 
 /// Whether the key at `pointer` of the YAML `text` is in a flow mapping.
 fn in_flow_mapping(text: &str, pointer: &str) -> bool {
-    let Some(span) = Language::YAML.behavior().key_span(text, pointer) else {
+    let Some(span) = Language::YAML
+        .behavior()
+        .key_span(text, &FieldPath::from(pointer))
+    else {
         return true;
     };
     let line = text.lines().nth(span.line - 1).unwrap_or("");
@@ -664,7 +668,9 @@ fn in_flow_mapping(text: &str, pointer: &str) -> bool {
 fn yaml_key_written<'a>(saved: &'a str, pointer: &str, to: &str) -> Option<(&'a str, bool)> {
     let (parent, _) = pointer.rsplit_once('/')?;
     let renamed = format!("{parent}/{}", to.replace('~', "~0").replace('/', "~1"));
-    let span = Language::YAML.behavior().key_span(saved, &renamed)?;
+    let span = Language::YAML
+        .behavior()
+        .key_span(saved, &FieldPath::from(&renamed))?;
     let line = saved.lines().nth(span.line - 1)?;
     let start = line.char_indices().nth(span.start_column - 1)?.0;
     let end = line
@@ -693,7 +699,7 @@ fn a_small_edit_of_a_string_over_lines_keeps_its_lines() {
         strings(&old, String::new(), &mut pointers);
         let behavior = host.behavior();
         for pointer in &pointers {
-            let Some(span) = behavior.value_span(text, pointer) else {
+            let Some(span) = behavior.value_span(text, &FieldPath::from(pointer)) else {
                 continue;
             };
             let Some(value) = old.pointer(pointer).and_then(Value::as_str) else {

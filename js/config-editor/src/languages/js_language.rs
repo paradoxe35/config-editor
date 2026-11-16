@@ -4,6 +4,7 @@ use std::cell::{Cell, RefCell};
 use std::collections::HashSet;
 use std::ops::Range;
 
+use config_editor_leptos::FieldPath;
 use config_editor_leptos::language::{
     CompletionContext, ConfigLanguage, Hover, InsertContext, InsertPlan, LanguageConfig,
     LanguageInfo, ParseError, SaveLayout, SchemaPathSegment, Span, Text, Token, TokenKind, Tokens,
@@ -152,16 +153,15 @@ impl JsLanguage {
         ranges
     }
 
-    /// What `name` (`keySpan`, `valueSpan`) says of `pointer`: `None` when
+    /// What `name` (`keySpan`, `valueSpan`) says of `path`, given to it as a
+    /// JSON pointer: `None` when
     /// it says nothing (absent, threw, or gave `null` or `undefined`, as a
     /// stub does), so the flat default answers; else the span it gives, if
     /// it is in the text.
-    fn span(&self, name: &str, source: &str, pointer: &str) -> Option<Option<Span>> {
+    fn span(&self, name: &str, source: &str, path: &FieldPath) -> Option<Option<Span>> {
+        let pointer = JsValue::from_str(&path.to_pointer());
         let span = self
-            .call(
-                name,
-                &[JsValue::from_str(source), JsValue::from_str(pointer)],
-            )
+            .call(name, &[JsValue::from_str(source), pointer])
             .filter(|span| !span.is_null() && !span.is_undefined())?;
         Some(given_span(&span, source))
     }
@@ -253,18 +253,18 @@ impl ConfigLanguage for JsLanguage {
             .ok_or_else(|| "serialize() must return a string".to_string())
     }
 
-    fn key_span(&self, source: &str, pointer: &str) -> Option<Span> {
-        self.span("keySpan", source, pointer).unwrap_or_else(|| {
+    fn key_span(&self, source: &str, path: &FieldPath) -> Option<Span> {
+        self.span("keySpan", source, path).unwrap_or_else(|| {
             self.is_flat()
-                .then(|| self.config.get().flat_key_span(source, pointer))
+                .then(|| self.config.get().flat_key_span(source, path))
                 .flatten()
         })
     }
 
-    fn value_span(&self, source: &str, pointer: &str) -> Option<Span> {
-        self.span("valueSpan", source, pointer).unwrap_or_else(|| {
+    fn value_span(&self, source: &str, path: &FieldPath) -> Option<Span> {
+        self.span("valueSpan", source, path).unwrap_or_else(|| {
             self.is_flat()
-                .then(|| self.config.get().flat_value_span(source, pointer))
+                .then(|| self.config.get().flat_value_span(source, path))
                 .flatten()
         })
     }

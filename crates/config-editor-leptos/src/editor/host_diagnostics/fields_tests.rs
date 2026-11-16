@@ -9,6 +9,7 @@ use super::super::paths::{
 };
 use super::fields::HostFields;
 use super::tests::report;
+use crate::editor::paths::FieldPath;
 
 /// Documents in each language's forms: nested blocks, lists of scalars and
 /// of maps, inline (flow) containers, quoted and dotted keys, attributes,
@@ -151,8 +152,8 @@ fn spans_read_at_once_are_the_ones_read_alone_in_every_language() {
             .iter()
             .map(|pointer| {
                 (
-                    behavior.key_span(text, pointer),
-                    behavior.value_span(text, pointer),
+                    behavior.key_span(text, &FieldPath::from(pointer)),
+                    behavior.value_span(text, &FieldPath::from(pointer)),
                 )
             })
             .collect();

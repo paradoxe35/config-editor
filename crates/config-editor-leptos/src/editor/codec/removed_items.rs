@@ -5,8 +5,9 @@
 
 use super::super::item_sources::SaveTold;
 use super::super::language::ConfigLanguage;
+use super::reads_as;
 use super::reorder::block_items;
-use super::{escape, reads_as};
+use crate::editor::language::pointer_key;
 use serde_json::Value;
 
 /// `previous` with the items `new` removes from one block list dropped.
@@ -60,7 +61,11 @@ fn shrunk_list<'a>(
             if differing.next().is_some() {
                 return None;
             }
-            shrunk_list(value, &right[key], format!("{pointer}/{}", escape(key)))
+            shrunk_list(
+                value,
+                &right[key],
+                format!("{pointer}/{}", pointer_key(key)),
+            )
         }
         (Value::Array(left), Value::Array(right)) if left.len() == right.len() => {
             let mut differing = (0..left.len()).filter(|index| left[*index] != right[*index]);

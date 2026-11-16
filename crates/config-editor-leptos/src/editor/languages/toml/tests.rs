@@ -1,3 +1,4 @@
+use crate::editor::paths::FieldPath;
 use super::super::super::completion::{
     Completion, accept_marked, apply_completion, completions, key_hover,
 };
@@ -593,9 +594,9 @@ fn dates_and_times_read_as_their_text() {
 #[test]
 fn a_dotted_keys_span_is_its_last_segment() {
     let source = "websocket.bogus = 2\n\"a.b\".c = 1\n";
-    let span = LANGUAGE.key_span(source, "/websocket/bogus").unwrap();
+    let span = LANGUAGE.key_span(source, &FieldPath::from("/websocket/bogus")).unwrap();
     assert_eq!((span.start_column, span.end_column), (11, 16));
-    let span = LANGUAGE.key_span(source, "/a.b/c").unwrap();
+    let span = LANGUAGE.key_span(source, &FieldPath::from("/a.b/c")).unwrap();
     assert_eq!((span.line, span.start_column, span.end_column), (2, 7, 8));
 }
 

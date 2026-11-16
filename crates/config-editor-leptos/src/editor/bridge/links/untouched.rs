@@ -14,6 +14,7 @@ use super::super::super::parse_cache;
 use super::super::super::paths;
 use super::told::same_keys;
 use super::{Links, Source, spelled_in};
+use crate::editor::language::pointer_key;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -45,7 +46,7 @@ fn scalars(value: &Value, pointer: &mut String, out: &mut Vec<String>) {
             for (key, child) in map {
                 let length = pointer.len();
                 pointer.push('/');
-                pointer.push_str(&codec::escape(key));
+                pointer.push_str(&pointer_key(key));
                 scalars(child, pointer, out);
                 pointer.truncate(length);
             }

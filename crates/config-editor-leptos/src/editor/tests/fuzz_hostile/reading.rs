@@ -18,6 +18,7 @@ use crate::editor::highlight::{Token, runs_of};
 use crate::editor::language::Span;
 use crate::editor::languages::Language;
 use crate::editor::line_endings::editor_text;
+use crate::editor::paths::FieldPath;
 
 #[derive(Clone, Debug)]
 pub(super) struct ReadCase {
@@ -492,6 +493,7 @@ pub(super) fn check(case: &ReadCase) -> Result<(), Failure> {
     if let Ok(value) = &parsed {
         let mut found = Vec::new();
         pointers(value, String::new(), &mut found);
+        let found_paths: Vec<FieldPath> = found.iter().map(FieldPath::from).collect();
         for (pointer, range) in found
             .iter()
             .zip(language.ranges_of(raw, found.iter().cloned()))
@@ -516,8 +518,8 @@ pub(super) fn check(case: &ReadCase) -> Result<(), Failure> {
             }
         }
         for spans in [
-            behavior.key_spans(&text, &found),
-            behavior.value_spans(&text, &found),
+            behavior.key_spans(&text, &found_paths),
+            behavior.value_spans(&text, &found_paths),
         ] {
             for (pointer, span) in found.iter().zip(spans) {
                 if let Some(span) = span

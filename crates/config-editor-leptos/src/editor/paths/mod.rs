@@ -83,7 +83,7 @@ pub(crate) fn lone_spelling(
             {
                 return None;
             }
-            if behavior.lone_item(source, &lone) {
+            if behavior.lone_item(source, &FieldPath::from(&lone)) {
                 left_out = true;
                 continue;
             }
@@ -156,7 +156,9 @@ pub(crate) fn field_range(
         .or_else(|| first_repeated(behavior, source, pointer).map(range))
         // Read through a shared value (a YAML alias): where that is written.
         .or_else(|| {
-            let written = behavior.written_at(source, pointer)?;
+            let written = behavior
+                .written_at(source, &FieldPath::from(pointer))?
+                .to_pointer();
             (written != pointer).then(|| field_range(behavior, source, &written))?
         })
 }
@@ -413,7 +415,9 @@ fn through_shared(
     pointer: &str,
     locate: impl FnOnce(&str) -> Option<Span>,
 ) -> Option<Span> {
-    let written = behavior.written_at(source, pointer)?;
+    let written = behavior
+        .written_at(source, &FieldPath::from(pointer))?
+        .to_pointer();
     (written != pointer).then(|| locate(&written))?
 }
 

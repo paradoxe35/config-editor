@@ -4,6 +4,7 @@ use super::super::paths::{line_start, split_line, units_at};
 use super::super::work_count::{Work, note};
 use super::*;
 use crate::editor::language::cursor_at;
+use crate::editor::paths::FieldPath;
 
 #[derive(Clone, PartialEq, Eq)]
 pub(crate) struct KeyHover {
@@ -184,7 +185,7 @@ fn value_at(
         return None;
     }
     let pointer = crate::editor::paths::FieldPath::from(path.clone()).to_pointer();
-    let span = behavior.value_span(source, &pointer)?;
+    let span = behavior.value_span(source, &FieldPath::from(&pointer))?;
     let on_it = span.line == line_index + 1
         && span.start_column <= column + 1
         && column + 1 < span.end_column;
