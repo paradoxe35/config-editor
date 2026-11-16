@@ -1,11 +1,10 @@
 //! What an edit did, as the links follow it: the pieces of the text before
 //! it replaced, each with the text written there and where that text came
-//! from ([`Inserted`]). The pieces are the edit's own record
-//! ([`Edit::change`]); an edit with none is read off its two texts at the
-//! caret it left ([`unrecorded`]), the one place the links compare texts.
+//! from ([`Inserted`]). The pieces are the edit's own change
+//! ([`Edit::made`]): said by the code making it, or read off the two texts
+//! at the edge that made it (input the browser did not say enough of).
 
 use super::super::super::edit::{Edit, Origin};
-use super::super::super::text_change::edit_range;
 use super::Clipboard;
 
 /// `removed` bytes at byte `at` of the text before, replaced by
@@ -40,6 +39,8 @@ fn starts(text: &str) -> Vec<usize> {
 
 impl Splice {
     /// `at..at + removed` replaced by `inserted`.
+    #[cfg(test)]
+    #[allow(dead_code, reason = "used by the tests of some builds only")]
     pub(crate) fn replace(at: usize, removed: usize, inserted: impl Into<String>) -> Self {
         Splice {
             at,
@@ -52,6 +53,8 @@ impl Splice {
     /// The splices of a command that knows each range it replaced (byte
     /// ranges of the text before, sorted and apart): an indent's lines, a
     /// Replace all's matches.
+    #[cfg(test)]
+    #[allow(dead_code, reason = "used by the tests of some builds only")]
     pub(crate) fn each(
         edits: impl IntoIterator<Item = (std::ops::Range<usize>, String)>,
     ) -> Vec<Splice> {
@@ -64,6 +67,8 @@ impl Splice {
 
     /// `before` with `splices` (sorted, apart) made; `None` when they do
     /// not fit it.
+    #[cfg(test)]
+    #[allow(dead_code, reason = "used by the tests of some builds only")]
     pub(crate) fn make(before: &str, splices: &[Splice]) -> Option<String> {
         let mut out = String::with_capacity(before.len());
         let mut at = 0;
@@ -175,15 +180,7 @@ fn pastes(edit: &Edit) -> bool {
 /// they were).
 pub(crate) fn pieces(edit: &Edit, clipboard: &Clipboard) -> Vec<Piece> {
     let before = edit.before.as_str();
-    debug_assert!(
-        edit.splices.as_ref().is_none_or(
-            |splices| Splice::make(before, splices).as_deref() == Some(edit.text.as_str())
-        ),
-        "an edit's splices do not make its text"
-    );
-    let Some(change) = edit.recorded().or_else(|| unrecorded(edit)) else {
-        return Vec::new();
-    };
+    let change = edit.made();
     let moved = change.moved();
     let pasting = pastes(edit);
     let typed = matches!(edit.origin, Origin::Input { .. }) && !pasting;
@@ -265,19 +262,4 @@ impl Piece {
             source: self.source,
         }
     }
-}
-
-/// The change of an edit that recorded none (see [`Edit::change`]): its
-/// two texts' one differing stretch, placed by the caret it left. Edits
-/// with no record are an undo or redo (whose links come from its step,
-/// not from here), input the browser gave no selection for, and commands
-/// that rewrite text around the caret without saying how (a comment
-/// toggle, a suggestion rewriting its line, Revert, joined lines).
-fn unrecorded(edit: &Edit) -> Option<super::super::super::edit::Change> {
-    let (before, after) = (edit.before.as_str(), edit.text.as_str());
-    let (start, end) = edit_range(before, after, edit.caret());
-    let byte = |at: usize| super::super::super::keyboard::utf16_to_byte_index(before, at);
-    let (start, end) = (byte(start), byte(end));
-    let inserted = after.get(start..after.len().checked_sub(before.len() - end)?)?;
-    super::super::super::edit::Change::replacing(before.len(), [(start..end, inserted.to_string())])
 }

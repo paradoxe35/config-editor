@@ -33,7 +33,7 @@ pub use unified::unified_diff;
 use leptos::prelude::*;
 
 use super::change_summary::ChangeSummary;
-use super::commands::offset_at;
+use super::edit::Change;
 use super::live_settings::on_switch_off;
 use super::state::EditorState;
 #[cfg(test)]
@@ -94,15 +94,42 @@ pub(super) fn hunk_for_peek<'a>(line_diff: &'a LineDiff, peek: &DiffPeek) -> Opt
 }
 
 /// `text` with `hunk` reverted, and the UTF-16 caret at the start of the
-/// restored lines.
+/// restored lines (see [`reverting`]), for the tests.
+#[cfg(test)]
 pub(super) fn revert_hunk(text: &str, hunk: &Hunk) -> (String, usize) {
-    let mut lines = document_lines(text);
+    let (change, caret) = reverting(text, hunk);
+    let reverted = change.apply(text).expect("made on the text");
+    let caret = reverted[..caret].encode_utf16().count();
+    (reverted, caret)
+}
+
+/// The change reverting `hunk` in `text`: its lines (and the line breaks
+/// between them and the rest) replaced by the baseline's, and the caret at
+/// the start of the restored lines (a byte offset of the text after; the
+/// text's end when none are restored there).
+pub(super) fn reverting(text: &str, hunk: &Hunk) -> (Change, usize) {
+    let lines = document_lines(text);
     let end = hunk.current.end.min(lines.len());
     let start = hunk.current.start.min(end);
-    lines.splice(start..end, hunk.baseline.iter().map(String::as_str));
-    let reverted = lines.join("\n");
-    let caret = offset_at(&reverted, start + 1, 1);
-    (reverted, caret)
+    // Where each line starts.
+    let line_start =
+        |line: usize| -> usize { lines[..line].iter().map(|text| text.len() + 1).sum() };
+    let baseline = &hunk.baseline;
+    let (range, written, caret) = if end < lines.len() {
+        // Lines before a line kept: each with the line break after it.
+        let at = line_start(start);
+        let written: String = baseline.iter().map(|line| format!("{line}\n")).collect();
+        (at..line_start(end), written, at)
+    } else if start > 0 {
+        // Down to the end: each after the line break before it.
+        let at = line_start(start) - 1;
+        let written: String = baseline.iter().map(|line| format!("\n{line}")).collect();
+        let caret = if baseline.is_empty() { at } else { at + 1 };
+        (at..text.len(), written, caret)
+    } else {
+        (0..text.len(), baseline.join("\n"), 0)
+    };
+    (Change::replace_bytes(text, range, &written), caret)
 }
 
 /// The zero-based line a change starts on, where moving to it puts the

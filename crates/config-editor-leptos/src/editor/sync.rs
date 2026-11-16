@@ -287,10 +287,11 @@ impl EditorState {
         // for no saved host text in a view (pasted into one, it is read in
         // the view's language, and waits when it does not read there).
         let in_view = left != self.config().host_language;
-        let before = ViewState {
-            links: self.sync().links.get_value(),
-            saved_as: self.sync().saved_as(&edit.before).filter(|_| in_view),
-        };
+        let before = ViewState::of(
+            &edit.before,
+            self.sync().links.get_value(),
+            self.sync().saved_as(&edit.before).filter(|_| in_view),
+        );
         if edit.before == edit.text {
             return before;
         }
@@ -300,18 +301,11 @@ impl EditorState {
             // The host's own text: no view, no links.
             Links::default()
         } else if matches!(edit.origin, Origin::Undo | Origin::Redo) {
+            // The step the undo or redo is made of (it is moved after).
             let view = self
                 .doc()
                 .history
-                .with_untracked(|history| {
-                    let step = if edit.origin == Origin::Undo {
-                        history.next_undo()
-                    } else {
-                        history.next_redo()
-                    };
-                    step.filter(|step| step.value == edit.text)
-                        .map(|step| step.view.clone())
-                })
+                .with_untracked(|history| history.next_view(edit.origin == Origin::Redo).cloned())
                 .unwrap_or_default();
             // Back to a text saved before: its save is that host text.
             if let Some(host) = view.saved_as {

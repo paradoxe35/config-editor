@@ -6,10 +6,10 @@ use leptos::prelude::*;
 use web_sys::KeyboardEvent;
 
 use super::super::commands::{backspace_indent, toggled_selection, typed_closer};
-use super::super::edit::Edit;
+use super::super::edit::{Assoc, Change, Edit};
 use super::super::keyboard::{
-    delete_empty_pair, is_closer, is_closing_bracket, is_quote, paired_edit, replace_selection,
-    skip_closing_pair, utf16_to_byte_index,
+    delete_empty_pair, is_closer, is_closing_bracket, is_quote, paired_edit, skip_closing_pair,
+    utf16_to_byte_index,
 };
 use super::super::state::{EditorState, is_backward, select, textarea_selection};
 use super::super::typing::Closer;
@@ -55,10 +55,16 @@ pub(super) fn toggle_comments(state: EditorState, event: &KeyboardEvent) -> bool
     } else {
         (selection_start, selection_end)
     };
+    let restore = if backward { (end, start) } else { (start, end) };
+    // The language gives the whole text, made line by line (a marker
+    // written or taken at each line): its change is read so, line for
+    // line; one that changed the lines themselves is read off the texts.
+    let edit = match Change::line_by_line(&before, &updated) {
+        Some(change) => Edit::command(before.clone(), change, restore),
+        None => Edit::new(before.clone(), restore, updated.clone(), caret),
+    };
     // Refused (a read-only editor or field): the selection stays.
-    if updated != before
-        && !state.commit(Edit::new(before, (start, end), updated, caret).selecting_from(anchor))
-    {
+    if updated != before && !state.commit(edit.selecting(anchor, caret)) {
         return true;
     }
     select(&element, selection_start, selection_end, backward);
@@ -232,14 +238,15 @@ fn closer_already_there(
             None => return false,
         }
     };
-    // `</tcp` + `>` right before the `</tcp>` written for it.
+    // `</tcp` + `>` right before the `</tcp>` written for it: what was
+    // typed of it goes, the caret steps past the one written.
     if closer.len() > 1 && after.starts_with(&closer) {
         event.prevent_default();
-        let mut updated = source.clone();
-        updated.replace_range(typed_from..byte, "");
-        let caret = updated[..typed_from + closer.len()].encode_utf16().count();
+        let change = Change::replace_bytes(&source, typed_from..byte, "");
+        let past = byte + closer.len();
         state.commit(
-            Edit::new(source, (start, start), updated, caret)
+            Edit::command(source, change, (start, start))
+                .keeping_byte(past, Assoc::After)
                 .typed("insertText", event.time_stamp()),
         );
         state.close_suggestions();
@@ -261,13 +268,13 @@ fn closer_already_there(
         return false;
     }
     event.prevent_default();
-    let mut updated = source.clone();
-    updated.replace_range(line_start..next_start, "");
-    let caret = updated[..line_start + indent_of(next_line) + closer.len()]
-        .encode_utf16()
-        .count();
+    // This line goes; the caret steps past the closer on the next one.
+    let change = Change::replace_bytes(&source, line_start..next_start, "");
+    let past = next_start + indent_of(next_line) + closer.len();
     state.commit(
-        Edit::new(source, (start, start), updated, caret).typed("insertText", event.time_stamp()),
+        Edit::command(source, change, (start, start))
+            .keeping_byte(past, Assoc::After)
+            .typed("insertText", event.time_stamp()),
     );
     state.close_suggestions();
     true
@@ -324,24 +331,22 @@ fn delete_pair(state: EditorState, event: &KeyboardEvent, start: usize) -> bool 
         {
             event.prevent_default();
             let quote_len = after.map_or(1, char::len_utf8);
-            let mut updated = before.clone();
-            updated.replace_range(byte - quote_len..byte + quote_len, "");
+            let change = Change::replace_bytes(&before, byte - quote_len..byte + quote_len, "");
+            let edit = Edit::command(before, change, (start, start))
+                .typed("deleteContentBackward", event.time_stamp());
             state.forget_closer_at(start);
-            state.remember_closer(&updated, start - 1, closer.len - 1, closer.opener);
-            state.commit(
-                Edit::new(before, (start, start), updated, start - 1)
-                    .typed("deleteContentBackward", event.time_stamp()),
-            );
+            state.remember_closer(&edit.text, start - 1, closer.len - 1, closer.opener);
+            state.commit(edit);
             return true;
         }
     }
-    let Some((updated, caret)) = delete_empty_pair(&before, start, state.behavior()) else {
+    let Some(change) = delete_empty_pair(&before, start, state.behavior()) else {
         return false;
     };
     event.prevent_default();
     state.forget_closer_at(start);
     state.commit(
-        Edit::new(before, (start, start), updated, caret)
+        Edit::command(before, change, (start, start))
             .typed("deleteContentBackward", event.time_stamp()),
     );
     true
@@ -355,12 +360,17 @@ fn auto_close(state: EditorState, event: &KeyboardEvent, start: usize, typed: ch
         return false;
     };
     event.prevent_default();
-    let (updated, _) = replace_selection(&before, start, start, &format!("{typed}{closing}"));
+    let change = Change::insert_units(&before, start, &format!("{typed}{closing}"));
+    // The caret after the typed character, the closing after it.
     let caret = start + typed.len_utf16();
+    let edit = Edit::command(before, change, (start, start))
+        .caret_at(caret)
+        .typed("insertText", event.time_stamp());
+    let updated = &edit.text;
     // Closing markup is the editor's: Enter after a value steps past it.
     if let Some(len) = state.behavior().closing_markup_len(&closing) {
         state.remember_closer(
-            &updated,
+            updated,
             caret,
             closing[..len].encode_utf16().count(),
             Some(typed),
@@ -372,7 +382,7 @@ fn auto_close(state: EditorState, event: &KeyboardEvent, start: usize, typed: ch
     {
         // A bracket the language closes (HCL's `${` in a string): typed
         // over, deleted with its opener.
-        state.remember_closer(&updated, caret, 1, Some(typed));
+        state.remember_closer(updated, caret, 1, Some(typed));
     } else if !closing.is_empty()
         && closing
             .chars()
@@ -380,11 +390,9 @@ fn auto_close(state: EditorState, event: &KeyboardEvent, start: usize, typed: ch
     {
         // A closing quote run (TOML's `"""`) is typed over and deleted with
         // its opener; Enter inside it is a line break of the string.
-        state.remember_closer(&updated, caret, closing.encode_utf16().count(), None);
+        state.remember_closer(updated, caret, closing.encode_utf16().count(), None);
     }
-    state.commit(
-        Edit::new(before, (start, start), updated, caret).typed("insertText", event.time_stamp()),
-    );
+    state.commit(edit);
     state.close_suggestions();
     true
 }
@@ -401,7 +409,7 @@ fn open_pair(
     opening: char,
 ) -> bool {
     let before = state.doc().text.get_untracked();
-    let Some((updated, selection_start, selection_end)) =
+    let Some((change, selection_start, selection_end)) =
         paired_edit(&before, start, end, opening, state.behavior())
     else {
         return false;
@@ -410,14 +418,6 @@ fn open_pair(
         .textarea()
         .is_some_and(|element| is_backward(&element));
     event.prevent_default();
-    // A prevented keydown fires no input event, so open suggestions here
-    // when the pair starts an entry.
-    let opens_entry = selection_start == selection_end
-        && state.behavior().entry_started(&updated, selection_start);
-    // A quote ends a string value; Enter opens a bracket pair instead of
-    // stepping out of it.
-    let opener = is_quote(state.behavior(), opening).then_some(opening);
-    state.remember_closer(&updated, selection_end, 1, opener);
     let wrapped_backward = backward && selection_start != selection_end;
     let (anchor, caret) = if wrapped_backward {
         (selection_end, selection_start)
@@ -427,11 +427,19 @@ fn open_pair(
     // A wrapped selection is replaced by what is typed next, in the same
     // undo step.
     let kind = if start == end { "insertText" } else { WRAP };
-    state.commit(
-        Edit::new(before, (start, end), updated, caret)
-            .selecting_from(anchor)
-            .typed(kind, event.time_stamp()),
-    );
+    let restore = if backward { (end, start) } else { (start, end) };
+    let edit = Edit::command(before, change, restore)
+        .selecting(anchor, caret)
+        .typed(kind, event.time_stamp());
+    // A prevented keydown fires no input event, so open suggestions here
+    // when the pair starts an entry.
+    let opens_entry = selection_start == selection_end
+        && state.behavior().entry_started(&edit.text, selection_start);
+    // A quote ends a string value; Enter opens a bracket pair instead of
+    // stepping out of it.
+    let opener = is_quote(state.behavior(), opening).then_some(opening);
+    state.remember_closer(&edit.text, selection_end, 1, opener);
+    state.commit(edit);
     // A wrapped selection keeps its direction.
     if backward
         && selection_start != selection_end
@@ -461,9 +469,8 @@ pub(super) fn join_with_next_line(state: EditorState, event: &KeyboardEvent) -> 
     event.prevent_default();
     let rest = &text[byte + 1..];
     let indentation = rest.len() - rest.trim_start_matches([' ', '\t']).len();
-    let removed = text[byte..byte + 1 + indentation].encode_utf16().count();
-    let (updated, _) = replace_selection(&text, start, start + removed, "");
-    state.commit(Edit::new(text, (start, end), updated, start));
+    let change = Change::replace_bytes(&text, byte..byte + 1 + indentation, "");
+    state.commit(Edit::command(text, change, (start, end)));
     true
 }
 
@@ -489,10 +496,10 @@ pub(super) fn indentation(state: EditorState, event: &KeyboardEvent) -> bool {
         (_, Some(closer), None) => typed_closer(&text, start, closer, state.behavior()),
         _ => None,
     };
-    let Some((updated, caret)) = edit else {
+    let Some(change) = edit else {
         return false;
     };
     event.prevent_default();
-    state.commit(Edit::new(text, (start, end), updated, caret));
+    state.commit(Edit::command(text, change, (start, end)));
     true
 }

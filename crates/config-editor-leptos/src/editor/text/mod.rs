@@ -7,7 +7,7 @@
 mod offset;
 
 #[cfg_attr(
-    not(all(test, feature = "protect")),
+    not(test),
     expect(
         unused_imports,
         reason = "the browser's offsets move onto it from `usize`"

@@ -6,15 +6,15 @@ use std::sync::Arc;
 
 use leptos::prelude::*;
 
-use super::super::edit::Edit;
+use super::super::edit::{Change, Edit};
 use super::super::language::ConfigLanguage;
 use super::super::languages::Language;
 use super::super::protect::ProtectState;
 use super::super::schema::SchemaBundle;
 use super::super::state::EditorState;
 use super::{
-    Completion, RowSize, accept_reopens_suggestions, apply_completion, completions_in,
-    inserted_closers, next_slot, stop_ranges,
+    Completion, RowSize, accept_reopens_suggestions, completions_in, inserted_closers, next_slot,
+    stop_ranges,
 };
 use crate::EditorStrings;
 use crate::strings::fill;
@@ -201,7 +201,21 @@ impl EditorState {
     /// Tab and closer handling.
     pub(crate) fn accept(&self, option: &Completion, reveal: bool) {
         let before = self.doc().text.get_untracked();
-        let (updated, anchor, caret) = apply_completion(&before, option);
+        // The word it replaces, written over with its insert.
+        let change = Change::replace_units(&before, option.start, option.end, &option.insert);
+        let at = self.doc().caret.get_untracked();
+        let edit = Edit::command(before.clone(), change, (at, at));
+        // The caret where the option puts it in its insert, a default it
+        // wrote left selected.
+        let inserted = option.insert.encode_utf16().count();
+        let caret = edit
+            .selected()
+            .1
+            .saturating_sub(inserted)
+            .saturating_add(option.cursor_offset);
+        let anchor = caret.saturating_sub(option.selected);
+        let edit = edit.selecting(anchor, caret);
+        let updated = edit.text.clone();
         if updated == before {
             self.say_why_read_only(option);
         }
@@ -242,8 +256,6 @@ impl EditorState {
         let reopen =
             accept_reopens_suggestions(option, self.config().settings.auto_trigger.get_untracked());
         self.hide_hover();
-        let at = self.doc().caret.get_untracked();
-        let edit = Edit::new(before, (at, at), updated, caret).selecting_from(anchor);
         if !self.commit(if reveal { edit } else { edit.quiet() }) {
             self.completion().placeholder.set_value(None);
             self.forget_typing_aids();

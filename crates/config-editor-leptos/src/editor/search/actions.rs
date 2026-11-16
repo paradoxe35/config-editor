@@ -4,11 +4,10 @@
 
 use leptos::prelude::*;
 
-use super::super::bridge::links::Splice;
 use super::super::edit::Edit;
 use super::super::input::flush_input;
 use super::super::keyboard::utf16_to_byte_index;
-use super::super::state::{EditorState, textarea_selection};
+use super::super::state::{EditorState, directed_selection, textarea_selection};
 use super::matcher::MAX_MATCHES;
 use super::replace;
 use super::reveal::reveal_centered;
@@ -206,11 +205,10 @@ pub(in crate::editor) fn replace_current(state: EditorState) {
     };
     let before = state.doc().text.get_untracked();
     let replacement = search.replacement.get_untracked();
-    let (updated, inserted) =
+    let (change, inserted) =
         replace::replace_one(&before, &matcher, found.start..found.end, &replacement);
     let selection = (utf16(&before, found.start), utf16(&before, found.end));
-    let caret = utf16(&updated, inserted.end);
-    state.commit(Edit::new(before, selection, updated, caret));
+    state.commit(Edit::command(before, change, selection));
     // The next match after the replacement, wrapping around.
     let next = search.results.with_untracked(|results| {
         let matches = &results.matches;
@@ -250,11 +248,12 @@ pub(in crate::editor) fn replace_all(state: EditorState) {
     };
     let selection = state
         .textarea()
-        .map_or((0, 0), |element| textarea_selection(&element));
-    let caret = utf16(&replaced.text, replaced.first.end);
-    // Each match its own change (an Edit-as view's items keep their links).
-    let splices = Some(Splice::each(replaced.pieces));
-    if !state.commit(Edit::new(before, selection, replaced.text, caret).splicing(splices)) {
+        .map_or((0, 0), |element| directed_selection(&element));
+    // Each match its own replacement (an Edit-as view's items keep their
+    // links), the caret after the first.
+    let edit = Edit::command(before, replaced.change, selection);
+    let caret = utf16(&edit.text, replaced.first.end);
+    if !state.commit(edit.caret_at(caret)) {
         return;
     }
     let count = replaced.count;

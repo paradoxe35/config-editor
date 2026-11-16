@@ -96,9 +96,8 @@ fn regular_expressions_match_with_their_flags() {
     assert_eq!(found("aab", "a*", regex), ["aa", "", ""]);
 }
 
-/// Round 21: a pattern matching empty text (`^`, `$`, `\b`, `x*`) finds
-/// it at each place it matches, and replace all inserts there, as in VS
-/// Code; before, `^` found nothing.
+/// A pattern matching empty text (`^`, `$`, `\b`, `x*`) finds it at each
+/// place it matches, and replace all inserts there, as in VS Code.
 #[test]
 fn patterns_matching_empty_text_find_and_replace_where_they_match() {
     let regex = options(false, false, true);
@@ -227,8 +226,8 @@ fn regex_replacements_expand_groups_and_escapes() {
 fn replace_one_reports_where_the_replacement_went() {
     let text = "a: 1\nb: 1";
     let matcher = matcher_for("1");
-    let (result, range) = replace_one(text, &matcher, 8..9, "22");
-    assert_eq!(result, "a: 1\nb: 22");
+    let (change, range) = replace_one(text, &matcher, 8..9, "22");
+    assert_eq!(change.apply(text).as_deref(), Some("a: 1\nb: 22"));
     assert_eq!(range, 8..10);
 }
 
@@ -347,8 +346,8 @@ fn regex_replacements_follow_vs_code_rules() {
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
-/// QA 34, UX34-5: a query cleared takes back the "No results" the live
-/// region said of it; anything else said since stays.
+/// A query cleared takes back the "No results" the live region said of
+/// it; anything else said since stays.
 #[cfg(feature = "yaml")]
 #[test]
 fn clearing_the_query_takes_back_no_results() {
