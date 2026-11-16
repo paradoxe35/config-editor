@@ -15,7 +15,9 @@ use super::super::diagnostics::{Diagnostic, Severity};
 use super::super::language::{ConfigLanguage, Repetition};
 use super::super::parse_cache;
 use super::super::paths::{field_range, written_value_span};
+use super::super::text::{slice, text_size};
 use super::super::work_count::{Work, note};
+use super::locate::LineIndex;
 use super::tokens::{Known, field_value};
 use crate::EditorStrings;
 use crate::strings::fill;
@@ -38,18 +40,25 @@ pub(crate) fn written_alone(
     let range = written_value_span(behavior, text, pointer)
         .and_then(|span| scalar_range(behavior, text, span))
         .filter(|range| range.start <= token.start && token.end <= range.end)?;
-    let written = &text[range.clone()];
-    let token_text = &text[token.clone()];
+    let written = text.get(range.clone()).unwrap_or_default();
+    let token_text = text.get(token.clone()).unwrap_or_default();
     // The whitespace written right before the token inside the value's
     // written form; after it, a line break however written (an escape in
     // a quoted string), or through its line's end or all of the whitespace
     // that follows (a kept block's blank lines are past its written form).
-    let before = &text[range.start..token.start];
-    let leading = ["", &before[before.trim_end().len()..]];
-    let after = &text[token.end..];
-    let after = &after[..after.len() - after.trim_start().len()];
-    let line_end = after.find('\n').map_or(after, |at| &after[..=at]);
-    [&after[..0], "\n", line_end, after]
+    let before = text.get(range.start..token.start).unwrap_or_default();
+    let leading = [
+        "",
+        before.get(before.trim_end().len()..).unwrap_or_default(),
+    ];
+    let after = text.get(token.end..).unwrap_or_default();
+    let after = after
+        .get(..after.len() - after.trim_start().len())
+        .unwrap_or_default();
+    let line_end = after
+        .find('\n')
+        .map_or(after, |at| after.get(..=at).unwrap_or_default());
+    [after.get(..0).unwrap_or_default(), "\n", line_end, after]
         .into_iter()
         .flat_map(|trail| {
             leading
@@ -323,15 +332,15 @@ fn at_token(
     let Some(range) = field_range(behavior, text, field) else {
         return warning;
     };
-    let units: Vec<u16> = text.encode_utf16().collect();
-    let (from, to) = (range.start.to_offset(text), range.end.to_offset(text));
-    let written = String::from_utf16_lossy(&units[from.min(units.len())..to.min(units.len())]);
-    let byte_from = String::from_utf16_lossy(&units[..from.min(units.len())]).len();
-    let at = byte_from + written.find(token).unwrap_or(0);
-    let line_start = text[..at].rfind('\n').map_or(0, |found| found + 1);
-    let column = text[line_start..at].chars().count() + 1;
+    let range = LineIndex::new(text).range(range);
+    let found = slice::slice(text, range)
+        .and_then(|written| written.find(token))
+        .unwrap_or(0);
+    let head = slice::before(text, range.start() + text_size(found)).unwrap_or_default();
+    let line_start = head.rfind('\n').map_or(0, |found| found + 1);
+    let column = head.get(line_start..).unwrap_or_default().chars().count() + 1;
     Diagnostic {
-        line: Some(text[..at].matches('\n').count() + 1),
+        line: Some(head.matches('\n').count() + 1),
         column: Some(column),
         end_column: Some(column + token.chars().count()),
         ..warning

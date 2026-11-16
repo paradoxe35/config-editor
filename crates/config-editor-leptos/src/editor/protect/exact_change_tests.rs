@@ -5,6 +5,8 @@
 //! same text again, an edit undone by the next) is not reported as a new
 //! one. In every language, for two unrelated placeholder patterns.
 
+#![allow(clippy::string_slice, reason = "the tests cut their own texts")]
+
 use leptos::prelude::*;
 
 use super::super::Language;

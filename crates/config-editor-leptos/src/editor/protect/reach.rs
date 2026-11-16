@@ -7,39 +7,41 @@
 //! a lock costs a keystroke away from it nothing.
 
 use std::collections::HashSet;
-use std::ops::Range;
 
 use super::super::language::ConfigLanguage;
 use super::super::parse_cache::{line_path, tell_line_path};
-use super::super::paths::path_at;
-use super::super::text_change::{changed_bytes, utf16_len};
+use super::super::paths::{api_units, path_at};
+use super::super::text::{TextRange, TextSize, slice, text_size};
+use super::super::text_change::changed_bytes;
 use super::locate::within;
 use super::locks::{Lock, Protected};
 
 /// How the offsets of the text before an edit out of reach move: those
-/// from `from` on (UTF-16) by `by`.
+/// from `from` on by `inserted - removed`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct Shift {
-    from: usize,
-    by: isize,
+    from: TextSize,
+    inserted: TextSize,
+    removed: TextSize,
 }
 
 impl Shift {
     /// `range`, where it is after the edit.
-    pub(super) fn moved_range(&self, range: &Range<usize>) -> Range<usize> {
-        let at = |offset: usize| {
+    pub(super) fn moved_range(&self, range: &TextRange) -> TextRange {
+        // At or past `from`, an offset is past the text the edit removed.
+        let at = |offset: TextSize| {
             if offset >= self.from {
-                offset.saturating_add_signed(self.by)
+                offset + self.inserted - self.removed
             } else {
                 offset
             }
         };
-        at(range.start)..at(range.end)
+        TextRange::new(at(range.start()), at(range.end()))
     }
 
     /// `lock`, where it is after the edit.
     pub(super) fn moved(&self, lock: &Lock) -> Lock {
-        let range = |range: &Range<usize>| self.moved_range(range);
+        let range = |range: &TextRange| self.moved_range(range);
         Lock {
             pointer: lock.pointer.clone(),
             key: lock.key.as_ref().map(range),
@@ -75,16 +77,17 @@ pub(super) fn reaches_none(
     before: &str,
     after: &str,
 ) -> Option<Shift> {
-    let on_lines = |lines: &Range<usize>| {
-        let touches = |range: &Range<usize>| range.start <= lines.end && range.end >= lines.start;
+    let on_lines = |lines: &TextRange| {
+        let touches =
+            |range: &TextRange| range.start() <= lines.end() && range.end() >= lines.start();
         locks.iter().any(|lock| {
             let hull = lock
                 .ranges
                 .iter()
-                .map(|range| range.start)
+                .map(|range| range.start())
                 .min()
-                .zip(lock.ranges.iter().map(|range| range.end).max());
-            hull.is_some_and(|(low, high)| touches(&(low..high)))
+                .zip(lock.ranges.iter().map(|range| range.end()).max());
+            hull.is_some_and(|(low, high)| touches(&TextRange::new(low, high)))
                 || lock.key.as_ref().is_some_and(touches)
                 || lock.guards.iter().any(touches)
         })
@@ -94,43 +97,52 @@ pub(super) fn reaches_none(
 }
 
 /// [`reaches_none`] for what is held asked of `on_lines` (whether a held
-/// place is on the UTF-16 lines `first..last`, ends included) and `reads`
+/// place is on the lines `first..last`, ends included) and `reads`
 /// (whether a path is, holds or is inside a held field).
 pub(super) fn reaches_none_by(
     behavior: &dyn ConfigLanguage,
     before: &str,
     after: &str,
-    on_lines: impl Fn(&Range<usize>) -> bool,
+    on_lines: impl Fn(&TextRange) -> bool,
     reads: impl Fn(&str) -> bool,
 ) -> Option<Shift> {
     let (start, old_end, new_end) = changed_bytes(before, after);
-    let inserted = &after[start..new_end];
-    if !behavior.edits_one_scalar(before, start..old_end, inserted) {
+    let (start, old_end, new_end) = (text_size(start), text_size(old_end), text_size(new_end));
+    let inserted = slice::slice(after, TextRange::new(start, new_end))?;
+    let removed = TextRange::new(start, old_end);
+    if !behavior.edits_one_scalar(before, removed.into(), inserted) {
         return None;
     }
-    let line_start = before[..start].rfind('\n').map_or(0, |at| at + 1);
-    let line_end = before[old_end..]
+    let line_start = slice::before(before, start)?
+        .rfind('\n')
+        .map_or(TextSize::default(), |at| text_size(at + 1));
+    let line_end = slice::after(before, old_end)?
         .find('\n')
-        .map_or(before.len(), |at| old_end + at);
-    let first = utf16_len(&before[..line_start]);
-    let last = first + utf16_len(&before[line_start..line_end]);
-    if on_lines(&(first..last)) {
+        .map_or(TextSize::of(before), |at| old_end + text_size(at));
+    let lines = TextRange::new(line_start, line_end);
+    if on_lines(&lines) {
         return None;
     }
-    let line = &before[line_start..line_end];
-    let code = first + utf16_len(&line[..line.len() - line.trim_start().len()]);
-    let read = || path_at(behavior, before, code).map(|path| path.to_pointer());
-    let path = line_path(behavior, before, first, read)?;
+    let line = slice::slice(before, lines)?;
+    let code = line_start + TextSize::of(line) - TextSize::of(line.trim_start());
+    // The public language API takes UTF-16 carets.
+    let read = || {
+        path_at(behavior, before, api_units(before, usize::from(code)))
+            .map(|path| path.to_pointer())
+    };
+    let path = line_path(behavior, before, line_start, read)?;
     if reads(&path) {
         return None;
     }
     // The line after the edit writes the same path: the next key typed on
     // it asks for it there.
-    tell_line_path(behavior, after, first, Some(path));
-    let by = utf16_len(inserted) as isize - utf16_len(&before[start..old_end]) as isize;
-    Some(Shift { from: last, by })
+    tell_line_path(behavior, after, line_start, Some(path));
+    Some(Shift {
+        from: line_end,
+        inserted: TextSize::of(inserted),
+        removed: removed.len(),
+    })
 }
-
 /// Whether `path` (the edited line's) is, holds or is inside a locked field:
 /// where a lock is written and what the text reads on the line are found
 /// apart, and a text that fools one (an HCL string over lines holding

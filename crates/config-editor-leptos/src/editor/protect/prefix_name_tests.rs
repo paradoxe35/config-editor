@@ -8,6 +8,8 @@
 //! in XML (elements and attributes) and TOML (tables), with YAML, JSON
 //! and HCL as controls.
 
+#![allow(clippy::string_slice, reason = "the tests cut their own texts")]
+
 use leptos::prelude::*;
 
 use super::super::Language;

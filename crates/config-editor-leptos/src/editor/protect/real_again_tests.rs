@@ -14,6 +14,8 @@
 //! Never does the host hear its field holding the token with anything
 //! beside it.
 
+#![allow(clippy::string_slice, reason = "the tests cut their own texts")]
+
 use leptos::prelude::*;
 use serde_json::Value;
 

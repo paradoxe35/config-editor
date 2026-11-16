@@ -8,6 +8,8 @@
 //! token the host wrote with other text beside it stays the host's to
 //! embed.
 
+#![allow(clippy::string_slice, reason = "the tests cut their own texts")]
+
 use leptos::prelude::*;
 
 use super::super::Language;

@@ -3,12 +3,13 @@
 //! language, and the save check, plus a property test that random edits in
 //! every language pair never change a read-only value.
 
+#![allow(clippy::string_slice, reason = "the tests cut their own texts")]
 #![allow(
     clippy::single_range_in_vec_init,
     reason = "a lock range is a range, not a list of numbers"
 )]
 
-use std::ops::Range;
+use super::super::text::{TextRange, byte_range};
 
 use serde_json::{Value, json};
 
@@ -65,7 +66,7 @@ fn locks_of(
     language: Language,
     text: &str,
     paths: &[FieldPath],
-    ranges: &[Range<usize>],
+    ranges: &[TextRange],
 ) -> Protected {
     let schema = schema();
     protect(
@@ -99,8 +100,8 @@ fn locks_after(language: Language, text: &str, previous: &Protected) -> Protecte
     )
 }
 
-fn covered(text: &str, range: &Range<usize>) -> String {
-    String::from_utf16_lossy(&text.encode_utf16().collect::<Vec<_>>()[range.clone()])
+fn covered(text: &str, range: &TextRange) -> String {
+    text[*range].to_string()
 }
 
 fn allowed(language: Language, before: &str, after: &str, protected: &Protected) -> bool {
@@ -325,7 +326,7 @@ fn host_paths_and_ranges_lock_too() {
             language.behavior(),
             text,
             Sources {
-                ranges: &[start..start + 1],
+                ranges: &[byte_range(start..start + 1)],
                 ..Sources::default()
             },
         );
@@ -342,7 +343,7 @@ fn host_paths_and_ranges_lock_too() {
             language.behavior(),
             text,
             Sources {
-                ranges: &[0..line_end],
+                ranges: &[byte_range(0..line_end)],
                 ..Sources::default()
             },
         );
@@ -451,7 +452,7 @@ fn whitespace_and_comments_around_a_locked_value_stay_free() {
             language.behavior(),
             text,
             Sources {
-                ranges: &[start..start + 3],
+                ranges: &[byte_range(start..start + 3)],
                 ..Sources::default()
             },
         );
@@ -545,7 +546,7 @@ fn a_save_changing_a_read_only_value_is_refused_in_every_language() {
             behavior,
             text,
             Sources {
-                ranges: &[start..start + 2],
+                ranges: &[byte_range(start..start + 2)],
                 ..Sources::default()
             },
         );
@@ -578,7 +579,7 @@ impl Random {
     }
 
     pub(super) fn below(&mut self, bound: usize) -> usize {
-        (self.next() % bound.max(1) as u64) as usize
+        usize::try_from(self.next() % bound.max(1) as u64).expect("below a usize bound")
     }
 }
 

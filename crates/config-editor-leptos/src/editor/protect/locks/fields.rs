@@ -2,8 +2,8 @@
 //! (in the parsed text, carried from the text before, or read from a text
 //! that does not parse), the host's read-only paths, and the secret fields.
 
+use super::super::super::text::TextRange;
 use std::collections::{HashMap, HashSet};
-use std::ops::Range;
 
 use serde_json::Value;
 
@@ -46,10 +46,10 @@ pub(super) fn marked(
 /// host gave so, read off its stand-in (the same places, its breaking
 /// lines blanked), with the values there to pin.
 pub(super) fn covered(reading: &Reading<'_>, ranges: &[Lock]) -> Covered {
-    let stretches: Vec<Range<usize>> = ranges
+    let stretches: Vec<TextRange> = ranges
         .iter()
         .filter(|lock| lock.pointer.is_none())
-        .flat_map(|lock| lock.ranges.iter().cloned())
+        .flat_map(|lock| lock.ranges.iter().copied())
         .collect();
     if stretches.is_empty() {
         return Covered::default();
@@ -203,8 +203,8 @@ fn outer_only(behavior: &dyn ConfigLanguage, fields: &[(String, Reason)]) -> Vec
                 .is_some_and(|spellings| spellings.contains(&above))
         };
         let mut end = form.len();
-        while let Some(cut) = form[..end].rfind('/') {
-            if cut > 0 && holds(&form[..cut]) {
+        while let Some(cut) = form.get(..end).unwrap_or_default().rfind('/') {
+            if cut > 0 && holds(form.get(..cut).unwrap_or_default()) {
                 return true;
             }
             end = cut;

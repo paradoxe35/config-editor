@@ -12,7 +12,7 @@ use super::paths::{FieldPath, KeptSpans, path_at};
 use super::positioning::{reveal_offset, set_caret_visible};
 use super::readings::Readings;
 use super::state::EditorState;
-#[cfg(any(test, feature = "protect"))]
+#[cfg(test)]
 use super::text::byte_of;
 use super::text::{TextSize, slice, text_size};
 
@@ -136,14 +136,6 @@ impl EditorState {
     pub(super) fn set_caret_units(&self, offset: usize) {
         let offset = self.doc().text.with_untracked(|text| byte_of(text, offset));
         self.doc().caret.set(offset);
-    }
-
-    /// [`Self::note_caret`] at UTF-16 `offset` of the text, for the code
-    /// that still counts in UTF-16 units (see `state::textarea_units`).
-    #[cfg(feature = "protect")]
-    pub(super) fn note_caret_units(&self, offset: usize) {
-        let offset = self.doc().text.with_untracked(|text| byte_of(text, offset));
-        self.note_caret(offset);
     }
 
     /// Focuses the editor with the caret at `line`:`column`, scrolled into

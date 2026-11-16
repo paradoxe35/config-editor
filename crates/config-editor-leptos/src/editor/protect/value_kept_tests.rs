@@ -18,6 +18,8 @@
 //! placeholder, or text typed beside it while the text did not parse, gave
 //! the host `«secret 3f2a»\nb: y\n` or `«secret 3f2a»MYPASS`.
 
+#![allow(clippy::string_slice, reason = "the tests cut their own texts")]
+
 use leptos::prelude::*;
 use serde_json::Value;
 

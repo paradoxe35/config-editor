@@ -21,14 +21,12 @@ fn covered(language: Language, blocks: usize) -> (Vec<String>, usize) {
     let text = text(language, blocks);
     let behavior = language.behavior();
     let document = codec::read(behavior, &text, None).expect("parses");
-    let ranges: Vec<std::ops::Range<usize>> = [1, 3]
+    let ranges: Vec<super::super::text::TextRange> = [1, 3]
         .iter()
         .map(|index| {
             let host = format!("h{index}.example.com");
-            let at = text[..text.find(&host).expect("written")]
-                .encode_utf16()
-                .count();
-            at + 1..at + 2
+            let at = super::super::text::text_size(text.find(&host).expect("written"));
+            super::super::text::TextRange::at(at + super::super::text::TextSize::from(1), 1.into())
         })
         .collect();
     counted(Work::DocumentRead, || {

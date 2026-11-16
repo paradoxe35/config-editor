@@ -9,6 +9,8 @@
 //! copy, and, where text was written beside a copy before (the host's
 //! text), taking it out, renaming or deleting the other.
 
+#![allow(clippy::string_slice, reason = "the tests cut their own texts")]
+
 use leptos::prelude::*;
 
 use super::super::Language;

@@ -31,12 +31,13 @@ fn a_paste_inside_a_placeholder_is_refused_after_its_key_was_split() {
     let inside = shown.rfind(TOKEN).expect("the field's placeholder") + "«s".len();
     paste(state, inside..inside, TOKEN);
     assert_eq!(state.doc().text.get_untracked(), shown);
-    let start = shown[..shown.rfind(TOKEN).expect("the placeholder")]
-        .encode_utf16()
-        .count();
+    let start = shown.rfind(TOKEN).expect("the placeholder");
     assert_eq!(
         state.protect().secrets.tokens.get_untracked(),
-        vec![start..start + TOKEN.encode_utf16().count()],
+        vec![super::super::text::TextRange::at(
+            super::super::text::text_size(start),
+            super::super::text::TextSize::of(TOKEN)
+        )],
         "the field's placeholder stays one"
     );
 }

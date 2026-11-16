@@ -13,14 +13,14 @@
 //! - A field the language cannot locate (no spans) is kept unplaced, by
 //!   its value: a text reading it otherwise holds it.
 
-use std::ops::Range;
+use super::super::super::text::{TextRange, TextSize, slice};
 
 use serde_json::Value;
 
 use super::super::super::codec;
 use super::super::super::paths::{inside, key_range};
 use super::super::carry::Moves;
-use super::super::locate::{Extent, LineIndex, extent, lookup, values_under};
+use super::super::locate::{Extent, extent, lookup, values_under};
 use super::super::scan;
 use super::super::texts::Reason;
 use super::holds::{EditMade, HoldCause, Holds};
@@ -180,17 +180,15 @@ impl<'r, 'a> Placer<'r, 'a> {
             ..
         } = self.reading;
         let comments = behavior.comments(text);
-        let in_comment = |offset: usize| {
-            let byte = lines.byte_of(offset);
+        let in_comment = |offset: TextSize| {
+            let byte = usize::from(offset);
             comments
                 .iter()
                 .any(|range| range.start <= byte && byte < range.end)
         };
         let pieces = moves.pieces();
-        let before_lines = LineIndex::new(&before.text);
         let made = EditMade {
             before,
-            lines: &before_lines,
             behavior: *behavior,
             after: text,
             after_lines: lines,
@@ -207,7 +205,10 @@ impl<'r, 'a> Placer<'r, 'a> {
                     // edit's place says no more.
                     let now = || {
                         let ranges = self.located(&pointer)?.ranges;
-                        Some(ranges.first()?.start..ranges.last()?.end)
+                        Some(TextRange::new(
+                            ranges.first()?.start(),
+                            ranges.last()?.end(),
+                        ))
                     };
                     made.cause(&pointer, self.moved(&pointer).as_ref(), gone, &now)
                 });
@@ -277,11 +278,10 @@ impl<'r, 'a> Placer<'r, 'a> {
     /// parse.
     fn read_within_span(&self, pointer: &str) -> Option<Value> {
         let lock = self.moved(pointer)?;
-        let end = lock.ranges.iter().map(|range| range.end).max()?;
+        let end = lock.ranges.iter().map(|range| range.end()).max()?;
         let Reading {
             behavior,
             text,
-            lines,
             sources,
             ..
         } = self.reading;
@@ -290,13 +290,20 @@ impl<'r, 'a> Placer<'r, 'a> {
             .located(pointer)?
             .ranges
             .iter()
-            .map(|range| range.end)
+            .map(|range| range.end())
             .max()?;
-        let past = lines.byte_of(end)..lines.byte_of(field);
-        if past.is_empty() || text[past.clone()].trim().is_empty() {
+        if field <= end {
             return None;
         }
-        let cut = format!("{}{}", &text[..past.start], &text[past.end..]);
+        let past = TextRange::new(end, field);
+        if slice::slice(text, past)?.trim().is_empty() {
+            return None;
+        }
+        let cut = format!(
+            "{}{}",
+            slice::before(text, past.start())?,
+            slice::after(text, past.end())?
+        );
         let document = codec::read(*behavior, &cut, sources.reading_schema).ok()?;
         lookup(&document, pointer).cloned()
     }
@@ -372,7 +379,7 @@ impl<'r, 'a> Placer<'r, 'a> {
                             range
                                 .ranges
                                 .iter()
-                                .any(|host| host.start <= stretch.start && stretch.end <= host.end)
+                                .any(|host| host.contains_range(*stretch))
                         })
                 })
             })
@@ -383,7 +390,7 @@ impl<'r, 'a> Placer<'r, 'a> {
         // lines (a copy of the line: the range may follow one copy, the
         // lock another, and the parse read a third).
         let lengths = |locks: &[Lock]| {
-            let mut lengths: Vec<usize> = locks
+            let mut lengths: Vec<TextSize> = locks
                 .iter()
                 .filter(|lock| lock.pointer.is_none())
                 .flat_map(|lock| lock.ranges.iter().map(|range| range.len()))
@@ -602,11 +609,11 @@ impl<'r, 'a> Placer<'r, 'a> {
     }
 
     /// The text of `ranges`, whitespace left out.
-    fn written(&self, ranges: &[Range<usize>]) -> String {
-        let Reading { text, lines, .. } = self.reading;
+    fn written(&self, ranges: &[TextRange]) -> String {
+        let text = self.reading.text;
         ranges
             .iter()
-            .flat_map(|range| text[lines.byte_of(range.start)..lines.byte_of(range.end)].chars())
+            .flat_map(|range| slice::slice(text, *range).unwrap_or_default().chars())
             .filter(|character| !character.is_whitespace())
             .collect()
     }
@@ -674,25 +681,21 @@ impl<'r, 'a> Placer<'r, 'a> {
         let span = moved
             .ranges
             .first()
-            .map(|first| first.start)
-            .zip(moved.ranges.last().map(|last| last.end));
+            .map(|first| first.start())
+            .zip(moved.ranges.last().map(|last| last.end()));
         let (Some(_), Some((start, end))) = (document, span) else {
             return moved;
         };
-        let (old, new): (Vec<u16>, Vec<u16>) = (
-            before.encode_utf16().collect(),
-            text.encode_utf16().collect(),
-        );
         let mut keys = Vec::new();
         for ((key, at), lost) in self.holders(pointer).zip(&was.guards) {
             let holds = extent(*behavior, text, lines, at).is_some_and(|field| {
                 field
                     .ranges
                     .first()
-                    .is_some_and(|first| first.start <= start)
-                    && field.ranges.last().is_some_and(|last| end <= last.end)
+                    .is_some_and(|first| first.start() <= start)
+                    && field.ranges.last().is_some_and(|last| end <= last.end())
             });
-            if !holds || old.get(lost.clone()) != new.get(key.clone()) {
+            if !holds || slice::slice(before, *lost) != slice::slice(text, key) {
                 return moved;
             }
             keys.push(key);
@@ -830,13 +833,13 @@ impl<'r, 'a> Placer<'r, 'a> {
     }
 
     /// The keys of the fields holding `pointer`.
-    fn ancestor_keys(&self, pointer: &str) -> Vec<Range<usize>> {
+    fn ancestor_keys(&self, pointer: &str) -> Vec<TextRange> {
         self.holders(pointer).map(|(key, _)| key).collect()
     }
 
     /// The fields holding `pointer`, innermost first: each one's key and
     /// path.
-    fn holders<'p>(&self, pointer: &'p str) -> impl Iterator<Item = (Range<usize>, &'p str)> {
+    fn holders<'p>(&self, pointer: &'p str) -> impl Iterator<Item = (TextRange, &'p str)> {
         let Reading {
             behavior,
             text,
@@ -846,7 +849,7 @@ impl<'r, 'a> Placer<'r, 'a> {
         let mut at = pointer;
         std::iter::from_fn(move || {
             loop {
-                at = &at[..at.rfind('/')?];
+                at = at.get(..at.rfind('/')?).unwrap_or_default();
                 if at.is_empty() {
                     return None;
                 }
@@ -898,7 +901,6 @@ fn items_read_fewer(before: &Protected, document: &Value) -> Vec<(String, Value)
     let Some(earlier) = before.document.as_deref() else {
         return Vec::new();
     };
-    let units: Vec<u16> = before.text.encode_utf16().collect();
     let mut found: Vec<(String, Value)> = Vec::new();
     for lock in &before.locks {
         let Some(pointer) = lock
@@ -918,7 +920,7 @@ fn items_read_fewer(before: &Protected, document: &Value) -> Vec<(String, Value)
         let written: String = lock
             .ranges
             .iter()
-            .map(|range| String::from_utf16_lossy(units.get(range.clone()).unwrap_or_default()))
+            .map(|range| slice::slice(&before.text, *range).unwrap_or_default())
             .collect();
         let mut values = Vec::new();
         values_under(earlier, &keys, &mut values);

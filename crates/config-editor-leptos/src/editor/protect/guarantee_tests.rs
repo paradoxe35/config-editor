@@ -8,6 +8,8 @@
 //! a comment. Nothing in the editor may assume a token's format: the two
 //! patterns share nothing.
 
+#![allow(clippy::string_slice, reason = "the tests cut their own texts")]
+
 use leptos::prelude::*;
 
 use super::super::Language;
@@ -131,14 +133,10 @@ pub(crate) fn replace(state: EditorState, range: std::ops::Range<usize>, with: &
 /// The real placeholders on screen, each with the byte it starts at.
 pub(crate) fn real(state: EditorState) -> Vec<(usize, String)> {
     let text = state.doc().text.get_untracked();
-    let units: Vec<u16> = text.encode_utf16().collect();
     state.protect().secrets.tokens.with_untracked(|tokens| {
         tokens
             .iter()
-            .map(|token| {
-                let start = String::from_utf16_lossy(&units[..token.start]).len();
-                (start, String::from_utf16_lossy(&units[token.clone()]))
-            })
+            .map(|token| (usize::from(token.start()), text[*token].to_string()))
             .collect()
     })
 }

@@ -2,18 +2,17 @@
 //! (kept by a memo), the check every edit passes, and the tooltip saying
 //! why one was refused.
 
-use std::ops::Range;
 use std::sync::Arc;
 
 use leptos::prelude::*;
 
 use super::super::codec;
-use super::super::edit::{Assoc, Change, CodeUnits, Edit, Origin};
+use super::super::edit::{Assoc, Change, Edit, Origin};
 use super::super::edit_as::SaveError;
 use super::super::language::ConfigLanguage;
 use super::super::languages::Language;
 use super::super::parse_cache;
-use super::super::paths::{FieldPath, TextRange};
+use super::super::paths::{self, FieldPath};
 use super::super::popups::PopupState;
 use super::super::schema::SchemaBundle;
 use super::super::secret_options::SecretOptions;
@@ -31,12 +30,12 @@ use super::secrets::SecretState;
 use super::texts::{Reason, save_held, save_held_placeholder, save_waits};
 use super::whole_guard::Placeholders;
 use crate::EditorStrings;
-use crate::editor::text::{self, TextSize, Utf16, byte_of, utf16_of};
+use crate::editor::text::{self, TextRange, TextSize, utf16_of};
 
 /// The host's side of protection (the component's props, when given).
 pub(crate) struct ProtectInit {
     pub(crate) paths: Option<Signal<Vec<FieldPath>>>,
-    pub(crate) ranges: Option<Signal<Vec<TextRange>>>,
+    pub(crate) ranges: Option<Signal<Vec<paths::TextRange>>>,
     pub(crate) secrets: Option<SecretOptions>,
     /// The placeholders of the other editors of a documents view (see
     /// `foreign`).
@@ -49,7 +48,7 @@ pub(crate) struct Marks {
     /// Counts the texts the host gave (see [`ProtectState::trust_text`]).
     epoch: u64,
     /// The placeholder a mouse press landed inside, until it is released.
-    pub(crate) pressed: Option<Range<usize>>,
+    pub(crate) pressed: Option<TextRange>,
     /// The last change event was held back (see
     /// [`EditorState::note_held_back`]): new locks from the host that release
     /// it send the text on screen then.
@@ -82,16 +81,16 @@ struct SinceHost {
 }
 
 /// An edit the locks follow: the text it was made on and the text it made,
-/// the caret it left there (UTF-16; none for an undo or redo) and what it
-/// recorded it did (`Edit::change`, in UTF-16). It moves only the locks of
+/// the caret it left there (none for an undo or redo) and what it
+/// recorded it did (`Edit::change`). It moves only the locks of
 /// its text before into its text after: locks found again on the text
 /// after (new paths or ranges from the host) are already where they are.
 #[derive(Clone)]
 struct Followed {
     before: Arc<str>,
     after: Arc<str>,
-    caret: Option<usize>,
-    change: Option<Arc<Change<CodeUnits>>>,
+    caret: Option<TextSize>,
+    change: Option<Arc<Change>>,
 }
 
 impl Followed {
@@ -105,11 +104,11 @@ impl Followed {
 #[derive(Clone, Copy)]
 pub(crate) struct ProtectState {
     pub(crate) host_paths: Signal<Vec<FieldPath>>,
-    pub(crate) host_ranges: Signal<Vec<TextRange>>,
-    /// The host's ranges as UTF-16 offsets of the text on screen, followed
+    pub(crate) host_ranges: Signal<Vec<paths::TextRange>>,
+    /// The host's ranges as ranges of the text on screen, followed
     /// through edits; empty while editing as another language (there the
     /// fields they cover are locked by path).
-    pub(crate) ranges: RwSignal<Vec<Range<usize>>>,
+    pub(crate) ranges: RwSignal<Vec<TextRange>>,
     /// The host's ranges in its own text while editing as another
     /// language, followed through each conversion back.
     in_host: HostRanges,
@@ -122,7 +121,7 @@ pub(crate) struct ProtectState {
     /// The host's ranges `ranges` was first placed from, until the effect
     /// placing them again first runs: ranges the host changed before then
     /// (an update in the task that mounts the editor) are placed then.
-    placed_at_mount: StoredValue<Option<Vec<TextRange>>>,
+    placed_at_mount: StoredValue<Option<Vec<paths::TextRange>>>,
     /// The locks of the text on screen.
     pub(crate) protected: Memo<Arc<Protected>>,
     /// The popups, where the lock tip shows.
@@ -345,7 +344,8 @@ impl ProtectState {
                     .into_iter()
                     .filter(|range| {
                         known.iter().any(|known| {
-                            known.whole.is_some() && known.token == text[range.clone()]
+                            known.whole.is_some()
+                                && known.token == text.get(range.clone()).unwrap_or_default()
                         })
                     })
                     .count()
@@ -389,9 +389,9 @@ impl ProtectState {
 #[derive(Clone, Copy)]
 struct Covered(StoredValue<Option<CoveredFields>>);
 
-/// A host text, its read-only ranges (UTF-16 offsets) and the fields they
+/// A host text, its read-only ranges and the fields they
 /// cover.
-type CoveredFields = (String, Vec<Range<usize>>, Vec<FieldPath>);
+type CoveredFields = (String, Vec<TextRange>, Vec<FieldPath>);
 
 impl Covered {
     /// [`covered_fields`], from the last ones found when they were of the
@@ -400,7 +400,7 @@ impl Covered {
         self,
         language: Language,
         host: &str,
-        ranges: &[Range<usize>],
+        ranges: &[TextRange],
         reading: Option<&serde_json::Value>,
     ) -> Vec<FieldPath> {
         let kept = self.0.with_value(|kept| {
@@ -420,28 +420,29 @@ impl Covered {
 /// Whether a locked field's own key is written at the start of another
 /// line too, after its indent (a second `limits:` or `id =`).
 fn locked_key_again(protected: &Protected) -> bool {
-    let units: Vec<u16> = protected.text.encode_utf16().collect();
     let starts: Vec<&str> = protected.text.lines().map(str::trim_start).collect();
     protected.locks.iter().any(|lock| {
-        let Some(key) = lock.key.as_ref().filter(|key| key.end <= units.len()) else {
+        let Some(key) = lock
+            .key
+            .and_then(|key| text::slice::slice(&protected.text, key))
+        else {
             return false;
         };
-        let key = String::from_utf16_lossy(&units[key.clone()]);
         let written = |line: &&str| {
-            line.strip_prefix(key.as_str())
+            line.strip_prefix(key)
                 .is_some_and(|rest| !rest.starts_with(|c: char| c.is_alphanumeric() || c == '_'))
         };
         !key.trim().is_empty() && starts.iter().filter(|line| written(line)).count() > 1
     })
 }
 
-/// The fields the host's `ranges` (UTF-16 offsets) cover in its own `host`
+/// The fields the host's `ranges` cover in its own `host`
 /// text, written in `language` (none when it does not parse): what they
 /// lock while editing as another language.
 fn covered_fields(
     language: Language,
     host: &str,
-    ranges: &[Range<usize>],
+    ranges: &[TextRange],
     reading: Option<&serde_json::Value>,
 ) -> Vec<FieldPath> {
     let behavior = language.behavior();
@@ -454,37 +455,35 @@ fn covered_fields(
         .collect()
 }
 
-/// The host's ranges (UTF-16 offsets of its text `old`) keep their text in
+/// The host's ranges (of its text `old`) keep their text in
 /// its next text `new`: an Edit-as view locks the fields a range covers by
 /// their values, and has nothing to lock of the range's other text (a
 /// comment, the line break before a key), so the save back holds the
 /// range's text as written (at least as often as before; a range of only
 /// whitespace, which formatting writes everywhere, at least once).
-fn text_ranges_kept(old: &str, new: &str, ranges: &[Range<usize>]) -> Result<(), ReadOnlyChange> {
+fn text_ranges_kept(old: &str, new: &str, ranges: &[TextRange]) -> Result<(), ReadOnlyChange> {
     if ranges.is_empty() {
         return Ok(());
     }
     // Most ranges keep their text where the conversion kept their lines;
     // only the others are looked for.
     let moves = Moves::new(old, new);
-    let (units, new_units): (Vec<u16>, Vec<u16>) =
-        (old.encode_utf16().collect(), new.encode_utf16().collect());
     for range in ranges {
-        let kept = moves
-            .range(range)
-            .is_some_and(|to| new_units.get(to) == units.get(range.clone()));
-        let Some(text) = units.get(range.clone()).map(String::from_utf16_lossy) else {
+        let Some(text) = text::slice::slice(old, *range) else {
             continue;
         };
+        let kept = moves
+            .range(range)
+            .is_some_and(|to| text::slice::slice(new, to) == Some(text));
         if kept || text.is_empty() {
             continue;
         }
         let wanted = if text.trim().is_empty() {
             1
         } else {
-            old.matches(&text).count()
+            old.matches(text).count()
         };
-        if new.matches(&text).count() < wanted {
+        if new.matches(text).count() < wanted {
             return Err(ReadOnlyChange {
                 pointer: String::new(),
             });
@@ -493,7 +492,7 @@ fn text_ranges_kept(old: &str, new: &str, ranges: &[Range<usize>]) -> Result<(),
     Ok(())
 }
 
-/// The host's `given` ranges (UTF-16 of `host`) as `placed` in `text`
+/// The host's `given` ranges (of `host`) as `placed` in `text`
 /// (in the same order). One whose text `text` does not hold there takes
 /// its place in `others` (the same ranges placed another way, made only
 /// then) when that holds it; else it is made empty where it starts: an
@@ -503,19 +502,18 @@ fn text_ranges_kept(old: &str, new: &str, ranges: &[Range<usize>]) -> Result<(),
 /// it again (see `follow_edit`).
 fn keeping_their_text(
     host: &str,
-    given: &[Range<usize>],
+    given: &[TextRange],
     text: &str,
-    mut placed: Vec<Range<usize>>,
-    others: impl FnOnce() -> Vec<Range<usize>>,
-) -> (Vec<Range<usize>>, Option<(String, usize)>) {
-    fn slice<'t>(of: &'t str, range: &Range<usize>) -> Option<&'t str> {
-        let (start, end) = (byte_of(of, range.start), byte_of(of, range.end));
-        (start <= end)
-            .then(|| text::slice::slice(of, text::TextRange::new(start, end)))
-            .flatten()
+    mut placed: Vec<TextRange>,
+    others: impl FnOnce() -> Vec<TextRange>,
+) -> (Vec<TextRange>, Option<(String, usize)>) {
+    // A range past the text's end holds what the text has of it.
+    fn slice<'t>(of: &'t str, range: &TextRange) -> Option<&'t str> {
+        let end = range.end().min(TextSize::of(of));
+        text::slice::slice(of, TextRange::new(range.start().min(end), end))
     }
     let mut others = Some(others);
-    let mut other: Vec<Range<usize>> = Vec::new();
+    let mut other: Vec<TextRange> = Vec::new();
     let mut changed = None;
     for (index, (given, placed)) in given.iter().zip(placed.iter_mut()).enumerate() {
         let Some(locked) = slice(host, given) else {
@@ -528,9 +526,9 @@ fn keeping_their_text(
             other = others();
         }
         match other.get(index) {
-            Some(found) if slice(text, found) == Some(locked) => *placed = found.clone(),
+            Some(found) if slice(text, found) == Some(locked) => *placed = *found,
             _ => {
-                *placed = placed.start..placed.start;
+                *placed = TextRange::empty(placed.start());
                 changed.get_or_insert_with(|| (locked.to_string(), index));
             }
         }
@@ -550,11 +548,6 @@ pub(super) fn range_changed_message(strings: &EditorStrings, locked: &str) -> St
     )
 }
 
-/// What `edit` recorded it did, in UTF-16 code units of its text before.
-fn recorded(edit: &Edit) -> Option<Change<CodeUnits>> {
-    edit.change()?.in_utf16(&edit.before)
-}
-
 /// Whether the locks the guard found (`foreseen`) are those the memo would
 /// find for `text`: from the same locks before, paths and host ranges.
 fn foreseen_fits(
@@ -562,18 +555,18 @@ fn foreseen_fits(
     previous: Option<&Protected>,
     text: &str,
     paths: &[FieldPath],
-    ranges: &[Range<usize>],
+    ranges: &[TextRange],
 ) -> bool {
     let Some(previous) = previous else {
         return false;
     };
-    let placed: Vec<Range<usize>> = foreseen
+    let placed: Vec<TextRange> = foreseen
         .locks
         .iter()
         .filter(|lock| lock.pointer.is_none())
-        .flat_map(|lock| lock.ranges.iter().cloned())
+        .flat_map(|lock| lock.ranges.iter().copied())
         .collect();
-    let wanted: Vec<&Range<usize>> = ranges.iter().filter(|range| !range.is_empty()).collect();
+    let wanted: Vec<&TextRange> = ranges.iter().filter(|range| !range.is_empty()).collect();
     foreseen.text == text
         && foreseen.origin == previous.origin
         && foreseen.paths.len() == paths.len()
@@ -667,11 +660,10 @@ impl EditorState {
     /// The edit pipeline's check stage: whether `edit` keeps every lock;
     /// when not, why the field is locked.
     pub(crate) fn check_edit(&self, edit: &Edit) -> Result<(), String> {
-        let change = recorded(edit);
+        let change = edit.change();
         let carets = Carets {
-            // The spans are kept in UTF-16 units of the text on screen.
-            caret: Some(utf16_of(&edit.text, edit.caret())),
-            written: edit.written_end().map(|end| utf16_of(&edit.text, end)),
+            caret: Some(edit.caret()),
+            written: edit.written_end(),
             change: change.as_ref(),
         };
         let followed = self
@@ -794,16 +786,15 @@ impl EditorState {
     /// ranges, the secret placeholders).
     pub(crate) fn follow_edit(&self, edit: &Edit) {
         let (before, after) = (edit.before.as_str(), edit.text.as_str());
-        // The spans are kept in UTF-16 units of the text on screen.
-        let caret = utf16_of(after, edit.caret());
-        let change = recorded(edit).map(Arc::new);
+        let caret = edit.caret();
+        let change = edit.change().map(Arc::new);
         let (shared_before, shared_after) = (Arc::<str>::from(before), Arc::<str>::from(after));
         let since = self.since_host(edit, &shared_before, &shared_after);
         self.protect().marks.update_value(|marks| {
             marks.followed = Some(Followed {
                 before: shared_before,
                 after: shared_after,
-                caret: edit.written_end().map(|end| utf16_of(after, end)),
+                caret: edit.written_end(),
                 change: change.clone(),
             });
             marks.since_host = since;
@@ -909,7 +900,7 @@ impl EditorState {
         self.protect().ranges.set(placed);
     }
 
-    /// `ranges` (UTF-16 of `host`, the host's text) in `text`, mapped
+    /// `ranges` (of `host`, the host's text) in `text`, mapped
     /// through the record of the edits that made `text` of `host`; `None`
     /// when the record does not reach from one to the other. A range an
     /// edit wrote inside lands where its ends went (see
@@ -918,25 +909,23 @@ impl EditorState {
         &self,
         host: &str,
         text: &str,
-        ranges: &[Range<usize>],
-    ) -> Option<Vec<Range<usize>>> {
+        ranges: &[TextRange],
+    ) -> Option<Vec<TextRange>> {
         let since = self
             .protect()
             .marks
             .with_value(|marks| marks.since_host.clone())
             .filter(|since| *since.from == *host && *since.to == *text)?;
-        let change = since.change.in_utf16(host)?;
+        let change = &since.change;
         Some(
             ranges
                 .iter()
                 .map(|range| {
-                    let range = Utf16::count(range.start)..Utf16::count(range.end);
-                    let mapped = change.map_range(&range).unwrap_or_else(|| {
-                        let start = change.map_pos(range.start, Assoc::After).pos;
-                        let end = change.map_pos(range.end, Assoc::Before).pos;
-                        start..end.max(start)
-                    });
-                    usize::from(mapped.start)..usize::from(mapped.end)
+                    change.map_range(range).unwrap_or_else(|| {
+                        let start = change.map_pos(range.start(), Assoc::After).pos;
+                        let end = change.map_pos(range.end(), Assoc::Before).pos;
+                        TextRange::new(start, end.max(start))
+                    })
                 })
                 .collect(),
         )
@@ -1149,50 +1138,28 @@ impl EditorState {
     }
 
     /// Byte ranges of `text` (the text on screen) no replace may touch
-    /// (find and replace's Replace All). Each offset is read off the
-    /// text's lines, split once, never by a pass from the top (one per
-    /// lock and placeholder: quadratic with a lock on every line).
+    /// (find and replace's Replace All).
     #[cfg(feature = "search")]
-    pub(crate) fn protected_bytes(&self, text: &str) -> Vec<Range<usize>> {
-        let byte = |at: usize| super::super::keyboard::utf16_to_byte_index(text, at);
-        let behavior = self.behavior();
+    pub(crate) fn protected_bytes(&self, text: &str) -> Vec<std::ops::Range<usize>> {
         let tokens = self.solid_tokens(text);
-        super::super::paths::with_spans(behavior, text, &[], || {
-            self.protected_bytes_in(&byte, &tokens)
-        })
-    }
-
-    /// [`Self::protected_bytes`], with `byte` the byte at a UTF-16 offset and
-    /// `tokens` the placeholders no replace may cut.
-    #[cfg(feature = "search")]
-    fn protected_bytes_in(
-        &self,
-        byte: &dyn Fn(usize) -> usize,
-        tokens: &[Range<usize>],
-    ) -> Vec<Range<usize>> {
         self.protect().protected.with_untracked(|protected| {
             protected
                 .locks
                 .iter()
                 .flat_map(|lock| lock.ranges.iter().chain(&lock.guards))
-                .chain(tokens)
-                .map(|range| byte(range.start)..byte(range.end))
+                .chain(&tokens)
+                .map(|range| std::ops::Range::<usize>::from(*range))
                 .collect()
         })
     }
 
-    /// What the protected text at UTF-16 `offset` is, with its label: a
+    /// What the protected text at byte `offset` is, with its label: a
     /// secret placeholder's hint, or why a read-only field is read-only.
     /// With `ends`, an offset just at either end of it counts (the caret
     /// beside it).
     pub(crate) fn protected_note(&self, offset: TextSize, ends: bool) -> Option<(String, String)> {
-        // The protected spans are kept in UTF-16 units of the text on screen.
-        let offset = self
-            .doc()
-            .text
-            .with_untracked(|text| utf16_of(text, offset));
-        let covers = |range: &Range<usize>| {
-            range.start <= offset && (offset < range.end || (ends && offset == range.end))
+        let covers = |range: &TextRange| {
+            range.start() <= offset && (offset < range.end() || (ends && offset == range.end()))
         };
         let secrets = self.protect().secrets;
         if secrets
@@ -1235,8 +1202,9 @@ impl EditorState {
         }
         let found = self.doc().text.with_untracked(|text| {
             let offset = LineIndex::new(text).offset(line + 1, column + 1);
-            self.protected_note(byte_of(text, offset), false)
-                .map(|(_, message)| (message, offset))
+            // The tip is placed on screen, in UTF-16 units of the text.
+            self.protected_note(offset, false)
+                .map(|(_, message)| (message, utf16_of(text, offset)))
         });
         let Some((message, offset)) = found else {
             self.protect().hide_tip(true);

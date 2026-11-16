@@ -47,9 +47,11 @@ pub(super) use spans::named;
 
 use serde_json::Value;
 
-use super::super::edit::{Change, CodeUnits};
+use super::super::edit::Change;
 use super::super::language::ConfigLanguage;
 use super::super::paths::FieldPath;
+use super::super::text::{TextSize, text_size};
+use super::super::text_change::changed_bytes;
 use super::follow::follow_ranges;
 use super::locks::{Protected, Sources, protect};
 use super::reach::out_of_reach;
@@ -82,19 +84,19 @@ impl Blocked {
     }
 }
 
-/// Where the edit left its caret (UTF-16, in the text after), as the
+/// Where the edit left its caret (in the text after), as the
 /// followers take it.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct Carets<'a> {
     /// The caret the host's ranges follow by (`ProtectState::follow_edit`);
     /// unknown, where the edited region ends.
-    pub(crate) caret: Option<usize>,
+    pub(crate) caret: Option<TextSize>,
     /// Where the text the edit wrote ends, which the locks follow by
     /// (`Sources::caret`); `None` for an undo or redo.
-    pub(crate) written: Option<usize>,
-    /// What the edit recorded it did (`Edit::change`, in UTF-16), when it
+    pub(crate) written: Option<TextSize>,
+    /// What the edit recorded it did (`Edit::change`), when it
     /// did: both followers move the spans through it.
-    pub(crate) change: Option<&'a Change<CodeUnits>>,
+    pub(crate) change: Option<&'a Change>,
 }
 
 /// Checks the edit turning `before` (whose locks are `protected`) into
@@ -111,14 +113,14 @@ pub(crate) fn check(
     check_at(behavior, reading_schema, protected, (before, after), None)
 }
 
-/// [`check`], the caret left at `caret` (UTF-16) when known.
+/// [`check`], the caret left at `caret` when known.
 #[cfg(test)]
 pub(crate) fn check_at(
     behavior: &dyn ConfigLanguage,
     reading_schema: Option<&Value>,
     protected: &Protected,
     texts: (&str, &str),
-    caret: Option<usize>,
+    caret: Option<TextSize>,
 ) -> Result<(), Blocked> {
     let carets = Carets {
         caret,
@@ -183,21 +185,11 @@ pub(crate) fn judge(
     Ok(Some(next))
 }
 
-/// Where the region the edit replaced ends in `after` (UTF-16), as narrow
-/// as the texts allow: the caret of an edit that does not say.
-fn edited_end(before: &str, after: &str) -> usize {
-    let old: Vec<u16> = before.encode_utf16().collect();
-    let new: Vec<u16> = after.encode_utf16().collect();
-    let prefix = old.iter().zip(&new).take_while(|(a, b)| a == b).count();
-    let suffix = old
-        .iter()
-        .rev()
-        .zip(new.iter().rev())
-        .take_while(|(a, b)| a == b)
-        .count()
-        .min(old.len() - prefix)
-        .min(new.len() - prefix);
-    new.len() - suffix
+/// Where the region the edit replaced ends in `after`, as narrow as the
+/// texts allow: the caret of an edit that does not say.
+fn edited_end(before: &str, after: &str) -> TextSize {
+    let (_, _, end) = changed_bytes(before, after);
+    text_size(end)
 }
 
 /// The edit refused for changing a lock held for `reason`.

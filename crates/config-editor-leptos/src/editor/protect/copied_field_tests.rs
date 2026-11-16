@@ -6,6 +6,8 @@
 //! read a list of copies as plain text and the secret would be gone
 //! (round 29 saved).
 
+#![allow(clippy::string_slice, reason = "the tests cut their own texts")]
+
 use leptos::prelude::*;
 
 use super::super::Language;

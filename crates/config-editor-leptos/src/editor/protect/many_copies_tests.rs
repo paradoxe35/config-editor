@@ -9,6 +9,8 @@
 //! as a copy, and a token two fields share as the secret of the one it
 //! left.
 
+#![allow(clippy::string_slice, reason = "the tests cut their own texts")]
+
 use leptos::prelude::*;
 
 use super::super::Language;

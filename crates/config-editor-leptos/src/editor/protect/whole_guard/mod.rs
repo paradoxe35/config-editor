@@ -41,6 +41,8 @@ pub(crate) use index::WholeIndex;
 
 use std::ops::Range;
 
+use super::super::text::TextRange;
+
 use serde_json::Value;
 
 use super::super::codec::scalar_range;
@@ -58,8 +60,8 @@ pub(crate) struct Placeholders<'a> {
     pub(crate) known: &'a [Known],
     /// `known`'s tokens given whole, looked up (built once for them).
     pub(crate) index: &'a WholeIndex,
-    /// UTF-16 ranges of the real placeholders in the text before, in order.
-    pub(crate) tokens: &'a [Range<usize>],
+    /// The ranges of the real placeholders in the text before, in order.
+    pub(crate) tokens: &'a [TextRange],
     /// The host's pattern, to find tokens near an edit that are in none of
     /// their fields (see `moved`).
     pub(crate) matcher: &'a SecretMatcher,
@@ -239,7 +241,7 @@ impl Placeholders<'_> {
         }
         let mut tokens: Vec<String> = near_after
             .iter()
-            .map(|(range, _)| after[range.clone()].to_string())
+            .map(|(range, _)| after.get(range.clone()).unwrap_or_default().to_string())
             .chain(
                 self.known
                     .iter()
@@ -257,7 +259,7 @@ impl Placeholders<'_> {
     fn written_extent(&self, text: &str, token: &Range<usize>) -> Option<Range<usize>> {
         let field = self
             .index
-            .first_of(&text[token.clone()])
+            .first_of(text.get(token.clone()).unwrap_or_default())
             .and_then(|at| self.known[at].field.as_deref())?;
         written_value_span(self.behavior, text, field)
             .and_then(|span| scalar_range(self.behavior, text, span))
@@ -314,7 +316,10 @@ fn slides(
     after: &str,
     (start, old_end, new_end): (usize, usize, usize),
 ) -> (usize, usize) {
-    let (inserted, removed) = (&after[start..new_end], &before[start..old_end]);
+    let (inserted, removed) = (
+        after.get(start..new_end).unwrap_or_default(),
+        before.get(start..old_end).unwrap_or_default(),
+    );
     let along = |run: &mut dyn Iterator<Item = (char, char)>| -> usize {
         run.take_while(|(beside, edited)| beside == edited)
             .map(|(beside, _)| beside.len_utf8())
@@ -323,9 +328,22 @@ fn slides(
     let slide = |edited: &str, left: bool| -> Option<usize> {
         (!edited.is_empty()).then(|| {
             if left {
-                along(&mut after[..start].chars().rev().zip(edited.chars().rev()))
+                along(
+                    &mut after
+                        .get(..start)
+                        .unwrap_or_default()
+                        .chars()
+                        .rev()
+                        .zip(edited.chars().rev()),
+                )
             } else {
-                along(&mut after[new_end..].chars().zip(edited.chars()))
+                along(
+                    &mut after
+                        .get(new_end..)
+                        .unwrap_or_default()
+                        .chars()
+                        .zip(edited.chars()),
+                )
             }
         })
     };
@@ -429,8 +447,14 @@ impl Placeholders<'_> {
 fn on_token_lines(before: &str, after: &str, token: &str) -> bool {
     let (start, old_end, _) = changed_bytes(before, after);
     before.match_indices(token).any(|(at, _)| {
-        let line_start = before[..at].rfind('\n').map_or(0, |found| found + 1);
-        let line_end = before[at..]
+        let line_start = before
+            .get(..at)
+            .unwrap_or_default()
+            .rfind('\n')
+            .map_or(0, |found| found + 1);
+        let line_end = before
+            .get(at..)
+            .unwrap_or_default()
             .find('\n')
             .map_or(before.len(), |found| at + found);
         start <= line_end && line_start <= old_end

@@ -14,10 +14,11 @@
 //! value as it was.
 
 use std::cell::OnceCell;
-use std::ops::Range;
 
 use super::super::super::language::ConfigLanguage;
 use super::super::super::paths::FieldPath;
+use super::super::super::text::{TextRange, TextSize, slice, text_size};
+use super::super::super::text_change::changed_bytes;
 use super::super::carry::Moves;
 use super::super::locate::LineIndex;
 use super::super::locks::{Lock, Protected};
@@ -26,7 +27,7 @@ use super::closing::Closing;
 use super::content::{content_areas, in_lock, in_locked_content};
 use super::pins::all_pinned;
 use super::spacing::between_tokens;
-use super::stretch::{glued, is_blank};
+use super::stretch::{char_at, char_before, glued, is_blank};
 use super::{Blocked, Carets, Why, refused};
 
 /// Checks that every span of `before` (its locks `protected`, its host
@@ -38,44 +39,32 @@ pub(super) fn kept(
     protected: &Protected,
     next: &Protected,
     (before, after): (&str, &str),
-    (was, now): (&[Range<usize>], &[Range<usize>]),
+    (was, now): (&[TextRange], &[TextRange]),
     carets: Carets<'_>,
 ) -> Result<(), Blocked> {
-    let old: Vec<u16> = before.encode_utf16().collect();
-    let new: Vec<u16> = after.encode_utf16().collect();
     // Without a parse to compare, a character typed next to a YAML plain
     // value joins it, punctuation included (`abc<`, `2[x]`); so it does in
     // any language next to a lock with no pinned value (`2/ 3` in HCL).
     let strict = (behavior.plain_scalars() && next.document.is_none()) || !all_pinned(protected);
-    let text = |units: &[u16], range: &Range<usize>| units.get(range.clone()).map(<[u16]>::to_vec);
     for (was, now) in was.iter().zip(now) {
-        if text(&old, was) != text(&new, now) || glued(&old, &new, was, now, strict) {
+        if slice::slice(before, *was) != slice::slice(after, *now)
+            || glued(before, after, was, now, strict)
+        {
             return Err(refused(&Reason::Range));
         }
     }
-    let prefix = old.iter().zip(&new).take_while(|(a, b)| a == b).count();
-    let suffix = old
-        .iter()
-        .rev()
-        .zip(new.iter().rev())
-        .take_while(|(a, b)| a == b)
-        .count()
-        .min(old.len() - prefix)
-        .min(new.len() - prefix);
+    let (start, old_end, new_end) = changed_bytes(before, after);
     let spans = Spans {
         closing: Closing {
             behavior,
             before,
-            old: &old,
-            new: &new,
-            region: prefix..old.len() - suffix,
-            new_region: prefix..new.len() - suffix,
+            after,
+            region: TextRange::new(text_size(start), text_size(old_end)),
+            new_region: TextRange::new(text_size(start), text_size(new_end)),
         },
         behavior,
         before,
         after,
-        old: &old,
-        new: &new,
         locks: &protected.locks,
         next,
         strict,
@@ -131,8 +120,6 @@ struct Spans<'a> {
     behavior: &'a dyn ConfigLanguage,
     before: &'a str,
     after: &'a str,
-    old: &'a [u16],
-    new: &'a [u16],
     /// The locks before.
     locks: &'a [Lock],
     next: &'a Protected,
@@ -141,7 +128,7 @@ struct Spans<'a> {
     lines: OnceCell<(LineIndex<'a>, LineIndex<'a>)>,
     /// Where the text before is content (see `content`), read when
     /// whitespace changed at or inside a span.
-    content: OnceCell<Vec<Range<usize>>>,
+    content: OnceCell<Vec<TextRange>>,
 }
 
 impl Spans<'_> {
@@ -240,50 +227,51 @@ impl Spans<'_> {
     /// The spans whose text `lock` keeps: its value's stretches (past its
     /// key for a field a host range covers, which keeps only the range's
     /// text) and its own key.
-    fn own_spans(lock: &Lock) -> Vec<Range<usize>> {
+    fn own_spans(lock: &Lock) -> Vec<TextRange> {
         let range = lock.reason == Reason::Range;
-        let value = |stretch: &Range<usize>| match &lock.key {
+        let value = |stretch: &TextRange| match &lock.key {
             Some(key)
                 if range
-                    && key.start <= stretch.start
-                    && stretch.start < key.end
-                    && key.end < stretch.end =>
+                    && key.start() <= stretch.start()
+                    && stretch.start() < key.end()
+                    && key.end() < stretch.end() =>
             {
-                key.end..stretch.end
+                TextRange::new(key.end(), stretch.end())
             }
-            _ => stretch.clone(),
+            _ => *stretch,
         };
-        let mut spans: Vec<Range<usize>> = lock.ranges.iter().map(value).collect();
+        let mut spans: Vec<TextRange> = lock.ranges.iter().map(value).collect();
         if !range {
-            spans.extend(lock.key.clone());
+            spans.extend(lock.key);
         }
         spans
     }
 
-    fn texts<'u>(units: &'u [u16], spans: &[Range<usize>]) -> Vec<&'u [u16]> {
+    fn texts<'t>(text: &'t str, spans: &[TextRange]) -> Vec<&'t str> {
         spans
             .iter()
-            .map(|span| units.get(span.clone()).unwrap_or_default())
+            .map(|span| slice::slice(text, *span).unwrap_or_default())
             .collect()
     }
 
     /// Whether `now` (of the text after) holds `was`'s text.
     fn same_text(&self, was: &Lock, now: &Lock) -> bool {
-        Self::texts(self.old, &Self::own_spans(was)) == Self::texts(self.new, &Self::own_spans(now))
+        Self::texts(self.before, &Self::own_spans(was))
+            == Self::texts(self.after, &Self::own_spans(now))
     }
 
     /// Whether `now`'s value stretches hold `was`'s value text (its key
     /// left out: a list item has none, a range none of its own).
     fn same_value_text(&self, was: &Lock, now: &Lock) -> bool {
-        let value = |units: &[u16], lock: &Lock| {
+        let value = |text: &str, lock: &Lock| {
             let mut spans = Self::own_spans(lock);
             if lock.reason != Reason::Range && lock.key.is_some() {
                 spans.pop();
             }
-            Self::texts(units, &spans).concat()
+            Self::texts(text, &spans).concat()
         };
-        let text = value(self.old, was);
-        !text.is_empty() && text == value(self.new, now)
+        let text = value(self.before, was);
+        !text.is_empty() && text == value(self.after, now)
     }
 
     /// Whether `now` holds `was`'s text but for whitespace between its
@@ -291,52 +279,55 @@ impl Spans<'_> {
     /// structure, a space after `:`, a line broken between two items;
     /// never in content (a string, a block scalar, an XML text).
     fn respaced(&self, was: &Lock, now: &Lock) -> bool {
-        let solid = |units: &[u16], lock: &Lock| -> Vec<u16> {
-            Self::texts(units, &Self::own_spans(lock))
+        let solid = |text: &str, lock: &Lock| -> String {
+            Self::texts(text, &Self::own_spans(lock))
                 .concat()
-                .into_iter()
-                .filter(|unit| !is_blank(*unit))
+                .chars()
+                .filter(|character| !is_blank(*character))
                 .collect()
         };
         let (Some(old), Some(new)) = (hull(&Self::own_spans(was)), hull(&Self::own_spans(now)))
         else {
             return false;
         };
-        if solid(self.old, was) != solid(self.new, now) {
+        if solid(self.before, was) != solid(self.after, now) {
             return false;
         }
         let (old_lines, new_lines) = self
             .lines
             .get_or_init(|| (LineIndex::new(self.before), LineIndex::new(self.after)));
-        let whole = |lines: &LineIndex<'_>, span: &Range<usize>| {
-            let start = lines.line_bounds(lines.line_of(span.start)).start;
-            let end = lines
-                .line_bounds(lines.line_of(span.end.saturating_sub(1).max(span.start)))
-                .end;
-            (start, end)
+        let whole = |lines: &LineIndex<'_>, span: &TextRange| {
+            let last = span
+                .end()
+                .checked_sub(TextSize::from(1))
+                .unwrap_or_default()
+                .max(span.start());
+            TextRange::new(
+                lines.line_bounds(lines.line_of(span.start())).start(),
+                lines.line_bounds(lines.line_of(last)).end(),
+            )
         };
-        let (start, end) = whole(old_lines, &old);
-        let (new_start, new_end) = whole(new_lines, &new);
-        let old_text = String::from_utf16_lossy(&self.old[start..end]);
-        let new_text = String::from_utf16_lossy(&self.new[new_start..new_end]);
-        // Each character's UTF-16 offset in the text before.
-        let offsets: Vec<usize> = old_text
-            .chars()
-            .scan(start, |at, character| {
-                let here = *at;
-                *at += character.len_utf16();
-                Some(here)
-            })
-            .chain([end])
+        let old_whole = whole(old_lines, &old);
+        let (Some(old_text), Some(new_text)) = (
+            slice::slice(self.before, old_whole),
+            slice::slice(self.after, whole(new_lines, &new)),
+        ) else {
+            return false;
+        };
+        // Each character's byte in the text before.
+        let offsets: Vec<TextSize> = old_text
+            .char_indices()
+            .map(|(at, _)| old_whole.start() + text_size(at))
+            .chain([old_whole.end()])
             .collect();
         let content = |from: usize, to: usize| {
             in_locked_content(self.content_areas(), self.locks, offsets[from], offsets[to])
         };
-        between_tokens(self.behavior, &old_text, &new_text, &content)
+        between_tokens(self.behavior, old_text, new_text, &content)
     }
 
     /// Where the text before is content, read once.
-    fn content_areas(&self) -> &[Range<usize>] {
+    fn content_areas(&self) -> &[TextRange] {
         self.content.get_or_init(|| {
             let (lines, _) = self
                 .lines
@@ -345,13 +336,13 @@ impl Spans<'_> {
         })
     }
 
-    /// Whether whitespace written at `at` (an end of a span of `lock`,
-    /// UTF-16 in the text before) is the span's content: `at` lies in
+    /// Whether whitespace written at `at` (an end of a span of `lock`, a
+    /// byte of the text before) is the span's content: `at` lies in
     /// content that starts in the lock (the last line of a block scalar).
-    fn in_content(&self, lock: &Lock, at: usize) -> bool {
+    fn in_content(&self, lock: &Lock, at: TextSize) -> bool {
         self.content_areas()
             .iter()
-            .any(|area| area.start <= at && at <= area.end && in_lock(area, lock))
+            .any(|area| area.contains_inclusive(at) && in_lock(area, lock))
     }
 
     /// Whether text was glued onto an end of `was`'s spans, where `now`
@@ -359,40 +350,43 @@ impl Spans<'_> {
     /// ends of all of them.
     fn glued(&self, was: &Lock, now: &Lock) -> bool {
         let (old, new) = (Self::own_spans(was), Self::own_spans(now));
-        let pairs: Vec<(Range<usize>, Range<usize>)> = if old.len() == new.len() {
+        let pairs: Vec<(TextRange, TextRange)> = if old.len() == new.len() {
             old.into_iter().zip(new).collect()
         } else {
             hull(&old).zip(hull(&new)).into_iter().collect()
         };
         pairs.iter().any(|(span, moved)| {
-            glued(self.old, self.new, span, moved, self.strict)
+            glued(self.before, self.after, span, moved, self.strict)
                 || self.spaced_in_content(was, span, moved)
         })
     }
 
     /// Whether whitespace was written at an end of `span` (of `lock`, now
     /// at `moved`) where it is content (see [`Self::in_content`]).
-    fn spaced_in_content(&self, lock: &Lock, span: &Range<usize>, moved: &Range<usize>) -> bool {
-        let newly_blank = |old: Option<&u16>, new: Option<&u16>| {
-            old != new && new.is_some_and(|unit| is_blank(*unit))
-        };
+    fn spaced_in_content(&self, lock: &Lock, span: &TextRange, moved: &TextRange) -> bool {
+        let newly_blank =
+            |old: Option<char>, new: Option<char>| old != new && new.is_some_and(is_blank);
         let before = newly_blank(
-            span.start.checked_sub(1).and_then(|at| self.old.get(at)),
-            moved.start.checked_sub(1).and_then(|at| self.new.get(at)),
+            char_before(self.before, span.start()),
+            char_before(self.after, moved.start()),
         );
-        let after = newly_blank(self.old.get(span.end), self.new.get(moved.end));
-        (before && self.in_content(lock, span.start)) || (after && self.in_content(lock, span.end))
+        let after = newly_blank(
+            char_at(self.before, span.end()),
+            char_at(self.after, moved.end()),
+        );
+        (before && self.in_content(lock, span.start()))
+            || (after && self.in_content(lock, span.end()))
     }
 
     /// Whether the keys holding `was` hold it still where `now` is: the
     /// same keys, none glued onto.
     fn guards_kept(&self, was: &Lock, now: &Lock) -> bool {
-        Self::texts(self.old, &was.guards) == Self::texts(self.new, &now.guards)
+        Self::texts(self.before, &was.guards) == Self::texts(self.after, &now.guards)
             && was
                 .guards
                 .iter()
                 .zip(&now.guards)
-                .all(|(was, now)| !glued(self.old, self.new, was, now, self.strict))
+                .all(|(was, now)| !glued(self.before, self.after, was, now, self.strict))
     }
 }
 
@@ -414,8 +408,8 @@ pub(in crate::editor::protect) fn named(
 }
 
 /// From the first span's start to the last one's end.
-fn hull(spans: &[Range<usize>]) -> Option<Range<usize>> {
-    let start = spans.iter().map(|span| span.start).min()?;
-    let end = spans.iter().map(|span| span.end).max()?;
-    Some(start..end)
+fn hull(spans: &[TextRange]) -> Option<TextRange> {
+    let start = spans.iter().map(|span| span.start()).min()?;
+    let end = spans.iter().map(|span| span.end()).max()?;
+    Some(TextRange::new(start, end))
 }

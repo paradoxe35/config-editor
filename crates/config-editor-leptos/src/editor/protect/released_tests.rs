@@ -3,6 +3,8 @@
 //! locks away: the change event carries the text on screen at once, not
 //! at the next keystroke.
 
+#![allow(clippy::string_slice, reason = "the tests cut their own texts")]
+
 use leptos::prelude::*;
 
 use super::super::edit::Edit;
@@ -155,14 +157,13 @@ fn ranges_given_while_an_edit_is_held_lock_the_hosts_text() {
     )]);
     state.place_ranges();
     let shown = state.doc().text.get_untracked();
-    let units: Vec<u16> = shown.encode_utf16().collect();
     let locked: Vec<String> = state.protect().protected.with_untracked(|protected| {
         protected
             .locks
             .iter()
             .filter(|lock| lock.pointer.is_none())
             .flat_map(|lock| lock.ranges.iter())
-            .map(|range| String::from_utf16_lossy(&units[range.clone()]))
+            .map(|range| shown[*range].to_string())
             .collect()
     });
     assert_eq!(locked, ["n: "], "in {shown:?}");

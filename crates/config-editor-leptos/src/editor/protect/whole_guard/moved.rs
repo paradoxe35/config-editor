@@ -18,6 +18,7 @@ use std::ops::Range;
 use serde_json::Value;
 
 use super::super::super::paths::{path_at, with_spans};
+use super::super::super::text::text_size;
 use super::super::super::text_change::utf16_len;
 use super::super::tokens::field_value;
 use super::Placeholders;
@@ -88,22 +89,46 @@ fn strings_holding<'v>(
 /// The bytes of `text` from [`LINES_AROUND`] non-blank lines above byte
 /// `start` to as many below byte `end`.
 fn around(text: &str, start: usize, end: usize) -> Range<usize> {
-    let mut from = text[..start].rfind('\n').map_or(0, |at| at + 1);
+    let mut from = text
+        .get(..start)
+        .unwrap_or_default()
+        .rfind('\n')
+        .map_or(0, |at| at + 1);
     let mut counted = 0;
     while counted < LINES_AROUND && from > 0 {
-        let line_start = text[..from - 1].rfind('\n').map_or(0, |at| at + 1);
-        if !text[line_start..from].trim().is_empty() {
+        let line_start = text
+            .get(..from - 1)
+            .unwrap_or_default()
+            .rfind('\n')
+            .map_or(0, |at| at + 1);
+        if !text
+            .get(line_start..from)
+            .unwrap_or_default()
+            .trim()
+            .is_empty()
+        {
             counted += 1;
         }
         from = line_start;
     }
-    let mut to = text[end..].find('\n').map_or(text.len(), |at| end + at);
+    let mut to = text
+        .get(end..)
+        .unwrap_or_default()
+        .find('\n')
+        .map_or(text.len(), |at| end + at);
     let mut counted = 0;
     while counted < LINES_AROUND && to < text.len() {
-        let line_end = text[to + 1..]
+        let line_end = text
+            .get(to + 1..)
+            .unwrap_or_default()
             .find('\n')
             .map_or(text.len(), |at| to + 1 + at);
-        if !text[to + 1..line_end].trim().is_empty() {
+        if !text
+            .get(to + 1..line_end)
+            .unwrap_or_default()
+            .trim()
+            .is_empty()
+        {
             counted += 1;
         }
         to = line_end;
@@ -167,19 +192,25 @@ impl Placeholders<'_> {
     /// in order.
     pub(super) fn written_near(&self, text: &str, start: usize, end: usize) -> Vec<Written> {
         let window = around(text, start, end);
-        let found = self.matcher.find_in(&text[window.clone()]);
+        let found = self
+            .matcher
+            .find_in(text.get(window.clone()).unwrap_or_default());
         if found.is_empty() {
             return Vec::new();
         }
-        let mut units = utf16_len(&text[..window.start]);
+        let mut units = utf16_len(text.get(..window.start).unwrap_or_default());
         let mut byte = window.start;
         let mut written = Vec::new();
         for range in found {
             let range = window.start + range.start..window.start + range.end;
-            if self.index.first_of(&text[range.clone()]).is_none() {
+            if self
+                .index
+                .first_of(text.get(range.clone()).unwrap_or_default())
+                .is_none()
+            {
                 continue;
             }
-            units += utf16_len(&text[byte..range.start]);
+            units += utf16_len(text.get(byte..range.start).unwrap_or_default());
             byte = range.start;
             written.push((range, units));
         }
@@ -190,9 +221,9 @@ impl Placeholders<'_> {
     /// placeholders (those in the fields the host gave them).
     pub(super) fn moved_near(&self, before: &str, start: usize, end: usize) -> Vec<Written> {
         let mut written = self.written_near(before, start, end);
-        written.retain(|(_, units)| {
+        written.retain(|(range, _)| {
             self.tokens
-                .binary_search_by_key(units, |token| token.start)
+                .binary_search_by_key(&text_size(range.start), |token| token.start())
                 .is_err()
         });
         written
@@ -228,7 +259,7 @@ impl Placeholders<'_> {
         // `1 - «…»`): glued. A value the edit wrote whole, new to the text,
         // is its own (a mask pasted into a note); one the text before had
         // (its line moved) is judged as any.
-        let written = &after[start..new_end];
+        let written = after.get(start..new_end).unwrap_or_default();
         // Only tokens on lines the edit wrote: a line reading as the text
         // before's line of the same number is kept (a Replace All rewrites
         // the text between two changes, every token there with it); a line
@@ -237,13 +268,26 @@ impl Placeholders<'_> {
         let mut kept = Vec::with_capacity(near.len());
         let (mut line, mut byte) = (0, 0);
         for (range, _) in &near {
-            line += after[byte..range.start].matches('\n').count();
+            line += after
+                .get(byte..range.start)
+                .unwrap_or_default()
+                .matches('\n')
+                .count();
             byte = range.start;
-            let line_start = after[..range.start].rfind('\n').map_or(0, |at| at + 1);
-            let line_end = after[range.end..]
+            let line_start = after
+                .get(..range.start)
+                .unwrap_or_default()
+                .rfind('\n')
+                .map_or(0, |at| at + 1);
+            let line_end = after
+                .get(range.end..)
+                .unwrap_or_default()
                 .find('\n')
                 .map_or(after.len(), |at| range.end + at);
-            kept.push(before_lines.get(line) == Some(&&after[line_start..line_end]));
+            kept.push(
+                before_lines.get(line)
+                    == Some(&after.get(line_start..line_end).unwrap_or_default()),
+            );
         }
         let joined = with_spans(behavior, after, &[], || {
             near.iter()
@@ -252,7 +296,7 @@ impl Placeholders<'_> {
                     !**kept && range.start >= start && range.end <= new_end
                 })
                 .find_map(|((range, units), _)| {
-                    let token = &after[range.clone()];
+                    let token = after.get(range.clone()).unwrap_or_default();
                     let pointer = read_at(document, path_at(behavior, after, *units), token);
                     // The strings there holding it with text beside it, but
                     // one the edit wrote whole and new, or one the text
@@ -271,8 +315,8 @@ impl Placeholders<'_> {
         if joined.is_some() {
             return joined;
         }
-        let removed = utf16_len(&before[start..old_end]);
-        let inserted = utf16_len(&after[start..new_end]);
+        let removed = utf16_len(before.get(start..old_end).unwrap_or_default());
+        let inserted = utf16_len(after.get(start..new_end).unwrap_or_default());
         // Glued now: a string holding it with text beside it at a path no
         // field given its token is, or the value it is read at, at no such
         // field, a list or map holding it. With where it was (its bytes and
@@ -282,7 +326,7 @@ impl Placeholders<'_> {
                 // One the edit wrote (pasted, a line moved) is new there.
                 .filter(|(range, _)| range.end <= start || range.start >= new_end)
                 .filter_map(|(range, units)| {
-                    let token = &after[range.clone()];
+                    let token = after.get(range.clone()).unwrap_or_default();
                     let pointer = read_at(document, path_at(behavior, after, *units), token);
                     if self.beside(document, &pointer, token).is_empty()
                         && !self.made_container(document, &pointer, token)

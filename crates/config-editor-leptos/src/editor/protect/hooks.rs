@@ -21,6 +21,7 @@ use super::suggest::{Around, adjust};
 use super::texts::{save_held, save_held_placeholder};
 use super::view::line_marks;
 use crate::EditorStrings;
+use crate::editor::text::{TextRange, TextSize, slice, text_size};
 use crate::strings::fill;
 
 impl ProtectState {
@@ -209,14 +210,16 @@ impl ProtectState {
     /// host locked it, where the range is placed now.
     fn range_changed_problem(&self, text: &str, strings: &EditorStrings) -> Option<Diagnostic> {
         let (locked, index) = self.ranges_changed.get()?;
-        let start = self
-            .ranges
-            .with(|ranges| ranges.get(index).map_or(0, |range| range.start));
+        let start = self.ranges.with(|ranges| {
+            ranges
+                .get(index)
+                .map_or(TextSize::default(), |range| range.start())
+        });
         let lines = LineIndex::new(text);
         Some(warning_at(
             &lines,
             text,
-            start.min(lines.units_of(text.len())),
+            start,
             range_changed_message(strings, &locked),
         ))
     }
@@ -245,17 +248,17 @@ impl ProtectState {
         let lines = LineIndex::new(text);
         let start = token
             .and_then(|token| {
-                let found: Vec<usize> = text
+                let found: Vec<TextSize> = text
                     .match_indices(token.as_str())
-                    .map(|(at, _)| lines.units_of(at))
+                    .map(|(at, _)| text_size(at))
                     .collect();
                 found
                     .iter()
                     .copied()
-                    .find(|at| !real.iter().any(|real| real.start == *at))
+                    .find(|at| !real.iter().any(|real| real.start() == *at))
                     .or_else(|| found.first().copied())
             })
-            .unwrap_or(0);
+            .unwrap_or_default();
         Some(warning_at(
             &lines,
             text,
@@ -285,7 +288,7 @@ impl ProtectState {
                         .find(|lock| lock.pointer.as_ref() == Some(pointer))
                         .or_else(|| nearest_lock(&protected.locks, pointer))
                         .and_then(|lock| lock.ranges.first())
-                        .map_or(0, |range| range.start);
+                        .map_or(TextSize::default(), |range| range.start());
                     warning_at(&lines, text, start, message)
                 })
                 .collect()
@@ -322,12 +325,17 @@ pub(crate) fn secret_pointers(document: &Value, root: &Value, repeats_arrays: bo
     super::marks::secret_fields(document, root, repeats_arrays)
 }
 
-/// A warning saying `message` at UTF-16 `start` of `text` (whose lines are
+/// A warning saying `message` at byte `start` of `text` (whose lines are
 /// `lines`), one character wide.
-fn warning_at(lines: &LineIndex<'_>, text: &str, start: usize, message: String) -> Diagnostic {
+fn warning_at(lines: &LineIndex<'_>, text: &str, start: TextSize, message: String) -> Diagnostic {
+    let start = start.min(TextSize::of(text));
     let line = lines.line_of(start);
-    let line_start = lines.byte_of(lines.line_bounds(line).start);
-    let column = text[line_start..lines.byte_of(start)].chars().count() + 1;
+    let line_start = lines.line_bounds(line).start();
+    let column = slice::slice(text, TextRange::new(line_start, start.max(line_start)))
+        .unwrap_or_default()
+        .chars()
+        .count()
+        + 1;
     Diagnostic {
         line: Some(line + 1),
         column: Some(column),

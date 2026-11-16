@@ -5,6 +5,8 @@
 //! path of the line typed on is read once for all the keys typed there; and
 //! the lock is then where placing it afresh puts it.
 
+#![allow(clippy::string_slice, reason = "the tests cut their own texts")]
+
 use leptos::prelude::*;
 
 use super::super::Language;
@@ -229,7 +231,7 @@ fn the_fast_path_answers_as_the_full_rule_on_random_edits() {
         let behavior = language.behavior();
         let paths = [FieldPath::from("/port"), FieldPath::from("/meta")];
         let at = text.find("abc").expect("the id");
-        let range = at..at + 3;
+        let range = super::super::text::TextRange::at(super::super::text::text_size(at), 3.into());
         let sources = [
             Sources {
                 marking_schema: Some(&schema),

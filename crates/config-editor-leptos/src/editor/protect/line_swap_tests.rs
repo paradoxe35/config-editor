@@ -3,6 +3,8 @@
 //! the two lines change places: each direction, and the swap back (its
 //! undo), is judged alike, in every language.
 
+#![allow(clippy::string_slice, reason = "the tests cut their own texts")]
+
 use super::super::Language;
 use super::super::paths::FieldPath;
 use super::guard::check;

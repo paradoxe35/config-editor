@@ -58,8 +58,6 @@ use super::search::{GoToLine, SearchState};
 use super::source_area::SourceArea;
 use super::sync::SyncState;
 use super::text::TextSize;
-#[cfg(feature = "protect")]
-use super::text::byte_of;
 use super::typing::TypingState;
 use crate::{EditorSettings, EditorStrings};
 
@@ -447,38 +445,6 @@ pub(super) fn textarea_selection(element: &SourceArea) -> Selection {
 pub(super) fn select(element: &SourceArea, start: TextSize, end: TextSize, backward: bool) {
     let direction = if backward { "backward" } else { "forward" };
     let _ = element.set_selection_range_with_direction(start, end, direction);
-}
-
-/// [`textarea_selection`] as (start, end) UTF-16 offsets of the document:
-/// for the code that still counts the text in UTF-16 units (secrets).
-#[cfg(feature = "protect")]
-pub(super) fn textarea_units(element: &SourceArea) -> (usize, usize) {
-    let (start, end) = element.selection_utf16();
-    (usize::from(start), usize::from(end))
-}
-
-/// [`directed_selection`] as (anchor, caret) UTF-16 offsets (see
-/// [`textarea_units`]).
-#[cfg(feature = "protect")]
-pub(super) fn directed_units(element: &SourceArea) -> (usize, usize) {
-    let (start, end) = textarea_units(element);
-    if is_backward(element) {
-        (end, start)
-    } else {
-        (start, end)
-    }
-}
-
-/// [`select`] of UTF-16 `start..end` of the document (see
-/// [`textarea_units`]).
-#[cfg(feature = "protect")]
-pub(super) fn select_units(element: &SourceArea, start: usize, end: usize, backward: bool) {
-    let (start, end) = element
-        .state()
-        .doc()
-        .text
-        .with_untracked(|text| (byte_of(text, start), byte_of(text, end)));
-    select(element, start, end, backward);
 }
 
 /// Whether the selection's caret is at its start.

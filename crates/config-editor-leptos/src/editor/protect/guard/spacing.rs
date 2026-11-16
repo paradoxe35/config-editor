@@ -55,8 +55,12 @@ pub(super) fn between_tokens(
         // Space that is content (an XML text's own, at its edges
         // included), or that would part a name from its markup.
         let as_content = || {
-            let before = &old[..old_bytes.get(at_old).copied().unwrap_or(old.len())];
-            let after = &old[old_bytes.get(next_old).copied().unwrap_or(old.len())..];
+            let before = old
+                .get(..old_bytes.get(at_old).copied().unwrap_or(old.len()))
+                .unwrap_or_default();
+            let after = old
+                .get(old_bytes.get(next_old).copied().unwrap_or(old.len())..)
+                .unwrap_or_default();
             at_old > 0 && behavior.space_is_content(before, after)
         };
         if run_old != run_new

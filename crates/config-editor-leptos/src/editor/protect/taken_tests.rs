@@ -13,6 +13,8 @@
 //! YAML parent's key moved above the line before it left its lines under
 //! that line, and the locks with them.
 
+#![allow(clippy::string_slice, reason = "the tests cut their own texts")]
+
 use leptos::prelude::*;
 
 use super::super::Language;

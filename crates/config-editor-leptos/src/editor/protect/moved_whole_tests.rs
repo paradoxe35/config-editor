@@ -6,6 +6,8 @@
 //! the parent of one of two fields holding the mask let `«…»MY` through:
 //! the field no longer at the path the host gave was judged nowhere.)
 
+#![allow(clippy::string_slice, reason = "the tests cut their own texts")]
+
 use leptos::prelude::*;
 
 use super::super::Language;

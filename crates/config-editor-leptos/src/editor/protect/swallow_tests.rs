@@ -6,6 +6,8 @@
 //! typing as usual and goes through (the repair decides the value), and so
 //! does one opened below the locked lines. JSON has neither.
 
+#![allow(clippy::string_slice, reason = "the tests cut their own texts")]
+
 use super::super::Language;
 use super::super::paths::FieldPath;
 use super::guard::check;

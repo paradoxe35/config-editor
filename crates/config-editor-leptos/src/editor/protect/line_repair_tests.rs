@@ -4,6 +4,8 @@
 //! through (I2); writing anything else there with it, or deleting the line,
 //! changes the field's span and is refused with its reason (I1).
 
+#![allow(clippy::string_slice, reason = "the tests cut their own texts")]
+
 use super::super::Language;
 use super::super::codec;
 use super::super::paths::FieldPath;

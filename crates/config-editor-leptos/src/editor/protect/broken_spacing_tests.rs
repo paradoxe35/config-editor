@@ -5,6 +5,8 @@
 //! inside a string or a YAML plain value, and a YAML locked line's indent,
 //! stay refused; repairing the break afterwards goes through.
 
+#![allow(clippy::string_slice, reason = "the tests cut their own texts")]
+
 use serde_json::Value;
 
 use super::super::Language;

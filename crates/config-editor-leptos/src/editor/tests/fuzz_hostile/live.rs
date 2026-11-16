@@ -273,7 +273,7 @@ type Problem = (Option<usize>, Option<usize>, Option<usize>, String);
 #[derive(Debug, PartialEq)]
 struct Seen {
     text: String,
-    locks: Vec<(Option<String>, Vec<std::ops::Range<usize>>)>,
+    locks: Vec<(Option<String>, Vec<crate::editor::text::TextRange>)>,
     problems: Vec<Problem>,
     folds: Vec<(usize, usize)>,
 }
@@ -294,7 +294,7 @@ fn seen(state: EditorState, with_ranges: bool) -> Seen {
             pointer.clone(),
             ranges
                 .iter()
-                .map(|range| (range.start, range.end))
+                .map(|range| (range.start(), range.end()))
                 .collect::<Vec<_>>(),
         )
     });

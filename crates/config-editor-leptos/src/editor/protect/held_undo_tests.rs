@@ -2,6 +2,8 @@
 //! typed into) is held, the host hearing nothing; undo all the way back to
 //! the opening text releases it, and the host hears that text.
 
+#![allow(clippy::string_slice, reason = "the tests cut their own texts")]
+
 use leptos::prelude::*;
 
 use super::super::Language;

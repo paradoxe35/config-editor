@@ -7,7 +7,7 @@
 #![allow(clippy::string_slice, reason = "the tests cut their own texts")]
 
 use super::super::text::{TextRange, TextSize, Utf16, byte_range, text_size};
-use super::change::{Assoc, Bytes, Change, CodeUnits, Moved};
+use super::change::{Assoc, Bytes, Change, Moved};
 
 /// The byte range `start..end`.
 fn r(start: u32, end: u32) -> TextRange {
@@ -196,16 +196,20 @@ fn a_moved_stretch_carries_its_positions() {
 
 #[test]
 fn a_change_counts_in_utf16_as_the_browser_does() {
+    // The change counts bytes; the browser's offsets of its places are the
+    // UTF-16 units before them.
     let before = "é😀ab";
     let change = Change::replacing_selection(before, "é😀xb", r(6, 7)).unwrap();
-    let units: Change<CodeUnits> = change.in_utf16(before).unwrap();
     let u = Utf16::new;
+    let units = |range: TextRange| {
+        Utf16::of_byte(before, range.start()).unwrap()..Utf16::of_byte(before, range.end()).unwrap()
+    };
     // `é` is one unit, `😀` two.
     assert_eq!(
-        units.edits().next().map(|(range, _)| range),
+        change.edits().next().map(|(range, _)| units(range)),
         Some(u(3)..u(4))
     );
-    assert_eq!(units.map_range(&(u(4)..u(5))), Some(u(4)..u(5)));
+    assert_eq!(change.map_range(&r(7, 8)).map(units), Some(u(4)..u(5)));
     let b = TextSize::from(7);
     assert_eq!(change.map_pos(b, Assoc::Before).pos, b);
     assert_eq!(Utf16::of_byte(before, b), Some(u(4)));

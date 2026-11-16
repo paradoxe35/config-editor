@@ -8,6 +8,8 @@
 //! refused, and the copy takes typing (QA 33: such a paste was refused,
 //! the edit read as starting inside the lock its text began like).
 
+#![allow(clippy::string_slice, reason = "the tests cut their own texts")]
+
 use leptos::prelude::*;
 
 use super::super::Language;
@@ -15,6 +17,7 @@ use super::super::edit::Edit;
 use super::super::paths::{TextPosition, TextRange};
 use super::super::state::EditorState;
 use super::super::test_state::TestEditor;
+use super::super::text;
 
 /// `blocks` services, each with the same locked `target` and `port` lines,
 /// then a spare block holding none of their keys, its `limit` locked.
@@ -169,13 +172,13 @@ fn a_copy_of_locked_text_pasted_where_it_locks_nothing_is_accepted() {
                 }
                 let shown = state.doc().text.get_untracked();
                 // The locks where they were, on the same text.
-                let moved: Vec<std::ops::Range<usize>> = placed
+                let moved: Vec<text::TextRange> = placed
                     .iter()
                     .map(|range| {
-                        if range.start >= at {
-                            range.start + copy.len()..range.end + copy.len()
+                        if range.start() >= text::text_size(at) {
+                            *range + text::TextSize::of(&copy)
                         } else {
-                            range.clone()
+                            *range
                         }
                     })
                     .collect();
@@ -188,7 +191,7 @@ fn a_copy_of_locked_text_pasted_where_it_locks_nothing_is_accepted() {
                 }
                 // An edit into the first lock is still refused.
                 let lock = &moved[0];
-                let value = lock.start + shown[lock.clone()].find("22").expect("its value");
+                let value = usize::from(lock.start()) + shown[*lock].find("22").expect("its value");
                 if replace(state, value..value + 2, "23", "insertText") {
                     failures.push(format!("{case}: an edit into the lock was taken"));
                     continue;

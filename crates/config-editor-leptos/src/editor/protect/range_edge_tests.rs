@@ -4,6 +4,7 @@
 //! refused, however a line diff of the two texts would pair their lines.
 
 use super::super::Language;
+use super::super::text::{TextRange, TextSize, text_size};
 use super::guard::{check, check_at};
 use super::locks::{Sources, protect};
 
@@ -13,8 +14,8 @@ const TEXT: &str = "# Tunnel server configuration\nlisten: 7835\npublic_address:
 /// range over `locked` (written once in `before`).
 fn taken(before: &str, locked: &str, after: &str) -> bool {
     let start = before.find(locked).expect("the locked text");
-    let units = |byte: usize| before[..byte].encode_utf16().count();
-    let range = units(start)..units(start + locked.len());
+    let units = text_size;
+    let range = TextRange::new(units(start), units(start + locked.len()));
     let behavior = Language::YAML.behavior();
     let protected = protect(
         behavior,
@@ -78,7 +79,7 @@ fn a_line_cut_above_a_locked_one_alike_in_its_start_is_taken() {
         },
     );
     let at = before.find("  password2").expect("the line");
-    let caret = before[..at].encode_utf16().count();
+    let caret = text_size(at);
     for caret in [None, Some(caret)] {
         let result = check_at(behavior, None, &protected, (before, after), caret);
         assert!(result.is_ok(), "caret {caret:?}: {result:?}");
@@ -93,9 +94,9 @@ fn of_two_like_lines_the_ranges_own_deleted_is_refused() {
     let line = "insecure_plaintext: false\n";
     let before = format!("{TEXT}{line}");
     let start = TEXT.len() - line.len();
-    let units = |byte: usize| before[..byte].encode_utf16().count();
+    let units = text_size;
     // The range over the line, its line break left out.
-    let range = units(start)..units(TEXT.len() - 1);
+    let range = TextRange::new(units(start), units(TEXT.len() - 1));
     let behavior = Language::YAML.behavior();
     let protected = protect(
         behavior,
@@ -111,7 +112,7 @@ fn of_two_like_lines_the_ranges_own_deleted_is_refused() {
         None,
         &protected,
         (&before, &after),
-        Some(range.start),
+        Some(range.start()),
     );
     assert!(own.is_err(), "the range's own line deleted");
     // The copy deleted (the caret on its line): taken.
@@ -120,7 +121,7 @@ fn of_two_like_lines_the_ranges_own_deleted_is_refused() {
         None,
         &protected,
         (&before, &after),
-        Some(range.end + 1),
+        Some(range.end() + TextSize::from(1)),
     );
     assert!(copy.is_ok(), "the copy deleted");
 }
@@ -136,8 +137,8 @@ fn a_line_moved_in_between_a_ranges_lines_is_refused() {
         .replacen(moved, "", 1)
         .replacen("listen", &format!("{moved}listen"), 1);
     let start = TEXT.find(locked).expect("the locked text");
-    let units = |byte: usize| TEXT[..byte].encode_utf16().count();
-    let range = units(start)..units(start + locked.len());
+    let units = text_size;
+    let range = TextRange::new(units(start), units(start + locked.len()));
     let behavior = Language::YAML.behavior();
     let protected = protect(
         behavior,

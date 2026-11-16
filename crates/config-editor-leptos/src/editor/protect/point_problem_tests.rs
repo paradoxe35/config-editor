@@ -2,6 +2,8 @@
 //! pattern matches, marks the whole token in the live editor: in every
 //! language, for two unrelated patterns, from any column inside it.
 
+#![allow(clippy::string_slice, reason = "the tests cut their own texts")]
+
 use leptos::prelude::*;
 
 use super::super::diagnostics::{DiagnosticOrigin, Severity};

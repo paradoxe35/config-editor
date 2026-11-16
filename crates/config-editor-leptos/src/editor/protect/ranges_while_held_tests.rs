@@ -6,6 +6,8 @@
 //! the save until the text holds it again: the host never hears a text
 //! without its locked text.
 
+#![allow(clippy::string_slice, reason = "the tests cut their own texts")]
+
 use leptos::prelude::*;
 
 use super::super::EditorSettings;
@@ -130,11 +132,10 @@ fn input(state: EditorState, at: std::ops::Range<usize>, with: &str, kind: &str)
 /// The texts the host ranges lock in the text on screen.
 fn locked(state: EditorState) -> Vec<String> {
     let shown = state.doc().text.get_untracked();
-    let units: Vec<u16> = shown.encode_utf16().collect();
     state.protect().ranges.with_untracked(|ranges| {
         ranges
             .iter()
-            .map(|range| String::from_utf16_lossy(&units[range.clone()]))
+            .map(|range| shown[*range].to_string())
             .collect()
     })
 }

@@ -7,6 +7,8 @@
 //! A copy of the secret's own line stays the field's first copy (see
 //! `xml_copies_tests`).
 
+#![allow(clippy::string_slice, reason = "the tests cut their own texts")]
+
 use super::super::Language;
 use super::super::save_matrix::report;
 use super::super::schema::build_schema;

@@ -2,7 +2,17 @@
 //! random texts and edits (ASCII, 2- and 3-byte characters, characters
 //! outside the BMP, line breaks).
 
-use super::{changed_range, edit_range, utf16_len};
+use super::super::text::Utf16;
+use super::{changed_range, edited_bytes, utf16_len};
+
+/// [`edited_bytes`] with the caret given and the range read as UTF-16
+/// units, to compare with the reference.
+fn edit_range(before: &str, after: &str, caret: Utf16) -> (usize, usize) {
+    let caret = caret.to_byte(after).expect("a caret between characters");
+    let range = edited_bytes(before, after, caret);
+    let units = |at| usize::from(Utf16::of_byte(before, at).expect("on a character boundary"));
+    (units(range.start()), units(range.end()))
+}
 
 /// What the texts' UTF-16 units read (the reference).
 mod units {
@@ -92,7 +102,7 @@ fn reads_what_the_utf16_units_read() {
             "{before:?} → {after:?}"
         );
         assert_eq!(
-            edit_range(&before, &after, caret),
+            edit_range(&before, &after, Utf16::count(caret)),
             units::edit_range(&before, &after, caret),
             "{before:?} → {after:?} at {caret}"
         );
@@ -120,7 +130,7 @@ fn reads_long_texts_as_the_utf16_units_do() {
             head.len()
         );
         assert_eq!(
-            edit_range(&before, &after, caret),
+            edit_range(&before, &after, Utf16::count(caret)),
             units::edit_range(&before, &after, caret)
         );
     }

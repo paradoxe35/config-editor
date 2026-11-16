@@ -14,6 +14,7 @@ use crate::editor::keys::line_edit::LineCommand;
 use crate::editor::keys::lines::{Command, run_units as run};
 use crate::editor::state::EditorState;
 use crate::editor::sync::convert_now;
+use crate::editor::text::text_size;
 
 /// Short texts typed anywhere (checked only for safety).
 const TYPED: &[&str] = &[
@@ -115,23 +116,24 @@ fn shown(state: EditorState) -> String {
     state.doc().text.get_untracked()
 }
 
-/// Whether UTF-16 `range` of the text on screen holds text a lock keeps.
+/// Whether bytes `range` of the text on screen hold text a lock keeps.
 fn cuts_locked(state: EditorState, range: std::ops::Range<usize>) -> bool {
+    let range = text_size(range.start)..text_size(range.end);
     state.protect().protected.with_untracked(|protected| {
         protected.locks.iter().any(|lock| {
             lock.ranges
                 .iter()
-                .any(|locked| locked.start < range.end && range.start < locked.end)
+                .any(|locked| locked.start() < range.end && range.start < locked.end())
         })
     })
 }
 
-/// Whether an edit replacing `regions` (bytes of `before`, the text on
+/// Whether an edit replacing `regions` (bytes of the text on
 /// screen; an empty one inserts) writes inside text a host range covers,
 /// where the editor holds it: the range's own lock or a field it covers.
 /// Of two alike lines only the editor knows which one the range followed
 /// (a copy pasted above it, or typed into), so the model asks it.
-fn writes_in_range(state: EditorState, before: &str, regions: &[std::ops::Range<usize>]) -> bool {
+fn writes_in_range(state: EditorState, regions: &[std::ops::Range<usize>]) -> bool {
     state.protect().protected.with_untracked(|protected| {
         protected
             .locks
@@ -140,11 +142,11 @@ fn writes_in_range(state: EditorState, before: &str, regions: &[std::ops::Range<
             .flat_map(|lock| &lock.ranges)
             .any(|locked| {
                 regions.iter().any(|region| {
-                    let (start, end) = (utf16(before, region.start), utf16(before, region.end));
+                    let (start, end) = (text_size(region.start), text_size(region.end));
                     if start == end {
-                        locked.start < start && start < locked.end
+                        locked.start() < start && start < locked.end()
                     } else {
-                        start < locked.end && locked.start < end
+                        start < locked.end() && locked.start() < end
                     }
                 })
             })
@@ -283,7 +285,7 @@ pub(super) fn make(setup: &Setup, mounted: &Mounted, act: &Act) -> Result<(), (C
                 type_at(state, at, &entry, setup.pairs)
             };
             if ordinary(setup, view, protected, &before, &expected, false)
-                && !writes_in_range(state, &before, std::slice::from_ref(&(at..at)))
+                && !writes_in_range(state, std::slice::from_ref(&(at..at)))
             {
                 return expect(taken, &expected, &format!("entry {entry:?}"));
             }
@@ -299,13 +301,13 @@ pub(super) fn make(setup: &Setup, mounted: &Mounted, act: &Act) -> Result<(), (C
             }
             // Locked text stays locked wherever it went (a read-only item's
             // line moved out of its list): cutting it is refused.
-            if cuts_locked(state, utf16(&before, start)..utf16(&before, end)) {
+            if cuts_locked(state, start..end) {
                 return Ok(());
             }
             let expected = format!("{}{}", &before[..start], &before[end..]);
             let taken = paste(state, start, end, "");
             if ordinary(setup, view, protected, &before, &expected, true)
-                && !writes_in_range(state, &before, std::slice::from_ref(&(start..end)))
+                && !writes_in_range(state, std::slice::from_ref(&(start..end)))
             {
                 return expect(taken, &expected, &format!("cut {:?}", &before[start..end]));
             }
@@ -352,7 +354,7 @@ pub(super) fn make(setup: &Setup, mounted: &Mounted, act: &Act) -> Result<(), (C
             if !line.contains(query)
                 && before.contains(query)
                 && ordinary(setup, view, protected, &before, &expected, false)
-                && !writes_in_range(state, &before, &matches)
+                && !writes_in_range(state, &matches)
             {
                 return expect(true, &expected, &format!("Replace all {query:?}"));
             }

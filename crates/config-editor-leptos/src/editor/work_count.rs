@@ -84,11 +84,11 @@ pub(crate) enum Work {
     /// A whole text's statements over lines (containers between brackets)
     /// read (`inline::statements`).
     Statements,
-    /// A byte of a text read to tell a place in it as UTF-16 units (one
-    /// note per byte, see [`note_many`]).
+    /// A byte of a text read to place the locks' offsets in it (its line
+    /// starts found, one note per byte, see [`note_many`]).
     #[cfg_attr(
         not(feature = "protect"),
-        allow(dead_code, reason = "only the lock guard notes it")
+        allow(dead_code, reason = "only the locks' line index notes it")
     )]
     OffsetBytes,
     /// A text read from its top to find one line or one place in it (where

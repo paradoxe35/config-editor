@@ -4,6 +4,8 @@
 //! allowed wherever the language ignores indentation and refused in YAML;
 //! the locked values never change.
 
+#![allow(clippy::string_slice, reason = "the tests cut their own texts")]
+
 use super::super::Language;
 use super::super::commands::{indent_lines, tab_insert};
 use super::super::edit::Edit;

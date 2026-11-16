@@ -7,6 +7,8 @@
 //! fields took 1.2 s a key, YAML with 4000 1.8 s), in every language,
 //! while the text parses and while it has a syntax error.
 
+#![allow(clippy::string_slice, reason = "the tests cut their own texts")]
+
 use leptos::prelude::*;
 
 use super::super::Language;

@@ -10,6 +10,8 @@
 //! The first characters of a new line leave the text unparseable; they
 //! used to be refused as if they joined the locked field.
 
+#![allow(clippy::string_slice, reason = "the tests cut their own texts")]
+
 use leptos::prelude::*;
 
 use super::super::Language;

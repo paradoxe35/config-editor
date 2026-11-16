@@ -4,6 +4,8 @@
 //! once per value written inline (QA 31: HCL walked the text from the top
 //! for each statement holding a key, 6.6 s per key at 15,000 lines).
 
+#![allow(clippy::string_slice, reason = "the tests cut their own texts")]
+
 use leptos::prelude::*;
 
 use super::super::Language;

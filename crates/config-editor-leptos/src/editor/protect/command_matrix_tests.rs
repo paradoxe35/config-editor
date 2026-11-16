@@ -54,13 +54,10 @@ fn every_line_command_keeps_a_range_over_a_line_break() {
                 let selection = (selection.0, selection.1.min(TEXT.len()));
                 run(state, command, selection, false);
                 let text = state.doc().text.get_untracked();
-                let units: Vec<u16> = text.encode_utf16().collect();
                 let ranges = state.protect().ranges.get_untracked();
-                let kept = ranges.iter().any(|range| {
-                    units
-                        .get(range.clone())
-                        .is_some_and(|locked| String::from_utf16_lossy(locked) == LOCKED)
-                });
+                let kept = ranges
+                    .iter()
+                    .any(|range| text.get(std::ops::Range::<usize>::from(*range)) == Some(LOCKED));
                 if !kept {
                     failures.push(format!(
                         "{command:?} on {selection:?}: {ranges:?} in {text:?}"

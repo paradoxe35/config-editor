@@ -4,6 +4,8 @@
 //! language. The view gives each editor every editor's placeholders; an
 //! editor's own are real only in its own fields.
 
+#![allow(clippy::string_slice, reason = "the tests cut their own texts")]
+
 use std::sync::Arc;
 
 use leptos::prelude::*;

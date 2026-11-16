@@ -6,7 +6,7 @@ editor/comment_toggle.rs 4 public `Toggled` edits and selection are `usize` by t
 editor/completion/typed_entry.rs 1 suggestions are placed at the public API's UTF-16 offsets; to type with the completion area
 editor/diagnostics/cut.rs 2 still counts in UTF-16 or str `usize` bytes; to type with its area
 editor/diagnostics/follow.rs 1 still counts in UTF-16 or str `usize` bytes; to type with its area
-editor/document.rs 2 the `_units` adapters (UTF-16 `usize` in, bytes inside) for the areas that still count in UTF-16; they go with those areas
+editor/document.rs 1 the test-build `set_caret_units` takes the UTF-16 offsets tests count in, as the browser does
 editor/edit/change.rs 3 the `_units` adapters (UTF-16 `usize` in, bytes inside) for the areas that still count in UTF-16; they go with those areas
 editor/edit/mod.rs 3 the `_units` adapters (UTF-16 `usize` in, bytes inside) for the areas that still count in UTF-16; they go with those areas
 editor/flat_keys/context.rs 1 flat-key helpers behind the public language API; to type with the languages
@@ -59,21 +59,7 @@ editor/paths/types.rs 1 path lookups take the public API's UTF-16 caret; to type
 editor/popups/caret_tip.rs 1 popups are placed by UTF-16 offsets of the mirror text (browser edge); to type as `Utf16`
 editor/popups/lock.rs 3 popups are placed by UTF-16 offsets of the mirror text (browser edge); to type as `Utf16`
 editor/problem_walk.rs 1 still counts in UTF-16 or str `usize` bytes; to type with its area
-editor/protect/carry.rs 2 locks and secrets still count spans in UTF-16 units; typed at their entry (bytes in, `utf16_of`); to move to bytes with the protect area
-editor/protect/follow.rs 1 locks and secrets still count spans in UTF-16 units; typed at their entry (bytes in, `utf16_of`); to move to bytes with the protect area
-editor/protect/guard/content.rs 2 locks and secrets still count spans in UTF-16 units; typed at their entry (bytes in, `utf16_of`); to move to bytes with the protect area
-editor/protect/guard/mod.rs 2 locks and secrets still count spans in UTF-16 units; typed at their entry (bytes in, `utf16_of`); to move to bytes with the protect area
-editor/protect/guard/spans.rs 1 locks and secrets still count spans in UTF-16 units; typed at their entry (bytes in, `utf16_of`); to move to bytes with the protect area
-editor/protect/hooks.rs 1 locks and secrets still count spans in UTF-16 units; typed at their entry (bytes in, `utf16_of`); to move to bytes with the protect area
-editor/protect/live.rs 1 locks and secrets still count spans in UTF-16 units; typed at their entry (bytes in, `utf16_of`); to move to bytes with the protect area
-editor/protect/locate.rs 2 locks and secrets still count spans in UTF-16 units; typed at their entry (bytes in, `utf16_of`); to move to bytes with the protect area
-editor/protect/locks/mod.rs 3 locks and secrets still count spans in UTF-16 units; typed at their entry (bytes in, `utf16_of`); to move to bytes with the protect area
-editor/protect/secrets.rs 2 locks and secrets still count spans in UTF-16 units; typed at their entry (bytes in, `utf16_of`); to move to bytes with the protect area
-editor/protect/tokens.rs 5 locks and secrets still count spans in UTF-16 units; typed at their entry (bytes in, `utf16_of`); to move to bytes with the protect area
-editor/protect/unplaced.rs 2 locks and secrets still count spans in UTF-16 units; typed at their entry (bytes in, `utf16_of`); to move to bytes with the protect area
-editor/protect/whole_guard/moved.rs 6 locks and secrets still count spans in UTF-16 units; typed at their entry (bytes in, `utf16_of`); to move to bytes with the protect area
-editor/state.rs 2 the `_units` adapters (UTF-16 `usize` in, bytes inside) for the areas that still count in UTF-16; they go with those areas
+editor/protect/whole_guard/moved.rs 6 str `usize` bytes of `changed_bytes` and the pattern's matches (a crate edge) around an edit; to type with `changed_bytes`
 editor/sync.rs 1 still counts in UTF-16 or str `usize` bytes; to type with its area
-editor/text_change.rs 1 still counts in UTF-16 or str `usize` bytes; to type with its area
-editor/text_change_tests.rs 1 still counts in UTF-16 or str `usize` bytes; to type with its area
+editor/text_change_tests.rs 1 the UTF-16 reference the byte reading is compared with (the browser's units by design)
 lib.rs 1 still plain; to type with its area

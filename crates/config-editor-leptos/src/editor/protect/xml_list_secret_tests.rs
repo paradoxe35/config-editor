@@ -5,6 +5,8 @@
 //! the host's own view and in every Edit-as view, with one item or two;
 //! items are added, and a token replaced, freely.
 
+#![allow(clippy::string_slice, reason = "the tests cut their own texts")]
+
 use leptos::prelude::*;
 
 use super::super::Language;

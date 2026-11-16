@@ -78,8 +78,6 @@ mod pipeline;
 #[cfg(all(test, feature = "yaml"))]
 mod tests;
 
-#[cfg(feature = "protect")]
-pub(super) use change::CodeUnits;
 pub(super) use change::{Assoc, Change, Moved};
 pub(super) use origin::Origin;
 #[cfg(all(test, feature = "yaml"))]

@@ -3,6 +3,8 @@
 //! one parse (not one per token), and the real placeholders of a text that
 //! does not parse (mid-typing) kept real without a lookup each.
 
+#![allow(clippy::string_slice, reason = "the tests cut their own texts")]
+
 use serde_json::{Value, json};
 
 use super::super::Language;
@@ -297,11 +299,8 @@ fn placeholders_also_written_in_comments_are_placed_in_one_parse_in_every_langua
             continue;
         };
         let real = locate_written(&matcher, &host, &known);
-        let shift = commented.encode_utf16().count() + 1;
-        let shifted = real
-            .iter()
-            .map(|range| range.start + shift..range.end + shift)
-            .collect();
+        let shift = super::super::text::text_size(commented.len() + 1);
+        let shifted = real.iter().map(|range| *range + shift).collect();
         for (case, text, expected) in [
             ("copy below", format!("{host}\n{commented}"), real.clone()),
             ("copy above", format!("{commented}\n{host}"), shifted),

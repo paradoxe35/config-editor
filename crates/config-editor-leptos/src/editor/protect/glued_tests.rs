@@ -5,6 +5,8 @@
 //! token, with a save waiting. In every host language, shown in
 //! its own language and as every other one, for two unrelated patterns.
 
+#![allow(clippy::string_slice, reason = "the tests cut their own texts")]
+
 use leptos::prelude::*;
 
 use super::super::Language;

@@ -2,6 +2,8 @@
 //! its keys are listed, each with the reason as its detail, in every
 //! language, as when browsing the block's own text.
 
+#![allow(clippy::string_slice, reason = "the tests cut their own texts")]
+
 use super::super::completion::completions_in;
 use super::super::paths::FieldPath;
 use super::super::schema::build_schema;

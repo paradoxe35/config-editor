@@ -7,6 +7,8 @@
 //! over all the siblings above it; typing beside the last of 1,600 copies
 //! took 580 ms, three times as long for each doubling).
 
+#![allow(clippy::string_slice, reason = "the tests cut their own texts")]
+
 use leptos::prelude::*;
 
 use super::super::Language;

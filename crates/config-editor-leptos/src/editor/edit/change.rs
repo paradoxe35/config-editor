@@ -11,8 +11,7 @@
 //! cannot disagree.
 //!
 //! Positions are counted in a [`Unit`]: bytes ([`TextSize`]) for the text
-//! itself, UTF-16 code units ([`Utf16`]) for what follows the browser's
-//! offsets; [`Change::in_utf16`] converts one to the other.
+//! itself; the browser's UTF-16 offsets are converted where they come in.
 //!
 //! - [`Change::map_pos`] maps a position, with an [`Assoc`] saying which
 //!   side of an insertion made right at it the position keeps to, and
@@ -33,8 +32,8 @@ use std::ops::{Add, AddAssign, Range, Sub, SubAssign};
 
 use super::super::diff::{DiffEdit, myers_edits};
 use super::super::keyboard::utf16_to_byte_index;
-use super::super::text::{TextRange, TextSize, Utf16, slice, text_size, utf16_of};
-use super::super::text_change::{changed_bytes, edit_range};
+use super::super::text::{TextRange, TextSize, Utf16, slice, text_size};
+use super::super::text_change::{changed_bytes, edited_bytes};
 
 /// A position or a length in a [`Unit`].
 pub(crate) trait Offset:
@@ -63,17 +62,6 @@ pub(crate) trait Unit: Copy + Debug + PartialEq + Eq {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct Bytes;
 
-/// Positions in UTF-16 code units (the browser's offsets).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[cfg_attr(
-    not(feature = "protect"),
-    allow(
-        dead_code,
-        reason = "only protection still counts changes in UTF-16 units"
-    )
-)]
-pub(crate) struct CodeUnits;
-
 impl Unit for Bytes {
     type Offset = TextSize;
     type Range = TextRange;
@@ -85,20 +73,6 @@ impl Unit for Bytes {
     }
     fn bounds(range: &TextRange) -> (TextSize, TextSize) {
         (range.start(), range.end())
-    }
-}
-
-impl Unit for CodeUnits {
-    type Offset = Utf16;
-    type Range = Range<Utf16>;
-    fn len(text: &str) -> Utf16 {
-        Utf16::of(text)
-    }
-    fn range(start: Utf16, end: Utf16) -> Range<Utf16> {
-        start..end
-    }
-    fn bounds(range: &Range<Utf16>) -> (Utf16, Utf16) {
-        (range.start, range.end)
     }
 }
 
@@ -470,11 +444,7 @@ impl Change<Bytes> {
     /// it inserted ends, which tells apart places the texts alone cannot
     /// (`aa|a` + `a`).
     pub(crate) fn diffed_at(before: &str, after: &str, caret: TextSize) -> Self {
-        let (start, end) = edit_range(before, after, utf16_of(after, caret));
-        let range = TextRange::new(
-            text_size(utf16_to_byte_index(before, start)),
-            text_size(utf16_to_byte_index(before, end)),
-        );
+        let range = edited_bytes(before, after, caret);
         Self::replacing_selection(before, after, range)
             .unwrap_or_else(|| Self::diffed(before, after))
     }
@@ -706,56 +676,6 @@ impl Change<Bytes> {
             }
         }
         out.into_change(other.len_after())
-    }
-
-    /// The same change counted in UTF-16 code units of `before` (the text
-    /// it is made on).
-    #[cfg_attr(
-        not(feature = "protect"),
-        allow(
-            dead_code,
-            reason = "only protection still counts changes in UTF-16 units"
-        )
-    )]
-    pub(crate) fn in_utf16(&self, before: &str) -> Option<Change<CodeUnits>> {
-        let mut units = Utf16::default();
-        let mut at = 0;
-        let mut to_units = |byte: TextSize| -> Option<Utf16> {
-            let byte = usize::from(byte);
-            units += Utf16::of(before.get(at..byte)?);
-            at = byte;
-            Some(units)
-        };
-        let mut replaced = Vec::with_capacity(self.replaced.len());
-        for edit in &self.replaced {
-            let start = to_units(edit.at)?;
-            let end = to_units(edit.at + edit.delete)?;
-            replaced.push(Replace {
-                at: start,
-                delete: end - start,
-                insert: edit.insert.clone(),
-            });
-        }
-        let len = to_units(TextSize::of(before))?;
-        let after = self.apply(before)?;
-        let moved = self
-            .moved
-            .iter()
-            .map(|moved| {
-                let from = Utf16::of_byte(before, moved.from)?;
-                Some(Moved {
-                    from,
-                    len: Utf16::of_byte(before, moved.from + moved.len)? - from,
-                    to: Utf16::of_byte(&after, moved.to)?,
-                })
-            })
-            .collect::<Option<Vec<_>>>()?;
-        Some(Change {
-            len,
-            replaced,
-            moved,
-            unit: PhantomData,
-        })
     }
 
     /// The change as retain, delete and insert pieces over the text.

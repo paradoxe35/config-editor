@@ -21,6 +21,16 @@
 //! - `live`: the editor's signals, the check wired in, the tooltip;
 //! - `view`: the gutter lock and muted values of each line;
 //! - `texts`: the built-in texts.
+//!
+//! Every offset here is a byte of the text (`TextSize`, `TextRange`);
+//! UTF-16 is only met where the public language API or the screen takes
+//! it, converted there.
+
+#![deny(
+    clippy::string_slice,
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss
+)]
 
 #[cfg(test)]
 mod around_written_tests;

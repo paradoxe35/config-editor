@@ -6,6 +6,8 @@
 //! field then held: the save waits while it reads otherwise. In every
 //! language and while editing as another.
 
+#![allow(clippy::string_slice, reason = "the tests cut their own texts")]
+
 use serde_json::Value;
 
 use super::super::Language;

@@ -7,6 +7,8 @@
 //! still refused; and beside a list of secrets the new item is no problem.
 //! (A lone secret made an item, PT38-5, is a LOW finding left for later.)
 
+#![allow(clippy::string_slice, reason = "the tests cut their own texts")]
+
 use leptos::prelude::*;
 
 use super::super::Language;

@@ -28,6 +28,7 @@ use std::rc::Rc;
 use serde_json::Value;
 
 use super::language::{CompletionContext, ConfigLanguage, Lexical, ParseError};
+use super::text::TextSize;
 use super::work_count::{Work, note, note_many};
 
 mod conformed;
@@ -62,7 +63,7 @@ type Place<T> = RefCell<Option<(&'static str, String, usize, T)>>;
 
 /// A line's path: the language's label, the text, the line's first UTF-16
 /// offset and the path.
-type LinePath = (&'static str, String, usize, Option<String>);
+type LinePath = (&'static str, String, TextSize, Option<String>);
 
 /// How many line paths are kept: the text an edit was made on and the one
 /// it made.
@@ -176,7 +177,7 @@ pub(crate) fn lexical_state(language: &dyn ConfigLanguage, text: &str, cursor: u
     at_place(&LEXICAL, language, text, cursor, read)
 }
 
-/// The path of the line of `text` starting at UTF-16 `line`, read by `read`
+/// The path of the line of `text` starting at byte `line`, read by `read`
 /// unless it was read or told (see [`tell_line_path`]) for the same text.
 #[cfg_attr(
     not(feature = "protect"),
@@ -185,7 +186,7 @@ pub(crate) fn lexical_state(language: &dyn ConfigLanguage, text: &str, cursor: u
 pub(crate) fn line_path(
     language: &dyn ConfigLanguage,
     text: &str,
-    line: usize,
+    line: TextSize,
     read: impl FnOnce() -> Option<String>,
 ) -> Option<String> {
     let label = language.info().label;
@@ -203,7 +204,7 @@ pub(crate) fn line_path(
     path
 }
 
-/// That the line of `text` starting at UTF-16 `line` writes `path` (an edit
+/// That the line of `text` starting at byte `line` writes `path` (an edit
 /// changing one scalar on it left its path as it was).
 #[cfg_attr(
     not(feature = "protect"),
@@ -212,7 +213,7 @@ pub(crate) fn line_path(
 pub(crate) fn tell_line_path(
     language: &dyn ConfigLanguage,
     text: &str,
-    line: usize,
+    line: TextSize,
     path: Option<String>,
 ) {
     if HOLDERS.with(Cell::get) == 0 {

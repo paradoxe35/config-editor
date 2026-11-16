@@ -4,6 +4,8 @@
 //! `]`, a block's `}`, a heredoc's terminator, an end tag), and typing on
 //! any of its lines is refused, in every built-in language.
 
+#![allow(clippy::string_slice, reason = "the tests cut their own texts")]
+
 use leptos::prelude::*;
 
 use super::super::Language;
@@ -91,13 +93,12 @@ fn a_value_written_over_lines_is_locked_whole() {
         let mut editor = TestEditor::new(language, text);
         editor.read_only_paths = vec![FieldPath::from("/v")];
         let (_owner, state) = editor.mount();
-        let units: Vec<u16> = text.encode_utf16().collect();
         let locked: Vec<String> = state.protect().protected.with_untracked(|protected| {
             protected
                 .locks
                 .iter()
                 .flat_map(|lock| lock.ranges.iter())
-                .map(|range| String::from_utf16_lossy(&units[range.clone()]))
+                .map(|range| text[*range].to_string())
                 .collect()
         });
         if locked != [covered] {

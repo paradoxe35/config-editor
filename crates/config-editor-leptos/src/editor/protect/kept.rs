@@ -10,19 +10,18 @@
 //! text that does not parse, every locked field (carried, held or
 //! unplaced: never dropped).
 
-use std::ops::Range;
-
 use leptos::prelude::*;
 
 use super::super::state::EditorState;
-use super::super::text_change::edit_range;
+use super::super::text::{TextRange, TextSize, slice};
+use super::super::text_change::edited_bytes;
 use super::tokens::cuts;
 
-/// The text of each of `ranges` in `units`.
-fn texts(units: &[u16], ranges: &[Range<usize>]) -> Vec<Vec<u16>> {
+/// The text of each of `ranges` in `text`.
+fn texts(text: &str, ranges: &[TextRange]) -> Vec<String> {
     ranges
         .iter()
-        .map(|range| units.get(range.clone()).unwrap_or_default().to_vec())
+        .map(|range| slice::slice(text, *range).unwrap_or_default().to_string())
         .collect()
 }
 
@@ -30,24 +29,23 @@ fn texts(units: &[u16], ranges: &[Range<usize>]) -> Vec<Vec<u16>> {
 pub(crate) struct Spans {
     epoch: u64,
     /// The host's ranges on screen, each with its text.
-    ranges: Vec<(Range<usize>, Vec<u16>)>,
+    ranges: Vec<(TextRange, String)>,
     /// The placeholders no edit may cut.
-    tokens: Vec<Range<usize>>,
+    tokens: Vec<TextRange>,
     /// The locked fields, each with its value's text.
-    fields: Vec<(String, Vec<Vec<u16>>)>,
+    fields: Vec<(String, Vec<String>)>,
 }
 
 impl EditorState {
     /// The spans of `text` (the text on screen, before an edit).
     pub(crate) fn spans_before(&self, text: &str) -> Spans {
-        let units: Vec<u16> = text.encode_utf16().collect();
         let ranges = self.protect().ranges.with_untracked(|ranges| {
             ranges
                 .iter()
                 .map(|range| {
                     (
-                        range.clone(),
-                        units.get(range.clone()).unwrap_or_default().to_vec(),
+                        *range,
+                        slice::slice(text, *range).unwrap_or_default().to_string(),
                     )
                 })
                 .collect()
@@ -58,7 +56,7 @@ impl EditorState {
                 protected
                     .locks
                     .iter()
-                    .filter_map(|lock| Some((lock.pointer.clone()?, texts(&units, &lock.ranges))))
+                    .filter_map(|lock| Some((lock.pointer.clone()?, texts(text, &lock.ranges))))
                     .collect(),
             )
         });
@@ -79,10 +77,9 @@ impl EditorState {
         spans: &Spans,
         before: &str,
         after: &str,
-        caret: usize,
+        caret: TextSize,
         stepped: bool,
     ) {
-        let units: Vec<u16> = after.encode_utf16().collect();
         let followed = self.protect().ranges.get_untracked();
         if followed.len() == spans.ranges.len() {
             // An empty range locks nothing (one whose text an edit the host
@@ -93,19 +90,18 @@ impl EditorState {
                     continue;
                 }
                 assert!(
-                    units.get(new.clone()) == Some(text.as_slice()),
+                    slice::slice(after, *new) == Some(text.as_str()),
                     "a host range {old:?} holds other text after an edit the guard took: \
                      {before:?} -> {after:?}"
                 );
             }
         }
-        let (start, end) = edit_range(before, after, caret);
+        let region = edited_bytes(before, after, caret);
         let rewritten =
-            super::rewritten::rewritten_region(&spans.tokens, before, after, &(start..end))
-                .is_some();
+            super::rewritten::rewritten_region(&spans.tokens, before, after, &region).is_some();
         if !rewritten
             && !stepped
-            && let Some(cut) = spans.tokens.iter().find(|token| cuts(token, &(start..end)))
+            && let Some(cut) = spans.tokens.iter().find(|token| cuts(token, &region))
         {
             panic!("a placeholder {cut:?} cut by an edit the guard took: {before:?} -> {after:?}");
         }
@@ -121,7 +117,7 @@ impl EditorState {
                         };
                         !protected.locks.iter().any(|lock| {
                             lock.pointer.as_deref().is_some_and(named)
-                                || texts(&units, &lock.ranges) == *text
+                                || texts(after, &lock.ranges) == *text
                         }) && !protected.held.iter().any(|pointer| named(pointer))
                             && !protected.unplaced.iter().any(|(pointer, _)| named(pointer))
                     })

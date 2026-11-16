@@ -7,6 +7,8 @@
 //! flags it; a key typed at either edge is refused, shown in the host's
 //! language and as every other one, and the host never hears it glued.
 
+#![allow(clippy::string_slice, reason = "the tests cut their own texts")]
+
 use leptos::prelude::*;
 use serde_json::Value;
 

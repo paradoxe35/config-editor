@@ -5,6 +5,8 @@
 //! past the whole list at once (a cut and paste), it is a reorder inside
 //! its parent, let through.
 
+#![allow(clippy::string_slice, reason = "the tests cut their own texts")]
+
 use super::super::Language;
 use super::super::keys::line_edit::{Folded, LineCommand, line_edit};
 use super::super::paths::FieldPath;

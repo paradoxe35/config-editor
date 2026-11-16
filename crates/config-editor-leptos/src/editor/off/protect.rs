@@ -248,7 +248,7 @@ impl EditorState {
         _spans: &(),
         _before: &str,
         _after: &str,
-        _caret: usize,
+        _caret: TextSize,
         _stepped: bool,
     ) {
     }

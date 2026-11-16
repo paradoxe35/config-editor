@@ -10,6 +10,8 @@
 //! The lines typed after the token's own line were not read, and a join
 //! making the text parse again was let through and only flagged.
 
+#![allow(clippy::string_slice, reason = "the tests cut their own texts")]
+
 use leptos::prelude::*;
 
 use super::super::Language;

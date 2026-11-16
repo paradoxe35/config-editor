@@ -20,8 +20,9 @@ use super::super::applies::Applies;
 use super::super::codec;
 use super::super::language::{ConfigLanguage, Repetition};
 use super::super::paths::{
-    FieldPath, field_range, in_batch, inside, key_range, path_at, with_spans,
+    FieldPath, api_units, field_range, in_batch, inside, key_range, path_at, with_spans,
 };
+use super::super::text::{TextRange, TextSize, slice, text_size};
 use super::locate::{Extent, LineIndex, within};
 use super::marks::read_only_in;
 use super::texts::Reason;
@@ -41,7 +42,7 @@ const STAND_IN_TRIES: usize = 24;
 const STAND_IN_ROUNDS: usize = 4;
 
 /// `text` with the lines breaking it blanked (each character a space of
-/// the same UTF-16 length, so every other place keeps its offsets) such
+/// the same byte length, so every other place keeps its offsets) such
 /// that it parses: in each round, a line at or above where the parser
 /// stopped, the one that parses, else the one taking the parser furthest.
 pub(super) fn stand_in(
@@ -105,8 +106,8 @@ pub(super) struct StandIn {
     pub(super) blanked: Vec<usize>,
 }
 
-/// `line` with its last non-blank character a space (or two, for one of
-/// two UTF-16 units).
+/// `line` with its last non-blank character spaces of the same byte
+/// length.
 fn blank_last(line: &str) -> String {
     let trimmed = line.trim_end();
     let mut kept: String = trimmed
@@ -118,16 +119,16 @@ fn blank_last(line: &str) -> String {
         .rev()
         .collect();
     if let Some(last) = trimmed.chars().next_back() {
-        kept.push_str(&" ".repeat(last.len_utf16()));
+        kept.push_str(&" ".repeat(last.len_utf8()));
     }
-    kept.push_str(&line[trimmed.len()..]);
+    kept.push_str(line.get(trimmed.len()..).unwrap_or_default());
     kept
 }
 
-/// `line` as spaces of the same UTF-16 length.
+/// `line` as spaces of the same byte length.
 fn blank(line: &str) -> String {
     line.chars()
-        .map(|character| " ".repeat(character.len_utf16()))
+        .map(|character| " ".repeat(character.len_utf8()))
         .collect()
 }
 
@@ -183,8 +184,7 @@ fn paths_of(
         if content.trim().is_empty() || behavior.comment_start(content) == Some(indent) {
             continue;
         }
-        let at = lines.line_bounds(line).start + content[..indent].encode_utf16().count();
-        if let Some(path) = path_at(behavior, text, at) {
+        if let Some(path) = path_at(behavior, text, api_caret(text, code_start(lines, line))) {
             found.push(Written {
                 line,
                 pointer: path.to_pointer(),
@@ -192,6 +192,17 @@ fn paths_of(
         }
     }
     found
+}
+
+/// Where the code on zero-based `line` starts: after its indent.
+fn code_start(lines: &LineIndex<'_>, line: usize) -> TextSize {
+    let content = lines.line_text(line);
+    lines.line_bounds(line).start() + TextSize::of(content) - TextSize::of(content.trim_start())
+}
+
+/// Byte `at` of `text` as the public language API's caret (UTF-16).
+fn api_caret(text: &str, at: TextSize) -> usize {
+    api_units(text, usize::from(at))
 }
 
 /// The lines of a large text that may hold a protected field: each line
@@ -242,8 +253,18 @@ pub(super) fn names_word(names: &[String], line: &str) -> bool {
     names.iter().any(|name| {
         !name.is_empty()
             && line.match_indices(name.as_str()).any(|(at, _)| {
-                !line[..at].chars().next_back().is_some_and(word)
-                    && !line[at + name.len()..].chars().next().is_some_and(word)
+                !line
+                    .get(..at)
+                    .unwrap_or_default()
+                    .chars()
+                    .next_back()
+                    .is_some_and(word)
+                    && !line
+                        .get(at + name.len()..)
+                        .unwrap_or_default()
+                        .chars()
+                        .next()
+                        .is_some_and(word)
             })
     })
 }
@@ -296,12 +317,11 @@ pub(super) fn under_own_key(
         .find(|field| field.pointer != pointer && field.pointer.rsplit('/').next() == Some(key))?;
     read_off(behavior, text, lines, None, written, &found.pointer).or_else(|| {
         let content = lines.line_text(found.line);
-        let indent = content.len() - content.trim_start().len();
-        let start = lines.line_bounds(found.line).start + content[..indent].encode_utf16().count();
-        let end = lines.line_bounds(found.line).start + content.trim_end().encode_utf16().count();
+        let start = code_start(lines, found.line);
+        let end = lines.line_bounds(found.line).start() + TextSize::of(content.trim_end());
         Some(Extent {
             key: None,
-            ranges: std::iter::once(start..end).collect(),
+            ranges: std::iter::once(TextRange::new(start, end.max(start))).collect(),
         })
     })
 }
@@ -333,51 +353,57 @@ pub(super) fn read_off(
     }
     for field in written.iter().filter(|_| value.is_none()) {
         if field.pointer != pointer && within(behavior, &field.pointer, pointer) {
-            let bounds = lines.line_bounds(field.line);
-            let content = lines.line_text(field.line);
-            let code = content.trim();
-            let indent = content.len() - content.trim_start().len();
-            let start = bounds.start + content[..indent].encode_utf16().count();
+            let code = lines.line_text(field.line).trim();
             let code = match behavior.config().item_separator {
                 Some(separator) => code.strip_suffix(separator).unwrap_or(code).trim_end(),
                 None => code,
             };
-            ranges.push(start..start + code.encode_utf16().count());
+            ranges.push(TextRange::at(
+                code_start(lines, field.line),
+                TextSize::of(code),
+            ));
         }
     }
     if let Some(first) = ranges.first_mut() {
-        let name = lines.byte_of(first.start);
+        // `markup_before` is the flow syntax's, in `str` bytes.
+        let name = usize::from(first.start());
         if let Some(open) = super::super::flow_syntax::markup_before(behavior, text, name) {
-            first.start -= text[open..name].encode_utf16().count();
+            *first = TextRange::new(text_size(open), first.end());
         }
     }
-    ranges.sort_by_key(|range| (range.start, range.end));
-    let mut merged: Vec<std::ops::Range<usize>> = Vec::new();
+    ranges.sort_by_key(|range| (range.start(), range.end()));
+    let mut merged: Vec<TextRange> = Vec::new();
     for range in ranges {
         match merged.last_mut() {
             Some(last)
-                if range.start <= last.end
-                    || own_lines_between(behavior, text, lines, last.end..range.start, pointer) =>
+                if range.start() <= last.end()
+                    || own_lines_between(
+                        behavior,
+                        text,
+                        lines,
+                        TextRange::new(last.end(), range.start()),
+                        pointer,
+                    ) =>
             {
-                last.end = last.end.max(range.end);
+                *last = last.cover(range);
             }
             _ => merged.push(range),
         }
     }
-    if let (Some(first), Some(last)) = (merged.first().cloned(), merged.last_mut()) {
-        let covered = &text[lines.byte_of(first.start)..lines.byte_of(last.end)];
+    if let (Some(first), Some(last)) = (merged.first().copied(), merged.last_mut()) {
+        let covered = slice::slice(text, first.cover(*last))?;
         let mut depth = behavior.unclosed_containers(covered);
-        let mut end = lines.byte_of(last.end);
+        let mut end = last.end();
         while depth > 0 {
-            let rest = &text[end..];
-            let skipped = rest.len() - rest.trim_start().len();
-            let Some(length) = behavior.container_closer_len(&rest[skipped..]) else {
+            let rest = slice::after(text, end)?;
+            let code = rest.trim_start();
+            let Some(length) = behavior.container_closer_len(code) else {
                 break;
             };
-            end += skipped + length;
+            end += TextSize::of(rest) - TextSize::of(code) + text_size(length);
             depth -= 1;
         }
-        last.end = lines.units_of(end);
+        *last = TextRange::new(last.start(), end);
     }
     Some(Extent {
         key,
@@ -391,14 +417,14 @@ fn own_lines_between(
     behavior: &dyn ConfigLanguage,
     text: &str,
     lines: &LineIndex<'_>,
-    gap: std::ops::Range<usize>,
+    gap: TextRange,
     pointer: &str,
 ) -> bool {
     let punctuation = |character: char| {
         character.is_whitespace()
             || (character.is_ascii_punctuation() && !matches!(character, '"' | '\''))
     };
-    (lines.line_of(gap.start) + 1..lines.line_of(gap.end)).all(|line| {
+    (lines.line_of(gap.start()) + 1..lines.line_of(gap.end())).all(|line| {
         let content = lines.line_text(line);
         let indent = content.len() - content.trim_start().len();
         if content.trim().chars().all(punctuation)
@@ -406,8 +432,7 @@ fn own_lines_between(
         {
             return true;
         }
-        let at = lines.line_bounds(line).start + content[..indent].encode_utf16().count();
-        path_at(behavior, text, at)
+        path_at(behavior, text, api_caret(text, code_start(lines, line)))
             .is_some_and(|path| within(behavior, &path.to_pointer(), pointer))
     })
 }

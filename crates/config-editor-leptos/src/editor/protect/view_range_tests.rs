@@ -5,6 +5,8 @@
 //! pause or not. The range was read again at its first positions in each
 //! new host text, so after the second edit it locked the field above.
 
+#![allow(clippy::string_slice, reason = "the tests cut their own texts")]
+
 use leptos::prelude::*;
 
 use super::super::Language;

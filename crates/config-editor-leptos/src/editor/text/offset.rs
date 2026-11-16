@@ -30,13 +30,7 @@ impl Utf16 {
     }
 
     /// The offset of byte `at` (a character boundary) of `text`.
-    #[cfg_attr(
-        not(feature = "protect"),
-        allow(
-            dead_code,
-            reason = "only protection still counts changes in UTF-16 units"
-        )
-    )]
+    #[cfg(test)]
     pub(crate) fn of_byte(text: &str, at: TextSize) -> Option<Self> {
         text.get(..usize::from(at)).map(Self::of)
     }

@@ -5,6 +5,8 @@
 //! locked field reads otherwise; once an edit ends the hold, the switch
 //! is made.
 
+#![allow(clippy::string_slice, reason = "the tests cut their own texts")]
+
 use leptos::prelude::*;
 
 use super::super::Language;

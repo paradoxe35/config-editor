@@ -11,6 +11,8 @@
 //! read-only paths, the schema's `readOnly` and read-only ranges, with
 //! auto-closing on and off.
 
+#![allow(clippy::string_slice, reason = "the tests cut their own texts")]
+
 use leptos::prelude::*;
 
 use super::super::Language;

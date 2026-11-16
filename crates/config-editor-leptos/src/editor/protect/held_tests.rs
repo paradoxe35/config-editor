@@ -5,6 +5,8 @@
 //! it while it is held costs the same few readings of the text at any size
 //! (the held lock is followed by position, not looked for).
 
+#![allow(clippy::string_slice, reason = "the tests cut their own texts")]
+
 use leptos::prelude::*;
 
 use super::super::Language;

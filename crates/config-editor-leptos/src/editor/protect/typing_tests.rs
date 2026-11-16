@@ -5,6 +5,8 @@
 //! at the end is taken the same way. Nothing is taken back: typing
 //! elsewhere afterwards is never held. In every language.
 
+#![allow(clippy::string_slice, reason = "the tests cut their own texts")]
+
 use leptos::prelude::*;
 
 use super::super::Language;

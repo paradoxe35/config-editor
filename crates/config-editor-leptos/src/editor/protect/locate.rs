@@ -1,113 +1,77 @@
 //! Where a protected field is written, from the parse: its key and its
 //! whole value (`Text::value_ranges`), and the text's lines and offsets.
 
-use std::ops::Range;
-
 use serde_json::Value;
 
 use super::super::language::{ConfigLanguage, Repetition};
-use super::super::paths::{TextRange, field_key, key_range, whole_value};
+use super::super::paths::{self, field_key, key_range, whole_value};
+use super::super::text::{TextRange, TextSize, byte_range, slice, text_size};
 use super::super::work_count::{Work, note_many};
 
-/// Line starts of a text, to turn one-based positions into UTF-16 offsets
+/// Line starts of a text, to turn one-based positions into byte offsets
 /// without rescanning it for each.
 pub(crate) struct LineIndex<'a> {
     text: &'a str,
-    /// Byte and UTF-16 offset of each line's start.
-    starts: Vec<(usize, usize)>,
+    /// The byte each line starts at.
+    starts: Vec<TextSize>,
 }
 
 impl<'a> LineIndex<'a> {
     pub(crate) fn new(text: &'a str) -> Self {
-        let mut starts = vec![(0, 0)];
-        let mut units = 0;
-        for (byte, character) in text.char_indices() {
-            units += character.len_utf16();
-            if character == '\n' {
-                starts.push((byte + 1, units));
-            }
-        }
+        note_many(Work::OffsetBytes, text.len());
+        let starts = std::iter::once(TextSize::default())
+            .chain(text.match_indices('\n').map(|(at, _)| text_size(at + 1)))
+            .collect();
         LineIndex { text, starts }
     }
 
-    /// The UTF-16 offset of one-based `line`:`column`, clamped to the line.
-    pub(crate) fn offset(&self, line: usize, column: usize) -> usize {
+    /// The byte of one-based `line`:`column` (a character column),
+    /// clamped to the line.
+    pub(crate) fn offset(&self, line: usize, column: usize) -> TextSize {
         let index = line.saturating_sub(1).min(self.starts.len() - 1);
-        let (byte, units) = self.starts[index];
-        let rest = self.text[byte..].split('\n').next().unwrap_or("");
-        units
-            + rest
+        self.starts[index]
+            + self
+                .line_text(index)
                 .chars()
                 .take(column.saturating_sub(1))
-                .map(char::len_utf16)
-                .sum::<usize>()
+                .map(TextSize::of)
+                .sum::<TextSize>()
     }
 
-    pub(crate) fn range(&self, range: TextRange) -> Range<usize> {
+    /// `range` (lines and character columns) as bytes.
+    pub(crate) fn range(&self, range: paths::TextRange) -> TextRange {
         let start = self.offset(range.start.line, range.start.column);
-        start..self.offset(range.end.line, range.end.column).max(start)
+        TextRange::new(
+            start,
+            self.offset(range.end.line, range.end.column).max(start),
+        )
     }
 
-    /// Zero-based line of UTF-16 `offset`.
-    pub(crate) fn line_of(&self, offset: usize) -> usize {
+    /// Zero-based line of byte `offset`.
+    pub(crate) fn line_of(&self, offset: TextSize) -> usize {
         self.starts
-            .partition_point(|(_, units)| *units <= offset)
+            .partition_point(|start| *start <= offset)
             .saturating_sub(1)
     }
 
-    /// UTF-16 offsets of zero-based `line`'s start and end (before its
-    /// newline).
-    pub(crate) fn line_bounds(&self, line: usize) -> Range<usize> {
+    /// Zero-based `line`'s start and end (before its newline).
+    pub(crate) fn line_bounds(&self, line: usize) -> TextRange {
         let line = line.min(self.starts.len() - 1);
-        let (byte, units) = self.starts[line];
-        let length: usize = self.text[byte..]
-            .split('\n')
-            .next()
-            .unwrap_or("")
-            .encode_utf16()
-            .count();
-        units..units + length
+        TextRange::at(self.starts[line], TextSize::of(self.line_text(line)))
     }
 
     /// Zero-based `line`'s text, without its newline.
     pub(crate) fn line_text(&self, line: usize) -> &'a str {
         let line = line.min(self.starts.len() - 1);
-        let start = self.starts[line].0;
         let end = self
             .starts
             .get(line + 1)
-            .map_or(self.text.len(), |(next, _)| next - 1);
-        &self.text[start..end]
+            .map_or(TextSize::of(self.text), |next| *next - TextSize::from(1));
+        slice::slice(self.text, TextRange::new(self.starts[line], end)).unwrap_or_default()
     }
 
     pub(crate) fn line_count(&self) -> usize {
         self.starts.len()
-    }
-
-    /// The byte index of UTF-16 `offset` (clamped to the text), read from
-    /// its line's start, not from the text's.
-    pub(crate) fn byte_of(&self, offset: usize) -> usize {
-        let (byte, units) = self.starts[self.line_of(offset)];
-        let mut counted = units;
-        for (at, character) in self.text[byte..].char_indices() {
-            if counted >= offset {
-                return byte + at;
-            }
-            counted += character.len_utf16();
-        }
-        self.text.len()
-    }
-
-    /// The UTF-16 offset of byte `byte` (a character boundary), counted
-    /// from its line's start.
-    pub(crate) fn units_of(&self, byte: usize) -> usize {
-        let line = self
-            .starts
-            .partition_point(|(start, _)| *start <= byte)
-            .saturating_sub(1);
-        let (start, units) = self.starts[line];
-        note_many(Work::OffsetBytes, byte - start);
-        units + self.text[start..byte].encode_utf16().count()
     }
 }
 
@@ -115,9 +79,9 @@ impl<'a> LineIndex<'a> {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Extent {
     /// The field's own key (not muted: only its value is).
-    pub(crate) key: Option<Range<usize>>,
+    pub(crate) key: Option<TextRange>,
     /// Everything the field covers, in order, without overlaps.
-    pub(crate) ranges: Vec<Range<usize>>,
+    pub(crate) ranges: Vec<TextRange>,
 }
 
 /// Where the field at `pointer` is written in `text`, which parses: its key
@@ -132,30 +96,30 @@ pub(crate) fn extent(
 ) -> Option<Extent> {
     let key = key_range(behavior, text, pointer).map(|range| lines.range(range));
     let (value, shared) = whole_value(behavior, text, pointer);
-    let mut ranges: Vec<Range<usize>> = value
-        .into_iter()
-        .map(|range| lines.units_of(range.start)..lines.units_of(range.end))
-        .collect();
+    let mut ranges: Vec<TextRange> = value.into_iter().map(byte_range).collect();
     match (&key, ranges.first_mut()) {
         // The key and what stands between it and its value (a separator,
         // a line break, a tag) are the field's own.
-        (Some(key), Some(first)) if !shared && key.start < first.start => first.start = key.start,
-        (Some(key), Some(_)) if shared => ranges.insert(0, key.clone()),
-        (Some(key), None) => ranges.push(key.clone()),
+        (Some(key), Some(first)) if !shared && key.start() < first.start() => {
+            *first = TextRange::new(key.start(), first.end());
+        }
+        (Some(key), Some(_)) if shared => ranges.insert(0, *key),
+        (Some(key), None) => ranges.push(*key),
         (None, None) => return None,
         _ => {}
     }
     if let Some(first) = ranges.first_mut() {
-        let name = lines.byte_of(first.start);
+        // `markup_before` is the flow syntax's, in `str` bytes.
+        let name = usize::from(first.start());
         if let Some(open) = super::super::flow_syntax::markup_before(behavior, text, name) {
-            first.start -= text[open..name].encode_utf16().count();
+            *first = TextRange::new(text_size(open), first.end());
         }
     }
-    ranges.sort_by_key(|range| (range.start, range.end));
-    let mut merged: Vec<Range<usize>> = Vec::with_capacity(ranges.len());
+    ranges.sort_by_key(|range| (range.start(), range.end()));
+    let mut merged: Vec<TextRange> = Vec::with_capacity(ranges.len());
     for range in ranges {
         match merged.last_mut() {
-            Some(last) if range.start <= last.end => last.end = last.end.max(range.end),
+            Some(last) if range.start() <= last.end() => *last = last.cover(range),
             _ => merged.push(range),
         }
     }
@@ -212,11 +176,12 @@ mod tests {
     fn line_index_converts_positions() {
         let text = "a: 1\nbé: 2\n";
         let lines = LineIndex::new(text);
-        assert_eq!(lines.offset(2, 1), 5);
-        assert_eq!(lines.offset(2, 3), 7);
-        assert_eq!(lines.offset(9, 1), 11);
-        assert_eq!(lines.line_of(6), 1);
-        assert_eq!(lines.line_bounds(1), 5..10);
+        let at = TextSize::from;
+        assert_eq!(lines.offset(2, 1), at(5));
+        assert_eq!(lines.offset(2, 3), at(8));
+        assert_eq!(lines.offset(9, 1), at(12));
+        assert_eq!(lines.line_of(at(6)), 1);
+        assert_eq!(lines.line_bounds(1), TextRange::new(at(5), at(11)));
         assert_eq!(lines.line_count(), 3);
     }
 }

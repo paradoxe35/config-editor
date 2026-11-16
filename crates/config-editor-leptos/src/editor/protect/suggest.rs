@@ -62,7 +62,9 @@ pub(crate) fn adjust(options: Vec<Completion>, around: &Around<'_>) -> Vec<Compl
     }
     // Browsing a read-only region: on its text, or on a new line inside a
     // read-only block (whose keys would all be read-only).
-    let browsing = around.protected.lock_at(around.cursor).is_some()
+    // The suggestion API's cursor is UTF-16; the locks count bytes.
+    let cursor = crate::editor::text::byte_of(around.source, around.cursor);
+    let browsing = around.protected.lock_at(cursor).is_some()
         || (!context.path.is_empty() && lock_reason(around, &context.path).is_some());
     // Every value is the same field's: whether it is read-only is asked once.
     let value_lock = context

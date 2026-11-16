@@ -2,7 +2,7 @@
 //! text must hold every read-only value exactly as the host's last text
 //! did, whatever route the edit took to get there.
 
-use std::ops::Range;
+use super::super::text::{TextRange, TextSize, byte_range};
 use std::sync::Arc;
 
 use serde_json::Value;
@@ -21,7 +21,7 @@ pub(crate) struct ReadOnlyChange {
     pub(crate) pointer: String,
 }
 
-/// The pointers of the fields `ranges` (UTF-16, in `text`) cover: each
+/// The pointers of the fields `ranges` (of `text`) cover: each
 /// field written there whose range, or scalar value as written (over the
 /// lines below its key too), overlaps one, outermost first; a list some of
 /// whose items they overlap is read into. Every
@@ -31,7 +31,7 @@ pub(crate) fn range_pointers(
     behavior: &dyn ConfigLanguage,
     text: &str,
     document: &Value,
-    ranges: &[Range<usize>],
+    ranges: &[TextRange],
 ) -> Vec<String> {
     if ranges.is_empty() {
         return Vec::new();
@@ -71,9 +71,7 @@ pub(crate) fn range_pointers(
                     || (scalar()
                         && written_value_span(behavior, text, &child_pointer)
                             .and_then(|span| scalar_range(behavior, text, span))
-                            .is_some_and(|range| {
-                                overlaps.any(lines.units_of(range.start)..lines.units_of(range.end))
-                            }));
+                            .is_some_and(|range| overlaps.any(byte_range(range))));
                 if covered {
                     found.push(child_pointer);
                 } else {
@@ -114,31 +112,31 @@ fn children<'v>(value: &'v Value, pointer: &str, every: &mut dyn FnMut(String, &
 /// Ranges sorted by their start, with the furthest end so far: whether a
 /// field overlaps any is a binary search, not a look at each.
 struct Overlaps {
-    starts: Vec<usize>,
-    furthest: Vec<usize>,
+    starts: Vec<TextSize>,
+    furthest: Vec<TextSize>,
 }
 
 impl Overlaps {
-    fn new(ranges: &[Range<usize>]) -> Self {
+    fn new(ranges: &[TextRange]) -> Self {
         let mut sorted = ranges.to_vec();
-        sorted.sort_by_key(|range| range.start);
+        sorted.sort_by_key(|range| range.start());
         let mut furthest = Vec::with_capacity(sorted.len());
-        let mut end = 0;
+        let mut end = TextSize::default();
         for range in &sorted {
-            end = end.max(range.end);
+            end = end.max(range.end());
             furthest.push(end);
         }
         Overlaps {
-            starts: sorted.iter().map(|range| range.start).collect(),
+            starts: sorted.iter().map(|range| range.start()).collect(),
             furthest,
         }
     }
 
     /// Whether `field` overlaps a range: one starting before its end ends
     /// after its start.
-    fn any(&self, field: Range<usize>) -> bool {
-        let before = self.starts.partition_point(|start| *start < field.end);
-        before > 0 && self.furthest[before - 1] > field.start
+    fn any(&self, field: TextRange) -> bool {
+        let before = self.starts.partition_point(|start| *start < field.end());
+        before > 0 && self.furthest[before - 1] > field.start()
     }
 }
 

@@ -7,37 +7,35 @@
 //! in among them) moves with its lines.
 
 use std::cell::OnceCell;
-use std::ops::Range;
 
 use super::super::diff::{DiffEdit, myers_edits};
-use super::super::edit::{Change, CodeUnits};
+use super::super::edit::Change;
+use super::super::text::{TextRange, TextSize, slice, text_size};
 use super::locate::LineIndex;
 use super::locks::Lock;
 use super::texts::Reason;
-use crate::editor::text::Utf16;
 
-/// How the UTF-16 offsets of one text map onto the text an edit made of it.
+/// How the offsets of one text map onto the text an edit made of it.
 pub(super) struct Moves<'a> {
     before: &'a str,
     after: &'a str,
-    old: Vec<u16>,
-    new: Vec<u16>,
-    /// Units the two texts share at their start and end (not overlapping).
-    prefix: usize,
-    suffix: usize,
-    old_len: usize,
-    new_len: usize,
+    /// Bytes the two texts share at their start and end (not overlapping),
+    /// each ending on a character boundary.
+    prefix: TextSize,
+    suffix: TextSize,
+    old_len: TextSize,
+    new_len: TextSize,
     lines: OnceCell<Option<LineMoves<'a>>>,
     /// What the edit recorded it did, when it did: spans are mapped
     /// through it, never through a line diff.
-    change: Option<&'a Change<CodeUnits>>,
+    change: Option<&'a Change>,
 }
 
-/// One range of the text before an edit replaced (UTF-16), the range of
-/// the text after it wrote there, and that text.
+/// One range of the text before an edit replaced, the range of the text
+/// after it wrote there, and that text.
 pub(super) struct Piece {
-    pub(super) replaced: Range<usize>,
-    pub(super) wrote: Range<usize>,
+    pub(super) replaced: TextRange,
+    pub(super) wrote: TextRange,
     pub(super) written: String,
 }
 
@@ -51,18 +49,33 @@ struct LineMoves<'a> {
     to_new: Vec<Option<usize>>,
 }
 
+/// The bytes `before` and `after` share at their start and at their end
+/// (the two may overlap), each ending on a character boundary of both.
+fn shared_ends(before: &str, after: &str) -> (usize, usize) {
+    let (old, new) = (before.as_bytes(), after.as_bytes());
+    let mut prefix = old.iter().zip(new).take_while(|(a, b)| a == b).count();
+    while !before.is_char_boundary(prefix) {
+        prefix -= 1;
+    }
+    let mut shared_end = old
+        .iter()
+        .rev()
+        .zip(new.iter().rev())
+        .take_while(|(a, b)| a == b)
+        .count();
+    while !before.is_char_boundary(old.len() - shared_end) {
+        shared_end -= 1;
+    }
+    (prefix, shared_end)
+}
+
 /// An edit inserting or deleting text only (the texts alike but for it,
-/// `prefix` and `suffix` units kept), slid back over the text it repeats
+/// `prefix` and `suffix` bytes kept), slid back over the text it repeats
 /// to start at a line start when it can: a line pasted above one that
 /// starts alike (`password2: x` above `password: hunter2`) is that line,
 /// not a piece starting inside the line below, so the spans after it stay
 /// on their own text. Otherwise as given.
-pub(super) fn slid_to_line_start(
-    old: &[u16],
-    new: &[u16],
-    prefix: usize,
-    suffix: usize,
-) -> (usize, usize) {
+fn slid_to_line_start(old: &[u8], new: &[u8], prefix: usize, suffix: usize) -> (usize, usize) {
     let (removed, inserted) = (old.len() - prefix - suffix, new.len() - prefix - suffix);
     let (text, len) = match (removed, inserted) {
         (0, 0) => return (prefix, suffix),
@@ -70,7 +83,7 @@ pub(super) fn slid_to_line_start(
         (len, 0) => (old, len),
         _ => return (prefix, suffix),
     };
-    let line_start = |at: usize| at == 0 || text[at - 1] == u16::from(b'\n');
+    let line_start = |at: usize| at == 0 || text[at - 1] == b'\n';
     if line_start(prefix) {
         return (prefix, suffix);
     }
@@ -85,25 +98,28 @@ pub(super) fn slid_to_line_start(
 }
 
 /// Where the region an edit replaced starts, when the caret it left
-/// (`caret`, UTF-16 in `new`) places it: the inserted text ends there, and
-/// the texts agree before it starts and after it ends (`prefix` and
-/// `shared_end` units the texts share at their start and end, which may
+/// (`caret`, a byte of `after`) places it: the inserted text ends there,
+/// and the texts agree before it starts and after it ends (`prefix` and
+/// `shared_end` bytes the texts share at their start and end, which may
 /// overlap). `None` when the caret does not fit the texts.
-pub(super) fn placed_by_caret(
-    old: &[u16],
-    new: &[u16],
+fn placed_by_caret(
+    (before, after): (&str, &str),
     prefix: usize,
     shared_end: usize,
-    caret: usize,
+    caret: TextSize,
 ) -> Option<usize> {
+    let (old, new) = (before.len(), after.len());
     let tail = shared_end
-        .min(old.len() - prefix.min(old.len()))
-        .min(new.len() - prefix.min(new.len()));
-    let removed = old.len() - tail - prefix.min(old.len());
-    let inserted = new.len() - tail - prefix.min(new.len());
-    let from = caret.checked_sub(inserted)?;
-    (from <= prefix && from + removed <= old.len() && old.len() - (from + removed) <= shared_end)
-        .then_some(from)
+        .min(old - prefix.min(old))
+        .min(new - prefix.min(new));
+    let removed = old - tail - prefix.min(old);
+    let inserted = new - tail - prefix.min(new);
+    let from = usize::from(caret).checked_sub(inserted)?;
+    (from <= prefix
+        && from + removed <= old
+        && old - (from + removed) <= shared_end
+        && before.is_char_boundary(from))
+    .then_some(from)
 }
 
 impl<'a> Moves<'a> {
@@ -113,42 +129,37 @@ impl<'a> Moves<'a> {
 
     /// The moves of the edit from `before` to `after`: those `change`
     /// records when it does; else read off the texts and the caret it left
-    /// at `caret` (UTF-16), when known: the region it replaced is placed by
-    /// it (see [`placed_by_caret`]), so text inserted beside a copy of
-    /// itself goes where it was typed.
+    /// at `caret`, when known: the region it replaced is placed by it (see
+    /// [`placed_by_caret`]), so text inserted beside a copy of itself goes
+    /// where it was typed.
     pub(super) fn at(
         before: &'a str,
         after: &'a str,
-        caret: Option<usize>,
-        change: Option<&'a Change<CodeUnits>>,
+        caret: Option<TextSize>,
+        change: Option<&'a Change>,
     ) -> Self {
-        let old: Vec<u16> = before.encode_utf16().collect();
-        let new: Vec<u16> = after.encode_utf16().collect();
-        let prefix = old.iter().zip(&new).take_while(|(a, b)| a == b).count();
-        let shared_end = old
-            .iter()
-            .rev()
-            .zip(new.iter().rev())
-            .take_while(|(a, b)| a == b)
-            .count();
-        let suffix = shared_end.min(old.len() - prefix).min(new.len() - prefix);
-        let (prefix, suffix) =
-            match caret.and_then(|caret| placed_by_caret(&old, &new, prefix, shared_end, caret)) {
-                Some(from) => {
-                    let removed = old.len() - prefix - suffix;
-                    (from, old.len() - from - removed)
-                }
-                None => slid_to_line_start(&old, &new, prefix, suffix),
-            };
+        let (old, new) = (before.as_bytes(), after.as_bytes());
+        let (prefix, shared_end) = shared_ends(before, after);
+        let mut suffix = shared_end.min(old.len() - prefix).min(new.len() - prefix);
+        while !before.is_char_boundary(old.len() - suffix) {
+            suffix -= 1;
+        }
+        let placed =
+            caret.and_then(|caret| placed_by_caret((before, after), prefix, shared_end, caret));
+        let (prefix, suffix) = match placed {
+            Some(from) => {
+                let removed = old.len() - prefix - suffix;
+                (from, old.len() - from - removed)
+            }
+            None => slid_to_line_start(old, new, prefix, suffix),
+        };
         Moves {
             before,
             after,
-            prefix,
-            suffix,
-            old_len: old.len(),
-            new_len: new.len(),
-            old,
-            new,
+            prefix: text_size(prefix),
+            suffix: text_size(suffix),
+            old_len: TextSize::of(before),
+            new_len: TextSize::of(after),
             lines: OnceCell::new(),
             change,
         }
@@ -165,24 +176,24 @@ impl<'a> Moves<'a> {
         // (the guard lets the key change where no range is on screen): its
         // value is followed past the key, so a renamed key leaves the field
         // locked, and held where it reads otherwise.
-        let value_only = |range: &Range<usize>| match &lock.key {
+        let value_only = |range: &TextRange| match &lock.key {
             Some(key)
                 if lock.pointer.is_some()
                     && lock.reason == Reason::Range
-                    && key.start <= range.start
-                    && range.start < key.end
-                    && key.end < range.end =>
+                    && key.start() <= range.start()
+                    && range.start() < key.end()
+                    && key.end() < range.end() =>
             {
-                key.end..range.end
+                TextRange::new(key.end(), range.end())
             }
-            _ => range.clone(),
+            _ => *range,
         };
-        let ranges: Vec<Range<usize>> = lock
+        let ranges: Vec<TextRange> = lock
             .ranges
             .iter()
             .map(|range| self.range(range).or_else(|| self.range(&value_only(range))))
             .collect::<Option<_>>()?;
-        let key = |span: &Range<usize>| {
+        let key = |span: &TextRange| {
             lock.ranges
                 .iter()
                 .zip(&ranges)
@@ -204,16 +215,17 @@ impl<'a> Moves<'a> {
     pub(super) fn pieces(&self) -> Vec<Piece> {
         if let Some(change) = self
             .change
-            .filter(|change| usize::from(change.len_after()) == self.new_len)
+            .filter(|change| change.len_after() == self.new_len)
         {
-            let mut shift: isize = 0;
+            // What the replacements before each one wrote and deleted.
+            let (mut grown, mut shrunk) = (TextSize::default(), TextSize::default());
             return change
                 .edits()
                 .map(|(replaced, written)| {
-                    let replaced = usize::from(replaced.start)..usize::from(replaced.end);
-                    let start = (replaced.start as isize + shift) as usize;
-                    let wrote = start..start + written.encode_utf16().count();
-                    shift += wrote.len() as isize - replaced.len() as isize;
+                    let wrote =
+                        TextRange::at(replaced.start() + grown - shrunk, TextSize::of(written));
+                    grown += wrote.len();
+                    shrunk += replaced.len();
                     Piece {
                         replaced,
                         wrote,
@@ -222,65 +234,69 @@ impl<'a> Moves<'a> {
                 })
                 .collect();
         }
-        let wrote = self.prefix..self.new_len - self.suffix;
+        let wrote = TextRange::new(self.prefix, self.new_len - self.suffix);
         vec![Piece {
-            replaced: self.prefix..self.old_len - self.suffix,
-            written: String::from_utf16_lossy(&self.new[wrote.clone()]),
+            replaced: TextRange::new(self.prefix, self.old_len - self.suffix),
+            written: slice::slice(self.after, wrote)
+                .unwrap_or_default()
+                .to_string(),
             wrote,
         }]
     }
 
     /// `span` moved as `old` moved to `new`, when it is on the line `old`
     /// starts on and its text is written there in the text after.
-    fn along(
-        &self,
-        span: &Range<usize>,
-        old: &Range<usize>,
-        new: &Range<usize>,
-    ) -> Option<Range<usize>> {
-        let (low, high) = (span.start.min(old.start), span.end.max(old.start));
-        if high > self.old.len() || self.old[low..high].contains(&u16::from(b'\n')) {
+    fn along(&self, span: &TextRange, old: &TextRange, new: &TextRange) -> Option<TextRange> {
+        let (low, high) = (span.start().min(old.start()), span.end().max(old.start()));
+        if slice::slice(self.before, TextRange::new(low, high))?.contains('\n') {
             return None;
         }
-        let start = (span.start + new.start).checked_sub(old.start)?;
-        let moved = start..start + span.len();
-        (self.new.get(moved.clone()) == Some(&self.old[span.clone()])).then_some(moved)
+        let start = (span.start() + new.start()).checked_sub(old.start())?;
+        let moved = TextRange::at(start, span.len());
+        (slice::slice(self.after, moved) == slice::slice(self.before, *span)).then_some(moved)
     }
 
     /// Where `range` of the text before is in the text after, when the edit
     /// kept its text.
-    pub(super) fn range(&self, range: &Range<usize>) -> Option<Range<usize>> {
+    pub(super) fn range(&self, range: &TextRange) -> Option<TextRange> {
         if let Some(change) = self.change {
             // Whitespace re-flowed inside it (a reformat in one edit) moves
             // each end with the characters beside it.
             return change
-                .map_range(&(Utf16::count(range.start)..Utf16::count(range.end)))
-                .map(|range| usize::from(range.start)..usize::from(range.end))
+                .map_range(range)
                 .or_else(|| self.through_spacing(range));
         }
-        if range.end <= self.prefix {
-            return Some(range.clone());
+        if range.end() <= self.prefix {
+            return Some(*range);
         }
-        if range.start >= self.old_len - self.suffix {
-            let start = range.start + self.new_len - self.old_len;
-            return Some(start..start + range.len());
+        if range.start() >= self.old_len - self.suffix {
+            // Past the edit, the text after is as long as the text before
+            // plus what the edit wrote less what it took.
+            return Some(TextRange::at(
+                range.start() + self.new_len - self.old_len,
+                range.len(),
+            ));
         }
         if let Some(moved) = self.through_spacing(range) {
             return Some(moved);
         }
         // An edit made inside it changed its text: no alike line elsewhere
         // is it.
-        if range.start < self.prefix && self.old_len - self.suffix < range.end {
+        if range.start() < self.prefix && self.old_len - self.suffix < range.end() {
             return None;
         }
         let lines = self
             .lines
             .get_or_init(|| LineMoves::new(self.before, self.after))
             .as_ref()?;
-        let first = lines.old.line_of(range.start);
-        let last = lines
-            .old
-            .line_of(range.end.saturating_sub(1).max(range.start));
+        let first = lines.old.line_of(range.start());
+        let last = lines.old.line_of(
+            range
+                .end()
+                .checked_sub(TextSize::from(1))
+                .unwrap_or_default()
+                .max(range.start()),
+        );
         // Its first and last lines kept whole, in order: the stretch spans
         // what lies between them now (a line copied or moved in among its
         // lines is in it). A diff may take a line moved past its neighbour
@@ -300,11 +316,11 @@ impl<'a> Moves<'a> {
             }
             _ => lines.written_once(first, last)?,
         };
-        let start = lines.new.line_bounds(new_first).start
-            + (range.start - lines.old.line_bounds(first).start);
-        let end =
-            lines.new.line_bounds(new_last).start + (range.end - lines.old.line_bounds(last).start);
-        Some(start..end)
+        let start = lines.new.line_bounds(new_first).start()
+            + (range.start() - lines.old.line_bounds(first).start());
+        let end = lines.new.line_bounds(new_last).start()
+            + (range.end() - lines.old.line_bounds(last).start());
+        Some(TextRange::new(start, end))
     }
 }
 
@@ -313,45 +329,48 @@ impl Moves<'_> {
     /// changed anything (the guard lets spacing between tokens change in a
     /// text that does not parse, and re-flowing in one that does): each end
     /// stays with the characters beside it. `None` for any other edit.
-    fn through_spacing(&self, range: &Range<usize>) -> Option<Range<usize>> {
-        let old = &self.old[self.prefix..self.old_len - self.suffix];
-        let new = &self.new[self.prefix..self.new_len - self.suffix];
-        let solid = |unit: &&u16| !is_blank(**unit);
-        if !old.iter().filter(solid).eq(new.iter().filter(solid)) {
+    fn through_spacing(&self, range: &TextRange) -> Option<TextRange> {
+        let old = slice::slice(
+            self.before,
+            TextRange::new(self.prefix, self.old_len - self.suffix),
+        )?;
+        let new = slice::slice(
+            self.after,
+            TextRange::new(self.prefix, self.new_len - self.suffix),
+        )?;
+        let solid = |character: &char| !character.is_whitespace();
+        if !old.chars().filter(solid).eq(new.chars().filter(solid)) {
             return None;
         }
-        // The new region's offset of its `n`th solid unit (from 0), or its
-        // end.
+        // The new region's offset of its `n`th solid character (from 0)
+        // and that character, or its end.
         let nth_solid = |n: usize| {
-            new.iter()
-                .enumerate()
-                .filter(|(_, unit)| !is_blank(**unit))
+            new.char_indices()
+                .filter(|(_, character)| solid(character))
                 .nth(n)
-                .map_or(new.len(), |(at, _)| at)
+                .map(|(at, character)| (text_size(at), TextSize::of(character)))
         };
-        let map = |at: usize, end: bool| {
+        let map = |at: TextSize, end: bool| {
             if at <= self.prefix {
-                return at;
+                return Some(at);
             }
             if at >= self.old_len - self.suffix {
-                return at + self.new_len - self.old_len;
+                return Some(at + self.new_len - self.old_len);
             }
-            let before = old[..at - self.prefix].iter().filter(solid).count();
+            let before = slice::before(old, at - self.prefix)?
+                .chars()
+                .filter(solid)
+                .count();
             let at = match (end, before) {
-                (true, 0) => 0,
-                (true, n) => nth_solid(n - 1) + 1,
-                (false, n) => nth_solid(n),
+                (true, 0) => TextSize::default(),
+                (true, n) => nth_solid(n - 1).map_or(TextSize::of(new), |(at, len)| at + len),
+                (false, n) => nth_solid(n).map_or(TextSize::of(new), |(at, _)| at),
             };
-            self.prefix + at
+            Some(self.prefix + at)
         };
-        let start = map(range.start, false);
-        Some(start..map(range.end, true).max(start))
+        let start = map(range.start(), false)?;
+        Some(TextRange::new(start, map(range.end(), true)?.max(start)))
     }
-}
-
-/// Whether `unit` is whitespace.
-fn is_blank(unit: u16) -> bool {
-    char::from_u32(u32::from(unit)).is_some_and(char::is_whitespace)
 }
 
 impl<'a> LineMoves<'a> {
@@ -398,15 +417,19 @@ impl<'a> LineMoves<'a> {
 mod tests {
     use super::*;
 
+    fn r(start: u32, end: u32) -> TextRange {
+        TextRange::new(start.into(), end.into())
+    }
+
     #[test]
     fn ranges_move_with_the_text_around_them() {
         let moves = Moves::new("a: 1\nb: 2\nc: 3\n", "a: 1\nb: 2\nXc: 3\n");
-        assert_eq!(moves.range(&(5..9)), Some(5..9));
-        assert_eq!(moves.range(&(10..14)), Some(11..15));
-        assert_eq!(moves.range(&(9..11)), None);
+        assert_eq!(moves.range(&r(5, 9)), Some(r(5, 9)));
+        assert_eq!(moves.range(&r(10, 14)), Some(r(11, 15)));
+        assert_eq!(moves.range(&r(9, 11)), None);
         // Two places changed, the line between them kept whole.
         let moves = Moves::new("x\nb: 2\ny\n", "xx\nb: 2\nyy\n");
-        assert_eq!(moves.range(&(2..6)), Some(3..7));
+        assert_eq!(moves.range(&r(2, 6)), Some(r(3, 7)));
     }
 
     #[test]
@@ -416,13 +439,13 @@ mod tests {
         let before = "  user: svc\n  password: hunter2\n";
         let after = "  user: svc\n  password:  hunter2\n";
         let moves = Moves::new(before, after);
-        assert_eq!(moves.range(&(14..31)), Some(14..32));
+        assert_eq!(moves.range(&r(14, 31)), Some(r(14, 32)));
         // An indent changed above it.
         let moves = Moves::new("a:\n  b: 1\n", "a:\n    b: 1\n");
-        assert_eq!(moves.range(&(5..9)), Some(7..11));
+        assert_eq!(moves.range(&r(5, 9)), Some(r(7, 11)));
         // A word typed is no spacing.
         let moves = Moves::new(before, "  user: svc\n  password: x hunter2\n");
-        assert_eq!(moves.range(&(14..31)), None);
+        assert_eq!(moves.range(&r(14, 31)), None);
     }
 
     #[test]
@@ -433,14 +456,14 @@ mod tests {
         let moves = Moves::new("a: <k: 1>\na: <k: 1>\n", "a: <k: 2>\na: <k: 1>\n");
         let lock = Lock {
             pointer: Some("/a/k".to_string()),
-            key: Some(4..5),
-            ranges: std::iter::once(4..8).collect(),
-            guards: std::iter::once(0..1).collect(),
+            key: Some(r(4, 5)),
+            ranges: std::iter::once(r(4, 8)).collect(),
+            guards: std::iter::once(r(0, 1)).collect(),
             reason: Reason::Field,
         };
         let moved = moves.lock(&lock).expect("its text is kept");
-        assert_eq!(moved.ranges.first(), Some(&(14..18)));
-        assert_eq!(moved.key, Some(14..15));
-        assert_eq!(moved.guards.first(), Some(&(10..11)));
+        assert_eq!(moved.ranges.first(), Some(&r(14, 18)));
+        assert_eq!(moved.key, Some(r(14, 15)));
+        assert_eq!(moved.guards.first(), Some(&r(10, 11)));
     }
 }

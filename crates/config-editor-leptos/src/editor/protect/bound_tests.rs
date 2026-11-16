@@ -6,6 +6,8 @@
 //! In every language, for two unrelated patterns, in the host's language
 //! and while editing as another.
 
+#![allow(clippy::string_slice, reason = "the tests cut their own texts")]
+
 use leptos::prelude::*;
 
 use super::super::Language;

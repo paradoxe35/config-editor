@@ -29,12 +29,12 @@ mod holds;
 mod place;
 mod reading;
 
-use std::ops::Range;
+use super::super::text::{TextRange, TextSize};
 use std::sync::Arc;
 
 use serde_json::Value;
 
-use super::super::edit::{Change, CodeUnits};
+use super::super::edit::Change;
 use super::super::language::ConfigLanguage;
 use super::super::paths::{FieldPath, with_spans};
 use super::reach::out_of_reach;
@@ -50,21 +50,21 @@ pub(crate) struct Lock {
     pub(crate) pointer: Option<String>,
     /// The field's own key, which is shown as usual (only the value is
     /// muted).
-    pub(crate) key: Option<Range<usize>>,
-    /// UTF-16 ranges of the text the lock covers.
-    pub(crate) ranges: Vec<Range<usize>>,
+    pub(crate) key: Option<TextRange>,
+    /// The ranges of the text the lock covers.
+    pub(crate) ranges: Vec<TextRange>,
     /// The keys of the fields holding it: renaming one would move it.
-    pub(crate) guards: Vec<Range<usize>>,
+    pub(crate) guards: Vec<TextRange>,
     /// Why it is read-only, shown on hover and when an edit is refused.
     pub(crate) reason: Reason,
 }
 
 impl Lock {
-    /// Whether UTF-16 `offset` is inside the lock (its ends excluded).
-    pub(crate) fn contains(&self, offset: usize) -> bool {
+    /// Whether byte `offset` is inside the lock (its ends excluded).
+    pub(crate) fn contains(&self, offset: TextSize) -> bool {
         self.ranges
             .iter()
-            .any(|range| range.start < offset && offset < range.end)
+            .any(|range| range.start() < offset && offset < range.end())
     }
 
     /// Whether a host range locks it: the range's own lock, or a field
@@ -133,7 +133,7 @@ pub(crate) struct Protected {
     pub(crate) marking: bool,
     /// The host's read-only ranges the locks were found with (the fields
     /// they cover are locked by path too, see `fields::covered`).
-    pub(crate) ranges: Vec<Range<usize>>,
+    pub(crate) ranges: Vec<TextRange>,
     /// The fields the host's ranges cover in its own text, when this is a
     /// view in another language (see `Sources::range_fields`).
     pub(crate) range_fields: Vec<FieldPath>,
@@ -146,8 +146,8 @@ pub(crate) struct Protected {
 }
 
 impl Protected {
-    /// The lock covering UTF-16 `offset` (ends excluded), if any.
-    pub(crate) fn lock_at(&self, offset: usize) -> Option<&Lock> {
+    /// The lock covering byte `offset` (ends excluded), if any.
+    pub(crate) fn lock_at(&self, offset: TextSize) -> Option<&Lock> {
         self.locks.iter().find(|lock| lock.contains(offset))
     }
 
@@ -182,8 +182,8 @@ pub(crate) struct Sources<'a> {
     pub(crate) reading_schema: Option<&'a Value>,
     /// Read-only fields the host named.
     pub(crate) paths: &'a [FieldPath],
-    /// Read-only UTF-16 ranges of this text the host gave.
-    pub(crate) ranges: &'a [Range<usize>],
+    /// Read-only ranges of this text the host gave.
+    pub(crate) ranges: &'a [TextRange],
     /// The fields the host's ranges cover in its own text, locked here (a
     /// view in another language) as a range locks them: by their values.
     pub(crate) range_fields: &'a [FieldPath],
@@ -191,13 +191,13 @@ pub(crate) struct Sources<'a> {
     /// over when this text does not parse, and which move past an edit out
     /// of their reach (see `carried_past`).
     pub(crate) previous: Option<&'a Protected>,
-    /// Where the edit from `previous`'s text to this one left its caret
-    /// (UTF-16), when known: the locks follow the region it replaced as
+    /// Where the edit from `previous`'s text to this one left its caret,
+    /// when known: the locks follow the region it replaced as
     /// the guard placed it.
-    pub(crate) caret: Option<usize>,
-    /// What that edit recorded it did, when it did (UTF-16): the locks are
+    pub(crate) caret: Option<TextSize>,
+    /// What that edit recorded it did, when it did: the locks are
     /// moved through it.
-    pub(crate) change: Option<&'a Change<CodeUnits>>,
+    pub(crate) change: Option<&'a Change>,
 }
 
 /// The locks of `text`, written in `behavior`: the host's ranges, then each
@@ -281,7 +281,7 @@ pub(crate) fn protect(
     let mut seen = std::collections::HashSet::new();
     protected
         .locks
-        .retain(|lock| seen.insert((lock.pointer.clone(), lock.ranges.clone(), lock.key.clone())));
+        .retain(|lock| seen.insert((lock.pointer.clone(), lock.ranges.clone(), lock.key)));
     protected.held = placer.held_pointers(&protected.locks, &protected.unplaced);
     protected.read_off = placer.read_off(&protected.locks);
     protected.pins = placer.into_pins(&protected.locks, &protected.unplaced);
@@ -335,7 +335,7 @@ fn carried_past(
     let mut locks = range_locks(text, sources.ranges);
     // The fields the ranges cover are those of the text before only when
     // the ranges are its own, moved past the edit.
-    let moved: Vec<Range<usize>> = previous
+    let moved: Vec<TextRange> = previous
         .ranges
         .iter()
         .map(|range| shift.moved_range(range))
@@ -383,26 +383,22 @@ fn same_sources(previous: &Protected, sources: Sources<'_>) -> bool {
 }
 
 /// The stretches of the host's ranges among `locks`.
-fn range_stretches(locks: &[Lock]) -> Vec<Range<usize>> {
+fn range_stretches(locks: &[Lock]) -> Vec<TextRange> {
     locks
         .iter()
         .filter(|lock| lock.pointer.is_none())
-        .flat_map(|lock| lock.ranges.iter().cloned())
+        .flat_map(|lock| lock.ranges.iter().copied())
         .collect()
 }
 
 /// A lock for each of the host's `ranges` that is not empty, clamped to
 /// the text.
-fn range_locks(text: &str, ranges: &[Range<usize>]) -> Vec<Lock> {
-    let total = if ranges.is_empty() {
-        0
-    } else {
-        text.encode_utf16().count()
-    };
+fn range_locks(text: &str, ranges: &[TextRange]) -> Vec<Lock> {
+    let total = TextSize::of(text);
     ranges
         .iter()
-        .map(|range| range.start.min(total)..range.end.min(total))
-        .filter(|range| range.start < range.end)
+        .map(|range| TextRange::new(range.start().min(total), range.end().min(total)))
+        .filter(|range| !range.is_empty())
         .map(|range| Lock {
             pointer: None,
             key: None,

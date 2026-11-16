@@ -25,7 +25,7 @@ use super::super::work_count::{Work, note};
 use super::glued::written_alone;
 use super::marks::escape;
 use super::unplaced::{in_open_comment, runs_open, written_in};
-use crate::editor::text::text_size;
+use crate::editor::text::{TextRange, TextSize, byte_range, slice, text_size};
 
 /// A token of the host's text: the field it stands in (or the text's
 /// comments), and how often that field's value (or the comments) hold it.
@@ -68,8 +68,8 @@ impl Known {
 }
 
 /// The pointer of the field holding the token at byte `start` of `text`.
-fn field_at(behavior: &dyn ConfigLanguage, text: &str, start: usize) -> String {
-    path_at(behavior, text, api_units(text, start))
+fn field_at(behavior: &dyn ConfigLanguage, text: &str, start: TextSize) -> String {
+    path_at(behavior, text, api_units(text, usize::from(start)))
         .map(|path| path.to_pointer())
         .unwrap_or_default()
 }
@@ -213,7 +213,7 @@ impl SecretMatcher {
         } else {
             behavior.comments(text)
         };
-        let commented = |start: usize| in_comment(&comments, start);
+        let commented = |start: usize| in_comment(&comments, text_size(start));
         match super::super::codec::read(behavior, text, reading) {
             Ok(document) => {
                 let mut printed = std::collections::HashMap::new();
@@ -224,7 +224,13 @@ impl SecretMatcher {
                     add(token, Some(pointer.to_string()), whole, items, true);
                 });
                 for range in found.iter().filter(|range| commented(range.start)) {
-                    add(&text[range.clone()], None, None, Vec::new(), true);
+                    add(
+                        text.get(range.clone()).unwrap_or_default(),
+                        None,
+                        None,
+                        Vec::new(),
+                        true,
+                    );
                 }
             }
             Err(error) => {
@@ -245,19 +251,28 @@ impl SecretMatcher {
                     .into_iter()
                     .map(|construct| construct.range)
                     .collect();
-                let in_open_construct =
-                    |start: usize| constructs.iter().any(|range| runs_open(text, range, start));
+                let in_open_construct = |start: usize| {
+                    constructs
+                        .iter()
+                        .any(|range| runs_open(text, range, text_size(start)))
+                };
                 // A comment left open runs over the rest of the text: what
                 // it holds is no comment's, read as the text goes on.
-                let commented =
-                    |start: usize| commented(start) && !in_open_comment(text, &comments, start);
+                let commented = |start: usize| {
+                    commented(start) && !in_open_comment(text, &comments, text_size(start))
+                };
                 // Each token's field from one reading of the text, then
                 // the values of those fields read at once.
                 batched(behavior, text, || {
                     let placed: Vec<(Range<usize>, String)> = found
                         .iter()
                         .filter(|range| !commented(range.start))
-                        .map(|range| (range.clone(), field_at(behavior, text, range.start)))
+                        .map(|range| {
+                            (
+                                range.clone(),
+                                field_at(behavior, text, text_size(range.start)),
+                            )
+                        })
                         .collect();
                     let mut pointers: Vec<String> =
                         placed.iter().map(|(_, pointer)| pointer.clone()).collect();
@@ -265,7 +280,7 @@ impl SecretMatcher {
                     pointers.dedup();
                     with_spans(behavior, text, &pointers, || {
                         for (range, pointer) in placed {
-                            let token = &text[range.clone()];
+                            let token = text.get(range.clone()).unwrap_or_default();
                             // Not where the reading puts its field's value:
                             // the reading went wrong before it.
                             if past_error(range.start)
@@ -282,7 +297,13 @@ impl SecretMatcher {
                     });
                 });
                 for range in found.iter().filter(|range| commented(range.start)) {
-                    add(&text[range.clone()], None, None, Vec::new(), true);
+                    add(
+                        text.get(range.clone()).unwrap_or_default(),
+                        None,
+                        None,
+                        Vec::new(),
+                        true,
+                    );
                 }
             }
         }
@@ -320,7 +341,7 @@ impl SecretMatcher {
             match value {
                 serde_json::Value::String(written) => {
                     for range in self.find_in(written) {
-                        let token = &written[range];
+                        let token = written.get(range).unwrap_or_default();
                         let whole = (written.trim() == token).then_some(written.as_str());
                         found(token, &pointer, whole);
                     }
@@ -343,7 +364,7 @@ impl SecretMatcher {
     }
 }
 
-/// UTF-16 ranges of the known tokens written in `text`, each as often as
+/// The ranges of the known tokens written in `text`, each as often as
 /// the host wrote it, first ones first, without asking where each is (a
 /// text replaced whole: an undo, a switch); the pause in typing then checks
 /// they are in their fields (`EditorState::recheck_tokens`). One pass of the
@@ -352,22 +373,19 @@ pub(crate) fn locate_written(
     matcher: &SecretMatcher,
     text: &str,
     known: &[Known],
-) -> Vec<Range<usize>> {
+) -> Vec<TextRange> {
     let mut left = written_counts(known);
     let mut found = Vec::new();
-    let mut units = 0;
-    let mut byte = 0;
     for range in matcher.find(text) {
-        let token = &text[range.clone()];
-        let Some(count) = left.get_mut(token).filter(|count| **count > 0) else {
+        let range = byte_range(range);
+        let Some(count) = slice::slice(text, range)
+            .and_then(|token| left.get_mut(token))
+            .filter(|count| **count > 0)
+        else {
             continue;
         };
         *count -= 1;
-        units += text[byte..range.start].encode_utf16().count();
-        let length = token.encode_utf16().count();
-        found.push(units..units + length);
-        units += length;
-        byte = range.end;
+        found.push(range);
     }
     found
 }
@@ -414,7 +432,7 @@ pub(crate) fn held_in_fields<'a>(
 }
 
 impl SecretMatcher {
-    /// UTF-16 ranges of the real tokens in `text` (written in `behavior`):
+    /// The ranges of the real tokens in `text` (written in `behavior`):
     /// each `known` token in its own field, at most as often as the host
     /// wrote it there, first ones first.
     ///
@@ -427,7 +445,7 @@ impl SecretMatcher {
         behavior: &dyn ConfigLanguage,
         text: &str,
         known: &[Known],
-    ) -> Vec<Range<usize>> {
+    ) -> Vec<TextRange> {
         batched(behavior, text, || self.locate_in(behavior, text, known))
     }
 
@@ -437,7 +455,7 @@ impl SecretMatcher {
         behavior: &dyn ConfigLanguage,
         text: &str,
         known: &[Known],
-    ) -> Vec<Range<usize>> {
+    ) -> Vec<TextRange> {
         let holders = parse_cache::parsed(behavior, text)
             .as_ref()
             .as_ref()
@@ -455,11 +473,13 @@ impl SecretMatcher {
         let mut written: std::collections::HashMap<&str, Vec<usize>> =
             std::collections::HashMap::new();
         for range in self.find(text) {
-            if let Some((token, _)) = fields.get_key_value(&text[range.clone()]) {
+            if let Some((token, _)) =
+                fields.get_key_value(text.get(range.clone()).unwrap_or_default())
+            {
                 written.entry(*token).or_default().push(range.start);
             }
         }
-        // Byte ranges first, turned into UTF-16 in one pass at the end.
+        // As the pattern gives them, typed at the end.
         let mut found: Vec<Range<usize>> = Vec::new();
         // The text's comments, read once if a token needs them.
         let mut comments: Option<Vec<Range<usize>>> = None;
@@ -471,7 +491,7 @@ impl SecretMatcher {
                 let comments = comments.get_or_insert_with(|| behavior.comments(text));
                 let (commented, outside): (Vec<usize>, Vec<usize>) = written
                     .iter()
-                    .partition(|byte| in_comment(comments, **byte));
+                    .partition(|byte| in_comment(comments, text_size(**byte)));
                 for byte in commented.into_iter().take(*count) {
                     found.push(byte..byte + token.len());
                 }
@@ -497,7 +517,7 @@ impl SecretMatcher {
                 let outside: Vec<usize> = written
                     .iter()
                     .copied()
-                    .filter(|byte| !in_comment(comments, *byte))
+                    .filter(|byte| !in_comment(comments, text_size(*byte)))
                     .collect();
                 if outside.len() == pointers.len() {
                     written = outside;
@@ -519,7 +539,7 @@ impl SecretMatcher {
             for (nth, byte) in written.into_iter().enumerate() {
                 let pointer = match placed {
                     Some(pointers) => pointers[nth].clone(),
-                    None => field_at(behavior, text, byte),
+                    None => field_at(behavior, text, text_size(byte)),
                 };
                 let Some(slots) = by_field.get_mut(&field_key(&pointer)) else {
                     continue;
@@ -538,23 +558,13 @@ impl SecretMatcher {
         }
         found.sort_by_key(|range| range.start);
         found.dedup_by(|later, earlier| later.start < earlier.end);
-        let mut units = 0;
-        let mut byte = 0;
-        found
-            .into_iter()
-            .map(|range| {
-                units += text[byte..range.start].encode_utf16().count();
-                let start = units;
-                units += text[range.clone()].encode_utf16().count();
-                byte = range.end;
-                start..units
-            })
-            .collect()
+        found.into_iter().map(byte_range).collect()
     }
 }
 
 /// Whether byte `at` is inside one of `comments` (in order, apart).
-pub(crate) fn in_comment(comments: &[Range<usize>], at: usize) -> bool {
+pub(crate) fn in_comment(comments: &[Range<usize>], at: TextSize) -> bool {
+    let at = usize::from(at);
     let next = comments.partition_point(|comment| comment.end <= at);
     comments
         .get(next)
@@ -562,25 +572,24 @@ pub(crate) fn in_comment(comments: &[Range<usize>], at: usize) -> bool {
 }
 
 /// The edit turning `before` into `after` (whose replaced region is
-/// `region`, UTF-16 in `before`), widened so it never cuts a token: a
-/// token it touches goes whole. `None` when it touches none.
+/// `region` of `before`), widened so it never cuts a token: a token it
+/// touches goes whole. `None` when it touches none.
 pub(crate) fn widen(
-    tokens: &[Range<usize>],
+    tokens: &[TextRange],
     before: &str,
     after: &str,
-    region: Range<usize>,
-) -> Option<(String, Range<usize>, usize)> {
-    use super::super::text_change::utf16_len;
-    let inserted_len = (utf16_len(after) + region.len()).checked_sub(utf16_len(before))?;
+    region: TextRange,
+) -> Option<(String, TextRange, TextSize)> {
+    let inserted_len = (TextSize::of(after) + region.len()).checked_sub(TextSize::of(before))?;
     // Whole tokens written again (lines swapped or copied): no cut.
     if super::rewritten::rewritten_region(tokens, before, after, &region).is_some() {
         return None;
     }
-    let mut wide = region.clone();
+    let mut wide = region;
     loop {
-        let grown = tokens.iter().fold(wide.clone(), |wide, token| {
+        let grown = tokens.iter().fold(wide, |wide, token| {
             if cuts(token, &wide) {
-                wide.start.min(token.start)..wide.end.max(token.end)
+                wide.cover(*token)
             } else {
                 wide
             }
@@ -593,46 +602,47 @@ pub(crate) fn widen(
     if wide == region {
         return None;
     }
-    let old: Vec<u16> = before.encode_utf16().collect();
-    let new: Vec<u16> = after.encode_utf16().collect();
-    let inserted = &new[region.start..region.start + inserted_len];
-    let mut units = old[..wide.start].to_vec();
-    units.extend_from_slice(inserted);
-    units.extend_from_slice(&old[wide.end..]);
+    let inserted = slice::slice(after, TextRange::at(region.start(), inserted_len))?;
     Some((
-        String::from_utf16_lossy(&units),
-        wide.clone(),
-        wide.start + inserted_len,
+        format!(
+            "{}{inserted}{}",
+            slice::before(before, wide.start())?,
+            slice::after(before, wide.end())?
+        ),
+        wide,
+        wide.start() + inserted_len,
     ))
 }
 
 /// Whether an edit replacing `region` cuts `token`: it removes part of it,
 /// or inserts inside it.
-pub(super) fn cuts(token: &Range<usize>, region: &Range<usize>) -> bool {
+pub(super) fn cuts(token: &TextRange, region: &TextRange) -> bool {
     if region.is_empty() {
-        return token.start < region.start && region.start < token.end;
+        return token.start() < region.start() && region.start() < token.end();
     }
-    let overlaps = region.start < token.end && token.start < region.end;
-    let covers = region.start <= token.start && token.end <= region.end;
-    overlaps && !covers
+    let overlaps = region.start() < token.end() && token.start() < region.end();
+    overlaps && !region.contains_range(*token)
 }
 
-/// The tokens after an edit replaced `region` (UTF-16 in the old text)
-/// with `inserted_len` units: those before stay, those after shift, those
-/// it touched are gone.
+/// The tokens after an edit replaced `region` (of the old text) with
+/// `inserted_len` bytes: those before stay, those after shift, those it
+/// touched are gone.
 pub(crate) fn follow(
-    tokens: &[Range<usize>],
-    region: &Range<usize>,
-    inserted_len: usize,
-) -> Vec<Range<usize>> {
+    tokens: &[TextRange],
+    region: &TextRange,
+    inserted_len: TextSize,
+) -> Vec<TextRange> {
     tokens
         .iter()
         .filter_map(|token| {
-            if token.end <= region.start {
-                Some(token.clone())
-            } else if token.start >= region.end {
-                let shift = |at: usize| at + inserted_len - region.len();
-                Some(shift(token.start)..shift(token.end))
+            if token.end() <= region.start() {
+                Some(*token)
+            } else if token.start() >= region.end() {
+                // Past the region: as far past what the edit wrote.
+                Some(TextRange::at(
+                    token.start() + inserted_len - region.len(),
+                    token.len(),
+                ))
             } else {
                 None
             }
@@ -640,25 +650,29 @@ pub(crate) fn follow(
         .collect()
 }
 
-/// UTF-16 `offset` moved out of any token: to the edge it was moving
+/// Byte `offset` moved out of any token: to the edge it was moving
 /// towards (`forward`), or the nearest one.
-pub(crate) fn snap(tokens: &[Range<usize>], offset: usize, forward: Option<bool>) -> usize {
+pub(crate) fn snap(tokens: &[TextRange], offset: TextSize, forward: Option<bool>) -> TextSize {
     let Some(token) = tokens
         .iter()
-        .find(|token| token.start < offset && offset < token.end)
+        .find(|token| token.start() < offset && offset < token.end())
     else {
         return offset;
     };
     match forward {
-        Some(true) => token.end,
-        Some(false) => token.start,
-        None if offset - token.start <= token.end - offset => token.start,
-        None => token.end,
+        Some(true) => token.end(),
+        Some(false) => token.start(),
+        None if offset - token.start() <= token.end() - offset => token.start(),
+        None => token.end(),
     }
 }
 
 /// A selection grown to take whole every token it cuts.
-pub(crate) fn snap_selection(tokens: &[Range<usize>], start: usize, end: usize) -> (usize, usize) {
+pub(crate) fn snap_selection(
+    tokens: &[TextRange],
+    start: TextSize,
+    end: TextSize,
+) -> (TextSize, TextSize) {
     if start == end {
         let at = snap(tokens, start, None);
         return (at, at);
@@ -670,10 +684,15 @@ pub(crate) fn snap_selection(tokens: &[Range<usize>], start: usize, end: usize) 
 }
 
 #[cfg(test)]
+#[allow(clippy::string_slice, reason = "the tests cut their own texts")]
 mod tests {
     use super::*;
 
     const TOKEN: &str = "«secret 3f2a»";
+
+    fn r(start: u32, end: u32) -> TextRange {
+        TextRange::new(start.into(), end.into())
+    }
 
     #[cfg(all(feature = "yaml", feature = "json"))]
     #[test]
@@ -696,14 +715,11 @@ mod tests {
         );
         // Shown as JSON: real in `a`, plain in `c`.
         let shown = format!("{{\"c\": \"{TOKEN}\", \"a\": \"{TOKEN}\"}}");
-        let start = shown
-            .rfind(TOKEN)
-            .map(|at| shown[..at].encode_utf16().count())
-            .unwrap();
+        let start = shown.rfind(TOKEN).map(text_size).unwrap();
         let json = Language::JSON.behavior();
         assert_eq!(
             matcher.locate(json, &shown, &known),
-            vec![start..start + 13]
+            vec![TextRange::at(start, TextSize::of(TOKEN))]
         );
         let custom = SecretMatcher::new(
             &SecretOptions::default().with_matcher(|token| token.ends_with("2a»")),
@@ -721,42 +737,46 @@ mod tests {
     #[test]
     fn edits_touching_a_token_take_it_whole() {
         let text = format!("k: {TOKEN} x");
-        let token = 3..16;
-        let tokens = [token.clone()];
+        // `«` and `»` are two bytes each.
+        let token = r(3, 18);
+        let tokens = [token];
         // Backspace after it, Delete before it.
         let backspace = format!("k: {} x", &TOKEN[..TOKEN.len() - '»'.len_utf8()]);
         assert_eq!(
-            widen(&tokens, &text, &backspace, 15..16),
-            Some(("k:  x".to_string(), token.clone(), 3))
+            widen(&tokens, &text, &backspace, r(16, 18)),
+            Some(("k:  x".to_string(), token, 3.into()))
         );
         let delete = format!("k: {} x", &TOKEN['«'.len_utf8()..]);
         assert_eq!(
-            widen(&tokens, &text, &delete, 3..4).map(|(text, ..)| text),
+            widen(&tokens, &text, &delete, r(3, 5)).map(|(text, ..)| text),
             Some("k:  x".to_string())
         );
-        // Typing over a selection that ends inside it.
-        let units: Vec<u16> = text.encode_utf16().collect();
-        let typed = format!("k:Z{}", String::from_utf16_lossy(&units[6..]));
+        // Typing over a selection that ends inside it (after `«s`).
+        let typed = format!("k:Z{}", &text[7..]);
         assert_eq!(
-            widen(&tokens, &text, &typed, 2..6).map(|(text, ..)| text),
+            widen(&tokens, &text, &typed, r(2, 7)).map(|(text, ..)| text),
             Some("k:Z x".to_string())
         );
         // Typing at its edges, or deleting it whole, cuts nothing.
-        assert_eq!(widen(&tokens, &text, &format!("k: Q{TOKEN} x"), 3..3), None);
         assert_eq!(
-            widen(&tokens, &text, &format!("k: {TOKEN}Q x"), 16..16),
+            widen(&tokens, &text, &format!("k: Q{TOKEN} x"), r(3, 3)),
             None
         );
-        assert_eq!(widen(&tokens, &text, "k:  x", 3..16), None);
+        assert_eq!(
+            widen(&tokens, &text, &format!("k: {TOKEN}Q x"), r(18, 18)),
+            None
+        );
+        assert_eq!(widen(&tokens, &text, "k:  x", r(3, 18)), None);
     }
 
     #[test]
     fn the_caret_snaps_out_of_tokens() {
-        let tokens = vec![3..16, 20..33];
-        assert_eq!(snap(&tokens, 5, None), 3);
-        assert_eq!(snap(&tokens, 14, None), 16);
-        assert_eq!(snap(&tokens, 5, Some(true)), 16);
-        assert_eq!(snap(&tokens, 3, Some(true)), 3);
-        assert_eq!(snap_selection(&tokens, 5, 25), (3, 33));
+        let tokens = vec![r(3, 16), r(20, 33)];
+        let at = TextSize::from;
+        assert_eq!(snap(&tokens, at(5), None), at(3));
+        assert_eq!(snap(&tokens, at(14), None), at(16));
+        assert_eq!(snap(&tokens, at(5), Some(true)), at(16));
+        assert_eq!(snap(&tokens, at(3), Some(true)), at(3));
+        assert_eq!(snap_selection(&tokens, at(5), at(25)), (at(3), at(33)));
     }
 }

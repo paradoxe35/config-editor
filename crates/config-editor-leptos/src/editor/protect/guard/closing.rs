@@ -7,24 +7,21 @@
 //! end of markup it leaves open) or a separator. No other text changes, so
 //! the field reads as the host wrote it.
 
-use std::ops::Range;
-
 use serde_json::Value;
 
 use super::super::super::language::{ConfigLanguage, LanguageConfig};
+use super::super::super::text::{TextRange, TextSize, slice};
 use super::super::locate::{LineIndex, lookup};
 use super::super::locks::Lock;
-use super::stretch::is_blank;
 
 /// The edit as the closing check reads it: the two texts, and the region
-/// it replaced in each (UTF-16).
+/// it replaced in each.
 pub(super) struct Closing<'a> {
     pub(super) behavior: &'a dyn ConfigLanguage,
     pub(super) before: &'a str,
-    pub(super) old: &'a [u16],
-    pub(super) new: &'a [u16],
-    pub(super) region: Range<usize>,
-    pub(super) new_region: Range<usize>,
+    pub(super) after: &'a str,
+    pub(super) region: TextRange,
+    pub(super) new_region: TextRange,
 }
 
 impl Closing<'_> {
@@ -39,8 +36,8 @@ impl Closing<'_> {
             return false;
         }
         // Only an insertion, on the field's lines.
-        let removed = &self.old[self.region.clone()];
-        if removed.iter().any(|unit| !is_blank(*unit)) || !self.on_lines(lock) {
+        let removed = slice::slice(self.before, self.region).unwrap_or_default();
+        if !removed.trim().is_empty() || !self.on_lines(lock) {
             return false;
         }
         // The span up to where the closer goes (read off a broken text, it
@@ -48,14 +45,18 @@ impl Closing<'_> {
         let written: String = lock
             .ranges
             .iter()
-            .filter(|range| range.start < self.region.start)
-            .map(|range| {
-                String::from_utf16_lossy(&self.old[range.start..range.end.min(self.region.start)])
+            .filter(|range| range.start() < self.region.start())
+            .filter_map(|range| {
+                slice::slice(
+                    self.before,
+                    TextRange::new(range.start(), range.end().min(self.region.start())),
+                )
             })
             .collect();
         // What closes the containers the span leaves open (closing brackets,
         // XML end tags), each taken out of what was inserted once.
-        let mut rest: String = String::from_utf16_lossy(&self.new[self.new_region.clone()])
+        let mut rest: String = slice::slice(self.after, self.new_region)
+            .unwrap_or_default()
             .chars()
             .filter(|character| !character.is_whitespace())
             .collect();
@@ -73,11 +74,19 @@ impl Closing<'_> {
         let lines = LineIndex::new(self.before);
         let region = &self.region;
         lock.ranges.iter().any(|range| {
-            let first = lines.line_bounds(lines.line_of(range.start)).start;
+            let first = lines.line_bounds(lines.line_of(range.start())).start();
             let last = lines
-                .line_bounds(lines.line_of(range.end.saturating_sub(1).max(range.start)))
-                .end;
-            first <= region.start && region.end <= last + 1
+                .line_bounds(
+                    lines.line_of(
+                        range
+                            .end()
+                            .checked_sub(TextSize::from(1))
+                            .unwrap_or_default()
+                            .max(range.start()),
+                    ),
+                )
+                .end();
+            first <= region.start() && region.end() <= last + TextSize::from(1)
         })
     }
 }

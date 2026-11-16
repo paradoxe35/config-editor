@@ -3,6 +3,8 @@
 //! problem sits where the lock nearest to it by path starts, else on the
 //! first line, so walking to it (F8) shows it there.
 
+#![allow(clippy::string_slice, reason = "the tests cut their own texts")]
+
 use leptos::prelude::*;
 
 use super::super::Language;

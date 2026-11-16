@@ -12,6 +12,8 @@
 //! turned `/server/host` into `/server/0/host`, so it was refused ("This
 //! text is read-only", or "would no longer read as the host gave it").
 
+#![allow(clippy::string_slice, reason = "the tests cut their own texts")]
+
 use leptos::prelude::*;
 
 use super::super::Language;

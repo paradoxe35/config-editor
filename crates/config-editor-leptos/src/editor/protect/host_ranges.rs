@@ -8,7 +8,7 @@
 //! where the fields it covered are written in the new text: a conversion
 //! writes fields, so their paths are what it keeps.
 
-use std::ops::Range;
+use crate::editor::text::{TextRange, TextSize};
 
 use leptos::prelude::*;
 use serde_json::Value;
@@ -20,27 +20,27 @@ use super::carry::Moves;
 use super::follow::follow_ranges;
 use super::locate::{LineIndex, lookup};
 use super::save::range_pointers;
-use crate::editor::paths::TextRange;
+use crate::editor::paths;
 use crate::editor::work_count::{Work, note};
 
-/// A host text and the host's ranges as UTF-16 offsets of it.
+/// A host text and the host's ranges in it.
 #[derive(Clone, Copy)]
-pub(super) struct HostRanges(StoredValue<(String, Vec<Range<usize>>)>);
+pub(super) struct HostRanges(StoredValue<(String, Vec<TextRange>)>);
 
 impl HostRanges {
     /// `ranges` placed in `host`.
-    pub(super) fn new(host: &str, ranges: &[TextRange]) -> Self {
+    pub(super) fn new(host: &str, ranges: &[paths::TextRange]) -> Self {
         HostRanges(StoredValue::new((host.to_string(), offsets(host, ranges))))
     }
 
     /// Places the host's `ranges` in its text `host` afresh (it gave either).
-    pub(super) fn place(self, host: &str, ranges: &[TextRange]) {
+    pub(super) fn place(self, host: &str, ranges: &[paths::TextRange]) {
         self.0.set_value((host.to_string(), offsets(host, ranges)));
     }
 
     /// Takes `ranges`, already followed into `text` (the host's language on
     /// screen, left for another).
-    pub(super) fn keep(self, text: &str, ranges: Vec<Range<usize>>) {
+    pub(super) fn keep(self, text: &str, ranges: Vec<TextRange>) {
         self.0.set_value((text.to_string(), ranges));
     }
 
@@ -51,7 +51,7 @@ impl HostRanges {
         behavior: &dyn ConfigLanguage,
         host: &str,
         reading: Option<&Value>,
-    ) -> Vec<Range<usize>> {
+    ) -> Vec<TextRange> {
         let followed = self.0.with_value(|(text, ranges)| {
             if text == host || ranges.is_empty() {
                 return None;
@@ -76,16 +76,16 @@ pub(super) fn followed_to(
     behavior: &dyn ConfigLanguage,
     text: &str,
     host: &str,
-    ranges: &[Range<usize>],
+    ranges: &[TextRange],
     reading: Option<&Value>,
-) -> Vec<Range<usize>> {
+) -> Vec<TextRange> {
     let moves = Moves::new(text, host);
     let mut placed = Vec::with_capacity(ranges.len());
     let mut rewritten = Vec::new();
     for range in ranges {
         match moves.range(range) {
             Some(range) => placed.push(range),
-            None => rewritten.push(range.clone()),
+            None => rewritten.push(*range),
         }
     }
     if rewritten.is_empty() {
@@ -94,11 +94,17 @@ pub(super) fn followed_to(
     match at_fields(behavior, text, host, &rewritten, reading) {
         Some(fields) => placed.extend(fields),
         None => placed.extend(rewritten.iter().map(|range| {
-            let shifted = follow_ranges(std::slice::from_ref(range), text, host, 0, None);
-            shifted.into_iter().next().unwrap_or(range.clone())
+            let shifted = follow_ranges(
+                std::slice::from_ref(range),
+                text,
+                host,
+                TextSize::default(),
+                None,
+            );
+            shifted.into_iter().next().unwrap_or(*range)
         })),
     }
-    placed.sort_by_key(|range| (range.start, range.end));
+    placed.sort_by_key(|range| (range.start(), range.end()));
     placed.dedup();
     placed
 }
@@ -111,9 +117,9 @@ fn at_fields(
     behavior: &dyn ConfigLanguage,
     text: &str,
     host: &str,
-    ranges: &[Range<usize>],
+    ranges: &[TextRange],
     reading: Option<&Value>,
-) -> Option<Vec<Range<usize>>> {
+) -> Option<Vec<TextRange>> {
     let old = codec::read(behavior, text, reading).ok()?;
     let new = codec::read(behavior, host, reading).ok()?;
     let pointers = range_pointers(behavior, text, &old, ranges);
@@ -132,8 +138,8 @@ fn at_fields(
     })
 }
 
-/// `ranges` (positions in `text`) as UTF-16 offsets.
-pub(super) fn offsets(text: &str, ranges: &[TextRange]) -> Vec<Range<usize>> {
+/// `ranges` (lines and columns of `text`) as byte ranges.
+pub(super) fn offsets(text: &str, ranges: &[paths::TextRange]) -> Vec<TextRange> {
     if ranges.is_empty() {
         return Vec::new();
     }

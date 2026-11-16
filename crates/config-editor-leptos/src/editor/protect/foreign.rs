@@ -77,7 +77,7 @@ pub(super) fn foreign_tokens<'o>(
             other.matcher.find_in(text)
         };
         for range in ranges {
-            let token = &text[range.clone()];
+            let token = text.get(range.clone()).unwrap_or_default();
             if !own_tokens.contains(token) && other.tokens.contains(token) {
                 found.push((range, other.source.as_str()));
             }
@@ -102,17 +102,22 @@ pub(super) fn foreign_placeholders(
     let mut problems = Vec::new();
     let (mut line, mut line_start, mut byte) = (1, 0, 0);
     for (range, source) in found {
-        let passed = &text[byte..range.start];
+        let passed = text.get(byte..range.start).unwrap_or_default();
         if let Some(last) = passed.rfind('\n') {
             line += passed.matches('\n').count();
             line_start = byte + last + 1;
         }
         byte = range.start;
-        let column = text[line_start..range.start].chars().count() + 1;
+        let column = text
+            .get(line_start..range.start)
+            .unwrap_or_default()
+            .chars()
+            .count()
+            + 1;
         problems.push(Diagnostic {
             line: Some(line),
             column: Some(column),
-            end_column: Some(column + text[range].chars().count()),
+            end_column: Some(column + text.get(range).unwrap_or_default().chars().count()),
             message: texts::foreign_placeholder(strings, source),
             severity: Severity::Warning,
             ..Diagnostic::default()

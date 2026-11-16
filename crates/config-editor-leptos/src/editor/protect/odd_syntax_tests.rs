@@ -2,7 +2,7 @@
 //! `( … | … )` lists): located, kept and refused from what the trait says,
 //! as in the built-in languages.
 
-use std::ops::Range;
+#![allow(clippy::string_slice, reason = "the tests cut their own texts")]
 
 use super::super::Language;
 use super::super::odd_syntax::ODD;
@@ -38,8 +38,8 @@ fn locks() -> Protected {
     )
 }
 
-fn covered(range: &Range<usize>) -> String {
-    String::from_utf16_lossy(&TEXT.encode_utf16().collect::<Vec<_>>()[range.clone()])
+fn covered(range: &super::super::text::TextRange) -> String {
+    TEXT[*range].to_string()
 }
 
 #[test]
