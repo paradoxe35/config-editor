@@ -553,5 +553,4 @@ fn text_of(branches: &[&Value], name: &str) -> Option<String> {
 }
 
 #[cfg(test)]
-#[path = "hover_value_tests.rs"]
 mod value_tests;
