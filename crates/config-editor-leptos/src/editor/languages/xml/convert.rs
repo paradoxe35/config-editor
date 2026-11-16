@@ -107,7 +107,7 @@ pub(super) fn attribute_paths(source: &str) -> AttributePaths {
         }
         let mut element = keys;
         element.push(ATTRIBUTES_ONLY.to_string());
-        if matches!(token.kind, Kind::OpenTag { closing: false, .. }) && !source[..token.end].ends_with("/>") {
+        if matches!(token.kind, Kind::OpenTag { closing: false, .. }) && !token.closes_itself(source) {
             written_open.insert(element);
         } else if any {
             found.insert(element);
@@ -247,13 +247,13 @@ pub(super) fn element_renames(source: &str, pointer: &str, new_key: &str) -> Opt
 
 /// The start tag at token `index` and its end tag, if it has one.
 pub(super) fn element_from(source: &str, tokens: &[Token], index: usize) -> Option<(usize, Option<usize>)> {
-    if source[..tokens[index].end].ends_with("/>") {
+    if tokens[index].closes_itself(source) {
         return Some((index, None));
     }
     let mut depth = 0usize;
     for (offset, token) in tokens[index + 1..].iter().enumerate() {
         match token.kind {
-            Kind::OpenTag { .. } if !source[..token.end].ends_with("/>") => depth += 1,
+            Kind::OpenTag { .. } if !token.closes_itself(source) => depth += 1,
             Kind::EndTag if depth == 0 => return Some((index, Some(index + 1 + offset))),
             Kind::EndTag => depth -= 1,
             _ => {}
@@ -274,7 +274,7 @@ pub(super) fn one_line_element(source: &str, pointer: &str) -> Option<std::ops::
     let plan = plan_paths(source, &tokens);
     let (index, open) = tokens.iter().enumerate().find(|(_, token)| {
         matches!(token.kind, Kind::OpenTag { .. })
-            && !source[..token.end].ends_with("/>")
+            && !token.closes_itself(source)
             && plan.path_of(token.start).is_some_and(|path| strings(path) == wanted)
     })?;
     let name = token_name(source, open);
@@ -282,7 +282,7 @@ pub(super) fn one_line_element(source: &str, pointer: &str) -> Option<std::ops::
     let mut children = false;
     for token in &tokens[index + 1..] {
         match token.kind {
-            Kind::OpenTag { .. } if !source[..token.end].ends_with("/>") => {
+            Kind::OpenTag { .. } if !token.closes_itself(source) => {
                 depth += 1;
                 children = true;
             }
@@ -328,7 +328,7 @@ fn empty_with_end_tag(source: &str) -> std::collections::HashSet<Vec<String>> {
     let mut found = std::collections::HashSet::new();
     for (index, token) in tokens.iter().enumerate() {
         if matches!(token.kind, Kind::OpenTag { .. })
-            && !source[..token.end].ends_with("/>")
+            && !token.closes_itself(source)
             && tokens.get(index + 1).is_some_and(|next| matches!(next.kind, Kind::EndTag) && next.start == token.end)
             && let Some(path) = plan.path_of(token.start)
         {
@@ -350,7 +350,7 @@ pub(super) fn with_end_tags_of(rendered: &str, previous: &str) -> String {
     let mut out = rendered.to_string();
     for token in tokens.iter().rev() {
         if matches!(token.kind, Kind::OpenTag { .. })
-            && rendered[..token.end].ends_with("/>")
+            && token.closes_itself(rendered)
             && let Some(path) = plan.path_of(token.start)
         {
             let path: Vec<String> = strings(path).into_iter().filter(|segment| crate::editor::language::pointer_index(segment).is_none()).collect();

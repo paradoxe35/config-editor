@@ -21,6 +21,7 @@ mod plain;
 mod constructs;
 mod enter;
 use crate::editor::paths::FieldPath;
+use crate::editor::text::{TextRange, TextSize, byte_range, slice};
 use style::{comparable_yaml_line, node_properties_len};
 mod aliases;
 mod aliases_back;
@@ -442,25 +443,27 @@ impl SaveLayout for YamlBehavior {
 
     /// A block scalar kept with `+` holds the blank lines after its text.
     fn written_value_range(&self, source: &str, range: std::ops::Range<usize>) -> std::ops::Range<usize> {
-        block_scalar::with_kept_blank_lines(source, range)
+        block_scalar::with_kept_blank_lines(source, byte_range(range)).into()
     }
 
     fn format_value_at(&self, _language: &dyn ConfigLanguage, value: &Value, source: &str, range: std::ops::Range<usize>) -> String {
-        let line_start = source[..range.start].rfind('\n').map_or(0, |index| index + 1);
-        let in_flow = style::in_flow_collection(source, range.clone());
-        let prefix = &source[line_start..range.start];
+        let range = byte_range(range);
+        let line_start = slice::line_start_of(source, range.start());
+        let in_flow = style::in_flow_collection(source, range);
+        let prefix = slice::slice(source, TextRange::new(line_start, range.start())).unwrap_or("");
+        let written = slice::slice(source, range).unwrap_or("");
         // After a `!!str` tag a plain value is text whatever it looks like
         // (`!!str 2`): it stays plain.
         if let Some(text) = value.as_str()
             && prefix.trim_end().ends_with("!!str")
-            && !source[range.clone()].trim_start().starts_with(['"', '\''])
+            && !written.trim_start().starts_with(['"', '\''])
             && !text.contains(['\n', '#'])
             && self.parse(&format!("k: !!str {text}\n")).ok() == Some(serde_json::json!({ "k": text }))
             && (!in_flow || self.parse(&format!("k: [!!str {text}]\n")).ok() == Some(serde_json::json!({ "k": [text] })))
         {
             return text.to_string();
         }
-        style::yaml_value_like(self, value, &source[range.clone()], prefix, in_flow)
+        style::yaml_value_like(self, value, written, prefix, in_flow)
     }
 }
 

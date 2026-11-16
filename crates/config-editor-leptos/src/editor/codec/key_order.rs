@@ -6,9 +6,9 @@ use super::super::item_sources::SaveTold;
 use super::super::language::{ConfigLanguage, pointer_key};
 use super::super::paths;
 use super::reorder::{comment_only, indent_of};
-use super::{byte_range, comment_start, key_markup_start, read};
+use super::{comment_start, key_markup_start, read, span_text_range};
 use crate::editor::paths::FieldPath;
-use crate::editor::text::text_size;
+use crate::editor::text::{TextRange, TextSize, slice, text_size, utf16_of};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::ops::Range;
@@ -197,8 +197,8 @@ fn entry_lines(
     pointer: &str,
 ) -> Option<Range<usize>> {
     if let Some(span) = paths::memo_key_span(language, text, pointer) {
-        let name = byte_range(text, span)?;
-        if !written_at_its_place(language, text, pointer, name.start)? {
+        let name = span_text_range(text, span)?;
+        if !written_at_its_place(language, text, pointer, name.start())? {
             return None;
         }
     }
@@ -216,10 +216,13 @@ pub(in super::super) fn own_lines(
 ) -> Option<Range<usize>> {
     let line = match paths::memo_key_span(language, text, pointer) {
         Some(span) => {
-            let name = byte_range(text, span)?;
-            let line_start = text[..name.start].rfind('\n').map_or(0, |at| at + 1);
-            let opens = key_markup_start(language, text, name.start).unwrap_or(name.start);
-            if !text[line_start..opens.min(name.start)].trim().is_empty() {
+            let name = span_text_range(text, span)?;
+            let line_start = slice::line_start_of(text, name.start());
+            // The language's markup hook counts in `usize` bytes.
+            let opens = key_markup_start(language, text, usize::from(name.start()))
+                .map_or(name.start(), text_size);
+            let before = TextRange::new(line_start, opens.clamp(line_start, name.start()));
+            if !slice::slice(text, before)?.trim().is_empty() {
                 return None;
             }
             span.line.checked_sub(1)?
@@ -230,9 +233,9 @@ pub(in super::super) fn own_lines(
             let (_, index) = pointer.rsplit_once('/')?;
             index.parse::<usize>().ok()?;
             let span = paths::memo_value_span(language, text, pointer)?;
-            let value = byte_range(text, span)?;
-            let line_start = text[..value.start].rfind('\n').map_or(0, |at| at + 1);
-            let before = text[line_start..value.start].trim();
+            let value = span_text_range(text, span)?;
+            let line_start = slice::line_start_of(text, value.start());
+            let before = slice::slice(text, TextRange::new(line_start, value.start()))?.trim();
             let marker_only = before.is_empty()
                 || super::super::flow_syntax::Flow::of(language)
                     .after_item_marker(before)
@@ -248,10 +251,13 @@ pub(in super::super) fn own_lines(
     // the line break after it no line of its (a heredoc's span runs
     // through its terminator line).
     if let Some(value) =
-        paths::memo_value_span(language, text, pointer).and_then(|span| byte_range(text, span))
+        paths::memo_value_span(language, text, pointer).and_then(|span| span_text_range(text, span))
     {
-        let end = value.start + text[value.clone()].trim_end_matches('\n').len();
-        last = last.max(paths::line_column(text, text_size(end)).0 - 1);
+        let end = value.start()
+            + slice::slice(text, value).map_or(TextSize::default(), |value| {
+                TextSize::of(value.trim_end_matches('\n'))
+            });
+        last = last.max(paths::line_column(text, end).0 - 1);
     }
     // An entry the language writes as lines of its own (a TOML table)
     // ends where it says.
@@ -298,8 +304,8 @@ pub(in super::super) fn written_in_its_map(
     pointer: &str,
 ) -> bool {
     paths::memo_key_span(language, text, pointer)
-        .and_then(|span| byte_range(text, span))
-        .and_then(|name| written_at_its_place(language, text, pointer, name.start))
+        .and_then(|span| span_text_range(text, span))
+        .and_then(|name| written_at_its_place(language, text, pointer, name.start()))
         .unwrap_or(true)
 }
 
@@ -309,8 +315,9 @@ fn written_at_its_place(
     language: &dyn ConfigLanguage,
     text: &str,
     pointer: &str,
-    start: usize,
+    start: TextSize,
 ) -> Option<bool> {
-    let at = paths::api_units(text, start);
+    // A path lookup takes the language API's UTF-16 caret.
+    let at = utf16_of(text, start);
     Some(paths::path_at(language, text, at)?.to_pointer() == pointer)
 }

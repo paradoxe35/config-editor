@@ -9,6 +9,7 @@ use super::super::super::item_sources::{ItemSource, ItemSources};
 use super::super::super::language::ConfigLanguage;
 use super::{Kept, braced_one_line, marker};
 use crate::editor::paths::FieldPath;
+use crate::editor::text::slice;
 use serde_json::Value;
 
 /// A map or list of the save that an edit brought from another place.
@@ -99,10 +100,13 @@ pub(super) fn with_moved(
             };
             // Edited since (a copy changed inside before a pause): its
             // untouched entries as written, the others like them.
+            let Some(host) = slice::slice(text, range) else {
+                continue;
+            };
             let written = if was == now {
-                Some(text[range].to_string())
+                Some(host.to_string())
             } else {
-                super::super::flow::restyle(language, now, &text[range])
+                super::super::flow::restyle(language, now, host)
             };
             if let Some(written) = written {
                 marks.push((item.to, written));
@@ -122,9 +126,10 @@ pub(super) fn with_moved(
     let mut marked: Vec<&str> = Vec::new();
     for (to, text) in marks {
         // What one marked holds is written with it.
-        let inside = marked
-            .iter()
-            .any(|outer| to.starts_with(outer) && to[outer.len()..].starts_with('/'));
+        let inside = marked.iter().any(|outer| {
+            to.strip_prefix(*outer)
+                .is_some_and(|rest| rest.starts_with('/'))
+        });
         if inside {
             continue;
         }

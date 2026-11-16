@@ -28,7 +28,7 @@ fn one_line_paths(source: &str) -> HashSet<Vec<String>> {
 /// when it holds a child element (and `true`, so the path is read).
 fn element_with_children(source: &str, tokens: &[Token], index: usize) -> Option<(usize, bool)> {
     let token = tokens[index];
-    if !matches!(token.kind, Kind::OpenTag { closing: false, .. }) || source[..token.end].ends_with("/>") {
+    if !matches!(token.kind, Kind::OpenTag { closing: false, .. }) || token.closes_itself(source) {
         return None;
     }
     let (_, end) = element_from(source, tokens, index)?;
@@ -132,13 +132,13 @@ pub(super) fn children_apart(source: &str) -> Option<String> {
 }
 
 /// Where each child of the element whose start tag is token `index` and end
-/// tag token `end` starts (elements, comments, processing instructions);
+/// tag token `end_tag` starts (elements, comments, processing instructions);
 /// `None` when text sits beside them (mixed content, or a CDATA section).
-fn child_starts(source: &str, tokens: &[Token], index: usize, end: usize) -> Option<Vec<usize>> {
+fn child_starts(source: &str, tokens: &[Token], index: usize, end_tag: usize) -> Option<Vec<usize>> {
     let mut starts = Vec::new();
     let mut depth = 0usize;
-    for token in &tokens[index + 1..end] {
-        let self_closing = source[..token.end].ends_with("/>");
+    for token in &tokens[index + 1..end_tag] {
+        let self_closing = token.closes_itself(source);
         match token.kind {
             Kind::OpenTag { closing: false, .. } => {
                 if depth == 0 {

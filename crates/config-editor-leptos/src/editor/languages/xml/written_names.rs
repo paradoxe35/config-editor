@@ -2,10 +2,12 @@
 //! (`element` of `<xs:element>`), so a rewrite names each element as the
 //! host element it is (`attribute_layout`), and an element the edit added
 //! as its siblings, in their namespace: a save never moves an element to
-//! another namespace (QA `E32-1`: an item added to `<mvc:interceptors>`
-//! saved every `<mvc:interceptor>` as `<interceptor>`). One named as none
+//! another namespace (an item added to `<mvc:interceptors>` keeps every
+//! `<mvc:interceptor>` named so, not `<interceptor>`). One named as none
 //! of its host siblings takes their prefix, else its parent's
 //! ([`Children`]).
+
+#![deny(clippy::string_slice)]
 
 use super::*;
 
@@ -17,7 +19,9 @@ pub(super) fn prefix<'a>(source: &'a str, token: &Token) -> Option<&'a str> {
         _ => token.start + 1,
     };
     let local = local_name_start(source, token);
-    (local > start + 1).then(|| &source[start..local - 1])
+    (local > start + 1)
+        .then(|| slice::slice(source, byte_range(start..local - 1)))
+        .flatten()
 }
 
 /// Whether the attribute written `name` declares the namespace of an

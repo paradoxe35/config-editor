@@ -10,8 +10,8 @@ use super::super::flow_syntax::Flow;
 use super::super::item_sources::ItemSources;
 use super::super::language::{ConfigLanguage, OneLine, Span, pointer_key, unescaped_key};
 use crate::editor::paths::FieldPath;
+use crate::editor::text::{TextRange, TextSize, checked_range, slice, text_size};
 use serde_json::Value;
-use std::ops::Range;
 
 mod moved;
 
@@ -48,22 +48,24 @@ impl Kept {
 fn replace_marker(text: &str, before: &str, marker: &str, with: &str) -> String {
     let mut out = String::with_capacity(text.len());
     let mut rest = text;
-    while let Some(at) = rest.find(marker) {
-        let (head, tail) = (&rest[..at], &rest[at + marker.len()..]);
-        let quote = head
-            .chars()
-            .next_back()
-            .filter(|quote| {
-                !quote.is_alphanumeric() && !quote.is_whitespace() && tail.starts_with(*quote)
-            })
-            .map_or(0, char::len_utf8);
-        let head_end = head.len() - quote;
-        if head[..head_end].ends_with(before) {
-            out.push_str(&head[..head_end - before.len()]);
+    while let Some((head, tail)) = rest.split_once(marker) {
+        let quote = head.chars().next_back().filter(|quote| {
+            !quote.is_alphanumeric() && !quote.is_whitespace() && tail.starts_with(*quote)
+        });
+        let (head_code, tail_code) = match quote {
+            Some(quote) => (
+                head.strip_suffix(quote).unwrap_or(head),
+                tail.strip_prefix(quote).unwrap_or(tail),
+            ),
+            None => (head, tail),
+        };
+        if let Some(kept) = head_code.strip_suffix(before) {
+            out.push_str(kept);
             out.push_str(with);
-            rest = &tail[quote..];
+            rest = tail_code;
         } else {
-            out.push_str(&rest[..at + marker.len()]);
+            out.push_str(head);
+            out.push_str(marker);
             rest = tail;
         }
     }
@@ -117,17 +119,15 @@ fn hide_in_place(
     // A list opened at a line's end (`allow = [`) spans lines; the
     // serializer writes it on one.
     let multi_line_lists = flow.list().is_some_and(|(open, _)| {
-        previous.lines().any(|line| {
-            line[..super::comment_start(language, line)]
-                .trim_end()
-                .ends_with(open)
-        })
+        previous
+            .lines()
+            .any(|line| super::code_of(language, line).trim_end().ends_with(open))
     });
     // A map written inline over lines (YAML's `tcp: {`), as the language
     // tells: the serializer writes it another way.
     let multi_line_maps = previous
         .lines()
-        .any(|line| language.flow_map_opener(line[..super::comment_start(language, line)].trim()));
+        .any(|line| language.flow_map_opener(super::code_of(language, line).trim()));
     // Strings written over lines (a YAML block, a TOML `"""`, a heredoc):
     // the serializer writes them on one.
     let host_lines: Vec<&str> = previous.split('\n').collect();
@@ -172,9 +172,7 @@ fn hide_in_place(
     let mut found: Vec<(String, OneLine)> = Vec::new();
     // Outermost first (`collect` lists parents before their children).
     for (pointer, span) in candidates.into_iter().zip(spans) {
-        let inside_found = found.iter().any(|(outer, _)| {
-            pointer.starts_with(outer.as_str()) && pointer[outer.len()..].starts_with('/')
-        });
+        let inside_found = found.iter().any(|(outer, _)| inside(&pointer, outer));
         if inside_found {
             continue;
         }
@@ -197,15 +195,15 @@ fn hide_in_place(
             })
             .or_else(|| {
                 // Written by reference, and the same in the new value.
-                let range = super::byte_range(previous, span?)?;
-                let length = language.reference_len(&previous[range.start..])?;
+                let range = super::span_text_range(previous, span?)?;
+                let length = language.reference_len(slice::after(previous, range.start())?)?;
                 (new.pointer(&pointer) == old.pointer(&pointer))
-                    .then_some(range.start..range.start + length)
+                    .then(|| TextRange::at(range.start(), text_size(length)))
             })
             .map(|range| OneLine {
-                range: range.clone(),
+                range: range.into(),
                 written: String::new(),
-                value: range,
+                value: range.into(),
             })
             .or_else(|| language.one_line_container(previous, &FieldPath::from(&pointer)));
         if let Some(one_line) = one_line {
@@ -246,26 +244,31 @@ fn hide_in_place(
         let paths: Vec<FieldPath> = strings.iter().map(FieldPath::from).collect();
         let spans = language.value_spans(previous, &paths);
         for (pointer, span) in strings.into_iter().zip(spans) {
-            let inside_found = found.iter().any(|(outer, _)| {
-                pointer.starts_with(outer.as_str()) && pointer[outer.len()..].starts_with('/')
-            });
-            let Some(mut range) = span.and_then(|span| super::byte_range(previous, span)) else {
+            let inside_found = found.iter().any(|(outer, _)| inside(&pointer, outer));
+            let Some(range) = span.and_then(|span| super::span_text_range(previous, span)) else {
                 continue;
             };
-            range.end = super::through_long_quote(language, previous, range.clone());
-            while range.end > range.start && previous[..range.end].ends_with('\n') {
-                range.end -= 1;
-            }
+            let end = super::through_long_quote(language, previous, range);
+            let Some(string) = slice::slice(previous, TextRange::new(range.start(), end)) else {
+                continue;
+            };
+            let end = range.start() + TextSize::of(string.trim_end_matches('\n'));
             // Where the language's string really ends (XML text: through
-            // the line break before its end tag).
-            range.end = language.kept_value_end(previous, range.end);
-            if !inside_found && previous[range.clone()].contains('\n') {
+            // the line break before its end tag); the hook counts in
+            // `usize` bytes.
+            let end = language.kept_value_end(previous, usize::from(end));
+            let Some(range) = checked_range(&(usize::from(range.start())..end)) else {
+                continue;
+            };
+            if !inside_found
+                && slice::slice(previous, range).is_some_and(|text| text.contains('\n'))
+            {
                 found.push((
                     pointer,
                     OneLine {
-                        range: range.clone(),
+                        range: range.into(),
                         written: String::new(),
-                        value: range,
+                        value: range.into(),
                     },
                 ));
             }
@@ -286,8 +289,12 @@ fn hide_in_place(
     for (index, (pointer, one_line)) in found.into_iter().enumerate().rev() {
         let name = marker(index);
         let marker = Value::String(name.clone());
-        let text = previous[one_line.range.clone()].to_string();
-        let value = previous[one_line.value.clone()].to_string();
+        let cut = |range: &std::ops::Range<usize>| {
+            checked_range(range)
+                .and_then(|range| slice::slice(previous, range))
+                .map(str::to_string)
+        };
+        let (text, value) = (cut(&one_line.range)?, cut(&one_line.value)?);
         let written = format!("{}{}", one_line.written, language.write_value(&marker));
         kept.host.replace_range(one_line.range, &written);
         let slot = kept.old.pointer_mut(&pointer)?;
@@ -490,27 +497,19 @@ fn written_on(line: &str, text: &str) -> bool {
 
 /// The byte range of the value marked by `span` when the host wrote it as
 /// a `{…}` or `[…]` on one line.
-fn braced_one_line(
-    language: &dyn ConfigLanguage,
-    previous: &str,
-    span: Span,
-) -> Option<Range<usize>> {
-    let line_start: usize = previous
-        .split_inclusive('\n')
-        .take(span.line.checked_sub(1)?)
-        .map(str::len)
-        .sum();
-    let line = previous[line_start..].split('\n').next()?;
-    let start = line
-        .char_indices()
-        .nth(span.start_column.saturating_sub(1))
-        .map_or(line.len(), |(index, _)| index);
-    let start = start + language.value_properties_len(&line[start..]);
-    let text = &line[start..];
+fn braced_one_line(language: &dyn ConfigLanguage, previous: &str, span: Span) -> Option<TextRange> {
+    let (line_start, line) = super::span_line(previous, &span)?;
+    // Offsets in the line (the language's and the scanner's count there).
+    let start = super::column_byte(line, span.start_column);
+    let start = start + language.value_properties_len(line.get(start..)?);
+    let text = line.get(start..)?;
     let flow = Flow::of(language);
     let close = flow.closer_of(text.chars().next()?)?;
     let end = start + flow.matching_close(text)? + close.len_utf8();
-    Some(line_start + start..line_start + end)
+    Some(TextRange::new(
+        line_start + text_size(start),
+        line_start + text_size(end),
+    ))
 }
 
 /// The byte range of the list marked by `span` when it opens at its line's
@@ -519,20 +518,11 @@ pub(super) fn multi_line_list(
     language: &dyn ConfigLanguage,
     previous: &str,
     span: Span,
-) -> Option<Range<usize>> {
-    let line_start: usize = previous
-        .split_inclusive('\n')
-        .take(span.line.checked_sub(1)?)
-        .map(str::len)
-        .sum();
-    let line = previous[line_start..].split('\n').next()?;
-    let start = line_start
-        + line
-            .char_indices()
-            .nth(span.start_column.saturating_sub(1))
-            .map_or(line.len(), |(index, _)| index);
+) -> Option<TextRange> {
+    let (line_start, line) = super::span_line(previous, &span)?;
+    let start = line_start + text_size(super::column_byte(line, span.start_column));
     let flow = Flow::of(language);
-    if !previous[start..]
+    if !slice::after(previous, start)?
         .chars()
         .next()
         .is_some_and(|open| flow.closer_of(open).is_some())
@@ -541,12 +531,14 @@ pub(super) fn multi_line_list(
     }
     let mut depth = 0usize;
     let mut offset = line_start;
-    for line in previous[line_start..].split_inclusive('\n') {
-        let code_end = offset + super::comment_start(language, line.trim_end_matches('\n'));
+    for line in slice::after(previous, line_start)?.split_inclusive('\n') {
+        let code_end =
+            offset + text_size(super::comment_start(language, line.trim_end_matches('\n')));
         let from = start.max(offset);
-        let code = &previous[from..code_end.max(from)];
+        let code = slice::slice(previous, TextRange::new(from, code_end.max(from)))?;
+        // Offsets in `code`, as the shared scanner counts them.
         let mut at = 0;
-        while let Some(character) = code[at..].chars().next() {
+        while let Some(character) = code.get(at..)?.chars().next() {
             if flow.quote(character).is_some() {
                 at = flow.quote_end(code, at);
                 continue;
@@ -556,13 +548,21 @@ pub(super) fn multi_line_list(
             } else if flow.opener_of(character).is_some() {
                 depth = depth.checked_sub(1)?;
                 if depth == 0 {
-                    let end = from + at + character.len_utf8();
-                    return previous[start..end].contains('\n').then_some(start..end);
+                    let list =
+                        TextRange::new(start, from + text_size(at) + TextSize::of(character));
+                    return slice::slice(previous, list)?.contains('\n').then_some(list);
                 }
             }
             at += character.len_utf8();
         }
-        offset += line.len();
+        offset += TextSize::of(line);
     }
     None
+}
+
+/// Whether `pointer` names a value inside the one at `outer`.
+fn inside(pointer: &str, outer: &str) -> bool {
+    pointer
+        .strip_prefix(outer)
+        .is_some_and(|rest| rest.starts_with('/'))
 }

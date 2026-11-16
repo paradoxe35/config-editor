@@ -65,12 +65,13 @@ pub(super) fn yaml_value_like(language: &YamlBehavior, value: &Value, written: &
 /// after an opening bracket on its line, before a `,` or closing bracket,
 /// or on a line after one ending with `[`, `{` or `,` (a collection over
 /// lines).
-pub(super) fn in_flow_collection(source: &str, range: std::ops::Range<usize>) -> bool {
-    let line_start = source[..range.start].rfind('\n').map_or(0, |index| index + 1);
-    let before = &source[line_start..range.start];
+pub(super) fn in_flow_collection(source: &str, range: TextRange) -> bool {
+    let line_start = slice::line_start_of(source, range.start());
+    let before = slice::slice(source, TextRange::new(line_start, range.start())).unwrap_or("");
     let depth = super::lexical::read_line(before, before.len()).flow;
-    let after = code_before_comment(source[range.end..].split('\n').next().unwrap_or("")).trim_start();
-    let previous_line = source[..line_start]
+    let after = code_before_comment(slice::after(source, range.end()).unwrap_or("").split('\n').next().unwrap_or("")).trim_start();
+    let previous_line = slice::before(source, line_start)
+        .unwrap_or("")
         .trim_end_matches('\n')
         .rsplit('\n')
         .map(|line| code_before_comment(line).trim_end())

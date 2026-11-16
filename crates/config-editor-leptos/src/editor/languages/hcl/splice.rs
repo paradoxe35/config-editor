@@ -10,7 +10,11 @@
 //! or a heredoc in an entry (its lines must not be indented), writes the
 //! document again the whole way.
 
+#![deny(clippy::string_slice)]
+
 use std::cell::RefCell;
+
+use crate::editor::text::{TextRange, TextSize, slice, text_size};
 
 use hcl::expr::{Expression, Object, ObjectKey, Variable};
 use serde_json::{Map, Value};
@@ -98,11 +102,13 @@ fn put_in_place(rendered: &str, objects: &[(String, String)]) -> Option<String> 
         if found.next().is_some() {
             return None;
         }
-        let line_start = text[..at].rfind('\n').map_or(0, |newline| newline + 1);
-        let indent: String = text[line_start..].chars().take_while(|character| *character == ' ').collect();
+        // The standard library's match offset, typed where it arrives.
+        let name_range = TextRange::at(text_size(at), TextSize::of(name.as_str()));
+        let line_start = slice::line_start_of(&text, name_range.start());
+        let indent: String = slice::after(&text, line_start)?.chars().take_while(|character| *character == ' ').collect();
         let placed = object.replace('\n', &format!("\n{indent}"));
         // The last line (`}`) takes the indent; the entries' lines theirs.
-        text.replace_range(at..at + name.len(), &placed);
+        text.replace_range(std::ops::Range::<usize>::from(name_range), &placed);
     }
     Some(text)
 }

@@ -115,7 +115,7 @@ pub(super) fn with_layout_of(written: &str, (previous, origin): (&str, Option<&s
             Kind::OpenTag { closing: false, .. } => {}
             _ => continue,
         }
-        let closes = written[..token.end].ends_with("/>");
+        let closes = token.closes_itself(written);
         let Some(path) = plan.path_of(token.start) else {
             let written_prefix = written_names::prefix(written, token);
             open.child(written_prefix, false);

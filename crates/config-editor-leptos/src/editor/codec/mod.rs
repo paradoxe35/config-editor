@@ -1,6 +1,16 @@
 //! Conversion between languages through the shared data model: XML to HCL is
 //! `xml.parse` then `hcl.serialize`. A language implements only its own side
 //! ([`ConfigLanguage::parse`] and [`ConfigLanguage::serialize`]).
+//!
+//! Positions in a document are typed (`TextSize`, `TextRange`) and cut
+//! through `text::slice`; the language hooks' `usize` byte ranges are
+//! converted where they are called.
+
+#![deny(
+    clippy::string_slice,
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss
+)]
 
 mod canonical;
 pub(in crate::editor) use canonical::canonical;
@@ -22,8 +32,8 @@ mod steps;
 
 use super::language::pointer_key;
 use crate::editor::paths::FieldPath;
-use crate::editor::text::text_size;
-use compare::{canonical_number, comment_start, comparable};
+use crate::editor::text::{TextRange, TextSize, checked_range, slice, text_size};
+use compare::{canonical_number, code_of, comment_start, comparable};
 #[cfg(test)]
 #[allow(unused_imports, reason = "the save property tests read through it")]
 pub(super) use emptied_items::without_emptied;
@@ -116,7 +126,7 @@ pub(super) fn saves_in_own_language(language: &dyn ConfigLanguage, source: &str)
         let stand_ins: Vec<_> = language
             .unheld_numbers(&text, &error)
             .into_iter()
-            .filter(|range| !range.is_empty() && text[range.clone()] != *"0")
+            .filter(|range| !range.is_empty() && text.get(range.clone()) != Some("0"))
             .map(|range| (range, "0".to_string()))
             .collect();
         if stand_ins.is_empty() {
@@ -343,20 +353,19 @@ pub(super) fn patch_scalars(
         let Some(span) = span else {
             continue;
         };
-        let mut range = scalar_range(language, previous, span)?;
+        let mut range = scalar_text_range(language, previous, span)?;
+        let written = slice::slice(previous, range)?;
         // An alias (`*x`) reads its anchor's value, which the read-back
         // checks: the anchor's own change carries to it.
-        let written = previous[range.clone()].trim();
-        if language.reference_len(written) == Some(written.len()) {
+        if language.reference_len(written.trim()) == Some(written.trim().len()) {
             continue;
         }
         // In the host's style for what was there (plain, quoted, a block, a
         // long string).
-        let mut text = language.write_value_at(value, previous, range.clone());
+        let mut text = language.write_value_at(value, previous, range.into());
         // A value the host wrote in quotes keeps them when the new one is
         // formatted bare, where quotes delimit and do not type it (an XML
         // attribute's `"…"`; a TOML string made a number loses them).
-        let written = &previous[range.clone()];
         let flow = Flow::of(language);
         if language.scalars_are_text()
             && let Some(quote) = written
@@ -372,17 +381,13 @@ pub(super) fn patch_scalars(
         }
         // A value written across lines (`key: >- # note` then its text) may
         // hold its first line's comment; the one-line value keeps it.
-        let line_start = previous[..range.start]
-            .rfind('\n')
-            .map_or(0, |index| index + 1);
-        let line_end = previous[range.start..]
-            .find('\n')
-            .map_or(previous.len(), |offset| range.start + offset);
-        if range.end > line_end && !text.contains('\n') {
-            let line = &previous[line_start..line_end];
+        let line_start = slice::line_start_of(previous, range.start());
+        let line_end = slice::line_end_of(previous, range.start());
+        if range.end() > line_end && !text.contains('\n') {
+            let line = slice::slice(previous, TextRange::new(line_start, line_end))?;
             // With the spacing written before it.
             let comment = compare::spaced_trailing_comment(language, line);
-            if line_start + line.len() - comment.len() > range.start && !comment.is_empty() {
+            if line_end - TextSize::of(comment) > range.start() && !comment.is_empty() {
                 let gap = if comment.starts_with([' ', '\t']) {
                     ""
                 } else {
@@ -393,16 +398,16 @@ pub(super) fn patch_scalars(
         }
         // An emptied value takes the space before it along (`key:`).
         if text.is_empty() {
-            while range.start > 0 && previous[..range.start].ends_with(' ') {
-                range.start -= 1;
-            }
+            let spaces = slice::before(previous, range.start())?;
+            let spaces = TextSize::of(spaces) - TextSize::of(spaces.trim_end_matches(' '));
+            range = TextRange::new(range.start() - spaces, range.end());
         }
         edits.push((range, text));
     }
-    edits.sort_by_key(|(range, _)| std::cmp::Reverse(range.start));
+    edits.sort_by_key(|(range, _)| std::cmp::Reverse(range.start()));
     let mut patched = previous.to_string();
     for (range, text) in edits {
-        patched.replace_range(range, &text);
+        patched.replace_range(std::ops::Range::<usize>::from(range), &text);
     }
     // Trust the patch only if it reads back as exactly the new document.
     reads_as(language, &patched, schema, new).then_some(patched)
@@ -447,12 +452,15 @@ pub(super) fn patch_inline(
             .and_then(|span| kept_inline::multi_line_list(language, previous, span))
             .zip(old.pointer(&pointer).zip(new.pointer(&pointer)))
             .is_some_and(|(range, (before, after))| {
-                flow::adds_containers_over_lines(language, &previous[range], before, after)
+                slice::slice(previous, range).is_some_and(|written| {
+                    flow::adds_containers_over_lines(language, written, before, after)
+                })
             });
         let span_over_lines = span.filter(|_| !over_lines);
         // A list written one item per line (`allow = [` … `]`).
         if let Some(span) = span_over_lines
             && let Some(range) = kept_inline::multi_line_list(language, previous, span)
+            && let Some(written) = slice::slice(previous, range)
             && let Some(Value::Array(items)) = new.pointer(&pointer)
             && let Some(Value::Array(before)) = old.pointer(&pointer)
         {
@@ -460,7 +468,7 @@ pub(super) fn patch_inline(
             for empty_trailing in [true, false] {
                 let Some(text) = lists::rewrite_list_lines(
                     language,
-                    &previous[range.clone()],
+                    written,
                     before,
                     items,
                     &unit,
@@ -468,8 +476,7 @@ pub(super) fn patch_inline(
                 ) else {
                     continue;
                 };
-                let mut patched = previous.to_string();
-                patched.replace_range(range.clone(), &text);
+                let patched = replaced(previous, range, &text);
                 if reads_as(language, &patched, schema, new) {
                     return Some(patched);
                 }
@@ -479,21 +486,17 @@ pub(super) fn patch_inline(
         // entries kept on their lines (before restyling it whole).
         if let Some(span) = span_over_lines
             && let Some(range) = kept_inline::multi_line_list(language, previous, span)
+            && let Some(written) = slice::slice(previous, range)
             && let Some(Value::Object(entries)) = new.pointer(&pointer)
             && let Some(Value::Object(before)) = old.pointer(&pointer)
         {
             for lone_commas in [false, true] {
-                let Some(text) = lists::rewrite_map_lines(
-                    language,
-                    &previous[range.clone()],
-                    before,
-                    entries,
-                    lone_commas,
-                ) else {
+                let Some(text) =
+                    lists::rewrite_map_lines(language, written, before, entries, lone_commas)
+                else {
                     continue;
                 };
-                let mut patched = previous.to_string();
-                patched.replace_range(range.clone(), &text);
+                let patched = replaced(previous, range, &text);
                 if reads_as(language, &patched, schema, new) {
                     return Some(patched);
                 }
@@ -503,14 +506,14 @@ pub(super) fn patch_inline(
         // b: 2}`): restyled whole, its untouched items as written.
         if let Some(span) = span_over_lines
             && let Some(range) = kept_inline::multi_line_list(language, previous, span)
-            && previous[range.clone()]
+            && let Some(written) = slice::slice(previous, range)
+            && written
                 .lines()
                 .all(|line| comment_start(language, line) == line.len())
             && let Some(value) = new.pointer(&pointer)
-            && let Some(text) = flow::restyle(language, value, &previous[range.clone()])
+            && let Some(text) = flow::restyle(language, value, written)
         {
-            let mut patched = previous.to_string();
-            patched.replace_range(range, &text);
+            let patched = replaced(previous, range, &text);
             if reads_as(language, &patched, schema, new) {
                 return Some(patched);
             }
@@ -520,10 +523,9 @@ pub(super) fn patch_inline(
             && let Some(one_line) =
                 language.one_line_container(previous, &FieldPath::from(&pointer))
             && let Some(body) = new.pointer(&pointer).and_then(|value| {
-                let line_start = previous[..one_line.range.start]
-                    .rfind('\n')
-                    .map_or(0, |at| at + 1);
-                let indent: String = previous[line_start..]
+                // The language's one-line container is a `usize` byte range.
+                let line_start = slice::line_start_of(previous, text_size(one_line.range.start));
+                let indent: String = slice::after(previous, line_start)?
                     .chars()
                     .take_while(|character| matches!(character, ' ' | '\t'))
                     .collect();
@@ -548,8 +550,7 @@ pub(super) fn patch_inline(
                 .pointer(&pointer)
                 .filter(|value| !value.is_object() && !value.is_array())
         {
-            let mut patched = previous.to_string();
-            patched.replace_range(range, &language.write_value_like(value, ""));
+            let patched = replaced(previous, range, &language.write_value_like(value, ""));
             if reads_as(language, &patched, schema, new) {
                 return Some(patched);
             }
@@ -574,6 +575,13 @@ pub(super) fn patch_inline(
         pointer.truncate(pointer.rfind('/')?);
         ascended = true;
     }
+}
+
+/// `text` with `range` of it replaced by `with`.
+fn replaced(text: &str, range: TextRange, with: &str) -> String {
+    let mut replaced = text.to_string();
+    replaced.replace_range(std::ops::Range::<usize>::from(range), with);
+    replaced
 }
 
 /// `key` written as a new entry of a collection whose entry `model_head`
@@ -609,9 +617,8 @@ fn reference_on(language: &dyn ConfigLanguage, flow: &Flow, line: &str) -> bool 
     }
     language.reference_len(code).is_some()
         || flow.key_separator(code).is_some_and(|(at, length)| {
-            language
-                .reference_len(code[at + length..].trim_start())
-                .is_some()
+            code.get(at + length..)
+                .is_some_and(|value| language.reference_len(value.trim_start()).is_some())
         })
 }
 
@@ -656,25 +663,17 @@ fn replace_inline(
     pointer: &str,
 ) -> Option<String> {
     let value = new.pointer(pointer)?;
-    let line_start: usize = previous
-        .split_inclusive('\n')
-        .take(span.line.checked_sub(1)?)
-        .map(str::len)
-        .sum();
-    let line = previous[line_start..].split('\n').next()?;
-    let column_byte = |column: usize| {
-        line.char_indices()
-            .nth(column.saturating_sub(1))
-            .map_or(line.len(), |(index, _)| index)
-    };
-    let start = column_byte(span.start_column);
-    let start = start + language.value_properties_len(&line[start..]);
-    let text = &line[start..];
+    let (line_start, line) = span_line(previous, span)?;
+    // Offsets in the line (the language's and the scanner's count there).
+    let start = column_byte(line, span.start_column);
+    let start = start + language.value_properties_len(line.get(start..)?);
+    let text = line.get(start..)?;
     let flow = Flow::of(language);
     let open = text.chars().next()?;
     let close = flow.closer_of(open)?;
     let end = start + flow.matching_close(text)? + close.len_utf8();
-    let written = &line[start..end];
+    let written = line.get(start..end)?;
+    let range = TextRange::new(line_start + text_size(start), line_start + text_size(end));
     // An empty container where the language writes new ones in block
     // style below their key (YAML's `[]`, the only way it writes an empty
     // list) says nothing about the style its items take: they are written
@@ -682,19 +681,19 @@ fn replace_inline(
     // kind filled on one line. Elsewhere (a TOML inline table, an HCL
     // object) the block form is another form, written in another place: it
     // stays on one line.
-    let empty = written[open.len_utf8()..written.len() - close.len_utf8()]
-        .trim()
-        .is_empty();
+    let empty = written
+        .strip_prefix(open)
+        .and_then(|inside| inside.strip_suffix(close))
+        .is_some_and(|inside| inside.trim().is_empty());
     let filled = match value {
         Value::Array(items) => !items.is_empty(),
         Value::Object(map) => !map.is_empty(),
         _ => false,
     };
-    let at = line_start + start;
     if empty
         && filled
         && language.indent_is_structure()
-        && !flow::writes_filled_on_one_line(language, previous, close, at..at + written.len())
+        && !flow::writes_filled_on_one_line(language, previous, close, range)
         && language
             .write_document(value, None)
             .is_ok_and(|fresh| !fresh.trim_start().starts_with(open))
@@ -710,8 +709,29 @@ fn replace_inline(
     } else {
         language.write_value_like(value, "")
     };
-    patched.replace_range(line_start + start..line_start + end, &text);
+    patched.replace_range(std::ops::Range::<usize>::from(range), &text);
     Some(patched)
+}
+
+/// Where the line of `span` starts, and the line (without its break); the
+/// text's end and `""` past its last line.
+fn span_line<'a>(source: &'a str, span: &Span) -> Option<(TextSize, &'a str)> {
+    let start = text_size(
+        source
+            .split_inclusive('\n')
+            .take(span.line.checked_sub(1)?)
+            .map(str::len)
+            .sum(),
+    );
+    Some((start, slice::after(source, start)?.split('\n').next()?))
+}
+
+/// The byte in `line` of one-based character `column`; the line's end past
+/// it.
+fn column_byte(line: &str, column: usize) -> usize {
+    line.char_indices()
+        .nth(column.saturating_sub(1))
+        .map_or(line.len(), |(index, _)| index)
 }
 
 /// The span of what `pointer` names when it lies inside an inline container
@@ -742,19 +762,16 @@ pub(super) fn inline_location(
 /// The byte offset of the inline container (`{…}` or `[…]`) written at
 /// value `span`, past its properties (a YAML tag or anchor); `None` when
 /// the value there is no inline container.
-fn inline_start(behavior: &dyn ConfigLanguage, source: &str, span: Span) -> Option<usize> {
-    let line_start = usize::from(super::paths::line_start(
-        source,
-        span.line.saturating_sub(1),
-    ));
+fn inline_start(behavior: &dyn ConfigLanguage, source: &str, span: Span) -> Option<TextSize> {
+    let line_start = super::paths::line_start(source, span.line.saturating_sub(1));
     let start = line_start
-        + source[line_start..]
+        + slice::after(source, line_start)?
             .char_indices()
             .nth(span.start_column.saturating_sub(1))
-            .map_or(0, |(index, _)| index);
-    let start = start + behavior.value_properties_len(&source[start..]);
+            .map_or(TextSize::default(), |(index, _)| text_size(index));
+    let start = start + text_size(behavior.value_properties_len(slice::after(source, start)?));
     let flow = Flow::of(behavior);
-    source[start..]
+    slice::after(source, start)?
         .chars()
         .next()
         .is_some_and(|open| flow.closer_of(open).is_some())
@@ -780,7 +797,7 @@ pub(super) fn in_flow_container(
 ) -> Option<Span> {
     use super::language::SchemaPathSegment;
     let start = inline_start(behavior, source, span)?;
-    let text = &source[start..];
+    let text = slice::after(source, start)?;
     let rest: Vec<SchemaPathSegment> = rest
         .iter()
         .map(|segment| SchemaPathSegment::from_pointer_segment(segment.clone()))
@@ -794,21 +811,23 @@ pub(super) fn in_flow_container(
         .map(|walked| crate::editor::flow_syntax::Kept {
             walked,
             language: behavior.info().label,
-            base: start,
+            base: usize::from(start),
         });
+    // The shared scanner's offsets count from `start`.
     let (from, to) = Flow::of(behavior).path_span_in(text, &rest, key, kept)?;
-    let (from, to) = (start + from, start + to);
+    let found = TextRange::new(start + text_size(from), start + text_size(to.max(from)));
+    let value = slice::slice(source, found)?;
     // A comment after the value (`30 # b` in a flow map over lines) is
     // the language's, not the value's.
-    let to = match behavior.comment_start(&source[from..to]) {
-        Some(comment) if comment > 0 => from + source[from..from + comment].trim_end().len(),
-        _ => to,
+    let value = match behavior.comment_start(value) {
+        Some(comment) if comment > 0 => value.get(..comment).map_or(value, str::trim_end),
+        _ => value,
     };
-    let (line, column) = super::paths::line_column(source, text_size(from));
-    let to_column = if source[from..to].contains('\n') {
+    let (line, column) = super::paths::line_column(source, found.start());
+    let to_column = if value.contains('\n') {
         column + 1
     } else {
-        column + source[from..to].chars().count()
+        column + value.chars().count()
     };
     Some(Span {
         line,
@@ -863,74 +882,102 @@ fn scalar_changes<'a>(
 /// The bytes of `source` the scalar whose value span is `span` is written
 /// in, without its anchor or tag (`&x two`): what a patch rewrites, and
 /// what reads as the value.
+pub(super) fn scalar_text_range(
+    language: &dyn ConfigLanguage,
+    source: &str,
+    span: Span,
+) -> Option<TextRange> {
+    let range = written_text_range(language, source, span)?;
+    let properties = language.value_properties_len(slice::slice(source, range)?);
+    let start = (range.start() + text_size(properties)).min(range.end());
+    Some(TextRange::new(start, range.end()))
+}
+
+/// [`scalar_text_range`] as a `usize` range, for the protect area, which
+/// still cuts by `usize`.
+#[cfg(feature = "protect")]
 pub(super) fn scalar_range(
     language: &dyn ConfigLanguage,
     source: &str,
     span: Span,
 ) -> Option<std::ops::Range<usize>> {
-    let mut range = written_range(language, source, span)?;
-    range.start += language.value_properties_len(&source[range.clone()]);
-    Some(range)
+    scalar_text_range(language, source, span).map(Into::into)
 }
 
-/// [`scalar_range`] with the scalar's anchor and tag (`!Ref x`): all the
-/// host writes of it.
+/// [`scalar_text_range`] with the scalar's anchor and tag (`!Ref x`): all
+/// the host writes of it.
+pub(super) fn written_text_range(
+    language: &dyn ConfigLanguage,
+    source: &str,
+    span: Span,
+) -> Option<TextRange> {
+    // A value never takes the line break after it (a heredoc's span runs
+    // through its terminator line).
+    let range = span_text_range(source, span)?;
+    let value = slice::slice(source, range)?.trim_end_matches('\n');
+    let range = TextRange::at(range.start(), TextSize::of(value));
+    // A string in one of the language's long quotes runs to its closing
+    // delimiter.
+    let range = TextRange::new(range.start(), through_long_quote(language, source, range));
+    // With the whitespace around it that belongs to the value (XML text):
+    // the language's hook takes and gives `usize` byte ranges.
+    let written = language.written_value_range(source, range.into());
+    checked_range(&written)
+}
+
+/// [`written_text_range`] as a `usize` range, for the areas that still cut
+/// by `usize`.
 pub(super) fn written_range(
     language: &dyn ConfigLanguage,
     source: &str,
     span: Span,
 ) -> Option<std::ops::Range<usize>> {
-    // A value never takes the line break after it (a heredoc's span runs
-    // through its terminator line).
-    let mut range = byte_range(source, span)?;
-    while range.end > range.start && source[..range.end].ends_with('\n') {
-        range.end -= 1;
-    }
-    // A string in one of the language's long quotes runs to its closing
-    // delimiter.
-    range.end = through_long_quote(language, source, range.clone());
-    // With the whitespace around it that belongs to the value (XML text).
-    Some(language.written_value_range(source, range))
+    written_text_range(language, source, span).map(Into::into)
 }
 
 /// The end of `range`, run through the closing delimiter when the value
 /// starts with one of the language's multi-character quotes and spans
 /// lines.
-fn through_long_quote(
-    language: &dyn ConfigLanguage,
-    source: &str,
-    range: std::ops::Range<usize>,
-) -> usize {
+fn through_long_quote(language: &dyn ConfigLanguage, source: &str, range: TextRange) -> TextSize {
+    let Some(rest) = slice::after(source, range.start()) else {
+        return range.end();
+    };
     language
         .config()
         .quotes
         .iter()
         .filter(|quote| quote.len() > 1)
-        .find(|quote| source[range.start..].starts_with(**quote))
+        .find(|quote| rest.starts_with(**quote))
         .and_then(|quote| {
-            source[range.start + quote.len()..]
+            let length = TextSize::of(*quote);
+            slice::after(rest, length)?
                 .find(quote)
-                .map(|close| range.start + 2 * quote.len() + close)
+                .map(|close| range.start() + length + length + text_size(close))
         })
-        .map_or(range.end, |end| end.max(range.end))
+        .map_or(range.end(), |end| end.max(range.end()))
 }
 
-/// The byte range of a one-based line/character-column span.
-pub(super) fn byte_range(source: &str, span: Span) -> Option<std::ops::Range<usize>> {
+/// The bytes of a one-based line/character-column span.
+pub(super) fn span_text_range(source: &str, span: Span) -> Option<TextRange> {
     // (A lookup while a batch runs for the text; past its last line, the
     // empty text at its end.)
-    let line_start = usize::from(crate::editor::paths::line_start(
-        source,
-        span.line.saturating_sub(1),
-    ));
-    let line = &source[line_start..];
+    let line_start = crate::editor::paths::line_start(source, span.line.saturating_sub(1));
+    let line = slice::after(source, line_start)?;
     let byte_of = |column: usize| {
-        line.char_indices()
-            .nth(column.saturating_sub(1))
-            .map_or(line.len(), |(index, _)| index)
+        line_start
+            + line
+                .char_indices()
+                .nth(column.saturating_sub(1))
+                .map_or(TextSize::of(line), |(index, _)| text_size(index))
     };
     let (start, end) = (byte_of(span.start_column), byte_of(span.end_column));
-    (start < end).then_some(line_start + start..line_start + end)
+    (start < end).then(|| TextRange::new(start, end))
+}
+
+/// [`span_text_range`] as a `usize` range, for the areas that still cut by
+/// `usize`.
+pub(super) fn byte_range(source: &str, span: Span) -> Option<std::ops::Range<usize>> {
+    span_text_range(source, span).map(Into::into)
 }
 
 /// JSON pointers where `expected` and `actual` differ, at the deepest level

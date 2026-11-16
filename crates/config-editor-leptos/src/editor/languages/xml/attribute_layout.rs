@@ -118,7 +118,7 @@ pub(super) fn attribute_lines(text: &str) -> Vec<usize> {
 
 /// Whether the element whose start tag is `token` holds anything.
 pub(super) fn filled(source: &str, token: &Token) -> bool {
-    !source[..token.end].ends_with("/>") && !source[token.end..].starts_with("</")
+    !token.closes_itself(source) && !source[token.end..].starts_with("</")
 }
 
 /// The markup attributes of the start tag `token` of `source` (see

@@ -1,5 +1,7 @@
 //! The tolerant token scan the rest of the language reads.
 
+use crate::editor::text::{TextRange, byte_range, slice};
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Kind {
     /// `<name ...`, `</name`, or `<>`: `name` is empty for a bare `<`.
@@ -21,6 +23,18 @@ pub(super) struct Token {
     pub(super) start: usize,
     pub(super) end: usize,
     pub(super) kind: Kind,
+}
+
+impl Token {
+    /// The bytes it covers in the text it was read from.
+    pub(super) fn range(&self) -> TextRange {
+        byte_range(self.start..self.end)
+    }
+
+    /// Whether the tag closes itself (`<a/>`) in `source`.
+    pub(super) fn closes_itself(&self, source: &str) -> bool {
+        slice::before(source, self.range().end()).is_some_and(|head| head.ends_with("/>"))
+    }
 }
 
 /// [`tokenize_text`] of `source`, shared through the parse cache: one
