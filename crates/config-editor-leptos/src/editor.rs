@@ -31,10 +31,6 @@ mod document;
 mod drag_move;
 mod edit;
 mod edit_as;
-// `"$ref": ""` read as the root, for validation, completion and hover alike.
-mod empty_refs;
-#[cfg(feature = "schema-validation")]
-mod false_schema;
 // What a `$ref` the editor cannot follow is told.
 mod fill;
 mod flat_keys;
@@ -83,6 +79,7 @@ mod projection;
 #[cfg_attr(not(feature = "protect"), path = "editor/off/protect.rs")]
 mod protect;
 mod readings;
+mod schema;
 mod scroll_through;
 #[cfg_attr(not(feature = "search"), path = "editor/off/search.rs")]
 mod search;
@@ -106,9 +103,7 @@ pub use changes::unified_diff;
 pub use codec::{Conversion, ConvertError, float_of, float_value, string_of, string_value};
 pub use completion::{HoverDocs, Suggestion};
 pub use components::{ConfigEditorFooter, ConfigEditorToolbar};
-pub use diagnostics::{
-    Diagnostic, DiagnosticOrigin, Schema, SchemaError, SchemaSource, Severity, check_syntax,
-};
+pub use diagnostics::{Diagnostic, DiagnosticOrigin, Severity, check_syntax};
 pub use handle::EditorHandle;
 pub use host_diagnostics::{DiagnosticTarget, HostDiagnostic, is_web_url};
 pub use host_editing::{BaselineConflict, SaveRequest};
@@ -116,6 +111,7 @@ pub use language::ParseError;
 pub use languages::{Language, UnknownLanguage};
 pub use paths::{FieldPath, TextPosition, TextRange};
 pub(crate) use protect::DocumentPlaceholders;
+pub use schema::{Schema, SchemaError, SchemaSource};
 pub use secret_options::SecretOptions;
 pub use theme::{EditorTheme, ThemeColor, ThemeColors, UnknownTheme};
 

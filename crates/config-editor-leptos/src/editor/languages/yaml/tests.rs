@@ -2,9 +2,8 @@ use super::super::super::completion::{
     accept_marked, accept_reopens_suggestions, apply_completion,
     completions as shared_completions, key_hover as shared_key_hover,
 };
-use super::super::super::diagnostics::{
-    Diagnostic, SchemaBundle, build_schema, validate as shared_validate,
-};
+use super::super::super::diagnostics::{Diagnostic, validate as shared_validate};
+use super::super::super::schema::{SchemaBundle, build_schema};
 use super::super::super::keyboard::paired_edit as shared_paired_edit;
 use super::super::super::language::ConfigLanguage;
 use super::YamlBehavior;

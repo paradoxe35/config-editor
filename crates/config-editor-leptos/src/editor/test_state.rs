@@ -28,7 +28,7 @@ pub(super) struct TestEditor {
     /// The `settings` prop; a signal the test may switch.
     pub(super) settings: Signal<EditorSettings>,
     /// The `schema` prop, built.
-    pub(super) schema: Option<std::sync::Arc<super::diagnostics::SchemaBundle>>,
+    pub(super) schema: Option<std::sync::Arc<super::schema::SchemaBundle>>,
     /// A text in the `edit_as` language to open with, as a documents
     /// view's `Document::edit_as_text`.
     pub(super) opening: Option<String>,

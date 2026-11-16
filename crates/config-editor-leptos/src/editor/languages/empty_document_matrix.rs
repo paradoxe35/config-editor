@@ -7,7 +7,7 @@
 //! `|` marks the caret.
 
 use super::super::completion::accept_marked;
-use super::super::diagnostics::{SchemaBundle, build_schema};
+use super::super::schema::{SchemaBundle, build_schema};
 use super::Language;
 use serde_json::json;
 

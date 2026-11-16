@@ -5,7 +5,8 @@
 
 use crate::EditorStrings;
 use crate::editor::Language;
-use crate::editor::diagnostics::{Schema, build_schema, validate_with};
+use crate::editor::diagnostics::validate_with;
+use crate::editor::schema::{Schema, build_schema};
 
 const EMPTY: [&str; 6] = ["", " ", "\n", " \t\r\n ", "\u{feff}", "\u{feff}\n  "];
 

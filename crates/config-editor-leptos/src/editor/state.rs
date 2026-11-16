@@ -33,7 +33,6 @@ use super::a11y::A11yState;
 #[cfg(feature = "diff")]
 use super::changes::ChangesState;
 use super::completion::{self, CompletionState};
-use super::diagnostics::SchemaBundle;
 use super::document::DocState;
 use super::edit_as::EditAsState;
 #[cfg(feature = "folding")]
@@ -51,6 +50,7 @@ use super::live_settings::LiveSettings;
 use super::problems::{self, ProblemsState};
 use super::projection::Projection;
 use super::protect::{Inputs, ProtectInit, ProtectState};
+use super::schema::SchemaBundle;
 #[cfg(feature = "search")]
 use super::search::{GoToLine, SearchState};
 use super::source_area::SourceArea;

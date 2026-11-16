@@ -4,7 +4,7 @@
 //! `$ref`), in every language.
 
 use super::super::completion::key_hover;
-use super::super::diagnostics::build_schema;
+use super::super::schema::build_schema;
 use super::Language;
 use serde_json::{Value, json};
 

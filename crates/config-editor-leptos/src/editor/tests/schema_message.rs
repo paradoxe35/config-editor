@@ -3,7 +3,7 @@
 //! (no "False schema"), in every language.
 
 use crate::editor::Language;
-use crate::editor::diagnostics::Schema;
+use crate::editor::schema::Schema;
 
 fn messages(language: Language, yaml: &str, schema: &str) -> Vec<String> {
     let text = Language::YAML.convert(yaml, language).unwrap().text;

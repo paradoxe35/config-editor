@@ -153,7 +153,7 @@ fn cycles_end_and_chains_of_any_length_are_followed() {
     assert_eq!(titles, ["B"]);
 }
 
-/// A recursive `anyOf` whose options share a key (SC38-1): each level of
+/// A recursive `anyOf` whose options share a key: each level of
 /// a path is one step, whatever the number of options.
 fn walks_at_depth(depth: usize) -> usize {
     let schema = json!({

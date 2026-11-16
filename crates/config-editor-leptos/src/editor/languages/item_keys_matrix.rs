@@ -10,7 +10,7 @@
 
 use super::super::bridge::Bridge;
 use super::super::completion::completions;
-use super::super::diagnostics::build_schema;
+use super::super::schema::build_schema;
 use super::Language;
 
 const SCHEMA: &str = r#"{"type":"object","properties":{"spec":{"type":"object","properties":{

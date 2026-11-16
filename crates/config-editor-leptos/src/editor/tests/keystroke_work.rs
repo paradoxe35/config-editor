@@ -5,9 +5,9 @@
 
 use leptos::prelude::*;
 
-use crate::editor::diagnostics::SchemaBundle;
 use crate::editor::edit::Edit;
 use crate::editor::languages::Language;
+use crate::editor::schema::SchemaBundle;
 use crate::editor::state::EditorState;
 use crate::editor::test_state::TestEditor;
 use crate::editor::work_count::{Work, counted};
@@ -41,7 +41,7 @@ fn samples() -> Vec<(Language, &'static str)> {
 
 fn schema() -> std::sync::Arc<SchemaBundle> {
     std::sync::Arc::new(
-        crate::editor::diagnostics::build_schema(include_str!(
+        crate::editor::schema::build_schema(include_str!(
             "../../../tests/fixtures/tunnel.schema.json"
         ))
         .unwrap(),

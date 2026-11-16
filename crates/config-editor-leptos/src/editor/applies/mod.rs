@@ -20,12 +20,14 @@ mod narrow;
 mod node;
 mod query;
 mod step;
+mod types;
 
-pub(crate) use accepts::{decides, mentions_conditionals};
+pub(crate) use accepts::decides;
 pub(crate) use choices::{ChoiceHover, Choices};
 pub(crate) use document::{Next, Walking, each_value};
 pub(crate) use narrow::{listed, scalar_text};
 pub(crate) use node::{Entry, Walked};
+pub(crate) use types::Types;
 
 use crate::editor::language::SchemaPathSegment;
 use expand::Expand;
@@ -139,9 +141,36 @@ impl<'s> Here<'s> {
         query::leaves(&self.tree, Walked::Offered)
     }
 
+    /// The kinds of value everything here allows, combined as the schemas
+    /// combine (see [`Types`]).
+    pub(crate) fn types(&self) -> Types {
+        types::types(&self.tree)
+    }
+
     /// The `oneOf`/`anyOf` options of the object here.
     pub(crate) fn choices(&self) -> Choices<'s> {
         Choices::of(&self.tree)
+    }
+
+    /// The schemas documenting the value here: every one applying, but
+    /// those of an option of its object other than the one it is in.
+    pub(crate) fn documented(&self) -> Vec<&'s Value> {
+        let choices = self.choices();
+        self.branches()
+            .into_iter()
+            .filter(|branch| !matches!(choices.of_branch(branch), Some((_, false))))
+            .collect()
+    }
+
+    /// The schemas documenting the value itself: every one applying
+    /// outside its object's options (an option's title and description
+    /// are the option's, see [`Choices::hover`]).
+    pub(crate) fn own(&self) -> Vec<&'s Value> {
+        let choices = self.choices();
+        self.branches()
+            .into_iter()
+            .filter(|branch| choices.of_branch(branch).is_none())
+            .collect()
     }
 
     /// Whether every schema here allows `value` (`None` when one cannot
@@ -161,6 +190,13 @@ impl<'s> Here<'s> {
     /// would be read again inside itself).
     pub(crate) fn child_typed(&self, segment: &SchemaPathSegment) -> Entry<'s> {
         step::named(&self.tree, segment, false)
+    }
+
+    /// What applies to the children no `properties` entry names: each
+    /// item and each entry (see [`step::unnamed`]).
+    #[cfg(feature = "protect")]
+    pub(crate) fn unnamed_children(&self) -> Entry<'s> {
+        step::unnamed(&self.tree)
     }
 
     /// [`Self::child`] as the schemas name it: an item where they name
@@ -382,5 +418,7 @@ pub(crate) fn named_properties<'a>(schema: &'a Value, key: &str) -> Vec<&'a Valu
     property.into_iter().chain(patterns).collect()
 }
 
+#[cfg(all(test, feature = "yaml"))]
+mod decided_tests;
 #[cfg(test)]
 mod tests;

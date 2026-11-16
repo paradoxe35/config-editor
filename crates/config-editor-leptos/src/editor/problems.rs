@@ -8,8 +8,7 @@ use std::sync::Arc;
 use leptos::prelude::*;
 
 use super::diagnostics::{
-    Diagnostic, SchemaBundle, capped, host_problems, shift_diagnostics, validate_keyed,
-    with_host_problems,
+    Diagnostic, capped, host_problems, shift_diagnostics, validate_keyed, with_host_problems,
 };
 use super::edit_as::{EditAsProblem, EditAsText};
 use super::host_diagnostics::{
@@ -20,6 +19,7 @@ use super::languages::Language;
 use super::problem_hit::{column_at_cell, covering};
 use super::problem_walk::{Stop, stops};
 use super::protect::ProtectState;
+use super::schema::SchemaBundle;
 use super::state::EditorState;
 use super::sync::SyncState;
 use crate::EditorStrings;

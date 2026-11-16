@@ -3,7 +3,7 @@
 //! error elsewhere, in every language: what still parses around the caret
 //! decides it. `|` marks the caret.
 
-use super::super::diagnostics::Schema;
+use super::super::schema::Schema;
 use super::Language;
 
 const SCHEMA: &str = r#"{"type": "object", "properties": {

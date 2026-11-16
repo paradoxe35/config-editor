@@ -8,8 +8,8 @@
 
 use crate::editor::Language;
 use crate::editor::bridge::Bridge;
-use crate::editor::diagnostics::build_schema;
 use crate::editor::save_matrix::ALL;
+use crate::editor::schema::build_schema;
 use crate::editor::work_count::{Work, counted};
 
 /// The sample in `language`.

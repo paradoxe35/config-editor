@@ -4,7 +4,7 @@
 //! no later value lands one stop early.
 
 use super::super::completion::{apply_completion, completions, next_stop, stop_ranges};
-use super::super::diagnostics::build_schema;
+use super::super::schema::build_schema;
 use super::Language;
 use serde_json::{Value, json};
 

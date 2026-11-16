@@ -6,9 +6,10 @@ use std::sync::Arc;
 
 use leptos::prelude::*;
 
-use crate::editor::diagnostics::{DiagnosticOrigin, Severity, build_schema};
+use crate::editor::diagnostics::{DiagnosticOrigin, Severity};
 use crate::editor::host_diagnostics::HostDiagnostic;
 use crate::editor::languages::Language;
+use crate::editor::schema::build_schema;
 use crate::editor::test_state::TestEditor;
 
 const SCHEMA: &str = r#"{"type": "object", "properties": {"listen": {"type": "integer"}}}"#;

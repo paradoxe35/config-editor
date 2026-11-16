@@ -122,7 +122,8 @@ fn each_case(mut run: impl FnMut(&str, Language, Language, &str, &Tokens)) {
 #[cfg(feature = "schema-validation")]
 #[test]
 fn an_untouched_placeholder_alone_in_a_multi_line_form_passes_the_schema_check() {
-    use super::super::diagnostics::{build_schema, validate, validate_with};
+    use super::super::diagnostics::{validate, validate_with};
+    use super::super::schema::build_schema;
     use super::guarantee_tests::problems;
     let bundle = build_schema(
         r#"{"type": "object", "properties": {

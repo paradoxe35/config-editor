@@ -4,7 +4,7 @@
 use serde_json::json;
 
 use super::read_schema_text;
-use crate::editor::diagnostics::build_schema;
+use crate::editor::schema::build_schema;
 
 const TOO_DEEP: &str =
     "it nests objects and lists more than 128 levels deep, deeper than the editor reads";
@@ -88,7 +88,7 @@ mod yaml {
     use serde_json::json;
 
     use super::{TOO_DEEP, read_schema_text};
-    use crate::editor::diagnostics::build_schema;
+    use crate::editor::schema::build_schema;
 
     #[test]
     fn a_yaml_schema_reads_into_the_same_value_as_its_json() {

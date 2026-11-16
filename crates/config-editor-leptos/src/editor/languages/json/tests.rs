@@ -3,7 +3,7 @@ use super::super::super::completion::{
 };
 #[cfg(feature = "schema-validation")]
 use super::super::super::diagnostics::validate;
-use super::super::super::diagnostics::{SchemaBundle, build_schema};
+use super::super::super::schema::{SchemaBundle, build_schema};
 use super::super::super::language::{InsertContext, ConfigLanguage};
 
 const INSERT_AT_ROOT: InsertContext<'static> = InsertContext {

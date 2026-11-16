@@ -3,8 +3,7 @@
 
 use serde_json::Value;
 
-use super::super::applies::{Applies, Next, Walking, each_value};
-use super::super::completion::resolve_branches;
+use super::super::applies::{Applies, Entry, Here, Next, Seen, Walking, each_value};
 use super::super::language::SchemaPathSegment;
 
 /// The fields of one document the schema marks, by JSON pointer.
@@ -35,66 +34,38 @@ pub(crate) fn mentions_marks(schema: &Value) -> bool {
 /// field whose items or entries are read-only by its own key), to find the
 /// lines that may hold one in a text too large to read every line of.
 pub(crate) fn read_only_names(root: &Value) -> Vec<String> {
-    let mut names = Vec::new();
-    collect_names(root, root, &mut names, 0);
-    names
-}
-
-/// How deep schemas are read for the names of read-only fields.
-const MAX_DEPTH: usize = 64;
-
-fn collect_names(schema: &Value, root: &Value, names: &mut Vec<String>, depth: usize) {
-    if depth > MAX_DEPTH {
-        return;
-    }
-    match schema {
-        Value::Object(map) => {
-            if let Some(Value::Object(properties)) = map.get("properties") {
-                for (key, child) in properties {
-                    if holds_read_only(child, root, 0) && !names.contains(key) {
-                        names.push(key.clone());
-                    }
+    // Whether what applies to a field (blind, as locks read it), or to its
+    // items or entries at any depth, says `readOnly`; each schema is read
+    // once, so a reference cycle ends.
+    let holds_read_only = |field: &Value| {
+        let mut read = std::collections::HashSet::new();
+        let mut next = vec![Entry::schema(field)];
+        while let Some(entry) = next.pop() {
+            let here = Here::walk(entry, root, Seen::default());
+            let branches = here.branches();
+            if read_only_in(&branches).is_some() {
+                return true;
+            }
+            if branches.iter().fold(false, |new, branch| {
+                read.insert(std::ptr::from_ref(*branch)) | new
+            }) {
+                next.push(here.unnamed_children());
+            }
+        }
+        false
+    };
+    let mut names: Vec<String> = Vec::new();
+    crate::editor::schema::each_schema(root, &(), &mut |_, members, ()| {
+        if let Some(Value::Object(properties)) = members.get("properties") {
+            for (key, field) in properties {
+                if !names.contains(key) && holds_read_only(field) {
+                    names.push(key.clone());
                 }
             }
-            for value in map.values() {
-                collect_names(value, root, names, depth + 1);
-            }
         }
-        Value::Array(items) => {
-            for item in items {
-                collect_names(item, root, names, depth + 1);
-            }
-        }
-        _ => {}
-    }
-}
-
-/// Whether the field `schema` describes is read-only, or its items or
-/// entries are.
-fn holds_read_only(schema: &Value, root: &Value, depth: usize) -> bool {
-    if depth > 8 {
-        return false;
-    }
-    let branches = resolve_branches(schema, root);
-    if read_only_in(&branches).is_some() {
-        return true;
-    }
-    branches.iter().any(|branch| {
-        ["items", "additionalProperties", "contains"]
-            .iter()
-            .filter_map(|key| branch.get(*key))
-            .chain(
-                ["prefixItems", "patternProperties"]
-                    .iter()
-                    .filter_map(|key| branch.get(*key))
-                    .flat_map(|inner| match inner {
-                        Value::Array(items) => items.iter().collect::<Vec<_>>(),
-                        Value::Object(map) => map.values().collect(),
-                        _ => Vec::new(),
-                    }),
-            )
-            .any(|inner| holds_read_only(inner, root, depth + 1))
-    })
+        Some(())
+    });
+    names
 }
 
 /// The read-only reason the schemas applying to a field (`branches`)
@@ -242,5 +213,26 @@ mod tests {
         assert!(!mentions_marks(
             &json!({"properties": {"readOnly": {"type": "boolean"}}})
         ));
+    }
+
+    /// The keys that may name a read-only field: the field's own, by what
+    /// applies to it, its items' or its entries' at any depth; never a name
+    /// inside data, nor a list read-only only by `contains`.
+    #[test]
+    fn read_only_names_follow_what_applies_to_each_field() {
+        let schema = json!({
+            "$defs": {"node": {"type": "array", "items": {"$ref": "#/$defs/node"}},
+                      "locked": {"readOnly": true}},
+            "properties": {
+                "id": {"allOf": [{"$ref": "#/$defs/locked"}]},
+                "tokens": {"items": {"items": {"readOnly": true}}},
+                "labels": {"patternProperties": {"^x": {"readOnly": true}}},
+                "tree": {"$ref": "#/$defs/node"},
+                "some": {"contains": {"readOnly": true}},
+                "free": {"type": "string"}
+            },
+            "default": {"properties": {"inData": {"readOnly": true}}}
+        });
+        assert_eq!(read_only_names(&schema), ["id", "tokens", "labels"]);
     }
 }

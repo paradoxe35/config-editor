@@ -26,9 +26,9 @@ use leptos::prelude::*;
 use std::sync::Arc;
 
 use super::bridge::Bridge;
-use super::diagnostics::SchemaBundle;
 use super::languages::Language;
 use super::line_endings::editor_text;
+use super::schema::SchemaBundle;
 use super::state::EditorState;
 use super::sync::SyncState;
 

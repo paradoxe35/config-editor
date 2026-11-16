@@ -8,7 +8,7 @@
 use leptos::prelude::*;
 
 use crate::editor::Language;
-use crate::editor::diagnostics::Schema;
+use crate::editor::schema::Schema;
 use crate::editor::test_state::TestEditor;
 
 const LANGUAGES: [Language; 5] = [
@@ -174,7 +174,7 @@ fn a_declared_item_beside_a_failing_one_is_not_refused() {
 #[test]
 fn an_edit_as_view_reports_only_the_real_error() {
     let schema = std::sync::Arc::new(
-        crate::editor::diagnostics::build_schema(&all_of(
+        crate::editor::schema::build_schema(&all_of(
             r#""a":{"type":"integer"},"b":{"type":"integer"}"#,
         ))
         .unwrap(),

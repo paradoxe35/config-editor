@@ -10,13 +10,14 @@ use std::sync::Arc;
 use super::bridge::links::{Clipboard, Links};
 use super::bridge::{self, Bridge};
 use super::codec;
-use super::diagnostics::{DIAGNOSTICS_DEBOUNCE_MS, SchemaBundle};
+use super::diagnostics::DIAGNOSTICS_DEBOUNCE_MS;
 use super::edit::{Edit, Origin};
 use super::edit_as::{EditAsProblem, EditAsText, SaveError};
 use super::history::EditHistory;
 use super::language::ConfigLanguage;
 use super::languages::Language;
 use super::paths::TextPosition;
+use super::schema::SchemaBundle;
 use super::state::{EditorState, textarea_selection};
 use crate::reactive::later;
 

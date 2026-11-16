@@ -8,7 +8,7 @@
 //! tell what the secret is).
 
 use crate::editor::Language;
-use crate::editor::diagnostics::Schema;
+use crate::editor::schema::Schema;
 
 const SCHEMA: &str = r#"{
   "type": "object",

@@ -13,7 +13,7 @@ use serde_json::{Value, json};
 
 use crate::editor::Language;
 use crate::editor::bridge::Bridge;
-use crate::editor::diagnostics::{Schema, build_schema};
+use crate::editor::schema::{Schema, build_schema};
 
 const SCHEMA: &str = r##"{"type":"object","properties":{"r":{"type":"object","properties":{
     "k":{"type":"string"},

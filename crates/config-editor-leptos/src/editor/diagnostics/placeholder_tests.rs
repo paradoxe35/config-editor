@@ -5,7 +5,8 @@
 
 use super::super::Language;
 use super::super::work_count::{Work, counted};
-use super::{Schema, validate_with};
+use super::validate_with;
+use crate::editor::schema::Schema;
 use crate::strings::default_strings;
 
 /// `services` services, each with a placeholder for its secret `key` and

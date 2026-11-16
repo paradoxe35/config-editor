@@ -129,7 +129,7 @@ fn edit_as_saves_keep_non_finite_numbers() {
 #[cfg(feature = "schema-validation")]
 #[test]
 fn schema_validation_reads_non_finite_numbers_as_numbers() {
-    use super::super::diagnostics::build_schema;
+    use super::super::schema::build_schema;
     let numbers = build_schema(
         r#"{"properties": {"rate": {"type": "number"}, "low": {"type": "number"}, "odd": {"type": "number"}}}"#,
     )
@@ -252,7 +252,7 @@ fn strings_spelled_like_the_reserved_form_stay_strings() {
         }
         #[cfg(feature = "schema-validation")]
         {
-            use super::super::diagnostics::build_schema;
+            use super::super::schema::build_schema;
             let strings = build_schema(
                 r#"{"properties": {"s": {"type": "string", "maxLength": 4}, "t": {"type": "string", "maxLength": 5}}}"#,
             )
@@ -291,7 +291,7 @@ fn strings_spelled_like_the_reserved_form_stay_strings() {
 #[cfg(feature = "schema-validation")]
 #[test]
 fn non_finite_numbers_fail_integer_multiple_of_and_bounds() {
-    use super::super::diagnostics::build_schema;
+    use super::super::schema::build_schema;
     let keywords = [
         (r#"{"type": "integer"}"#, [true, true, true]),
         (r#"{"multipleOf": 5}"#, [true, true, true]),
