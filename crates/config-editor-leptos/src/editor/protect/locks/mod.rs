@@ -68,8 +68,17 @@ impl Lock {
     }
 
     /// Whether a host range locks it: the range's own lock, or a field
-    /// the range covers.
-    #[cfg(test)]
+    /// the range covers. Only the protect fuzz reads it.
+    #[cfg(all(
+        test,
+        feature = "yaml",
+        feature = "json",
+        feature = "toml",
+        feature = "hcl",
+        feature = "xml",
+        feature = "search",
+        feature = "schema-validation"
+    ))]
     pub(crate) fn by_range(&self) -> bool {
         self.reason == Reason::Range
     }
