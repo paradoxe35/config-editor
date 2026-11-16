@@ -16,7 +16,7 @@
 //! `HOST_SYNC_CASES` (runs per view), `HOST_SYNC_STEPS` (actions per run)
 //! and `HOST_SYNC_SEED` (the first seed) run more locally. Each class of
 //! failure prints its smallest run as a test to paste below; classes an
-//! open finding explains are listed in `known.rs`.
+//! open finding or the design explains are listed in `known.rs`.
 
 #[path = "../../src/text_lines.rs"]
 mod text_lines;
@@ -88,11 +88,21 @@ fn assert_ok(setup: run::Setup, acts: &[model::Act]) {
     }
 }
 
-/// Smallest runs of fixed classes, pasted from a failure.
+/// A run that ends in `class` (the repros of a class by design).
+fn assert_class(setup: run::Setup, acts: &[model::Act], class: model::Class) {
+    match run::replay(setup, acts) {
+        Err(failure) => assert_eq!(failure.class, class, "{}", failure.detail),
+        Ok(()) => panic!("passed, not {class:?}"),
+    }
+}
+
+/// Smallest runs of fixed classes, and of the classes by design in
+/// `known.rs`, pasted from a failure.
 #[allow(unused_imports)]
 mod repros {
-    use super::assert_ok;
+    use super::{assert_class, assert_ok};
     use crate::model::Act;
+    use crate::model::Class;
     use crate::model::Form::*;
     use crate::model::ResetKind::*;
     use crate::run::Setup;
@@ -282,6 +292,146 @@ mod repros {
                     same_task: false,
                 },
             ],
+        );
+    }
+
+    /// By the echo contract: a reset adds a line, then the host's own text
+    /// removes it again before the reset is listed: the text it gave last,
+    /// given again, no news. The editor keeps the reset's text. The class
+    /// is the narrow one the allowance names, not `NotConverged`.
+    #[test]
+    fn repro_editor_own_text_given_again_after_a_reset() {
+        assert_class(
+            Setup {
+                view: Editor,
+                base: 3,
+                other: 2,
+                form: Lines,
+            },
+            &[
+                Act::Reset {
+                    doc: 0,
+                    kind: Twice(24951),
+                    same_task: false,
+                },
+                Act::Deliver {
+                    doc: 0,
+                    pick: 0,
+                    dup: false,
+                    ranges: false,
+                    same_task: true,
+                },
+                Act::Deliver {
+                    doc: 1,
+                    pick: 1786,
+                    dup: false,
+                    ranges: true,
+                    same_task: false,
+                },
+                Act::Type { at: 58081, ch: ':' },
+                Act::Enter { at: 37481 },
+                Act::Deliver {
+                    doc: 1,
+                    pick: 36209,
+                    dup: false,
+                    ranges: true,
+                    same_task: false,
+                },
+                Act::Settle,
+                Act::Reset {
+                    doc: 0,
+                    kind: NewVersion(38468),
+                    same_task: true,
+                },
+                Act::Own {
+                    doc: 0,
+                    edit: 28009,
+                    ranges: true,
+                    same_task: false,
+                },
+            ],
+            Class::NotConvergedOnGivenAgain,
+        );
+    }
+
+    /// The same in a documents view: a newer version, then the host's own
+    /// text without its added line, the one it listed last.
+    #[test]
+    fn repro_documents_own_text_given_again_after_a_reset() {
+        assert_class(
+            Setup {
+                view: Documents,
+                base: 1,
+                other: 1,
+                form: Index,
+            },
+            &[
+                Act::Own {
+                    doc: 0,
+                    edit: 22969,
+                    ranges: true,
+                    same_task: false,
+                },
+                Act::Reset {
+                    doc: 0,
+                    kind: Twice(60416),
+                    same_task: false,
+                },
+                Act::Type { at: 7497, ch: 'b' },
+                Act::MoveLine { line: 35032 },
+                Act::Type { at: 61644, ch: 'a' },
+                Act::Reset {
+                    doc: 0,
+                    kind: NewVersion(12078),
+                    same_task: false,
+                },
+                Act::Own {
+                    doc: 1,
+                    edit: 62701,
+                    ranges: true,
+                    same_task: false,
+                },
+                Act::Type { at: 21737, ch: 'a' },
+                Act::Type { at: 2108, ch: ' ' },
+                Act::Deliver {
+                    doc: 0,
+                    pick: 0,
+                    dup: false,
+                    ranges: true,
+                    same_task: true,
+                },
+                Act::Delete { at: 40421, len: 0 },
+                Act::Deliver {
+                    doc: 0,
+                    pick: 0,
+                    dup: false,
+                    ranges: false,
+                    same_task: true,
+                },
+                Act::Delete { at: 63843, len: 2 },
+                Act::Enter { at: 38994 },
+                Act::Deliver {
+                    doc: 0,
+                    pick: 13762,
+                    dup: false,
+                    ranges: true,
+                    same_task: false,
+                },
+                Act::Reset {
+                    doc: 0,
+                    kind: NewVersion(60439),
+                    same_task: false,
+                },
+                Act::Type { at: 56831, ch: ':' },
+                Act::Settle,
+                Act::Own {
+                    doc: 0,
+                    edit: 43117,
+                    ranges: true,
+                    same_task: false,
+                },
+            ],
+            Class::NotConvergedOnGivenAgain,
         );
     }
 }

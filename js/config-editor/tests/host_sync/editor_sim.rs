@@ -8,7 +8,7 @@ use config_editor_leptos::TextRange;
 
 use crate::host::{HostDoc, ranges_in};
 use crate::host_channel::{Given, HostChannel};
-use crate::model::{Act, Class, Core, Failure, Form, Outcome, read_ranges, user_edit};
+use crate::model::{Act, Class, Core, Failure, Form, Outcome, ResetKind, read_ranges, user_edit};
 use config_editor_leptos::js_support::{Echo, echo_clock as clock};
 
 pub(crate) struct EditorSim {
@@ -50,6 +50,9 @@ impl EditorSim {
         own: bool,
     ) -> Outcome {
         let flushed = clock();
+        if let Some(value) = &value {
+            self.host.gave(value);
+        }
         let latest = self.core.text.clone();
         let ranges = given
             .map(|(ranges, print)| {
@@ -127,7 +130,7 @@ impl EditorSim {
         let Some((text, _)) = self.host.take(pick) else {
             return Ok(());
         };
-        text.clone_into(&mut self.host.store);
+        self.host.hold(&text);
         text.clone_into(&mut self.host.last_listed);
         for _ in 0..if dup { 2 } else { 1 } {
             let given = ranges.then(|| {
@@ -166,19 +169,16 @@ impl EditorSim {
                     // holds it once (its echo, if on its way), so it keeps
                     // its store and lists nothing.
                     if replaced {
-                        text.clone_into(&mut self.host.store);
+                        self.host.hold(&text);
                         text.clone_into(&mut self.host.last_listed);
                         self.host.lists(&text);
                     }
                 }
             }
             Act::Own { edit, ranges, .. } => {
-                let resets = self
-                    .host
-                    .resets(crate::model::ResetKind::NewVersion(*edit), "");
+                let resets = self.host.resets(ResetKind::NewVersion(*edit), "");
                 if let Some(text) = resets.into_iter().next() {
-                    self.host.queue.clear();
-                    text.clone_into(&mut self.host.store);
+                    self.host.own(&text);
                     text.clone_into(&mut self.host.last_listed);
                     let given = self
                         .host
@@ -230,7 +230,7 @@ impl EditorSim {
         self.core.flush()?;
         if self.host.store != self.core.text {
             return Err(Failure::new(
-                Class::NotConverged,
+                Class::not_converged(self.host.holds_given_again),
                 format!(
                     "host holds {:?}, the editor {:?}",
                     self.host.store, self.core.text

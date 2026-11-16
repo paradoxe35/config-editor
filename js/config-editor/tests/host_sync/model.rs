@@ -132,6 +132,9 @@ pub(crate) enum Class {
     RevertedBySameListing,
     /// Once every text came back, the host and the editor differ.
     NotConverged,
+    /// The same, the host holding a text of its own that is the one it
+    /// gave last, given again (see `HostDoc::own`).
+    NotConvergedOnGivenAgain,
     /// Ranges past the end of the text they are placed in.
     PastEnd,
     /// A panic.
@@ -145,6 +148,18 @@ pub(crate) struct Failure {
     /// task`, `drain` once every text comes back).
     pub(crate) step: String,
     pub(crate) detail: String,
+}
+
+impl Class {
+    /// The class of a host and an editor that differ at rest; `again`:
+    /// the host holds a text of its own that is the one it gave last.
+    pub(crate) fn not_converged(again: bool) -> Self {
+        if again {
+            Class::NotConvergedOnGivenAgain
+        } else {
+            Class::NotConverged
+        }
+    }
 }
 
 impl Failure {

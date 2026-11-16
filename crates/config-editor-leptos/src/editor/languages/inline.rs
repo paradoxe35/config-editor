@@ -685,9 +685,11 @@ fn is_comment_start(code: &str, index: usize) -> bool {
 }
 
 fn line_end(code: &str, from: usize) -> usize {
-    code[from..]
+    let end = code[from..]
         .find('\n')
-        .map_or(code.len(), |offset| from + offset)
+        .map_or(code.len(), |offset| from + offset);
+    crate::editor::work_count::note_many(crate::editor::work_count::Work::LineEndBytes, end - from);
+    end
 }
 
 /// Past the whitespace at `from`, line breaks included, and the comment
@@ -735,17 +737,16 @@ mod tests {
 
     /// The keys of a long line of open lists (`a = [1, [1, …`, no line
     /// break) cost the line once: each entry looked for the line's end,
-    /// reading the rest of the line for each (P5). Timed, four times the
-    /// line: about four times as long, sixteen when quadratic.
+    /// reading the rest of the line for each (P5). Counted, twice the
+    /// line: twice the work, four times when quadratic.
     #[test]
     fn the_keys_of_a_long_line_of_entries_cost_the_line_once() {
         let line = |entries: usize| format!("a = {}", "[1, ".repeat(entries));
-        let (small, large) = (line(10_000), line(40_000));
-        let growth = crate::editor::test_timing::growth(5, (&small, &large), |code: &String| {
-            inline_keys(code, b'=')
+        let grown = crate::editor::work_count::grown_faster(2.5, (10_000, 20_000), |entries| {
+            inline_keys(&line(entries), b'=')
         });
-        assert!(growth.ratio() < 8.0, "10000 entries, then 40000: {growth}");
-        assert_eq!(inline_keys(&large, b'=').len(), 1);
+        assert!(grown.is_empty(), "{grown:?}");
+        assert_eq!(inline_keys(&line(20_000), b'=').len(), 1);
     }
 
     #[test]

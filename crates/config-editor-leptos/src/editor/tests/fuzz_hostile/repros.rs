@@ -134,7 +134,7 @@ fn the_path_after_a_run_of_end_tags_reads_the_text_once() {
 
 /// P5: the path at a caret (and HCL's suggestion context) on a long HCL
 /// line of open lists (`a = [1, [1, …`) grows with the line: the keys on
-/// the line look for its end once, not once per entry.
+/// the line look for its end once, not once per entry (`LineEndBytes`).
 #[test]
 fn reading_a_long_hcl_line_of_open_lists_grows_with_it() {
     super::linear::replay(super::linear::LinearCase {
@@ -148,7 +148,7 @@ fn reading_a_long_hcl_line_of_open_lists_grows_with_it() {
 
 /// A JSON line of many strings (`"a", "a", …`, not a valid document): the
 /// key under the pointer counted each string's column from the line's
-/// start, the line's square for the caret's path.
+/// start, the line's square for the caret's path (`ColumnRecount`).
 #[test]
 fn reading_a_long_json_line_of_strings_grows_with_it() {
     super::linear::replay(super::linear::LinearCase {

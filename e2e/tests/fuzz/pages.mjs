@@ -99,6 +99,15 @@ export function installProbe({ kind, vanilla }) {
     }
     return offset;
   };
+  // Whether the editor on screen shows an error (a text that does not
+  // parse: one writing a locked key again does not reach the host until it
+  // parses).
+  fz.errored = () =>
+    [...(fz.root()?.querySelectorAll('.config-editor__diagnostic-marker') ?? [])].some(
+      (marker) =>
+        !marker.classList.contains('config-editor__diagnostic-marker-warning') &&
+        !marker.classList.contains('config-editor__diagnostic-marker-info'),
+    );
   // What a copy of the selection should put on the clipboard: the text
   // selected, hidden lines included; the caret's whole line when nothing
   // is selected.
@@ -377,12 +386,6 @@ export function snapshot() {
     locked: [...root.querySelectorAll('.config-editor__locked')].map((span) => span.textContent),
     problems: fz.problems[activeId ?? ''] ?? null,
     pageTokens: fz.pageTokens(),
-    // An error shown (a text that does not parse: one writing a locked key
-    // again does not reach the host until it parses).
-    errored: [...root.querySelectorAll('.config-editor__diagnostic-marker')].some(
-      (marker) =>
-        !marker.classList.contains('config-editor__diagnostic-marker-warning') &&
-        !marker.classList.contains('config-editor__diagnostic-marker-info'),
-    ),
+    errored: fz.errored(),
   };
 }
