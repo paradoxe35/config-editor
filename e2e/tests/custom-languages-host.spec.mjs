@@ -144,7 +144,7 @@ test.describe('read-only fields in a registered language without spans', () => {
           // never gets it.
           expect(await page.evaluate(() => window.qa.save())).toBe(false);
           await expect(
-            page.locator('.config-editor__diagnostic-marker[data-message*="no longer reads as the host gave it"]'),
+            page.locator('.config-editor__diagnostic-marker[data-message^="Not saved: /"]'),
           ).not.toHaveCount(0);
         } else {
           await expect.poll(() => value(page)).toBe(TEXT);

@@ -8,6 +8,7 @@ use config_editor_leptos::FieldPath;
 use config_editor_leptos::language::{
     CompletionContext, ConfigLanguage, Hover, InsertContext, InsertPlan, LanguageConfig,
     LanguageInfo, ParseError, SaveLayout, SchemaPathSegment, Span, Text, Token, TokenKind, Tokens,
+    Typing, flat_value_text, flat_write_insert,
 };
 use js_sys::{Array, Function};
 use serde_json::Value;
@@ -25,9 +26,11 @@ const TOKEN_KINDS: &str = "\"key\", \"string\", \"value\", \"literal\", \"commen
 /// with positions, conversion to and from every other language, Edit-as,
 /// the editing behavior its configuration describes, and schema completion
 /// and hover: through its optional `contextAt`, `insertKey` and `keyAt`
-/// callbacks, each one in place of its part of the flat default that its
-/// `separators` give (one `KEY=value` entry per line; see
-/// [`LanguageConfig::flat_completion_context`]). A flat language without
+/// callbacks, each one in place of its part of the default its declared
+/// syntax gives (`KEY=value` lines and values written on one line between
+/// its brackets, see [`LanguageConfig::flat_completion_context`]; entries
+/// written as its `serialize` writes them, see [`flat_write_insert`]). A
+/// flat language without
 /// `keySpan` / `valueSpan` (or where they return `null` or `undefined`)
 /// has its fields found on their lines; any other
 /// has its read-only fields checked by value alone. Constructs written over
@@ -345,7 +348,7 @@ impl ConfigLanguage for JsLanguage {
         if self.has("insertKey") {
             assist::insert_key(self, key, plan, context)
         } else {
-            self.config.get().flat_property_insert(key)
+            flat_write_insert(self, key, plan, context)
         }
     }
 
@@ -355,7 +358,7 @@ impl ConfigLanguage for JsLanguage {
         if self.has("contextAt") {
             value.to_string()
         } else {
-            self.config.get().flat_format_value(value)
+            flat_value_text(self, value)
         }
     }
 
@@ -378,6 +381,10 @@ impl ConfigLanguage for JsLanguage {
         self
     }
 
+    fn typing(&self) -> &dyn Typing {
+        self
+    }
+
     fn layout(&self) -> &dyn SaveLayout {
         self
     }
@@ -394,6 +401,12 @@ impl Text for JsLanguage {
 
     fn string_body_lines(&self, source: &str) -> Vec<Range<usize>> {
         ranges::body_lines(source, &self.multiline(source).strings)
+    }
+}
+
+impl Typing for JsLanguage {
+    fn empty_value_slots(&self, _language: &dyn ConfigLanguage, text: &str) -> Vec<usize> {
+        self.config.get().flat_empty_value_slots(text)
     }
 }
 

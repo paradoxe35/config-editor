@@ -994,11 +994,77 @@ export interface EditorStrings {
    */
   saveWaits?: string;
   /**
-   * A save waiting because the read-only field at `{pointer}` reads otherwise than the host gave it (a duplicate key or block shadows it, or it moved), and why the field is read-only (`{reason}`).
+   * A save waiting because the read-only field at `{pointer}` no longer reads as the host gave it, held where the editor cannot tell why, and why the field is read-only (`{reason}`). The texts after it name each cause a hold records.
    *
-   * @default "Not saved: {pointer} no longer reads as the host gave it ({reason}): a duplicate or a move shadows it; undo that change first"
+   * @default "Not saved: {pointer} no longer reads as the host gave it ({reason}); put it back as it was to save"
    */
   saveHeld?: string;
+  /**
+   * The same, because its key or a block holding it is written twice, and the other copy is read in its place.
+   *
+   * @default "Not saved: {pointer} is written twice, and the other copy is read in its place ({reason}); remove the copy to save"
+   */
+  saveHeldDuplicate?: string;
+  /**
+   * The same, because a key on its path was renamed (by an edit or an undo).
+   *
+   * @default "Not saved: a key of {pointer} was renamed ({reason}); give the key its old name back to save"
+   */
+  saveHeldRenamed?: string;
+  /**
+   * The same, because its text now sits under another parent.
+   *
+   * @default "Not saved: {pointer} moved under another parent ({reason}); move it back to save"
+   */
+  saveHeldMoved?: string;
+  /**
+   * The same, for a list item whose place in its list now holds another item (items were added, removed or moved before it).
+   *
+   * @default "Not saved: {pointer} is now another item of its list, because items were added, removed or moved before it ({reason}); put the items back in order to save"
+   */
+  saveHeldListItem?: string;
+  /**
+   * The same, because its line is commented out.
+   *
+   * @default "Not saved: {pointer} is commented out ({reason}); remove the comment mark to save"
+   */
+  saveHeldCommented?: string;
+  /**
+   * The same, because the text no longer has it.
+   *
+   * @default "Not saved: {pointer} is no longer in the text ({reason}); write it back as the host gave it to save"
+   */
+  saveHeldRemoved?: string;
+  /**
+   * The same, because text was added into it or beside it (a key in its block, a line taken into its value).
+   *
+   * @default "Not saved: {pointer} now reads text that was added into it or beside it ({reason}); remove that text to save"
+   */
+  saveHeldAdded?: string;
+  /**
+   * The same, in a language that cannot say where the field is written: its value reads otherwise.
+   *
+   * @default "Not saved: {pointer} now reads another value than the host gave ({reason}); put its value back as it was to save"
+   */
+  saveHeldSpanless?: string;
+  /**
+   * The same, for a field in a read-only range the host gave: the range's text no longer reads as that field.
+   *
+   * @default "Not saved: the read-only text the host gave no longer reads as {pointer} ({reason}); put that text back where it was to save"
+   */
+  saveHeldRange?: string;
+  /**
+   * The same, for a field the host made read-only after it was changed: the text reads it otherwise than the host's text does.
+   *
+   * @default "Not saved: {pointer} was changed before the host made it read-only ({reason}); put it back as the host gave it to save"
+   */
+  saveHeldBeforeLock?: string;
+  /**
+   * A save waiting because the secret field at `{pointer}` now reads text beside a placeholder the host gave as its whole value (an edit beside it, or an undo, made the parse read them together).
+   *
+   * @default "Not saved: {pointer} now reads other text beside its secret placeholder; remove that text so the placeholder stands alone to save"
+   */
+  saveHeldPlaceholder?: string;
   /**
    * The gutter lock's label, before the reason.
    *

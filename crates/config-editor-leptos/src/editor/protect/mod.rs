@@ -297,6 +297,8 @@ mod held_switch_tests;
 mod held_tests;
 #[cfg(all(test, feature = "yaml"))]
 mod held_undo_tests;
+#[cfg(all(test, feature = "yaml", feature = "hcl", feature = "xml"))]
+mod hold_cause_tests;
 #[cfg(all(
     test,
     feature = "yaml",

@@ -29,10 +29,12 @@ const HOOKS: [&str; 5] = [
 /// by its second argument.
 const SERIALIZE: &str = ".serialize(";
 
-/// The files and folders that may call the hooks: the door, and each
-/// language's own code.
-const ALLOWED: [&str; 9] = [
+/// The files and folders that may call the hooks: the door, each
+/// language's own code, and the helpers a language calls with itself from
+/// its own hooks (`flat_value_text`, `flat_write_insert`).
+const ALLOWED: [&str; 10] = [
     "crates/config-editor-leptos/src/editor/language/writer_door.rs",
+    "crates/config-editor-leptos/src/editor/flat_keys/insert.rs",
     "crates/config-editor-leptos/src/editor/languages/yaml",
     "crates/config-editor-leptos/src/editor/languages/toml",
     "crates/config-editor-leptos/src/editor/languages/json",

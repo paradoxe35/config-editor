@@ -63,6 +63,7 @@ pub use super::completion::{
     language_keeps, object_branch, placeholder, required_children, schema_const, schema_default,
     schema_example, writes_key,
 };
+pub use super::flat_keys::{flat_value_text, flat_write_insert};
 pub use super::fold_ranges::{
     FoldRange, IndentLine, bracket_fold_ranges, comment_fold_ranges, default_fold_ranges,
     indent_fold_ranges, merge_fold_ranges, string_body_fold_ranges,

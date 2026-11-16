@@ -75,7 +75,24 @@ const ELSEWHERE = {
   oneOf:
     "needs an object oneOf before any option matches (a schema problem, whose hover takes its place): choices_matrix",
   saveHeld:
-    "a locked field reading otherwise (a duplicate shadowing it): protect held_tests, locks-read-only spec",
+    "a hold that cannot tell its cause: protect hold_cause_tests",
+  saveHeldDuplicate:
+    "a locked key or block written twice: protect hold_cause_tests, held_tests",
+  saveHeldRenamed: "a key on a locked field's path renamed: hold_cause_tests",
+  saveHeldMoved: "a locked field under another parent: hold_cause_tests",
+  saveHeldListItem: "another item in a locked item's place: hold_cause_tests",
+  saveHeldCommented:
+    "a locked line commented out: hold_cause_tests, read-only-fields spec",
+  saveHeldRemoved: "a locked field gone from the text: hold_cause_tests",
+  saveHeldAdded:
+    "a key added into a locked block: hold_cause_tests, locks-read-only spec",
+  saveHeldSpanless:
+    "a language without spans: hold_cause_tests, custom-languages-host spec",
+  saveHeldRange: "a host range's field reading otherwise: hold_cause_tests",
+  saveHeldBeforeLock:
+    "a path the host named after its value changed: hold_cause_tests",
+  saveHeldPlaceholder:
+    "text beside a whole placeholder, held: hold_cause_tests, held_placeholder_tests",
   editAsTypedCommentsNone: "a JSON host: edit_as tests",
   addedLine: "a modified line is previewed here; diff tests",
   removedLines: "as addedLine",
