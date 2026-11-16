@@ -6,6 +6,7 @@
 //! fold follows the fold's first line in the textarea. Offsets are UTF-16,
 //! as the textarea counts them.
 
+use super::edit::Change;
 use super::fold_ranges::FoldRange;
 use super::keyboard::utf16_to_byte_index;
 
@@ -235,53 +236,31 @@ impl Projection {
     }
 
     /// The document after the textarea's text went from this projection's
-    /// to `edited` (an edit the browser made): the replaced text mapped
-    /// into `doc`, never taking hidden text with it. An insertion at a fold's
+    /// to `edited` (an edit the browser made), the browser's caret left at
+    /// UTF-16 `caret` of `edited`: the change on screen, placed so the text
+    /// it wrote ends at the caret (see [`Change::diffed_at`]), mapped into
+    /// `doc`, never taking hidden text with it. An insertion at a fold's
     /// first line end goes before the hidden text.
-    pub(crate) fn unproject(&self, doc: &str, edited: &str) -> String {
+    pub(crate) fn unproject(&self, doc: &str, edited: &str, caret: usize) -> String {
         let Some(view) = self.view.as_deref() else {
             return edited.to_string();
         };
-        let prefix = common_prefix(view, edited);
-        let suffix = common_suffix(&view[prefix..], &edited[prefix..]);
-        let (start, end) = (prefix, view.len() - suffix);
-        let inserted = &edited[prefix..edited.len() - suffix];
-        let start_units = view[..start].encode_utf16().count();
-        let end_units = start_units + view[start..end].encode_utf16().count();
-        let side = if start == end {
-            Side::Before
-        } else {
-            Side::After
-        };
-        let from = utf16_to_byte_index(doc, self.to_doc(start_units, side));
-        let to = utf16_to_byte_index(doc, self.to_doc(end_units, Side::Before)).max(from);
-        let mut result = String::with_capacity(doc.len() + inserted.len());
-        result.push_str(&doc[..from]);
-        result.push_str(inserted);
-        result.push_str(&doc[to..]);
-        result
+        let on_screen = Change::diffed_at(view, edited, caret);
+        let in_doc = on_screen.edits().map(|(range, inserted)| {
+            let start = view[..range.start].encode_utf16().count();
+            let end = start + view[range.clone()].encode_utf16().count();
+            let side = if range.is_empty() {
+                Side::Before
+            } else {
+                Side::After
+            };
+            let from = utf16_to_byte_index(doc, self.to_doc(start, side));
+            let to = utf16_to_byte_index(doc, self.to_doc(end, Side::Before)).max(from);
+            (from..to, inserted.to_string())
+        });
+        let change: Option<Change> = Change::replacing(doc.len(), in_doc);
+        change
+            .and_then(|change| change.apply(doc))
+            .unwrap_or_else(|| doc.to_string())
     }
-}
-
-/// Bytes `a` and `b` share at the start, on a character boundary.
-pub(crate) fn common_prefix(a: &str, b: &str) -> usize {
-    let mut length = a.bytes().zip(b.bytes()).take_while(|(x, y)| x == y).count();
-    while !a.is_char_boundary(length) || !b.is_char_boundary(length) {
-        length -= 1;
-    }
-    length
-}
-
-/// Bytes `a` and `b` share at the end, on a character boundary.
-pub(crate) fn common_suffix(a: &str, b: &str) -> usize {
-    let mut length = a
-        .bytes()
-        .rev()
-        .zip(b.bytes().rev())
-        .take_while(|(x, y)| x == y)
-        .count();
-    while !a.is_char_boundary(a.len() - length) || !b.is_char_boundary(b.len() - length) {
-        length -= 1;
-    }
-    length
 }

@@ -81,6 +81,7 @@ mod item_start;
 use super::parse_cache::string_bodies;
 use serde_json::Value;
 use std::collections::HashSet;
+use std::ops::Range;
 
 /// A syntax error in a document, with its one-based position when the
 /// language reports one.
@@ -400,16 +401,94 @@ fn opener_line(
     Some(source[..index].rfind('\n').map_or(0, |newline| newline + 1))
 }
 
+/// What Ctrl+/ does to a text: the replacements it makes and the selection
+/// it leaves.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Toggled {
+    /// Byte ranges of the text before, sorted and apart, each with the text
+    /// that replaces it: a marker written or taken, a character escaped.
+    /// The editor maps what it keeps by position (problem markers, folds,
+    /// read-only ranges) through them, so each one says where text went.
+    pub edits: Vec<(Range<usize>, String)>,
+    /// The selection after, as UTF-16 offsets of the text after (in either
+    /// order).
+    pub selection: (usize, usize),
+}
+
+impl Toggled {
+    /// The text after: `source` with the [`edits`](Self::edits) made; `None`
+    /// when they do not fit it (out of order, overlapping, past its end or
+    /// inside a character).
+    pub fn apply(&self, source: &str) -> Option<String> {
+        let mut out = String::with_capacity(source.len());
+        let mut at = 0;
+        for (range, text) in &self.edits {
+            if range.start < at || range.end < range.start {
+                return None;
+            }
+            out.push_str(source.get(at..range.start)?);
+            source.get(range.clone())?;
+            out.push_str(text);
+            at = range.end;
+        }
+        out.push_str(source.get(at..)?);
+        Some(out)
+    }
+
+    /// `edits` of `source`, leaving `start..end` (bytes of the text after)
+    /// selected.
+    pub(crate) fn selecting_bytes(
+        source: &str,
+        edits: Vec<(Range<usize>, String)>,
+        start: usize,
+        end: usize,
+    ) -> Self {
+        let mut toggled = Toggled {
+            edits,
+            selection: (0, 0),
+        };
+        let updated = toggled.apply(source).unwrap_or_default();
+        let units = |byte: usize| updated[..byte.min(updated.len())].encode_utf16().count();
+        toggled.selection = (units(start), units(end));
+        toggled
+    }
+}
+
+/// Where byte `position` of the text before lands after `edits` (sorted
+/// byte ranges of it, each with its text): in place outside them, after
+/// what one writes over it, and before a pure insert at its spot only with
+/// `before_inserts`.
+pub(crate) fn mapped_through(
+    edits: &[(Range<usize>, String)],
+    position: usize,
+    before_inserts: bool,
+) -> usize {
+    let mut delta = 0isize;
+    for (range, text) in edits {
+        if position < range.start {
+            break;
+        }
+        if position == range.start && range.is_empty() && before_inserts {
+            return range.start.saturating_add_signed(delta);
+        }
+        if position <= range.end {
+            return (range.start + text.len()).saturating_add_signed(delta);
+        }
+        delta += text.len() as isize - range.len() as isize;
+    }
+    position.saturating_add_signed(delta)
+}
+
 /// Ctrl+/ on lines that are each wrapped in a block comment (`/* a = 1 */`):
 /// the markers removed. `None` when any selected line is not wrapped, so
-/// line comments take over. Offsets are UTF-16; returns the text and the
-/// selection over the unwrapped lines.
+/// line comments take over. Offsets are UTF-16; the selection after covers
+/// the unwrapped lines.
 pub fn unwrap_block_comments(
     source: &str,
     selection_start: usize,
     selection_end: usize,
     (open, close): (&str, &str),
-) -> Option<(String, usize, usize)> {
+) -> Option<Toggled> {
     let start = utf16_to_byte_index(source, selection_start);
     let end = utf16_to_byte_index(source, selection_end);
     // Inside one block comment over several lines, its markers on lines of
@@ -432,18 +511,18 @@ pub fn unwrap_block_comments(
         let open_end = at + open.len() + usize::from(source[at + open.len()..].starts_with(' '));
         let close_start =
             close_at - usize::from(source[..close_at].ends_with(' ') && close_at > open_end);
-        let updated = format!(
-            "{}{}{}",
-            &source[..at],
-            &source[open_end..close_start],
-            &source[close_at + close.len()..]
-        );
+        let edits = vec![
+            (at..open_end, String::new()),
+            (close_start..close_at + close.len(), String::new()),
+        ];
         let removed = open_end - at;
-        let map = |byte: usize| {
-            let byte = byte.clamp(open_end, close_start) - removed;
-            updated[..byte].encode_utf16().count()
-        };
-        return Some((updated.clone(), map(start), map(end)));
+        let map = |byte: usize| byte.clamp(open_end, close_start) - removed;
+        return Some(Toggled::selecting_bytes(
+            source,
+            edits,
+            map(start),
+            map(end),
+        ));
     }
     let first_start = source[..start].rfind('\n').map_or(0, |at| at + 1);
     let last_end = source[end..].find('\n').map_or(source.len(), |at| end + at);
@@ -461,18 +540,16 @@ pub fn unwrap_block_comments(
     if content.peek().is_none() || !content.all(wrapped) {
         return None;
     }
-    // Each line unwrapped, with what it takes to map a position on it: its
-    // start before and after, its indent, and the bytes cut before the text.
-    let mut replaced = String::new();
+    // Each wrapped line loses its markers, the blanks inside them and its
+    // trailing blanks. What a position on it needs to be mapped: its start
+    // before and after, its indent, and the bytes cut before the text.
+    let mut edits = Vec::new();
     let mut lines: Vec<(usize, usize, usize, usize, usize)> = Vec::new();
     let mut offset = first_start;
-    for (index, line) in block.split('\n').enumerate() {
-        if index > 0 {
-            replaced.push('\n');
-        }
-        let new_start = first_start + replaced.len();
+    let mut shrunk = 0;
+    for line in block.split('\n') {
+        let new_start = offset - shrunk;
         if line.trim().is_empty() {
-            replaced.push_str(line);
             lines.push((offset, new_start, line.len(), 0, line.len()));
         } else {
             let indent = line.len() - line.trim_start().len();
@@ -480,17 +557,14 @@ pub fn unwrap_block_comments(
             let inner = &body[open.len()..body.len() - close.len()];
             let cut = open.len() + (inner.len() - inner.trim_start().len());
             let text = inner.trim();
-            replaced.push_str(&line[..indent]);
-            replaced.push_str(text);
+            let text_start = offset + indent + cut;
+            edits.push((offset + indent..text_start, String::new()));
+            edits.push((text_start + text.len()..offset + line.len(), String::new()));
+            shrunk += line.len() - indent - text.len();
             lines.push((offset, new_start, indent, cut, text.len()));
         }
         offset += line.len() + 1;
     }
-    let updated = format!(
-        "{}{replaced}{}",
-        &source[..first_start],
-        &source[last_end..]
-    );
     // A position keeps its place in the text; on a marker it moves to the
     // text's nearest end.
     let map = |byte: usize| {
@@ -506,9 +580,14 @@ pub fn unwrap_block_comments(
         } else {
             (column.saturating_sub(cut)).clamp(indent, indent + text)
         };
-        updated[..new_start + mapped].encode_utf16().count()
+        new_start + mapped
     };
-    Some((updated.clone(), map(start), map(end)))
+    Some(Toggled::selecting_bytes(
+        source,
+        edits,
+        map(start),
+        map(end),
+    ))
 }
 
 /// The UTF-16 selection Ctrl+/ toggles: a selection's lines as they are
@@ -531,21 +610,23 @@ pub(crate) fn comment_target(
 
 /// Ctrl+/ for line-comment languages: the selected lines (UTF-16 offsets)
 /// commented at the block's smallest indent with `markers[0]`, or, when every
-/// non-blank line already starts with one of `markers`, uncommented. Returns
-/// the text and the selection mapped onto it.
+/// non-blank line already starts with one of `markers`, uncommented.
 ///
 /// ```
 /// use config_editor_leptos::language::toggle_line_comments;
-/// let (text, ..) = toggle_line_comments("a:\n  b: 1\n", 0, 9, &["#"]).unwrap();
-/// assert_eq!(text, "# a:\n#   b: 1\n");
+/// let source = "a:\n  b: 1\n";
+/// let toggled = toggle_line_comments(source, 0, 9, &["#"]).unwrap();
+/// assert_eq!(toggled.edits, [(0..0, "# ".to_string()), (3..3, "# ".to_string())]);
+/// assert_eq!(toggled.apply(source).unwrap(), "# a:\n#   b: 1\n");
 /// ```
 pub fn toggle_line_comments(
     source: &str,
     selection_start: usize,
     selection_end: usize,
     markers: &[&str],
-) -> Option<(String, usize, usize)> {
+) -> Option<Toggled> {
     let insert = *markers.first()?;
+    let added = format!("{insert} ");
     let start = utf16_to_byte_index(source, selection_start);
     let end = utf16_to_byte_index(source, selection_end);
     let first_line = source[..start].matches('\n').count();
@@ -559,9 +640,9 @@ pub fn toggle_line_comments(
         if start != end || start != source.len() {
             return None;
         }
-        let updated = format!("{source}{insert} ");
-        let caret = updated.encode_utf16().count();
-        return Some((updated, caret, caret));
+        let caret = source.len() + added.len();
+        let edits = vec![(source.len()..source.len(), added)];
+        return Some(Toggled::selecting_bytes(source, edits, caret, caret));
     }
     let last_line = last_line.min(lines.len() - 1);
     let body = |line: &str| {
@@ -586,62 +667,38 @@ pub fn toggle_line_comments(
         .filter(|line| !line.trim().is_empty())
         .all(|line| marker_of(&line[indent_of(line)..]).is_some());
     let column = content_lines.map(|line| indent_of(line)).min().unwrap_or(0);
+    let first_start: usize = lines[..first_line].iter().map(|line| line.len()).sum();
     // On a blank line, start a comment there, after its indentation.
     if first_line == last_line && selected[0].trim().is_empty() {
-        let line_start: usize = lines[..first_line].iter().map(|line| line.len()).sum();
-        let at = line_start + selected[0].len();
-        let mut updated = source.to_string();
-        updated.insert_str(at, &format!("{insert} "));
-        let caret = updated[..at + insert.len() + 1].encode_utf16().count();
-        return Some((updated, caret, caret));
+        let at = first_start + selected[0].len();
+        let caret = at + added.len();
+        return Some(Toggled::selecting_bytes(
+            source,
+            vec![(at..at, added)],
+            caret,
+            caret,
+        ));
     }
 
-    let mut edits: Vec<(usize, usize, usize)> = Vec::new();
-    let mut updated = String::with_capacity(source.len() + lines.len() * (insert.len() + 1));
-    let mut offset = 0;
-    for (index, line) in lines.iter().enumerate() {
-        let text = body(line);
-        if (first_line..=last_line).contains(&index) && !text.trim().is_empty() {
+    let mut edits: Vec<(Range<usize>, String)> = Vec::new();
+    let mut offset = first_start;
+    for (line, text) in lines[first_line..=last_line].iter().zip(&selected) {
+        if !text.trim().is_empty() {
             if uncomment {
-                let indent = indent_of(&text);
+                let indent = indent_of(text);
                 let marker = marker_of(&text[indent..]).unwrap_or_default();
                 let removed =
                     marker.len() + usize::from(text[indent + marker.len()..].starts_with(' '));
-                edits.push((offset + indent, removed, 0));
-                updated.push_str(&line[..indent]);
-                updated.push_str(&line[indent + removed..]);
+                edits.push((offset + indent..offset + indent + removed, String::new()));
             } else {
-                let added = format!("{insert} ");
-                edits.push((offset + column, 0, added.len()));
-                updated.push_str(&line[..column]);
-                updated.push_str(&added);
-                updated.push_str(&line[column..]);
+                edits.push((offset + column..offset + column, added.clone()));
             }
-        } else {
-            updated.push_str(line);
         }
         offset += line.len();
     }
-    let map = |position: usize, right_biased: bool| {
-        let mut delta = 0isize;
-        for (at, removed, inserted) in &edits {
-            if position < *at {
-                break;
-            }
-            if position == *at && *removed == 0 && !right_biased {
-                return (*at as isize + delta) as usize;
-            }
-            if position <= *at + *removed {
-                return (*at as isize + delta + *inserted as isize) as usize;
-            }
-            delta += *inserted as isize - *removed as isize;
-        }
-        (position as isize + delta) as usize
-    };
-    let new_start = map(start, start == end).min(updated.len());
-    let new_end = map(end, true).min(updated.len());
-    let utf16 = |byte: usize| updated[..byte].encode_utf16().count();
-    Some((updated.clone(), utf16(new_start), utf16(new_end)))
+    let new_start = mapped_through(&edits, start, start != end);
+    let new_end = mapped_through(&edits, end, false);
+    Some(Toggled::selecting_bytes(source, edits, new_start, new_end))
 }
 
 /// The [`InlineBlock`] for the byte range `start..end` on a line where `depth`
@@ -1535,8 +1592,9 @@ pub trait Typing {
         }
     }
 
-    /// The document with the selected lines commented or uncommented, and the
-    /// remapped selection; `None` when the language has no comments. A
+    /// The edits that comment or uncomment the selected lines (UTF-16
+    /// offsets), and the selection after (see [`Toggled`]); `None` when the
+    /// language has no comments. A
     /// selection's lines are toggled exactly as selected (so a toggle and
     /// the next one on the lines it leaves selected give the text back); a
     /// caret's line is widened over the whole constructs it is in (see
@@ -1547,7 +1605,7 @@ pub trait Typing {
         source: &str,
         selection_start: usize,
         selection_end: usize,
-    ) -> Option<(String, usize, usize)> {
+    ) -> Option<Toggled> {
         let config = language.config();
         // Inside a block comment on lines of its own: its markers go.
         if let Some(block) = config.block_comment
@@ -2360,9 +2418,25 @@ impl dyn ConfigLanguage {
         source: &str,
         selection_start: usize,
         selection_end: usize,
-    ) -> Option<(String, usize, usize)> {
+    ) -> Option<Toggled> {
         self.typing()
             .toggle_comments(self, source, selection_start, selection_end)
+    }
+
+    /// [`Self::toggle_comments`] made: the text after and the selection
+    /// (UTF-16 offsets of it). Panics when the edits do not fit `source`.
+    #[cfg(test)]
+    pub(crate) fn toggled_text(
+        &self,
+        source: &str,
+        selection_start: usize,
+        selection_end: usize,
+    ) -> Option<(String, usize, usize)> {
+        let toggled = self.toggle_comments(source, selection_start, selection_end)?;
+        let text = toggled
+            .apply(source)
+            .expect("Ctrl+/ edits sorted, apart and inside the text");
+        Some((text, toggled.selection.0, toggled.selection.1))
     }
 
     /// See [`Typing::comment_scope`].
@@ -3082,7 +3156,7 @@ mod tests {
         for marker in ["name = '''", "# not", "host = x", "end'''"] {
             let at = source.find(marker).unwrap() + 2;
             let toggled = (&Tiny as &dyn super::ConfigLanguage)
-                .toggle_comments(source, at, at)
+                .toggled_text(source, at, at)
                 .map(|(text, _, _)| text);
             if toggled.as_deref() != Some(commented) {
                 failures.push(format!("caret in {marker:?}: {toggled:?}"));
@@ -3090,7 +3164,7 @@ mod tests {
         }
         let outside = source.find("b = 2").unwrap();
         let toggled = (&Tiny as &dyn super::ConfigLanguage)
-            .toggle_comments(source, outside, outside)
+            .toggled_text(source, outside, outside)
             .map(|(text, _, _)| text);
         if toggled.as_deref()
             != Some("a = 1\nname = '''multi\n# not a comment\nhost = x\nend'''\n# b = 2\n")

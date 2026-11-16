@@ -10,7 +10,9 @@ use crate::strings::{default_strings, fill};
 
 #[cfg(feature = "schema-validation")]
 mod fields;
+mod follow;
 mod host_reading;
+pub(super) use follow::follow_diagnostics;
 pub(super) use host_reading::{ProblemKey, host_problems, with_host_problems};
 #[cfg(feature = "schema-validation")]
 mod schema_problems;
@@ -301,118 +303,6 @@ pub(super) fn headless_validate(
     }
     problems
 }
-/// `diagnostics` found in `validated`, moved to where their lines are in
-/// `current`: those after the edited lines shift by the lines it added or
-/// removed, those on edited lines are dropped until the next validation.
-pub(super) fn shift_diagnostics(
-    validated: &str,
-    current: &str,
-    diagnostics: &[Diagnostic],
-) -> Vec<Diagnostic> {
-    let count = |text: &str| text.bytes().filter(|byte| *byte == b'\n').count();
-    if diagnostics.is_empty() {
-        return Vec::new();
-    }
-    // A change within one line moves the markers after it on that line.
-    if count(validated) == count(current) {
-        return shift_columns(validated, current, diagnostics);
-    }
-    let old: Vec<&str> = validated.split('\n').collect();
-    let new: Vec<&str> = current.split('\n').collect();
-    let prefix = old.iter().zip(&new).take_while(|(a, b)| a == b).count();
-    let suffix = old
-        .iter()
-        .rev()
-        .zip(new.iter().rev())
-        .take(old.len().min(new.len()) - prefix)
-        .take_while(|(a, b)| a == b)
-        .count();
-    let delta = new.len() as isize - old.len() as isize;
-    let moved = |line: usize| (line as isize + delta) as usize;
-    diagnostics
-        .iter()
-        .filter_map(|diagnostic| {
-            let Some(line) = diagnostic.line else {
-                return Some(diagnostic.clone());
-            };
-            if line <= prefix {
-                // A marker over several lines ends where its end moved; one
-                // ending in the edited lines, at their last line.
-                let end_line = diagnostic.end_line.map(|end| {
-                    if end > old.len() - suffix {
-                        moved(end)
-                    } else if end > prefix {
-                        (new.len() - suffix).max(line)
-                    } else {
-                        end
-                    }
-                });
-                Some(Diagnostic {
-                    end_line: end_line.filter(|end| *end > line),
-                    ..diagnostic.clone()
-                })
-            } else if line > old.len() - suffix {
-                Some(Diagnostic {
-                    line: Some(moved(line)),
-                    end_line: diagnostic.end_line.map(moved),
-                    ..diagnostic.clone()
-                })
-            } else {
-                None
-            }
-        })
-        .collect()
-}
-
-/// `diagnostics` with columns on the one edited line moved by the characters
-/// typed or deleted before them.
-fn shift_columns(validated: &str, current: &str, diagnostics: &[Diagnostic]) -> Vec<Diagnostic> {
-    let edited = validated
-        .split('\n')
-        .zip(current.split('\n'))
-        .enumerate()
-        .filter(|(_, (old, new))| old != new)
-        .map(|(index, (old, new))| (index + 1, old, new))
-        .collect::<Vec<_>>();
-    let [(line, old, new)] = edited.as_slice() else {
-        return diagnostics.to_vec();
-    };
-    let edit_column = old
-        .chars()
-        .zip(new.chars())
-        .take_while(|(a, b)| a == b)
-        .count()
-        + 1;
-    let delta = new.chars().count() as isize - old.chars().count() as isize;
-    let moved = |column: usize| {
-        if column >= edit_column {
-            (column as isize + delta).max(edit_column as isize) as usize
-        } else {
-            column
-        }
-    };
-    diagnostics
-        .iter()
-        .map(|diagnostic| {
-            let starts_here = diagnostic.line == Some(*line);
-            let ends_here = diagnostic.last_line() == Some(*line);
-            Diagnostic {
-                column: diagnostic.column.map(
-                    |column| {
-                        if starts_here { moved(column) } else { column }
-                    },
-                ),
-                end_column: diagnostic.end_column.map(
-                    |end| {
-                        if ends_here { moved(end) } else { end }
-                    },
-                ),
-                ..diagnostic.clone()
-            }
-        })
-        .collect()
-}
-
 /// Parses through `behavior` and maps schema violations to source spans.
 pub(super) fn validate(
     source: &str,
@@ -793,8 +683,9 @@ mod cap_tests {
 }
 
 #[cfg(test)]
-mod shift_tests {
-    use super::{Diagnostic, Severity, shift_diagnostics};
+mod follow_tests {
+    use super::super::edit::Change;
+    use super::{Diagnostic, Severity, follow_diagnostics};
 
     fn on(line: usize) -> Diagnostic {
         Diagnostic {
@@ -814,16 +705,30 @@ mod shift_tests {
             .collect()
     }
 
+    /// `diagnostics` of `checked` through `range` of it replaced by
+    /// `inserted`.
+    fn follow(
+        checked: &str,
+        range: std::ops::Range<usize>,
+        inserted: &str,
+        diagnostics: &[Diagnostic],
+    ) -> Vec<Diagnostic> {
+        let change: Change =
+            Change::replacing(checked.len(), [(range, inserted.to_string())]).expect("fits");
+        let current = change.apply(checked).expect("made for it");
+        follow_diagnostics(&change, checked, &current, diagnostics)
+    }
+
     #[test]
     fn markers_below_an_inserted_line_move_down() {
-        let shifted = shift_diagnostics("a\nb\nc", "a\n\nb\nc", &[on(1), on(3)]);
-        assert_eq!(lines(shifted), [Some(1), Some(4)]);
+        let followed = follow("a\nb\nc", 2..2, "\n", &[on(1), on(3)]);
+        assert_eq!(lines(followed), [Some(1), Some(4)]);
     }
 
     #[test]
     fn markers_below_a_removed_line_move_up_and_the_removed_ones_go() {
-        let shifted = shift_diagnostics("a\nb\nc\nd", "a\nd", &[on(2), on(4)]);
-        assert_eq!(lines(shifted), [Some(2)]);
+        let followed = follow("a\nb\nc\nd", 2..6, "", &[on(2), on(4)]);
+        assert_eq!(lines(followed), [Some(2)]);
     }
 
     #[test]
@@ -840,24 +745,21 @@ mod shift_tests {
                 .collect()
         };
         // A line inserted inside it: its end moves down.
-        let shifted = shift_diagnostics("a\nb\nc\nd", "a\nb\nx\nc\nd", &[over(1, 3)]);
-        assert_eq!(spans(shifted), [(Some(1), Some(4), Some(3))]);
+        let followed = follow("a\nb\nc\nd", 4..4, "x\n", &[over(1, 3)]);
+        assert_eq!(spans(followed), [(Some(1), Some(4), Some(3))]);
         // Above it: all of it moves.
-        let shifted = shift_diagnostics("a\nb\nc\nd", "z\na\nb\nc\nd", &[over(2, 4)]);
-        assert_eq!(spans(shifted), [(Some(3), Some(5), Some(3))]);
+        let followed = follow("a\nb\nc\nd", 0..0, "z\n", &[over(2, 4)]);
+        assert_eq!(spans(followed), [(Some(3), Some(5), Some(3))]);
         // Typing on its last line before its end moves the end column only.
-        let shifted = shift_diagnostics("abc\ndef", "abc\nXdef", &[over(1, 2)]);
-        assert_eq!(spans(shifted), [(Some(1), Some(2), Some(4))]);
-        assert_eq!(
-            shift_diagnostics("abc\ndef", "abc\nXdef", &[over(1, 2)])[0].column,
-            Some(1)
-        );
+        let followed = follow("abc\ndef", 4..4, "X", &[over(1, 2)]);
+        assert_eq!(followed[0].column, Some(1));
+        assert_eq!(spans(followed), [(Some(1), Some(2), Some(4))]);
     }
 
     #[test]
     fn typing_within_a_line_moves_nothing_on_other_lines() {
-        let shifted = shift_diagnostics("a: 1\nb: x", "a: 12\nb: x", &[on(2)]);
-        assert_eq!(lines(shifted), [Some(2)]);
+        let followed = follow("a: 1\nb: x", 4..4, "2", &[on(2)]);
+        assert_eq!(lines(followed), [Some(2)]);
     }
 
     #[test]
@@ -865,11 +767,33 @@ mod shift_tests {
         let mut marker = on(1);
         marker.column = Some(9);
         marker.end_column = Some(10);
-        let shifted = shift_diagnostics("limits: {max: 0}", "limits:   {max: 0}", &[marker]);
+        let followed = follow("limits: {max: 0}", 7..7, "  ", &[marker]);
         assert_eq!(
-            (shifted[0].column, shifted[0].end_column),
+            (followed[0].column, followed[0].end_column),
             (Some(11), Some(12))
         );
+    }
+
+    /// Text written right at a marker's ends stays outside it; text
+    /// written over all of it takes it away until the next check.
+    #[test]
+    fn a_marker_keeps_to_its_own_text() {
+        let mut marker = on(1);
+        marker.column = Some(4);
+        marker.end_column = Some(7);
+        let marked = |found: &[Diagnostic]| -> Vec<_> {
+            found
+                .iter()
+                .map(|diagnostic| (diagnostic.column, diagnostic.end_column))
+                .collect()
+        };
+        // `a: bad`: typed before and after it.
+        let before = follow("a: bad", 3..3, "x", std::slice::from_ref(&marker));
+        assert_eq!(marked(&before), [(Some(5), Some(8))]);
+        let after = follow("a: bad", 6..6, "x", std::slice::from_ref(&marker));
+        assert_eq!(marked(&after), [(Some(4), Some(7))]);
+        // Written over: gone.
+        assert!(follow("a: bad", 3..6, "good", &[marker]).is_empty());
     }
 }
 

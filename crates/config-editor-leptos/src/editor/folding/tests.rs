@@ -158,12 +158,27 @@ fn edits_on_screen_map_into_the_document() {
     let mut failures = Vec::new();
     for (from, to, expected) in cases {
         let edited = view.replacen(from, to, 1);
-        let doc = projection.unproject(DOC, &edited);
+        // The caret after the text written, where the browser leaves it.
+        let caret = view.find(from).unwrap() + to.len();
+        let doc = projection.unproject(DOC, &edited, caret);
         if !doc.contains(expected) {
             failures.push(format!("{from:?} -> {to:?}: {doc:?}"));
         }
     }
     assert!(failures.is_empty(), "{failures:#?}");
+}
+
+/// Text written on screen next to text like it lands where the browser
+/// wrote it (its caret after the text), not where the shown texts alone
+/// would place it: the hidden lines stay under the key they belong to.
+#[test]
+fn an_edit_on_screen_next_to_like_text_keeps_the_hidden_lines_in_place() {
+    let doc = "k:\n  v: 1\nk:\n";
+    let projection = Projection::new(doc, &[fold(0, 1)]);
+    assert_eq!(projection.view(doc), "k:\nk:\n");
+    // `k:\n` pasted at the start: the caret after it, at 3.
+    let unprojected = projection.unproject(doc, "k:\nk:\nk:\n", 3);
+    assert_eq!(unprojected, "k:\nk:\n  v: 1\nk:\n");
 }
 
 #[test]

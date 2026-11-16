@@ -278,11 +278,11 @@ fn object_properties_expand_to_a_table_header_with_required_children() {
 fn toggle_comments_adds_and_removes_hash_prefixes() {
     let source = "listen = 7835\n";
     let (commented, _, _) = LANGUAGE
-        .toggle_comments(source, 0, source.encode_utf16().count())
+        .toggled_text(source, 0, source.encode_utf16().count())
         .unwrap();
     assert_eq!(commented, "# listen = 7835\n");
     let (restored, _, _) = LANGUAGE
-        .toggle_comments(&commented, 0, commented.encode_utf16().count())
+        .toggled_text(&commented, 0, commented.encode_utf16().count())
         .unwrap();
     assert_eq!(restored, source);
 }
@@ -293,7 +293,7 @@ fn toggle_comments_adds_and_removes_hash_prefixes() {
 fn toggle_comments_uncomments_a_selected_line_into_broken_text() {
     let source = "# a = [1,\nb = 2\n";
     let end = "# a = [1,".encode_utf16().count();
-    let (uncommented, _, _) = LANGUAGE.toggle_comments(source, 0, end).unwrap();
+    let (uncommented, _, _) = LANGUAGE.toggled_text(source, 0, end).unwrap();
     assert_eq!(uncommented, "a = [1,\nb = 2\n");
 }
 

@@ -52,7 +52,7 @@ use super::super::completion::{Fill, InsertPlan, Planned, RequiredChild};
 use super::super::keyboard::utf16_to_byte_index;
 use super::super::language::pointer_segments;
 use super::super::item_sources::SaveTold;
-use super::super::language::{Text, Typing, Hover, SaveLayout, Sharing, Repeats, Repeated, LanguageTraits};
+use super::super::language::{Text, Typing, Hover, SaveLayout, Sharing, Repeats, Repeated, LanguageTraits, Toggled};
 use super::super::language::{EntryPosition, OneLine, LanguageConfig, bracket_newline, CompletionContext, Newline, InlineBlock, InsertContext, ConfigLanguage, LanguageInfo, Lexical, Span, ParseError, SchemaPathSegment,
     inline_block, unclosed_brackets,
 };
@@ -278,7 +278,7 @@ impl Typing for HclBehavior {
 
     /// As the default, commenting with the line comment the file writes
     /// most (`//` in a file of `//` comments, else `#`).
-    fn toggle_comments(&self, _language: &dyn ConfigLanguage, source: &str, selection_start: usize, selection_end: usize) -> Option<(String, usize, usize)> {
+    fn toggle_comments(&self, _language: &dyn ConfigLanguage, source: &str, selection_start: usize, selection_end: usize) -> Option<Toggled> {
         use super::super::language::{comment_target, toggle_line_comments, unwrap_block_comments};
         let block = ("/*", "*/");
         if let Some(unwrapped) = unwrap_block_comments(source, selection_start, selection_end, block) {

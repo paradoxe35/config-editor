@@ -264,7 +264,7 @@ fn thousands_of_commented_placeholders_are_found_unreal_in_one_parse_in_every_la
         let host = written(language, 2_000);
         let known = matcher.known(behavior, &host, None);
         let end = host.encode_utf16().count();
-        let Some((commented, ..)) = behavior.toggle_comments(&host, 0, end) else {
+        let Some((commented, ..)) = behavior.toggled_text(&host, 0, end) else {
             continue;
         };
         let (found, reads) =
@@ -293,7 +293,7 @@ fn placeholders_also_written_in_comments_are_placed_in_one_parse_in_every_langua
         let host = written(language, 300);
         let known = matcher.known(behavior, &host, None);
         let end = host.encode_utf16().count();
-        let Some((commented, ..)) = behavior.toggle_comments(&host, 0, end) else {
+        let Some((commented, ..)) = behavior.toggled_text(&host, 0, end) else {
             continue;
         };
         let real = locate_written(&matcher, &host, &known);

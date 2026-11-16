@@ -38,12 +38,14 @@ impl SourceArea {
     /// made to the textarea's text, mapped into the document.
     pub(crate) fn value(&self) -> String {
         let current = self.element.value();
+        // Where the browser left the caret: the end of the text it wrote.
+        let caret = self.element.selection_end().ok().flatten().unwrap_or(0) as usize;
         self.state.view().projection.with_untracked(|projection| {
             self.state.doc().text.with_untracked(|doc| {
                 if projection.view(doc) == current {
                     doc.clone()
                 } else {
-                    projection.unproject(doc, &current)
+                    projection.unproject(doc, &current, caret)
                 }
             })
         })

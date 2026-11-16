@@ -66,7 +66,7 @@ use super::super::highlight::{MultilineConstruct, Token as HighlightToken, Token
 use super::super::keyboard::utf16_to_byte_index;
 use super::super::language::pointer_segments;
 use super::super::item_sources::SaveTold;
-use super::super::language::{Text, Typing, Hover, SaveLayout, Markup, Repeats, Repeated};
+use super::super::language::{Text, Typing, Hover, SaveLayout, Markup, Repeats, Repeated, Toggled};
 use super::super::language::{OneLine, CompletionContext, Newline, EntryPosition, InlineBlock, InsertContext, ConfigLanguage, LanguageInfo, Lexical, Span, ParseError,
     SchemaPathSegment, inline_block,
 };
@@ -312,7 +312,7 @@ impl Typing for XmlBehavior {
         source: &str,
         selection_start: usize,
         selection_end: usize,
-    ) -> Option<(String, usize, usize)> {
+    ) -> Option<Toggled> {
         toggle_xml_comments(source, selection_start, selection_end)
     }
 

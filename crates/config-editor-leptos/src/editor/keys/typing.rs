@@ -5,7 +5,7 @@ use crate::editor::language::ConfigLanguage;
 use leptos::prelude::*;
 use web_sys::KeyboardEvent;
 
-use super::super::commands::{backspace_indent, toggled_selection, typed_closer};
+use super::super::commands::{backspace_indent, toggled_change, toggled_selection, typed_closer};
 use super::super::completion::ListMode;
 use super::super::edit::{Assoc, Change, Edit};
 use super::super::keyboard::{
@@ -39,17 +39,14 @@ pub(super) fn toggle_comments(state: EditorState, event: &KeyboardEvent) -> bool
     let (start, end) = textarea_selection(&element);
     let backward = is_backward(&element);
     let before = state.doc().text.get_untracked();
-    let Some((updated, selection_start, selection_end)) =
-        state.behavior().toggle_comments(&before, start, end)
-    else {
+    let Some(toggled) = state.behavior().toggle_comments(&before, start, end) else {
         return true;
     };
-    let (selection_start, selection_end) = toggled_selection(
-        &before,
-        (start, end),
-        &updated,
-        (selection_start, selection_end),
-    );
+    let Some((change, updated)) = toggled_change(&before, &toggled) else {
+        return true;
+    };
+    let (selection_start, selection_end) =
+        toggled_selection(&before, (start, end), &updated, toggled.selection);
     // The caret is the end that moves: the start of a backward selection.
     let (anchor, caret) = if backward {
         (selection_end, selection_start)
@@ -57,13 +54,7 @@ pub(super) fn toggle_comments(state: EditorState, event: &KeyboardEvent) -> bool
         (selection_start, selection_end)
     };
     let restore = if backward { (end, start) } else { (start, end) };
-    // The language gives the whole text, made line by line (a marker
-    // written or taken at each line): its change is read so, line for
-    // line; one that changed the lines themselves is read off the texts.
-    let edit = match Change::line_by_line(&before, &updated) {
-        Some(change) => Edit::command(before.clone(), change, restore),
-        None => Edit::new(before.clone(), restore, updated.clone(), caret),
-    };
+    let edit = Edit::command(before.clone(), change, restore);
     // Refused (a read-only editor or field): the selection stays.
     if updated != before && !state.commit(edit.selecting(anchor, caret)) {
         return true;

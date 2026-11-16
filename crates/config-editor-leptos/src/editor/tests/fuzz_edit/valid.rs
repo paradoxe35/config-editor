@@ -205,9 +205,9 @@ fn inverse(case: &ValidCase) -> Result<(), Failure> {
     }
     // Ctrl+/ twice.
     let behavior = language.behavior();
-    if let Some((once, from, to)) = behavior.toggle_comments(original, selection.0, selection.1)
+    if let Some((once, from, to)) = behavior.toggled_text(original, selection.0, selection.1)
         && let (from, to) = toggled_selection(original, selection, &once, (from, to))
-        && let Some((twice, _, _)) = behavior.toggle_comments(&once, from, to)
+        && let Some((twice, _, _)) = behavior.toggled_text(&once, from, to)
         && twice != *original
     {
         return Err(Failure::new(

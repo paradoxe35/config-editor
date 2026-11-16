@@ -221,7 +221,9 @@ fn highlighting_is_plain_data() {
 fn a_language_described_by_config_gets_editing_without_code() {
     let ini: &dyn ConfigLanguage = &Ini;
     // Ctrl+/ writes the first comment marker; comments are found on lines.
-    let (commented, _, _) = ini.toggle_comments("a = 1\n", 0, 0).unwrap();
+    let toggled = ini.toggle_comments("a = 1\n", 0, 0).unwrap();
+    assert_eq!(toggled.edits, [(0..0, "; ".to_string())]);
+    let commented = toggled.apply("a = 1\n").unwrap();
     assert_eq!(commented, "; a = 1\n");
     assert_eq!(ini.comment_start("a = 1 # note"), Some(6));
     // Enter between brackets opens an indented line.
@@ -304,8 +306,9 @@ impl ConfigLanguage for LongStrings {
 fn a_language_declaring_its_quotes_gets_whole_strings_commented() {
     let text = "a = 1\nb = \"\"\"x\ny\"\"\"\nc = 2\n";
     let caret = text.find("y\"").unwrap();
-    let (commented, _, _) = (&LongStrings as &dyn ConfigLanguage)
+    let commented = (&LongStrings as &dyn ConfigLanguage)
         .toggle_comments(text, caret, caret)
+        .and_then(|toggled| toggled.apply(text))
         .unwrap();
     assert_eq!(commented, "a = 1\n; b = \"\"\"x\n; y\"\"\"\nc = 2\n");
 }

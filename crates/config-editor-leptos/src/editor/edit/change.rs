@@ -341,30 +341,6 @@ impl Change<Bytes> {
             .unwrap_or_else(|| Self::diffed(before, after))
     }
 
-    /// The change between two texts with as many lines, line by line: each
-    /// changed line one replacement, from its first changed byte to its
-    /// last. For a language hook that hands back a whole text it made line
-    /// by line (Ctrl+/: a marker added or taken at each line); `None` when
-    /// the line counts differ.
-    pub(crate) fn line_by_line(before: &str, after: &str) -> Option<Self> {
-        if before.matches('\n').count() != after.matches('\n').count() {
-            return None;
-        }
-        let mut edits = Vec::new();
-        let mut at = 0;
-        for (old, new) in before.split('\n').zip(after.split('\n')) {
-            if old != new {
-                let line: Change<Bytes> = Self::diffed(old, new);
-                edits.extend(
-                    line.edits()
-                        .map(|(range, text)| (at + range.start..at + range.end, text.to_string())),
-                );
-            }
-            at += old.len() + 1;
-        }
-        Self::replacing(before.len(), edits)
-    }
-
     /// Whether it writes back what it replaces everywhere: `before` (the
     /// text it is made on) stays as it is.
     pub(crate) fn is_identity(&self, before: &str) -> bool {

@@ -349,10 +349,10 @@ fn enter_between_braces_puts_the_caret_on_an_indented_middle_line() {
 
 #[test]
 fn hash_comments_toggle_over_the_selection() {
-    let (updated, _, _) = LANGUAGE.toggle_comments("region = 1\n", 0, 10).unwrap();
+    let (updated, _, _) = LANGUAGE.toggled_text("region = 1\n", 0, 10).unwrap();
     assert_eq!(updated, "# region = 1\n");
     let (restored, _, _) = LANGUAGE
-        .toggle_comments(&updated, 0, updated.encode_utf16().count())
+        .toggled_text(&updated, 0, updated.encode_utf16().count())
         .unwrap();
     assert_eq!(restored, "region = 1\n");
 }
@@ -362,7 +362,7 @@ fn hash_comments_toggle_over_the_selection() {
 fn comments_toggle_in_the_files_own_style() {
     let toggled = |source: &str, line: usize| {
         let start: usize = source.split_inclusive('\n').take(line).map(str::len).sum();
-        LANGUAGE.toggle_comments(source, start, start).unwrap().0
+        LANGUAGE.toggled_text(source, start, start).unwrap().0
     };
     assert_eq!(toggled("// a\nx = 1\n", 1), "// a\n// x = 1\n");
     assert_eq!(toggled("// a\n// b\n# c\nx = 1\n", 3), "// a\n// b\n# c\n// x = 1\n");

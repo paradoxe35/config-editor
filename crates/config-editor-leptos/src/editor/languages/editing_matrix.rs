@@ -47,7 +47,7 @@ fn toggling_comments_twice_restores_the_selection() {
         ] {
             let behavior = language.behavior();
             let all = text.encode_utf16().count();
-            let Some((once, start, end)) = behavior.toggle_comments(text, 0, all) else {
+            let Some((once, start, end)) = behavior.toggled_text(text, 0, all) else {
                 continue;
             };
             if language.label() == "XML" && language.parse(&once).is_err() {
@@ -55,7 +55,7 @@ fn toggling_comments_twice_restores_the_selection() {
                     "XML {name}: commented text does not parse:\n{once}"
                 ));
             }
-            match behavior.toggle_comments(&once, start, end) {
+            match behavior.toggled_text(&once, start, end) {
                 Some((twice, _, _)) if twice == text => {}
                 Some((twice, _, _)) => {
                     failures.push(format!(
@@ -85,14 +85,14 @@ fn toggling_comments_on_block_commented_lines_unwraps_them() {
     let text = "/* a = 1 */\n  /* b = 2 */\n";
     let (unwrapped, _, _) = Language::HCL
         .behavior()
-        .toggle_comments(text, 0, text.encode_utf16().count())
+        .toggled_text(text, 0, text.encode_utf16().count())
         .unwrap();
     assert_eq!(unwrapped, "a = 1\n  b = 2\n");
     // A mixed selection is line-commented as before.
     let mixed = "/* a = 1 */\nb = 2\n";
     let (commented, _, _) = Language::HCL
         .behavior()
-        .toggle_comments(mixed, 0, mixed.encode_utf16().count())
+        .toggled_text(mixed, 0, mixed.encode_utf16().count())
         .unwrap();
     assert_eq!(commented, "# /* a = 1 */\n# b = 2\n");
 }
@@ -110,7 +110,7 @@ fn the_caret_keeps_its_place_through_toggling_comments() {
     ] {
         let behavior = language.behavior();
         let caret = text[..text.find(at).unwrap()].encode_utf16().count();
-        let Some((once, start, _)) = behavior.toggle_comments(text, caret, caret) else {
+        let Some((once, start, _)) = behavior.toggled_text(text, caret, caret) else {
             continue;
         };
         let expected_once = once
@@ -122,7 +122,7 @@ fn the_caret_keeps_its_place_through_toggling_comments() {
                 language.label()
             ));
         }
-        let Some((twice, back, _)) = behavior.toggle_comments(&once, start, start) else {
+        let Some((twice, back, _)) = behavior.toggled_text(&once, start, start) else {
             failures.push(format!("{}: second toggle does nothing", language.label()));
             continue;
         };
@@ -165,10 +165,10 @@ fn toggling_comments_twice_from_mid_line_restores_the_text() {
             utf16(text.find(from).unwrap()),
             utf16(text.find(to).unwrap()),
         );
-        let Some((once, a, b)) = behavior.toggle_comments(text, start, end) else {
+        let Some((once, a, b)) = behavior.toggled_text(text, start, end) else {
             continue;
         };
-        match behavior.toggle_comments(&once, a, b) {
+        match behavior.toggled_text(&once, a, b) {
             Some((twice, _, _)) if twice == text => {}
             Some((twice, _, _)) => failures.push(format!("{}: {twice:?}", language.label())),
             None => failures.push(format!("{}: second toggle does nothing", language.label())),
@@ -177,8 +177,7 @@ fn toggling_comments_twice_from_mid_line_restores_the_text() {
     // HCL block comment: the caret stays on the same text.
     let text = "tcp {\n  /* nodelay = true */\n}\n";
     let caret = text.find(" = true").unwrap();
-    if let Some((unwrapped, start, end)) =
-        Language::HCL.behavior().toggle_comments(text, caret, caret)
+    if let Some((unwrapped, start, end)) = Language::HCL.behavior().toggled_text(text, caret, caret)
     {
         let expected = unwrapped.find(" = true").unwrap();
         if (start, end) != (expected, expected) {
@@ -206,7 +205,7 @@ fn toggling_comments_never_writes_into_a_multi_line_string() {
     ] {
         let behavior = language.behavior();
         let caret = text[..text.find(at).unwrap()].encode_utf16().count();
-        let Some((once, start, end)) = behavior.toggle_comments(text, caret, caret) else {
+        let Some((once, start, end)) = behavior.toggled_text(text, caret, caret) else {
             continue;
         };
         // Commented out: whatever stays is still a document, and no line of
@@ -225,7 +224,7 @@ fn toggling_comments_never_writes_into_a_multi_line_string() {
             }
             Ok(_) => {}
         }
-        match behavior.toggle_comments(&once, start, end) {
+        match behavior.toggled_text(&once, start, end) {
             Some((twice, _, _)) if twice == text => {}
             Some((twice, _, _)) => {
                 failures.push(format!("{}: twice gives\n{twice}", language.label()))
@@ -274,7 +273,7 @@ fn toggling_comments_inside_a_multi_line_block_comment_unwraps_it() {
     let caret = text.find(" = 30").unwrap();
     let (unwrapped, start, _) = Language::HCL
         .behavior()
-        .toggle_comments(text, caret, caret)
+        .toggled_text(text, caret, caret)
         .unwrap();
     assert_eq!(
         unwrapped,
@@ -314,7 +313,7 @@ fn ctrl_slash_never_cuts_through_something_written_over_lines() {
         let text = marked.replacen('|', "", 1);
         let caret = text[..at].encode_utf16().count();
         let behavior = language.behavior();
-        let Some((once, start, end)) = behavior.toggle_comments(&text, caret, caret) else {
+        let Some((once, start, end)) = behavior.toggled_text(&text, caret, caret) else {
             failures.push(format!("{}: nothing toggled in {text:?}", language.label()));
             continue;
         };
@@ -330,7 +329,7 @@ fn ctrl_slash_never_cuts_through_something_written_over_lines() {
                 language.label()
             ));
         }
-        match behavior.toggle_comments(&once, start, end) {
+        match behavior.toggled_text(&once, start, end) {
             Some((twice, _, _)) if twice == text => {}
             other => failures.push(format!(
                 "{}: {text:?} toggled back as {:?}",
@@ -352,7 +351,7 @@ fn ctrl_slash_never_cuts_through_something_written_over_lines() {
         let caret = text[..at].encode_utf16().count();
         let once = language
             .behavior()
-            .toggle_comments(&text, caret, caret)
+            .toggled_text(&text, caret, caret)
             .map(|o| o.0)
             .unwrap_or_default();
         if !once.contains(comment) || language.parse(&once).is_err() {
@@ -408,7 +407,7 @@ fn ctrl_slash_takes_exactly_the_construct_under_the_caret() {
         let at = marked.find('|').unwrap();
         let text = marked.replacen('|', "", 1);
         let caret = text[..at].encode_utf16().count();
-        match language.behavior().toggle_comments(&text, caret, caret) {
+        match language.behavior().toggled_text(&text, caret, caret) {
             Some((once, _, _)) if once == expected => {}
             other => failures.push(format!(
                 "{}: {text:?} became {:?}",
@@ -468,7 +467,7 @@ fn ctrl_slash_takes_parents_and_enter_opens_one_line_blocks() {
         let at = marked.find('|').unwrap();
         let text = marked.replacen('|', "", 1);
         let caret = text[..at].encode_utf16().count();
-        match language.behavior().toggle_comments(&text, caret, caret) {
+        match language.behavior().toggled_text(&text, caret, caret) {
             Some((once, _, _)) if once == expected && language.parse(&once).is_ok() => {}
             other => failures.push(format!(
                 "{}: {text:?} became {:?}",
@@ -528,7 +527,7 @@ fn ctrl_slash_takes_strings_entries_and_plain_values_exactly() {
         let at = marked.find('|').unwrap();
         let text = marked.replacen('|', "", 1);
         let caret = text[..at].encode_utf16().count();
-        match language.behavior().toggle_comments(&text, caret, caret) {
+        match language.behavior().toggled_text(&text, caret, caret) {
             Some((once, _, _)) if once == expected && language.parse(&once).is_ok() => {}
             other => failures.push(format!(
                 "{}: {text:?} became {:?}",
@@ -540,8 +539,8 @@ fn ctrl_slash_takes_strings_entries_and_plain_values_exactly() {
     let text = "<a>x &#45;&#45; y &amp; -- z</a>\n";
     let all = text.encode_utf16().count();
     let behavior = Language::XML.behavior();
-    let (once, start, end) = behavior.toggle_comments(text, 0, all).unwrap();
-    match behavior.toggle_comments(&once, start, end) {
+    let (once, start, end) = behavior.toggled_text(text, 0, all).unwrap();
+    match behavior.toggled_text(&once, start, end) {
         Some((twice, _, _)) if twice == text => {}
         other => failures.push(format!(
             "XML round trip: {once:?} then {:?}",
@@ -584,7 +583,7 @@ fn toggling_a_mixed_selection_from_mid_line_keeps_the_document_and_restores_it()
             (at("2", false), at(c, true)),
             (at(a, false), at("3", false)),
         ] {
-            let Some((once, start, end)) = behavior.toggle_comments(text, from, to) else {
+            let Some((once, start, end)) = behavior.toggled_text(text, from, to) else {
                 failures.push(format!("{language} {from}..{to}: nothing toggled"));
                 continue;
             };
@@ -594,7 +593,7 @@ fn toggling_a_mixed_selection_from_mid_line_keeps_the_document_and_restores_it()
                     error.message
                 ));
             }
-            match behavior.toggle_comments(&once, start, end) {
+            match behavior.toggled_text(&once, start, end) {
                 Some((twice, _, _)) if twice == text => {}
                 other => failures.push(format!(
                     "{language} {from}..{to}: {once:?} then {:?}",
@@ -616,7 +615,7 @@ fn toggling_comments_over_a_large_document_is_fast() {
         let toggled = |text: &str| {
             let end = text.encode_utf16().count();
             behavior
-                .toggle_comments(text, 0, end)
+                .toggled_text(text, 0, end)
                 .map(|(commented, ..)| commented)
         };
         let small = large(language).to_string();

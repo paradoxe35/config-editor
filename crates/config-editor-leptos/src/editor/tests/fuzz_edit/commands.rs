@@ -120,7 +120,7 @@ pub(super) fn check(case: &CommandCase) -> Result<(), Failure> {
     let range = selection(text, case.at, case.to);
     if case.command == 0 {
         let behavior = language.behavior();
-        let Some((once, from, to)) = behavior.toggle_comments(text, range.0, range.1) else {
+        let Some((once, from, to)) = behavior.toggled_text(text, range.0, range.1) else {
             return Ok(());
         };
         let (from, to) = crate::editor::commands::toggled_selection(text, range, &once, (from, to));

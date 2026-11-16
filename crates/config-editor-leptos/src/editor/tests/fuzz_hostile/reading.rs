@@ -443,7 +443,7 @@ pub(super) fn check(case: &ReadCase) -> Result<(), Failure> {
             let _ = behavior.complete_on_type(&text, at, typed);
             let _ = behavior.reindent_on_type(&text, at, typed);
         }
-        if let Some((toggled, from, to)) = behavior.toggle_comments(&text, at, at)
+        if let Some((toggled, from, to)) = behavior.toggled_text(&text, at, at)
             && (from > to || to > units(&toggled))
         {
             return fail(
@@ -478,7 +478,7 @@ pub(super) fn check(case: &ReadCase) -> Result<(), Failure> {
         }
         let _ = language.path_at(raw, position);
     }
-    if let Some((toggled, from, to)) = behavior.toggle_comments(&text, 0, end)
+    if let Some((toggled, from, to)) = behavior.toggled_text(&text, 0, end)
         && (from > to || to > units(&toggled))
     {
         return fail(

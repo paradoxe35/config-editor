@@ -467,7 +467,7 @@ fn hover_over_an_element_returns_its_schema_documentation() {
 #[test]
 fn toggle_comments_wraps_lines_in_xml_comments() {
     let (updated, _, _) = LANGUAGE
-        .toggle_comments("<server>\n  <host>x</host>\n</server>", 0, 8)
+        .toggled_text("<server>\n  <host>x</host>\n</server>", 0, 8)
         .unwrap();
     assert!(updated.starts_with("<!-- <server> -->"), "{updated}");
 }
@@ -475,7 +475,7 @@ fn toggle_comments_wraps_lines_in_xml_comments() {
 #[test]
 fn toggle_comments_unwraps_xml_comments() {
     let (updated, _, _) = LANGUAGE
-        .toggle_comments("<!-- <server> -->", 0, 17)
+        .toggled_text("<!-- <server> -->", 0, 17)
         .unwrap();
     assert_eq!(updated, "<server>");
 }
@@ -787,7 +787,7 @@ fn uncommenting_keeps_the_selection_in_order_through_escapes() {
         let last = source.find("</b>").unwrap();
         for start in first..last {
             for end in start..=last {
-                if let Some((text, from, to)) = xml.toggle_comments(source, start, end)
+                if let Some((text, from, to)) = xml.toggled_text(source, start, end)
                     && from > to
                 {
                     failures.push(format!("{source:?} {start}..{end}: {from}..{to} in {text:?}"));
