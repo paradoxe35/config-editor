@@ -2014,8 +2014,8 @@ fn a_comment_goes_with_its_cut_element_though_the_name_comes_back() {
     );
 }
 
-/// P2: an XML element pasted into another parent and saved after typing
-/// in an HCL view closes with the tag it opens with.
+/// P2: XML elements moved into an element the user added (a cut and paste,
+/// then typing in an HCL view) keep their own namespace when saved.
 #[test]
 fn xml_elements_moved_into_an_added_element_keep_their_namespace() {
     replay(
