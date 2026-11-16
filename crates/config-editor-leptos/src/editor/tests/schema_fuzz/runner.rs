@@ -249,9 +249,9 @@ mod tests {
     /// does not explain would show an allowed class as open.
     #[test]
     fn a_shrunk_case_keeps_the_allowance_of_its_class() {
-        const CLASS: &str = "a save reads otherwise than the view";
+        const CLASS: &str = "a fill writes too few list items";
         let property = Property {
-            name: "edit_as",
+            name: "fill",
             check_path: "",
             cases: 0,
             shrink_budget: 500,
@@ -261,7 +261,8 @@ mod tests {
         let case = Case {
             language: Language::YAML,
             pick: 3,
-            schema: json!({"properties": {"a": {"type": "array"}}}),
+            schema: json!({"properties": {"a": {"type": "array", "minItems": 2},
+                "b": {"type": "string"}}}),
             doc: json!({"a": [1], "b": {"c": "two"}}),
             other: json!({"a": [1, 2]}),
         };
