@@ -412,8 +412,8 @@ impl EditorState {
     pub(super) fn on_popup_anchor(&self, line: usize, cell: usize) -> bool {
         if self.hover().card.with_untracked(Option::is_some) {
             return self
-                .docs_under_pointer(line, cell)
-                .is_some_and(|info| self.card_shows(line, &info));
+                .field_under_pointer(line, cell)
+                .is_some_and(|field| self.card_shows(line, &field));
         }
         self.doc().text.with_untracked(|text| {
             let Some((hovered_line, hovered_column)) = self.problems().hovered.get_untracked()

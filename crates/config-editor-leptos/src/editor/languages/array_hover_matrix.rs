@@ -5,7 +5,7 @@
 //! the container's, as its opening tag does.
 
 use super::super::completion::{KeyHover, key_hover};
-use super::super::diagnostics::{SchemaBundle, build_schema};
+use super::super::schema::{SchemaBundle, build_schema};
 use super::Language;
 
 fn schema() -> SchemaBundle {

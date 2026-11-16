@@ -6,9 +6,9 @@
 use serde_json::{Value, json};
 
 use crate::editor::codec;
-use crate::editor::diagnostics::{SchemaBundle, build_schema};
 use crate::editor::languages::Language;
 use crate::editor::paths::{TextPosition, TextRange};
+use crate::editor::schema::{SchemaBundle, build_schema};
 
 /// What a document is made of, `size` times over.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

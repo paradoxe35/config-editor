@@ -4,8 +4,8 @@
 //! grows with the document and nothing else. Counted (see `work_count`) at
 //! two document sizes, in every language.
 
-use crate::editor::diagnostics::Schema;
 use crate::editor::languages::Language;
+use crate::editor::schema::Schema;
 use crate::editor::work_count::{Work, counted};
 
 const SCHEMA: &str = r#"{"type": "object", "properties": {

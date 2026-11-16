@@ -21,13 +21,13 @@ use leptos::prelude::*;
 
 use super::runner::{Cap, Case, Failure, Rng, cases, run};
 use super::texts::{document, language, literal, shown};
-use crate::editor::diagnostics::{SchemaBundle, build_schema};
 use crate::editor::edit::Edit;
 use crate::editor::keyboard::utf16_to_byte_index;
 use crate::editor::keys::enter::{Pressed, enter_at};
 use crate::editor::line_endings::editor_text;
 use crate::editor::paths::{FieldPath, TextPosition, TextRange};
 use crate::editor::protect::ProtectInit;
+use crate::editor::schema::{SchemaBundle, build_schema};
 use crate::editor::state::{EditorState, Init};
 use crate::editor::sync::take_host_value;
 use crate::{EditorSettings, EditorTheme};

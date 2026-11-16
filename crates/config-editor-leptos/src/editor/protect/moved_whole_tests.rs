@@ -439,7 +439,7 @@ fn pause_work(language: Language, blocks: usize) -> Vec<usize> {
     let mut editor = TestEditor::new(language, &text);
     editor.secrets = Some(SecretOptions::default().with_placeholder("«secret [0-9a-f]{4}»"));
     editor.schema = Some(std::sync::Arc::new(
-        super::super::diagnostics::build_schema(&schema.to_string()).expect("the schema"),
+        super::super::schema::build_schema(&schema.to_string()).expect("the schema"),
     ));
     let (_owner, state) = editor.mount();
     let middle = format!("p{}", blocks / 2);

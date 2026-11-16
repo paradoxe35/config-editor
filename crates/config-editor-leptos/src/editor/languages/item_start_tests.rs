@@ -3,7 +3,7 @@
 //! knows: a language without YAML's dash gets no card on a `-`.
 
 use super::super::completion::key_hover;
-use super::super::diagnostics::build_schema;
+use super::super::schema::build_schema;
 use super::Language;
 use crate::editor::language::*;
 use serde_json::Value;

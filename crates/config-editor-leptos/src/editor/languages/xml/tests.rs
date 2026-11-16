@@ -3,7 +3,7 @@ use super::super::super::completion::{
 };
 #[cfg(feature = "schema-validation")]
 use super::super::super::diagnostics::validate;
-use super::super::super::diagnostics::{SchemaBundle, build_schema};
+use super::super::super::schema::{SchemaBundle, build_schema};
 use super::super::super::language::ConfigLanguage;
 use super::super::super::highlight::{TokenKind, runs};
 use super::XmlBehavior;

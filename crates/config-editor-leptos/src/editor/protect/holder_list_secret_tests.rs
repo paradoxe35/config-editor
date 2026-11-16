@@ -8,8 +8,8 @@
 //! `xml_copies_tests`).
 
 use super::super::Language;
-use super::super::diagnostics::build_schema;
 use super::super::save_matrix::report;
+use super::super::schema::build_schema;
 use super::super::secret_options::SecretOptions;
 use super::guarantee_tests::problems;
 use super::many_copies_tests::shown;

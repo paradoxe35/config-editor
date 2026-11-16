@@ -12,6 +12,8 @@ use jsonschema::ReferencingError;
 use jsonschema::error::ValidationErrorKind;
 use serde_json::Value;
 
+use super::schema::each_schema;
+
 /// The message for an error compiling the schema `schema`, when it is a
 /// `$ref` the editor cannot follow.
 pub(super) fn message(kind: &ValidationErrorKind, schema: &Value) -> Option<String> {
@@ -71,27 +73,20 @@ fn site(schema: &Value, matches: impl Fn(&str) -> bool + Copy) -> Option<String>
 
 /// The `$id`s the schema embeds (the documents a `$ref` may name by them).
 fn embedded_ids(schema: &Value) -> Vec<&str> {
-    fn walk<'a>(value: &'a Value, ids: &mut Vec<&'a str>) {
-        match value {
-            Value::Object(members) => {
-                if let Some(id) = members
-                    .get("$id")
-                    .or_else(|| members.get("id"))
-                    .and_then(Value::as_str)
-                {
-                    let id = id.trim_end_matches('#');
-                    if !id.is_empty() && !id.starts_with('#') {
-                        ids.push(id);
-                    }
-                }
-                members.values().for_each(|member| walk(member, ids));
-            }
-            Value::Array(items) => items.iter().for_each(|item| walk(item, ids)),
-            _ => {}
-        }
-    }
     let mut ids = Vec::new();
-    walk(schema, &mut ids);
+    each_schema(schema, &(), &mut |_, members, ()| {
+        if let Some(id) = members
+            .get("$id")
+            .or_else(|| members.get("id"))
+            .and_then(Value::as_str)
+        {
+            let id = id.trim_end_matches('#');
+            if !id.is_empty() && !id.starts_with('#') {
+                ids.push(id);
+            }
+        }
+        Some(())
+    });
     ids
 }
 
@@ -107,51 +102,25 @@ fn outside(reference: &str, ids: &[&str]) -> bool {
 /// The JSON pointer and the text of the first `$ref` in `schema`, in the
 /// order it is written, whose text `matches`.
 fn first_ref(schema: &Value, matches: impl Fn(&str) -> bool + Copy) -> Option<(String, String)> {
-    fn walk(
-        value: &Value,
-        path: &mut Vec<String>,
-        matches: &dyn Fn(&str) -> bool,
-    ) -> Option<(String, String)> {
-        match value {
-            Value::Object(members) => {
-                if let Some(reference) = members.get("$ref").and_then(Value::as_str)
-                    && matches(reference)
-                {
-                    path.push("$ref".to_string());
-                    let found = pointer(path);
-                    path.pop();
-                    return Some((found, reference.to_string()));
-                }
-                for (key, member) in members {
-                    path.push(key.clone());
-                    let found = walk(member, path, matches);
-                    path.pop();
-                    if found.is_some() {
-                        return found;
-                    }
-                }
-                None
-            }
-            Value::Array(items) => items.iter().enumerate().find_map(|(index, item)| {
-                path.push(index.to_string());
-                let found = walk(item, path, matches);
-                path.pop();
-                found
-            }),
-            _ => None,
+    let mut found = None;
+    each_schema(schema, &(), &mut |pointer, members, ()| {
+        if found.is_some() {
+            return None;
         }
-    }
-    fn pointer(path: &[String]) -> String {
-        path.iter()
-            .map(|segment| format!("/{}", segment.replace('~', "~0").replace('/', "~1")))
-            .collect()
-    }
-    walk(schema, &mut Vec::new(), &matches)
+        if let Some(reference) = members.get("$ref").and_then(Value::as_str)
+            && matches(reference)
+        {
+            found = Some((format!("{pointer}/$ref"), reference.to_string()));
+            return None;
+        }
+        Some(())
+    });
+    found
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::editor::diagnostics::Schema;
+    use crate::editor::schema::Schema;
 
     fn refused(schema: &str) -> String {
         Schema::compile(schema).expect_err("refused").0

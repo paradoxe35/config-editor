@@ -6,7 +6,7 @@ use wasm_bindgen::JsCast;
 
 use super::bridge::links::Splice;
 use super::commands::{copied_lines, line_range};
-use super::completion::should_auto_trigger;
+use super::completion::{Part, should_auto_trigger};
 use super::components::HoverCard;
 use super::edit::{After, Edit};
 use super::history::EditHistory;
@@ -459,20 +459,23 @@ pub(super) fn pointer_at(state: EditorState, element: &SourceArea, x: f64, y: f6
     if !state.config().settings.hover_docs.get_untracked() {
         return;
     }
-    let Some(info) = state.docs_under_pointer(line, column) else {
+    // Only the field is found on a move; its docs are read after the pause.
+    let Some(field) = state.field_under_pointer(line, column) else {
         state.leave_hover();
         return;
     };
     // The value's own message takes the place of its key's docs there.
-    if on_protected && column >= info.start_column + info.key.chars().count() {
+    if on_protected
+        && (field.part == Part::Value || column >= field.start_column + field.key.chars().count())
+    {
         state.leave_hover();
         return;
     }
-    let identity = (line, info.start_column, info.key.clone());
+    let identity = (line, field.clone());
     if state.hover().pending.get_value().as_ref() == Some(&identity) {
         return;
     }
-    if state.card_shows(line, &info) {
+    if state.card_shows(line, &field) {
         // Back on its key within the moment it was given to be reached:
         // it stays.
         state.keep_hover();
@@ -481,19 +484,30 @@ pub(super) fn pointer_at(state: EditorState, element: &SourceArea, x: f64, y: f6
     state.hide_hover();
     state.hover().pending.set_value(Some(identity));
     let token = state.hover().token.get_value();
-    let anchor = hover_card_anchor(element, line, info.start_column);
+    let anchor = hover_card_anchor(element, line, field.start_column);
     schedule_hover(state, move |state| {
-        if state.hover().token.get_value() == token {
-            state.hover().pending.set_value(None);
-            // The pointer rests on its key: on the way to it.
-            state.hover().on_way.set_value(true);
-            state.hover().card.set(Some(HoverCard {
-                info,
-                line,
-                caret: None,
-                anchor,
-            }));
+        if state.hover().token.get_value() != token {
+            return;
         }
+        // A field the schema says nothing of stays pending: the pointer
+        // moving on it waits for nothing more.
+        let Some(info) = state
+            .doc()
+            .text
+            .with_untracked(|text| state.field_docs(text, &field))
+        else {
+            return;
+        };
+        state.hover().pending.set_value(None);
+        // The pointer rests on its key: on the way to it.
+        state.hover().on_way.set_value(true);
+        state.hover().card.set(Some(HoverCard {
+            info,
+            line,
+            caret: None,
+            anchor,
+        }));
+        state.hover().shown.set_value(Some((line, field)));
     });
 }
 

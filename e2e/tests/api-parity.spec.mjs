@@ -476,7 +476,7 @@ const rust = {
   handle: implMethods(crate('editor/handle.rs') + crate('editor/folding/handle.rs'), 'EditorHandle'),
   language: implMethods(crate('editor/languages/mod.rs'), 'Language'),
   changeSummary: implMethods(crate('editor/change_summary.rs') + crate('editor/changes/mod.rs'), 'ChangeSummary'),
-  schema: implMethods(crate('editor/diagnostics.rs'), 'Schema'),
+  schema: implMethods(crate('editor/schema/mod.rs'), 'Schema'),
   theme: implMethods(crate('editor/theme.rs'), 'EditorTheme'),
   exports: crateExports(),
   documentsProps: componentProps('documents.rs', 'ConfigDocuments'),

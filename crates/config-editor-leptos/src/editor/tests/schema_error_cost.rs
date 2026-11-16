@@ -10,8 +10,9 @@
 use serde_json::{Value, json};
 
 use crate::editor::codec::serialize;
-use crate::editor::diagnostics::{Diagnostic, SchemaBundle, build_schema, validate};
+use crate::editor::diagnostics::{Diagnostic, validate};
 use crate::editor::languages::Language;
+use crate::editor::schema::{SchemaBundle, build_schema};
 use crate::editor::work_count::{Work, counted};
 
 /// A rule tree: a node is all of some nodes, any of some nodes, or a

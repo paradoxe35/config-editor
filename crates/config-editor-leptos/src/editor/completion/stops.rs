@@ -8,19 +8,19 @@ use super::*;
 /// types allow it; a numeric string example is a number where only numbers
 /// are allowed.
 pub fn schema_example(schema: &Value, root: &Value) -> Option<Value> {
-    let branches = resolve_branches(schema, root);
-    let example = branches
-        .iter()
+    let here = Here::of(schema, root);
+    let example = here
+        .branches()
+        .into_iter()
         .find_map(|branch| match branch.get("examples") {
             Some(Value::Array(examples)) => examples.first(),
             Some(example) => Some(example),
             None => branch.get("example"),
         })?;
-    let has_type = |name: &str| branches.iter().any(|branch| type_includes(branch, name));
-    let numeric_only = (has_type("integer") || has_type("number")) && !has_type("string");
+    let types = here.types();
+    let numeric_only = types.allows_type("number") && !types.allows_type("string");
     let example = numeric_example_as_number(example.clone(), numeric_only);
-    let typed = branches.iter().any(|branch| branch.get("type").is_some());
-    (!typed || branches.iter().any(|branch| accepts(branch, &example))).then_some(example)
+    types.allows(&example).then_some(example)
 }
 
 /// `(key, value text)` of each scalar a block insert for `property` writes

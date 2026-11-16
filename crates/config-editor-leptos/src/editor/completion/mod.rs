@@ -46,7 +46,7 @@ use key_info::{ObjectAt, key_info, names_only};
 use list_items::{root_values, separate_from_next_item};
 pub(crate) use live::{CompletionState, Sources, SuggestionPlace};
 pub(crate) use matching::*;
-pub(crate) use patterns::unsupported_patterns;
+pub(crate) use patterns::compiles;
 pub(crate) use popup::*;
 use required::caret_at_list;
 pub use required::{Fill, RequiredChild, required_children, writes_key};
@@ -59,16 +59,16 @@ pub use stops::schema_example;
 
 pub(crate) use super::applies::{
     Applies, ChoiceHover, Choices, Entry, Here, Next, Seen, Walking, decides, each_value,
-    item_schema, mentions_conditionals, named_properties, ref_target, type_includes,
+    item_schema, named_properties, ref_target, type_includes,
 };
 use super::commands::indent_unit;
-use super::diagnostics::SchemaBundle;
 use super::keyboard::{replace_selection, utf16_to_byte_index};
 use super::language::{
     CompletionContext, ConfigLanguage, EntryPosition, InsertContext, Repetition, SchemaPathSegment,
 };
 use super::metrics::read_editor_metrics;
 use super::positioning::{POPUP_MARGIN, PopupFrame};
+use super::schema::SchemaBundle;
 use super::state::EditorState;
 use super::typing::Closer;
 pub(crate) use patterns::{pattern_decides, pattern_matches};

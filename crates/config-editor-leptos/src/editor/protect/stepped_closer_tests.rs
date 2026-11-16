@@ -10,13 +10,13 @@
 use leptos::prelude::*;
 
 use super::super::Language;
-use super::super::diagnostics::build_schema;
 use super::super::edit::Edit;
 use super::super::host_editing::SaveRequest;
 use super::super::keyboard::{paired_edit, replace_selection};
 use super::super::language::Repetition;
 use super::super::paths::{FieldPath, TextPosition, TextRange};
 use super::super::save_matrix::report;
+use super::super::schema::build_schema;
 use super::super::state::EditorState;
 use super::super::test_state::TestEditor;
 use super::guarantee_tests::utf16;

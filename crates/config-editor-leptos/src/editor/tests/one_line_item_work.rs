@@ -7,8 +7,8 @@
 use serde_json::json;
 
 use crate::editor::completion::completions_for;
-use crate::editor::diagnostics::build_schema;
 use crate::editor::languages::Language;
+use crate::editor::schema::build_schema;
 use crate::editor::work_count::{Work, counted_all};
 
 /// Work noted per byte or character read: it grows with the document.
@@ -20,7 +20,7 @@ const PER_BYTE: [Work; 5] = [
     Work::CharacterStep,
 ];
 
-fn schema() -> crate::editor::diagnostics::SchemaBundle {
+fn schema() -> crate::editor::schema::SchemaBundle {
     let item = json!({
         "type": "object",
         "properties": {"kind": {"enum": ["file", "http"]}, "path": {"type": "string"},

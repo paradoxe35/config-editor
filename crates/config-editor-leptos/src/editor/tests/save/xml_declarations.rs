@@ -53,7 +53,7 @@ fn declarations_and_schema_instance_attributes_are_not_data() {
 #[cfg(feature = "schema-validation")]
 #[test]
 fn a_closed_schema_that_lists_no_declaration_finds_nothing_wrong() {
-    let schema = crate::editor::diagnostics::Schema::compile(
+    let schema = crate::editor::schema::Schema::compile(
         r#"{"type": "object", "additionalProperties": false, "properties": {"project": {
             "type": "object", "additionalProperties": false,
             "properties": {
@@ -74,7 +74,7 @@ fn a_closed_schema_that_lists_no_declaration_finds_nothing_wrong() {
 /// even where a schema documents every key of its element.
 #[test]
 fn hovering_a_declaration_shows_no_keys_docs() {
-    let schema = crate::editor::diagnostics::Schema::compile(
+    let schema = crate::editor::schema::Schema::compile(
         r#"{"properties": {"project": {"patternProperties": {".*": {"description": "any key"}}}}}"#,
     )
     .expect("compiles");

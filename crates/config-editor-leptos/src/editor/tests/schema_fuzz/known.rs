@@ -144,6 +144,14 @@ pub(super) const KNOWN: &[Known] = &[
         class: "a suggested key writes a value its schema refuses (oneOf)",
         applies: |case| overlapping_one_of(&case.schema),
     },
+    // The same options in an XML view: its text read so that one option
+    // matches (`true` as text) where the host's typed value matches both.
+    Known {
+        finding: "FZ38-10",
+        property: "edit_as",
+        class: "the view and its saved host disagree on problems",
+        applies: |case| overlapping_one_of(&case.schema),
+    },
     // XML writes no list of lists, nor an empty list in one: the items of
     // an inner list are items of the outer one, and an empty one is not
     // written, so a secret after them is read at another index (`[[],
@@ -315,8 +323,14 @@ fn meets_nothing(schema: &Value) -> bool {
                         .filter(|(pattern, _)| {
                             crate::editor::completion::pattern_decides(pattern, key) == Some(true)
                         })
-                        .map(|(_, schema)| schema);
-                    named.into_iter().chain(patterned)
+                        .map(|(_, schema)| schema)
+                        .collect::<Vec<_>>();
+                    // A source naming the key neither way gives it its
+                    // `additionalProperties`.
+                    let additional = source
+                        .get("additionalProperties")
+                        .filter(|_| named.is_none() && patterned.is_empty());
+                    named.into_iter().chain(patterned).chain(additional)
                 })
                 .collect();
             found |= apart(&applying);
@@ -529,6 +543,14 @@ mod tests {
         assert!(fill(empty_enum).is_some());
         assert!(fill(patterned(json!(0))).is_some());
         assert!(fill(patterned(json!("zero"))).is_none());
+        // A key one `allOf` member types and another gives its
+        // `additionalProperties`, which no value of that type meets.
+        let additional = |other: Value| {
+            json!({"properties": {"a": {"allOf": [{"additionalProperties": {"const": other}},
+                {"properties": {"c": {"type": "null"}}, "required": ["x", "c"]}]}}})
+        };
+        assert!(fill(additional(json!("f"))).is_some());
+        assert!(fill(additional(Value::Null)).is_none());
         assert!(fill(json!({"properties": {"x_one": {"const": 0}}, "patternProperties": {"^y_": {"type": "string"}}})).is_none());
 
         let secret = |language: Language, doc: Value| {

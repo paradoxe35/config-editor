@@ -8,7 +8,8 @@
 use super::super::completion::{
     Completion, apply_completion, completions, key_hover, next_stop, stop_ranges,
 };
-use super::super::diagnostics::{Diagnostic, SchemaBundle, Severity, build_schema, validate};
+use super::super::diagnostics::{Diagnostic, Severity, validate};
+use super::super::schema::{SchemaBundle, build_schema};
 use super::Language;
 
 fn help() -> SchemaBundle {

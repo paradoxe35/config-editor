@@ -12,12 +12,13 @@ use serde_json::Value;
 use web_sys::KeyboardEvent;
 
 use super::completion::{Completion, SuggestionPlace};
-use super::diagnostics::{Diagnostic, SchemaBundle};
+use super::diagnostics::Diagnostic;
 use super::edit::{Edit, Origin};
 use super::language::ConfigLanguage;
 use super::languages::Language;
 use super::line_rows::MarkedLines;
 use super::paths::{FieldPath, TextRange};
+use super::schema::SchemaBundle;
 use super::secret_options::SecretOptions;
 use super::state::EditorState;
 use crate::EditorStrings;

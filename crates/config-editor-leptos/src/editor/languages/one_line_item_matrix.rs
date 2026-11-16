@@ -9,7 +9,7 @@
 
 use super::super::bridge::Bridge;
 use super::super::completion::completions;
-use super::super::diagnostics::build_schema;
+use super::super::schema::build_schema;
 use super::Language;
 
 /// Two options told apart by `kind`'s `const`.

@@ -2,7 +2,7 @@
 //! replayed against the demo's tunnel schema.
 
 use super::super::completion::{accept_marked, completions};
-use super::super::diagnostics::{SchemaBundle, build_schema};
+use super::super::schema::{SchemaBundle, build_schema};
 use super::Language;
 
 fn burrow() -> SchemaBundle {

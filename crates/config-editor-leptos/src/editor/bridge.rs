@@ -8,10 +8,11 @@
 use super::Language;
 use super::byte_order_mark;
 use super::codec::{self, Conversion, ConvertError};
-use super::diagnostics::{Diagnostic, SchemaBundle, Severity};
+use super::diagnostics::{Diagnostic, Severity};
 use super::edit_as::{EditAsProblem, EditAsText, SaveError};
 use super::item_sources::{self, ItemSource, ItemSources};
 use super::language::ConfigLanguage;
+use super::schema::SchemaBundle;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -1228,7 +1229,7 @@ mod tests {
     #[cfg(feature = "schema-validation")]
     #[test]
     fn one_item_arrays_round_trip_through_xml_with_a_schema() {
-        let schema = super::super::diagnostics::build_schema(include_str!(
+        let schema = super::super::schema::build_schema(include_str!(
             "../../tests/fixtures/tunnel.schema.json"
         ))
         .unwrap();
@@ -1462,7 +1463,7 @@ mod structural_saves {
     #[cfg(feature = "schema-validation")]
     #[test]
     fn a_value_in_a_lone_block_read_as_a_list_changes_only_that_value() {
-        let schema = super::super::diagnostics::build_schema(include_str!(
+        let schema = super::super::schema::build_schema(include_str!(
             "../../tests/fixtures/tunnel.schema.json"
         ))
         .unwrap();

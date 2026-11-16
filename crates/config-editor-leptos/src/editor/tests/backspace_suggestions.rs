@@ -65,9 +65,9 @@ fn with_protocol(text: &str, value: &str) -> (String, usize) {
     (written, caret)
 }
 
-fn schema() -> std::sync::Arc<crate::editor::diagnostics::SchemaBundle> {
+fn schema() -> std::sync::Arc<crate::editor::schema::SchemaBundle> {
     std::sync::Arc::new(
-        crate::editor::diagnostics::build_schema(include_str!(
+        crate::editor::schema::build_schema(include_str!(
             "../../../tests/fixtures/tunnel.schema.json"
         ))
         .unwrap(),

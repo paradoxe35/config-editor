@@ -140,18 +140,6 @@ impl<'a> ValueDocs<'a> {
     }
 }
 
-/// Whether any schema in `root` is marked deprecated, so documents are
-/// only searched for deprecated keys when there can be some.
-pub(crate) fn mentions_deprecated(root: &Value) -> bool {
-    match root {
-        Value::Object(map) => map.iter().any(|(key, value)| {
-            (key == "deprecated" && value == &Value::Bool(true)) || mentions_deprecated(value)
-        }),
-        Value::Array(items) => items.iter().any(mentions_deprecated),
-        _ => false,
-    }
-}
-
 /// A key of the document its schema marks deprecated.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct DeprecatedKey {
@@ -236,10 +224,6 @@ mod tests {
                 "servers": {"type": "array", "items": {"properties": {"weight": {"deprecated": true}}}}
             }
         });
-        assert!(mentions_deprecated(&root));
-        assert!(!mentions_deprecated(
-            &json!({"properties": {"deprecated": {"type": "boolean"}}})
-        ));
         let document = json!({"timeout": 3, "servers": [{"weight": 1}, {"host": "a"}]});
         assert_eq!(
             deprecated_keys(&document, &root, 20),

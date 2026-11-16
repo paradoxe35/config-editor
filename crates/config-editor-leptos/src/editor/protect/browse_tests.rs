@@ -3,8 +3,8 @@
 //! language, as when browsing the block's own text.
 
 use super::super::completion::completions_in;
-use super::super::diagnostics::build_schema;
 use super::super::paths::FieldPath;
+use super::super::schema::build_schema;
 use super::locks::{Sources, protect};
 use super::suggest::{Around, adjust};
 use super::tests::documents;

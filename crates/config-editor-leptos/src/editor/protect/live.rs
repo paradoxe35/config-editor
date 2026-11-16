@@ -8,13 +8,13 @@ use std::sync::Arc;
 use leptos::prelude::*;
 
 use super::super::codec;
-use super::super::diagnostics::SchemaBundle;
 use super::super::edit::{Edit, Origin};
 use super::super::edit_as::SaveError;
 use super::super::language::ConfigLanguage;
 use super::super::languages::Language;
 use super::super::parse_cache;
 use super::super::paths::{FieldPath, TextRange};
+use super::super::schema::SchemaBundle;
 use super::super::secret_options::SecretOptions;
 use super::super::state::EditorState;
 use super::carry::Moves;

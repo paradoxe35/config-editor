@@ -96,11 +96,12 @@ impl<'s> Step<'s, '_> {
                 any(parts.iter().map(|part| self.of(part)).collect())
             }
             Node::Options(choices) => {
-                // A fitted option is a guess: reading a value's type goes
-                // by every option it may be in.
+                // An option its keys or a quick look pick is a guess:
+                // reading a value's type goes by every option it may be in
+                // (those not refuted).
                 let trust_fit = self.trust_fit;
                 let taken = move |state: State| {
-                    state == State::Matched || (trust_fit && state == State::Fitted)
+                    trust_fit && matches!(state, State::Matched | State::Fitted)
                 };
                 let matched = choices.iter().any(|choice| taken(choice.state));
                 let kept: Vec<Tree<'s>> = choices
@@ -119,6 +120,37 @@ impl<'s> Step<'s, '_> {
         self.nodes.insert(key, found.clone());
         found
     }
+}
+
+/// What applies to the children of a value `tree` applies to that no
+/// `properties` entry names: each item (every tuple position, the other
+/// items, the unevaluated ones) and each entry (every pattern's, the
+/// additional and the unevaluated ones). `contains` is not one: it applies
+/// to some item, not to each.
+#[cfg(feature = "protect")]
+pub(super) fn unnamed<'s>(tree: &Tree<'s>) -> Entry<'s> {
+    let mut found: Vec<&'s Value> = Vec::new();
+    for leaf in leaves(tree, Walked::Any) {
+        for keyword in [
+            "items",
+            "prefixItems",
+            "additionalItems",
+            "unevaluatedItems",
+            "patternProperties",
+            "additionalProperties",
+            "unevaluatedProperties",
+        ] {
+            match (keyword, leaf.get(keyword)) {
+                ("patternProperties", Some(Value::Object(patterns))) => {
+                    found.extend(patterns.values());
+                }
+                (_, Some(Value::Array(positions))) => found.extend(positions),
+                (_, Some(schema)) if schema.is_object() => found.push(schema),
+                _ => {}
+            }
+        }
+    }
+    Entry::any_of(&found)
 }
 
 /// The child's schemas `schema` names itself: its property and the

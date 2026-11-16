@@ -14,18 +14,7 @@
 use serde_json::Value;
 use std::collections::HashMap;
 
-/// Keywords whose value is data, not schemas: left as written.
-const DATA: [&str; 5] = ["const", "enum", "default", "examples", "example"];
-
-/// Keywords whose value maps names to schemas.
-const NAMED: [&str; 6] = [
-    "properties",
-    "patternProperties",
-    "$defs",
-    "definitions",
-    "dependentSchemas",
-    "dependencies",
-];
+use super::schema::each_schema;
 
 /// The base URI of a schema without `$id`, as the validator names it.
 const DEFAULT_BASE: &str = "json-schema:///";
@@ -63,7 +52,7 @@ pub(super) fn to_pointers(schema: &mut Value) {
             |id| without_fragment(&join(DEFAULT_BASE, id)),
         );
     index.resources.insert(base.clone(), String::new());
-    walk(schema, String::new(), &base, &mut index);
+    walk(schema, &base, &mut index);
     for (site, base, reference, dynamic) in index.references {
         let Some(target) = resolve(&index.resources, &index.anchors, &base, &reference) else {
             continue;
@@ -77,82 +66,65 @@ pub(super) fn to_pointers(schema: &mut Value) {
     }
 }
 
-fn walk(value: &Value, pointer: String, base: &str, index: &mut Index) {
-    match value {
-        Value::Object(members) => {
-            let mut base = base.to_string();
-            if let Some(id) = members.get(index.id).and_then(Value::as_str) {
-                match id.strip_prefix('#') {
-                    // Draft-07 names an anchor with a fragment-only `$id`.
-                    Some(name) => {
-                        index
-                            .anchors
-                            .insert((base.clone(), name.to_string()), pointer.clone());
-                    }
-                    None => {
-                        let full = join(&base, id);
-                        base = without_fragment(&full);
-                        index
-                            .resources
-                            .entry(base.clone())
-                            .or_insert(pointer.clone());
-                        if let Some((_, name)) = full.split_once('#')
-                            && !name.is_empty()
-                            && !name.starts_with('/')
-                        {
-                            index
-                                .anchors
-                                .insert((base.clone(), name.to_string()), pointer.clone());
-                        }
-                    }
-                }
-            }
-            for keyword in ["$anchor", "$dynamicAnchor"] {
-                if let Some(name) = members.get(keyword).and_then(Value::as_str) {
+/// Indexes every schema of `schema`, each under the base URI its
+/// ancestors' `$id`s give (`base` for the root).
+fn walk(schema: &Value, base: &str, index: &mut Index) {
+    each_schema(schema, &base.to_string(), &mut |pointer, members, base| {
+        let mut base = base.clone();
+        if let Some(id) = members.get(index.id).and_then(Value::as_str) {
+            match id.strip_prefix('#') {
+                // Draft-07 names an anchor with a fragment-only `$id`.
+                Some(name) => {
                     index
                         .anchors
-                        .entry((base.clone(), name.to_string()))
-                        .or_insert(pointer.clone());
+                        .insert((base.clone(), name.to_string()), pointer.to_string());
                 }
-            }
-            if let Some(reference) = members.get("$ref").and_then(Value::as_str) {
-                index.references.push((
-                    pointer.clone(),
-                    base.clone(),
-                    reference.to_string(),
-                    false,
-                ));
-            } else if let Some(reference) = ["$dynamicRef", "$recursiveRef"]
-                .iter()
-                .find_map(|keyword| members.get(*keyword).and_then(Value::as_str))
-            {
-                index
-                    .references
-                    .push((pointer.clone(), base.clone(), reference.to_string(), true));
-            }
-            for (key, member) in members {
-                let at = format!("{pointer}/{}", escaped(key));
-                if DATA.contains(&key.as_str()) {
-                    continue;
-                }
-                if NAMED.contains(&key.as_str())
-                    && let Value::Object(named) = member
-                {
-                    for (name, schema) in named {
-                        walk(schema, format!("{at}/{}", escaped(name)), &base, index);
+                None => {
+                    let full = join(&base, id);
+                    base = without_fragment(&full);
+                    index
+                        .resources
+                        .entry(base.clone())
+                        .or_insert(pointer.to_string());
+                    if let Some((_, name)) = full.split_once('#')
+                        && !name.is_empty()
+                        && !name.starts_with('/')
+                    {
+                        index
+                            .anchors
+                            .insert((base.clone(), name.to_string()), pointer.to_string());
                     }
-                } else {
-                    walk(member, at, &base, index);
                 }
             }
         }
-        Value::Array(items) => {
-            for (position, item) in items.iter().enumerate() {
-                walk(item, format!("{pointer}/{position}"), base, index);
+        for keyword in ["$anchor", "$dynamicAnchor"] {
+            if let Some(name) = members.get(keyword).and_then(Value::as_str) {
+                index
+                    .anchors
+                    .entry((base.clone(), name.to_string()))
+                    .or_insert(pointer.to_string());
             }
         }
-        _ => {}
-    }
+        if let Some(reference) = members.get("$ref").and_then(Value::as_str) {
+            index.references.push((
+                pointer.to_string(),
+                base.clone(),
+                reference.to_string(),
+                false,
+            ));
+        } else if let Some(reference) = ["$dynamicRef", "$recursiveRef"]
+            .iter()
+            .find_map(|keyword| members.get(*keyword).and_then(Value::as_str))
+        {
+            index.references.push((
+                pointer.to_string(),
+                base.clone(),
+                reference.to_string(),
+                true,
+            ));
+        }
+        Some(base)
+    });
 }
 
 /// The root pointer of the schema `reference` names from `base`.
@@ -174,11 +146,6 @@ fn resolve(
     anchors
         .get(&(uri.to_string(), percent_decoded(fragment)))
         .cloned()
-}
-
-/// A JSON pointer token for `key` (`~0`, `~1`).
-fn escaped(key: &str) -> String {
-    key.replace('~', "~0").replace('/', "~1")
 }
 
 fn without_fragment(uri: &str) -> String {

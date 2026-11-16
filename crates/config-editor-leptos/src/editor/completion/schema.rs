@@ -199,25 +199,6 @@ pub(crate) fn resolve_branches<'a>(schema: &'a Value, root: &'a Value) -> Vec<&'
     Here::of(schema, root).branches()
 }
 
-pub(super) fn accepts(branch: &Value, value: &Value) -> bool {
-    match value {
-        Value::Object(_) => {
-            type_includes(branch, "object")
-                || branch.get("properties").is_some()
-                || branch.get("additionalProperties").is_some()
-                || branch.get("patternProperties").is_some()
-        }
-        Value::String(_) => type_includes(branch, "string"),
-        Value::Bool(_) => type_includes(branch, "boolean"),
-        Value::Null => type_includes(branch, "null"),
-        Value::Number(number) => {
-            type_includes(branch, "number")
-                || (number.is_i64() || number.is_u64()) && type_includes(branch, "integer")
-        }
-        Value::Array(_) => true,
-    }
-}
-
 /// The values a branch suggests. `open` adds free-form ones (examples and the
 /// default), which are only hints: while the user types their own value they
 /// would replace it on Enter, so they are left out then.

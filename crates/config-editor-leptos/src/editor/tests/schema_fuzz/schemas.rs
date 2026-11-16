@@ -165,12 +165,23 @@ impl Drawer<'_> {
         if depth > 0 && self.rng.chance(15) {
             node.as_object_mut().unwrap().remove("type");
         }
-        // A field the base properties only describe, its type given in an
-        // `allOf` (QA 38's SC38-2 shape).
+        // A field whose type comes from how schemas combine, not from one
+        // schema: the base properties only describe it (or allow a wider
+        // type) and an `allOf`, or the `then` its object always takes,
+        // gives the type.
         if self.rng.chance(15) {
             let key = keys[0].to_string();
-            let typed = properties.insert(key.clone(), json!({"description": "described"}));
-            node["allOf"] = json!([{"properties": {key: typed}}]);
+            let typed = properties[&key].clone();
+            let base = match (self.rng.below(2), typed.get("type").and_then(Value::as_str)) {
+                (1, Some(name)) if name != "string" => json!({"type": [name, "string"]}),
+                _ => json!({"description": "described"}),
+            };
+            properties.insert(key.clone(), base);
+            node["allOf"] = if self.rng.chance(50) {
+                json!([{"properties": {key: typed}}])
+            } else {
+                json!([{"if": {"type": "object"}, "then": {"properties": {key: typed}}}])
+            };
         }
         node["properties"] = Value::Object(properties);
         let required: Vec<&str> = keys

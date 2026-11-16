@@ -6,9 +6,9 @@
 use leptos::prelude::*;
 
 use crate::editor::Language;
-use crate::editor::diagnostics::build_schema;
 use crate::editor::edit::Edit;
 use crate::editor::host_editing::SaveRequest;
+use crate::editor::schema::build_schema;
 use crate::editor::sync::convert_now;
 use crate::editor::test_state::TestEditor;
 
