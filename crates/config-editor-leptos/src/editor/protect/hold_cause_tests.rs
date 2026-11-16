@@ -11,6 +11,7 @@
 use leptos::prelude::*;
 
 use super::super::Language;
+use super::super::edit::{Change, Edit};
 use super::super::paths::{FieldPath, TextPosition, TextRange};
 use super::super::state::{EditorState, Init};
 use super::super::test_state::TestEditor;
@@ -59,6 +60,21 @@ fn change(state: EditorState, old: &str, new: &str) {
         text,
         "the edit {old:?} to {new:?} is taken"
     );
+}
+
+/// Replaces every `old` of the text on screen with `new` as the Replace
+/// all command does: one edit, each match its own replacement.
+fn replace_every(state: EditorState, old: &str, new: &str) {
+    let before = state.doc().text.get_untracked();
+    let matches = before
+        .match_indices(old)
+        .map(|(at, _)| (at..at + old.len(), new.to_string()));
+    let change = Change::replacing(before.len(), matches).expect("the matches fit the text");
+    assert!(
+        state.commit(Edit::command(before.clone(), change, (0, 0))),
+        "the Replace all of {old:?} is taken"
+    );
+    assert_ne!(state.doc().text.get_untracked(), before);
 }
 
 fn mount(language: Language, text: &str, paths: &[&str]) -> (Owner, EditorState) {
@@ -115,6 +131,48 @@ fn a_key_renamed_by_typing_is_named() {
         state,
         &format!(
             "Not saved: a key of /public_address was renamed ({RANGE}); give the key its old name back to save"
+        ),
+    );
+}
+
+/// Each match of a Replace all is a piece of its own: the one in the
+/// locked field's key renames it, the others (in a comment, in another
+/// value) leave it be.
+#[test]
+fn a_key_renamed_by_a_replace_all_among_other_matches_is_named() {
+    let text = "# public\nlisten: 7835\npublic_address: tunnel.example.com\nmode: public\n";
+    let mut editor = TestEditor::new(Language::YAML, text);
+    // `public_address`'s value.
+    editor.read_only_ranges = vec![TextRange::new(
+        TextPosition::new(3, 17),
+        TextPosition::new(3, 35),
+    )];
+    let (_owner, state) = editor.mount();
+    replace_every(state, "public", "pub");
+    assert_eq!(
+        state.doc().text.get_untracked(),
+        "# pub\nlisten: 7835\npub_address: tunnel.example.com\nmode: pub\n"
+    );
+    assert_held(
+        state,
+        &format!(
+            "Not saved: a key of /public_address was renamed ({RANGE}); give the key its old name back to save"
+        ),
+    );
+}
+
+/// A Replace all whose matches lie around a locked field without touching
+/// its keys renames another element to its parent's name: a copy written,
+/// not a rename.
+#[test]
+fn an_element_renamed_by_a_replace_all_to_a_locked_ones_name_is_named_a_duplicate() {
+    let text = "<root>\n  <tmp>\n    <port>9</port>\n  </tmp>\n  <svc>\n    <port>9</port>\n  </svc>\n  <note>tmp</note>\n</root>\n";
+    let (_owner, state) = mount(Language::XML, text, &["/root/svc/port"]);
+    replace_every(state, "tmp", "svc");
+    assert_held(
+        state,
+        &format!(
+            "Not saved: /root/svc/port is written twice, and the other copy is read in its place ({FIELD}); remove the copy to save"
         ),
     );
 }

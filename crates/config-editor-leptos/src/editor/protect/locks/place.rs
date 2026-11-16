@@ -186,14 +186,15 @@ impl<'r, 'a> Placer<'r, 'a> {
                 .iter()
                 .any(|range| range.start <= byte && byte < range.end)
         };
-        let (replaced, wrote, written) = moves.replaced();
+        let pieces = moves.pieces();
         let before_lines = LineIndex::new(&before.text);
         let made = EditMade {
             before,
             lines: &before_lines,
-            replaced,
-            wrote,
-            written: &written,
+            behavior: *behavior,
+            after: text,
+            after_lines: lines,
+            pieces: &pieces,
             in_comment: &in_comment,
         };
         held.into_iter()

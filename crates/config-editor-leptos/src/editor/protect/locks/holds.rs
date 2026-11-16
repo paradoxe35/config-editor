@@ -6,7 +6,11 @@
 
 use std::ops::Range;
 
+use super::super::super::language::ConfigLanguage;
+use super::super::super::paths::{key_range, with_spans};
+use super::super::carry::Piece;
 use super::super::locate::LineIndex;
+use super::super::scan;
 use super::super::texts::Reason;
 use super::{Lock, Protected};
 
@@ -95,11 +99,12 @@ pub(super) struct EditMade<'e> {
     /// The text before's locks, and the lines of its text.
     pub(super) before: &'e Protected,
     pub(super) lines: &'e LineIndex<'e>,
-    /// The range of the text before it replaced, the range of the text
-    /// after it wrote there, and that text.
-    pub(super) replaced: Range<usize>,
-    pub(super) wrote: Range<usize>,
-    pub(super) written: &'e str,
+    /// The language, the text after and its lines.
+    pub(super) behavior: &'e dyn ConfigLanguage,
+    pub(super) after: &'e str,
+    pub(super) after_lines: &'e LineIndex<'e>,
+    /// Each range the edit replaced, with what it wrote there, in order.
+    pub(super) pieces: &'e [Piece],
     /// Whether UTF-16 offset of the text after is in a comment.
     pub(super) in_comment: &'e dyn Fn(usize) -> bool,
 }
@@ -141,7 +146,10 @@ impl EditMade<'_> {
             return HoldCause::Commented;
         }
         let keys: Vec<&Range<usize>> = lock.key.iter().chain(&lock.guards).collect();
-        if keys.iter().any(|key| self.renames(key)) {
+        if keys
+            .iter()
+            .any(|key| self.pieces.iter().any(|piece| renames(piece, key)))
+        {
             return HoldCause::Renamed;
         }
         if self.writes_again(&keys) {
@@ -160,7 +168,7 @@ impl EditMade<'_> {
             .rsplit('/')
             .next()
             .is_some_and(|last| last.parse::<usize>().is_ok());
-        if item && self.replaced.end <= hull.0 {
+        if item && self.pieces.iter().any(|piece| piece.replaced.end <= hull.0) {
             return HoldCause::ListItem;
         }
         // Its text kept and no longer read at its path: under other keys.
@@ -175,74 +183,98 @@ impl EditMade<'_> {
         }
     }
 
-    /// Whether the text the edit wrote starts inside `now`, the stretch the
+    /// Whether text the edit wrote starts inside `now`, the stretch the
     /// field is written over in the text after, or at its end (a key typed
     /// into its block one character at a time, held at the last).
     fn wrote_into(&self, now: Option<Range<usize>>) -> bool {
-        now.is_some_and(|now| now.start <= self.wrote.start && self.wrote.start <= now.end)
+        now.is_some_and(|now| {
+            self.pieces
+                .iter()
+                .any(|piece| now.start <= piece.wrote.start && piece.wrote.start <= now.end)
+        })
     }
 
     /// Whether the edit replaced text inside the stretch `(start, end)` of
     /// the text before, or next to it with only whitespace between.
     fn beside(&self, (start, end): (usize, usize)) -> bool {
-        let replaced = &self.replaced;
-        if replaced.start <= end && replaced.end >= start {
-            return true;
-        }
         let (text, lines) = (self.before.text.as_str(), self.lines);
         let blank = |from: usize, to: usize| {
             text[lines.byte_of(from)..lines.byte_of(to)]
                 .chars()
                 .all(char::is_whitespace)
         };
-        (replaced.start > end && blank(end, replaced.start))
-            || (replaced.end < start && blank(replaced.end, start))
+        self.pieces.iter().any(|piece| {
+            let replaced = &piece.replaced;
+            (replaced.start <= end && replaced.end >= start)
+                || (replaced.start > end && blank(end, replaced.start))
+                || (replaced.end < start && blank(replaced.end, start))
+        })
     }
 
-    /// Whether the edit changed the key at `key`: it replaced text inside
-    /// it, or typed on one line at one of its ends.
-    fn renames(&self, key: &Range<usize>) -> bool {
-        let replaced = &self.replaced;
-        let inside = replaced.start < key.end && replaced.end > key.start;
-        let at_end = replaced.is_empty()
-            && (replaced.start == key.start || replaced.start == key.end)
-            && !self.written.is_empty()
-            && !self.written.contains('\n');
-        inside || at_end
-    }
-
-    /// Whether a line the edit wrote starts with one of `keys` (as the text
-    /// before writes them).
+    /// Whether the edit wrote one of `keys` (key spans of the text before)
+    /// again: the language reads a key in the text after that one of the
+    /// edit's pieces wrote whole, with the same text.
     fn writes_again(&self, keys: &[&Range<usize>]) -> bool {
-        let (text, lines) = (self.before.text.as_str(), self.lines);
+        let (before, lines) = (self.before.text.as_str(), self.lines);
         let names: Vec<&str> = keys
             .iter()
-            .filter_map(|key| {
-                let written = &text[lines.byte_of(key.start)..lines.byte_of(key.end)];
-                leading_key(written)
+            .map(|key| &before[lines.byte_of(key.start)..lines.byte_of(key.end)])
+            .filter(|name| !name.is_empty())
+            .collect();
+        if names.is_empty() {
+            return false;
+        }
+        let (after, after_lines) = (self.after, self.after_lines);
+        // Only the lines a piece wrote on that hold one of the names are
+        // asked for the key they start with.
+        let mut naming: Vec<usize> = self
+            .pieces
+            .iter()
+            .filter(|piece| !piece.wrote.is_empty())
+            .flat_map(|piece| {
+                after_lines.line_of(piece.wrote.start)..=after_lines.line_of(piece.wrote.end)
+            })
+            .filter(|line| {
+                let text = after_lines.line_text(*line);
+                names.iter().any(|name| text.contains(name))
             })
             .collect();
-        !names.is_empty()
-            && self
-                .written
-                .lines()
-                .filter_map(leading_key)
-                .any(|name| names.contains(&name))
+        naming.dedup();
+        if naming.is_empty() {
+            return false;
+        }
+        let pointers: Vec<String> =
+            scan::written(self.behavior, after, after_lines, Some(&naming), &[])
+                .into_iter()
+                .map(|written| written.pointer)
+                .collect();
+        let written_whole = |key: &Range<usize>| {
+            self.pieces
+                .iter()
+                .any(|piece| piece.wrote.start <= key.start && key.end <= piece.wrote.end)
+        };
+        with_spans(self.behavior, after, &pointers, || {
+            pointers.iter().any(|pointer| {
+                key_range(self.behavior, after, pointer)
+                    .map(|range| after_lines.range(range))
+                    .is_some_and(|key| {
+                        let name =
+                            &after[after_lines.byte_of(key.start)..after_lines.byte_of(key.end)];
+                        written_whole(&key) && names.contains(&name)
+                    })
+            })
+        })
     }
 }
 
-/// The key a line starts with, after its indent, a list dash, markup
-/// (`<`, `[`) or a quote.
-fn leading_key(line: &str) -> Option<&str> {
-    let mut rest = line.trim_start();
-    if let Some(after) = rest.strip_prefix("- ") {
-        rest = after.trim_start();
-    }
-    rest = rest.trim_start_matches(['<', '[', '"', '\'']);
-    let end = rest
-        .find(|character: char| {
-            !(character.is_alphanumeric() || matches!(character, '_' | '-' | '.' | '$' | '@'))
-        })
-        .unwrap_or(rest.len());
-    (end > 0).then(|| &rest[..end])
+/// Whether `piece` changed the key at `key`: it replaced text inside it,
+/// or typed on one line at one of its ends.
+fn renames(piece: &Piece, key: &Range<usize>) -> bool {
+    let replaced = &piece.replaced;
+    let inside = replaced.start < key.end && replaced.end > key.start;
+    let at_end = replaced.is_empty()
+        && (replaced.start == key.start || replaced.start == key.end)
+        && !piece.written.is_empty()
+        && !piece.written.contains('\n');
+    inside || at_end
 }
