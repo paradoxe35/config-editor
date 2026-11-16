@@ -283,7 +283,7 @@ mod present_keys_matrix;
     feature = "hcl",
     feature = "xml"
 ))]
-mod qa_regressions;
+mod tunnel_schema;
 #[cfg(all(
     test,
     feature = "yaml",
