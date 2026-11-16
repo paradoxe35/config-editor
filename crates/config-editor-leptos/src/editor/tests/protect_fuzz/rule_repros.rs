@@ -458,3 +458,31 @@ fn a_new_secret_over_a_placeholder_read_beside_text_is_refused() {
         ],
     );
 }
+
+/// P1: in DotBare (a later entry wins), the range's line copied below it,
+/// the locks read again on the same text (a Replace all matching only
+/// locked text), then an entry of the field's name typed last: the field
+/// the range covered stays locked through the reading again, so the entry
+/// shadowing it is held, never heard.
+#[test]
+fn a_range_field_read_again_on_the_same_text_stays_locked() {
+    let setup = Setup {
+        case: 13,
+        lock: Lock::Range,
+        host: None,
+        pairs: false,
+    };
+    assert_ok(
+        &setup,
+        &[
+            Act::PasteCopy { line: 61637 },
+            Act::ReplaceAll { pair: 5 },
+            Act::ReplaceAll { pair: 5 },
+            Act::Entry {
+                anchor: 1,
+                name: 16,
+                paste: false,
+            },
+        ],
+    );
+}

@@ -350,10 +350,14 @@ impl<'r, 'a> Placer<'r, 'a> {
         };
         // Only an edit moves a range's text away, and only while the host
         // gives ranges: new ranges on the same text, or none, cover what
-        // they cover, as in a fresh editor.
+        // they cover, as in a fresh editor. The same ranges on the same
+        // text (the locks read again with nothing changed) keep what the
+        // text before kept: reading again is no edit.
         let any_range = ranges.iter().any(|range| range.pointer.is_none())
             || !self.reading.sources.range_fields.is_empty();
-        if before.text == self.reading.text || !any_range {
+        let new_ranges = before.ranges != super::range_stretches(ranges)
+            || before.range_fields != self.reading.sources.range_fields;
+        if (before.text == self.reading.text && new_ranges) || !any_range {
             return Vec::new();
         }
         // Its lock, followed here, inside a host range now (not one the
