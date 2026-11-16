@@ -8,6 +8,7 @@
 use super::super::highlight::{Token, TokenKind};
 use super::Language;
 use super::harness::{byte_range, highlighting, holds, name_range, report, text};
+use crate::editor::paths::FieldPath;
 use serde_json::{Value, json};
 
 /// The kind of the token covering byte `at` of the line, if any.
@@ -503,7 +504,10 @@ fn written_colours(known: bool) -> Vec<String> {
             let Ok(text) = text(language, &document, &[]) else {
                 continue;
             };
-            let Some(span) = language.behavior().value_span(&text, "/k") else {
+            let Some(span) = language
+                .behavior()
+                .value_span(&text, &FieldPath::from("/k"))
+            else {
                 failures.push(format!("{language}: no value span for {value} in {text:?}"));
                 continue;
             };

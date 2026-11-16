@@ -151,11 +151,11 @@ impl ConfigLanguage for JsonBehavior {
 
 impl Text for JsonBehavior {
     /// From the scan: a value's own span, a container's through its closer.
-    fn value_ranges(&self, _language: &dyn ConfigLanguage, source: &str, pointer: &str) -> Vec<std::ops::Range<usize>> {
+    fn value_ranges(&self, _language: &dyn ConfigLanguage, source: &str, path: &FieldPath) -> Vec<std::ops::Range<usize>> {
         if crate::editor::paths::parsed_in_batch(self, source).is_err() {
             return Vec::new();
         }
-        json_value_range(source, pointer).into_iter().collect()
+        json_value_range(source, &path.to_pointer()).into_iter().collect()
     }
 
     #[cfg(feature = "folding")]

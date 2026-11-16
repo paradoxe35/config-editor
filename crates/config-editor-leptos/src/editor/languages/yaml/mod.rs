@@ -277,7 +277,8 @@ impl Text for YamlBehavior {
     /// The language's spans joined (see `Text::value_ranges`), and a
     /// scalar written on the lines below its key from where it is written
     /// there.
-    fn value_ranges(&self, language: &dyn ConfigLanguage, source: &str, pointer: &str) -> Vec<std::ops::Range<usize>> {
+    fn value_ranges(&self, language: &dyn ConfigLanguage, source: &str, path: &FieldPath) -> Vec<std::ops::Range<usize>> {
+        let pointer = &path.to_pointer();
         let parsed = crate::editor::paths::parsed_in_batch(self, source);
         let Ok(document) = parsed.as_ref() else {
             return Vec::new();
