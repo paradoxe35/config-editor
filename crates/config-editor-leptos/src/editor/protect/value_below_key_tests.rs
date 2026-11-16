@@ -39,12 +39,6 @@ const CASES: &[(Language, &str, &str, &str)] = &[
     ),
     (
         Language::YAML,
-        "port: &p\n  8080\na: 1\n",
-        "8080\n",
-        "port: &p\n  8080",
-    ),
-    (
-        Language::YAML,
         "? port\n: 8080\na: 1\n",
         "8080\n",
         "port\n: 8080",
@@ -57,9 +51,44 @@ const CASES: &[(Language, &str, &str, &str)] = &[
     ),
 ];
 
+/// A YAML key with an anchor or a tag on its line (`port: &p`, then
+/// `8080`): the key's line holds more than the key, and the value below
+/// it is locked too.
+const ANCHORED: &[(Language, &str, &str, &str)] = &[
+    (
+        Language::YAML,
+        "port: &p\n  8080\na: 1\n",
+        "8080\n",
+        "port: &p\n  8080",
+    ),
+    (
+        Language::YAML,
+        "port: !!int\n  8080\na: 1\n",
+        "8080\n",
+        "port: !!int\n  8080",
+    ),
+    (
+        Language::YAML,
+        "port: &p !!int\n  8080\na: 1\n",
+        "8080\n",
+        "port: &p !!int\n  8080",
+    ),
+];
+
 #[test]
 fn a_scalar_written_below_its_key_is_locked() {
-    for &(language, text, value, covered) in CASES {
+    locked_below(CASES);
+}
+
+#[test]
+fn a_scalar_below_an_anchored_or_tagged_yaml_key_is_locked() {
+    locked_below(ANCHORED);
+}
+
+/// Each case's lock covers what it says, and typing into the value is
+/// refused.
+fn locked_below(cases: &[(Language, &str, &str, &str)]) {
+    for &(language, text, value, covered) in cases {
         let mut editor = TestEditor::new(language, text);
         editor.read_only_paths = vec![FieldPath::from("/port")];
         let (_owner, state) = editor.mount();
