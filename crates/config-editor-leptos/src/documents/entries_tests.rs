@@ -323,3 +323,28 @@ fn a_closed_document_unmounts_its_editor_before_its_signals_go() {
         [Some("cert: a.pem\n".to_owned())]
     );
 }
+
+/// A document is dirty by the editor's own rule before its editor mounts:
+/// a text and a baseline that differ only by a byte order mark or their
+/// line breaks (CRLF, a lone CR) are the same document, as its editor reads
+/// them, so mounting it never turns it clean.
+#[test]
+fn a_document_not_shown_is_dirty_by_the_editors_rule() {
+    let owner = Owner::new();
+    owner.set();
+    let list = [
+        ("bom", "\u{feff}a: 1\n", "a: 1\n", false),
+        ("crlf", "a: 1\r\nb: 2\r\n", "a: 1\nb: 2\n", false),
+        ("lone cr", "a: 1\rb: 2\r", "a: 1\nb: 2\n", false),
+        ("edited", "a: 2\n", "a: 1\n", true),
+    ];
+    let documents: Vec<Document> = list
+        .iter()
+        .map(|(id, value, baseline, _)| Document::new(*id, "a.yaml", *value).baseline(*baseline))
+        .collect();
+    let (view, _) = view(&documents, false, false);
+    for (id, _, _, dirty) in list {
+        let entry = view.entry(id).expect("listed");
+        assert_eq!(entry.dirty.get_untracked(), dirty, "{id}");
+    }
+}

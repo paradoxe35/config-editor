@@ -1260,4 +1260,52 @@ test.describe(() => {
       expect(page.errors).toEqual([]);
     });
   }
+
+  // --- The revision protocol: a host storing each `onChange` text with its
+  // revision 0-200 ms late, keeping only the newest revision, and rendering
+  // several stored texts at once (the document's own echo dropped in the
+  // render) passes back `valueRevision`: no pause is needed, the host ends
+  // on the document, and it hears each text at most once more. -------------
+
+  test('a host passing revisions back, its renders dropping echoes, ends on the document unflooded', async ({ page }) => {
+    test.skip(!built, 'run `npm run build` in js/ first');
+    await open(page);
+    await page.evaluate(() => {
+      window.store = { value: 'a: 1\n', revision: -1 };
+      window.told = 0;
+      let seed = 7;
+      const random = (bound) => (seed = (seed * 1103515245 + 12345) % 2147483648) % bound;
+      let render = null;
+      window.mounted = new module.ConfigEditor(mountPoint(), {
+        value: 'a: 1\n',
+        echoes: true,
+        onChange: (text, revision) => {
+          window.told += 1;
+          setTimeout(() => {
+            // The store keeps the newest revision only.
+            if (revision > window.store.revision) window.store = { value: text, revision };
+            // Renders batch: one per 30 ms gives what the store holds then.
+            render ??= setTimeout(() => {
+              render = null;
+              mounted.update({ value: window.store.value, valueRevision: window.store.revision });
+            }, 30);
+          }, random(200));
+        },
+      });
+    });
+    await caretAt(page, 'a: 1');
+    await page.keyboard.type('234567', { delay: 25 });
+    await page.keyboard.press('Backspace');
+    await page.keyboard.type('XY', { delay: 25 });
+    await page.waitForTimeout(800);
+    const { value, store, told } = await page.evaluate(() => ({
+      value: mounted.value,
+      store: window.store.value,
+      told: window.told,
+    }));
+    expect(value).toBe('a: 123456XY\n');
+    expect(store).toBe(value);
+    expect(told).toBeLessThanOrEqual(2 * 9);
+    expect(page.errors).toEqual([]);
+  });
 });

@@ -8,11 +8,11 @@
 
 use config_editor_leptos::TextRange;
 
-use crate::echoes::{Echo, Echoes, clock};
 use crate::host::{HostDoc, ranges_in};
 use crate::host_locks::{HostLocks, stay};
 use crate::model::{Act, Class, Core, Failure, Form, Outcome, read_ranges, user_edit};
 use crate::remap::{moved_between, reads_as};
+use config_editor_leptos::js_support::{Echo, Echoes, echo_clock as clock};
 
 pub(crate) struct EditorSim {
     core: Core,
@@ -22,7 +22,6 @@ pub(crate) struct EditorSim {
     settle_armed: bool,
     host: HostDoc,
     form: Form,
-    now: f64,
 }
 
 impl EditorSim {
@@ -39,7 +38,6 @@ impl EditorSim {
             settle_armed: false,
             host,
             form,
-            now: 0.0,
         })
     }
 
@@ -83,10 +81,9 @@ impl EditorSim {
                 )?);
             }
         }
-        let echo = value.as_deref().map(|value| {
-            self.echoes.at(self.now);
-            self.echoes.received(value, &latest, flushed)
-        });
+        let echo = value
+            .as_deref()
+            .map(|value| self.echoes.received(value, &latest, flushed));
         if std::env::var_os("HOST_SYNC_TRACE").is_some() {
             eprintln!("  update {value:?} over {latest:?}: {echo:?}");
         }
@@ -185,7 +182,6 @@ impl EditorSim {
         if !act.same_task() {
             self.core.flush()?;
         }
-        self.now += 10.0;
         match act {
             Act::Type { .. } | Act::Delete { .. } | Act::Enter { .. } | Act::MoveLine { .. } => {
                 if let Some((start, end, insert)) = user_edit(act, &self.core.text)
@@ -262,7 +258,6 @@ impl EditorSim {
     pub(crate) fn drain(&mut self) -> Outcome {
         for _ in 0..500 {
             self.core.flush()?;
-            self.now += 10.0;
             if self.settle_armed {
                 self.settle();
             } else if !self.host.queue.is_empty() {

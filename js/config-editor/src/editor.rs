@@ -11,12 +11,11 @@ use js_sys::Function;
 use leptos::prelude::*;
 use wasm_bindgen::prelude::*;
 
-use crate::echoes::{self, Echo, Echoes};
 use crate::handle_calls;
 use crate::host_diagnostics::host_diagnostics_from;
 use crate::host_locks::{HostLocks, print, stay};
 use crate::languages::{language_named, writable_edit_as};
-use crate::mount::{self, IN_CALLBACK, Latest, Setup, State, call_host};
+use crate::mount::{self, IN_CALLBACK, Latest, Setup, State, call_host, call_host_with};
 use crate::options::{
     EDITOR_OPTIONS, EDITOR_REMOUNT_OPTIONS, bool_option, function_option, string_option,
     warn_unknown_options,
@@ -33,6 +32,7 @@ use crate::update::{
     Fixed, callback_change, flag_change, given, plain_object, refuse_remount, settings_change,
 };
 use crate::values::{context_arg, field, text_arg};
+use config_editor_leptos::js_support::{Echo, Echoes, echo_clock};
 
 /// A config editor mounted into an element.
 ///
@@ -360,7 +360,7 @@ impl ConfigEditor {
         // What the host set from `onChange` meanwhile is newer than this
         // call, and stays.
         self.reentry.note_options(&options);
-        let flushed = echoes::clock();
+        let flushed = echo_clock();
         // Whether `value` is the text the host was told last, before the
         // flush below sends it what the user typed since (see `echo` below).
         let told = value.as_deref().is_some_and(|value| {
@@ -378,6 +378,12 @@ impl ConfigEditor {
         }
         let options = crate::reentry::without_newer(&options, &newer);
         let value = value.filter(|_| !newer.contains("value"));
+        // The revision `onChange` sent the value with, when the host passes
+        // it back: its echo is matched exactly (see `Echoes::received_at`).
+        let value_revision = given(&options, "valueRevision")
+            .and_then(|revision| revision.as_f64())
+            .filter(|revision| *revision >= 0.0)
+            .map(|revision| revision as u64);
         // Ranges are in the text they were given for: `rangesFor`, else the
         // update's `value` (an echo skipped included), else the document.
         let ranges_for = given(&options, "rangesFor")
@@ -423,9 +429,8 @@ impl ConfigEditor {
             let latest = self.latest.lock().unwrap_or_else(PoisonError::into_inner);
             // Whether `value` will replace the document: not the text it
             // holds, an echo, nor a text older than the typing (see `echo`
-            // below). Ranges given again are read only in such a text (QA
-            // 34, HO34-1: read in an echo they warned of columns past a
-            // line's end, and could throw).
+            // below). Ranges given again are read only in such a text (read
+            // in an echo, they could name columns past a line's end).
             let replaces = || {
                 value.as_deref().is_some_and(|value| {
                     !(told && value != *latest)
@@ -492,9 +497,9 @@ impl ConfigEditor {
             }
             state
                 .echoes
-                .try_update_value(|echoes| {
-                    echoes.at(js_sys::Date::now());
-                    echoes.received(value, &latest, flushed)
+                .try_update_value(|echoes| match value_revision {
+                    Some(revision) => echoes.received_at(value, revision, &latest, flushed),
+                    None => echoes.received(value, &latest, flushed),
                 })
                 .unwrap_or(Echo::Apply)
         });
@@ -856,6 +861,11 @@ fn tell_host(state: State, latest: &Latest) {
     if let Some(callback) = state.on_change.try_get_value().flatten() {
         // Read before the call: the host may update the editor from it.
         let text = JsValue::from_str(&latest.lock().unwrap_or_else(PoisonError::into_inner));
-        call_host(&callback, &text);
+        let revision = state
+            .echoes
+            .try_with_value(Echoes::latest_revision)
+            .flatten()
+            .unwrap_or_default();
+        call_host_with(&callback, &[text, JsValue::from_f64(revision as f64)]);
     }
 }

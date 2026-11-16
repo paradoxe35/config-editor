@@ -16,7 +16,6 @@ use wasm_bindgen::prelude::*;
 
 use crate::catalog::language_name;
 use crate::documents_list::{Kept, Listed, documents_from};
-use crate::echoes::Echoes;
 use crate::editor::{MOUNTED, Mounted, NEXT_ID, replace_editors_in};
 use crate::editor_view::DocumentEditorView;
 use crate::languages::{language_named, writable_edit_as};
@@ -27,6 +26,7 @@ use crate::told::{self, Told};
 use crate::typings::{DocumentEditorResult, DocumentsOptions, DocumentsUpdate, SettingsResult};
 use crate::update::{Fixed, callback_change, given, plain_object, refuse_remount, settings_change};
 use crate::values::{diagnostics_to_js, field, text_arg, to_js};
+use config_editor_leptos::js_support::Echoes;
 
 mod echo_ranges;
 mod echoing;
@@ -814,7 +814,7 @@ impl ConfigDocuments {
         // `flushed` on: the host did not know them). What the host set from
         // `onChange` meanwhile is newer than this call, and stays.
         self.reentry.note_options(&options);
-        let flushed = crate::echoes::clock();
+        let flushed = config_editor_leptos::js_support::echo_clock();
         let newer = self
             .reentry
             .flush(config_editor_leptos::js_support::flush_pending_input);

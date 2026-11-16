@@ -11,7 +11,7 @@ use leptos::prelude::*;
 
 use super::super::edit::Edit;
 use super::super::state::{EditorState, textarea_selection};
-use super::super::sync::{map_through_change, remember_synced};
+use super::super::sync::map_through_change;
 use super::{BaselineConflict, BaselineDecision, PendingBaseline, decide_baseline};
 
 impl EditorState {
@@ -67,7 +67,9 @@ impl EditorState {
         let before = self.doc().text.get_untracked();
         if before != pending.shown {
             if self.bridge().is_some() {
-                remember_synced(*self, pending.shown.clone(), pending.host.clone());
+                // The view's text of the host's own: its save is that text.
+                self.sync()
+                    .restored(&pending.shown, pending.host.as_str().into());
             }
             let element = self.textarea();
             let selection = element.as_ref().map_or_else(
@@ -130,7 +132,7 @@ impl EditorState {
         let text = self.doc().text.get_untracked();
         text == shown
             || (self.bridge().is_some()
-                && text == self.sync().synced_edit.get_value()
+                && self.sync().is_synced(&text)
                 && self.sync().host_text.get_value() == host)
     }
 

@@ -1,8 +1,12 @@
-//! Echoes of the editor's own edits, for a host that hands every `onChange`
-//! text back (the `echoes: true` option): it stores each text and passes it
-//! in again through `update` (`{ value }`, or the whole `documents` list),
-//! possibly late and in any order (a fetch per edit). Applying such an echo
-//! would roll the document back and lose what was typed since.
+//! Echoes of the editor's own edits, for a host that hands every `on_change`
+//! text back (the `echoes` option of every binding: the Leptos
+//! `ConfigEditor`, the JS `ConfigEditor` and `ConfigDocuments`, and through
+//! them the React, Vue and Svelte components): it stores each text and
+//! passes it in again (the `value`, or a document's text in the `documents`
+//! list), possibly late and in any order (a fetch per edit). Applying such
+//! an echo would roll the document back and lose what was typed since. One
+//! engine, here, decides for every binding: by the texts sent, in the
+//! order sent, and the texts handed back.
 //!
 //! Without the option every text the host gives applies (it is the host's
 //! own: a loaded file, a discard, a reset), and nothing is recorded.
@@ -23,11 +27,12 @@
 //! (and set it right), the host is told the document again (`onChange`). A
 //! text sent before one that came back may still come (out of order) or
 //! never (a host handing back only the latest of several): it stays an
-//! echo, but is not counted on to come. The text the host gave last
+//! echo (until the host's own text replaces the document), but is not
+//! counted on to come. The text the host gave last
 //! (`value`, a document's text in the list), given again, is no news, as
 //! a framework's binding passes an unchanged prop on: a render for another
 //! prop, or the whole `documents` list given for another document's edit,
-//! passes the store's text again while it lags behind the typing (QA 34).
+//! passes the store's text again while it lags behind the typing.
 //! A reset to it then is `replaceValue`'s.
 //!
 //! Texts are told apart as the editor reads them (see `Print`): an echo a
@@ -49,19 +54,15 @@
 //! holds, given again while it is on its way, may be its echo (with a later
 //! text lost before it): it counts as news once.
 //!
-//! The framework bindings' `ValueSync` (`js/config-editor/sync.js`) follows
-//! the same rule.
+//! That pause is the one place time enters: an echo lost in a host's render
+//! cannot be told from one still on its way by the texts alone.
 
 use std::cell::Cell;
 use std::collections::{BTreeMap, HashMap, VecDeque};
 
-/// How long after a text came back the copies sent before it are
-/// forgotten (see [`Echoes`]).
-pub(crate) const FORGET_MS: f64 = 5000.0;
-
 /// How long after an echo that left the host on an older text the editor
 /// checks the host came back to the document (see [`Echoes::settle`]).
-pub(crate) const SETTLE_MS: i32 = 250;
+pub const SETTLE_MS: i32 = 250;
 
 thread_local! {
     static CLOCK: Cell<u64> = const { Cell::new(0) };
@@ -70,7 +71,7 @@ thread_local! {
 /// How many texts every editor on the page has sent: a text sent from now
 /// on is sent at this or later (an update reads it before it sends an edit
 /// still held, to tell those texts apart).
-pub(crate) fn clock() -> u64 {
+pub fn clock() -> u64 {
     CLOCK.with(Cell::get)
 }
 
@@ -145,7 +146,7 @@ struct Sent {
 
 /// What to do with a text the host handed back.
 #[derive(Debug, PartialEq, Eq)]
-pub(crate) enum Echo {
+pub enum Echo {
     /// The host's own text, or the document already: show it (nothing to
     /// do when it is the document).
     Apply,
@@ -177,17 +178,15 @@ enum Kind {
 ///
 /// Every one is kept, however many wait (a busy page, a slow host):
 /// forgetting one would take its echo for the host's own text and roll the
-/// document back. A copy is forgotten when its echo comes, when the host's
-/// own text replaces the document (the copies sent before belong to the
-/// text it replaced), or [`FORGET_MS`] after a text sent later came back:
-/// a host handing back only the latest of several never hands back the
-/// others, and one handing them back out of order does so long before
-/// (its delays differ by less). So what is kept is bounded by what is sent
-/// in that time. An echo costs one read of the text handed back
-/// (for its print) and a lookup by it: never a pass over the copies
-/// waiting, nor another over the document.
+/// document back. A copy is forgotten when its echo comes, or when the
+/// host's own text replaces the document (the copies sent before belong to
+/// the text it replaced): never by time, so a late echo is told apart
+/// however late. What is kept is a print per text sent since the host's
+/// own text last replaced the document, never the text. An echo costs one
+/// read of the text handed back (for its print) and a lookup by it: never a
+/// pass over the copies waiting, nor another over the document.
 #[derive(Default, Debug)]
-pub(crate) struct Echoes {
+pub struct Echoes {
     /// Whether the host hands every text back (`echoes: true`); without it
     /// nothing is recorded and every text applies.
     on: bool,
@@ -199,11 +198,6 @@ pub(crate) struct Echoes {
     /// before it may still come (out of order) or never (a host handing
     /// back only the latest of several), so it is not counted on to come.
     came_back: Option<u64>,
-    /// When (ms, see [`Echoes::at`]) each text that came back, newer than
-    /// any before it, came, and when it was sent: oldest first.
-    returns: VecDeque<(f64, u64)>,
-    /// The time now (see [`Echoes::at`]).
-    now: f64,
     /// The text the host gave last.
     last_given: Option<Print>,
     /// The text the host gave last in a list or an update, which
@@ -219,30 +213,16 @@ pub(crate) struct Echoes {
 
 impl Echoes {
     /// For a host that hands every text back (`on`), or not.
-    pub(crate) fn new(on: bool) -> Self {
+    pub fn new(on: bool) -> Self {
         Self {
             on,
             ..Self::default()
         }
     }
 
-    /// The time is `now` (ms, any clock that never goes back): the copies
-    /// sent before a text that came back [`FORGET_MS`] ago or more are
-    /// forgotten.
-    pub(crate) fn at(&mut self, now: f64) {
-        self.now = now;
-        while let Some(&(came, serial)) = self.returns.front() {
-            if came + FORGET_MS > now {
-                break;
-            }
-            self.returns.pop_front();
-            self.forget_before(serial);
-        }
-    }
-
     /// The host gave `text` as the document is built (the constructor's
     /// `value`, a document first listed).
-    pub(crate) fn given(&mut self, text: &str) {
+    pub fn given(&mut self, text: &str) {
         if self.on {
             let print = Print::of(text);
             self.last_listed = Some(print);
@@ -254,20 +234,17 @@ impl Echoes {
     /// The host gave `text` of its own as the document (`replaceValue`).
     /// Its list is no news until it changes: a list the host gives again as
     /// it gave it last, the text it replaced in it (a framework's render
-    /// before the host took the new text), keeps the document (QA 30,
-    /// F30-2: React's `setValue` was rolled back by the render it caused).
-    /// The host lists the text from then on, maybe late, after what is
-    /// typed next: it is on its way as a text sent is, and its listing is
-    /// its echo (QA 36, FW36-1: listed after the typing, it was taken for
-    /// the host's own and rolled the typing back). So is a reset to the
-    /// text the host listed last (a discard to the file as loaded) once
-    /// the document moved past it (QA 37, HO37-1: listed after the typing
-    /// that followed, it rolled that typing back). A reset to the document
-    /// as it is changes nothing: its text is listed already, or on its way
-    /// once (QA 37, FW37-1: a second Discard waited for a listing of its
-    /// own, which the host's listing again, read as its render, never
-    /// used up, so the host's own revert to it was taken for its echo).
-    pub(crate) fn replaced(&mut self, text: &str) {
+    /// before the host took the new text), keeps the document: the render
+    /// a framework's `setValue` causes does not roll it back. The host
+    /// lists the text from then on, maybe late, after what is typed next:
+    /// it is on its way as a text sent is, and its listing is its echo
+    /// (listed after the typing, it is not the host's own). So is a reset to
+    /// the text the host listed last (a discard to the file as loaded) once
+    /// the document moved past it. A reset to the document as it is changes
+    /// nothing: its text is listed already, or on its way once (a second
+    /// Discard waits for no listing of its own, so the host's own revert to
+    /// it is not taken for its echo).
+    pub fn replaced(&mut self, text: &str) {
         if self.on {
             let print = Print::of(text);
             self.last_given = Some(print);
@@ -281,11 +258,10 @@ impl Echoes {
     /// Whether `value`, which did not apply, is a text the host held before
     /// its last reset, which it has not given back yet: ranges worked out
     /// on it are for a text the reset replaced, and are not moved into the
-    /// document as if the reset were an edit (QA 38, FW38-1: moved across
-    /// it, a lock grew over the line above it, and typing there was
-    /// refused until the host gave the reset back). The shown ranges,
-    /// carried into the reset's text, stay.
-    pub(crate) fn before_reset(&self, value: &str) -> bool {
+    /// document as if the reset were an edit (moved across it, a lock would
+    /// grow over the line above it). The shown ranges, carried into the
+    /// reset's text, stay.
+    pub fn before_reset(&self, value: &str) -> bool {
         let Some(reset) = self.reset.filter(|_| self.on) else {
             return false;
         };
@@ -297,18 +273,22 @@ impl Echoes {
     }
 
     /// The editor sent `text`, the document, to the host (its `onChange`).
-    pub(crate) fn sent(&mut self, text: &str) {
+    /// Returns the text's revision: a host that passes it back with the
+    /// text (see [`Echoes::received_at`]) is matched exactly.
+    pub fn sent(&mut self, text: &str) -> u64 {
         if self.on {
-            self.send(Print::of(text));
+            self.send(Print::of(text))
+        } else {
+            tick()
         }
     }
 
     /// The document changed and the host was not told (no `onChange`).
-    pub(crate) fn unsent(&mut self) {
+    pub fn unsent(&mut self) {
         self.document = None;
     }
 
-    fn send(&mut self, print: Print) {
+    fn send(&mut self, print: Print) -> u64 {
         let serial = tick();
         self.order.insert(serial, print);
         self.copies.entry(print).or_default().push_back(Sent {
@@ -317,6 +297,7 @@ impl Echoes {
             doubted: false,
         });
         self.document = Some(print);
+        serial
     }
 
     /// The document `current`'s print: the one known (the text sent,
@@ -395,7 +376,6 @@ impl Echoes {
         }
         if self.came_back.is_none_or(|back| sent.serial > back) {
             self.came_back = Some(sent.serial);
-            self.returns.push_back((self.now, sent.serial));
         }
     }
 
@@ -406,7 +386,7 @@ impl Echoes {
     /// sent is news, whatever the host gave before (the constructor's text
     /// after an echo came back: a discard); the text it gave last, given
     /// again, is not (see [`Echoes::kind`]).
-    pub(crate) fn received(&mut self, value: &str, current: &str, flushed: u64) -> Echo {
+    pub fn received(&mut self, value: &str, current: &str, flushed: u64) -> Echo {
         if !self.on {
             return Echo::Apply;
         }
@@ -481,8 +461,8 @@ impl Echoes {
     /// host gave last (in an update, a list or the constructor), given
     /// again, is its render again: its store did not change (a framework
     /// rendering twice, or for another prop, a store writing the text
-    /// another way), whatever was typed since (QA 34: a render for another
-    /// prop, the store lagging behind the typing, rolled the typing back).
+    /// another way), whatever was typed since (a render for another prop,
+    /// the store lagging behind the typing, keeps the typing).
     /// To reset to it while the echoes of what was typed are still to
     /// come, the host calls `replaceValue`.
     fn kind(&self, print: Print) -> Kind {
@@ -495,10 +475,76 @@ impl Echoes {
         }
     }
 
+    /// The host gave `value` with `revision`, the revision `on_change` sent
+    /// it with: the revision protocol, for a host that keeps the newest
+    /// revision it was sent and never goes back to an older one. Known
+    /// exactly, with no pause: a value that is the text sent at `revision`
+    /// is its echo, and confirms it and every text sent before; while a
+    /// newer text is on its way the host is behind but catching up, and
+    /// with none it hears the document again (the host may have dropped
+    /// it). A value that is not the text sent at `revision` is the host's
+    /// own, as [`Echoes::received`] reads it.
+    pub fn received_at(&mut self, value: &str, revision: u64, current: &str, flushed: u64) -> Echo {
+        let print = Print::of(value);
+        if self.on
+            && !self.order.contains_key(&revision)
+            && self.came_back.is_some_and(|back| revision <= back)
+        {
+            // Confirmed already: the host gives back a revision it moved
+            // past (a render of an old value), no news.
+            return Echo::Skip;
+        }
+        if !self.on || self.order.get(&revision) != Some(&print) {
+            return self.received(value, current, flushed);
+        }
+        self.last_given = Some(print);
+        self.last_listed = Some(print);
+        let confirmed: Vec<u64> = self
+            .order
+            .range(..=revision)
+            .map(|(serial, _)| *serial)
+            .collect();
+        for serial in confirmed {
+            if let Some(print) = self.order.remove(&serial)
+                && let Some(copies) = self.copies.get_mut(&print)
+            {
+                copies.retain(|sent| sent.serial != serial);
+                if copies.is_empty() {
+                    self.copies.remove(&print);
+                }
+            }
+        }
+        if self.reset.is_some_and(|reset| reset <= revision) {
+            self.reset = None;
+        }
+        if self.came_back.is_none_or(|back| revision > back) {
+            self.came_back = Some(revision);
+        }
+        if self.same(value, print, current) {
+            self.document = Some(print);
+            return if value == current {
+                Echo::Apply
+            } else {
+                Echo::Skip
+            };
+        }
+        let document = self.document_print(current);
+        if self.order.values().any(|sent| *sent == document) {
+            return Echo::Skip;
+        }
+        self.send(document);
+        Echo::Resend
+    }
+
+    /// The revision of the text sent last, if any is on its way.
+    pub fn latest_revision(&self) -> Option<u64> {
+        self.order.last_key_value().map(|(serial, _)| *serial)
+    }
+
     /// Whether [`Echoes::received`] would take `value` for a text that
     /// replaces the document `current`, without taking it: ranges given
     /// with it are read in it only then (see `crate::host_locks`).
-    pub(crate) fn replaces(&mut self, value: &str, current: &str) -> bool {
+    pub fn replaces(&mut self, value: &str, current: &str) -> bool {
         let print = Print::of(value);
         !self.same(value, print, current) && (!self.on || self.kind(print) == Kind::Own)
     }
@@ -509,7 +555,7 @@ impl Echoes {
     /// may still be on its way (a slow host: the host hears the same text
     /// twice), or gone (a host taking several texts in one render keeps
     /// only the last).
-    pub(crate) fn settle(&mut self, current: &str) -> bool {
+    pub fn settle(&mut self, current: &str) -> bool {
         let Some(given) = self.last_given.filter(|_| self.on) else {
             return false;
         };
@@ -594,6 +640,47 @@ mod tests {
             "{value:?} over {current:?}: {echo:?}"
         );
         echo
+    }
+
+    /// With revisions passed back, a host that drops the document's echo
+    /// in a render (it keeps the newest revision it was sent, so an older
+    /// one given back means a newer one is still on its way) is matched
+    /// exactly: no pause, the host ends on the document, and it hears each
+    /// text at most twice.
+    #[test]
+    fn revisions_passed_back_need_no_pause_and_end_on_the_document() {
+        let mut echoes = Echoes::new(true);
+        echoes.given("");
+        let a = echoes.sent("a");
+        let ab = echoes.sent("ab");
+        // Given back in order: behind, but catching up.
+        assert_eq!(echoes.received_at("a", a, "ab", NONE), Echo::Skip);
+        assert_eq!(echoes.received_at("ab", ab, "ab", NONE), Echo::Apply);
+        assert_eq!(waiting(&echoes), 0);
+        // A render that took `abcd` and then a late `abc` cannot happen: the
+        // host keeps the newest revision, so `abc` given back means `abcd`
+        // is still on its way, and nothing is sent again.
+        let abc = echoes.sent("abc");
+        let abcd = echoes.sent("abcd");
+        assert_eq!(echoes.received_at("abc", abc, "abcd", NONE), Echo::Skip);
+        // Given again (a render): no news.
+        assert_eq!(echoes.received_at("abc", abc, "abcd", NONE), Echo::Skip);
+        assert_eq!(echoes.received_at("abcd", abcd, "abcd", NONE), Echo::Apply);
+        assert_eq!(waiting(&echoes), 0);
+        // A text of the host's own comes without a revision.
+        assert_eq!(echoes.received("own", "abcd", NONE), Echo::Apply);
+    }
+
+    /// A late echo older than one already passed back (a host that went
+    /// back, which the protocol rules out) is still never applied.
+    #[test]
+    fn an_old_revision_passed_back_late_never_rolls_back() {
+        let mut echoes = Echoes::new(true);
+        echoes.given("");
+        let a = echoes.sent("a");
+        let ab = echoes.sent("ab");
+        assert_eq!(echoes.received_at("ab", ab, "ab", NONE), Echo::Apply);
+        assert_ne!(echoes.received_at("a", a, "ab", NONE), Echo::Apply);
     }
 
     /// Without the option every text applies and nothing is kept.
@@ -1127,8 +1214,6 @@ mod tests {
             order: echoes.order.clone(),
             copies: echoes.copies.clone(),
             came_back: echoes.came_back,
-            returns: echoes.returns.clone(),
-            now: echoes.now,
             last_given: echoes.last_given,
             last_listed: echoes.last_listed,
             document: echoes.document,
@@ -1414,38 +1499,34 @@ mod tests {
         assert_eq!(waiting(&echoes), 0);
     }
 
-    /// A host handing back only the latest text every 200 ms while 5000
-    /// keys are typed, 30 ms a key: the copies it skipped are forgotten
-    /// [`super::FORGET_MS`] after a later one came back, so what is kept
-    /// stays bounded by what is sent in that time, however long the
-    /// session; none of its echoes rolls back.
+    /// A host handing back only the latest of every seven texts while 5000
+    /// keys are typed: the copies it skipped stay echoes (one may still come,
+    /// out of order) until the host's own text replaces the document, each
+    /// kept as a print, never as its text; none of the echoes rolls back.
     #[test]
-    fn a_host_handing_back_only_the_latest_leaves_a_bounded_number_kept() {
+    fn a_host_handing_back_only_the_latest_keeps_a_print_per_text_until_its_own() {
         let mut echoes = Echoes::new(true);
         echoes.given("");
         let mut document = String::new();
-        let mut most = 0;
         for key in 0..5000u32 {
-            let now = f64::from(key * 30);
-            echoes.at(now);
             document.push(char::from(b'a' + (key % 26) as u8));
             echoes.sent(&document);
             if key % 7 == 6 {
                 assert_eq!(echoes.received(&document, &document, NONE), Echo::Apply);
             }
-            most = most.max(waiting(&echoes));
         }
-        let window = (super::FORGET_MS / 30.0) as usize + 10;
-        assert!(
-            most <= window,
-            "{most} copies kept at most (bound {window})"
-        );
+        assert_eq!(waiting(&echoes), 5000 - 5000 / 7);
+        assert!(std::mem::size_of::<super::Sent>() + std::mem::size_of::<Print>() <= 64);
+        // A late one still is an echo.
+        assert_ne!(echoes.received("abc", &document, NONE), Echo::Apply);
+        // The host's own text: the copies belong to the text it replaced.
+        assert_eq!(echoes.received("own", &document, NONE), Echo::Apply);
+        assert_eq!(waiting(&echoes), 0);
     }
 
     /// Echoes handed back out of order, up to a second after a later one,
     /// over a long run: each is still told apart (the copies sent before a
-    /// text that came back are kept long enough), and once all are back
-    /// none waits.
+    /// text that came back are kept), and once all are back none waits.
     #[test]
     fn echoes_out_of_order_within_the_pause_are_told_apart() {
         let mut next = rng(0x9e37_79b9_7f4a_7c15);
@@ -1455,7 +1536,6 @@ mod tests {
         // (when it comes back, text)
         let mut on_their_way: Vec<(u64, String)> = Vec::new();
         for time in 0..20_000u64 {
-            echoes.at(time as f64);
             if time % 10 == 0 && time < 15_000 {
                 document.push('x');
                 echoes.sent(&document);
@@ -1606,7 +1686,6 @@ mod tests {
                 return true;
             }
             self.render_due = false;
-            self.echoes.at(at as f64);
             match checked(&mut self.echoes, &self.host, &self.document) {
                 Echo::Apply => assert_eq!(self.host, self.document, "a rollback"),
                 Echo::Skip => {}

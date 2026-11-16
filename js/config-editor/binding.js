@@ -7,15 +7,14 @@
 // change means: settings and most props apply live (the caret, undo history
 // and folds stay), the few the editor is built from re-mount it (the
 // document, its baseline and the caret carried over), the bound value goes
-// through `ValueSync` (an echo, late or out of order, never rolls the
-// document back), a mount
-// that failed on a bad prop is retried when a prop changes, and the
-// WebAssembly loads once for every editor on the page.
+// to the editor's `update({ value })` with `echoes` on (the editor tells an
+// echo, late or out of order, from the parent's own value, so none rolls the
+// document back), a mount that failed on a bad prop is retried when a prop
+// changes, and the WebAssembly loads once for every editor on the page.
 
 import { ConfigDocuments, ConfigEditor, unifiedDiff } from "./pkg/config_editor.js";
 import { loadConfigEditor, whenLoaded } from "./load.js";
 import { SETTING_TYPES } from "./setting-types.js";
-import { SETTLE_MS, ValueSync } from "./sync.js";
 
 export { SETTING_TYPES };
 
@@ -189,13 +188,10 @@ class Binding {
 
 /** The props an `EditorBinding` reads (React-shaped; each wrapper maps its own). */
 export class EditorBinding extends Binding {
-  #sync = new ValueSync();
-  // The check, a pause after an echo left the host on an older value, that
-  // it came back to the document (see `ValueSync.settle`).
-  #settleTimer = null;
-  // The `value` prop as last handled: a re-mount re-runs the value check,
-  // and an unchanged prop is not a new value from the host.
+  // The `value` prop as last handed to the editor: an unchanged prop is not
+  // a new value from the parent.
   #handledValue = undefined;
+  #handledRevision = undefined;
   // What a re-mount (language, schema, … changed) starts from, so an
   // uncontrolled document and its diff baseline survive it.
   #carried = null;
@@ -256,6 +252,9 @@ export class EditorBinding extends Binding {
     return new ConfigEditor(element, {
       ...settings,
       value,
+      // The parent binds the value two ways: every `onChange` text comes
+      // back as the value, maybe late and in any order.
+      echoes: true,
       language: props.language,
       editAs: props.editAs ?? undefined,
       schema: props.schema,
@@ -264,12 +263,9 @@ export class EditorBinding extends Binding {
       readOnly: props.readOnly,
       readOnlyReason: props.readOnlyReason ?? undefined,
       className: props.editorClassName,
-      onChange: (text) => {
+      onChange: (text, revision) => {
         if (this.#carried) this.#carried.value = text;
-        // A parent setting the value it holds does not render again: the
-        // echo of a text equal to the bound value may never come.
-        this.#sync.sent(text, text !== this.#handledValue);
-        this.props.onChange?.(text);
+        this.props.onChange?.(text, revision);
       },
       onEditAsChange: (language) => this.props.onEditAsChange?.(language),
       onSyncChange: (inSync) => this.props.onSyncChange?.(inSync),
@@ -313,7 +309,6 @@ export class EditorBinding extends Binding {
       // The `value` prop still holds what the host had before the reset
       // reaches it: not a new value of its own.
       this.#handledValue = this.props.value;
-      this.#sync.sent(value);
       this.props.onChange?.(value);
     }
     this.sync(true);
@@ -346,20 +341,16 @@ export class EditorBinding extends Binding {
       return true;
     };
     const value = props.value;
-    // A value passed again is news only while a copy of it is on its way.
-    if (this.instance && value !== undefined && (value !== this.#handledValue || this.#sync.mayEcho(value))) {
+    // The editor tells the parent's echoes from its own values (`echoes`).
+    const handled = value === this.#handledValue && props.valueRevision === this.#handledRevision;
+    if (this.instance && value !== undefined && !handled) {
       this.guard((editor) => {
         this.#handledValue = value;
-        // First: an Edit-as edit still waiting out the typing pause is sent
-        // now (reading `value` does), so its echo is told apart like any.
-        const flushed = this.#sync.mark();
-        const current = editor.value;
-        const { apply, report, settle } = this.#sync.received(value, current, flushed);
-        // Told apart here: the editor, which never sees the echoes this
-        // absorbs, takes it as the host's own text whatever it is.
-        if (apply !== null) editor.replaceValue(apply);
-        if (report !== null) this.props.onChange?.(report);
-        if (settle) this.#settleLater();
+        this.#handledRevision = props.valueRevision;
+        // The revision the parent stored with it, when it passes it back:
+        // its echo is then matched exactly.
+        const revision = props.valueRevision;
+        editor.update(revision === undefined ? { value } : { value, valueRevision: revision });
       });
     }
     // The live props that changed, each in its own `update`: a bad one
@@ -401,24 +392,6 @@ export class EditorBinding extends Binding {
     return this.#reset ?? this.#carried?.value ?? this.props.value ?? this.props.defaultValue ?? "";
   }
 
-  /** Checks once a pause is over that the host came back to the document; arming it again starts the pause again. */
-  #settleLater() {
-    clearTimeout(this.#settleTimer);
-    this.#settleTimer = setTimeout(() => {
-      this.#settleTimer = null;
-      this.guard((editor) => {
-        const current = editor.value;
-        if (this.#sync.settle(current)) this.props.onChange?.(current);
-      });
-    }, SETTLE_MS);
-  }
-
-  detach() {
-    clearTimeout(this.#settleTimer);
-    this.#settleTimer = null;
-    super.detach();
-  }
-
   #setValue(value) {
     if (typeof value !== "string") {
       this.report(new TypeError("setValue needs a string"));
@@ -433,8 +406,7 @@ export class EditorBinding extends Binding {
       // A reset to the document as it is changes nothing, and is not reported.
       if (!editor.replaceValue(value)) return;
       // The host's state follows the reset: it is reported like an edit,
-      // and its echo is recognised like one.
-      this.#sync.sent(value);
+      // and the editor tells its echo apart like one.
       this.props.onChange?.(value);
     });
   }

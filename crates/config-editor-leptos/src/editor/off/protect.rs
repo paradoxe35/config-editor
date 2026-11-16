@@ -43,7 +43,7 @@ pub(super) struct Inputs {
     pub(super) edit_language: RwSignal<Language>,
     pub(super) host_language: Language,
     pub(super) schema: Option<Arc<SchemaBundle>>,
-    pub(super) host_text: StoredValue<String>,
+    pub(super) host_text: super::sync::HostTextReader,
 }
 
 /// Nothing protected.
@@ -189,9 +189,7 @@ impl EditorState {
         false
     }
 
-    pub(crate) fn hold_change(&self) -> bool {
-        false
-    }
+    pub(crate) fn note_held_back(&self, _held: bool) {}
 
     pub(crate) fn cuts_a_token(&self, _start: usize, _end: usize) -> bool {
         false

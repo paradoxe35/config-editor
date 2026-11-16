@@ -29,6 +29,8 @@ use std::sync::Arc;
 
 use leptos::prelude::*;
 
+use super::bridge::links::Clipboard;
+
 use super::a11y::A11yState;
 #[cfg(feature = "diff")]
 use super::changes::ChangesState;
@@ -100,6 +102,9 @@ pub(super) struct Init {
     pub(super) protect: ProtectInit,
     pub(super) on_save: Option<Callback<SaveRequest>>,
     pub(super) on_baseline_conflict: Option<Callback<BaselineConflict>>,
+    /// The clipboard records the editor shares with others (a documents
+    /// view's editors of one host language), else its own.
+    pub(super) clipboard: Option<StoredValue<Clipboard>>,
 }
 
 /// The editor's state, shared by every handler: one handle to its
@@ -222,6 +227,7 @@ impl EditorState {
             protect,
             on_save,
             on_baseline_conflict,
+            clipboard,
         } = init;
         let settings = LiveSettings::new(settings, schema.is_some());
         let config = Config {
@@ -241,7 +247,7 @@ impl EditorState {
         let host_on_change =
             host_on_change.map(|callback| noting_sent(sent, line_endings.on_change(callback)));
         let on_save = on_save.map(|callback| line_endings.on_save(callback));
-        let (sync, shown, pending) = SyncState::load(
+        let (mut sync, shown, pending) = SyncState::load(
             host_language,
             edit_language,
             config.schema,
@@ -250,6 +256,10 @@ impl EditorState {
             host_on_change,
             line_endings,
         );
+        // Shared with other editors (a documents view's), else its own.
+        if let Some(clipboard) = clipboard {
+            sync.clipboard = clipboard;
+        }
         let doc = DocState::new(&shown, sync.edit_language);
         let protect = ProtectState::new(
             protect,

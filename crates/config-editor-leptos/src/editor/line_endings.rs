@@ -48,6 +48,13 @@ pub(super) fn editor_text(text: String) -> String {
     }
 }
 
+/// Whether two host texts are the same document as the editor reads them
+/// (see [`editor_text`]): their line breaks and a leading byte order mark
+/// aside. The one rule for "unchanged", shown or not.
+pub(crate) fn same_document(left: &str, right: &str) -> bool {
+    left == right || editor_text(left.to_string()) == editor_text(right.to_string())
+}
+
 impl LineEndings {
     /// The line endings of `text`, a document in `language`.
     pub(super) fn of(text: &str, language: Language) -> Self {
