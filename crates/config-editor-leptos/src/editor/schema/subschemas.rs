@@ -60,7 +60,7 @@ fn held<'v>(
 
 /// A JSON pointer token for `key` (`~0`, `~1`).
 pub(crate) fn escaped(key: &str) -> String {
-    key.replace('~', "~0").replace('/', "~1")
+    crate::editor::language::pointer_key(key)
 }
 
 /// A visit of one schema object by [`each_schema`]: its JSON pointer, its

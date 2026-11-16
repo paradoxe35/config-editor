@@ -16,7 +16,7 @@ pub(super) fn as_text(
     text: &str,
     error: &ParseError,
 ) -> Option<String> {
-    if !host.holds_wide_integers() {
+    if !host.scalars_are_text() {
         return None;
     }
     // The language's one-character quote for strings (not a literal one).

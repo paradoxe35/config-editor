@@ -2,17 +2,6 @@
 
 use super::*;
 
-/// The default a suggestion writes for `property`: one HCL reads back as
-/// it is, else none (the caret stays where the value goes).
-fn written_default<'a>(property: &'a Value, root: &'a Value) -> Option<&'a Value> {
-    kept_default(&HclBehavior, property, root)
-}
-
-/// The `const` a suggestion writes for `property`, as [`written_default`].
-fn written_const<'a>(property: &'a Value, root: &'a Value) -> Option<&'a Value> {
-    kept_const(&HclBehavior, property, root)
-}
-
 /// A key typed in a block written on one line (`websocket { ho|path = "/x" }`,
 /// `websocket { path = "/x" ho| }`): a block on one line holds a single
 /// attribute, so a new one opens it over lines, its attribute on a line of
@@ -528,73 +517,6 @@ pub(super) fn value_token_len(text: &str) -> usize {
     }
 }
 
-/// Keys already present in the body holding the caret: attribute names plus,
-/// at a label level, the labels already taken there. The partly typed key on
-/// the active line is ignored so it can still be completed.
-pub(super) fn existing_body_keys(
-    source: &str,
-    cursor_byte: usize,
-    path: &[SchemaPathSegment],
-) -> Option<HashSet<String>> {
-    // Inside an inline container (an object in a list, a value map) its own
-    // entries are the siblings, however many lines it spans.
-    let cursor_byte = cursor_byte.min(source.len());
-    if let Some(start) = statement_start_at(source, cursor_byte)
-        && let Some((_, end)) = statements(source)
-            .into_iter()
-            .find(|(from, to)| *from <= start && cursor_byte <= *to)
-        && let Some(keys) = inline_sibling_keys(&source[start..end], b'=', cursor_byte - start)
-    {
-        return Some(keys.into_iter().collect());
-    }
-    let scan = analyze(source, cursor_byte);
-    let wanted = body_wanted(path);
-    let mut keys = HashSet::new();
-    for attribute in &scan.attributes {
-        // The attribute's container: its body's path plus the value-map chain
-        // it is nested in (`clients = { acme = { … } }`).
-        let mut container = body_path(&scan, attribute.body);
-        container.extend(attribute.prefix.iter().cloned());
-        if container == wanted {
-            keys.insert(attribute.name.clone());
-        }
-    }
-    for header in &scan.headers {
-        let parent = body_path(&scan, header.parent);
-        if parent == wanted {
-            // A block type present in this body shadows an attribute of that name.
-            keys.insert(header.block_type.clone());
-        }
-        let mut base = parent;
-        base.push(header.block_type.clone());
-        // Labels already taken at the level the path points into.
-        if let Some(rest) = wanted.strip_prefix(base.as_slice()) {
-            let level = rest.len();
-            if level < header.labels.len() && rest == &header.labels[..level] {
-                keys.insert(header.labels[level].clone());
-            }
-        }
-    }
-    if keys.is_empty() {
-        return None;
-    }
-    // The key being typed on the active line stays completable.
-    let line_start = source[..cursor_byte.min(source.len())]
-        .rfind('\n')
-        .map_or(0, |index| index + 1);
-    let line_end = source[line_start..]
-        .find('\n')
-        .map_or(source.len(), |index| line_start + index);
-    // Only a line that already defines it (`htt|p2 = true`, `pol| {`): a bare
-    // word still being typed is a new key and must not repeat an existing one.
-    let line = &source[line_start..line_end];
-    let defines = line.contains('=') || line.trim_end().ends_with('{');
-    if defines && let Some(current) = current_line_key(line) {
-        keys.remove(&current);
-    }
-    Some(keys)
-}
-
 /// `path` as the scan names a body.
 fn body_wanted(path: &[SchemaPathSegment]) -> Vec<String> {
     path.iter()
@@ -607,7 +529,7 @@ fn body_wanted(path: &[SchemaPathSegment]) -> Vec<String> {
 
 /// The types of the blocks without labels the body at `path` holds
 /// (`rule { … }`): another block of each may follow (see
-/// `ConfigLanguage::repeated_keys`).
+/// `Repeats::repeated_keys`).
 pub(super) fn repeated_block_types(
     source: &str,
     cursor_byte: usize,
@@ -622,117 +544,60 @@ pub(super) fn repeated_block_types(
         .collect()
 }
 
-/// The key or label being typed on a single line: the assignment key, the
-/// block type word, or a quoted label under the caret region.
-pub(super) fn current_line_key(line: &str) -> Option<String> {
-    let code = code_before_comment(line)?;
-    if let Some(equals) = assignment_equals(code) {
-        let raw = code[..equals].trim();
-        return is_ident(raw).then(|| raw.to_string());
-    }
-    let mut tokens = tokenize(code)
-        .into_iter()
-        .filter(|token| matches!(token.kind, Kind::Ident | Kind::Str { .. }));
-    let first = token_name(code, &tokens.next()?)?;
-    // A header line contributes its type word only when no label follows it on
-    // this line; labels are completed at their own level.
-    if tokens.next().is_none() {
-        return Some(first);
-    }
-    None
-}
-
-/// Scalars render `key = value`; objects expand to a block over their
-/// required children (an attribute holding an object where a key is no
-/// identifier, as the converter writes it). Keys are written as the
-/// converter writes them: an identifier in a body, else (in an object)
-/// [`object_key_text`]; a key that cannot be written is not offered.
-pub(super) fn property_insert(
-    key: &str,
-    property: &Value,
-    root: &Value,
-    base_indent: &str,
-    unit: &str,
-    in_body: bool,
-) -> Option<(String, usize)> {
-    let written_key = if in_body {
-        hcl::Identifier::new(key).ok()?.to_string()
-    } else {
-        object_key_text(key)
+/// The text a suggestion of `key` inserts for `plan`. A value renders as
+/// `key = value`; an object is a block over its required children (an
+/// attribute holding an object where a key is no identifier, as the
+/// converter writes it); one more item of a list written as blocks is
+/// another block. Keys are written as the converter writes them: an
+/// identifier in a body, else (in an object) [`object_key_text`]; a key
+/// that cannot be written is not offered.
+pub(super) fn write_insert(key: &str, plan: &InsertPlan<'_>, context: &InsertContext<'_>) -> Option<(String, usize)> {
+    let (base_indent, unit) = (context.base_indent, context.unit);
+    let in_body = context.position == EntryPosition::Block;
+    let caret_at = |insert: String, caret: Option<usize>| {
+        let caret = utf16_len(&insert[..caret.unwrap_or(insert.len())]);
+        Some((insert, caret))
     };
-    let mut insert = format!("{written_key} = ");
-    if let Some(value) = written_const(property, root) {
-        insert.push_str(&hcl_text(value));
-        let caret = utf16_len(&insert);
-        return Some((insert, caret));
-    }
-    if array_branch(property, root).is_some() {
-        match written_default(property, root)
-            .filter(|value| !value.as_array().is_some_and(Vec::is_empty))
-        {
-            Some(default) => insert.push_str(&hcl_text(default)),
-            None => {
-                insert.push_str("[]");
-                let caret = utf16_len(&insert) - 1;
-                return Some((insert, caret));
-            }
-        }
-        let caret = utf16_len(&insert);
-        return Some((insert, caret));
-    }
-    if object_branch(property, root).is_some() {
-        if let Some(default) = written_default(property, root)
-            .filter(|value| !value.as_object().is_some_and(serde_json::Map::is_empty))
-        {
-            insert.push_str(&hcl_text(default));
-            let caret = utf16_len(&insert);
-            return Some((insert, caret));
-        }
-        let children = required_children(&HclBehavior, property, root);
-        // In a body an object is a block (`heartbeat {`), as documents and
-        // the converter write it; in an object expression, an attribute.
-        // Maps too (`clients`, `services`): the converter writes every
-        // object with identifier keys as a block.
-        let block = in_body && children.iter().all(|child| is_ident(child.key));
-        if block {
-            insert = format!("{written_key} ");
-        }
+    if context.another_item {
+        let children: Vec<_> = plan.children.iter().filter(|child| is_ident(child.key)).cloned().collect();
+        let mut insert = format!("{} ", hcl::Identifier::new(key).ok()?);
         let mut caret = None;
-        write_object(&children, block, base_indent, unit, &mut insert, &mut caret);
-        let caret = caret.map_or_else(|| utf16_len(&insert), |at| utf16_len(&insert[..at]));
-        return Some((insert, caret));
+        write_object(&children, true, base_indent, unit, &mut insert, &mut caret);
+        return caret_at(insert, caret);
     }
-    if let Some(default) = written_default(property, root) {
-        insert.push_str(&hcl_text(default));
-    } else if placeholder(property, root).is_string() {
+    let written_key = if in_body { hcl::Identifier::new(key).ok()?.to_string() } else { object_key_text(key) };
+    let mut insert = format!("{written_key} = ");
+    match plan.value {
+        Planned::Value(value) => {
+            insert.push_str(&hcl_text(value));
+            caret_at(insert, None)
+        }
+        Planned::List { .. } => {
+            insert.push_str("[]");
+            let caret = insert.len() - 1;
+            caret_at(insert, Some(caret))
+        }
+        Planned::Object { .. } => {
+            // In a body an object is a block (`heartbeat {`), as documents
+            // and the converter write it; in an object expression, an
+            // attribute. Maps too (`clients`, `services`): the converter
+            // writes every object with identifier keys as a block.
+            let block = in_body && plan.children.iter().all(|child| is_ident(child.key));
+            if block {
+                insert = format!("{written_key} ");
+            }
+            let mut caret = None;
+            write_object(&plan.children, block, base_indent, unit, &mut insert, &mut caret);
+            caret_at(insert, caret)
+        }
         // A string value starts quoted, with the caret inside.
-        insert.push_str("\"\"");
-        let caret = utf16_len(&insert) - 1;
-        return Some((insert, caret));
+        Planned::Empty { string: true } => {
+            insert.push_str("\"\"");
+            let caret = insert.len() - 1;
+            caret_at(insert, Some(caret))
+        }
+        Planned::Empty { .. } => caret_at(insert, None),
     }
-    let caret = utf16_len(&insert);
-    Some((insert, caret))
-}
-
-/// One more block `key { … }` of a list of objects written as blocks,
-/// over the required children of its items.
-pub(super) fn another_block(
-    key: &str,
-    property: &Value,
-    root: &Value,
-    base_indent: &str,
-    unit: &str,
-) -> Option<(String, usize)> {
-    let items = array_branch(property, root)?.get("items")?;
-    let children: Vec<_> = required_children(&HclBehavior, items, root)
-        .into_iter()
-        .filter(|child| is_ident(child.key))
-        .collect();
-    let mut insert = format!("{} ", hcl::Identifier::new(key).ok()?);
-    let mut caret = None;
-    write_object(&children, true, base_indent, unit, &mut insert, &mut caret);
-    let caret = caret.map_or_else(|| utf16_len(&insert), |at| utf16_len(&insert[..at]));
-    Some((insert, caret))
 }
 
 /// `children` as the body of a block (`block`) or an object expression,

@@ -62,7 +62,7 @@ impl FieldPath {
             .iter()
             .map(|segment| match segment {
                 SchemaPathSegment::Key(key) => {
-                    format!("/{}", key.replace('~', "~0").replace('/', "~1"))
+                    format!("/{}", crate::editor::language::pointer_key(key))
                 }
                 SchemaPathSegment::ArrayItem(index) => format!("/{index}"),
             })

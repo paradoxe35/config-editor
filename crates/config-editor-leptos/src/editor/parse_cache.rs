@@ -44,8 +44,6 @@ pub(crate) use readings::any_kept;
     feature = "xml"
 ))]
 pub(crate) use readings::forget as forget_readings;
-#[cfg(feature = "xml")]
-pub(crate) use readings::kept;
 #[cfg(any(feature = "yaml", feature = "hcl", feature = "xml"))]
 pub(crate) use readings::reading;
 
@@ -128,12 +126,9 @@ pub(crate) fn known_to_parse(language: &dyn ConfigLanguage, text: &str) -> Optio
 }
 
 /// The lines of `text`'s multi-line string bodies in `language` (see
-/// [`ConfigLanguage::string_body_lines`]), from the last reading when it was
+/// [`Text::string_body_lines`]), from the last reading when it was
 /// of the same text in the same language.
-pub(crate) fn string_bodies(
-    language: &(impl ConfigLanguage + ?Sized),
-    text: &str,
-) -> Rc<Vec<Range<usize>>> {
+pub(crate) fn string_bodies(language: &dyn ConfigLanguage, text: &str) -> Rc<Vec<Range<usize>>> {
     let label = language.info().label;
     let cached = BODIES.with(|last| {
         last.borrow()
@@ -170,7 +165,7 @@ pub(crate) fn completion_context(
 }
 
 /// Whether the caret at UTF-16 `cursor` of `text` is in a string or a
-/// comment (see [`ConfigLanguage::lexical_state`]), from the last reading
+/// comment (see [`Text::lexical_state`]), from the last reading
 /// when it was of the same place: the suggestions, what protection makes of
 /// them and the keys typing pairs ask more than once.
 pub(crate) fn lexical_state(language: &dyn ConfigLanguage, text: &str, cursor: usize) -> Lexical {

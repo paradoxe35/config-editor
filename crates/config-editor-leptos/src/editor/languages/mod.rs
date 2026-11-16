@@ -679,7 +679,7 @@ impl Language {
     }
 
     /// The line ranges of `source` that fold (see
-    /// [`ConfigLanguage::fold_ranges`]): 0-based, the first line staying
+    /// [`Text::fold_ranges`]): 0-based, the first line staying
     /// visible. Needs the `folding` feature.
     ///
     /// ```

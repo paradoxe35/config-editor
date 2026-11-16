@@ -278,7 +278,7 @@ fn value_doc_at(
 
 /// The path of the list item that character `column` of `line` (starting
 /// at byte `line_start` of `source`) opens, by what the language says opens
-/// one there ([`ConfigLanguage::item_start`]); None elsewhere.
+/// one there ([`Hover::item_start`]); None elsewhere.
 fn item_at(
     source: &str,
     line_start: usize,

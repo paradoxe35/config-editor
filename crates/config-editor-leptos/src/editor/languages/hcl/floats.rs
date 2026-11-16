@@ -51,7 +51,7 @@ fn whole_floats(value: &Value, pointer: String, out: &mut Vec<(String, String)>)
         }
         Value::Object(map) => {
             for (key, child) in map {
-                let key = key.replace('~', "~0").replace('/', "~1");
+                let key = crate::editor::language::pointer_key(key);
                 whole_floats(child, format!("{pointer}/{key}"), out);
             }
         }

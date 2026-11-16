@@ -54,7 +54,6 @@ pub(super) fn read(
             .is_none_or(|next| matches!(next, b' ' | b'\t' | b'\r' | b'\n'))
     };
     let mut read = LineRead::default();
-    let mut quote: Option<u8> = None;
     // Whether a scalar may start here (a quote then opens a string).
     let mut scalar_start = true;
     let mut at = 0;
@@ -64,63 +63,78 @@ pub(super) fn read(
     }
     while at < until {
         let byte = bytes[at];
-        match quote {
-            Some(b'\'') => {
-                if byte == b'\'' {
-                    if bytes.get(at + 1) == Some(&b'\'') {
-                        at += 2;
-                        continue;
-                    }
-                    quote = None;
-                }
-            }
-            Some(_) => match byte {
-                b'\\' => {
-                    at += 2;
+        let starts_comment = byte == b'#' && (at == 0 || matches!(bytes[at - 1], b' ' | b'\t'));
+        if starts_comment && comments == Comments::End {
+            read.comment = Some(at);
+            return (read, None);
+        }
+        if code(at, read.flow) {
+            return (read, Some(at));
+        }
+        match byte {
+            b' ' | b'\t' => {}
+            b'"' | b'\'' if scalar_start => match quoted_close(text, at) {
+                Some(end) if end <= until => {
+                    scalar_start = false;
+                    at = end;
                     continue;
                 }
-                b'"' => quote = None,
-                _ => {}
-            },
-            None => {
-                let starts_comment =
-                    byte == b'#' && (at == 0 || matches!(bytes[at - 1], b' ' | b'\t'));
-                if starts_comment && comments == Comments::End {
-                    read.comment = Some(at);
+                _ => {
+                    read.quote = Some(char::from(byte));
                     return (read, None);
                 }
-                if code(at, read.flow) {
-                    return (read, Some(at));
-                }
-                match byte {
-                    b' ' | b'\t' => {}
-                    b'"' | b'\'' if scalar_start => {
-                        quote = Some(byte);
-                        scalar_start = false;
-                    }
-                    b'[' | b'{' if scalar_start || read.flow > 0 => read.flow += 1,
-                    b']' | b'}' if read.flow > 0 => {
-                        read.flow -= 1;
-                        scalar_start = false;
-                    }
-                    b',' if read.flow > 0 => scalar_start = true,
-                    b':' if read.flow > 0 || blank(at + 1) => scalar_start = true,
-                    b'-' | b'?' if scalar_start && blank(at + 1) => {}
-                    // A node's properties: a scalar may still start after them.
-                    b'&' | b'!' if scalar_start => {
-                        while at < until && !matches!(bytes[at], b' ' | b'\t') {
-                            at += 1;
-                        }
-                        continue;
-                    }
-                    _ => scalar_start = false,
-                }
+            },
+            b'[' | b'{' if scalar_start || read.flow > 0 => read.flow += 1,
+            b']' | b'}' if read.flow > 0 => {
+                read.flow -= 1;
+                scalar_start = false;
             }
+            b',' if read.flow > 0 => scalar_start = true,
+            b':' if read.flow > 0 || blank(at + 1) => scalar_start = true,
+            b'-' | b'?' if scalar_start && blank(at + 1) => {}
+            // A node's properties: a scalar may still start after them.
+            b'&' | b'!' if scalar_start => {
+                while at < until && !matches!(bytes[at], b' ' | b'\t') {
+                    at += 1;
+                }
+                continue;
+            }
+            _ => scalar_start = false,
         }
         at += 1;
     }
-    read.quote = quote.map(char::from);
     (read, None)
+}
+
+/// Just past the closing quote of the quoted scalar opening at byte
+/// `start` of `text` (over lines too), or `None` when it stays open.
+/// Inside `'…'` a quote is written `''`; inside `"…"` a backslash escapes
+/// the next character.
+pub(super) fn quoted_close(text: &str, start: usize) -> Option<usize> {
+    let bytes = text.as_bytes();
+    let quote = bytes[start];
+    let mut index = start + 1;
+    while index < text.len() {
+        match bytes[index] {
+            b'\\' if quote == b'"' => index += 2,
+            b'\'' if quote == b'\'' && bytes.get(index + 1) == Some(&b'\'') => index += 2,
+            byte if byte == quote => return Some(index + 1),
+            _ => index += 1,
+        }
+    }
+    None
+}
+
+/// [`quoted_close`], the end of `text` for a quoted scalar left open.
+pub(super) fn quoted_end(text: &str, start: usize) -> usize {
+    quoted_close(text, start).unwrap_or(text.len())
+}
+
+/// Whether a node can start after `previous`, the last character before
+/// it on its line other than blanks (`None`: none): a quote there opens a
+/// quoted scalar, a bracket a flow collection.
+pub(super) fn node_starts_after(previous: Option<char>) -> bool {
+    previous.is_none_or(|previous| matches!(previous, '[' | '{' | ',' | ':' | '-' | '?'))
 }
 
 /// Where the comment on `text` starts, outside quoted scalars.

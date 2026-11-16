@@ -102,7 +102,7 @@ pub(super) fn read(
 
 /// Whether `source` may be saved in `language`, its own: it reads, or
 /// all that stands in the way are numbers the editor cannot hold exactly
-/// that the language allows (see [`ConfigLanguage::unheld_numbers`]): all
+/// that the language allows (see [`SaveLayout::unheld_numbers`]): all
 /// it finds read as `0` at once, then read again (once more for each one
 /// it did not find, should the next error be about it).
 pub(super) fn saves_in_own_language(language: &dyn ConfigLanguage, source: &str) -> bool {
@@ -132,7 +132,7 @@ pub(super) fn saves_in_own_language(language: &dyn ConfigLanguage, source: &str)
 }
 
 /// Whether `text` reads back as `new`, its keys spelled as `new` spells
-/// them (see [`ConfigLanguage::spelled_like`]): a patch's check.
+/// them (see [`Markup::spelled_like`]): a patch's check.
 pub(super) fn reads_as(
     language: &dyn ConfigLanguage,
     text: &str,

@@ -37,7 +37,7 @@ fn an_object_accepted_inside_a_flow_mapping_stays_in_flow_style() {
     let accepted = accept_marked("web: { le| }\n", "letsencrypt", &schema, &YamlBehavior);
     assert_eq!(accepted, "web: { letsencrypt: { email: | } }\n");
     let filled = accepted.replace('|', "a@b.c");
-    let document = YamlBehavior.parse(&filled).expect("flow mapping parses");
+    let document = (&YamlBehavior as &dyn ConfigLanguage).parse(&filled).expect("flow mapping parses");
     assert_eq!(document["web"]["letsencrypt"]["email"], "a@b.c");
 }
 
@@ -92,7 +92,7 @@ fn paired_edit(
 }
 
 fn newline_with_indent(source: &str, cursor: usize) -> String {
-    YamlBehavior.newline(source, cursor).text
+    (&YamlBehavior as &dyn ConfigLanguage).newline(source, cursor).text
 }
 
 fn toggle_yaml_line_comments(
@@ -100,7 +100,7 @@ fn toggle_yaml_line_comments(
     selection_start: usize,
     selection_end: usize,
 ) -> Option<(String, usize, usize)> {
-    YamlBehavior.toggle_comments(source, selection_start, selection_end)
+    (&YamlBehavior as &dyn ConfigLanguage).toggle_comments(source, selection_start, selection_end)
 }
 
 fn test_schema() -> SchemaBundle {
@@ -890,7 +890,7 @@ fn enter_aligns_sequence_item_mappings_and_preserves_spacing_after_the_dash() {
     // Enter on an empty item ends the list: the line goes back to the
     // column of the key holding it.
     let empty_item = "services:\n  - ";
-    let ended = YamlBehavior.newline(empty_item, empty_item.len());
+    let ended = (&YamlBehavior as &dyn ConfigLanguage).newline(empty_item, empty_item.len());
     assert_eq!((ended.text.as_str(), ended.replaces_before), ("", 4));
 
     let plain_scalar_key = "services:\n  -web: 8080";
@@ -1495,8 +1495,8 @@ fn comments_are_split_only_outside_yaml_quotes() {
 #[test]
 fn an_apostrophe_in_a_plain_scalar_opens_no_string() {
     let line = "key: don't # note";
-    assert_eq!(YamlBehavior.comment_start(line), Some(11));
-    assert_eq!(YamlBehavior.comments(&format!("{line}\n")), vec![11..17]);
+    assert_eq!((&YamlBehavior as &dyn ConfigLanguage).comment_start(line), Some(11));
+    assert_eq!((&YamlBehavior as &dyn ConfigLanguage).comments(&format!("{line}\n")), vec![11..17]);
     let tokens = highlighted(line);
     assert!(
         tokens
@@ -1505,9 +1505,9 @@ fn an_apostrophe_in_a_plain_scalar_opens_no_string() {
         "{tokens:?}"
     );
     let caret = "key: don't".len();
-    let state = YamlBehavior.lexical_state(line, caret);
+    let state = (&YamlBehavior as &dyn ConfigLanguage).lexical_state(line, caret);
     assert_eq!((state.quote, state.in_comment), (None, false));
-    let state = YamlBehavior.lexical_state(line, line.len());
+    let state = (&YamlBehavior as &dyn ConfigLanguage).lexical_state(line, line.len());
     assert_eq!((state.quote, state.in_comment), (None, true));
     // A key holding one is a key.
     assert_eq!(
@@ -1630,7 +1630,7 @@ fn custom_tags_are_valid_yaml_read_as_the_values_under_them() {
 #[test]
 fn several_documents_say_so_in_plain_words_at_the_second() {
     for text in ["a: 1\n---\nb: 2\n", "---\na: 1\n---\nb: 2\n", "a: 1\n...\n---\nb: 2\n"] {
-        let error = YamlBehavior.parse(text).expect_err(text);
+        let error = (&YamlBehavior as &dyn ConfigLanguage).parse(text).expect_err(text);
         assert!(
             error.message.contains("more than one YAML document")
                 && !error.message.contains("deserializ")
@@ -1655,9 +1655,9 @@ fn a_trailing_document_marker_is_no_second_document() {
         ("---\na: 1\n---\n", json!({"a": 1})),
         ("a: |\n  x\n  ---\n", json!({"a": "x\n---\n"})),
     ] {
-        assert_eq!(YamlBehavior.parse(text).ok(), Some(value), "{text:?}");
+        assert_eq!((&YamlBehavior as &dyn ConfigLanguage).parse(text).ok(), Some(value), "{text:?}");
     }
-    assert!(YamlBehavior.parse("a: 1\n---\nb: 2\n---\n").is_err());
+    assert!((&YamlBehavior as &dyn ConfigLanguage).parse("a: 1\n---\nb: 2\n---\n").is_err());
 }
 
 /// QA 22: a complex key's value line (`: y` under `- ? x`) was coloured as
@@ -1665,7 +1665,7 @@ fn a_trailing_document_marker_is_no_second_document() {
 #[test]
 fn a_complex_keys_value_line_is_not_a_plain_scalar_going_on() {
     for source in ["list:\n  - ? x\n    : y\n", "? x\n: y\n", "a: b\n  : c\n"] {
-        let constructs = YamlBehavior.multiline_constructs(source);
+        let constructs = (&YamlBehavior as &dyn ConfigLanguage).multiline_constructs(source);
         let colon = source.rfind(':').unwrap();
         let covering: Vec<_> = constructs
             .iter()

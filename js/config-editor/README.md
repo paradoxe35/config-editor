@@ -1687,7 +1687,10 @@ strings, `/* */` comments), `multilineRanges(text)` returns
 `"comment"`. The lines after a range's first are colored as its kind up to
 `end`, and the rest of its last line by `highlight`; nothing is suggested
 inside, a string's lines stay text for Enter, and a line comment marker
-inside a range starts no comment.
+inside a range starts no comment. On one line, a string in `"…"` or `'…'`
+and a comment after one of your `comments` markers are known without it:
+there too nothing is suggested in a comment, and quotes and brackets do
+not pair in a string or a comment.
 
 ```js
 multilineRanges(text) {

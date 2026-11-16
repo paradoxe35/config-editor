@@ -72,7 +72,7 @@ fn find(value: &Value, markup: &Markup, pointer: &mut String) -> Option<String> 
     for (key, child) in children {
         let length = pointer.len();
         pointer.push('/');
-        pointer.push_str(&key.replace('~', "~0").replace('/', "~1"));
+        pointer.push_str(&crate::editor::language::pointer_key(&key));
         if value.is_object() && markup.holds(&key) {
             return Some(format!(
                 "{key} is XML markup (a namespace declaration or a schema-instance attribute), which XML keeps in its text, not as data: write it in the XML text (at {pointer})"

@@ -1,6 +1,6 @@
 //! What a typed character finishes: a line that only now shows it closes a
-//! block re-indents ([`ConfigLanguage::reindent_on_type`]), and markup it
-//! begins is completed ([`ConfigLanguage::complete_on_type`]).
+//! block re-indents ([`Typing::reindent_on_type`]), and markup it
+//! begins is completed ([`Typing::complete_on_type`]).
 
 use leptos::prelude::*;
 use web_sys::KeyboardEvent;

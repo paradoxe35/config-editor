@@ -76,7 +76,7 @@ fn columns(line: &str, at: usize) -> usize {
 }
 
 fn escape(key: &str) -> String {
-    key.replace('~', "~0").replace('/', "~1")
+    crate::editor::language::pointer_key(key)
 }
 
 pub(super) fn read(source: &str) -> Result<Read, ParseError> {

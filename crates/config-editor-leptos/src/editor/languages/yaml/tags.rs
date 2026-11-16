@@ -54,7 +54,7 @@ fn tags_read(source: &str) -> Vec<(String, String)> {
 
 /// `key` as a JSON pointer segment.
 fn escape(key: &str) -> String {
-    key.replace('~', "~0").replace('/', "~1")
+    crate::editor::language::pointer_key(key)
 }
 
 #[cfg(test)]

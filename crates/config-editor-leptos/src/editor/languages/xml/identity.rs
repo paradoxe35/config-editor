@@ -130,7 +130,7 @@ impl<'a> Identity<'a> {
             if let Some((held, from, held_in)) = moved {
                 old = Some(held);
                 new = new_item;
-                host = from.split('/').skip(1).map(|segment| segment.replace("~1", "/").replace("~0", "~")).collect();
+                host = from.split('/').skip(1).map(|segment| crate::editor::language::unescaped_key(segment)).collect();
                 side = held_in;
                 new_at = item_at(index);
                 old_at = from.clone();
@@ -228,7 +228,7 @@ fn place_in(pointer: &str, list: &str, repeated: bool) -> Option<usize> {
 }
 
 fn escaped(key: &str) -> String {
-    key.replace('~', "~0").replace('/', "~1")
+    crate::editor::language::pointer_key(key)
 }
 
 /// The key of `old` that `new`'s `key` is: itself, or the one key `new`

@@ -277,5 +277,5 @@ fn read_as_null(key: &str, child: &Value, place: &str) -> Result<(), String> {
 
 /// A JSON pointer segment for `key`.
 fn escape(key: &str) -> String {
-    key.replace('~', "~0").replace('/', "~1")
+    crate::editor::language::pointer_key(key)
 }

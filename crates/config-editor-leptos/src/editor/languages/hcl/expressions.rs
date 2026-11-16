@@ -28,7 +28,7 @@ fn marked(value: &Value, pointer: &mut String, found: &mut Vec<String>) {
             for (key, child) in map {
                 let length = pointer.len();
                 pointer.push('/');
-                pointer.push_str(&key.replace('~', "~0").replace('/', "~1"));
+                pointer.push_str(&crate::editor::language::pointer_key(key));
                 marked(child, pointer, found);
                 pointer.truncate(length);
             }
@@ -216,7 +216,7 @@ fn strings_of(value: &Value, pointer: &mut String, found: &mut Vec<(String, Stri
             for (key, child) in map {
                 let length = pointer.len();
                 pointer.push('/');
-                pointer.push_str(&key.replace('~', "~0").replace('/', "~1"));
+                pointer.push_str(&crate::editor::language::pointer_key(key));
                 strings_of(child, pointer, found);
                 pointer.truncate(length);
             }

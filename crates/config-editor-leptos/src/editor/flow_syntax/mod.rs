@@ -20,7 +20,7 @@ pub(crate) struct Flow {
 }
 
 impl Flow {
-    pub(crate) fn of(language: &(impl ConfigLanguage + ?Sized)) -> Self {
+    pub(crate) fn of(language: &dyn ConfigLanguage) -> Self {
         Self::from_config(language.config())
     }
 
@@ -425,11 +425,11 @@ impl Flow {
 const MARKUP_BEFORE: usize = 64;
 
 /// Where the markup opening a key (see
-/// [`ConfigLanguage::key_markup_len`]) starts when it ends right at byte
+/// [`Markup::key_markup_len`]) starts when it ends right at byte
 /// `name` of `text`: on its line, at most [`MARKUP_BEFORE`] characters
 /// back (the work per key stays bounded on a long line).
 pub(crate) fn markup_before(
-    language: &(impl ConfigLanguage + ?Sized),
+    language: &dyn ConfigLanguage,
     text: &str,
     name: usize,
 ) -> Option<usize> {

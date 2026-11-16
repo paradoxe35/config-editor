@@ -319,7 +319,7 @@ impl Wording<'_> {
         let mut segments = schema_path.rsplit('/');
         let trigger = match (segments.next(), segments.next(), segments.next()) {
             (Some("not"), Some(trigger), Some("dependentSchemas" | "dependencies")) => {
-                Some(trigger.replace("~1", "/").replace("~0", "~"))
+                Some(crate::editor::language::unescaped_key(trigger))
             }
             _ => None,
         };
@@ -472,7 +472,7 @@ impl Wording<'_> {
                 .and_then(|rest| rest.strip_prefix('/'))
                 .filter(|key| !key.contains('/'))
         {
-            let key = key.replace("~1", "/").replace("~0", "~");
+            let key = crate::editor::language::unescaped_key(key);
             return fill(&strings.option_refuses, &[("option", &name), ("key", &key)]);
         }
         let message = self.message(error);

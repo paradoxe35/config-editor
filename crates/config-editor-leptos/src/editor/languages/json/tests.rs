@@ -4,7 +4,7 @@ use super::super::super::completion::{
 #[cfg(feature = "schema-validation")]
 use super::super::super::diagnostics::validate;
 use super::super::super::schema::{SchemaBundle, build_schema};
-use super::super::super::language::{InsertContext, ConfigLanguage};
+use super::super::super::language::{InsertContext, InsertPlan, ConfigLanguage};
 
 const INSERT_AT_ROOT: InsertContext<'static> = InsertContext {
     base_indent: "",
@@ -122,18 +122,18 @@ fn a_comment_is_reported_as_one_json_does_not_have() {
         assert_eq!((error.line, error.column), (Some(line), Some(column)), "{text:?}");
     }
     // A slash in a string is no comment.
-    assert!(JsonBehavior.parse("{\"u\": \"http://x/*y\"}").is_ok());
+    assert!((&JsonBehavior as &dyn ConfigLanguage).parse("{\"u\": \"http://x/*y\"}").is_ok());
 }
 
 #[test]
 fn same_key_in_different_objects_is_not_a_duplicate() {
     let source = r#"{"clients": {"a": {"secret": "x"}}, "auth": {"secret": "y"}}"#;
-    assert!(JsonBehavior.parse(source).is_ok());
+    assert!((&JsonBehavior as &dyn ConfigLanguage).parse(source).is_ok());
 }
 
 #[test]
 fn syntax_errors_report_a_position() {
-    let error = JsonBehavior.parse("{\"listen\": }").unwrap_err();
+    let error = (&JsonBehavior as &dyn ConfigLanguage).parse("{\"listen\": }").unwrap_err();
     assert_eq!(error.line, Some(1));
     assert!(error.column.is_some());
 }
@@ -244,7 +244,7 @@ fn typing_an_opening_quote_in_an_object_lists_every_key() {
 
 #[test]
 fn enter_between_braces_puts_the_caret_on_an_indented_middle_line() {
-    let super::super::super::language::Newline { text, caret, .. } = JsonBehavior.newline("{}", 1);
+    let super::super::super::language::Newline { text, caret, .. } = (&JsonBehavior as &dyn ConfigLanguage).newline("{}", 1);
     assert_eq!(text, "\n  \n");
     assert_eq!(caret, 3);
 }
@@ -267,7 +267,7 @@ fn a_key_inserted_before_an_existing_key_gets_a_comma_after_it() {
 fn completing_a_key_before_its_existing_colon_swallows_the_colon() {
     let source = r#"{"insecure_pla": false}"#;
     let cursor = r#"{"insecure_pla"#.encode_utf16().count();
-    let context = JsonBehavior.completion_context(source, cursor);
+    let context = (&JsonBehavior as &dyn ConfigLanguage).completion_context(source, cursor);
     assert!(context.replace_start <= context.replace_end);
     let option = completions(source, cursor, false, Some(&schema()), true, &JsonBehavior)
         .into_iter()
@@ -282,12 +282,12 @@ fn completing_a_key_before_its_existing_colon_swallows_the_colon() {
 fn the_reported_text_is_flagged_and_its_keys_get_separators() {
     let source =
         "{\n  \"listen\": 7835,\n  \"clients\": {\"secrets\": []\"max_connections\":324}\n}";
-    let error = JsonBehavior.parse(source).unwrap_err();
+    let error = (&JsonBehavior as &dyn ConfigLanguage).parse(source).unwrap_err();
     assert_eq!(error.line, Some(3));
     let cursor = "{\n  \"listen\": 7835,\n  \"clients\": {\"secrets\": []\"max"
         .encode_utf16()
         .count();
-    let context = JsonBehavior.completion_context(source, cursor);
+    let context = (&JsonBehavior as &dyn ConfigLanguage).completion_context(source, cursor);
     assert_eq!(context.entry_prefix, ", ");
 }
 
@@ -317,9 +317,9 @@ fn every_caret_position_in_messy_documents_is_handled_without_panicking() {
             .chain(std::iter::once(source.len()));
         for byte in caret_bytes {
             let cursor = source[..byte].encode_utf16().count();
-            let _ = JsonBehavior.completion_context(source, cursor);
-            let _ = JsonBehavior.newline(source, cursor);
-            let _ = JsonBehavior.lexical_state(source, cursor);
+            let _ = (&JsonBehavior as &dyn ConfigLanguage).completion_context(source, cursor);
+            let _ = (&JsonBehavior as &dyn ConfigLanguage).newline(source, cursor);
+            let _ = (&JsonBehavior as &dyn ConfigLanguage).lexical_state(source, cursor);
             for force in [false, true] {
                 for option in
                     completions(source, cursor, force, Some(&schema), true, &JsonBehavior)
@@ -328,11 +328,11 @@ fn every_caret_position_in_messy_documents_is_handled_without_panicking() {
                 }
             }
         }
-        let _ = JsonBehavior.parse(source);
+        let _ = (&JsonBehavior as &dyn ConfigLanguage).parse(source);
         let _ = validate(source, Some(&schema), None, true, &JsonBehavior);
         for (line_index, line) in source.split('\n').enumerate() {
             for column in 0..12 {
-                let _ = JsonBehavior.hover_cursor(line, column);
+                let _ = (&JsonBehavior as &dyn ConfigLanguage).hover_cursor(line, column);
                 let _ = key_hover(source, line_index, column, Some(&schema), &JsonBehavior);
             }
         }
@@ -342,22 +342,22 @@ fn every_caret_position_in_messy_documents_is_handled_without_panicking() {
 #[test]
 fn enter_inside_braces_indents_one_level() {
     // Between `{}` the closer moves down and the caret sits on the middle line.
-    assert_eq!(JsonBehavior.newline("{}", 1), super::super::super::language::Newline::with_caret("\n  \n", 3));
+    assert_eq!((&JsonBehavior as &dyn ConfigLanguage).newline("{}", 1), super::super::super::language::Newline::with_caret("\n  \n", 3));
     assert_eq!(
-        JsonBehavior.newline("{\n  \"a\": 1,", 12).text,
+        (&JsonBehavior as &dyn ConfigLanguage).newline("{\n  \"a\": 1,", 12).text,
         "\n  "
     );
 }
 
 #[test]
 fn json_has_no_comments_so_toggling_is_unsupported() {
-    assert!(JsonBehavior.toggle_comments("{}", 0, 2).is_none());
+    assert!((&JsonBehavior as &dyn ConfigLanguage).toggle_comments("{}", 0, 2).is_none());
 }
 
 #[test]
 fn an_open_string_is_reported_to_the_pairing_guard() {
-    assert_eq!(JsonBehavior.lexical_state("{\"a\": \"x", 8).quote, Some('"'));
-    assert_eq!(JsonBehavior.lexical_state("{\"a\": \"x\"", 9).quote, None);
+    assert_eq!((&JsonBehavior as &dyn ConfigLanguage).lexical_state("{\"a\": \"x", 8).quote, Some('"'));
+    assert_eq!((&JsonBehavior as &dyn ConfigLanguage).lexical_state("{\"a\": \"x\"", 9).quote, None);
 }
 
 #[test]
@@ -365,7 +365,7 @@ fn an_object_with_required_children_expands_with_the_caret_on_the_first_value() 
     let schema = schema();
     let auth = &schema.schema["properties"]["auth"];
     let (insert, caret) = JsonBehavior
-        .property_insert("auth", auth, &schema.schema, &INSERT_AT_ROOT)
+        .write_insert("auth", &InsertPlan::of(&JsonBehavior, auth, &schema.schema), &INSERT_AT_ROOT)
         .unwrap();
     assert_eq!(insert, "\"auth\": {\n  \"enabled\": false\n}");
     assert_eq!(caret, "\"auth\": {\n  \"enabled\": ".encode_utf16().count());

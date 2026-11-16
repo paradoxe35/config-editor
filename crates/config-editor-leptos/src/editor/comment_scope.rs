@@ -68,7 +68,7 @@ pub(crate) fn selection_over(
 /// its quoted strings (`"…"`, `'…'`, `"""…"""`, `'''…'''`) and multi-line
 /// string bodies.
 pub(crate) fn over_balanced_lines(
-    behavior: &(impl ConfigLanguage + ?Sized),
+    behavior: &dyn ConfigLanguage,
     source: &str,
     start: usize,
     end: usize,
@@ -100,10 +100,7 @@ struct BalancedLines {
 
 /// Each line start's state over `behavior`'s brackets and strings, and the
 /// lowest depth on each line.
-fn line_states(
-    behavior: &(impl ConfigLanguage + ?Sized),
-    source: &str,
-) -> (Vec<LineState>, Vec<usize>) {
+fn line_states(behavior: &dyn ConfigLanguage, source: &str) -> (Vec<LineState>, Vec<usize>) {
     note(Work::ConstructScan);
     let lines: Vec<&str> = source.split('\n').collect();
     let mut body = vec![false; lines.len()];

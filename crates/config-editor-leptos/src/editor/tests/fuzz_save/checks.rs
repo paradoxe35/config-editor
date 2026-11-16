@@ -650,7 +650,7 @@ fn check_save(state: EditorState, start: &Start, held: &HostCopy) -> Result<(), 
             }
         };
         // An HCL view's block written once is also its list's only item
-        // (`ConfigLanguage::lone_item`), which the host may hold as a list.
+        // (`Repeats::lone_item`), which the host may hold as a list.
         let shown = match (&shown, &meant) {
             (Some(shown), Some(meant)) if view.label() == "HCL" => {
                 Some(blocks_as_written(shown, meant))

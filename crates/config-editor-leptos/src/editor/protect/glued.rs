@@ -160,7 +160,7 @@ fn through_copies<'a>(
     let mut at = vec![document];
     let mut fanned = false;
     for segment in pointer.split('/').skip(1) {
-        let key = segment.replace("~1", "/").replace("~0", "~");
+        let key = crate::editor::language::unescaped_key(segment);
         let mut next = Vec::with_capacity(at.len());
         for value in at {
             match value {

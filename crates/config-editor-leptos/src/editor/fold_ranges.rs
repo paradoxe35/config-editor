@@ -1,5 +1,5 @@
 //! Fold ranges: the building blocks languages combine in
-//! [`ConfigLanguage::fold_ranges`](crate::language::ConfigLanguage::fold_ranges).
+//! [`Text::fold_ranges`](crate::language::Text::fold_ranges).
 //! Each reads the text only; none knows a language.
 
 use std::ops::Range;
@@ -286,7 +286,7 @@ pub fn comment_fold_ranges(
 }
 
 /// Multi-line string bodies (see
-/// [`ConfigLanguage::string_body_lines`](crate::language::ConfigLanguage::string_body_lines))
+/// [`Text::string_body_lines`](crate::language::Text::string_body_lines))
 /// folded to the line that opens them; a closing delimiter on the line
 /// after the body stays visible.
 pub fn string_body_fold_ranges(bodies: &[Range<usize>]) -> Vec<FoldRange> {
@@ -298,7 +298,7 @@ pub fn string_body_fold_ranges(bodies: &[Range<usize>]) -> Vec<FoldRange> {
 }
 
 /// What a language gets without its own
-/// [`fold_ranges`](crate::language::ConfigLanguage::fold_ranges):
+/// [`fold_ranges`](crate::language::Text::fold_ranges):
 /// indentation, the brackets and comments of its `config`, and its
 /// multi-line strings.
 pub fn default_fold_ranges(

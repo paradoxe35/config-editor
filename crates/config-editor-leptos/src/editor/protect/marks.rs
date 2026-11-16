@@ -155,7 +155,7 @@ pub(crate) fn secret_fields(document: &Value, root: &Value, repeats_arrays: bool
 
 /// A key as a JSON pointer segment.
 pub(crate) fn escape(key: &str) -> String {
-    key.replace('~', "~0").replace('/', "~1")
+    crate::editor::language::pointer_key(key)
 }
 
 #[cfg(test)]

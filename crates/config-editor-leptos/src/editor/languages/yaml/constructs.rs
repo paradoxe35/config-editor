@@ -8,11 +8,12 @@ use std::ops::Range;
 use super::super::super::highlight::{MultilineConstruct, TokenKind, Tokens};
 use super::colors::scalar_kind;
 use super::editing::code_before_comment;
+use super::lexical::{node_starts_after, quoted_end};
 use super::parse::plain_scalar_bodies;
 
 /// The quoted scalars, plain scalars and flow collections `source` writes
 /// over several lines, in order. `string_bodies` are the lines inside block
-/// and quoted scalars (`ConfigLanguage::string_body_lines`).
+/// and quoted scalars (`Text::string_body_lines`).
 pub(super) fn multiline_constructs(
     source: &str,
     string_bodies: &[Range<usize>],
@@ -35,12 +36,6 @@ pub(super) fn multiline_constructs(
     found.sort_by_key(|construct| construct.range.start);
     found.dedup_by_key(|construct| construct.range.start);
     found
-}
-
-/// Whether a node can start after `previous`, the last character before it
-/// on its line other than blanks (`None`: none).
-fn node_starts_after(previous: Option<char>) -> bool {
-    previous.is_none_or(|previous| matches!(previous, '[' | '{' | ',' | ':' | '-' | '?'))
 }
 
 /// Reads `source` for quoted scalars and flow collections over lines,
@@ -121,23 +116,6 @@ fn scan(
         flow_lines.push(outer_line..line + 1);
     }
     flow_lines
-}
-
-/// The end of the quoted scalar opening at `start` (through its closing
-/// quote, over lines), or the end of `text` when it stays open.
-fn quoted_end(text: &str, start: usize) -> usize {
-    let quote = text.as_bytes()[start];
-    let bytes = text.as_bytes();
-    let mut index = start + 1;
-    while index < text.len() {
-        match bytes[index] {
-            b'\\' if quote == b'"' => index += 2,
-            b'\'' if quote == b'\'' && bytes.get(index + 1) == Some(&b'\'') => index += 2,
-            byte if byte == quote => return index + 1,
-            _ => index += 1,
-        }
-    }
-    text.len()
 }
 
 /// Colors `text`, a flow collection or the inside of one, starting at

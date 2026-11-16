@@ -138,7 +138,9 @@ impl<'a> Filler<'a> {
         }
         object_branch(schema, self.root)?;
         let mut members = serde_json::Map::new();
-        for (key, child, at) in super::required::required_keys(self.language, schema, self.root) {
+        for (key, child, at) in
+            super::required::required_keys(self.language, schema, None, self.root)
+        {
             if let Some(value) = self.filled(child, Some(&at), depth + 1) {
                 members.insert(key.to_string(), value);
             }

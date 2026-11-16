@@ -245,10 +245,10 @@ pub(super) fn property_completions(
     insert_context: &InsertContext<'_>,
     behavior: &dyn ConfigLanguage,
     written: Option<&Value>,
-    read_repeated: &dyn Fn() -> HashSet<String>,
+    read_rewritable: &dyn Fn() -> HashSet<String>,
 ) -> Vec<Completion> {
-    let repeated = std::cell::OnceCell::new();
-    let repeated_keys = || repeated.get_or_init(read_repeated);
+    let rewritable = std::cell::OnceCell::new();
+    let rewritable_keys = || rewritable.get_or_init(read_rewritable);
     let mut candidates = Vec::new();
     let object = ObjectAt::of(here);
     let choices = &object.choices;
@@ -294,7 +294,8 @@ pub(super) fn property_completions(
             // A list key written by repetition can appear again: any list in
             // XML; a list of objects as HCL blocks (never inside `{ … }`),
             // once it is written so (not as one whole list).
-            let present = existing.is_some_and(|existing| existing.contains(key));
+            let present = existing.is_some_and(|existing| existing.contains(key))
+                && (repetition != Repetition::None || !rewritable_keys().contains(key));
             let repeatable = match repetition {
                 Repetition::Elements => repeats_as_elements(
                     property,
@@ -306,7 +307,7 @@ pub(super) fn property_completions(
                         && array_branch(property, root)
                             .and_then(|array| array.get("items"))
                             .is_some_and(|items| object_branch(items, root).is_some())
-                        && (!present || repeated_keys().contains(key))
+                        && (!present || rewritable_keys().contains(key))
                 }
                 _ => false,
             };
@@ -335,13 +336,15 @@ pub(super) fn property_completions(
                 another_item: present && repeatable,
                 ..*insert_context
             };
-            // Another element of a list written by repeating its key is
-            // one item: written as its items' schema says.
-            let written_schema = match (another.another_item, repetition) {
-                (true, Repetition::Elements) => array_branch(property, root)
+            // Another item of a list written by repeating its key (an XML
+            // element, an HCL block) is one item: written as its items'
+            // schema says.
+            let written_schema = if another.another_item {
+                array_branch(property, root)
                     .and_then(|array| item_schema(array, 1))
-                    .unwrap_or(property),
-                _ => property,
+                    .unwrap_or(property)
+            } else {
+                property
             };
             // A default (or const) another schema at the key refuses (the
             // `else` the object takes typing it otherwise) is not written:
@@ -366,12 +369,15 @@ pub(super) fn property_completions(
                     written_schema
                 }
             };
-            let Some((insert, cursor_offset)) =
-                behavior.property_insert(key, written_schema, root, &another)
-            else {
+            // The children every schema at the key asks for (a `then` the
+            // document takes beside the property): not for one more item.
+            let at_key = (!another.another_item)
+                .then(|| here.child(&SchemaPathSegment::Key(key.to_string())));
+            let plan = InsertPlan::at(behavior, written_schema, at_key.as_ref(), root);
+            let Some((insert, cursor_offset)) = behavior.write_insert(key, &plan, &another) else {
                 continue;
             };
-            let children = required_children(behavior, written_schema, root);
+            let children = plan.children;
             // Only the values the insert writes are Tab stops (a list
             // written `[]` writes none of its items' children).
             let fills = written_fills(&insert, cursor_offset, fills_of(&children));
@@ -463,7 +469,7 @@ pub(crate) fn completions_for(
 }
 
 /// [`completions_for`] with the text's multi-line string bodies already
-/// found (`ConfigLanguage::string_body_lines`): the live editor keeps them
+/// found (`Text::string_body_lines`): the live editor keeps them
 /// in a memo, so a keystroke does not parse the whole document for them.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn completions_in(
@@ -994,6 +1000,14 @@ impl Around<'_> {
             .get_or_init(|| document_around(self.source, self.cursor_byte, self.behavior))
             .as_ref()
     }
+
+    /// The keys the object at `path` has around the caret, the entry
+    /// being typed left out; `None` where the document around the caret
+    /// does not tell (it does not read, or no object is there).
+    fn keys_at(&self, path: &[SchemaPathSegment]) -> Option<HashSet<String>> {
+        let object = super::super::applies::value_at(self.document()?, path)?.as_object()?;
+        Some(object.keys().cloned().collect())
+    }
 }
 
 fn completions_around(
@@ -1114,7 +1128,18 @@ fn completions_around(
     if context.no_properties {
         return Vec::new();
     }
-    let existing_keys = behavior.existing_keys(source, cursor_byte, &context.path);
+    // A new list item (`[|, {…}]`) has no keys yet: the item the document
+    // has at its index is the one after it. One its line starts with the
+    // language's item marker (`- |` over `  image: x`) is there already.
+    let line_start = source[..cursor_byte].rfind('\n').map_or(0, |at| at + 1);
+    let marked_item = super::super::flow_syntax::Flow::of(behavior)
+        .after_item_marker(source[line_start..].trim_start())
+        .is_some();
+    let existing_keys = if context.is_array_item && !marked_item {
+        None
+    } else {
+        around.keys_at(&context.path)
+    };
     // Keys are typed into an object: its options are narrowed by the keys
     // its text has, and by its value where the document gives it.
     let no_keys = HashSet::new();
@@ -1142,7 +1167,7 @@ fn completions_around(
         },
         behavior,
         applies.value_at(&context.path),
-        &|| behavior.repeated_keys(source, cursor_byte, &context.path),
+        &|| behavior.rewritable_keys(source, cursor_byte, &context.path),
     );
     // A key typed directly in an array starts a new object item, which needs
     // its delimiters: `[|]` becomes `[{ hosts = [] }]`, not `[hosts = []]`.

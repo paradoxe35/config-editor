@@ -268,7 +268,7 @@ fn add_string_bodies(
 }
 
 /// The lines of the multi-line strings' bodies of a text (see
-/// `ConfigLanguage::string_body_lines`), read once for all the locks.
+/// `Text::string_body_lines`), read once for all the locks.
 struct Bodies(std::rc::Rc<Vec<Range<usize>>>);
 
 /// The UTF-16 ranges of the constructs a text writes over lines, read once
@@ -276,7 +276,7 @@ struct Bodies(std::rc::Rc<Vec<Range<usize>>>);
 struct Constructs(Vec<Range<usize>>);
 
 /// UTF-16 ranges of the constructs `text` writes over lines (see
-/// `ConfigLanguage::multiline_constructs`), shared by the locks placed in
+/// `Text::multiline_constructs`), shared by the locks placed in
 /// one batch (`paths::with_spans`).
 fn construct_ranges(behavior: &dyn ConfigLanguage, text: &str) -> Rc<Constructs> {
     batch_cached(text, || Constructs(constructs_of(behavior, text)))
