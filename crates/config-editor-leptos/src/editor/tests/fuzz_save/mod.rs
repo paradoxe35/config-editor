@@ -106,7 +106,7 @@ fn run(case: &Case) -> Result<bool, Broke> {
         for (step, op) in case.ops.iter().enumerate() {
             let before = state.doc().text.get_untracked();
             if op.saves() {
-                start.note(&before);
+                start.note(state.sync().edit_language.get_untracked(), &before);
             }
             ops::apply(state, case.host, op, &mut clipboard, &mut time);
             if trace {

@@ -2285,3 +2285,73 @@ fn a_key_left_alone_keeps_its_spelling_after_a_line_above_goes() {
         ],
     );
 }
+
+/// Text cut in one view and pasted back after a switch to another
+/// language means what the new view reads it as: it takes none of the
+/// links it was cut with, and the save writes what the view holds (P2).
+#[test]
+fn text_pasted_into_a_view_of_another_language_takes_no_links() {
+    replay(
+        Language::HCL,
+        Language::JSON,
+        "resource \"aws_subnet\" \"main\" {\n  script = <<EOT\nEOT\n}\n",
+        &[
+            Op::Cut {
+                line: 0,
+                how: Take::Entry,
+            },
+            Op::Switch { to: 4 },
+            Op::Paste {
+                line: 56,
+                how: Put::OverBlank,
+            },
+        ],
+    );
+}
+
+/// A value left alone keeps its host form when a cut moves its
+/// neighbours and a line move follows (P2).
+#[test]
+fn a_value_left_alone_keeps_its_form_after_a_cut_and_a_line_move() {
+    replay(
+        Language::YAML,
+        Language::TOML,
+        "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: web # the app\n  labels: {app: web, tier: \"front\"}\nspec:\n  replicas: 0x3\n  selector:\n      app: web\n  template:\n        - name: web\n          image: \"nginx:1.25\"\n",
+        &[
+            Op::Cut {
+                line: 10,
+                how: Take::Text,
+            },
+            Op::MoveLine {
+                line: 15,
+                down: true,
+            },
+        ],
+    );
+}
+
+/// A `0` typed at the end of a copied float (`350.0` to `350.00`) is an
+/// edit: the host is saved with what the user typed.
+#[test]
+fn a_zero_typed_after_a_copied_float_is_saved_as_typed() {
+    replay(
+        Language::TOML,
+        Language::JSON,
+        "[alpha]\nk1 = \"plain\"\nk2 = 1979-05-27T07:32:00Z\nk3 = 1979-05-27T07:32:00Z # note 1\nk4 = { x = 1, y = \"two\" } # note 2\n[beta]\nk5 = \'\'\'\nraw text\n\'\'\'\nk6 = \'C:\\dir\' # note 5\nk7 = [1, 0x2, 3]\nk8 = 0b101 # note 7\n[gamma]\nk9 = 0b101\nk10 = 3.5e2\n[delta]\nk11 = \'C:\\dir\'\nk12 = 1979-05-27T07:32:00\nk13 = \'\'\'\nraw text\n\'\'\'\n",
+        &[
+            Op::CopyLine {
+                line: 45,
+                down: true,
+            },
+            Op::Switch { to: 0 },
+            Op::Type {
+                line: 44,
+                column: 1000,
+                text: "0",
+            },
+            Op::Pause,
+            Op::DeleteLine { line: 42 },
+            Op::Switch { to: 4 },
+        ],
+    );
+}

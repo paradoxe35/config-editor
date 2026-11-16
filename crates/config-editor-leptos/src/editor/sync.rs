@@ -169,7 +169,10 @@ impl SyncState {
             links: StoredValue::new(if opening_shown {
                 Links::default()
             } else {
-                Links::fresh(&host_text, &synced)
+                let shown_in = edit_language.get_untracked();
+                let reading = Bridge::new(host_language, shown_in, schema.get_value())
+                    .map(|bridge| bridge.reading());
+                Links::fresh(&host_text, &synced, reading)
             }),
             clipboard: StoredValue::new(Clipboard::default()),
             host_text: HostTextReader(session),
@@ -321,7 +324,8 @@ impl EditorState {
             links
         } else if saved {
             // A switch, or the host's text: its items, each the host's.
-            Links::fresh(&self.sync().host_text.get_value(), &edit.text)
+            let reading = self.bridge_to(language).map(|bridge| bridge.reading());
+            Links::fresh(&self.sync().host_text.get_value(), &edit.text, reading)
         } else if *origin == Origin::Switch && left != self.config().host_language {
             // Unsaved edits converted: each item at the same pointer.
             let mut links = before.links.clone();
@@ -368,7 +372,7 @@ impl EditorState {
         let mut links = if own {
             self.doc()
                 .text
-                .with_untracked(|current| Links::fresh(current, current))
+                .with_untracked(|current| Links::fresh(current, current, None))
         } else {
             self.sync().links.get_value()
         };
@@ -534,7 +538,14 @@ fn take_host_value_at(state: EditorState, external: String, revision: Option<u64
     };
     // A new session, though the view's text may read the same.
     state.sync().received(&external, &edit);
-    state.sync().links.set_value(Links::fresh(&external, &edit));
+    let reading = match waiting {
+        Some(_) => None,
+        None => state.bridge().map(|bridge| bridge.reading()),
+    };
+    state
+        .sync()
+        .links
+        .set_value(Links::fresh(&external, &edit, reading));
     state.note_in_sync(true);
     let current = state.doc().text.get_untracked();
     let mut change = Edit::replacing(current, edit, Origin::HostValue);
@@ -681,7 +692,10 @@ pub(super) fn convert_now(state: EditorState, text: String, language: Language) 
                     .history
                     .with_untracked(|history| history.saved_as(&text))
             })
-            .map(|host| host.to_string());
+            .map(|host| host.to_string())
+            // The same text in another view's language is another document
+            // (text cut in one view, pasted back after a switch).
+            .filter(|host| bridge.shows_as(host, &text));
         let hosts_own = known.is_some();
         // The links are the text on screen's.
         let on_screen = state.doc().text.with_untracked(|current| *current == text)
@@ -721,7 +735,8 @@ pub(super) fn convert_now(state: EditorState, text: String, language: Language) 
         state.note_in_sync(result.is_ok());
         if let Ok(saved) = result {
             if on_screen {
-                state.sync().links.set_value(Links::fresh(&saved, &text));
+                let links = Links::fresh(&saved, &text, Some(bridge.reading()));
+                state.sync().links.set_value(links);
             }
             let changed = saved != previous;
             state.sync().saved(&saved, &text);

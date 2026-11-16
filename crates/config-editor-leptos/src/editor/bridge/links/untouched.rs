@@ -13,7 +13,7 @@ use super::super::super::language::ConfigLanguage;
 use super::super::super::parse_cache;
 use super::super::super::paths;
 use super::told::same_keys;
-use super::{Links, Source};
+use super::{Links, Source, spelled_in};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -104,16 +104,27 @@ impl Links {
         let candidates: Vec<Candidate> = match self {
             // The text since the last save or switch, its keys where they
             // were: each scalar is the host's at its own pointer.
-            Links::Fresh { host, base, .. } if same_keys(language, base, text) => pointers
-                .into_iter()
-                .map(|pointer| Candidate {
-                    host: host.clone(),
-                    from: pointer.clone(),
-                    shown: base.clone(),
-                    at: pointer.clone(),
-                    pointer,
-                })
-                .collect(),
+            Links::Fresh {
+                host,
+                base,
+                reading,
+                ..
+            } if same_keys(language, base, text) => {
+                let host_value = reading.as_ref().and_then(|reading| reading.read(host));
+                pointers
+                    .into_iter()
+                    .map(|pointer| Candidate {
+                        host: host.clone(),
+                        from: match &host_value {
+                            Some(host_value) => spelled_in(host_value, &pointer),
+                            None => pointer.clone(),
+                        },
+                        shown: base.clone(),
+                        at: pointer.clone(),
+                        pointer,
+                    })
+                    .collect()
+            }
             _ => {
                 let Some(paired) = self.paired(language, text) else {
                     return Vec::new();

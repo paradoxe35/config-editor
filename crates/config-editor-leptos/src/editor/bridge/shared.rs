@@ -19,11 +19,12 @@ pub(super) fn detached(
     shape: Option<&Value>,
 ) -> Option<String> {
     let reads_old = |text: &String| codec::read(host, text, shape).ok().as_ref() == Some(old);
-    let undone = codec::with_renames_undone(old, target);
+    let renames = codec::renames(old, target, None);
+    let undone = codec::with_renames(target, &renames, false);
     if undone != *target {
         let kept = host.detach_shared(previous, old, &undone).filter(reads_old);
         let base = kept.as_deref().unwrap_or(previous);
-        if codec::patch_renames(host, base, old, target, shape, Default::default()).is_some() {
+        if codec::patch_key_renames(host, base, old, target, shape, Default::default()).is_some() {
             return kept;
         }
     }

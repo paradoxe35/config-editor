@@ -149,7 +149,7 @@ pub(super) fn with_attributes(value: &Value, old: Option<&Value>, attributes: &A
             let mut attrs = serde_json::Map::new();
             let mut children = serde_json::Map::new();
             for (key, child) in map {
-                let host_key = old.and_then(|old| super::identity::host_key(old, map, key));
+                let host_key = old.and_then(|old| crate::editor::item_sources::renamed_from(old, map, key));
                 let old_child = host_key.and_then(|host_key| old?.get(host_key));
                 path.push(host_key.unwrap_or(key).clone());
                 let scalar = matches!(child, Value::String(_) | Value::Number(_) | Value::Bool(_));

@@ -9,8 +9,10 @@
 //! each item's source from them (`item_sources`): nothing is told by
 //! comparing texts or values.
 
+use super::super::Language;
 use super::super::language::ConfigLanguage;
 use super::super::parse_cache;
+use super::super::schema::SchemaBundle;
 use super::super::work_count::{Work, note};
 use std::sync::Arc;
 
@@ -77,6 +79,9 @@ pub(crate) enum Links {
         host: Arc<str>,
         base: Arc<str>,
         pending: Arc<Vec<(usize, usize, usize)>>,
+        /// How `host` reads, to name each item by its host path when the
+        /// items are read; `None` when the view is in the host's language.
+        reading: Option<HostReading>,
     },
     /// The items' links, by where they start (an outer item before the
     /// ones inside it).
@@ -112,12 +117,14 @@ impl PartialEq for Links {
 impl Eq for Links {}
 
 impl Links {
-    /// The view's text `text`, shown for the host's text `host`.
-    pub(crate) fn fresh(host: &str, text: &str) -> Self {
+    /// The view's text `text`, shown for the host's text `host` (read as
+    /// `reading` tells; `None` in the host's own language).
+    pub(crate) fn fresh(host: &str, text: &str, reading: Option<HostReading>) -> Self {
         Links::Fresh {
             host: Arc::from(host),
             base: Arc::from(text),
             pending: Arc::default(),
+            reading,
         }
     }
 
@@ -130,6 +137,7 @@ impl Links {
                 host,
                 base,
                 pending,
+                ..
             } => {
                 let shared = matches!(newer, Some(Links::Fresh { base: theirs, .. }) if Arc::ptr_eq(base, theirs));
                 pending.len() * 24 + if shared { 0 } else { host.len() + base.len() }
@@ -171,14 +179,18 @@ impl Links {
         });
         if let Links::Fresh { pending, .. } = self
             && typed
-            && pending.len() < MOST_PENDING
+            && pending.len() + pieces.len() <= MOST_PENDING
         {
+            // Kept one after another: each piece at its place in the text
+            // the ones before it left (the pieces name the text before the
+            // whole edit).
             let pending = Arc::make_mut(pending);
-            pending.extend(
-                pieces
-                    .iter()
-                    .map(|piece| (piece.at, piece.removed, piece.inserted.len())),
-            );
+            let mut growth = 0isize;
+            pending.extend(pieces.iter().map(|piece| {
+                let at = piece.at.wrapping_add_signed(growth);
+                growth += piece.inserted.len() as isize - piece.removed as isize;
+                (at, piece.removed, piece.inserted.len())
+            }));
             return;
         }
         let links = self.read(language);
@@ -265,6 +277,7 @@ impl Links {
             host,
             base,
             pending,
+            reading,
         } = self
         else {
             let Links::Kept(links) = self else {
@@ -273,11 +286,16 @@ impl Links {
             return links.clone();
         };
         let parsed = parse_cache::parsed(language, base);
+        let host_value = reading.as_ref().and_then(|reading| reading.read(host));
         let mut links: Vec<Link> = match parsed.as_ref() {
             Ok(value) => items(language, base, value)
                 .into_iter()
                 .filter_map(|item| {
                     let (start, end) = content(base, item.lines.start, item.lines.end)?;
+                    let pointer = match &host_value {
+                        Some(host_value) => spelled_in(host_value, &item.pointer),
+                        None => item.pointer.clone(),
+                    };
                     Some(Link {
                         start,
                         end,
@@ -285,11 +303,11 @@ impl Links {
                             host: host.clone(),
                             shown: Some(Shown {
                                 text: base.clone(),
-                                pointer: item.pointer.clone(),
+                                pointer: item.pointer,
                                 language: language.info().label,
                                 kept: None,
                             }),
-                            pointer: item.pointer,
+                            pointer,
                         }),
                     })
                 })
@@ -313,6 +331,70 @@ impl Links {
         *self = Links::Kept(links.clone());
         links
     }
+}
+
+/// How a host text reads (its language and schema): what names a view
+/// item by its host path, where the host writes a list of one otherwise
+/// than the view does.
+#[derive(Clone)]
+pub(crate) struct HostReading {
+    pub(crate) language: Language,
+    pub(crate) schema: Option<Arc<SchemaBundle>>,
+}
+
+impl std::fmt::Debug for HostReading {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(self.language.behavior().info().label)
+    }
+}
+
+impl HostReading {
+    /// `host` read (after a byte order mark), `None` when it does not read.
+    pub(crate) fn read(&self, host: &str) -> Option<serde_json::Value> {
+        let (host, _) = super::super::byte_order_mark::split(host);
+        let schema = self.schema.as_deref().map(|bundle| &bundle.schema);
+        super::super::codec::read(self.language.behavior(), host, schema).ok()
+    }
+}
+
+/// `pointer` (a view's) as `value` spells it, where the view writes a
+/// list of one otherwise than `value` holds it: `/l/x` for `value`'s
+/// `/l/0/x` (an XML view writes the item alone), `/b` for a view's `/b/0`
+/// where `value` holds the item alone (an HCL block written once). The
+/// view and `value` hold the same document, so the two spellings name
+/// the same item.
+pub(crate) fn spelled_in(value: &serde_json::Value, pointer: &str) -> String {
+    use serde_json::Value;
+    if value.pointer(pointer).is_some() {
+        return pointer.to_string();
+    }
+    let mut out = String::new();
+    let mut at = value;
+    for segment in pointer.split('/').skip(1) {
+        let index = super::super::language::pointer_index(segment);
+        if let Value::Array(items) = at
+            && items.len() == 1
+            && index.is_none()
+        {
+            out.push_str("/0");
+            at = &items[0];
+        }
+        if segment == "0" && !at.is_array() && at.get("0").is_none() {
+            continue;
+        }
+        out.push('/');
+        out.push_str(segment);
+        let child = match at {
+            Value::Object(map) => map.get(&super::super::language::unescaped_key(segment)),
+            Value::Array(items) => index.and_then(|index| items.get(index)),
+            _ => None,
+        };
+        match child {
+            Some(child) => at = child,
+            None => return pointer.to_string(),
+        }
+    }
+    out
 }
 
 /// The text of the lines `start..end` of `text` from its first character

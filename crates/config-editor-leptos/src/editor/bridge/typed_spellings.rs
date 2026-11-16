@@ -5,6 +5,7 @@
 //! of the one it replaces (`0x1F90` edited to 8083 is `0x1F93`).
 
 use super::super::codec;
+use super::super::item_sources::ItemSources;
 use super::super::language::ConfigLanguage;
 use super::changed_scalars;
 use serde_json::Value;
@@ -29,9 +30,19 @@ pub(super) fn kept(
     (old, target): (&Value, &Value),
     (saved, respelled): (String, Vec<String>),
     shape: Option<&Value>,
+    sources: Option<&ItemSources>,
 ) -> Spelled {
+    // A key renamed holds its number where the host held it under its
+    // old name: its form is read there.
+    let renames = codec::renames(old, target, sources);
+    let from = |pointer: &str| codec::source_pointer(&renames, pointer);
     let mut changed = Vec::new();
-    changed_scalars(old, target, String::new(), &mut changed);
+    changed_scalars(
+        &codec::with_renames(old, &renames, true),
+        target,
+        String::new(),
+        &mut changed,
+    );
     changed.retain(|pointer| {
         target
             .pointer(pointer)
@@ -81,14 +92,15 @@ pub(super) fn kept(
     let numbers: Vec<String> = places
         .iter()
         .filter(|(pointer, value, _)| {
-            value.is_number() && old.pointer(pointer).is_some_and(Value::is_number)
+            value.is_number() && old.pointer(&from(pointer)).is_some_and(Value::is_number)
         })
         .map(|(pointer, ..)| (*pointer).clone())
         .collect();
+    let held: Vec<String> = numbers.iter().map(|pointer| from(pointer)).collect();
     let was: std::collections::HashMap<String, std::ops::Range<usize>> = numbers
         .iter()
         .cloned()
-        .zip(ranges(host, previous, &numbers))
+        .zip(ranges(host, previous, &held))
         .filter_map(|(pointer, range)| Some((pointer, range?)))
         .collect();
     let mut edits = Vec::new();

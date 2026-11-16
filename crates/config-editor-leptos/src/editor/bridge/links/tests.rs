@@ -34,7 +34,7 @@ impl View {
     fn new(text: &str) -> Self {
         View {
             text: text.to_string(),
-            links: Links::fresh(HOST, text),
+            links: Links::fresh(HOST, text, None),
             clipboard: Clipboard::default(),
         }
     }

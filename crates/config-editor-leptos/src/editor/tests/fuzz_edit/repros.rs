@@ -393,3 +393,28 @@ fn commenting_xml_lines_after_enter_and_tab_does_not_panic() {
         ],
     });
 }
+
+/// A Replace all, then Tab over lines: each link an edit keeps lies in
+/// the text after it (P5 in test builds, a lost form otherwise).
+#[test]
+fn links_stay_in_the_text_after_a_replace_all_then_tab() {
+    super::undo::replay(super::undo::UndoCase {
+        host: Language::HCL,
+        view: Some(Language::TOML),
+        schema: false,
+        text: "  host = [\n  {\n    mode = [\n    ]\n    name = [\n    ]\n    allow = [\n    ]\n    x_1 = [\n      {\n      },\n      {\n        x_1 = false\n      },\n      {\n      }\n    ]\n    a = [\n      {\n        allow = false\n      }\n    ]\n  }\n]\n".into(),
+        interleaved: false,
+        actions: vec![
+            ReplaceAll {
+                query: " ",
+                with: "",
+                options: 0,
+            },
+            Tab {
+                at: 10236549,
+                to: 702607,
+                shift: false,
+            },
+        ],
+    });
+}

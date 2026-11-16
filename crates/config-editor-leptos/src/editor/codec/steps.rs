@@ -41,78 +41,6 @@ pub(in super::super) fn steps(
     if steps.len() < 2 { Vec::new() } else { steps }
 }
 
-/// `old` with the keys renamed that the save's links tell were renamed in
-/// `new`, each holding what it held; `None` when they tell none.
-pub(in super::super) fn renamed_by_links(
-    old: &Value,
-    new: &Value,
-    sources: Option<&ItemSources>,
-) -> Option<Value> {
-    let renamed = with_told_renames(old, new, "", sources?);
-    (renamed != *old).then_some(renamed)
-}
-
-/// `current` (at `pointer` of the save) with each key renamed that the
-/// save's links tell was (a key `target` gains whose source is a key of
-/// this map it loses, in the host's last text), holding the value it held,
-/// in its place.
-fn with_told_renames(
-    current: &Value,
-    target: &Value,
-    pointer: &str,
-    sources: &ItemSources,
-) -> Value {
-    match (current, target) {
-        (Value::Object(left), Value::Object(right)) => {
-            // Each lost key's new name.
-            let mut new_names: HashMap<&String, &String> = HashMap::new();
-            for key in right.keys().filter(|key| !left.contains_key(*key)) {
-                let to = format!("{pointer}/{}", super::escape(key));
-                let Some(super::super::item_sources::ItemSource::Previous(from)) =
-                    sources.items.get(&to)
-                else {
-                    continue;
-                };
-                let Some((parent, old)) = from.rsplit_once('/') else {
-                    continue;
-                };
-                if parent != pointer {
-                    continue;
-                }
-                if let Some(old) = left
-                    .keys()
-                    .find(|lost| !right.contains_key(*lost) && super::escape(lost) == old)
-                {
-                    new_names.entry(old).or_insert(key);
-                }
-            }
-            Value::Object(
-                left.iter()
-                    .map(|(key, value)| {
-                        let name = new_names.get(key).copied().unwrap_or(key);
-                        let child = format!("{pointer}/{}", super::escape(name));
-                        let value = match right.get(name) {
-                            Some(wanted) => with_told_renames(value, wanted, &child, sources),
-                            None => value.clone(),
-                        };
-                        (name.clone(), value)
-                    })
-                    .collect(),
-            )
-        }
-        (Value::Array(left), Value::Array(right)) if left.len() == right.len() => Value::Array(
-            left.iter()
-                .zip(right)
-                .enumerate()
-                .map(|(index, (item, wanted))| {
-                    with_told_renames(item, wanted, &format!("{pointer}/{index}"), sources)
-                })
-                .collect(),
-        ),
-        _ => current.clone(),
-    }
-}
-
 /// `old` with every scalar `new` changes where the shape stays (same keys,
 /// same list lengths) set to `new`'s.
 fn with_scalar_changes(old: &Value, new: &Value) -> Value {
@@ -254,46 +182,34 @@ fn with_brought(current: &Value, target: &Value, pointer: &str, sources: &ItemSo
     }
 }
 
-/// Keys renamed in a map that also loses or gains others, made a step of
-/// their own so the rename patch makes them in place (an XML attribute
-/// renamed stays one, which a rewrite of the map would write as an
-/// element): `left` without the keys removed outright first, then with the
-/// renamed keys renamed where they are. A key removed and one added
-/// holding the same value, in order, are a rename. `None` when the map
-/// only renames, or renames nothing.
+/// Keys renamed in a map that also loses or gains others (the renames
+/// [`super::renames`] tells), made a step of their own so the rename patch
+/// makes them in place (an XML attribute renamed stays one, which a
+/// rewrite of the map would write as an element): `left` without the keys
+/// removed outright first, then with the renamed keys renamed where they
+/// are. `None` when the map only renames, or renames nothing.
 fn renames_apart(
     left: &Map<String, Value>,
     right: &Map<String, Value>,
 ) -> Option<Map<String, Value>> {
-    let removed: Vec<&String> = left
-        .keys()
-        .filter(|key| !right.contains_key(*key))
+    let (old, new) = (Value::Object(left.clone()), Value::Object(right.clone()));
+    let renames: Vec<(String, String)> = super::renames(&old, &new, None)
+        .into_iter()
+        .filter(|(pointer, ..)| pointer.matches('/').count() == 1)
+        .map(|(_, old_key, new_key)| (old_key, new_key))
         .collect();
-    let added: Vec<&String> = right
-        .keys()
-        .filter(|key| !left.contains_key(*key))
-        .collect();
-    let mut renames: Vec<(&String, &String)> = Vec::new();
-    let mut from = 0;
-    for old_key in &removed {
-        if let Some(offset) = added[from..]
-            .iter()
-            .position(|new_key| right[*new_key] == left[*old_key])
-        {
-            renames.push((old_key, added[from + offset]));
-            from += offset + 1;
-        }
-    }
     if renames.is_empty() {
         return None;
     }
     let renamed = |key: &String| {
         renames
             .iter()
-            .find(|(old, _)| *old == key)
-            .map(|(_, new)| *new)
+            .find(|(old, _)| old == key)
+            .map(|(_, new)| new)
     };
-    if renames.len() < removed.len() {
+    let removed = left.keys().filter(|key| !right.contains_key(*key)).count();
+    let added = right.keys().filter(|key| !left.contains_key(*key)).count();
+    if renames.len() < removed {
         return Some(
             left.iter()
                 .filter(|(key, _)| right.contains_key(*key) || renamed(key).is_some())
@@ -301,7 +217,7 @@ fn renames_apart(
                 .collect(),
         );
     }
-    (renames.len() < added.len()).then(|| {
+    (renames.len() < added).then(|| {
         left.iter()
             .map(|(key, value)| (renamed(key).unwrap_or(key).clone(), value.clone()))
             .collect()
