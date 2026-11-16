@@ -5,11 +5,11 @@
 use jsonschema::error::{ValidationError, ValidationErrorKind};
 use serde_json::Value;
 
-use super::fields::Secrets;
+use super::secrets::Secrets;
 use super::specific::{Explanations, specific_errors};
 use super::{
     Diagnostic, Fields, MAX_DIAGNOSTICS, Placeholders, ProblemKey, SchemaBundle, Severity,
-    accepted_pointers, escape_pointer, placeholders, unevaluated, wording,
+    accepted_pointers, cut, escape_pointer, placeholders, unevaluated, wording,
 };
 use crate::EditorStrings;
 use crate::editor::data_reading::DataReading;
@@ -127,7 +127,7 @@ pub(super) fn found(
         strings,
         secrets: &secrets,
         placeholders: &placeholders,
-        tokens: &wording::Tokens::new(
+        tokens: &cut::Tokens::new(
             tokens.accepted.iter().map(|(token, _)| token.as_str()),
             tokens.patterns,
         ),

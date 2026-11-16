@@ -11,6 +11,8 @@ use crate::EditorStrings;
 use crate::strings::{default_strings, fill};
 
 #[cfg(feature = "schema-validation")]
+mod cut;
+#[cfg(feature = "schema-validation")]
 mod fields;
 mod follow;
 mod host_reading;
@@ -26,6 +28,8 @@ mod explanation;
 mod meta_wording;
 #[cfg(feature = "schema-validation")]
 mod placeholders;
+#[cfg(feature = "schema-validation")]
+mod secrets;
 #[cfg(feature = "schema-validation")]
 mod specific;
 #[cfg(feature = "schema-validation")]
@@ -345,9 +349,10 @@ pub(super) fn validate(
 }
 
 /// [`validate`], accepting a field whose whole value is one of `accepted`
-/// in its own field (the host's secret placeholders, each with the field it
-/// stands for the current secret of) whatever its schema says: no `pattern`, `format`, length or type
-/// problem is reported on it. Messages never quote a secret field's value.
+/// in its own field (the host's secret placeholders, each with the field
+/// it stands for the current secret of) whatever its schema says: no
+/// `pattern`, `format`, length or type problem is reported on it. Messages
+/// never quote a secret field's value.
 pub(super) fn validate_with(
     source: &str,
     schema: Option<&SchemaBundle>,
