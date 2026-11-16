@@ -31,6 +31,7 @@ use std::sync::Arc;
 
 use serde_json::Value;
 
+use super::super::edit::{Change, CodeUnits};
 use super::super::language::ConfigLanguage;
 use super::super::paths::{FieldPath, with_spans};
 use super::reach::out_of_reach;
@@ -113,6 +114,9 @@ pub(crate) struct Protected {
     /// The host's read-only ranges the locks were found with (the fields
     /// they cover are locked by path too, see `fields::covered`).
     pub(crate) ranges: Vec<Range<usize>>,
+    /// The fields the host's ranges cover in its own text, when this is a
+    /// view in another language (see `Sources::range_fields`).
+    pub(crate) range_fields: Vec<FieldPath>,
 }
 
 impl Protected {
@@ -165,6 +169,9 @@ pub(crate) struct Sources<'a> {
     /// (UTF-16), when known: the locks follow the region it replaced as
     /// the guard placed it.
     pub(crate) caret: Option<usize>,
+    /// What that edit recorded it did, when it did (UTF-16): the locks are
+    /// moved through it.
+    pub(crate) change: Option<&'a Change<CodeUnits>>,
 }
 
 /// The locks of `text`, written in `behavior`: the host's ranges, then each
@@ -276,6 +283,7 @@ pub(crate) fn protect(
     protected.paths = sources.paths.iter().map(FieldPath::to_pointer).collect();
     protected.marking = sources.marking_schema.is_some();
     protected.ranges = range_stretches(&protected.locks);
+    protected.range_fields = sources.range_fields.to_vec();
     protected.text = text.to_string();
     protected
 }
@@ -330,6 +338,7 @@ fn carried_past(
         paths: previous.paths.clone(),
         marking: previous.marking,
         ranges: moved,
+        range_fields: previous.range_fields.clone(),
     })
 }
 

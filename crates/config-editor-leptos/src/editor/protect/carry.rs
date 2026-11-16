@@ -10,6 +10,7 @@ use std::cell::OnceCell;
 use std::ops::Range;
 
 use super::super::diff::{DiffEdit, myers_edits};
+use super::super::edit::{Change, CodeUnits};
 use super::locate::LineIndex;
 use super::locks::Lock;
 use super::texts::Reason;
@@ -26,6 +27,9 @@ pub(super) struct Moves<'a> {
     old_len: usize,
     new_len: usize,
     lines: OnceCell<Option<LineMoves<'a>>>,
+    /// What the edit recorded it did, when it did: spans are mapped
+    /// through it, never through a line diff.
+    change: Option<&'a Change<CodeUnits>>,
 }
 
 /// The line diff of the two texts, read only when an edit changed several
@@ -95,14 +99,20 @@ pub(super) fn placed_by_caret(
 
 impl<'a> Moves<'a> {
     pub(super) fn new(before: &'a str, after: &'a str) -> Self {
-        Self::at(before, after, None)
+        Self::at(before, after, None, None)
     }
 
-    /// The moves of the edit from `before` to `after` that left its caret
+    /// The moves of the edit from `before` to `after`: those `change`
+    /// records when it does; else read off the texts and the caret it left
     /// at `caret` (UTF-16), when known: the region it replaced is placed by
-    /// it, as the guard placed it (see [`placed_by_caret`]), so text
-    /// inserted beside a copy of itself goes where it was typed.
-    pub(super) fn at(before: &'a str, after: &'a str, caret: Option<usize>) -> Self {
+    /// it (see [`placed_by_caret`]), so text inserted beside a copy of
+    /// itself goes where it was typed.
+    pub(super) fn at(
+        before: &'a str,
+        after: &'a str,
+        caret: Option<usize>,
+        change: Option<&'a Change<CodeUnits>>,
+    ) -> Self {
         let old: Vec<u16> = before.encode_utf16().collect();
         let new: Vec<u16> = after.encode_utf16().collect();
         let prefix = old.iter().zip(&new).take_while(|(a, b)| a == b).count();
@@ -131,6 +141,7 @@ impl<'a> Moves<'a> {
             old,
             new,
             lines: OnceCell::new(),
+            change,
         }
     }
 
@@ -198,6 +209,13 @@ impl<'a> Moves<'a> {
     /// Where `range` of the text before is in the text after, when the edit
     /// kept its text.
     pub(super) fn range(&self, range: &Range<usize>) -> Option<Range<usize>> {
+        if let Some(change) = self.change {
+            // Whitespace re-flowed inside it (a reformat in one edit) moves
+            // each end with the characters beside it.
+            return change
+                .map_range(range)
+                .or_else(|| self.through_spacing(range));
+        }
         if range.end <= self.prefix {
             return Some(range.clone());
         }
@@ -207,6 +225,11 @@ impl<'a> Moves<'a> {
         }
         if let Some(moved) = self.through_spacing(range) {
             return Some(moved);
+        }
+        // An edit made inside it changed its text: no alike line elsewhere
+        // is it.
+        if range.start < self.prefix && self.old_len - self.suffix < range.end {
+            return None;
         }
         let lines = self
             .lines

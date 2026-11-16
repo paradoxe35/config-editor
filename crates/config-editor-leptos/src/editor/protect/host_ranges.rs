@@ -94,7 +94,7 @@ fn follow(
     match at_fields(behavior, text, host, &rewritten, reading) {
         Some(fields) => placed.extend(fields),
         None => placed.extend(rewritten.iter().map(|range| {
-            let shifted = follow_ranges(std::slice::from_ref(range), text, host, 0);
+            let shifted = follow_ranges(std::slice::from_ref(range), text, host, 0, None);
             shifted.into_iter().next().unwrap_or(range.clone())
         })),
     }
