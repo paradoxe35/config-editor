@@ -276,6 +276,8 @@ mod guarantee_tests;
 mod guard_scale_tests;
 #[cfg(all(test, feature = "yaml"))]
 mod held_place_tests;
+#[cfg(all(test, feature = "yaml"))]
+mod held_placeholder_tests;
 #[cfg(all(
     test,
     feature = "yaml",

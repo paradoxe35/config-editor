@@ -63,7 +63,7 @@ fn held(state: EditorState) -> Vec<(Option<usize>, Option<usize>, String)> {
         state.strings_untracked(|strings| {
             state
                 .protect()
-                .held_problems(&text, strings)
+                .held_problems(state.behavior(), &text, strings)
                 .into_iter()
                 .map(|problem| (problem.line, problem.column, problem.message))
                 .collect()

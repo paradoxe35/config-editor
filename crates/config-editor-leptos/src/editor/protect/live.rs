@@ -10,6 +10,7 @@ use leptos::prelude::*;
 use super::super::codec;
 use super::super::edit::{Change, CodeUnits, Edit, Origin};
 use super::super::edit_as::SaveError;
+use super::super::language::ConfigLanguage;
 use super::super::languages::Language;
 use super::super::parse_cache;
 use super::super::paths::{FieldPath, TextRange};
@@ -261,6 +262,83 @@ impl ProtectState {
             secrets,
             foreign,
         }
+    }
+
+    /// The field the parse reads a placeholder given whole in with text
+    /// beside it, after an edit taken for leaving the placeholder and its
+    /// edges alone (see `whole_guard::Held`), while `text` (written in
+    /// `behavior`) does not read it as the host's text does. The hold is
+    /// kept until the host gives a text: an undo may bring such a text
+    /// back.
+    pub(crate) fn placeholder_held(
+        &self,
+        behavior: &dyn ConfigLanguage,
+        text: &str,
+    ) -> Option<String> {
+        let held = self.secrets.held.get_value()?;
+        let origin = self
+            .protected
+            .with_untracked(|protected| protected.origin.clone());
+        let still = self
+            .secrets
+            .known
+            .with_untracked(|known| held.still(behavior, known, text, origin.as_deref()));
+        still.then_some(held.field)
+    }
+
+    /// The field of a placeholder given whole that `text` (written in
+    /// `behavior`), which parses, reads with other text beside it in a
+    /// value out of its field (see `glued::glued_elsewhere`). Read only
+    /// while some placeholder is out of its field (fewer real ones on
+    /// screen than the host wrote in fields) or a copy of one is written
+    /// (more on screen than are real): one in its field is judged at each
+    /// keystroke, and a parse per change would cost a key a read of the
+    /// document. A copy is judged here, by the parse, wherever the edits
+    /// that glued it were made (text typed beside it while the text did not
+    /// parse, a repair far from it, its key renamed off a field that held
+    /// it).
+    pub(crate) fn glued_away(&self, behavior: &dyn ConfigLanguage, text: &str) -> Option<String> {
+        let secrets = self.secrets;
+        let real = secrets.tokens.with_untracked(Vec::len);
+        let away = secrets.known.with_untracked(|known| {
+            let written: usize = known
+                .iter()
+                .filter(|known| known.whole.is_some() && known.field.is_some())
+                .map(|known| known.count)
+                .sum();
+            written > 0 && real < written
+        });
+        if !away && !self.copies_written(text, real) {
+            return None;
+        }
+        let parsed = parse_cache::parsed(behavior, text);
+        let document = parsed.as_ref().as_ref().ok()?;
+        secrets
+            .known
+            .with_untracked(|known| glued_elsewhere(document, known)?.field.clone())
+    }
+
+    /// Whether `text` writes more of the host's tokens given whole than the
+    /// `real` ones: a copy is written (one pass of the pattern).
+    fn copies_written(&self, text: &str, real: usize) -> bool {
+        let secrets = self.secrets;
+        secrets.known.with_untracked(|known| {
+            if !known.iter().any(|known| known.whole.is_some()) {
+                return false;
+            }
+            secrets.matcher.with_value(|matcher| {
+                matcher
+                    .find(text)
+                    .into_iter()
+                    .filter(|range| {
+                        known.iter().any(|known| {
+                            known.whole.is_some() && known.token == text[range.clone()]
+                        })
+                    })
+                    .count()
+                    > real
+            })
+        })
     }
 
     /// Takes the next text as the host's own (a controlled value, a reload,
@@ -762,24 +840,11 @@ impl EditorState {
             })
     }
 
-    /// The field the parse reads a placeholder given whole in with text
-    /// beside it, after an edit taken for leaving the placeholder and its
-    /// edges alone (see `whole_guard::Held`), while the text on screen does
-    /// not read it as the host's text does. The hold is kept until the host
-    /// gives a text: an undo may bring such a text back.
+    /// [`ProtectState::placeholder_held`] for the text on screen.
     fn placeholder_held(&self) -> Option<String> {
-        let secrets = self.protect().secrets;
-        let held = secrets.held.get_value()?;
-        let origin = self
-            .protect()
-            .protected
-            .with_untracked(|protected| protected.origin.clone());
-        let still = secrets.known.with_untracked(|known| {
-            self.doc()
-                .text
-                .with_untracked(|text| held.still(self.behavior(), known, text, origin.as_deref()))
-        });
-        still.then_some(held.field)
+        self.doc()
+            .text
+            .with_untracked(|text| self.protect().placeholder_held(self.behavior(), text))
     }
 
     /// The locked field a save of the text on screen waits on because it
@@ -816,64 +881,11 @@ impl EditorState {
         Some(self.strings_untracked(|strings| glued_message(strings, &pointer)))
     }
 
-    /// The field of a placeholder given whole that the text on screen, which
-    /// parses, reads with other text beside it in a value out of its field
-    /// (see `glued::glued_elsewhere`). Read only while some placeholder is
-    /// out of its field (fewer real ones on screen than the host wrote in
-    /// fields) or a copy of one is written (more on screen than are real):
-    /// one in its field is judged at each keystroke, and a parse per change
-    /// would cost a key a read of the document. A copy is judged here, by
-    /// the parse, wherever the edits that glued it were made (text typed
-    /// beside it while the text did not parse, a repair far from it, its
-    /// key renamed off a field that held it).
+    /// [`ProtectState::glued_away`] for the text on screen.
     fn glued_away(&self) -> Option<String> {
-        let secrets = self.protect().secrets;
-        let real = secrets.tokens.with_untracked(Vec::len);
-        let away = secrets.known.with_untracked(|known| {
-            let written: usize = known
-                .iter()
-                .filter(|known| known.whole.is_some() && known.field.is_some())
-                .map(|known| known.count)
-                .sum();
-            written > 0 && real < written
-        });
-        if !away && !self.copies_written(real) {
-            return None;
-        }
-        let parsed = self
-            .doc()
+        self.doc()
             .text
-            .with_untracked(|text| parse_cache::parsed(self.behavior(), text));
-        let document = parsed.as_ref().as_ref().ok()?;
-        secrets
-            .known
-            .with_untracked(|known| glued_elsewhere(document, known)?.field.clone())
-    }
-
-    /// Whether the text on screen writes more of the host's tokens given
-    /// whole than the `real` ones: a copy is written (one pass of the
-    /// pattern).
-    fn copies_written(&self, real: usize) -> bool {
-        let secrets = self.protect().secrets;
-        secrets.known.with_untracked(|known| {
-            if !known.iter().any(|known| known.whole.is_some()) {
-                return false;
-            }
-            self.doc().text.with_untracked(|text| {
-                secrets.matcher.with_value(|matcher| {
-                    matcher
-                        .find(text)
-                        .into_iter()
-                        .filter(|range| {
-                            known.iter().any(|known| {
-                                known.whole.is_some() && known.token == text[range.clone()]
-                            })
-                        })
-                        .count()
-                        > real
-                })
-            })
-        })
+            .with_untracked(|text| self.protect().glued_away(self.behavior(), text))
     }
 
     /// The read-only field the language cannot locate in the text on

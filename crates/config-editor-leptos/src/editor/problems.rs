@@ -142,7 +142,9 @@ impl ProblemsState {
                             .collect()
                     };
                     found.extend(protect.placeholder_pattern_problem(strings));
-                    found.extend(diagnosed_text.with(|text| protect.held_problems(text, strings)));
+                    found.extend(
+                        diagnosed_text.with(|text| protect.held_problems(behavior, text, strings)),
+                    );
                     found.extend(load_problems.with(worded));
                     found.extend(conversion_problems.with(worded));
                     let marking = schema

@@ -529,7 +529,7 @@ pub(super) fn check(case: &LiveCase) -> Result<(), Failure> {
             state.strings_untracked(|strings| {
                 state
                     .protect()
-                    .held_problems(&after, strings)
+                    .held_problems(state.behavior(), &after, strings)
                     .into_iter()
                     .map(|problem| problem.message)
                     .collect()

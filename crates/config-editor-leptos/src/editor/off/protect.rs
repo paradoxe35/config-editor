@@ -107,7 +107,12 @@ impl ProtectState {
         false
     }
 
-    pub(super) fn held_problems(&self, _text: &str, _strings: &EditorStrings) -> Vec<Diagnostic> {
+    pub(super) fn held_problems(
+        &self,
+        _behavior: &dyn super::super::language::ConfigLanguage,
+        _text: &str,
+        _strings: &EditorStrings,
+    ) -> Vec<Diagnostic> {
         Vec::new()
     }
 

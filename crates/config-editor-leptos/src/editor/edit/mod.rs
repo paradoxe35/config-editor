@@ -455,18 +455,15 @@ impl EditorState {
             },
             |area| textarea_selection(&area),
         );
-        #[cfg_attr(
-            not(feature = "protect"),
-            expect(unused_mut, reason = "the record is kept with protect only")
-        )]
-        let mut edit = Edit::step(redo, self.doc().text.get_untracked(), selection, to);
+        let edit = Edit::step(redo, self.doc().text.get_untracked(), selection, to);
         #[cfg(feature = "protect")]
-        {
-            edit.stepped = self
+        let edit = Edit {
+            stepped: self
                 .doc()
                 .history
-                .with_untracked(|history| history.next_change(redo).cloned());
-        }
+                .with_untracked(|history| history.next_change(redo).cloned()),
+            ..edit
+        };
         Some(edit)
     }
 }
