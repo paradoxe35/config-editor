@@ -355,8 +355,16 @@ pub(super) fn toggle_xml_comments(
         updated.push_str(&unescape_comment_text(&source[open_end..close_start]));
         updated.push_str(&source[cut_end..]);
         // Where a position inside the comment's text lands once unwrapped.
+        // One inside an escape (`&#4|5;`) lands after the character it
+        // writes, so positions keep their order.
+        let (_, changes) = unescaped_comment_text(&source[open_end..close_start]);
         let map = |byte: usize| {
-            let byte = byte.clamp(open_end, close_start);
+            let mut byte = byte.clamp(open_end, close_start);
+            if let Some((at, removed, _)) =
+                changes.iter().find(|(at, removed, _)| open_end + at < byte && byte < open_end + at + removed)
+            {
+                byte = open_end + at + removed;
+            }
             (source[..open].to_string() + &unescape_comment_text(&source[open_end..byte])).encode_utf16().count()
         };
         return Some((updated.clone(), map(start), map(end)));

@@ -768,3 +768,29 @@ fn the_last_editor_gone_drops_what_xml_keeps() {
     crate::editor::parse_cache::release();
     assert!(!kept());
 }
+
+/// Ctrl+/ keeps a selection's ends in order, wherever they are cut: inside
+/// an escape (`&#4|5;`) of the comment it unwraps too.
+#[test]
+fn uncommenting_keeps_the_selection_in_order_through_escapes() {
+    let xml: &dyn ConfigLanguage = &XmlBehavior;
+    let sources = [
+        "<a>\n  <!--\n  <b>x&#45;&#45;y &amp; z</b>\n  -->\n</a>\n",
+        "<a>\n  <!-- <b>x&#45;&#45;y &amp; z</b> -->\n</a>\n",
+    ];
+    let mut failures = Vec::new();
+    for source in sources {
+        let first = source.find("<b>").unwrap();
+        let last = source.find("</b>").unwrap();
+        for start in first..last {
+            for end in start..=last {
+                if let Some((text, from, to)) = xml.toggle_comments(source, start, end)
+                    && from > to
+                {
+                    failures.push(format!("{source:?} {start}..{end}: {from}..{to} in {text:?}"));
+                }
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures[..failures.len().min(5)].join("\n"));
+}

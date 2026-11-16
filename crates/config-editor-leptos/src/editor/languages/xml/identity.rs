@@ -130,7 +130,7 @@ impl<'a> Identity<'a> {
             if let Some((held, from, held_in)) = moved {
                 old = Some(held);
                 new = new_item;
-                host = from.split('/').skip(1).map(|segment| crate::editor::language::unescaped_key(segment)).collect();
+                host = from.split('/').skip(1).map(crate::editor::language::unescaped_key).collect();
                 side = held_in;
                 new_at = item_at(index);
                 old_at = from.clone();

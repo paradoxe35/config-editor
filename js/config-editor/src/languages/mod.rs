@@ -4,7 +4,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 
 use config_editor_leptos::Language;
-use config_editor_leptos::language::{LanguageConfig, LanguageInfo};
+use config_editor_leptos::language::{LanguageConfig, LanguageInfo, LanguageTraits};
 use js_sys::{Array, Function};
 use serde_json::Value;
 use wasm_bindgen::prelude::*;
@@ -189,6 +189,9 @@ fn language_config(definition: &JsValue) -> Result<LanguageConfig, JsError> {
         list_brackets: syntax::bracket_member(definition, "listBrackets")?,
         item_separator: syntax::item_separator(definition)?,
         item_marker: syntax::item_marker(definition)?,
+        // What a language registered from JavaScript is like it says
+        // only through `parse` and `serialize`.
+        traits: LanguageTraits::NONE,
     })
 }
 
