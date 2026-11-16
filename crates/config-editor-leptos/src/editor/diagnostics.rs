@@ -1000,6 +1000,7 @@ mod placeholder_tests;
     feature = "json",
     feature = "toml",
     feature = "hcl",
-    feature = "xml"
+    feature = "xml",
+    feature = "protect"
 ))]
 mod secret_shape_tests;
