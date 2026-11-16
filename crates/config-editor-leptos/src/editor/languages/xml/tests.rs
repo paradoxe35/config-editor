@@ -724,9 +724,9 @@ fn a_very_deep_document_is_planned_without_quadratic_memory() {
     assert!(XmlBehavior.string_body_lines(&source).is_empty());
 }
 
-/// QA 21 (U21-6): the caret's place, read without the spans of every name
-/// and value (each keystroke reads it), is the one the full scan finds, at
-/// every place of a document written in XML's forms.
+/// The caret's place, read without the spans of every name and value
+/// (each keystroke reads it), is the one the full scan finds, at every
+/// place of a document written in XML's forms.
 #[test]
 fn the_caret_scan_without_spans_finds_the_place_the_full_scan_does() {
     use super::scan::scan_text;
@@ -748,9 +748,8 @@ fn the_caret_scan_without_spans_finds_the_place_the_full_scan_does() {
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
-/// The last editor unmounted, what XML keeps of the last text it read goes
-/// (normal round 22's `D22.memory-1`: a closed editor's scan stayed until the
-/// next XML text).
+/// The last editor unmounted, what XML read of its last text goes: a
+/// closed editor's scan does not stay until the next XML text.
 #[test]
 fn the_last_editor_gone_drops_what_xml_keeps() {
     use crate::editor::parse_cache::any_kept;

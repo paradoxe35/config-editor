@@ -239,7 +239,6 @@ pub(super) fn yaml_lexical_state(source: &str, cursor: usize) -> (Option<char>, 
     (read.quote, read.comment.is_some())
 }
 
-
 // Conversion
 
 /// Lines inside block scalars' bodies (`key: |` then its indented text).

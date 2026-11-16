@@ -95,7 +95,6 @@ fn top_attribute_message(key: &str) -> String {
     )
 }
 
-
 /// An XML scalar edit (see `ConfigLanguage::edits_one_scalar`): an
 /// `<name>text</name>` line read as a document of its own; the edit adds
 /// and removes no markup or reference, and no `--`, `]]>` or `?>` (which
@@ -348,7 +347,6 @@ impl ConfigLanguage for XmlBehavior {
     fn entry_started(&self, source: &str, cursor: usize) -> bool {
         completion_context(source, cursor).explicit_entry_start
     }
-
 
     /// Object keys become elements and arrays repeated siblings. The output is
     /// rootless unless `previous` had a config root, which is kept along with
@@ -609,7 +607,6 @@ fn empty_key(value: &Value, pointer: String) -> Option<String> {
         _ => None,
     }
 }
-
 
 #[cfg(test)]
 mod tests;

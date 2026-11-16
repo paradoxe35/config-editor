@@ -36,7 +36,6 @@ use std::collections::HashSet;
 
 pub(super) struct JsonBehavior;
 
-
 /// A JSON scalar edit (see `ConfigLanguage::edits_one_scalar`): a
 /// `"key": value` line read as an object of its own; the edit adds and
 /// removes no quote, escape, bracket or comma.
@@ -212,11 +211,7 @@ impl ConfigLanguage for JsonBehavior {
 
 }
 
-
 // Conversion
-
-
-
 
 #[cfg(test)]
 mod tests;

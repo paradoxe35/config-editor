@@ -5,8 +5,6 @@
 //! key/value spans come from line-based scans so they work while the document
 //! is mid-edit and unparsable.
 
-
-
 mod parse;
 pub(in crate::editor::languages) mod words;
 mod suggestions;
@@ -144,10 +142,8 @@ impl YamlBehavior {
     }
 }
 
-
 /// Why a text of several YAML documents (`---` between them) is not read.
 const MULTI_DOCUMENT: &str = "This text holds more than one YAML document (a line --- starts one, a line ... ends one): the editor reads one document per file. Keep one, or split them into files";
-
 
 impl ConfigLanguage for YamlBehavior {
     fn edits_one_scalar(&self, source: &str, range: std::ops::Range<usize>, inserted: &str) -> bool {
@@ -427,7 +423,6 @@ impl ConfigLanguage for YamlBehavior {
         line_comment_start(line)
     }
 
-
     /// Values left empty at line ends (`key: `) and in flow maps
     /// (`{ cert: , key:  }`).
     fn empty_value_slots(&self, text: &str) -> Vec<usize> {
@@ -476,7 +471,6 @@ impl ConfigLanguage for YamlBehavior {
         tokens.finish()
     }
 }
-
 
 #[cfg(test)]
 #[cfg_attr(

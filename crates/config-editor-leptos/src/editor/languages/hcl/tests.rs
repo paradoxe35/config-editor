@@ -774,8 +774,7 @@ fn whole_floats_are_written_with_a_fraction() {
     assert_eq!(HclBehavior.parse(&text).unwrap()["l"][0].as_f64(), Some(2.0));
 }
 
-/// The last editor unmounted, what HCL keeps of the last text it read goes
-/// (normal round 22's `D22.memory-1`).
+/// The last editor unmounted, what HCL read of its last text goes.
 #[test]
 fn the_last_editor_gone_drops_what_hcl_keeps() {
     let text = "a = 1\nblock {\n  b = 2\n}\n";

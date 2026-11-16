@@ -61,7 +61,6 @@ pub(super) fn toml_lexical_state(source: &str, cursor: usize) -> (Option<char>, 
     (read.quote, read.comment.is_some())
 }
 
-
 /// Lines inside multi-line strings' bodies: between a line that leaves a
 /// triple-quoted string open and the line that closes it.
 pub(super) fn multi_line_string_bodies(source: &str) -> Vec<std::ops::Range<usize>> {

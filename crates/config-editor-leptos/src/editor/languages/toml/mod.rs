@@ -49,7 +49,6 @@ use std::collections::{HashMap, HashSet};
 
 pub(super) struct TomlBehavior;
 
-
 /// A TOML scalar edit (see `ConfigLanguage::edits_one_scalar`): a
 /// `key = value` line read as a document of its own; the edit adds and
 /// removes no quote or escape (a multi-line string), bracket or comma.
@@ -327,7 +326,6 @@ impl ConfigLanguage for TomlBehavior {
         lexical::read_line(line, line.len()).comment
     }
 
-
     fn serialize(&self, value: &Value, previous: Option<&str>) -> Result<String, String> {
         use super::super::codec::first_pointer;
         if !value.is_object() {
@@ -357,7 +355,6 @@ impl ConfigLanguage for TomlBehavior {
         })
     }
 
-
     /// `inf`, `-inf` and `nan`.
     fn writes_non_finite(&self) -> bool {
         true
@@ -385,11 +382,7 @@ impl ConfigLanguage for TomlBehavior {
     }
 }
 
-
 // Conversion
-
-
-
 
 #[cfg(test)]
 mod tests;

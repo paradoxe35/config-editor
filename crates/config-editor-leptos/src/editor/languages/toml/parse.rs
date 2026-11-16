@@ -195,7 +195,6 @@ pub(super) fn value_span_in_line(line: &str) -> Option<(usize, usize)> {
     (start < end).then_some((start, end))
 }
 
-
 /// The table path in effect after each line, in one pass: `[[a.b]]` adds the
 /// entry's index, and a later `[a.b.c]` belongs to the latest `a.b` entry.
 /// Entry `i` is the path for line `i + 1`; a leading empty path is for line 0.
@@ -436,7 +435,6 @@ pub(super) fn inline_entries_on(code: &str, base: &[String]) -> Vec<InlineEntry>
     inline_entries(&code[inner_start..inner_end], inner_start, base, &mut entries);
     entries
 }
-
 
 /// The span of the value from `start` to `end` of a line's `code` (at
 /// `offset`): a container is marked at its opening bracket.
