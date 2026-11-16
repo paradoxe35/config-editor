@@ -120,7 +120,7 @@ seeded_tests() {
     { pending = 0 }
     left > 0 {
       left--
-      if (!found && ($0 ~ /cases\([0-9]/ || $0 ~ /cases: [0-9]/ || $0 ~ /explore_and_report\(/ || $0 ~ /check_view\(/ || $0 ~ /_CASES"/)) {
+      if (!found && ($0 ~ /cases\([0-9]/ || $0 ~ /cases: [1-9]/ || $0 ~ /explore_and_report\(/ || $0 ~ /check_view\(/ || $0 ~ /_CASES"/)) {
         print FILENAME, name; found = 1
       }
     }'
