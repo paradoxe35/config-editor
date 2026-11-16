@@ -118,8 +118,11 @@ step_docs() {
   fi
   git ls-files '*.md' | xargs js/node_modules/.bin/prettier --check --log-level warn
   node e2e/screenshots.mjs --check
+  # Every seeded random test is in the sweep's list (scripts/sweep.sh), so
+  # the release-size sweep (.github/workflows/sweep.yml) runs it.
+  scripts/sweep.sh --check
   # The GitHub workflows, when actionlint is installed (it also runs
-  # shellcheck on their scripts when that is installed).
+  # ShellCheck on their scripts when that is installed).
   if command -v actionlint >/dev/null; then
     actionlint
   else

@@ -5,9 +5,19 @@ on:
     branches: [main]
   pull_request:
   workflow_call:
+  # The whole CI on any branch without a pull request (CONTRIBUTING.md,
+  # "Checks"), or one part of it.
+  workflow_dispatch:
+    inputs:
+      part:
+        description: "Which jobs run: all, rust (the Rust checks) or browser (the packages and the end-to-end tests)"
+        type: choice
+        options: [all, rust, browser]
+        default: all
 
+# A newer run of the same ref (and part) cancels the older one.
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.ref }}-${{ inputs.part || 'all' }}
   cancel-in-progress: true
 
 env:
@@ -18,6 +28,8 @@ jobs:
   # live in scripts/ci.sh, so `scripts/ci.sh` runs them all locally.
   rust:
     name: Rust (${{ matrix.check.name }})
+    # Push, pull request and release runs have no `part`: they run it all.
+    if: ${{ inputs.part != 'browser' }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -53,6 +65,8 @@ jobs:
   # on a runner of their own.
   browser-build:
     name: npm packages and the build the tests run
+    # The browser jobs below need this one, so they are skipped with it.
+    if: ${{ inputs.part != 'rust' }}
     runs-on: ubuntu-latest
     env:
       # Tests per end-to-end machine: the numbers that set how many run (the
@@ -276,7 +290,7 @@ jobs:
   artifacts-cleanup:
     name: remove the run's working artifacts
     needs: [e2e, e2e-timed, heap, e2e-report]
-    if: ${{ always() }}
+    if: ${{ always() && inputs.part != 'rust' }}
     runs-on: ubuntu-latest
     steps:
       # Through the run's own artifact service: no token permission needed.
