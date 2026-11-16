@@ -53,7 +53,16 @@ pub(super) fn every_language() -> Vec<Language> {
 
 /// Every language but those named in `left_out` (by label): the languages
 /// a case passes in while it waits for a fix in the others, which an
-/// ignored test of their own runs.
+/// ignored test of their own runs. Only the schema matrices, which need
+/// every language and schema validation, use it.
+#[cfg(all(
+    feature = "schema-validation",
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
 pub(super) fn every_language_but(left_out: &[&str]) -> Vec<Language> {
     every_language()
         .into_iter()
