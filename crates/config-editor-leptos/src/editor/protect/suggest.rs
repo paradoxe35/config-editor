@@ -148,7 +148,7 @@ fn references(
             }
             let written = around
                 .behavior
-                .format_value(&Value::String(format!("{prefix}{closer}")));
+                .write_value(&Value::String(format!("{prefix}{closer}")));
             // `${` may be written escaped (`$${` in HCL): the caret goes
             // after the prefix as written.
             let caret = written

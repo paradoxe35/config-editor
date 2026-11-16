@@ -84,6 +84,24 @@ test.describe('infinities and NaN', () => {
   });
 });
 
+test.describe('a registered language with a naive writer', () => {
+  test.skip(!built, 'js packages not built: run `npm run build` in js/');
+
+  test('writes infinities, NaN and huge integers from other languages as their text', async ({ page }) => {
+    await open(page);
+    const result = await page.evaluate(() => {
+      const t = window.tools;
+      return {
+        toml: t.convert('toml', 'rate = inf\nlow = -inf\nodd = nan\nbig = 9223372036854775807\n', 'Bare21'),
+        json: t.convert('json', '{"big": 18446744073709551615, "s": "\\ufdd0inf"}', 'Bare21'),
+      };
+    });
+    expect(result.toml.text).toBe('rate=inf\nlow=-inf\nodd=nan\nbig=9223372036854775807\n');
+    expect(result.toml.losses).toEqual(expect.arrayContaining(['/rate', '/low', '/odd']));
+    expect(result.json.text).toBe('big=18446744073709551615\ns=﷐inf\n');
+  });
+});
+
 test.describe('host inputs and data', () => {
   test.skip(!built, 'js packages not built: run `npm run build` in js/');
   test('serialize writes only what reads back the same; bad inputs throw with their index', async ({ page }) => {
@@ -238,7 +256,7 @@ test.describe('headless answers', () => {
 
 // A group of its own (its own helpers).
 test.describe(() => {
-  // QA round 22 (host API). `rangesOf` gives what `rangeOf` gives for every
+  // `rangesOf` gives what `rangeOf` gives for every
   // path, and every range `rangeOf` gives is taken back as a host problem's
   // range and a read-only range, whichever of LF, CRLF and a lone CR end the
   // lines, in every language, in the host's view and through Edit as; and the
@@ -440,7 +458,7 @@ test.describe(() => {
 
 // A group of its own (its own helpers).
 test.describe(() => {
-  // QA round 23 (host API): list items holding a block (YAML `- name: web`,
+  // List items holding a block (YAML `- name: web`,
   // a second HCL block, a TOML `[[array]]` and its entries) are found by
   // path in every language, and a host problem by such a path is marked on
   // the item; a nested `undefined` in `colors` and `strings` leaves the

@@ -102,10 +102,7 @@ impl LanguageConfig {
     /// ```
     pub fn flat_format_value(&self, value: &Value) -> String {
         match value {
-            // A string is written as the text it holds, not as the model
-            // holds it (see `string_value`).
             Value::String(text) => {
-                let text = super::codec::non_finite::written(text);
                 let bare = !text.is_empty()
                     && text.trim() == text
                     && !text.contains(['"', '\'', '\n', '\r', ' ', '\t'])
@@ -146,7 +143,6 @@ impl LanguageConfig {
         let Value::String(text) = value else {
             return formatted;
         };
-        let text = super::codec::non_finite::written(text);
         let written = written.trim();
         let Some(quote) = self
             .quotes

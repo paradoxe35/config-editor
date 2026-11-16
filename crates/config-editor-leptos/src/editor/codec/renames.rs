@@ -352,7 +352,7 @@ pub(in super::super) fn patch_scalar_to_container(
     if !was_scalar || !(value.is_object() || value.is_array()) {
         return None;
     }
-    let text = language.format_value(value);
+    let text = language.write_value(value);
     if text.contains('\n') {
         return None;
     }

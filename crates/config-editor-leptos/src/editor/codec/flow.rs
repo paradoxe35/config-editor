@@ -176,13 +176,13 @@ fn item_text(language: &dyn ConfigLanguage, value: &Value, written: &str) -> Str
     if same_written(language, written, value) {
         return written.to_string();
     }
-    restyle(language, value, written).unwrap_or_else(|| language.format_value_like(value, written))
+    restyle(language, value, written).unwrap_or_else(|| language.write_value_like(value, written))
 }
 
 /// Whether `written` already writes `value` (however a number is spelled:
 /// `7.835e3` for 7835).
 pub(super) fn same_written(language: &dyn ConfigLanguage, written: &str, value: &Value) -> bool {
-    let formatted = language.format_value(value);
+    let formatted = language.write_value(value);
     comparable(language, written) == comparable(language, &formatted)
         || (!value.is_object() && !value.is_array() && language.scalar_reads_as(written, value))
         || value.is_number()
@@ -204,9 +204,9 @@ fn fresh_text(
         .next()
         .is_some_and(|first| flow.closer_of(first).is_some());
     if value.is_object() || value.is_array() || model_is_container {
-        language.format_value_like(value, container)
+        language.write_value_like(value, container)
     } else {
-        language.format_value_like(value, model)
+        language.write_value_like(value, model)
     }
 }
 
