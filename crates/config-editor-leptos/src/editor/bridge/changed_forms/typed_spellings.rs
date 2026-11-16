@@ -8,6 +8,8 @@ use super::super::changed_scalars;
 use crate::editor::codec;
 use crate::editor::item_sources::ItemSources;
 use crate::editor::language::ConfigLanguage;
+use crate::editor::language::pointer_key;
+use crate::editor::paths::FieldPath;
 use serde_json::Value;
 
 /// `saved` (the host text `previous` patched to read as `target`) with
@@ -254,7 +256,10 @@ fn ranges(
 ) -> Vec<Option<std::ops::Range<usize>>> {
     crate::editor::paths::with_spans(language, text, &[], || {
         language
-            .value_spans(text, pointers)
+            .value_spans(
+                text,
+                &pointers.iter().map(FieldPath::from).collect::<Vec<_>>(),
+            )
             .into_iter()
             .map(|span| codec::byte_range(text, span?))
             .collect()
@@ -267,7 +272,7 @@ fn same_numbers(old: &Value, new: &Value, pointer: String, out: &mut Vec<String>
         (Value::Object(left), Value::Object(right)) => {
             for (key, value) in right {
                 if let Some(before) = left.get(key) {
-                    let child = format!("{pointer}/{}", key.replace('~', "~0").replace('/', "~1"));
+                    let child = format!("{pointer}/{}", pointer_key(key));
                     same_numbers(before, value, child, out);
                 }
             }

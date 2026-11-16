@@ -16,6 +16,7 @@ mod editing;
 #[cfg(feature = "folding")]
 mod folding;
 
+use crate::editor::paths::FieldPath;
 use crate::editor::paths::{first_line_span, line_column, span_between, utf16_len};
 use tokens::*;
 use scan::*;
@@ -84,12 +85,12 @@ impl ConfigLanguage for JsonBehavior {
         json_parse(source).map(super::super::codec::non_finite::escape_strings)
     }
 
-    fn key_span(&self, source: &str, pointer: &str) -> Option<Span> {
-        json_key_span(source, pointer).map(Span::from)
+    fn key_span(&self, source: &str, path: &FieldPath) -> Option<Span> {
+        json_key_span(source, &path.to_pointer()).map(Span::from)
     }
 
-    fn value_span(&self, source: &str, pointer: &str) -> Option<Span> {
-        json_value_span(source, pointer).map(Span::from)
+    fn value_span(&self, source: &str, path: &FieldPath) -> Option<Span> {
+        json_value_span(source, &path.to_pointer()).map(Span::from)
     }
 
     fn completion_context(&self, source: &str, cursor: usize) -> CompletionContext {
@@ -207,7 +208,7 @@ impl SaveLayout for JsonBehavior {
 
     /// Without a space after any `:` or `,`, the host writes compact JSON.
     /// Always a string (`"a b"`).
-    fn written_key(&self, _language: &dyn ConfigLanguage, _source: &str, _pointer: &str, key: &str) -> Option<String> {
+    fn written_key(&self, _language: &dyn ConfigLanguage, _source: &str, _path: &FieldPath, key: &str) -> Option<String> {
         serde_json::to_string(key).ok()
     }
 

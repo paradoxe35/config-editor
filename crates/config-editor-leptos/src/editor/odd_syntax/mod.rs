@@ -9,6 +9,7 @@ mod read;
 mod save_tests;
 mod write;
 
+use crate::editor::paths::FieldPath;
 use serde_json::Value;
 
 use super::language::{
@@ -60,11 +61,11 @@ impl ConfigLanguage for Odd {
         write::inline(value)
     }
 
-    fn key_span(&self, source: &str, pointer: &str) -> Option<Span> {
-        read::read(source).ok()?.keys.remove(pointer)
+    fn key_span(&self, source: &str, path: &FieldPath) -> Option<Span> {
+        read::read(source).ok()?.keys.remove(&path.to_pointer())
     }
 
-    fn value_span(&self, source: &str, pointer: &str) -> Option<Span> {
-        read::read(source).ok()?.values.remove(pointer)
+    fn value_span(&self, source: &str, path: &FieldPath) -> Option<Span> {
+        read::read(source).ok()?.values.remove(&path.to_pointer())
     }
 }

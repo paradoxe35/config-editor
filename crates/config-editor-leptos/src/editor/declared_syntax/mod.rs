@@ -10,6 +10,7 @@
 mod read;
 mod save_tests;
 
+use crate::editor::paths::FieldPath;
 use serde_json::Value;
 
 use super::language::{ConfigLanguage, LanguageConfig, LanguageInfo, ParseError, SaveLayout, Span};
@@ -81,12 +82,12 @@ impl ConfigLanguage for Dot {
         read::write_document(value)
     }
 
-    fn key_span(&self, source: &str, pointer: &str) -> Option<Span> {
-        self.config().flat_key_span(source, pointer)
+    fn key_span(&self, source: &str, path: &FieldPath) -> Option<Span> {
+        self.config().flat_key_span(source, path)
     }
 
-    fn value_span(&self, source: &str, pointer: &str) -> Option<Span> {
-        self.config().flat_value_span(source, pointer)
+    fn value_span(&self, source: &str, path: &FieldPath) -> Option<Span> {
+        self.config().flat_value_span(source, path)
     }
 
     fn format_value(&self, value: &Value) -> String {

@@ -49,6 +49,7 @@ mod namespace_scopes;
 #[cfg(feature = "folding")]
 mod folding;
 
+use crate::editor::paths::FieldPath;
 use crate::editor::paths::{line_column, span_between, utf16_len};
 use tokens::*;
 use scan::*;
@@ -121,12 +122,12 @@ impl ConfigLanguage for XmlBehavior {
         xml_parse(source).map(super::super::codec::non_finite::escape_strings)
     }
 
-    fn key_span(&self, source: &str, pointer: &str) -> Option<Span> {
-        xml_name_span(source, pointer).map(Span::from)
+    fn key_span(&self, source: &str, path: &FieldPath) -> Option<Span> {
+        xml_name_span(source, &path.to_pointer()).map(Span::from)
     }
 
-    fn value_span(&self, source: &str, pointer: &str) -> Option<Span> {
-        xml_value_span(source, pointer).map(Span::from)
+    fn value_span(&self, source: &str, path: &FieldPath) -> Option<Span> {
+        xml_value_span(source, &path.to_pointer()).map(Span::from)
     }
 
     fn completion_context(&self, source: &str, cursor: usize) -> CompletionContext {
@@ -396,29 +397,29 @@ impl SaveLayout for XmlBehavior {
         kept_markup::changed_markup(self, previous, patched, told)
     }
 
-    fn key_renames(&self, source: &str, pointer: &str, new_key: &str) -> Option<Vec<crate::editor::language::KeyEdit>> {
-        element_renames(source, pointer, new_key)
+    fn key_renames(&self, source: &str, path: &FieldPath, new_key: &str) -> Option<Vec<crate::editor::language::KeyEdit>> {
+        element_renames(source, &path.to_pointer(), new_key)
     }
 
     /// An XML name (`a.b`, `café`): a letter or `_` first, then letters,
     /// digits, `_`, `-` and `.`; for an attribute, one with a prefix too
     /// (`x:attr`; the model keys elements by their local name, so an
     /// element's is never renamed to one).
-    fn written_key(&self, _language: &dyn ConfigLanguage, source: &str, pointer: &str, key: &str) -> Option<String> {
+    fn written_key(&self, _language: &dyn ConfigLanguage, source: &str, path: &FieldPath, key: &str) -> Option<String> {
         let name = |part: &str| {
             let mut characters = part.chars();
             characters.next().is_some_and(|first| first.is_alphabetic() || first == '_')
                 && characters.all(|character| character.is_alphanumeric() || matches!(character, '_' | '-' | '.'))
         };
         let written = match key.split_once(':') {
-            Some((prefix, local)) => name(prefix) && name(local) && is_attribute(source, pointer),
+            Some((prefix, local)) => name(prefix) && name(local) && is_attribute(source, &path.to_pointer()),
             None => name(key),
         };
         written.then(|| key.to_string())
     }
 
-    fn members_in_order(&self, source: &str, pointer: &str, order: &[String]) -> Option<String> {
-        attribute_order::in_order(source, pointer, order)
+    fn members_in_order(&self, source: &str, path: &FieldPath, order: &[String]) -> Option<String> {
+        attribute_order::in_order(source, &path.to_pointer(), order)
     }
 
     fn entries_apart(&self, source: &str) -> Option<String> {
@@ -438,8 +439,8 @@ impl SaveLayout for XmlBehavior {
         one_line_children(value)
     }
 
-    fn one_line_container(&self, source: &str, pointer: &str) -> Option<OneLine> {
-        one_line_element(source, pointer).map(|range| OneLine { range: range.clone(), written: String::new(), value: range })
+    fn one_line_container(&self, source: &str, path: &FieldPath) -> Option<OneLine> {
+        one_line_element(source, &path.to_pointer()).map(|range| OneLine { range: range.clone(), written: String::new(), value: range })
     }
 
     fn opens_list_item(&self, language: &dyn ConfigLanguage, lines: &[&str], index: usize) -> bool {
@@ -525,8 +526,8 @@ impl Repeats for XmlBehavior {
     /// An element written once, at any depth (several top-level elements
     /// are a list too): never an attribute, its text or an item of
     /// repeated elements.
-    fn lone_item(&self, source: &str, pointer: &str) -> bool {
-        xml_lone_element(source, pointer)
+    fn lone_item(&self, source: &str, path: &FieldPath) -> bool {
+        xml_lone_element(source, &path.to_pointer())
     }
 }
 

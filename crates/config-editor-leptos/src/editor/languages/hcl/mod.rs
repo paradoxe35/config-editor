@@ -34,6 +34,7 @@ mod moved_maps;
 #[cfg(feature = "folding")]
 mod folding;
 
+use crate::editor::paths::FieldPath;
 use crate::editor::paths::{byte_at_column, first_line_span, line_column, span_between, utf16_len};
 use tokens::*;
 use scan::*;
@@ -106,20 +107,20 @@ impl ConfigLanguage for HclBehavior {
         hcl_parse(source).map(super::super::codec::non_finite::escape_strings)
     }
 
-    fn key_span(&self, source: &str, pointer: &str) -> Option<Span> {
-        hcl_key_span(source, pointer).map(Span::from)
+    fn key_span(&self, source: &str, path: &FieldPath) -> Option<Span> {
+        hcl_key_span(source, &path.to_pointer()).map(Span::from)
     }
 
-    fn value_span(&self, source: &str, pointer: &str) -> Option<Span> {
-        hcl_value_span(source, pointer).map(Span::from)
+    fn value_span(&self, source: &str, path: &FieldPath) -> Option<Span> {
+        hcl_value_span(source, &path.to_pointer()).map(Span::from)
     }
 
-    fn value_spans(&self, source: &str, pointers: &[String]) -> Vec<Option<Span>> {
-        hcl_value_spans(source, pointers).into_iter().map(|span| span.map(Span::from)).collect()
+    fn value_spans(&self, source: &str, paths: &[FieldPath]) -> Vec<Option<Span>> {
+        hcl_value_spans(source, &paths.iter().map(FieldPath::to_pointer).collect::<Vec<_>>()).into_iter().map(|span| span.map(Span::from)).collect()
     }
 
-    fn key_spans(&self, source: &str, pointers: &[String]) -> Vec<Option<Span>> {
-        hcl_key_spans(source, pointers).into_iter().map(|span| span.map(Span::from)).collect()
+    fn key_spans(&self, source: &str, paths: &[FieldPath]) -> Vec<Option<Span>> {
+        hcl_key_spans(source, &paths.iter().map(FieldPath::to_pointer).collect::<Vec<_>>()).into_iter().map(|span| span.map(Span::from)).collect()
     }
 
     fn completion_context(&self, source: &str, cursor: usize) -> CompletionContext {
@@ -364,19 +365,19 @@ impl SaveLayout for HclBehavior {
         list_items::opens_list_item(&comment_start, lines, index)
     }
 
-    fn item_lines(&self, source: &str, pointer: &str) -> Option<std::ops::Range<usize>> {
-        repeated_block_lines(source, pointer)
+    fn item_lines(&self, source: &str, path: &FieldPath) -> Option<std::ops::Range<usize>> {
+        repeated_block_lines(source, &path.to_pointer())
     }
 
-    fn writes_as_labels(&self, source: &str, pointer: &str) -> bool {
-        let wanted = super::super::language::pointer_segments(pointer);
+    fn writes_as_labels(&self, source: &str, path: &FieldPath) -> bool {
+        let wanted = path.texts();
         labelled_blocks(source)
             .iter()
             .any(|(path, labels)| wanted.len() >= path.len() && wanted.len() < path.len() + labels && wanted[..path.len()] == path[..])
     }
 
-    fn one_line_container(&self, source: &str, pointer: &str) -> Option<OneLine> {
-        one_line_block(source, pointer)
+    fn one_line_container(&self, source: &str, path: &FieldPath) -> Option<OneLine> {
+        one_line_block(source, &path.to_pointer())
     }
 
     /// An assignment aligned as `terraform fmt` writes it (`p    = 1`) is
@@ -391,16 +392,16 @@ impl SaveLayout for HclBehavior {
         }
     }
 
-    fn key_renames(&self, source: &str, pointer: &str, new_key: &str) -> Option<Vec<crate::editor::language::KeyEdit>> {
-        block_key_renames(source, pointer, new_key)
+    fn key_renames(&self, source: &str, path: &FieldPath, new_key: &str) -> Option<Vec<crate::editor::language::KeyEdit>> {
+        block_key_renames(source, &path.to_pointer(), new_key)
     }
 
     /// An identifier (`café`, `x-y`) bare; any other key quoted where a
     /// string may stand (a block label, an object's key), and nowhere else:
     /// a block type or an attribute name is an identifier. In an object,
     /// `null`, `true` and `false` are values, so quoted.
-    fn written_key(&self, _language: &dyn ConfigLanguage, source: &str, pointer: &str, key: &str) -> Option<String> {
-        let names = names_block_or_attribute(source, pointer);
+    fn written_key(&self, _language: &dyn ConfigLanguage, source: &str, path: &FieldPath, key: &str) -> Option<String> {
+        let names = names_block_or_attribute(source, &path.to_pointer());
         let keyword = matches!(key, "null" | "true" | "false");
         if hcl::Identifier::new(key).is_ok() && (names || !keyword) {
             return Some(key.to_string());
@@ -486,8 +487,8 @@ impl Repeats for HclBehavior {
 
     /// A block written once (`/b`, `/svc/a`): never an attribute, nor a
     /// block type with labels (an object keyed by them).
-    fn lone_item(&self, source: &str, pointer: &str) -> bool {
-        hcl_lone_block(source, pointer)
+    fn lone_item(&self, source: &str, path: &FieldPath) -> bool {
+        hcl_lone_block(source, &path.to_pointer())
     }
 }
 

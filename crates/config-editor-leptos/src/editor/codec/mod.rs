@@ -20,6 +20,8 @@ mod renames;
 mod reorder;
 mod steps;
 
+use super::language::pointer_key;
+use crate::editor::paths::FieldPath;
 use compare::{canonical_number, comment_start, comparable};
 #[cfg(test)]
 #[allow(unused_imports, reason = "the save property tests read through it")]
@@ -341,7 +343,7 @@ pub(super) fn patch_scalars(
         // shared scanner when the language has no span for them.
         let find = |pointer: &str| {
             language
-                .value_span(previous, pointer)
+                .value_span(previous, &FieldPath::from(pointer))
                 .or_else(|| inline_location(language, previous, pointer, false))
         };
         // A lone block or element read as a one-item list is addressed
@@ -445,7 +447,7 @@ pub(super) fn patch_inline(
         // the other patches.
         let document_form = ascended && pointer.is_empty() && !language.indent_is_structure();
         let span = language
-            .value_span(previous, &pointer)
+            .value_span(previous, &FieldPath::from(&pointer))
             .or_else(|| inline_location(language, previous, &pointer, false))
             .filter(|_| !document_form);
         if let Some(span) = span
@@ -531,7 +533,8 @@ pub(super) fn patch_inline(
         }
         // A one-line block or element (`tcp { nodelay = true }`).
         if !document_form
-            && let Some(one_line) = language.one_line_container(previous, &pointer)
+            && let Some(one_line) =
+                language.one_line_container(previous, &FieldPath::from(&pointer))
             && let Some(body) = new.pointer(&pointer).and_then(|value| {
                 let line_start = previous[..one_line.range.start]
                     .rfind('\n')
@@ -589,7 +592,7 @@ pub(super) fn patch_inline(
 /// (`"a": `, `a = `) shows how keys are written there: as the language
 /// writes keys (YAML quotes `on`), in quotes where the model has them.
 fn key_like(language: &dyn ConfigLanguage, key: &str, model_head: &str) -> Option<String> {
-    let written = language.written_key("", "", key)?;
+    let written = language.written_key("", &FieldPath::root(), key)?;
     let flow = Flow::of(language);
     Some(match model_head.chars().next() {
         Some(quote) if flow.quote(quote).is_some() && !flow.starts_quoted(&written) => {
@@ -630,7 +633,7 @@ fn changed_container(old: &Value, new: &Value, pointer: String) -> Option<String
     if old == new {
         return None;
     }
-    let child = |key: &str| format!("{pointer}/{}", key.replace('~', "~0").replace('/', "~1"));
+    let child = |key: &str| format!("{pointer}/{}", pointer_key(key));
     match (old, new) {
         (Value::Object(old), Value::Object(new))
             if old.len() == new.len() && old.keys().all(|key| new.contains_key(key)) =>
@@ -738,7 +741,7 @@ pub(super) fn inline_location(
     for depth in (1..segments.len()).rev() {
         let ancestor: String = segments[..depth]
             .iter()
-            .map(|segment| format!("/{}", escape(segment)))
+            .map(|segment| format!("/{}", pointer_key(segment)))
             .collect();
         let Some(span) = super::paths::memo_value_span(behavior, source, &ancestor) else {
             continue;
@@ -838,7 +841,12 @@ fn scalar_changes<'a>(
                 return None;
             }
             for (key, value) in right {
-                scalar_changes(&left[key], value, format!("{pointer}/{}", escape(key)), out)?;
+                scalar_changes(
+                    &left[key],
+                    value,
+                    format!("{pointer}/{}", pointer_key(key)),
+                    out,
+                )?;
             }
             Some(())
         }
@@ -942,14 +950,14 @@ pub(super) fn differences(
     match (expected, actual) {
         (Value::Object(left), Value::Object(right)) => {
             for (key, value) in left {
-                let child = format!("{pointer}/{}", escape(key));
+                let child = format!("{pointer}/{}", pointer_key(key));
                 match right.get(key) {
                     Some(other) => differences(value, other, child, out),
                     None => out.push(child),
                 }
             }
             for key in right.keys().filter(|key| !left.contains_key(*key)) {
-                out.push(format!("{pointer}/{}", escape(key)));
+                out.push(format!("{pointer}/{}", pointer_key(key)));
             }
         }
         (Value::Array(left), Value::Array(right)) if left.len() == right.len() => {
@@ -974,18 +982,13 @@ pub fn first_pointer(value: &Value, predicate: &dyn Fn(&Value) -> bool) -> Optio
     }
     match value {
         Value::Object(map) => map.iter().find_map(|(key, child)| {
-            first_pointer(child, predicate).map(|rest| format!("/{}{rest}", escape(key)))
+            first_pointer(child, predicate).map(|rest| format!("/{}{rest}", pointer_key(key)))
         }),
         Value::Array(items) => items.iter().enumerate().find_map(|(index, child)| {
             first_pointer(child, predicate).map(|rest| format!("/{index}{rest}"))
         }),
         _ => None,
     }
-}
-
-/// `key` as one segment of a JSON pointer.
-pub(super) fn escape(key: &str) -> String {
-    key.replace('~', "~0").replace('/', "~1")
 }
 
 // Conversion tests pair languages, so they need every built-in one.

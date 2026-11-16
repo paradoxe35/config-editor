@@ -6,6 +6,8 @@
 //! The key goes with them.
 
 use super::super::language::ConfigLanguage;
+use crate::editor::language::pointer_key;
+use crate::editor::paths::FieldPath;
 use serde_json::Value;
 use std::borrow::Cow;
 
@@ -49,14 +51,14 @@ fn emptied(
     match value {
         Value::Object(map) => {
             for (key, child) in map {
-                let child_pointer =
-                    format!("{pointer}/{}", key.replace('~', "~0").replace('/', "~1"));
+                let child_pointer = format!("{pointer}/{}", pointer_key(key));
+                let child_path = FieldPath::from(&child_pointer);
                 let lines = child.as_array().is_some_and(Vec::is_empty)
                     && language
-                        .item_lines(previous, &format!("{child_pointer}/0"))
+                        .item_lines(previous, &child_path.clone().index(0))
                         .is_some();
                 let labels = child.as_object().is_some_and(serde_json::Map::is_empty)
-                    && language.writes_as_labels(previous, &child_pointer);
+                    && language.writes_as_labels(previous, &child_path);
                 if lines || labels {
                     found.push((pointer.clone(), key.clone()));
                 } else {

@@ -3,6 +3,7 @@
 //! ranges: each range's places are found once (a scan of the whole text),
 //! not once per suggestion.
 
+use crate::editor::paths::FieldPath;
 use std::collections::HashMap;
 
 use super::offsets::ByteOffsets;
@@ -92,7 +93,7 @@ fn written_places(
     pointer.push_str(&crate::editor::language::pointer_key(old));
     let none = || Some((old.to_string(), Vec::new()));
     let Some(renamed) = behavior
-        .key_renames(source, &pointer, STAND_IN)
+        .key_renames(source, &FieldPath::from(&pointer), STAND_IN)
         .map(|edits| crate::editor::language::with_edits(source, edits))
     else {
         return none();

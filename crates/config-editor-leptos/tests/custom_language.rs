@@ -2,13 +2,13 @@
 //! (`KEY=value` lines). It gets schema validation with positions, highlighting,
 //! and conversion to and from every built-in language.
 
-use config_editor_leptos::Language;
 #[cfg(feature = "schema-validation")]
 use config_editor_leptos::Schema;
 use config_editor_leptos::language::{
-    ConfigLanguage, LanguageInfo, Lexical, ParseError, Span, Text, Token, TokenKind, Tokens,
-    value_after_separator,
+    ConfigLanguage, LanguageInfo, Lexical, ParseError, SchemaPathSegment, Span, Text, Token,
+    TokenKind, Tokens, value_after_separator,
 };
+use config_editor_leptos::{FieldPath, Language};
 use serde_json::{Map, Value};
 
 mod ini;
@@ -78,10 +78,12 @@ impl ConfigLanguage for DotEnv {
         Ok(text)
     }
 
-    fn key_span(&self, source: &str, pointer: &str) -> Option<Span> {
-        let wanted = pointer.strip_prefix('/')?;
+    fn key_span(&self, source: &str, path: &FieldPath) -> Option<Span> {
+        let [SchemaPathSegment::Key(wanted)] = path.segments() else {
+            return None;
+        };
         Self::entries(source)
-            .find(|(_, key, ..)| *key == wanted)
+            .find(|(_, key, ..)| *key == wanted.as_str())
             .map(|(line, key, start, ..)| Span {
                 line,
                 start_column: start + 1,
@@ -89,10 +91,12 @@ impl ConfigLanguage for DotEnv {
             })
     }
 
-    fn value_span(&self, source: &str, pointer: &str) -> Option<Span> {
-        let wanted = pointer.strip_prefix('/')?;
+    fn value_span(&self, source: &str, path: &FieldPath) -> Option<Span> {
+        let [SchemaPathSegment::Key(wanted)] = path.segments() else {
+            return None;
+        };
         Self::entries(source)
-            .find(|(_, key, ..)| *key == wanted)
+            .find(|(_, key, ..)| *key == wanted.as_str())
             .map(|(line, _, _, start, end)| Span {
                 line,
                 start_column: start + 1,

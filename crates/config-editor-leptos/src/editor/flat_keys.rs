@@ -6,7 +6,8 @@
 use serde_json::Value;
 
 use super::keyboard::utf16_to_byte_index;
-use super::language::{CompletionContext, LanguageConfig, Span, pointer_index, pointer_segments};
+use super::language::{CompletionContext, LanguageConfig, Span, pointer_index};
+use super::paths::FieldPath;
 
 impl LanguageConfig {
     /// The separator a flat language writes after a new key: its
@@ -229,18 +230,19 @@ impl LanguageConfig {
     }
 
     /// [`ConfigLanguage::key_span`](super::language::ConfigLanguage::key_span)
-    /// for a flat language: the key of a top-level `pointer` on the last
+    /// for a flat language: the key of a top-level `path` on the last
     /// line naming it (a later entry wins). `None` for a nested pointer or
     /// without separators.
     ///
     /// ```
-    /// use config_editor_leptos::language::{LanguageConfig, Span};
+    /// use config_editor_leptos::FieldPath;
+    /// use config_editor_leptos::language::LanguageConfig;
     /// let env = LanguageConfig { separators: &["="], ..LanguageConfig::default() };
-    /// let span = env.flat_key_span("A=1\nexport PORT = 80\n", "/PORT").unwrap();
+    /// let span = env.flat_key_span("A=1\nexport PORT = 80\n", &FieldPath::from("/PORT")).unwrap();
     /// assert_eq!((span.line, span.start_column, span.end_column), (2, 8, 12));
     /// ```
-    pub fn flat_key_span(&self, source: &str, pointer: &str) -> Option<Span> {
-        let [key] = pointer_segments(pointer).try_into().ok()?;
+    pub fn flat_key_span(&self, source: &str, path: &FieldPath) -> Option<Span> {
+        let [key] = path.texts().try_into().ok()?;
         let (line, entry) = self.flat_entry(source, &key)?;
         Some(Span {
             line,
@@ -250,7 +252,7 @@ impl LanguageConfig {
     }
 
     /// [`ConfigLanguage::value_span`](super::language::ConfigLanguage::value_span)
-    /// for a flat language: the value of a top-level `pointer` on the last
+    /// for a flat language: the value of a top-level `path` on the last
     /// line naming it, from the first character after the separator's
     /// spaces to the last one that is not blank before a line comment (a
     /// declared marker after whitespace, outside quotes). An item of a list
@@ -261,25 +263,26 @@ impl LanguageConfig {
     /// nested pointer, an empty value, or without separators.
     ///
     /// ```
-    /// use config_editor_leptos::language::{LanguageConfig, Span};
+    /// use config_editor_leptos::FieldPath;
+    /// use config_editor_leptos::language::LanguageConfig;
     /// let env = LanguageConfig { separators: &["="], line_comments: &["#"], quotes: &["\""], ..LanguageConfig::default() };
-    /// let span = env.flat_value_span("PORT = 80 \n", "/PORT").unwrap();
+    /// let span = env.flat_value_span("PORT = 80 \n", &FieldPath::from("/PORT")).unwrap();
     /// assert_eq!((span.line, span.start_column, span.end_column), (1, 8, 10));
-    /// let span = env.flat_value_span("PORT = 80  # c\n", "/PORT").unwrap();
+    /// let span = env.flat_value_span("PORT = 80  # c\n", &FieldPath::from("/PORT")).unwrap();
     /// assert_eq!((span.start_column, span.end_column), (8, 10));
-    /// let span = env.flat_value_span("TAG=a#b # c\n", "/TAG").unwrap();
+    /// let span = env.flat_value_span("TAG=a#b # c\n", &FieldPath::from("/TAG")).unwrap();
     /// assert_eq!((span.start_column, span.end_column), (5, 8));
-    /// let span = env.flat_value_span("S = \"a # b\" # c\n", "/S").unwrap();
+    /// let span = env.flat_value_span("S = \"a # b\" # c\n", &FieldPath::from("/S")).unwrap();
     /// assert_eq!((span.start_column, span.end_column), (5, 12));
-    /// assert_eq!(env.flat_value_span("PORT=\n", "/PORT"), None);
-    /// assert_eq!(env.flat_value_span("PORT= # c\n", "/PORT"), None);
+    /// assert_eq!(env.flat_value_span("PORT=\n", &FieldPath::from("/PORT")), None);
+    /// assert_eq!(env.flat_value_span("PORT= # c\n", &FieldPath::from("/PORT")), None);
     /// let dot = LanguageConfig { separators: &[":"], item_marker: Some("*"), ..LanguageConfig::default() };
-    /// let span = dot.flat_value_span("keys:\n  * a\n  * bc\nport: 1\n", "/keys/1").unwrap();
+    /// let span = dot.flat_value_span("keys:\n  * a\n  * bc\nport: 1\n", &FieldPath::from("/keys/1")).unwrap();
     /// assert_eq!((span.line, span.start_column, span.end_column), (3, 5, 7));
-    /// assert_eq!(dot.flat_value_span("keys:\n  * a\nport: 1\n", "/keys/1"), None);
+    /// assert_eq!(dot.flat_value_span("keys:\n  * a\nport: 1\n", &FieldPath::from("/keys/1")), None);
     /// ```
-    pub fn flat_value_span(&self, source: &str, pointer: &str) -> Option<Span> {
-        let segments = pointer_segments(pointer);
+    pub fn flat_value_span(&self, source: &str, path: &FieldPath) -> Option<Span> {
+        let segments = path.texts();
         let (line, (start, end)) = match segments.as_slice() {
             [key] => {
                 let (line, entry) = self.flat_entry(source, key)?;

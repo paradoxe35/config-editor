@@ -10,6 +10,7 @@
 use crate::editor::Language;
 use crate::editor::bridge::WHOLE_RENDERS;
 use crate::editor::codec::written_range;
+use crate::editor::paths::FieldPath;
 use crate::editor::save_matrix::{ALL, find_slot, report, save_conversion};
 use serde_json::{Map, Value};
 
@@ -155,7 +156,7 @@ fn moved_to(pointer: &str, touched: &str, op: Op) -> Option<String> {
 /// The host's written text of the scalar at `pointer` of `text`.
 fn written(host: Language, text: &str, pointer: &str) -> Option<String> {
     let behavior = host.behavior();
-    let span = behavior.value_span(text, pointer)?;
+    let span = behavior.value_span(text, &FieldPath::from(pointer))?;
     let range = written_range(behavior, text, span)?;
     Some(text[range].to_string())
 }

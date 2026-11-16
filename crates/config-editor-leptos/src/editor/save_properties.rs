@@ -16,6 +16,7 @@ use super::completion::conform_arrays;
 use super::diff::{DiffEdit, myers_edits};
 use super::language::Repetition;
 use super::schema::{SchemaBundle, build_schema};
+use crate::editor::paths::FieldPath;
 use serde_json::{Map, Value, json};
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -836,7 +837,10 @@ fn restyled_values(
         .into_iter()
         .filter(|(pointer, value)| !pointer.is_empty() && !value.is_object() && !value.is_array())
         .collect();
-    let wanted: Vec<String> = scalars.iter().map(|(pointer, _)| pointer.clone()).collect();
+    let wanted: Vec<FieldPath> = scalars
+        .iter()
+        .map(|(pointer, _)| FieldPath::from(pointer))
+        .collect();
     let language = host.behavior();
     let old_spans = language.value_spans(before, &wanted);
     let new_spans = language.value_spans(after, &wanted);

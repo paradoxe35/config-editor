@@ -3,6 +3,7 @@
 //! number, `""` its empty element. Such an edit waits with the reason
 //! instead of being saved as another value.
 
+use crate::editor::language::pointer_key;
 use serde_json::Value;
 
 /// The first string of `value` that `read` (the host's reading of it as
@@ -12,10 +13,7 @@ pub(super) fn first_read_otherwise(value: &Value, read: &Value) -> Option<(Strin
         (Value::String(_), _) if value != read => Some((String::new(), read.clone())),
         (Value::Object(map), Value::Object(read)) => map.iter().find_map(|(key, child)| {
             let (rest, found) = first_read_otherwise(child, read.get(key)?)?;
-            Some((
-                format!("/{}{rest}", key.replace('~', "~0").replace('/', "~1")),
-                found,
-            ))
+            Some((format!("/{}{rest}", pointer_key(key)), found))
         }),
         (Value::Array(items), Value::Array(read)) => {
             items

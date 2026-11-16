@@ -1082,12 +1082,7 @@ fn field_caret(
     let path = from.path_at(before, TextPosition::from_offset(before, caret))?;
     let start = to.range_of(after, path.clone())?.start.to_offset(after);
     let in_key = || {
-        let pointer = path.to_pointer();
-        let key = pointer
-            .rsplit('/')
-            .next()?
-            .replace("~1", "/")
-            .replace("~0", "~");
+        let key = path.texts().pop()?;
         if key.is_empty() || crate::editor::language::pointer_index(&key).is_some() {
             return None;
         }
@@ -1109,8 +1104,6 @@ fn key_offset(text: &str, from: usize, key: &str) -> Option<usize> {
     let at = byte + line.find(key)?;
     Some(text[..at].encode_utf16().count())
 }
-
-pub(super) use super::text_change::map_through_change;
 
 #[cfg(all(test, feature = "protect", feature = "json"))]
 mod gate_tests;

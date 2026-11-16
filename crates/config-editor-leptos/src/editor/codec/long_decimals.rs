@@ -4,10 +4,12 @@
 //! (`123456789.12345679`). The value reads back the same, but the digits
 //! written are gone, so a conversion lists each one as a loss.
 
+use crate::editor::language::pointer_key;
+use crate::editor::paths::FieldPath;
 use serde_json::Value;
 
 use super::super::language::ConfigLanguage;
-use super::{escape, scalar_range};
+use super::scalar_range;
 
 /// The JSON pointers of the numbers in `value` (read from `source`) that
 /// `source` writes as a decimal its double does not spell back.
@@ -17,8 +19,11 @@ pub(super) fn rounded(language: &dyn ConfigLanguage, source: &str, value: &Value
     if floats.is_empty() {
         return Vec::new();
     }
-    let pointers: Vec<String> = floats.iter().map(|(pointer, _)| pointer.clone()).collect();
-    let spans = language.value_spans(source, &pointers);
+    let paths: Vec<FieldPath> = floats
+        .iter()
+        .map(|(pointer, _)| FieldPath::from(pointer))
+        .collect();
+    let spans = language.value_spans(source, &paths);
     floats
         .into_iter()
         .zip(spans)
@@ -40,7 +45,7 @@ fn floats_in(value: &Value, at: String, out: &mut Vec<(String, f64)>) {
         }
         Value::Object(map) => {
             for (key, value) in map {
-                floats_in(value, format!("{at}/{}", escape(key)), out);
+                floats_in(value, format!("{at}/{}", pointer_key(key)), out);
             }
         }
         Value::Array(items) => {

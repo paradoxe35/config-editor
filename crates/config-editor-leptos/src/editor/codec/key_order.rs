@@ -6,7 +6,9 @@ use super::super::item_sources::SaveTold;
 use super::super::language::ConfigLanguage;
 use super::super::paths;
 use super::reorder::{comment_only, indent_of};
-use super::{byte_range, comment_start, escape, key_markup_start, read};
+use super::{byte_range, comment_start, key_markup_start, read};
+use crate::editor::language::pointer_key;
+use crate::editor::paths::FieldPath;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::ops::Range;
@@ -61,7 +63,7 @@ pub(in super::super) fn patch_key_order(
             .collect();
         // Members the host writes inside one construct (an XML element's
         // attributes, in its start tag) put in the order there.
-        if let Some(inline) = language.members_in_order(&text, &pointer, &order) {
+        if let Some(inline) = language.members_in_order(&text, &FieldPath::from(&pointer), &order) {
             text = inline;
         }
         let (moved, own) = moved_entries(language, &text, &pointer, &keys, &order)?;
@@ -105,7 +107,7 @@ fn reordered_maps(old: &Value, new: &Value, pointer: String, out: &mut Vec<(Stri
             }
             for (key, value) in left {
                 if let Some(other) = right.get(key) {
-                    reordered_maps(value, other, format!("{pointer}/{}", escape(key)), out);
+                    reordered_maps(value, other, format!("{pointer}/{}", pointer_key(key)), out);
                 }
             }
         }
@@ -137,7 +139,7 @@ fn moved_entries(
     // each read it from the top).
     let pointers: Vec<String> = keys
         .iter()
-        .map(|key| format!("{pointer}/{}", escape(key)))
+        .map(|key| format!("{pointer}/{}", pointer_key(key)))
         .collect();
     let own = paths::with_spans(language, text, &pointers, || {
         let mut own: Vec<(&String, Range<usize>)> = Vec::with_capacity(keys.len());
@@ -253,7 +255,7 @@ pub(in super::super) fn own_lines(
     }
     // An entry the language writes as lines of its own (a TOML table)
     // ends where it says.
-    if let Some(own) = language.item_lines(text, pointer) {
+    if let Some(own) = language.item_lines(text, &FieldPath::from(pointer)) {
         last = last.max(paths::line_column(text, own.end).0 - 1);
     }
     // A container opened on its lines runs to where it closes.

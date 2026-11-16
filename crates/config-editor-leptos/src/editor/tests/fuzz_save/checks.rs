@@ -4,6 +4,7 @@
 //! the comments of what the session left alone; or else the save waits
 //! with a problem shown.
 
+use crate::editor::paths::FieldPath;
 use leptos::prelude::*;
 use serde_json::Value;
 use std::collections::HashMap;
@@ -246,9 +247,10 @@ fn squeezed(text: &str) -> String {
 fn forms(language: Language, text: &str, value: &Value) -> HashMap<String, String> {
     let all = pointers(value);
     let wanted: Vec<String> = all.iter().map(|(pointer, _)| pointer.clone()).collect();
+    let wanted_paths: Vec<FieldPath> = wanted.iter().map(FieldPath::from).collect();
     let behavior = language.behavior();
-    let keys = behavior.key_spans(text, &wanted);
-    let values = behavior.value_spans(text, &wanted);
+    let keys = behavior.key_spans(text, &wanted_paths);
+    let values = behavior.value_spans(text, &wanted_paths);
     let comments = behavior.comments(text);
     let mut out = HashMap::new();
     for (((pointer, child), key), at) in all.iter().zip(keys).zip(values) {
@@ -369,9 +371,10 @@ pub(super) fn comment_bodies(language: Language, text: &str) -> Vec<String> {
 fn owned_comments(language: Language, text: &str, value: &Value) -> Vec<(String, Vec<String>)> {
     let all = pointers(value);
     let wanted: Vec<String> = all.iter().map(|(pointer, _)| pointer.clone()).collect();
+    let wanted_paths: Vec<FieldPath> = wanted.iter().map(FieldPath::from).collect();
     let behavior = language.behavior();
-    let keys = behavior.key_spans(text, &wanted);
-    let values = behavior.value_spans(text, &wanted);
+    let keys = behavior.key_spans(text, &wanted_paths);
+    let values = behavior.value_spans(text, &wanted_paths);
     // The items written on each line (from 1).
     let mut on_line: std::collections::BTreeMap<usize, Vec<String>> = Default::default();
     for (pointer, (key, at)) in wanted.iter().zip(keys.iter().zip(values.iter())) {
@@ -759,7 +762,7 @@ fn check_forms(
     let view_spans = |pointer: &str| {
         let span = view
             .behavior()
-            .value_spans(view_text, &[pointer.to_string()])
+            .value_spans(view_text, &[FieldPath::from(pointer)])
             .pop()
             .flatten()?;
         let line = line_text(view_text, span.line)?;
@@ -1009,9 +1012,10 @@ fn value_texts(language: Language, text: &str) -> std::collections::HashSet<Stri
         .filter(|(_, value)| !value.is_object() && !value.is_array())
         .map(|(pointer, _)| pointer)
         .collect();
+    let wanted_paths: Vec<FieldPath> = wanted.iter().map(FieldPath::from).collect();
     language
         .behavior()
-        .value_spans(text, &wanted)
+        .value_spans(text, &wanted_paths)
         .into_iter()
         .flatten()
         .filter_map(|span| {

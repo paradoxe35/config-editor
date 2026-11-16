@@ -26,6 +26,7 @@ mod table_spacing;
 #[cfg(feature = "folding")]
 mod folding;
 
+use crate::editor::paths::FieldPath;
 use crate::editor::paths::{byte_at_column, first_line_span, line_column, span_between};
 use style::*;
 use parse::*;
@@ -92,20 +93,20 @@ impl ConfigLanguage for TomlBehavior {
         toml_parse(source)
     }
 
-    fn key_span(&self, source: &str, pointer: &str) -> Option<Span> {
-        toml_key_span(source, pointer).map(Span::from)
+    fn key_span(&self, source: &str, path: &FieldPath) -> Option<Span> {
+        toml_key_span(source, &path.to_pointer()).map(Span::from)
     }
 
-    fn value_span(&self, source: &str, pointer: &str) -> Option<Span> {
-        toml_value_span(source, pointer).map(Span::from)
+    fn value_span(&self, source: &str, path: &FieldPath) -> Option<Span> {
+        toml_value_span(source, &path.to_pointer()).map(Span::from)
     }
 
-    fn value_spans(&self, source: &str, pointers: &[String]) -> Vec<Option<Span>> {
-        toml_value_spans(source, pointers).into_iter().map(|span| span.map(Span::from)).collect()
+    fn value_spans(&self, source: &str, paths: &[FieldPath]) -> Vec<Option<Span>> {
+        toml_value_spans(source, &paths.iter().map(FieldPath::to_pointer).collect::<Vec<_>>()).into_iter().map(|span| span.map(Span::from)).collect()
     }
 
-    fn key_spans(&self, source: &str, pointers: &[String]) -> Vec<Option<Span>> {
-        toml_key_spans(source, pointers).into_iter().map(|span| span.map(Span::from)).collect()
+    fn key_spans(&self, source: &str, paths: &[FieldPath]) -> Vec<Option<Span>> {
+        toml_key_spans(source, &paths.iter().map(FieldPath::to_pointer).collect::<Vec<_>>()).into_iter().map(|span| span.map(Span::from)).collect()
     }
 
     fn completion_context(&self, source: &str, cursor: usize) -> CompletionContext {
@@ -289,8 +290,8 @@ impl SaveLayout for TomlBehavior {
             .starts_with("[[")
     }
 
-    fn item_lines(&self, source: &str, pointer: &str) -> Option<std::ops::Range<usize>> {
-        table_lines(source, pointer)
+    fn item_lines(&self, source: &str, path: &FieldPath) -> Option<std::ops::Range<usize>> {
+        table_lines(source, &path.to_pointer())
     }
 
     /// An assignment aligned as formatters write it (`p    = 1`) is the
@@ -305,15 +306,15 @@ impl SaveLayout for TomlBehavior {
         }
     }
 
-    fn key_renames(&self, source: &str, pointer: &str, new_key: &str) -> Option<Vec<crate::editor::language::KeyEdit>> {
-        toml_key_renames(source, pointer, new_key)
+    fn key_renames(&self, source: &str, path: &FieldPath, new_key: &str) -> Option<Vec<crate::editor::language::KeyEdit>> {
+        toml_key_renames(source, &path.to_pointer(), new_key)
     }
 
     /// A date or time the host writes bare stays one: written as TOML
     /// reads it back, and a text that is no date or time (typed half-way)
     /// waits rather than turn it into a string.
-    fn scalar_edit(&self, previous: &str, pointer: &str, value: &Value) -> Result<Option<Value>, String> {
-        let Some(span) = self.value_span(previous, pointer) else {
+    fn scalar_edit(&self, previous: &str, path: &FieldPath, value: &Value) -> Result<Option<Value>, String> {
+        let Some(span) = self.value_span(previous, path) else {
             return Ok(None);
         };
         // (A lookup while a batch runs for the text.)
@@ -336,7 +337,7 @@ impl SaveLayout for TomlBehavior {
     }
 
     /// Bare (`A-Za-z0-9_-`), else a basic string (`"a.b"`).
-    fn written_key(&self, _language: &dyn ConfigLanguage, _source: &str, _pointer: &str, key: &str) -> Option<String> {
+    fn written_key(&self, _language: &dyn ConfigLanguage, _source: &str, _path: &FieldPath, key: &str) -> Option<String> {
         Some(toml_key(key))
     }
 
