@@ -1204,14 +1204,14 @@ pub trait Text {
         default_fold_ranges(source, &language.config(), &string_bodies(language, source))
     }
 
-    /// The byte ranges the value at `pointer` is written in, whole: from
+    /// The byte ranges the value at `path` is written in, whole: from
     /// its first character over every line it takes to its last closer (a
     /// string's closing quote, a block's `}`, an element's end tag, a
     /// heredoc's terminator), read from the parse. One range, unless the
     /// language writes one value in several places with other fields
     /// between them (a TOML table and a sub-table written apart, repeated
     /// elements or blocks). Empty when `source` does not parse or does not
-    /// write `pointer`.
+    /// write `path`.
     ///
     /// A lock covers these ranges with the field's key, so no edit changes
     /// a part of a locked value. The default joins the language's one-line
@@ -1224,9 +1224,9 @@ pub trait Text {
         &self,
         language: &dyn ConfigLanguage,
         source: &str,
-        pointer: &str,
+        path: &FieldPath,
     ) -> Vec<std::ops::Range<usize>> {
-        super::paths::joined_value_ranges(language, source, pointer)
+        super::paths::joined_value_ranges(language, source, &path.to_pointer())
     }
 
     /// How many containers `text` opens and leaves open: by default its
@@ -2093,8 +2093,8 @@ impl dyn ConfigLanguage {
     }
 
     /// See [`Text::value_ranges`].
-    pub fn value_ranges(&self, source: &str, pointer: &str) -> Vec<std::ops::Range<usize>> {
-        self.text().value_ranges(self, source, pointer)
+    pub fn value_ranges(&self, source: &str, path: &FieldPath) -> Vec<std::ops::Range<usize>> {
+        self.text().value_ranges(self, source, path)
     }
 
     /// See [`Text::unclosed_containers`].
