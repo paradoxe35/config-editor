@@ -175,6 +175,16 @@ pub fn ConfigEditor(
     /// `on_change` to keep the host as the source of truth.
     #[prop(optional, into)]
     value: Option<Signal<String>>,
+    /// With `echoes`: the revision `on_change` sent `value` with
+    /// ([`EditorHandle::sent_revision`], read in `on_change`), for a host
+    /// that stores it beside the text and never goes back to an older one.
+    /// Its echo is then matched exactly, with no pause: that revision and
+    /// every earlier one are confirmed. Set it before `value` (it is read
+    /// as `value` changes), and to `None` for a text of the host's own.
+    /// Unset, an echo is told apart by its text, and a host left behind on
+    /// an older one hears the document again a pause later.
+    #[prop(optional, into)]
+    value_revision: MaybeProp<u64>,
     /// Whether the host hands every `on_change` text back as `value`, maybe
     /// late and in any order (a store saving each text, then giving it
     /// back): each such echo is told apart from a text of the host's own,
@@ -378,6 +388,7 @@ pub fn ConfigEditor(
         state,
         sync::Host {
             value,
+            value_revision,
             edit_as,
             on_edit_as_change,
             initial_pending,

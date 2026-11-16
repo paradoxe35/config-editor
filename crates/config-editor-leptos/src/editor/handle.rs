@@ -198,6 +198,19 @@ impl EditorHandle {
         Some(state.sync().line_endings.restore(text))
     }
 
+    /// The revision of the text `on_change` sent last, while the host has
+    /// not handed it back (with the `echoes` prop): read it in `on_change`
+    /// and pass it back as the `value_revision` prop with that text, for an
+    /// exact echo match. `None` before the editor mounts, without `echoes`,
+    /// and once the host has handed back every text sent.
+    pub fn sent_revision(&self) -> Option<u64> {
+        self.editor()?
+            .sync()
+            .echoes
+            .try_with_value(super::sync::Echoes::latest_revision)
+            .flatten()
+    }
+
     /// The unified diff (`diff -u`) of the baseline against
     /// [`value`](Self::value), both in the host's language, with `context`
     /// unchanged lines around each change; empty when they are the same.

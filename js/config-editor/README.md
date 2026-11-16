@@ -128,6 +128,7 @@ document and its callbacks (below) and every [setting](#settings) (`theme`,
 | `fileName`           | `string`                                    | `untitled.<ext>` | Shown in the toolbar.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | `className`          | `string`                                    | —                | Extra class on the editor root.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | `echoes`             | `boolean`                                   | `false`          | Set it when you hand every `onChange` text back through `update({ value })`, possibly late and in any order; see [Hosts that echo](#hosts-that-echo). Fixed for the editor's life.                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| `channel`            | `HostChannel`                               | —                | The `channel` of an editor this one replaces (a framework re-creating its editor): its echoes still on their way are this editor's too. The framework components pass it themselves.                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | `onChange`           | `(value: string) => void`                   | —                | Called with the document after every edit (after each typing pause while editing as another language).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | `onEditAsChange`     | `(language: string) => void`                | —                | Called with the language on screen: once on mount, then each time an `editAs` switch completes and when undo or redo steps back across one (a switch is an undo step). A switch waits while the document cannot convert yet (TOML has no `null`): until then the host's language stays on screen, edited and sent to `onChange` as it is, with the reason on the value in the way. Label the language shown from this, not from `editAs`.                                                                                                                                                                      |
 | `onSyncChange`       | `(inSync: boolean) => void`                 | —                | Called with whether the text on screen is written back to the document: once on mount, then each time that changes. `false` while an `editAs` edit cannot convert back (a `null` for TOML, or a value `language` would read back differently, such as a list typed over an XML string; `value` stays the last document, `onChange` waits and `save()` sends nothing; a list the document held, left with one item or none, is written as `language` writes it), whatever brought it there (typing, paste, undo, a switch, a reload, a new `value`); read after each typing pause. Always `true` in `language`. |
@@ -560,12 +561,9 @@ const editor = new ConfigEditor(element, {
 ```
 
 Then a `value` that `onChange` gave and that has not come back yet is its
-echo and keeps the document, in any order and however late, until 5
-seconds after a text `onChange` gave later came back: a host handing back
-only the latest of several never hands back the ones it skipped, so they
-are forgotten then (what the editor keeps stays bounded), and one of them
-coming back after that is taken as yours. Within that, nothing typed is
-lost. An echo the store wrote another way (without the byte order mark,
+echo and keeps the document, in any order and however late: nothing typed
+is lost. Each text sent is kept (a short print of it, not the text) until
+its echo comes or a text of yours replaces the document; never by time. An echo the store wrote another way (without the byte order mark,
 with LF line breaks) is still the echo, and the document keeps its own.
 Ranges given with an echo (`readOnlyRanges`, host `range`s) are in
 the echoed text: they are moved to the document. The text you gave last,
@@ -588,13 +586,21 @@ That pause is the one place time enters, and only without revisions: the
 editor cannot tell an echo lost in a render from one still on its way by the
 texts alone.
 
+An editor a framework creates again (a new `language` or `fileName`) takes
+over the echoes of the one it replaces: pass the old editor's `channel` as
+the new one's `channel` option. The framework components do it for you.
+
 With revisions there is no pause. `onChange(text, revision)` gives each text
 a revision; store it beside the text, keep only the newest revision you were
 given (never go back to an older one), and pass it back:
 `update({ value, valueRevision })`. The echo is then matched exactly: that
 revision and every earlier one are confirmed, an older value given back means
 a newer one is still on its way, and nothing is sent again. Give a text of
-your own without `valueRevision`. To go back to a text
+your own without `valueRevision`. So the editor counts every text it gave
+as on its way until you pass back its revision or a later one, and never
+sends it again by itself: a store that loses one (a save that failed, a
+render that dropped it) must send it again, for instance the newest text
+`onChange` gave with its revision. To go back to a text
 `onChange` gave that may still be on its way (a discard to what you saved, a
 revert), or to reset while the echoes of what was typed are still to come,
 call `replaceValue(text)`: it always applies, and the echoes on their way
@@ -1026,7 +1032,8 @@ those components do, written once: feed it the component's props and it
 decides what each change means. Settings and most props apply live (the
 caret, undo history and folds stay); `language`, `schema`, `fileName`,
 `editorClassName` and the `secrets` patterns re-mount the editor, carrying
-the document, its baseline and the caret over; the bound value is kept in step so a late echo never rolls the
+the document, its baseline, the caret and the echoes still on their way
+over; the bound value is kept in step so a late echo never rolls the
 document back (an edit the framework passes back in late is told apart
 from a value the app sets, such as a reset or a loaded file); a mount
 that failed on a bad prop is retried when a prop changes; the WebAssembly

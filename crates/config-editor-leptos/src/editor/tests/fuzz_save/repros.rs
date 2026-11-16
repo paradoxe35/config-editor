@@ -2094,6 +2094,40 @@ fn a_cut_after_an_undo_in_a_switched_view_saves_what_the_view_reads() {
     );
 }
 
+/// P2: a text cut in the host's language (one that does not read, a stray
+/// `x` typed) and pasted whole into a view stands for no saved host text:
+/// it is read in the view's language, and the save waits as it does not
+/// read there, instead of sending the host the text as it was.
+#[test]
+fn a_host_language_text_pasted_into_a_view_is_read_in_the_view() {
+    replay(
+        Language::JSON,
+        Language::JSON,
+        "{\n  \"name\": \"web-app\",\n  \"version\": \"1.0.0\",\n  \"private\": true,\n  \"scripts\": {\n    \"build\": \"vite build\",\n    \"test\": \"vitest run\"\n  },\n  \"dependencies\": {\"react\": \"^18.3.1\", \"react-dom\": \"^18.3.1\"},\n  \"engines\": {\n    \"node\": \">=18\"\n  },\n  \"files\": [\"dist\", \"src\"],\n  \"ratio\": 1.50,\n  \"size\": 1e3\n}\n",
+        &[
+            Op::Type {
+                line: 24,
+                column: 1000,
+                text: "x",
+            },
+            Op::Cut {
+                line: 16,
+                how: Take::Entry,
+            },
+            Op::Switch { to: 3 },
+            Op::CopyLine {
+                line: 15,
+                down: false,
+            },
+            Op::Undo,
+            Op::Paste {
+                line: 46,
+                how: Put::OverBlank,
+            },
+        ],
+    );
+}
+
 /// P2: an entry copied in a JSON view of a TOML host and pasted in a YAML
 /// view: the original, left alone, keeps its host text (`3.5e2`).
 #[test]

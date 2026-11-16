@@ -56,6 +56,7 @@ const PROPS = {
   edit_as: { option: 'editAs', update: 'editAs' },
   initial_value: { exempt: '`value` is both the initial and the live document in JS; the components have `defaultValue`' },
   value: { option: 'value', update: 'value' },
+  value_revision: { option: 'valueRevision', update: 'valueRevision' },
   echoes: { exempt: 'the JS `echoes` option (see OPTIONS_JS_ONLY): a component\'s binding always sets it' },
   baseline: { option: 'baseline', update: 'baseline' },
   schema: { option: 'schema', fixed: 'the schema is compiled once, when the editor is built' },
@@ -93,6 +94,7 @@ const HANDLE = {
   is_mounted: { exempt: 'an instance is mounted from its constructor until `destroy()` (a component: its `editor`)' },
   text: { member: 'text' },
   value: { member: 'value' },
+  sent_revision: { exempt: 'JS hands the revision to `onChange` as its second argument' },
   unified_diff: { member: 'unifiedDiff' },
   range_of: { member: 'rangeOf' },
   path_at: { member: 'pathAt' },
@@ -364,9 +366,10 @@ const CRATE_EXPORTS = {
 // Options of `ConfigEditor` / `ConfigDocuments` that no Rust prop maps to
 // and no component has, and why.
 const OPTIONS_JS_ONLY = {
+  valueRevision: 'passed back with the value through `update`, never to the constructor (a text at construction has no revision yet): the binding hands it to `update({ value, valueRevision })`; the Rust `value_revision` prop',
   rangesFor: 'says which text the ranges were given for (a text the document has moved past): in Rust the ranges props are signals the host sets for the document; a component\'s binding passes its bound value',
   echoes: 'a host handing every `onChange` text back through `update`: the Rust `echoes` prop, which a component\'s binding always sets (its parent passes every edit back as its value)',
-  valueRevision: 'the revision `onChange` gave the value with, passed back for an exact echo match: no Rust prop yet (the Leptos `value` is a signal of text alone, so the Rust side keeps the text rule and its pause)',
+  channel: 'an editor taking over the channel of the one it replaces (its echoes on their way): a component\'s binding passes it when it re-creates its editor; a Rust component is never re-created by a binding',
 };
 const DOCUMENTS_OPTIONS_JS_ONLY = {
   echoes: 'a host listing every `onChange` text back through `update`: in Rust the `documents` prop is a signal the host sets; a component\'s binding always sets it (its parent lists every edit back)',
@@ -380,6 +383,7 @@ const UPDATE_ONLY = {};
 const EDITOR_JS_ONLY = {
   update: 'the props: a component applies each change itself',
   replaceValue: 'a component\'s parent sets `value`, and the editor tells its late echoes apart (`echoes`) (its `setValue` replaces the value through it)',
+  channel: 'a component re-creating its editor hands it to the new one itself (its binding does)',
   destroy: 'the component unmounts the editor itself',
   settings: 'the setting props',
 };
@@ -1218,7 +1222,7 @@ test.describe('API parity between the Rust crate and the JS packages', () => {
       if (!js.documentEditorMembers.has(name)) problems.push(`DocumentEditorView has no \`${name}\` (EditorView)`);
     }
     // A document's value, like its options, comes from the view's list.
-    for (const name of js.members) if (!js.viewMembers.has(name) && !['update', 'destroy', 'replaceValue'].includes(name)) problems.push(`ConfigEditor member \`${name}\` is not in EditorView`);
+    for (const name of js.members) if (!js.viewMembers.has(name) && !['update', 'destroy', 'replaceValue', 'channel'].includes(name)) problems.push(`ConfigEditor member \`${name}\` is not in EditorView`);
     for (const name of js.documentEditorMembers) if (!js.viewMembers.has(name)) problems.push(`DocumentEditorView member \`${name}\` is not in EditorView`);
     expect(problems).toEqual([]);
   });

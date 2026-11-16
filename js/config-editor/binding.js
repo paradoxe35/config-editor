@@ -6,10 +6,10 @@
 // `update` after every change, `detach` on unmount) and decides what each
 // change means: settings and most props apply live (the caret, undo history
 // and folds stay), the few the editor is built from re-mount it (the
-// document, its baseline and the caret carried over), the bound value goes
-// to the editor's `update({ value })` with `echoes` on (the editor tells an
-// echo, late or out of order, from the parent's own value, so none rolls the
-// document back), a mount that failed on a bad prop is retried when a prop
+// document, its baseline, the caret and the echoes still on their way
+// carried over), the bound value goes to the editor's `update({ value })`
+// with `echoes` on (the editor tells an echo, late or out of order, from the
+// parent's own value, so none rolls the document back), a mount that failed on a bad prop is retried when a prop
 // changes, and the WebAssembly loads once for every editor on the page.
 
 import { ConfigDocuments, ConfigEditor, unifiedDiff } from "./pkg/config_editor.js";
@@ -198,6 +198,10 @@ export class EditorBinding extends Binding {
   // Where the caret was when a re-mount took the editor away while it had
   // focus: the new one takes focus and the caret back, so typing goes on.
   #carriedFocus = null;
+  // The channel of the editor a re-mount took away (`editor.channel`): the
+  // new one takes it over, so the echoes still on their way to the parent
+  // are told apart there too and none rolls the typing back.
+  #channel = null;
   // A `setValue` (the handle's) made while there is no editor (before the first mount, or
   // while a re-mount has failed): applied and reported on mount.
   #reset = null;
@@ -255,6 +259,7 @@ export class EditorBinding extends Binding {
       // The parent binds the value two ways: every `onChange` text comes
       // back as the value, maybe late and in any order.
       echoes: true,
+      channel: this.#channel ?? undefined,
       language: props.language,
       editAs: props.editAs ?? undefined,
       schema: props.schema,
@@ -294,6 +299,9 @@ export class EditorBinding extends Binding {
   }
 
   mounted() {
+    // The new editor took the channel over (a constructor that threw left
+    // it for the next try).
+    this.#channel = null;
     const focus = this.#carriedFocus;
     this.#carriedFocus = null;
     const textarea = this.element.querySelector("textarea");
@@ -329,7 +337,15 @@ export class EditorBinding extends Binding {
     // destroy() first: it sends an edit still waiting to convert.
     editor.destroy();
     if (this.#carried) this.#carried.value = editor.value;
+    this.#channel?.free();
+    this.#channel = editor.channel;
     editor.free();
+  }
+
+  detach() {
+    super.detach();
+    this.#channel?.free();
+    this.#channel = null;
   }
 
   /** Applies the live props that changed (all of them right after a mount). */

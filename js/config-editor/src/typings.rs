@@ -33,8 +33,7 @@ export interface EditorOptions extends EditorSettings {
   className?: string;
   /** Set it when you hand every `onChange` text back through `update({ value })`, possibly late and in any order (a store that re-renders after a delay, a fetch per edit): a `value` that `onChange` gave and that has not come back yet is then its echo and keeps the document, so nothing typed is lost. A text it never gave applies; go back to one it gave with `replaceValue`. Without it (the default) every `value` applies. Fixed for the editor's life. */
   echoes?: boolean;
-  /** Called with the document, in `language`, after every edit. */
-  /** Called with the document after every edit, and the text's `revision`: pass it back as `valueRevision` with the value for an exact echo match (no pause, see `valueRevision`). */
+  /** Called with the document, in `language`, after every edit, and the text's `revision`: pass it back as `valueRevision` with the value for an exact echo match (no pause, see `valueRevision`). */
   onChange?: (value: string, revision: number) => void;
   /** Called with the language on screen: once on mount, then each time an `editAs` switch completes and when undo or redo steps back across one (it waits while the document cannot convert yet, the host's language staying on screen). */
   onEditAsChange?: (language: LanguageName) => void;
@@ -66,6 +65,8 @@ export interface EditorOptions extends EditorSettings {
   valueRevision?: number;
   /** How secret placeholders (`«secret 3f2a»`) are matched, described and completed in fields the schema marks `writeOnly` or `x-secret`. */
   secrets?: SecretOptions;
+  /** The `channel` of an editor this one replaces (a framework re-creating its editor for a new `language` or `fileName`), with `echoes` as that editor had it: the texts it sent that the host has not handed back yet are this editor's echoes too, so none of them rolls back what was typed. The object is this editor's from then on. */
+  channel?: HostChannel;
 }
 
 /** Secret placeholders: tokens the host writes in place of real secrets. */
@@ -174,6 +175,8 @@ export interface EditorUpdate extends SettingsUpdate {
   secrets?: never;
   /** The editor is built from it: create a new one to change it. */
   echoes?: never;
+  /** The editor is built from it: create a new one to change it. */
+  channel?: never;
 }
 
 /**

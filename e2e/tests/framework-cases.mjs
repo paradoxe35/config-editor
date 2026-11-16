@@ -380,7 +380,6 @@ export function frameworkCases(name) {
       expect(errors.some((error) => error.includes('not-a-theme') || error.includes('theme'))).toBe(true);
     });
 
-    // round 5
     test('a re-mount while the parent is late keeps the newest document', async ({ page: browserPage }) => {
       await browserPage.goto(page(name) + '?late');
       await expect(browserPage.locator('body')).toHaveAttribute('data-ready', 'true', { timeout: 20000 });
@@ -399,6 +398,40 @@ export function frameworkCases(name) {
     });
 
     // the ref while a re-mount has failed
+    // P4: the echoes still on their way when the component re-creates its
+    // editor are the new editor's echoes too (it takes the old one's
+    // channel over): handed back after the re-mount, in any order, none
+    // rolls the typing back.
+    test('a re-mount while echoes are in flight loses no keystroke', async ({ page: browserPage }) => {
+      for (const order of [[0, 1, 2], [2, 0, 1], [1, 2, 0]]) {
+        await browserPage.goto(page(name) + '?manual');
+        await expect(browserPage.locator('body')).toHaveAttribute('data-ready', 'true', { timeout: 20000 });
+        const before = await input(browserPage).inputValue();
+        await input(browserPage).click();
+        await browserPage.keyboard.press('Control+End');
+        await browserPage.keyboard.type('xy', { delay: 30 });
+        expect(await browserPage.evaluate(() => window.heldEchoes())).toBe(2);
+        await browserPage.evaluate(() => window.renameFile());
+        await expect(browserPage.locator('.config-editor__toolbar')).toContainText('renamed-');
+        await input(browserPage).click();
+        await browserPage.keyboard.press('Control+End');
+        await browserPage.keyboard.type('z', { delay: 30 });
+        expect(await browserPage.evaluate(() => window.heldEchoes())).toBe(3);
+        for (const index of order) {
+          await browserPage.evaluate((index) => window.releaseEchoes([index]), index);
+          await browserPage.waitForTimeout(50);
+          await expect(input(browserPage)).toHaveValue(before + 'xyz');
+        }
+        // Every echo in and the check after the pause run out: the parent
+        // ends on the document too.
+        await browserPage.waitForTimeout(400);
+        await browserPage.evaluate(() => window.releaseEchoes([...Array(window.heldEchoes()).keys()].slice(3)));
+        await browserPage.waitForTimeout(100);
+        await expect(input(browserPage)).toHaveValue(before + 'xyz');
+        await expect(saved(browserPage)).toHaveText(before + 'xyz');
+      }
+    });
+
     test('the instance value is the document, not the initial value', async ({ page: browserPage }) => {
       await browserPage.goto(page(name) + '?uncontrolled');
       await expect(browserPage.locator('body')).toHaveAttribute('data-ready', 'true', { timeout: 20000 });
@@ -412,7 +445,6 @@ export function frameworkCases(name) {
       expect(value).toContain('debug: true');
     });
 
-    // round 11
     test('setValue before the editor mounts applies and reaches the parent', async ({ page: browserPage }) => {
       await browserPage.goto(page(name) + '?reset-early');
       await expect(browserPage.locator('body')).toHaveAttribute('data-ready', 'true', { timeout: 20000 });
@@ -442,7 +474,6 @@ export function frameworkCases(name) {
       await expect(saved(browserPage)).toHaveText('listen: 9000\nqrstuvw', { timeout: 5000 });
     });
 
-    // round 12
     test('a reset made before mount survives a late parent', async ({ page: browserPage }) => {
       await browserPage.goto(page(name) + '?reset-early&late');
       await expect(browserPage.locator('body')).toHaveAttribute('data-ready', 'true', { timeout: 20000 });
@@ -458,7 +489,6 @@ export function frameworkCases(name) {
       await expect(input(browserPage)).toHaveValue(/listen: 7835/, { timeout: 10000 });
     });
 
-    // round 13
     for (const [query, delay] of [['', 250], ['?late', 500], ['?late', 650]]) {
       test(`${query || '(controlled)'}: typing while editing as JSON every ${delay} ms keeps every letter in order`, async ({ page: browserPage }) => {
         await browserPage.goto(page(name) + query);
@@ -495,7 +525,6 @@ export function frameworkCases(name) {
       await expect(input(browserPage)).not.toHaveValue(/78359/);
     });
 
-    // round 14
     test('a re-mount prop changed while typing keeps focus, caret and keystrokes', async ({ page: browserPage }) => {
       await browserPage.goto(page(name));
       await expect(browserPage.locator('body')).toHaveAttribute('data-ready', 'true', { timeout: 20000 });
