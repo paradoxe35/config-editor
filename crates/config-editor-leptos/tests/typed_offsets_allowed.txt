@@ -1,0 +1,2 @@
+# Files of the crate's own code still allowed plain `usize` offsets in
+# signatures and fields (see `typed_offsets.rs`): `path count why`.

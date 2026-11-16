@@ -597,7 +597,7 @@ fn of_a_range_line_and_its_copy_only_the_copy_takes_an_entry() {
             let after = format!("{}{written}{}", &before[..at], &before[at..]);
             let from = before[..at].encode_utf16().count();
             let caret = from + written.encode_utf16().count();
-            state.commit(Edit::new(before, (from, from), after, caret))
+            state.commit(Edit::new_units(before, (from, from), after, caret))
         };
         let copied = super::acts::make(&setup, &mounted, &Act::PasteCopy { line: line as u16 });
         assert!(copied.is_ok(), "the copy is pasted ({case})");

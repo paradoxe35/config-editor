@@ -33,7 +33,7 @@ use std::ops::{Add, AddAssign, Range, Sub, SubAssign};
 
 use super::super::diff::{DiffEdit, myers_edits};
 use super::super::keyboard::utf16_to_byte_index;
-use super::super::text::{TextRange, TextSize, Utf16, text_size, utf16_of};
+use super::super::text::{TextRange, TextSize, Utf16, slice, text_size, utf16_of};
 use super::super::text_change::{changed_bytes, edit_range};
 
 /// A position or a length in a [`Unit`].
@@ -401,7 +401,11 @@ impl Change<Bytes> {
         Self::replace(
             before,
             TextRange::new(text_size(start), text_size(end_before)),
-            &after[start..end_after],
+            slice::slice(
+                after,
+                TextRange::new(text_size(start), text_size(end_after)),
+            )
+            .unwrap_or_default(),
         )
     }
 
@@ -500,13 +504,9 @@ impl Change<Bytes> {
         let inserted_end = start + after.len().checked_sub(kept)?;
         let agree = before.get(..start)? == after.get(..start)?
             && before.get(end..)? == after.get(inserted_end..)?;
+        let inserted = after.get(start..inserted_end)?.to_string();
         agree
-            .then(|| {
-                Self::replacing(
-                    TextSize::of(before),
-                    [(selection, after[start..inserted_end].to_string())],
-                )
-            })
+            .then(|| Self::replacing(TextSize::of(before), [(selection, inserted)]))
             .flatten()
     }
 
@@ -531,7 +531,7 @@ impl Change<Bytes> {
             while !removed.is_char_boundary(prefix) || !inserted.is_char_boundary(prefix) {
                 prefix -= 1;
             }
-            let (removed_rest, inserted_rest) = (&removed[prefix..], &inserted[prefix..]);
+            let (removed_rest, inserted_rest) = (removed.get(prefix..)?, inserted.get(prefix..)?);
             let mut suffix = removed_rest
                 .bytes()
                 .rev()
@@ -546,7 +546,9 @@ impl Change<Bytes> {
             let start = edit.at + text_size(prefix);
             edits.push((
                 TextRange::at(start, text_size(removed_rest.len() - suffix)),
-                inserted_rest[..inserted_rest.len() - suffix].to_string(),
+                inserted_rest
+                    .get(..inserted_rest.len() - suffix)?
+                    .to_string(),
             ));
         }
         Self::replacing(self.len, edits)
@@ -794,9 +796,12 @@ impl Piece {
                 (all > len).then(|| Piece::Delete(all - len)),
             ),
             Piece::Insert(text) => {
-                let rest = text[usize::from(len)..].to_string();
+                // `len` is where another piece ends: a character boundary
+                // of both changes' texts.
+                let head = slice::before(&text, len).unwrap_or(&text).to_string();
+                let rest = slice::after(&text, len).unwrap_or_default().to_string();
                 (
-                    Piece::Insert(text[..usize::from(len)].to_string()),
+                    Piece::Insert(head),
                     (!rest.is_empty()).then_some(Piece::Insert(rest)),
                 )
             }

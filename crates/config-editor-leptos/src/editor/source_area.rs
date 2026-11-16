@@ -12,7 +12,7 @@ use std::sync::Arc;
 use super::keyboard::utf16_to_byte_index;
 use super::projection::{Projection, Side};
 use super::state::{EditorState, directed_selection};
-use super::text::{TextSize, Utf16, text_size};
+use super::text::{TextRange, TextSize, Utf16, slice, text_size};
 
 /// The textarea, with offsets and lines in the document's terms.
 #[derive(Clone)]
@@ -298,10 +298,13 @@ fn replace_changed(element: &web_sys::HtmlTextAreaElement, shown: &str, view: &s
     use super::text_change::{changed_bytes, utf16_len};
     let (start, old_end, new_end) = changed_bytes(shown, view);
     // The browser counts the textarea's text in UTF-16 units.
-    let from = Utf16::count(utf16_len(&shown[..start]));
-    let to = from + Utf16::count(utf16_len(&shown[start..old_end]));
+    fn cut(text: &str, from: usize, to: usize) -> &str {
+        slice::slice(text, TextRange::new(text_size(from), text_size(to))).unwrap_or_default()
+    }
+    let from = Utf16::count(utf16_len(cut(shown, 0, start)));
+    let to = from + Utf16::count(utf16_len(cut(shown, start, old_end)));
     if element
-        .set_range_text_with_start_and_end(&view[start..new_end], from.into(), to.into())
+        .set_range_text_with_start_and_end(cut(view, start, new_end), from.into(), to.into())
         .is_err()
     {
         element.set_value(view);
