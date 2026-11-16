@@ -4,6 +4,12 @@
 //! knows the textarea counts UTF-16 code units and holds the document with
 //! folded lines cut out. The offsets are converted here, once, both ways.
 
+#![deny(
+    clippy::string_slice,
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss
+)]
+
 use leptos::prelude::*;
 use wasm_bindgen::JsValue;
 

@@ -68,7 +68,7 @@ fn replace(state: EditorState, (from, to): (usize, usize), with: &str) {
     let before = state.doc().text.get_untracked();
     let text = format!("{}{with}{}", &before[..from], &before[to..]);
     let start = units(&before[..from]);
-    state.commit(Edit::new(
+    state.commit(Edit::new_units(
         before.clone(),
         (start, units(&before[..to])),
         text,

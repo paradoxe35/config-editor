@@ -63,6 +63,12 @@
 //! What a caller does around an edit (closing suggestions, typing aids) is
 //! its own; [`EditorState::commit`] returns whether the edit was made.
 
+#![deny(
+    clippy::string_slice,
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss
+)]
+
 mod browser;
 mod change;
 #[cfg(test)]
@@ -652,16 +658,20 @@ pub(super) fn change_of_splices(
     before: &str,
     splices: &[super::bridge::links::Splice],
 ) -> Option<Change> {
-    let mut shift: isize = 0;
+    // Where each splice's text lands in the text after: what the ones
+    // before it wrote, less what they removed (kept as two sums, so no
+    // step goes below zero).
+    let (mut grown, mut shrunk) = (0usize, 0usize);
     let mut moved = Vec::new();
     for splice in splices {
-        let at = splice.at.checked_add_signed(shift)?;
+        let at = (splice.at + grown).checked_sub(shrunk)?;
         moved.extend(splice.moved.iter().map(|piece| Moved {
             from: text_size(piece.from),
             len: text_size(piece.len),
             to: text_size(at + piece.to),
         }));
-        shift += splice.inserted.len() as isize - splice.removed as isize;
+        grown += splice.inserted.len();
+        shrunk += splice.removed;
     }
     let edits = splices.iter().map(|splice| {
         let start = TextSize::try_from(splice.at).ok()?;

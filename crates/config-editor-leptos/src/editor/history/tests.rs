@@ -1,6 +1,8 @@
 //! The undo history on its own: steps grouped, sealed, capped, and moved,
 //! each popped by the change it recorded. Selections are bytes.
 
+#![allow(clippy::string_slice, reason = "the tests cut their own texts")]
+
 use super::*;
 
 /// A selection as the tests write it: (anchor, caret) bytes.

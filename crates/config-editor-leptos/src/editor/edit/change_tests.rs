@@ -4,6 +4,8 @@
 //! over another meets it (`a.compose(b.map(a))` makes what
 //! `b.compose(a.map(b, true))` makes), and positions map in order.
 
+#![allow(clippy::string_slice, reason = "the tests cut their own texts")]
+
 use super::super::text::{TextRange, TextSize, Utf16, byte_range, text_size};
 use super::change::{Assoc, Bytes, Change, CodeUnits, Moved};
 

@@ -46,6 +46,8 @@ step_clippy() {
   cargo clippy -p config-editor-js --target wasm32-unknown-unknown -- -D warnings
   (cd crates/config-editor-leptos &&
     cargo clippy --all-targets --no-default-features --features yaml,json,toml,hcl,xml -- -D warnings)
+  # Text offsets stay typed: no file gains a plain `usize` offset.
+  cargo test -p config-editor-leptos --test typed_offsets
 }
 
 step_test() {

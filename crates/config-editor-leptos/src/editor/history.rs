@@ -14,6 +14,12 @@
 //! text, so a backward selection comes back backward and the host's
 //! change (see [`rebase`]) maps them as it maps the steps.
 
+#![deny(
+    clippy::string_slice,
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss
+)]
+
 use super::bridge::links::Links;
 use super::edit::Change;
 use super::fold_ranges::FoldRange;

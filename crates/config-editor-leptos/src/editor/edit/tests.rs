@@ -2,6 +2,8 @@
 //! changing nothing, undo through folds, and the host's own text passing
 //! the read-only check.
 
+#![allow(clippy::string_slice, reason = "the tests cut their own texts")]
+
 use std::cell::RefCell;
 
 use leptos::prelude::*;

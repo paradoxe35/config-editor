@@ -4,6 +4,12 @@
 //! ([`Utf16`]: the textarea's selection, the host's ranges as placed on
 //! screen).
 
+#![deny(
+    clippy::string_slice,
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss
+)]
+
 mod offset;
 pub(crate) mod slice;
 
