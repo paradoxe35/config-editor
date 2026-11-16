@@ -35,6 +35,7 @@ pub(super) use renames::{
     patch_key_renames, patch_scalar_to_container, renames, source_pointer, with_renames,
 };
 pub(super) use reorder::{patch_reorder, unmoved_comments, with_comma_of};
+use std::borrow::Cow;
 pub(super) use steps::steps;
 
 use super::data_reading;
@@ -202,10 +203,9 @@ pub(super) fn serialize_told(
     previous: Option<&str>,
     told: SaveTold<'_>,
 ) -> Result<String, ConvertError> {
-    // A language without infinities is given them as text, which reads
-    // back as a string: a loss (see `language/writer_door.rs`).
-    let value =
-        emptied_items::without_emptied(language, previous, std::borrow::Cow::Borrowed(value));
+    let value = emptied_items::without_emptied(language, previous, Cow::Borrowed(value));
+    // Through the writer door: a language without infinities is given them
+    // as text, which reads back as a string, a loss the caller reports.
     let mut text = language
         .write_document_over(&value, previous, told)
         .map_err(ConvertError::Unsupported)?;
