@@ -8,8 +8,8 @@ use std::ops::Range;
 use serde_json::Value;
 
 use super::super::super::codec::read_aside;
+use super::super::super::data_reading::lone_spelling;
 use super::super::super::language::ConfigLanguage;
-use super::super::super::paths::lone_spelling;
 use super::super::locate::{lookup, plain};
 use super::super::save::range_pointers;
 use super::super::scan;
@@ -151,7 +151,7 @@ pub(super) fn outermost(
 
 /// A host's path as the parsed text has it: an index on a lone XML element
 /// or HCL block (`…/0`, a one-item list) is the field written without it,
-/// where the paths' places find it (`paths::lone_spelling`).
+/// where the paths' places find it (`data_reading::lone_spelling`).
 fn written_spelling(reading: &Reading<'_>, pointer: String) -> String {
     match &reading.document {
         Some(document) if lookup(document, &pointer).is_none() => {

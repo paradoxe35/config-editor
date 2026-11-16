@@ -50,14 +50,24 @@ pub(in crate::editor) fn host_problems(
         if host.trim().is_empty() {
             return None;
         }
-        let document =
-            crate::editor::codec::read(host_behavior, host, Some(&schema.schema)).ok()?;
+        use crate::editor::data_reading;
+        let data = data_reading::read(host_behavior, host, Some(&schema.schema)).ok()?;
         let reading = super::schema_problems::Reading {
-            document: &document,
+            data: &data,
             behavior: host_behavior,
         };
-        let (found, complete) =
-            super::schema_problems::found(reading, view, edit, schema, accepted, strings);
+        // The problems' pointers are the data's: the view's reading of the
+        // same data says where its text writes them.
+        let placed = data_reading::read(edit, view, Some(&schema.schema))
+            .unwrap_or_else(|_| std::rc::Rc::new(data_reading::DataReading::default()));
+        let (found, complete) = super::schema_problems::found(
+            reading,
+            view,
+            (edit, &placed),
+            schema,
+            accepted,
+            strings,
+        );
         Some(HostProblems {
             on: view.to_string(),
             found,

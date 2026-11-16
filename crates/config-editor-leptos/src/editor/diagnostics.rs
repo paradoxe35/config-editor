@@ -1,7 +1,9 @@
 use super::byte_order_mark;
+use super::data_reading::DataReading;
 use super::language::ConfigLanguage;
 #[cfg(feature = "schema-validation")]
 use jsonschema::error::ValidationError;
+#[cfg(feature = "schema-validation")]
 use serde_json::Value;
 
 use super::schema::{SchemaBundle, schema_message};
@@ -365,9 +367,9 @@ pub(super) fn validate_keyed(
         return (Vec::new(), Vec::new());
     }
 
-    let document: Value =
-        match super::codec::read(behavior, source, schema.map(|schema| &schema.schema)) {
-            Ok(document) => document,
+    let reading =
+        match super::data_reading::read(behavior, source, schema.map(|schema| &schema.schema)) {
+            Ok(reading) => reading,
             Err(error) => {
                 // Every error gets a marker (and F8 stop): one the parser could
                 // not place goes on the first line with content.
@@ -428,19 +430,25 @@ pub(super) fn validate_keyed(
     }
 
     let deprecated = schema
-        .map(|schema| deprecation_warnings(&document, schema, source, behavior, strings))
+        .map(|schema| deprecation_warnings(&reading, schema, source, behavior, strings))
         .unwrap_or_default();
     // Without `schema-validation` no check could reject a placeholder.
     #[cfg(not(feature = "schema-validation"))]
     let _ = accepted;
     #[cfg(feature = "schema-validation")]
     if let Some(schema) = schema {
-        let reading = schema_problems::Reading {
-            document: &document,
+        let read = schema_problems::Reading {
+            data: &reading,
             behavior,
         };
-        let (found, complete) =
-            schema_problems::found(reading, source, behavior, schema, accepted, strings);
+        let (found, complete) = schema_problems::found(
+            read,
+            source,
+            (behavior, &reading),
+            schema,
+            accepted,
+            strings,
+        );
         let keys = found.iter().map(|(key, _)| key.clone()).collect();
         let mut diagnostics: Vec<Diagnostic> = found
             .into_iter()
@@ -524,7 +532,7 @@ const MAX_DEPRECATION_WARNINGS: usize = 20;
 /// A warning on each key of `document` its schema marks deprecated, with
 /// what to use instead when the schema says.
 fn deprecation_warnings(
-    document: &Value,
+    reading: &DataReading,
     bundle: &SchemaBundle,
     source: &str,
     behavior: &dyn ConfigLanguage,
@@ -533,12 +541,15 @@ fn deprecation_warnings(
     if !bundle.has_deprecated {
         return Vec::new();
     }
-    let found =
-        super::completion::deprecated_keys(document, &bundle.schema, MAX_DEPRECATION_WARNINGS);
+    let found = super::completion::deprecated_keys(
+        reading.value(),
+        &bundle.schema,
+        MAX_DEPRECATION_WARNINGS,
+    );
     // Every key's place read in one pass over the text, not one each.
     let pointers: Vec<String> = found.iter().map(|found| found.pointer.clone()).collect();
     super::paths::with_spans(behavior, source, &pointers, || {
-        deprecation_diagnostics(found, source, behavior, strings)
+        deprecation_diagnostics(found, source, reading, behavior, strings)
     })
 }
 
@@ -546,6 +557,7 @@ fn deprecation_warnings(
 fn deprecation_diagnostics(
     found: Vec<super::completion::DeprecatedKey>,
     source: &str,
+    reading: &DataReading,
     behavior: &dyn ConfigLanguage,
     strings: &EditorStrings,
 ) -> Vec<Diagnostic> {
@@ -553,7 +565,8 @@ fn deprecation_diagnostics(
         .into_iter()
         .filter_map(|found| {
             // The key alone, struck through as VS Code does.
-            let span = super::paths::schema_problem_key_span(behavior, source, &found.pointer)?;
+            let span =
+                super::paths::schema_problem_key_span(behavior, source, reading, &found.pointer)?;
             let message = match &found.message {
                 Some(instead) => fill(
                     &strings.key_deprecated_instead,

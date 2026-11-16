@@ -384,10 +384,9 @@ pub(crate) fn field_value<'a>(
     document: &'a serde_json::Value,
     field: &str,
 ) -> Option<&'a serde_json::Value> {
-    document.pointer(field).or_else(|| {
-        let lone = format!("{field}/").replace("/0/", "/");
-        document.pointer(lone.trim_end_matches('/'))
-    })
+    document
+        .pointer(field)
+        .or_else(|| document.pointer(&field_key(field)))
 }
 
 /// How many times the parsed `document` holds each known token in the

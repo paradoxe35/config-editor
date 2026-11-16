@@ -2,7 +2,7 @@
 //! allows together: an `allOf` narrowing a wider `type`, or the `then`
 //! an object takes, decides as a `type` beside the field does.
 
-use super::conform_arrays;
+use super::super::conform_arrays;
 use crate::editor::language::Repetition;
 use serde_json::{Value, json};
 

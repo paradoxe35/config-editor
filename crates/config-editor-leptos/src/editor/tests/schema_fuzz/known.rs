@@ -165,7 +165,7 @@ pub(super) const KNOWN: &[Known] = &[
         class: "a problem message ",
         applies: |case| case.language == Language::XML && secret_past_inner_list(&case.doc),
     },
-    // `codec::conform_arrays`: an HCL block where the schema wants a list
+    // `data_reading`: an HCL block where the schema wants a list
     // is one item of it (`c {}` reads `[{}]`), as HCL writes lists of
     // objects; an object written there changes its verdict.
     Known {

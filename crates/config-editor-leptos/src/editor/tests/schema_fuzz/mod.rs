@@ -12,6 +12,7 @@
 //! case too); the failures are grouped by class, and a
 //! class a known finding explains is allowed by name (see [`known`]).
 
+mod data_reading;
 mod documents;
 mod edit_as;
 mod fill;

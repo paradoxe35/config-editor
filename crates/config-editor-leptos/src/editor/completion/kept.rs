@@ -27,17 +27,8 @@ pub fn language_keeps(
     let Some(read) = read.pointer_mut("/r/k").map(Value::take) else {
         return false;
     };
-    let mut read = read;
-    if language.repetition() != Repetition::None {
-        conform(
-            &mut read,
-            &Entry::schema(property),
-            root,
-            language.repetition(),
-            0,
-        );
-    }
-    read == *value
+    super::super::data_reading::value_under(language, read, &Entry::schema(property), root)
+        == *value
 }
 
 /// The `default` of `property` ([`schema_default`]) when `language` keeps

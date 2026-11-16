@@ -24,6 +24,7 @@ mod comment_scope;
 mod comment_toggle;
 mod completion;
 mod components;
+mod data_reading;
 mod decimal_text;
 mod diagnostics;
 mod diff;

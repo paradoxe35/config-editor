@@ -60,6 +60,7 @@ schema-secrets         schema   lib       SCHEMA_FUZZ_CASES  SCHEMA_FUZZ_SEED  6
 schema-suggestions     schema   lib       SCHEMA_FUZZ_CASES  SCHEMA_FUZZ_SEED  200  suggestions::accepted_suggestions_add_no_problem_and_hovers_name_types_once
 schema-validation      schema   lib       SCHEMA_FUZZ_CASES  SCHEMA_FUZZ_SEED  400  validation::random_documents_get_problems_exactly_when_the_reference_finds_them_invalid
 schema-work            schema   lib       SCHEMA_FUZZ_CASES  SCHEMA_FUZZ_SEED  12   work::work_on_random_recursive_schemas_grows_with_the_document
+schema-data-reading    schema   lib       SCHEMA_FUZZ_CASES  SCHEMA_FUZZ_SEED  300  data_reading::every_feature_reads_xml_and_hcl_as_the_one_data_reading
 host-sync-editor       schema   host_sync HOST_SYNC_CASES    HOST_SYNC_SEED    300  random_host_sync_keeps_a_configeditors_locks
 host-sync-documents    schema   host_sync HOST_SYNC_CASES    HOST_SYNC_SEED    300  random_host_sync_keeps_a_documents_views_locks
 protect                protect  lib       PROTECT_FUZZ_CASES PROTECT_FUZZ_SEED 400  protect_fuzz::random_edits_keep_every_protection_and_take_ordinary_edits

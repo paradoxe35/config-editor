@@ -263,7 +263,7 @@ fn list_items_typed_in_an_xml_view_are_saved_as_their_branch_reads_them() {
 /// schemas once per value: a larger object costs the same for each key.
 #[test]
 fn reading_by_every_applying_subschema_costs_the_same_for_each_key() {
-    use crate::editor::completion::conform_arrays;
+    use crate::editor::data_reading::conform_arrays;
     use crate::editor::language::Repetition;
     use crate::editor::work_count::{Work, counted};
     let mut failures = Vec::new();

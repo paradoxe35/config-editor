@@ -6,7 +6,7 @@ use std::ops::Range;
 use serde_json::Value;
 
 use super::super::language::{ConfigLanguage, Repetition};
-use super::super::paths::{TextRange, key_range, whole_value};
+use super::super::paths::{TextRange, field_key, key_range, whole_value};
 use super::super::work_count::{Work, note_many};
 
 /// Line starts of a text, to turn one-based positions into UTF-16 offsets
@@ -183,8 +183,7 @@ pub(crate) fn plain(behavior: &dyn ConfigLanguage, pointer: &str) -> String {
     if behavior.repetition() == Repetition::None {
         pointer.to_string()
     } else {
-        let lone = format!("{pointer}/").replace("/0/", "/");
-        lone.trim_end_matches('/').to_string()
+        field_key(pointer)
     }
 }
 

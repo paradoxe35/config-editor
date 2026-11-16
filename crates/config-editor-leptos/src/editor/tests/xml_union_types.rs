@@ -220,7 +220,7 @@ fn a_host_edited_as_xml_reads_its_types_back() {
 /// any size: walks grow with the values, not faster.
 #[test]
 fn typing_xml_text_by_the_options_walks_each_value_s_schemas_once() {
-    use crate::editor::completion::conform_arrays;
+    use crate::editor::data_reading::conform_arrays;
     use crate::editor::language::Repetition;
     use crate::editor::work_count::{Work, counted};
     let bundle = build_schema(SCHEMA).unwrap();
