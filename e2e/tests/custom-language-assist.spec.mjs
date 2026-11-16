@@ -132,6 +132,49 @@ test.describe('a flat JS language (separators only)', () => {
   });
 });
 
+// A language declaring its brackets, item separator and item marker but no
+// `contextAt`: the caret's place is read from what it declares.
+test.describe('a JS language known by its declared syntax (Dot)', () => {
+  test.beforeEach(async ({ page }) => {
+    await open(page, 'vanilla.html');
+  });
+  test.afterEach(async ({ page }) => expect(page.errors).toEqual([]));
+
+  test('a key typed in front of a key is a new entry on its own line', async ({ page }) => {
+    await mount(page, DOT, "PORT: '80'\nserver: <host: 'a'>\n");
+    const e = editor(page);
+    await caretAfter(page, "'80'\n");
+    await page.keyboard.type('LOG');
+    await expect.poll(e.keys).toEqual(['LOG_LEVEL']);
+    await page.keyboard.press('Enter');
+    await expect(e.input).toHaveValue("PORT: '80'\nLOG_LEVEL: ''\nserver: <host: 'a'>\n");
+    expect(await selection(page)).toBe("PORT: '80'\nLOG_LEVEL: '".length);
+  });
+
+  test('a suggestion accepted inside an unknown key renames it, keeping its value', async ({ page }) => {
+    await mount(page, DOT, "PATHX: '/a'\n");
+    const e = editor(page);
+    await caretAfter(page, 'PA');
+    await page.keyboard.press('Control+Space');
+    await expect.poll(e.keys).toContain('PATH_PREFIX');
+    await e.clickKey('PATH_PREFIX');
+    await expect(e.input).toHaveValue("PATH_PREFIX: '/a'\n");
+    expect(await selection(page)).toBe('PATH_PREFIX'.length);
+    await page.waitForTimeout(200);
+    expect(await e.isOpen()).toBe(false);
+  });
+
+  test('suggests the keys of a map written on one line', async ({ page }) => {
+    await mount(page, DOT, "server: <host: 'a'; >\n");
+    const e = editor(page);
+    await caretAfter(page, "'a'; ");
+    await page.keyboard.type('mo');
+    await expect.poll(e.keys).toEqual(['mode']);
+    await page.keyboard.press('Enter');
+    await expect(e.input).toHaveValue("server: <host: 'a'; mode: ''>\n");
+  });
+});
+
 const NESTED = 'server: {\n  host: example.com\n  \n}\n';
 
 test.describe('a nested JS language (contextAt, insertKey, keyAt)', () => {
