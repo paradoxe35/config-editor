@@ -9,8 +9,9 @@ use super::super::fold_ranges::FoldRange;
 use super::super::metrics::read_editor_metrics;
 use super::super::positioning::reveal_offset;
 use super::super::state::{EditorState, directed_selection};
-use super::follow::{follow_edit, keep_valid};
-use crate::editor::text::{TextRange, TextSize, Utf16, byte_of, utf16_of};
+use super::follow::{follow_edit, keep_valid, line_ends};
+use crate::editor::paths::units_at;
+use crate::editor::text::{TextRange, TextSize};
 
 impl EditorState {
     /// The closed folds moved through `change`, which makes `new` of the
@@ -71,12 +72,9 @@ impl EditorState {
         !self.fold().folded.with_untracked(Vec::is_empty)
             && self.fold().folded.with_untracked(|folds| {
                 self.doc().text.with_untracked(|doc| {
-                    // The folds' spans are in UTF-16 units, as the
-                    // projection counts the textarea's text.
-                    let (start, end) = (utf16_of(doc, start), utf16_of(doc, end));
                     hidden_spans(doc, folds)
                         .iter()
-                        .any(|(from, to)| start <= *to && end >= *from)
+                        .any(|span| start <= span.end() && end >= span.start())
                 })
             })
     }
@@ -124,29 +122,25 @@ impl EditorState {
         else {
             return;
         };
-        let (anchor, caret) = self
-            .doc()
-            .text
-            .with_untracked(|doc| (utf16_of(doc, anchor), utf16_of(doc, caret)));
         let (anchor, caret) = self.view().projection.with_untracked(|projection| {
-            let shown = |offset: usize| projection.hidden_at(offset).map_or(offset, |(at, _)| at);
+            let shown = |at: TextSize| projection.hidden_at(at).map_or(at, TextRange::start);
             (shown(anchor), shown(caret))
         });
-        let (view_anchor, view_caret) = self
-            .view()
-            .projection
-            .with_untracked(|projection| (projection.to_view(anchor), projection.to_view(caret)));
+        // The selection is set on the element itself, in its UTF-16 units:
+        // `SourceArea`'s own setters would open the folds just closed.
+        let (view_anchor, view_caret) = self.doc().text.with_untracked(|doc| {
+            self.view().projection.with_untracked(|projection| {
+                let view = |at: TextSize| projection.view_units(units_at(doc, at));
+                (view(anchor), view(caret))
+            })
+        });
         let element = area.element();
         let (start, end, direction) = if view_caret < view_anchor {
             (view_caret, view_anchor, "backward")
         } else {
             (view_anchor, view_caret, "forward")
         };
-        let _ = element.set_selection_range_with_direction(
-            Utf16::count(start).into(),
-            Utf16::count(end).into(),
-            direction,
-        );
+        let _ = element.set_selection_range_with_direction(start.into(), end.into(), direction);
         // The line that was at the top stays there.
         let new_row = area.row_of_line(top_line);
         let scroll = (top + (new_row as f64 - top_row as f64) * line_height).max(0.0);
@@ -155,7 +149,7 @@ impl EditorState {
         if caret_shown {
             self.doc()
                 .text
-                .with_untracked(|text| reveal_offset(&area, text, byte_of(text, caret)));
+                .with_untracked(|text| reveal_offset(&area, text, caret));
         }
         area.follow_caret();
     }
@@ -170,10 +164,6 @@ impl EditorState {
     /// Opens the folds hiding byte `start` or `end`, so a selection moved
     /// there shows.
     pub(crate) fn reveal_offsets(&self, start: TextSize, end: TextSize) {
-        let (start, end) = self
-            .doc()
-            .text
-            .with_untracked(|doc| (utf16_of(doc, start), utf16_of(doc, end)));
         let hidden = self.view().projection.with_untracked(|projection| {
             projection.hidden_at(start).is_some() || projection.hidden_at(end).is_some()
         });
@@ -186,8 +176,9 @@ impl EditorState {
                 folds
                     .iter()
                     .zip(spans)
-                    .filter(|(_, (from, to))| {
-                        !((*from < start && start <= *to) || (*from < end && end <= *to))
+                    .filter(|(_, span)| {
+                        let (from, to) = (span.start(), span.end());
+                        !((from < start && start <= to) || (from < end && end <= to))
                     })
                     .map(|(fold, _)| *fold)
                     .collect::<Vec<_>>()
@@ -243,12 +234,10 @@ impl EditorState {
         }
         let kept = self.fold().folded.with_untracked(|folds| {
             self.doc().text.with_untracked(|doc| {
-                // The folds' spans are in UTF-16 units (see `touches_fold`).
-                let (start, end) = (utf16_of(doc, start), utf16_of(doc, end));
                 folds
                     .iter()
                     .zip(hidden_spans(doc, folds))
-                    .filter(|(_, (from, to))| !(start <= *to && end >= *from))
+                    .filter(|(_, span)| !(start <= span.end() && end >= span.start()))
                     .map(|(fold, _)| *fold)
                     .collect::<Vec<_>>()
             })
@@ -385,21 +374,13 @@ impl EditorState {
     }
 }
 
-/// Each fold's hidden UTF-16 range in `doc`: from its first line's end
+/// Each fold's hidden byte range in `doc`: from its first line's end
 /// through its last line's end.
-pub(crate) fn hidden_spans(doc: &str, folds: &[FoldRange]) -> Vec<(usize, usize)> {
-    let mut ends = Vec::new();
-    let mut units = 0;
-    for character in doc.chars() {
-        if character == '\n' {
-            ends.push(units);
-        }
-        units += character.len_utf16();
-    }
-    ends.push(units);
+fn hidden_spans(doc: &str, folds: &[FoldRange]) -> Vec<TextRange> {
+    let ends = line_ends(doc);
     let end_of = |line: usize| ends[line.min(ends.len() - 1)];
     folds
         .iter()
-        .map(|fold| (end_of(fold.start), end_of(fold.end)))
+        .map(|fold| TextRange::new(end_of(fold.start), end_of(fold.end)))
         .collect()
 }
