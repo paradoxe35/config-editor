@@ -426,6 +426,35 @@ fn a_lone_element_is_one_item_where_only_the_list_is_taken() {
     );
 }
 
+/// A lone XML element is the one item of a list where the scalar reading
+/// is refused (by another option's `enum`) and the list's item keeps its
+/// text where the item asks a string.
+#[test]
+fn a_lone_element_is_one_text_item_where_the_scalar_reading_is_refused() {
+    holds_everywhere(
+        super::validation::check,
+        json!({"properties": {"x_one": {"oneOf": [
+            {"type": "array", "contains": {"type": "string"}}, {"enum": [0]}]}}}),
+        json!({"x_one": ["-3"]}),
+        json!(null),
+    );
+    holds_everywhere(
+        super::validation::check,
+        json!({"properties": {"c": {"anyOf": [
+            {"required": ["d"], "properties": {"size": {}}},
+            {"properties": {"size": {"type": "array"}}}]}}}),
+        json!({"c": {"size": ["0"]}}),
+        json!(null),
+    );
+    holds_everywhere(
+        super::validation::check,
+        json!({"properties": {"x_one": {"oneOf": [
+            {"properties": {"x_one": {"properties": {"b": {"type": "string"}}}}}, {}]}}}),
+        json!({"x_one": {"x_one": {"b": 0}}}),
+        json!(null),
+    );
+}
+
 /// Suggestions at the end of `{root: {c: [{}]}}` in every language.
 fn suggest_in_a_list_item(schema: Value) {
     let both = super::reference::compile(&schema).unwrap();

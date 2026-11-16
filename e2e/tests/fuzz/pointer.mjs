@@ -104,9 +104,10 @@ function lastKey(pointer) {
 
 // What the hover card says against the place under the pointer: null when
 // it documents the key the path there ends on (or there is no card, or no
-// path to compare).
+// path to compare). A pointer that went from the key into the card (which
+// may cover the next line) is on the card, not on the text under it.
 function cardMismatch(seen) {
-  if (!seen.card || seen.key === null || !seen.under || typeof seen.pointer !== 'string' || !seen.pointer) return null;
+  if (!seen.card || seen.inside || seen.key === null || !seen.under || typeof seen.pointer !== 'string' || !seen.pointer) return null;
   const key = lastKey(seen.pointer);
   if (key === null || key.replace(/^@/, '') === seen.key.replace(/^@/, '')) return null;
   return `the card shows ${JSON.stringify(seen.key)} with the pointer on ${seen.under.line}:${seen.under.column} (${JSON.stringify(seen.pointer)})`;

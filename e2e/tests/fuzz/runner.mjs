@@ -293,11 +293,14 @@ async function runSteps(run, context, page, errors, kind, actions) {
           }
           const back = await withLimit(undoAll(page), 'undoing all', 30000);
           const want = opening.get(id ?? '');
-          // An undo a lock holds back says so (the read-only notice).
-          const said = await page.evaluate(() =>
-            [...(window.__fz.root()?.querySelectorAll('.config-editor__read-only-notice, .config-editor__protect-tip') ?? [])].some(
-              (notice) => !notice.hidden && notice.getClientRects().length && notice.textContent.trim() !== '',
-            ),
+          // An undo a lock holds back says so (the read-only notice); one
+          // that renames or moves a locked field goes through on screen,
+          // and its save waits, saying why (`saveHeld`, a problem).
+          const said = await page.evaluate(
+            () =>
+              [...(window.__fz.root()?.querySelectorAll('.config-editor__read-only-notice, .config-editor__protect-tip') ?? [])].some(
+                (notice) => !notice.hidden && notice.getClientRects().length && notice.textContent.trim() !== '',
+              ) || (window.__fz.problems[window.__fz.activeId() ?? ''] ?? []).some((problem) => problem.message?.startsWith('Not saved: ')),
           );
           if (want !== undefined && back !== want && run.locked && !said) {
             return {

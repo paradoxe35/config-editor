@@ -278,6 +278,9 @@ export function installProbe({ kind, vanilla }) {
     return {
       card: true,
       key: card.querySelector('.config-editor__hover-key')?.textContent ?? null,
+      // The pointer is in the card, which took it (one that lets it
+      // through to the text under it is marked `data-passing`).
+      inside: card.matches(':hover') && !card.hasAttribute('data-passing'),
       under,
       pointer,
       center: { x: box.left + box.width / 2, y: box.top + Math.min(box.height / 2, 24) },
