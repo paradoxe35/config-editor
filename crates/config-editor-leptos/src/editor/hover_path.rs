@@ -487,7 +487,7 @@ mod tests {
         bottom: 200.0,
     };
 
-    /// QA 23 (M23-U1): the pointer heading for the card across the next
+    /// the pointer heading for the card across the next
     /// line's key swapped the card for that key's (or the problem tip), so
     /// the card's docs could not be reached. Every small step towards a
     /// point inside it heads for it; a step away, or along the line, does
@@ -560,7 +560,7 @@ mod tests {
         walk(&[start, end], length / steps as f64, card, anchor)
     }
 
-    /// QA 27 (M27-U1): a card above its line closed on the way up to it
+    /// a card above its line closed on the way up to it
     /// (the pointer at its bottom pixel row counted as on it, which let it
     /// through), and one above a long value was not taken from the value's
     /// end (it came across the card's side, not its bottom). Every way in
@@ -608,7 +608,7 @@ mod tests {
         }
     }
 
-    /// QA 28 (F1): a card above its line let the pointer through (and
+    /// a card above its line let the pointer through (and
     /// closed under it) when it got there after straying into the
     /// indentation or the gutter. A detour off the lines the card covers
     /// (left, right, onto the line past the key, past the card's far
@@ -663,7 +663,7 @@ mod tests {
         }
     }
 
-    /// QA 26 (M26-U1): a card below its line took the pointer that came
+    /// a card below its line took the pointer that came
     /// onto the lines it covers from beside it, so those lines could not
     /// be hovered, clicked or scrolled. A way from beside the card, or from
     /// its line past its side and then down, has lost its way when it
@@ -720,7 +720,7 @@ mod tests {
         assert_eq!(spot((560.0, 138.0), above, false, Some(520.0)), Spot::Away);
     }
 
-    /// QA 29 (L29-U2): a pointer going straight up or down along the
+    /// a pointer going straight up or down along the
     /// card's side, in the gutter or the indentation, stayed within a pixel
     /// of the triangle to it at each step, so it counted as heading for it
     /// and a line the card covers could not be reached from there. Along
@@ -760,10 +760,10 @@ mod tests {
         }
     }
 
-    /// QA 24 (L24-U1): the pointer resting in the 4 px gap between the
+    /// the pointer resting in the 4 px gap between the
     /// line and the card let it close. The gap above and below it counts
-    /// as on the way; the line itself, and beside the card, do not. QA 26
-    /// (M26-U1): nor does the card itself, or the lines just beside it
+    /// as on the way; the line itself, and beside the card, do not;
+    /// nor does the card itself, or the lines just beside it
     /// (which it lets the pointer through to when it came another way).
     #[test]
     fn the_gap_between_the_line_and_the_card_is_on_the_way() {

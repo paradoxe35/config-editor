@@ -246,7 +246,7 @@ mod tests {
                 .collect();
             assert_eq!(texts, ["8080", "https"], "{insert:?}");
         }
-        // QA 36: the caret moved into a list's first item is at the first
+        // the caret moved into a list's first item is at the first
         // fill: that one, not the same key's in the next item.
         let fill = |key: &str| (key.to_string(), "0".to_string());
         let list_fills = [fill("from"), fill("to"), fill("from"), fill("to")];

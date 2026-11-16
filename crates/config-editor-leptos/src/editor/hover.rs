@@ -348,7 +348,7 @@ mod tests {
     use crate::editor::completion::hovered_key;
     use crate::editor::languages::Language;
 
-    /// QA 20: `Ctrl+K Ctrl+I` with the caret on the `<` of an XML tag found
+    /// `Ctrl+K Ctrl+I` with the caret on the `<` of an XML tag found
     /// nothing: the name after the `<` is the key there.
     #[test]
     fn the_caret_on_a_tags_open_bracket_finds_its_element() {

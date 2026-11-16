@@ -50,7 +50,7 @@ mod tests {
         );
     }
 
-    /// S.refs-1: a value under an empty reference is checked against the
+    /// a value under an empty reference is checked against the
     /// root, as under `"#"`.
     #[cfg(all(feature = "schema-validation", feature = "yaml"))]
     #[test]

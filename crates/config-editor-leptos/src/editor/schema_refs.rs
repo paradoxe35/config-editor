@@ -126,7 +126,7 @@ mod tests {
         Schema::compile(schema).expect_err("refused").0
     }
 
-    /// S.refs-2/3/4/7: the `$ref`'s place and the real cause, no resolver
+    /// the `$ref`'s place and the real cause, no resolver
     /// internals, for an external reference used or not, a missing pointer
     /// and a missing anchor.
     #[test]
@@ -163,7 +163,7 @@ mod tests {
         assert_eq!(schema.validate(Language::YAML, "a: x\n").len(), 1);
     }
 
-    /// SC30-9: with several references outside the schema, the first one
+    /// with several references outside the schema, the first one
     /// it writes is named, the same on every compile.
     #[test]
     fn the_first_outside_ref_is_named_every_time() {
@@ -184,7 +184,7 @@ mod tests {
         }
     }
 
-    /// SC30-4: a `$schema` naming a version the validator does not know is
+    /// a `$schema` naming a version the validator does not know is
     /// told as that, not as a `$ref`.
     #[test]
     fn an_unknown_schema_version_is_named_as_one() {

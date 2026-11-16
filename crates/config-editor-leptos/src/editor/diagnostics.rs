@@ -760,7 +760,7 @@ mod cap_tests {
     use super::{Diagnostic, MAX_DIAGNOSTICS, MORE_PROBLEMS_CODE, Severity, capped};
     use crate::EditorStrings;
 
-    /// QA 19 (H19-F4): the cap keeps the most serious problems: warnings
+    /// the cap keeps the most serious problems: warnings
     /// listed first no longer crowd the errors out.
     #[test]
     fn the_cap_keeps_errors_over_less_serious_problems_in_their_order() {
@@ -929,7 +929,7 @@ mod placing_tests {
     use super::super::Language;
     use crate::editor::schema::Schema;
 
-    /// QA 17: the pause after a key in a 10,000-line TOML or HCL document
+    /// the pause after a key in a 10,000-line TOML or HCL document
     /// with thousands of schema problems took a second: each of the 20
     /// problems shown, and each of its ancestors, was looked up with a read
     /// of the whole document. Their spans are read in one pass now, in
@@ -978,7 +978,7 @@ mod key_placing_tests {
     use super::super::work_count::{Work, counted};
     use crate::editor::schema::Schema;
 
-    /// QA 18: switching a large document to YAML or JSON paused 300-650 ms,
+    /// switching a large document to YAML or JSON paused 300-650 ms,
     /// most of it placing the problems shown: each unknown key's marker read
     /// the whole document again (its key lines, or its JSON scan). One read
     /// serves every problem of a pass now.
