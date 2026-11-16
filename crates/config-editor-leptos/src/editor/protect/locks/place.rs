@@ -34,6 +34,9 @@ pub(super) struct Placer<'r, 'a> {
     pins: Vec<(String, Value)>,
     /// The fields held, with their pinned values (see `Protected::held`).
     held: Vec<(String, Value)>,
+    /// Whether the text is the host's own (the one the locks follow): it
+    /// writes every field where the host did, so its paths place them.
+    hosts_own: bool,
 }
 
 /// What became of one field.
@@ -111,6 +114,7 @@ impl<'r, 'a> Placer<'r, 'a> {
                 .map(|previous| previous.pins.clone())
                 .unwrap_or_default(),
             held,
+            hosts_own,
         }
     }
 
@@ -360,12 +364,16 @@ impl<'r, 'a> Placer<'r, 'a> {
         // from one that parsed, under the same key. A parse of a line half
         // typed may read the user's new text as the field (`password:
         // password: '…'`, the path found at the first of a key written
-        // twice, read at the last): the text followed stays the lock.
+        // twice, read at the last): the text followed stays the lock. The
+        // host's own text has no such line: a lock followed into it from a
+        // text that did not parse (placed under its key, wherever that
+        // seemed to be) goes where its path says.
         match self.located(&pointer) {
             Some(found) => match moved {
                 Some(lock)
-                    if !covers(&found.ranges, &lock.ranges)
-                        || (self.before_parsed() && lock.key != found.key) =>
+                    if !self.hosts_own
+                        && (!covers(&found.ranges, &lock.ranges)
+                            || (self.before_parsed() && lock.key != found.key)) =>
                 {
                     Placed::Locked(Lock { reason, ..lock })
                 }

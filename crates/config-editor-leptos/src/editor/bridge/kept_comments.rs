@@ -266,6 +266,29 @@ pub(super) fn first_lost(
     })
 }
 
+/// The words of the first comment of the host's last text `previous` that
+/// `saved` writes fewer times than the view's text `shown` (in `view`)
+/// does: one the view keeps though its item went (its line left in the
+/// view), or one pasted back in. The save would drop a comment on
+/// screen; it waits instead.
+pub(super) fn dropped_but_shown(
+    host: &dyn ConfigLanguage,
+    view: &dyn ConfigLanguage,
+    (previous, saved): (&str, &str),
+    shown: &str,
+) -> Option<String> {
+    let before = counted(host, previous);
+    let after = counted(host, saved);
+    let on_screen = counted(view, shown);
+    let written = |words: &str| after.get(words).copied().unwrap_or(0);
+    before
+        .into_iter()
+        .filter(|(words, count)| !words.is_empty() && written(words) < *count)
+        .filter(|(words, _)| on_screen.get(words).copied().unwrap_or(0) > written(words))
+        .map(|(words, _)| words)
+        .min()
+}
+
 #[cfg(all(test, feature = "yaml", feature = "toml"))]
 mod tests {
     use super::first_lost;

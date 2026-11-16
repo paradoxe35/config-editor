@@ -1,12 +1,13 @@
 //! A key or item an Edit-as edit moved or copied (cut or copied and
 //! pasted, a line moved or copied, in one save or across a pause, a
-//! switch, the host's language: its link tells which, see `links`) is written in the form the host wrote it in where it was cut
-//! from, which no view shows: an HCL expression or heredoc, a TOML
-//! datetime or hex number, a YAML tag or quoting (QA `E36-1`). Each of
-//! its scalars the save wrote otherwise, reading the same, takes its
-//! written text back, and so does each of its keys; a scalar that cannot
-//! (its text would read otherwise there) makes the save wait, never pass
-//! written in another form.
+//! switch, the host's language: its link tells which, see `links`) is
+//! written in the form the host wrote it in where it was cut from, which
+//! no view shows: an HCL expression or heredoc, a TOML datetime or hex
+//! number, a YAML tag or quoting. Each of its scalars the save wrote
+//! otherwise, reading the same, takes its written text back, and so does
+//! each of its keys; a scalar that cannot (its text would read otherwise
+//! there) makes the save wait, never pass written in another form. So do
+//! the scalars left beside it in the map or list it landed in.
 
 use super::super::codec::{self, byte_range, written_range};
 use super::super::item_sources::ItemSource;
@@ -302,9 +303,9 @@ pub(super) fn kept(
     let saved = relocated(host, saved, intended, items, (previous, origin), shape)?;
     // An item left where it was, holding what it held, that the save wrote
     // anew all the same (a list item's first entry removed: the next one
-    // written onto the item's first line, QA `FZ38-8`): written back as
-    // it was, where that reads the same. Not one inside an item moved,
-    // which is that item's.
+    // written onto the item's first line): written back as it was, where
+    // that reads the same. Not one inside an item moved, which is that
+    // item's.
     let moved = moved(items, previous, origin);
     let inside = |inner: &str| {
         moved.iter().any(|item| {
@@ -347,6 +348,77 @@ pub(super) fn kept(
     ))
 }
 
+/// The scalars left where they were, holding what they held, in the maps
+/// and lists `moved` items landed in (`own`: their pointers in the save),
+/// each as an item of its own from its place in `previous`. An item moved
+/// or copied in can make the patches write its new container anew (a
+/// TOML table that gains a subtable, a list an item before the others):
+/// the scalars beside it then take their host text back as its own do.
+fn left_beside<'a>(
+    items: &ItemMap,
+    intended: &Value,
+    previous: Source<'a>,
+    moved: &[Moved<'a>],
+    own: &HashSet<String>,
+) -> Vec<Moved<'a>> {
+    let mut parents: Vec<&str> = moved
+        .iter()
+        .filter_map(|item| item.to.rsplit_once('/').map(|(parent, _)| parent))
+        .collect();
+    parents.sort_unstable();
+    parents.dedup();
+    let mut beside = Vec::new();
+    for parent in parents {
+        // The container itself left where it was (linked there, or not
+        // linked apart from its parent).
+        let in_place = match items.get(parent) {
+            Some(ItemSource::Previous(from)) => from == parent,
+            Some(ItemSource::Origin(_)) => false,
+            None => true,
+        };
+        let (true, Some(now), Some(was)) = (
+            in_place,
+            intended.pointer(parent),
+            previous.value.pointer(parent),
+        ) else {
+            continue;
+        };
+        let children: Vec<(String, &Value)> = match now {
+            Value::Object(map) => map
+                .iter()
+                .map(|(key, child)| (codec::escape(key), child))
+                .collect(),
+            Value::Array(list) => list
+                .iter()
+                .enumerate()
+                .map(|(index, child)| (index.to_string(), child))
+                .collect(),
+            _ => continue,
+        };
+        for (step, child) in children {
+            let to = format!("{parent}/{step}");
+            let linked_here = match items.get(&to) {
+                Some(ItemSource::Previous(from)) => *from == to,
+                Some(ItemSource::Origin(_)) => false,
+                None => true,
+            };
+            let scalar = !child.is_object() && !child.is_array();
+            if !scalar || !linked_here || own.contains(&to) {
+                continue;
+            }
+            // Compared once more, and counted, when paired.
+            if was.pointer(&format!("/{step}")) == Some(child) {
+                beside.push(Moved {
+                    from: to.clone(),
+                    to,
+                    source: previous,
+                });
+            }
+        }
+    }
+    beside
+}
+
 /// [`kept`] for the items somewhere else than their source.
 fn relocated(
     host: &dyn ConfigLanguage,
@@ -368,6 +440,9 @@ fn relocated(
     // same there; what is left, scalar by scalar.
     let saved = whole::kept(host, (saved, previous.text), &before, &moved, shape);
     let own: HashSet<String> = moved.iter().map(|item| item.to.clone()).collect();
+    let mut beside = left_beside(items, intended, previous, &moved, &own);
+    let mut moved = moved;
+    moved.append(&mut beside);
     let mut found = Vec::new();
     for (index, item) in moved.iter().enumerate() {
         let (Some(now), Some(was)) = (

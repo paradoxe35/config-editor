@@ -1,14 +1,15 @@
 //! A leading byte order mark (`U+FEFF`) is no part of the document. The
-//! editor's text never holds it (`line_endings` keeps it for the host), and
-//! every public entry point that reads a text (`Language`'s and `Schema`'s
+//! editor's text never holds it (`line_endings` records it once, when the
+//! host's text comes in, and writes it back first): a U+FEFF in the
+//! editor's text is a character of the document, wherever an edit puts it.
+//! Every public entry point that reads a text (`Language`'s and `Schema`'s
 //! methods, `check_syntax`, the save gate `Language::saves` that a
 //! never-shown `ConfigDocuments` document is read by) reads it through
 //! [`read`]: the text after the mark is what each language sees, and what
-//! comes back is placed in the text given (one column on in the first line,
-//! one UTF-16 unit on for an offset). No language and no shared code below the entry points knows of
-//! the mark, so no offset is ever taken in one text and applied to the
-//! other (QA 31: XML element text with an emoji after a mark panicked a
-//! conversion).
+//! comes back is placed in the text given (one column on in the first
+//! line, one UTF-16 unit on for an offset). No language and no shared code
+//! below the entry points knows of the mark, so no offset is ever taken in
+//! one text and applied to the other.
 
 use serde_json::Value;
 
@@ -33,15 +34,13 @@ pub(crate) fn restore(source: &str, text: String) -> String {
     if split(source).1 { marked(text) } else { text }
 }
 
-/// `text` starting with the mark, once. An emptied document keeps it: the
-/// mark belongs to the file's encoding, not to what was typed, so undoing
-/// back to nothing is the file the host started with.
+/// `text`, a document (which never holds the mark), with the mark before
+/// it. A U+FEFF the document starts with (a string's, brought to the start
+/// by a cut) is its own character, written after the mark. An emptied
+/// document keeps the mark: it belongs to the file's encoding, not to what
+/// was typed, so undoing back to nothing is the file the host started with.
 pub(crate) fn marked(text: String) -> String {
-    if split(&text).1 {
-        text
-    } else {
-        format!("{MARK}{text}")
-    }
+    format!("{MARK}{text}")
 }
 
 /// `read` of the document in `source` (the text after a leading mark),

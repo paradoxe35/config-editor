@@ -58,6 +58,9 @@ pub(super) fn toggled_selection(
     updated: &str,
     toggled: (usize, usize),
 ) -> (usize, usize) {
+    // A language's `toggle_comments` (a custom language's too) may hand
+    // the selection back in either order.
+    let toggled = (toggled.0.min(toggled.1), toggled.0.max(toggled.1));
     let lines = |text: &str, (start, end): (usize, usize)| {
         line_at_cursor(text, end) - line_at_cursor(text, start)
     };
