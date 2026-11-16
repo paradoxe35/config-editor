@@ -1,8 +1,11 @@
 //! A document typed in an Edit-as view with XML on one side (an XML view
 //! of another host, or another view of an XML host) saves as the view
-//! reads it: the host reads back the values the view showed, typed as the
-//! schema decides (QA 37/38's SC37-1 and SC38-2 class), and the host has
-//! a problem exactly when the view shows one.
+//! reads it (P2): the host reads back the values the view showed, typed
+//! as the schema decides, or a documented XML spelling explains each value
+//! it reads otherwise (see `xml_spelling`); and the host has a problem
+//! exactly when the view shows one.
+
+use serde_json::{Value, json};
 
 use super::documents::{Shape, document};
 use super::random::Rng;
@@ -104,12 +107,10 @@ pub(super) fn check(case: &Case) -> Verdict {
         Some(host_value) => {
             // XML writes some values of two types alike (`"8"` and `8`, a
             // list of one and its item): typed alike, they are untouched.
-            let alike = |typed: &serde_json::Value, before: &serde_json::Value| {
+            let alike = |typed: &Value, before: &Value| {
                 typed == before
                     || (edit == Language::XML && {
-                        let written = |value: &serde_json::Value| {
-                            both.written(edit, &serde_json::json!({ "a": value }))
-                        };
+                        let written = |value: &Value| both.written(edit, &json!({ "a": value }));
                         written(typed).is_some_and(|text| Some(text) == written(before))
                     })
             };
@@ -176,12 +177,11 @@ fn values_typed_in_an_edit_as_view_save_as_the_view_reads_them() {
 /// taken from `host` (what the save reads back): untouched values keep
 /// their host form.
 fn untouched_from(
-    view: &serde_json::Value,
-    (typed, before): (&serde_json::Value, &serde_json::Value),
-    host: &serde_json::Value,
-    alike: &dyn Fn(&serde_json::Value, &serde_json::Value) -> bool,
-) -> serde_json::Value {
-    use serde_json::Value;
+    view: &Value,
+    (typed, before): (&Value, &Value),
+    host: &Value,
+    alike: &dyn Fn(&Value, &Value) -> bool,
+) -> Value {
     if alike(typed, before) {
         return host.clone();
     }

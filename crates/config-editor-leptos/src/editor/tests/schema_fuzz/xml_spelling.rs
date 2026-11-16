@@ -10,7 +10,7 @@ use serde_json::Value;
 use super::reference::{Both, same};
 use crate::editor::Language;
 use crate::editor::decimal_text::decimal;
-use crate::editor::language::pointer_key;
+use crate::editor::language::{pointer_key, unescaped_key};
 
 /// An XML view shows a list of one as its item where no schema says it is
 /// a list (and a list cut to one item looks the same), and its save keeps
@@ -243,7 +243,7 @@ fn errors_about(sides: &Sides<'_>, at: &str, value: Option<&Value>) -> Option<Er
             let Value::Object(map) = document.pointer_mut(parent)? else {
                 return None;
             };
-            map.shift_remove(&key.replace("~1", "/").replace("~0", "~"))?;
+            map.shift_remove(&unescaped_key(key))?;
         }
     }
     let about = |place: &str| {
