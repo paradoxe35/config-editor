@@ -32,7 +32,7 @@
 //! (`value`, a document's text in the list), given again, is no news, as
 //! a framework's binding passes an unchanged prop on: a render for another
 //! prop, or the whole `documents` list given for another document's edit,
-//! passes the store's text again while it lags behind the typing (QA 34).
+//! passes the store's text again while it lags behind the typing.
 //! A reset to it then is `replaceValue`'s.
 //!
 //! Texts are told apart as the editor reads them (see `Print`): an echo a
@@ -234,19 +234,16 @@ impl Echoes {
     /// The host gave `text` of its own as the document (`replaceValue`).
     /// Its list is no news until it changes: a list the host gives again as
     /// it gave it last, the text it replaced in it (a framework's render
-    /// before the host took the new text), keeps the document (QA 30,
-    /// F30-2: React's `setValue` was rolled back by the render it caused).
-    /// The host lists the text from then on, maybe late, after what is
-    /// typed next: it is on its way as a text sent is, and its listing is
-    /// its echo (QA 36, FW36-1: listed after the typing, it was taken for
-    /// the host's own and rolled the typing back). So is a reset to the
-    /// text the host listed last (a discard to the file as loaded) once
-    /// the document moved past it (QA 37, HO37-1: listed after the typing
-    /// that followed, it rolled that typing back). A reset to the document
-    /// as it is changes nothing: its text is listed already, or on its way
-    /// once (QA 37, FW37-1: a second Discard waited for a listing of its
-    /// own, which the host's listing again, read as its render, never
-    /// used up, so the host's own revert to it was taken for its echo).
+    /// before the host took the new text), keeps the document: the render
+    /// a framework's `setValue` causes does not roll it back. The host
+    /// lists the text from then on, maybe late, after what is typed next:
+    /// it is on its way as a text sent is, and its listing is its echo
+    /// (listed after the typing, it is not the host's own). So is a reset to
+    /// the text the host listed last (a discard to the file as loaded) once
+    /// the document moved past it. A reset to the document as it is changes
+    /// nothing: its text is listed already, or on its way once (a second
+    /// Discard waits for no listing of its own, so the host's own revert to
+    /// it is not taken for its echo).
     pub fn replaced(&mut self, text: &str) {
         if self.on {
             let print = Print::of(text);
@@ -261,10 +258,9 @@ impl Echoes {
     /// Whether `value`, which did not apply, is a text the host held before
     /// its last reset, which it has not given back yet: ranges worked out
     /// on it are for a text the reset replaced, and are not moved into the
-    /// document as if the reset were an edit (QA 38, FW38-1: moved across
-    /// it, a lock grew over the line above it, and typing there was
-    /// refused until the host gave the reset back). The shown ranges,
-    /// carried into the reset's text, stay.
+    /// document as if the reset were an edit (moved across it, a lock would
+    /// grow over the line above it). The shown ranges, carried into the
+    /// reset's text, stay.
     pub fn before_reset(&self, value: &str) -> bool {
         let Some(reset) = self.reset.filter(|_| self.on) else {
             return false;
@@ -460,8 +456,8 @@ impl Echoes {
     /// host gave last (in an update, a list or the constructor), given
     /// again, is its render again: its store did not change (a framework
     /// rendering twice, or for another prop, a store writing the text
-    /// another way), whatever was typed since (QA 34: a render for another
-    /// prop, the store lagging behind the typing, rolled the typing back).
+    /// another way), whatever was typed since (a render for another prop,
+    /// the store lagging behind the typing, keeps the typing).
     /// To reset to it while the echoes of what was typed are still to
     /// come, the host calls `replaceValue`.
     fn kind(&self, print: Print) -> Kind {

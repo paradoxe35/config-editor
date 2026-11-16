@@ -908,9 +908,9 @@ pub(super) fn switch_to(state: EditorState, next: Language) {
     }
     let text = state.doc().text.get_untracked();
     // An edit of a view still waiting out the typing pause is saved first,
-    // with the edits that tell its items apart (QA `E33-1`: converted
-    // straight into the next view, they were lost, and the save paired
-    // the items by place).
+    // with the edits that tell its items apart (converted straight into the
+    // next view, they would be lost, and the save would pair the items by
+    // place).
     if !state.sync().is_synced(&text) && state.bridge_to(current).is_some() {
         convert_now(state, text.clone(), current);
     }

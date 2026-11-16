@@ -423,9 +423,8 @@ impl ConfigEditor {
             let latest = self.latest.lock().unwrap_or_else(PoisonError::into_inner);
             // Whether `value` will replace the document: not the text it
             // holds, an echo, nor a text older than the typing (see `echo`
-            // below). Ranges given again are read only in such a text (QA
-            // 34, HO34-1: read in an echo they warned of columns past a
-            // line's end, and could throw).
+            // below). Ranges given again are read only in such a text (read
+            // in an echo, they could name columns past a line's end).
             let replaces = || {
                 value.as_deref().is_some_and(|value| {
                     !(told && value != *latest)

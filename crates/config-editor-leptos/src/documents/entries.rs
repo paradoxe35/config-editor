@@ -143,13 +143,11 @@ impl Entry {
     fn update(&self, documents: Documents, document: &Document) {
         set_if_changed(self.file_name, &document.file_name);
         // Its ranges before its text: a new text places the ranges it comes
-        // with, never the ones given for the text it replaces (QA 38: a
-        // reset's text placed the old ranges first, and their lock stayed
-        // beside the new one).
+        // with, never the ones given for the text it replaces (placed first,
+        // the old lock would stay beside the new one).
         // A listing is the ranges and the giving they belong to: another
         // giving at the same positions (for another text) is placed anew
-        // (QA 38, BR38-7: a new lock at an old lock's first positions was
-        // taken for it, and its line could be edited).
+        // (a new lock at an old lock's first positions is not the old one).
         if self.read_only_ranges_version.get_value() == document.read_only_ranges_version {
             set_if_changed(self.read_only_ranges, &document.read_only_ranges);
         } else {
@@ -462,7 +460,7 @@ impl Documents {
     /// Edit-as text, shown or not), as their panel's effect does once it
     /// runs: a query in the same task as the view's start (`is_dirty`,
     /// `save`, the editor's text) answers from that text, not as if it
-    /// were absent (QA 37, HO37-4).
+    /// were absent.
     pub(super) fn mount_waiting(&self) {
         let waiting: Vec<Entry> = self
             .entries
@@ -876,7 +874,7 @@ impl Documents {
     }
 
     /// Focuses the tab of `id` once it is rendered: at the end of this
-    /// task, so the keys pressed right after land on it (QA 30, L30-6), or
+    /// task, so the keys pressed right after land on it, or
     /// by the next frame for a tab not rendered yet.
     fn focus_tab(&self, id: &str) {
         let id = id.to_string();
