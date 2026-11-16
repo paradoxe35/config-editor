@@ -1989,3 +1989,27 @@ fn a_moved_map_whose_keys_the_user_reordered_keeps_their_order() {
         ],
     );
 }
+
+/// P2: a comment belongs to its line. The `gamma:` line cut in a YAML view
+/// of an XML host removes `<gamma>` (its item joins `beta`), and that save
+/// drops `<!-- note 8 -->` above it; the line pasted lower down makes a
+/// new `gamma` of other items, which the comment does not come back to.
+#[test]
+fn a_comment_goes_with_its_cut_element_though_the_name_comes_back() {
+    replay(
+        Language::XML,
+        Language::YAML,
+        "<root xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" xmlns:p=\"urn:p\">\n  <alpha>\n    <k1>text</k1>\n    <k2>text</k2>\n    <k3>text</k3>\n    <p:k4>v</p:k4>\n  </alpha>\n  <beta>\n    <k5 id=\"1\">text</k5>\n    <k6 xsi:nil=\"true\"/> <!-- note 4 -->\n    <k7><![CDATA[x < y]]></k7>\n    <k8 xsi:nil=\"true\"/>\n  </beta>\n  <!-- note 8 -->\n  <gamma>\n    <p:k11>v</p:k11>\n  </gamma>\n  <delta>\n    <k12>text</k12>\n    <k13><![CDATA[x < y]]></k13> <!-- note 10 -->\n    <k14>42</k14>\n    <k15 id=\"1\">text</k15>\n  </delta>\n</root>\n",
+        &[
+            Op::Cut {
+                line: 13,
+                how: Take::Line,
+            },
+            Op::Pause,
+            Op::Paste {
+                line: 18,
+                how: Put::OverBlank,
+            },
+        ],
+    );
+}
