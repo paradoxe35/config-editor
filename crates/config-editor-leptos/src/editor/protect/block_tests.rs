@@ -197,13 +197,12 @@ fn a_key_typed_at_either_edge_of_a_placeholder_alone_in_a_multi_line_form_is_ref
             }
             if !state
                 .protect()
-                .tip
-                .get_untracked()
+                .tip()
                 .is_some_and(|tip| tip.message.starts_with(SAYS))
             {
                 failures.push(format!(
                     "{case}, {step}: refusal {:?}",
-                    state.protect().tip.get_untracked()
+                    state.protect().tip()
                 ));
             }
             if let Some(glued) = heard

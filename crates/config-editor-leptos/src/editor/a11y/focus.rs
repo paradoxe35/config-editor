@@ -77,11 +77,9 @@ pub(super) fn decide(key: &str, modifiers: Modifiers, context: Context) -> (Acti
 fn popup_open(state: EditorState) -> bool {
     state.suggestions_showing()
         || super::super::search::is_open(state)
-        || state.hover().card.with_untracked(Option::is_some)
+        || state.popups().any_shown()
         || super::super::changes::preview_open(state)
         || state.problems().current.with_untracked(Option::is_some)
-        || state.problems().hovered.with_untracked(Option::is_some)
-        || state.protect().tip_open()
 }
 
 /// The focus keys, first among the textarea's: `true` when the key was

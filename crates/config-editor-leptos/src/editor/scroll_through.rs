@@ -131,7 +131,7 @@ pub(super) fn scroll_past(state: EditorState, dx: f64, dy: f64) -> bool {
 
 /// Scrolls the text by `(dx, dy)`; what it did not take, along each axis.
 fn scroll_text(state: EditorState, dx: f64, dy: f64) -> (f64, f64) {
-    let Some(text) = state.view().textarea_ref.get_untracked() else {
+    let Some(text) = state.textarea() else {
         return (0.0, 0.0);
     };
     let (left, top) = (text.scroll_left(), text.scroll_top());

@@ -43,6 +43,7 @@ pub(super) struct Inputs {
     pub(super) host_language: Language,
     pub(super) schema: Option<Arc<SchemaBundle>>,
     pub(super) host_text: StoredValue<String>,
+    pub(super) popups: super::popups::PopupState,
 }
 
 /// Nothing protected.
@@ -130,10 +131,6 @@ impl ProtectState {
 
     pub(super) fn placeholder_spans(&self, _text: &str) -> Vec<std::ops::Range<usize>> {
         Vec::new()
-    }
-
-    pub(super) fn tip_open(&self) -> bool {
-        false
     }
 
     pub(super) fn track(&self) {}

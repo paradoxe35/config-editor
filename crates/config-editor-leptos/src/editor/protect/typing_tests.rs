@@ -83,7 +83,7 @@ fn typing_at_a_locked_block_is_refused_in_it_and_holds_the_save_past_it() {
             if flat(&now) != flat(&refused) {
                 failures.push(format!("{language}: inside the block, left {now:?}"));
             }
-            if state.protect().tip.get_untracked().is_none() {
+            if state.protect().tip().is_none() {
                 failures.push(format!("{language}: no refusal shown"));
             }
         } else {

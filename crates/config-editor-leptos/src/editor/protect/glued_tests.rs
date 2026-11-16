@@ -129,13 +129,12 @@ fn typing_or_pasting_beside_a_whole_placeholder_is_refused() {
                     }
                     if !state
                         .protect()
-                        .tip
-                        .get_untracked()
+                        .tip()
                         .is_some_and(|tip| tip.message.starts_with(SAYS))
                     {
                         failures.push(format!(
                             "{case}, {step}: refusal {:?}",
-                            state.protect().tip.get_untracked()
+                            state.protect().tip()
                         ));
                     }
                     if let Some(glued) = heard
@@ -237,7 +236,7 @@ fn text_typed_beside_a_placeholder_while_the_text_does_not_parse_is_refused() {
                 let end = shown.trim_end().len();
                 let broken = breaking(view);
                 paste(state, end..end, broken);
-                state.protect().tip.set(None);
+                state.protect().hide_tip(false);
                 type_at(state, start + tokens.same.len(), "Z");
                 let now = state.doc().text.get_untracked();
                 if now.contains(&format!("{}Z", tokens.same)) {
@@ -245,14 +244,10 @@ fn text_typed_beside_a_placeholder_while_the_text_does_not_parse_is_refused() {
                 }
                 if !state
                     .protect()
-                    .tip
-                    .get_untracked()
+                    .tip()
                     .is_some_and(|tip| tip.message.starts_with(SAYS))
                 {
-                    failures.push(format!(
-                        "{case}: refusal {:?}",
-                        state.protect().tip.get_untracked()
-                    ));
+                    failures.push(format!("{case}: refusal {:?}", state.protect().tip()));
                 }
                 let Some(from) = now.rfind(broken) else {
                     failures.push(format!("{case}: not broken: {now:?}"));

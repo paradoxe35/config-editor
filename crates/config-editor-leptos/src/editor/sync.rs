@@ -492,33 +492,29 @@ pub(super) fn take_host_value(state: EditorState, external: String) {
         switch_to(state, waiting);
     } else if change.before != change.text {
         state.commit(change);
-        state.hide_hover_for_new_text();
+        state.hide_hover();
     }
 }
 
 /// Debounced so half-typed text does not flash squiggles; everything else
 /// reads the live source.
 fn debounce_validation(state: EditorState) {
-    let token = StoredValue::new(0u64);
+    // The step waiting: a new text cancels it.
+    let waiting = StoredValue::new(later::Timeout::default());
     Effect::new(move |_| {
         let text = state.doc().text.get();
-        token.update_value(|token| *token += 1);
-        let current = token.get_value();
-        later::after(state, DIAGNOSTICS_DEBOUNCE_MS, move |state| {
-            if token.get_value() != current {
-                return;
-            }
+        let timer = later::after(state, DIAGNOSTICS_DEBOUNCE_MS, move |state| {
             // The pause in typing: the placeholders' fields first (a read
             // of the whole text), then the problems in a task of their
             // own, so a key pressed meanwhile is not held up by both; the
             // problems wait for the next pause then.
             state.recheck_tokens();
-            later::after(state, 0, move |state| {
-                if token.get_value() == current {
-                    state.problems().diagnosed_text.set(text);
-                }
+            let timer = later::after(state, 0, move |state| {
+                state.problems().diagnosed_text.set(text);
             });
+            later::replace_in(waiting, timer);
         });
+        later::replace_in(waiting, timer);
     });
 }
 

@@ -1,6 +1,5 @@
 //! Bringing a find match into view.
 
-use leptos::prelude::*;
 use wasm_bindgen::JsCast;
 
 use super::super::keyboard::utf16_to_byte_index;
@@ -11,13 +10,7 @@ use super::super::source_area::SourceArea;
 /// Scrolls UTF-16 `offset` into view as VS Code reveals a find match: left
 /// alone when already in view below `top_inset` pixels (a widget over the
 /// text), else its line centered.
-pub(super) fn reveal_centered(
-    editor: &SourceArea,
-    text: &str,
-    offset: usize,
-    scroll_y: RwSignal<f64>,
-    top_inset: f64,
-) {
+pub(super) fn reveal_centered(editor: &SourceArea, text: &str, offset: usize, top_inset: f64) {
     let byte_offset = utf16_to_byte_index(text, offset);
     let line = text[..byte_offset]
         .bytes()
@@ -40,6 +33,6 @@ pub(super) fn reveal_centered(
             );
         editor.set_scroll_top(centered as i32);
     }
-    // Sideways, and the overlay's scroll mirror.
-    reveal_offset(editor, text, offset, scroll_y);
+    // Sideways too.
+    reveal_offset(editor, text, offset);
 }

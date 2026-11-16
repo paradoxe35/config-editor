@@ -77,11 +77,10 @@ pub(super) fn page(state: EditorState, event: &KeyboardEvent) -> bool {
     let step = (rows as f64 * line_height).round() as i32;
     let top = area.scroll_top();
     area.set_scroll_top(if down { top + step } else { top - step }.max(0));
-    state.view().scroll_y.set(f64::from(area.scroll_top()));
     state
         .doc()
         .text
-        .with_untracked(|text| reveal_offset(&area, text, target, state.view().scroll_y));
+        .with_untracked(|text| reveal_offset(&area, text, target));
     reveal_in_page(&area, target, metrics.padding_top, line_height);
     true
 }

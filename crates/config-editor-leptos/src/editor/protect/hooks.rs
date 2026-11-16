@@ -201,8 +201,9 @@ impl ProtectState {
     }
 
     /// Whether the tooltip shows.
+    #[cfg(test)]
     pub(crate) fn tip_open(&self) -> bool {
-        self.tip.with_untracked(Option::is_some)
+        self.tip().is_some()
     }
 
     /// Subscribes to what the protected text at a place is (the locks and

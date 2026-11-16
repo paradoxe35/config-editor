@@ -2,12 +2,8 @@ use super::metrics::read_editor_metrics;
 use super::source_area::SourceArea;
 use super::state::EditorState;
 use crate::cssom::Declarations;
-use crate::reactive::later;
 use leptos::prelude::*;
 use wasm_bindgen::JsCast;
-
-/// Hover delay in milliseconds, so moving across keys does not flash cards.
-pub(super) const HOVER_DELAY_MS: i32 = 350;
 
 /// Viewport edge margin for caret-anchored popups, in pixels.
 pub(super) const POPUP_MARGIN: f64 = 8.0;
@@ -277,28 +273,17 @@ pub(super) fn hover_card_geometry(anchor: CardAnchor, natural: f64) -> Declarati
     }
 }
 
-/// Places the caret and scrolls it into view, mirroring the scroll into
-/// `scroll_y` for the highlight overlay.
+/// Places the caret and scrolls it into view.
 ///
 /// `set_selection_range` alone does not reliably scroll the textarea.
-pub(super) fn set_caret_visible(
-    editor: &SourceArea,
-    text: &str,
-    offset: usize,
-    scroll_y: RwSignal<f64>,
-) {
+pub(super) fn set_caret_visible(editor: &SourceArea, text: &str, offset: usize) {
     let offset = offset.min(text.encode_utf16().count());
     let _ = editor.set_selection_range(offset as u32, offset as u32);
-    reveal_offset(editor, text, offset, scroll_y);
+    reveal_offset(editor, text, offset);
 }
 
 /// Scrolls UTF-16 `offset` into view without touching the selection.
-pub(super) fn reveal_offset(
-    editor: &SourceArea,
-    text: &str,
-    offset: usize,
-    scroll_y: RwSignal<f64>,
-) {
+pub(super) fn reveal_offset(editor: &SourceArea, text: &str, offset: usize) {
     use super::keyboard::utf16_to_byte_index;
 
     let offset = offset.min(text.encode_utf16().count());
@@ -342,7 +327,6 @@ pub(super) fn reveal_offset(
         (editor.scroll_height() as f64 - client_height).max(0.0),
     );
     editor.set_scroll_top(next_top as i32);
-    scroll_y.set(next_top);
     // Horizontally too: a caret back at the start of a line after a long one
     // must not stay scrolled off to the left.
     let line_start = text[..byte_offset].rfind('\n').map_or(0, |index| index + 1);
@@ -355,12 +339,6 @@ pub(super) fn reveal_offset(
     } else if caret_x > current_left + client_width - 2.0 * metrics.char_width {
         editor.set_scroll_left((caret_x - client_width + 4.0 * metrics.char_width) as i32);
     }
-}
-
-/// Runs `callback` once the pointer has rested, if the editor is still
-/// mounted.
-pub(super) fn schedule_hover(state: EditorState, callback: impl FnOnce(EditorState) + 'static) {
-    later::after(state, HOVER_DELAY_MS, callback);
 }
 
 /// The box of an overlay on a code row (a problem's underline, a match, a

@@ -269,14 +269,14 @@ fn text_beside_a_moved_mask_while_the_text_does_not_parse_is_refused() {
         let end = shown(state).trim_end().len();
         let broken = breaking(language);
         paste(state, end..end, broken);
-        state.protect().tip.set(None);
+        state.protect().hide_tip(false);
         let start = shown(state).find(MASK).expect("the mask");
         type_at(state, start + MASK.len(), "MY");
         let now = shown(state);
         if now.contains(&format!("{MASK}M")) {
             failures.push(format!("{language}: typed beside it while broken: {now:?}"));
         }
-        let tip = state.protect().tip.get_untracked().map(|tip| tip.message);
+        let tip = state.protect().tip().map(|tip| tip.message);
         if !tip
             .as_deref()
             .is_some_and(|tip| tip.contains("c0x") && tip.contains("whole secret"))

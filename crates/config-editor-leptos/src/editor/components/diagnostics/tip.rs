@@ -1,7 +1,7 @@
 //! The problem tip: the messages of every problem covering the place under
 //! the pointer (or a focused underline's start), or where F8 or a tap went.
-//! Each problem gets its own lines (see `entries`). It yields to the hover
-//! card on the same line, which lists them (see `hover_problems`). It stays inside
+//! Each problem gets its own lines (see `entries`). It is one of the popups
+//! (see `popups`): the hover card on its line lists them instead. It stays inside
 //! the editor (in an editor too short for it, the window): above its
 //! line when it fits there, else below, else on the roomier side, no
 //! taller than the room there and scrolled (F8 scrolls to the problem it
@@ -11,8 +11,8 @@ use leptos::html::Div;
 use leptos::prelude::*;
 
 use super::super::super::metrics::read_editor_metrics;
-use super::super::super::popup_pointer::{
-    back_on_text, enter_popup, popup_wheel, take_pointer_again,
+use super::super::super::popups::{
+    back_on_text, card_keys, enter_popup, opens_docs_from, popup_wheel, selects_all_in,
 };
 use super::super::super::positioning::PopupFrame;
 use super::super::super::problem_hit::tip_column;
@@ -52,8 +52,9 @@ struct Anchor {
 
 #[component]
 pub(crate) fn ProblemTip(state: EditorState) -> impl IntoView {
-    let tip_ref = state.problems().tip_ref;
-    let focused = state.problems().tip_focused;
+    let tip_ref = state.popups().tip_ref;
+    let focused = state.popups().focused;
+    let passing = Memo::new(move |_| state.popups().passing());
     let content = Memo::new(move |_| tip_content(state));
     // The tip's full height, measured once its entries are drawn; it
     // decides the side and the height (see `place`). Zero until the
@@ -71,14 +72,14 @@ pub(crate) fn ProblemTip(state: EditorState) -> impl IntoView {
             // New entries: measured again before they are shown.
             natural.set(0.0);
         }
-        if changed && let Some(tip) = tip_ref.get_untracked() {
+        if changed {
             // Other problems: the tip takes the pointer again.
-            take_pointer_again(&tip);
+            state.popup_takes_pointer();
         }
         if visible.get() {
             // Once its entries and its showing are on the page, in the
-            // same task (QA 28: from one target to the next, the frame
-            // between showed no popup); else before it is painted.
+            // same task (from one target to the next, no frame without a
+            // popup); else before it is painted.
             later::soon(state, move |state| {
                 if !measure(tip_ref, natural, true) {
                     later::next_frame(state, move |_| {
@@ -109,11 +110,21 @@ pub(crate) fn ProblemTip(state: EditorState) -> impl IntoView {
             placement.with(|placed| placed.is_some_and(|placed| natural.get() > placed.max_height));
         docs || scrolls
     };
+    // The pointer reaches it only then (see `popups::pointer`).
+    Effect::new(move |_| {
+        let reachable = interactive();
+        if state.popups().tip_reachable.get_untracked() != reachable {
+            state.popups().tip_reachable.set(reachable);
+        }
+    });
     view! {
         <div
             class="config-editor__problem-tip"
             class:config-editor__problem-tip--interactive=interactive
             class:config-editor__problem-tip--unmeasured=move || !measured()
+            // It lets the pointer through to the text under it (see
+            // `popups::under`).
+            data-passing=move || passing.get().then_some("")
             // A dialog while it has the focus (a second Ctrl+K Ctrl+I, or
             // Tab to its links), to scroll it; a tooltip otherwise.
             role=move || if focused.get() { "dialog" } else { "tooltip" }
@@ -175,15 +186,13 @@ fn measure(tip_ref: NodeRef<Div>, natural: RwSignal<f64>, again: bool) -> bool {
 /// A key with the focus in the tip: `Enter` on it or `Alt+Enter` opens
 /// the docs of the problem at the caret; the scroll keys scroll it.
 fn tip_key(state: EditorState, event: &web_sys::KeyboardEvent) {
-    let Some(tip) = state.problems().tip_ref.get_untracked() else {
+    let Some(tip) = state.popups().tip_ref.get_untracked() else {
         return;
     };
-    if super::super::super::hover_focus::opens_docs_from(state, &tip, event)
-        || super::super::super::hover_focus::selects_all_in(&tip, event)
-    {
+    if opens_docs_from(state, &tip, event) || selects_all_in(&tip, event) {
         return;
     }
-    super::super::super::hover_focus::card_keys(&tip, event);
+    card_keys(&tip, event);
 }
 
 /// The focus left the tip, or moved inside it. Left for anything but the
@@ -195,7 +204,7 @@ fn leave_tip_focus(state: EditorState, event: &web_sys::FocusEvent) {
         .related_target()
         .and_then(|to| to.dyn_into::<web_sys::Node>().ok());
     let in_tip = state
-        .problems()
+        .popups()
         .tip_ref
         .get_untracked()
         .zip(to.as_ref())
@@ -203,7 +212,7 @@ fn leave_tip_focus(state: EditorState, event: &web_sys::FocusEvent) {
     if in_tip {
         return;
     }
-    state.problems().tip_focused.set(false);
+    state.popups().focused.set(false);
     let in_text = state
         .view()
         .textarea_ref
@@ -219,17 +228,14 @@ fn leave_tip_focus(state: EditorState, event: &web_sys::FocusEvent) {
 /// way, it lets the pointer through to the text under it (see
 /// `popup_pointer`).
 fn enter_tip(state: EditorState, event: &web_sys::MouseEvent) {
-    let Some(tip) = state.problems().tip_ref.get_untracked() else {
-        return;
-    };
-    if enter_popup(state, &tip, event) {
-        state.problems().tip_entered.set_value(true);
+    if let Some(tip) = state.popups().tip_ref.get_untracked() {
+        enter_popup(state, &tip, event);
     }
 }
 
 /// A wheel over the tip: see `popup_pointer`.
 fn wheel_tip(state: EditorState, event: &web_sys::WheelEvent) {
-    if let Some(tip) = state.problems().tip_ref.get_untracked() {
+    if let Some(tip) = state.popups().tip_ref.get_untracked() {
         popup_wheel(state, &tip, event);
     }
 }
@@ -237,16 +243,15 @@ fn wheel_tip(state: EditorState, event: &web_sys::WheelEvent) {
 /// The pointer left the tip it entered: it closes a moment later, as when
 /// it leaves an underline; back on the underline, it stays.
 fn leave_tip(state: EditorState, event: &web_sys::MouseEvent) {
-    if !state.problems().tip_entered.get_value() {
+    if !state.left_popup() {
         return;
     }
-    state.problems().tip_entered.set_value(false);
     state.leave_problem();
     back_on_text(state, event);
 }
 
-/// What the tip shows now: the problems at the hovered place, else at
-/// where F8 (or a tap) went; none while the hover card lists them.
+/// What the tip shows now: the problems at the place of the tip open, else
+/// at where F8 (or a tap) went while no popup is open.
 fn tip_content(state: EditorState) -> Option<TipContent> {
     let (line, column) = state.tip_place()?;
     let entries = problems_at(state, (line, column));

@@ -9,7 +9,7 @@ use super::super::completion::{
     ShownOption, completion_list_scrolled, completion_popup_style, most_option_rows,
     scroll_completion_into_view,
 };
-use super::super::popup_pointer::list_wheel;
+use super::super::popups::list_wheel;
 use super::super::state::EditorState;
 use crate::cssom::{Declarations, cssom};
 use crate::reactive::{KeyedList, Relay, RowSpacer};

@@ -56,7 +56,7 @@ pub(super) fn smart_home(state: EditorState, event: &KeyboardEvent) -> bool {
     state
         .doc()
         .text
-        .with_untracked(|text| reveal_offset(&element, text, target, state.view().scroll_y));
+        .with_untracked(|text| reveal_offset(&element, text, target));
     true
 }
 
@@ -131,9 +131,7 @@ pub(super) fn next_problem(state: EditorState, event: &KeyboardEvent) -> bool {
         return false;
     }
     event.prevent_default();
-    // Right after an edit the problems are those of the text before the
-    // typing pause: check the text as it is now first.
-    state.check_text_now();
+    check_before_walk(state);
     let here = state.doc().caret.get_untracked();
     let problems = state.problems();
     let stops = problems.walk.get_untracked();
@@ -172,6 +170,14 @@ pub(super) fn next_problem(state: EditorState, event: &KeyboardEvent) -> bool {
     problems.walked.set(Some((problem, caret)));
     state.a11y().announce(said);
     true
+}
+
+/// Right after an edit the problems are those of the text before the
+/// typing pause: F8 checks the text as it is now first, as the pause does,
+/// the secret placeholders read afresh before the problems they give.
+pub(in crate::editor) fn check_before_walk(state: EditorState) {
+    state.recheck_tokens();
+    state.check_text_now();
 }
 
 /// Escape closes the suggestion list, then the find widget, or with nothing
