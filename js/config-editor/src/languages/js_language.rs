@@ -15,7 +15,7 @@ use wasm_bindgen::prelude::*;
 
 use super::assist;
 use super::ranges::{self, Multiline};
-use crate::values::{field, json_from_js, string_field, to_js};
+use crate::values::{field, json_from_js, string_field, written_to_js};
 
 /// The kinds a custom language's `highlight` tokens take.
 const TOKEN_KINDS: &str = "\"key\", \"string\", \"value\", \"literal\", \"comment\", \"punctuation\", \"reference\" or \"interpolation\"";
@@ -243,7 +243,7 @@ impl ConfigLanguage for JsLanguage {
             .method("serialize")
             .ok_or_else(|| format!("{} cannot write documents", self.info.get().label))?;
         serialize
-            .call1(&self.definition(), &to_js(value))
+            .call1(&self.definition(), &written_to_js(value))
             .map_err(|error| {
                 string_field(&error, "message")
                     .or_else(|| error.as_string())

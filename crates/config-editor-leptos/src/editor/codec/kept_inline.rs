@@ -288,7 +288,7 @@ fn hide_in_place(
         let marker = Value::String(name.clone());
         let text = previous[one_line.range.clone()].to_string();
         let value = previous[one_line.value.clone()].to_string();
-        let written = format!("{}{}", one_line.written, language.format_value(&marker));
+        let written = format!("{}{}", one_line.written, language.write_value(&marker));
         kept.host.replace_range(one_line.range, &written);
         let slot = kept.old.pointer_mut(&pointer)?;
         values.push((

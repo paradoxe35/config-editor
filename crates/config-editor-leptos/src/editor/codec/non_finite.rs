@@ -10,8 +10,9 @@
 //!   it is (`inf` stays `inf`, never `null`);
 //! - YAML and TOML write it back as their own number
 //!   ([`ConfigLanguage::writes_non_finite`]); a language without one (JSON,
-//!   HCL, XML) writes the text `inf`, which reads back as a string, so the
-//!   conversion reports a loss and a save into that language waits;
+//!   HCL, XML, a custom one) is given the text `inf` ([`plain`]), which
+//!   reads back as a string, so the conversion reports a loss and a save
+//!   into that language waits;
 //! - schema validation sees a number (beyond every finite bound);
 //! - JavaScript sees `Infinity`, `-Infinity` and `NaN`.
 //!
@@ -20,11 +21,16 @@
 //! A real string spelled the same way (a document holding the text
 //! `"\u{FDD0}inf"`) must stay a string, so the form is kept unforgeable:
 //! every string a parser reads goes through [`string_value`], which puts one
-//! more U+FDD0 in front of a string made of U+FDD0s and a name, and every
-//! writer takes one off again ([`written`], [`string_of`]). Only those
+//! more U+FDD0 in front of a string made of U+FDD0s and a name. Only those
 //! strings carry the extra mark; every other string is held as it is.
 //!
-//! [`ConfigLanguage::writes_non_finite`]: super::super::language::ConfigLanguage::writes_non_finite
+//! Writers never take marks off themselves: the core's one door into a
+//! language's writers (`language/writer_door.rs`) gives a language without
+//! infinities the [`plain`] value, with no mark left, and a language with
+//! them the model's value, which it reads through [`float_of`] and
+//! [`string_of`].
+//!
+//! [`ConfigLanguage::writes_non_finite`]: super::super::language::LanguageTraits::writes_non_finite
 
 use std::borrow::Cow;
 #[cfg(feature = "yaml")]
@@ -108,10 +114,9 @@ pub fn string_of(value: &Value) -> Option<&str> {
     }
 }
 
-/// A string of the model as a writer writes it: one U+FDD0 taken off a
-/// string made of U+FDD0s and a name (a non-finite number, held with one,
-/// is written as its name, as [`as_text`] writes it). Every writer applies
-/// it exactly once, to the model's own string.
+/// The text a string of the model holds: one U+FDD0 taken off a string
+/// made of U+FDD0s and a name ([`string_value`] undone). Applied exactly
+/// once, to the model's own string.
 pub(crate) fn written(text: &str) -> &str {
     if reserved_shape(text) {
         &text[MARK.len_utf8()..]
@@ -144,12 +149,6 @@ pub(crate) fn escape_strings(value: Value) -> Value {
         Value::String(text) => string_value(text),
         other => other,
     }
-}
-
-/// `value` with each string as a writer writes it ([`written`]), for a
-/// serde writer that takes the whole value.
-pub(crate) fn unescape_strings(value: &Value) -> Cow<'_, Value> {
-    replaced(value, &|text| Value::String(written(text).to_string()))
 }
 
 /// Whether any string in `value` starts with U+FDD0.
@@ -202,14 +201,15 @@ fn replaced<'a>(value: &'a Value, replace: &dyn Fn(&str) -> Value) -> Cow<'a, Va
     Cow::Owned(walk(value, replace))
 }
 
-/// `value` as a language without infinities writes it: each one as the text
-/// `inf`, `-inf` or `nan` (which reads back as a string: a loss).
-/// A string holding the form stays as the model holds it, for the
-/// language's writer to write ([`written`]).
-pub(crate) fn as_text(value: &Value) -> Cow<'_, Value> {
+/// `value` as a language without infinities writes it, with no mark
+/// left: each infinity or NaN as the text `inf`, `-inf` or `nan` (which
+/// reads back as a string: a loss), each string as the text it holds
+/// ([`written`]). Applied once, to a value of the model: a second pass
+/// would read a string holding the form (`"\u{FDD0}inf"`) as a number.
+pub(crate) fn plain(value: &Value) -> Cow<'_, Value> {
     replaced(value, &|text| match name_of(text) {
         Some(name) => Value::String(name.to_string()),
-        None => Value::String(text.to_string()),
+        None => Value::String(written(text).to_string()),
     })
 }
 
@@ -459,13 +459,20 @@ mod tests {
         assert_eq!(float_of(&Value::String("inf".into())), None);
         assert_eq!(float_of(&serde_json::json!(2)), Some(2.0));
         let value = serde_json::json!({"a": [float_value(f64::INFINITY)], "b": "x"});
-        assert_eq!(
-            *as_text(&value),
-            serde_json::json!({"a": ["inf"], "b": "x"})
-        );
+        assert_eq!(*plain(&value), serde_json::json!({"a": ["inf"], "b": "x"}));
         assert!(matches!(
-            as_text(&serde_json::json!({"b": 1})),
+            plain(&serde_json::json!({"b": 1})),
             Cow::Borrowed(_)
         ));
+    }
+
+    #[test]
+    fn the_plain_value_holds_each_string_as_its_text() {
+        let forged = string_value("\u{FDD0}inf");
+        let value = serde_json::json!({"s": forged, "n": float_value(f64::NAN), "t": "x"});
+        assert_eq!(
+            *plain(&value),
+            serde_json::json!({"s": "\u{FDD0}inf", "n": "nan", "t": "x"})
+        );
     }
 }

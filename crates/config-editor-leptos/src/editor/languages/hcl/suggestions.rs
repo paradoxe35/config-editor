@@ -671,7 +671,7 @@ pub(super) fn hcl_text(value: &Value) -> String {
         Value::Number(number) => number.to_string(),
         // Template sequences are escaped, so `${HOST}` stays text, as the
         // serializer writes it.
-        Value::String(text) => super::heredoc::quoted(super::super::super::codec::non_finite::written(text)),
+        Value::String(text) => super::heredoc::quoted(text),
         Value::Array(items) => {
             let items: Vec<String> = items.iter().map(hcl_text).collect();
             format!("[{}]", items.join(", "))

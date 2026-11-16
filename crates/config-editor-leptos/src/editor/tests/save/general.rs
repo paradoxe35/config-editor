@@ -973,7 +973,10 @@ fn round_12_saves_change_only_the_edit() {
         let shown = bridge.to_edit(text).unwrap().text;
         let mut value: Value = edit.parse(&shown).unwrap();
         change(&mut value);
-        let changed = edit.behavior().serialize(&value, Some(&shown)).unwrap();
+        let changed = edit
+            .behavior()
+            .write_document(&value, Some(&shown))
+            .unwrap();
         match bridge.to_host(&changed, text) {
             Ok(saved) if saved == expected => {}
             Ok(saved) => failures.push(format!(
@@ -1109,7 +1112,10 @@ fn round_13_saves_change_only_the_edit() {
         let shown = bridge.to_edit(text).unwrap().text;
         let mut value: Value = edit.parse(&shown).unwrap();
         change(&mut value);
-        let changed = edit.behavior().serialize(&value, Some(&shown)).unwrap();
+        let changed = edit
+            .behavior()
+            .write_document(&value, Some(&shown))
+            .unwrap();
         match bridge.to_host(&changed, text) {
             Ok(saved) if saved == expected => {}
             Ok(saved) => failures.push(format!(
@@ -1304,7 +1310,10 @@ fn round_14_saves_change_only_the_edit() {
         let shown = bridge.to_edit(text).unwrap().text;
         let mut value: Value = edit.parse(&shown).unwrap();
         change(&mut value);
-        let changed = edit.behavior().serialize(&value, Some(&shown)).unwrap();
+        let changed = edit
+            .behavior()
+            .write_document(&value, Some(&shown))
+            .unwrap();
         match bridge.to_host(&changed, text) {
             Ok(saved) if saved == expected => {}
             Ok(saved) => failures.push(format!(

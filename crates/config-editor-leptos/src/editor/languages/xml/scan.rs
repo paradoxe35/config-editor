@@ -511,7 +511,7 @@ pub(super) fn record_attribute_values(source: &str, tokens: &[Token], plan: &Pat
 
 pub(super) fn xml_text(value: &Value) -> String {
     match value {
-        Value::String(value) => super::super::super::codec::non_finite::written(value).to_string(),
+        Value::String(value) => value.clone(),
         _ => serde_json::to_string(value).unwrap_or_default(),
     }
 }

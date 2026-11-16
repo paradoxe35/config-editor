@@ -1589,7 +1589,10 @@ A registered language gets schema validation (placed with `keySpan` and
 auto-closed brackets and bracket-aware Enter, and key/value editing. A language without `serialize`
 reads documents but cannot write them, so it is never edited as another
 language nor another as it: `editAs` either way throws
-`editAs: <label> cannot write documents`.
+`editAs: <label> cannot write documents`. `serialize` is given plain data:
+an infinity or `NaN` from another language as the text `inf`, `-inf` or
+`nan` (a conversion lists it as a loss), and an integer past 2^53 as a
+`bigint`, exact.
 
 Read-only fields (`readOnly` in the schema, `readOnlyPaths`) hold in every
 registered language. Where the language says where a field is written

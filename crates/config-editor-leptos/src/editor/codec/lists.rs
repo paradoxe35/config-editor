@@ -129,7 +129,7 @@ pub(super) fn rewrite_list_lines(
                 }
             }
             None => {
-                let written = language.format_value(item);
+                let written = language.write_value(item);
                 if written.contains('\n') {
                     return None;
                 }
@@ -251,7 +251,7 @@ pub(super) fn rewrite_map_lines(
                 let written = if unchanged {
                     entry.value.to_string()
                 } else {
-                    language.format_value_like(value, entry.value)
+                    language.write_value_like(value, entry.value)
                 };
                 if written.contains('\n') {
                     return None;
@@ -278,9 +278,9 @@ pub(super) fn rewrite_map_lines(
                 let separator = flow.separator_of(model.head);
                 let name = super::key_like(language, key, model.head)?;
                 let written = if value.is_object() || value.is_array() {
-                    language.format_value(value)
+                    language.write_value(value)
                 } else {
-                    language.format_value_like(value, model.value)
+                    language.write_value_like(value, model.value)
                 };
                 if written.contains('\n') {
                     return None;

@@ -69,7 +69,7 @@ pub(in crate::editor::bridge) fn tells_floats(language: &dyn ConfigLanguage) -> 
     }
     let document = serde_json::json!({ "k": 1.0 });
     language
-        .serialize(&document, None)
+        .write_document(&document, None)
         .ok()
         .and_then(|text| language.parse(&text).ok())
         .is_some_and(|read| read.pointer("/k").is_some_and(Value::is_f64))

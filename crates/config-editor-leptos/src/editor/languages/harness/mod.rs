@@ -329,15 +329,15 @@ pub(super) fn text(
             Value::String(placeholder(index));
     }
     let mut text = behavior
-        .serialize(&held, None)
+        .write_document(&held, None)
         .map_err(|error| format!("{language} cannot write {held}: {error}"))?;
     for (index, pointer) in one_line.iter().enumerate() {
         let value = document.pointer(pointer).expect("checked above");
         let written = match behavior.markup() {
             Some(_) => behavior
-                .one_line_body(value, "", "  ")
-                .unwrap_or_else(|| behavior.format_value(value)),
-            None => behavior.format_value(value),
+                .write_one_line_body(value, "", "  ")
+                .unwrap_or_else(|| behavior.write_value(value)),
+            None => behavior.write_value(value),
         };
         let (start, end) = quoted(language, &text, &placeholder(index))?;
         text.replace_range(start..end, &written);

@@ -3,7 +3,7 @@
 use serde_json::{Map, Value, json};
 
 use super::super::language::ParseError;
-use crate::{string_of, string_value};
+use crate::string_value;
 
 fn error(message: &str, line: usize) -> ParseError {
     ParseError {
@@ -157,10 +157,7 @@ fn write(value: &Value) -> Result<String, String> {
                 .collect::<Result<Vec<_>, String>>()?
                 .join("; ")
         ),
-        // A string is written as the text it holds, not as the model
-        // holds it (see `string_of`).
         Value::String(text) => {
-            let text = string_of(value).unwrap_or(text);
             if text.contains('\'') {
                 return Err("a quote cannot be written".to_string());
             }

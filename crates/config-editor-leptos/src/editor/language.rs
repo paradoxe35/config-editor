@@ -79,6 +79,7 @@ pub use item_start::bracket_item_start;
 pub(crate) use item_start::cursor_at;
 
 mod item_start;
+mod writer_door;
 use super::comment_toggle::comment_target;
 use super::parse_cache::string_bodies;
 use super::paths::FieldPath;
@@ -836,11 +837,15 @@ pub struct LanguageConfig {
 /// default.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct LanguageTraits {
-    /// The language has numbers for infinity and NaN, which
-    /// [`serialize`](ConfigLanguage::serialize) then writes from the values
-    /// [`float_value`](crate::float_value) makes. Without them they reach
-    /// `serialize` as the text `inf`, `-inf` or `nan`, and a conversion
-    /// reports them as values the language cannot hold.
+    /// The language has numbers for infinity and NaN. Its writers
+    /// ([`serialize`](ConfigLanguage::serialize),
+    /// [`format_value`](ConfigLanguage::format_value) and the
+    /// [`SaveLayout`] ones that write values) are then given the data
+    /// model's values, and read each scalar with
+    /// [`float_of`](crate::float_of) and [`string_of`](crate::string_of).
+    /// Without it they are given plain data: infinities and NaN as the
+    /// text `inf`, `-inf` or `nan` (a conversion reports them as values the
+    /// language cannot hold), and each string as the text it holds.
     pub writes_non_finite: bool,
     /// The language has one number type, so `2` and `2.0` are the same
     /// value (HCL), even when [`parse`](ConfigLanguage::parse) keeps how a
@@ -923,11 +928,12 @@ pub trait ConfigLanguage: Send + Sync + 'static {
 
     /// The document for `value`, keeping the framing of `previous` (this
     /// language's last text for the document) where the language has any.
-    /// Strings come as [`parse`](Self::parse) holds them: write each one's
-    /// text as [`string_of`](crate::string_of) gives it (a string spelled
-    /// like an infinity's form is held with a mark in front), and, with
-    /// [`LanguageTraits::writes_non_finite`], each number as
-    /// [`float_of`](crate::float_of) gives it.
+    /// The editor calls every writer through one door, which gives `value`
+    /// as plain data: each string as the text to write, and each infinity
+    /// or NaN as the text `inf`, `-inf` or `nan`. With
+    /// [`LanguageTraits::writes_non_finite`] the language is given the
+    /// data model's value instead and reads each scalar with
+    /// [`float_of`](crate::float_of) and [`string_of`](crate::string_of).
     ///
     /// # Errors
     ///
@@ -993,10 +999,11 @@ pub trait ConfigLanguage: Send + Sync + 'static {
     }
 
     /// A value (a schema's default, const or example, or one of the
-    /// document's) as document text, its strings written as
-    /// [`serialize`](Self::serialize) writes them. The default writes JSON.
+    /// document's) as document text, written as
+    /// [`serialize`](Self::serialize) writes it, and given as it is given
+    /// there. The default writes JSON.
     fn format_value(&self, value: &Value) -> String {
-        super::codec::non_finite::unescape_strings(value).to_string()
+        value.to_string()
     }
 
     /// The key under character `column` of `line`, and the column it starts at.
@@ -1744,7 +1751,7 @@ pub trait SaveLayout {
         written: &str,
     ) -> String {
         let _ = written;
-        language.format_value(value)
+        ConfigLanguage::format_value(language, value)
     }
 
     /// `value` written over `source[range]`, a value the host wrote there,
@@ -1758,7 +1765,7 @@ pub trait SaveLayout {
         source: &str,
         range: std::ops::Range<usize>,
     ) -> String {
-        language.format_value_like(value, &source[range])
+        SaveLayout::format_value_like(language.layout(), language, value, &source[range])
     }
 }
 
@@ -2275,11 +2282,6 @@ impl dyn ConfigLanguage {
         self.layout().one_line_container(source, path)
     }
 
-    /// See [`SaveLayout::one_line_body`].
-    pub fn one_line_body(&self, value: &Value, indent: &str, unit: &str) -> Option<String> {
-        self.layout().one_line_body(value, indent, unit)
-    }
-
     /// See [`SaveLayout::key_renames`].
     pub fn key_renames(
         &self,
@@ -2313,22 +2315,6 @@ impl dyn ConfigLanguage {
         told: SaveTold<'_>,
     ) -> Option<String> {
         self.layout().changed_form(previous, patched, told)
-    }
-
-    /// See [`SaveLayout::serialize_over`].
-    ///
-    /// # Errors
-    ///
-    /// As [`ConfigLanguage::serialize`].
-    pub fn serialize_over(
-        &self,
-        value: &Value,
-        previous: Option<&str>,
-        told: SaveTold<'_>,
-    ) -> Result<String, String> {
-        self.layout()
-            .serialize_over(value, previous, told)
-            .unwrap_or_else(|| self.serialize(value, previous))
     }
 
     /// See [`SaveLayout::changed_form_reason`].
@@ -2374,21 +2360,6 @@ impl dyn ConfigLanguage {
     /// See [`SaveLayout::unheld_numbers`].
     pub fn unheld_numbers(&self, source: &str, error: &ParseError) -> Vec<std::ops::Range<usize>> {
         self.layout().unheld_numbers(source, error)
-    }
-
-    /// See [`SaveLayout::format_value_like`].
-    pub fn format_value_like(&self, value: &Value, written: &str) -> String {
-        self.layout().format_value_like(self, value, written)
-    }
-
-    /// See [`SaveLayout::format_value_at`].
-    pub fn format_value_at(
-        &self,
-        value: &Value,
-        source: &str,
-        range: std::ops::Range<usize>,
-    ) -> String {
-        self.layout().format_value_at(self, value, source, range)
     }
 
     /// See [`Markup::delimiters`]; `None` without [`Markup`].
@@ -2559,7 +2530,7 @@ fn key_as_written(language: &dyn ConfigLanguage, key: &str) -> Option<String> {
         .into_iter()
         .find_map(|value| {
             let document = Value::Object([(key.to_string(), value)].into_iter().collect());
-            let text = language.serialize(&document, None).ok()?;
+            let text = language.write_document(&document, None).ok()?;
             let read = language.parse(&text).ok()?;
             if read.as_object()?.keys().ne([key]) {
                 return None;

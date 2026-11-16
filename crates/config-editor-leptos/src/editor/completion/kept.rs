@@ -16,10 +16,10 @@ pub fn language_keeps(
     root: &Value,
 ) -> bool {
     let document = serde_json::json!({ "r": { "k": value } });
-    let Ok(text) = language.serialize(&document, None) else {
+    let Ok(text) = language.write_document(&document, None) else {
         // Refused: the value, unless the language writes nothing.
         let empty = serde_json::json!({ "r": {} });
-        return language.serialize(&empty, None).is_err();
+        return language.write_document(&empty, None).is_err();
     };
     let Ok(mut read) = language.parse(&text) else {
         return false;

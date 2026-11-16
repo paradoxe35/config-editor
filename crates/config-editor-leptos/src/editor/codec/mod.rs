@@ -202,16 +202,12 @@ pub(super) fn serialize_told(
     previous: Option<&str>,
     told: SaveTold<'_>,
 ) -> Result<String, ConvertError> {
-    // A language without infinities writes them as text, which reads back
-    // as a string: a loss (see `non_finite`).
-    let value = if language.writes_non_finite() {
-        std::borrow::Cow::Borrowed(value)
-    } else {
-        non_finite::as_text(value)
-    };
-    let value = emptied_items::without_emptied(language, previous, value);
+    // A language without infinities is given them as text, which reads
+    // back as a string: a loss (see `language/writer_door.rs`).
+    let value =
+        emptied_items::without_emptied(language, previous, std::borrow::Cow::Borrowed(value));
     let mut text = language
-        .serialize_over(&value, previous, told)
+        .write_document_over(&value, previous, told)
         .map_err(ConvertError::Unsupported)?;
     text.truncate(text.trim_end_matches('\n').len());
     text.push('\n');
@@ -320,7 +316,9 @@ pub(super) fn patch_scalars(
 ) -> Option<String> {
     // Whatever the language cannot express must still be refused, even when
     // a patch would read back equal.
-    language.serialize_over(new, Some(previous), told).ok()?;
+    language
+        .write_document_over(new, Some(previous), told)
+        .ok()?;
     let mut changes = Vec::new();
     scalar_changes(old, new, String::new(), &mut changes)?;
     if changes.is_empty() {
@@ -353,7 +351,7 @@ pub(super) fn patch_scalars(
         }
         // In the host's style for what was there (plain, quoted, a block, a
         // long string).
-        let mut text = language.format_value_at(value, previous, range.clone());
+        let mut text = language.write_value_at(value, previous, range.clone());
         // A value the host wrote in quotes keeps them when the new one is
         // formatted bare, where quotes delimit and do not type it (an XML
         // attribute's `"…"`; a TOML string made a number loses them).
@@ -528,7 +526,11 @@ pub(super) fn patch_inline(
                     .chars()
                     .take_while(|character| matches!(character, ' ' | '\t'))
                     .collect();
-                language.one_line_body(value, &indent, &super::commands::indent_unit(previous))
+                language.write_one_line_body(
+                    value,
+                    &indent,
+                    &super::commands::indent_unit(previous),
+                )
             })
         {
             let mut patched = previous.to_string();
@@ -546,7 +548,7 @@ pub(super) fn patch_inline(
                 .filter(|value| !value.is_object() && !value.is_array())
         {
             let mut patched = previous.to_string();
-            patched.replace_range(range, &language.format_value_like(value, ""));
+            patched.replace_range(range, &language.write_value_like(value, ""));
             if reads_as(language, &patched, schema, new) {
                 return Some(patched);
             }
@@ -693,7 +695,7 @@ fn replace_inline(
         && language.indent_is_structure()
         && !flow::writes_filled_on_one_line(language, previous, close, at..at + written.len())
         && language
-            .serialize(value, None)
+            .write_document(value, None)
             .is_ok_and(|fresh| !fresh.trim_start().starts_with(open))
     {
         return None;
@@ -703,9 +705,9 @@ fn replace_inline(
     // value in its place.
     let text = if value.is_object() || value.is_array() {
         flow::restyle(language, value, written)
-            .unwrap_or_else(|| language.format_value_like(value, written))
+            .unwrap_or_else(|| language.write_value_like(value, written))
     } else {
-        language.format_value_like(value, "")
+        language.write_value_like(value, "")
     };
     patched.replace_range(line_start + start..line_start + end, &text);
     Some(patched)

@@ -424,9 +424,7 @@ pub(super) fn expression_of(text: &str) -> Option<hcl::Expression> {
 /// bare expressions that way again.
 pub(super) fn hcl_expression_in(value: &Value, forms: &HostForms) -> hcl::Expression {
     let template = |text: &str| {
-        hcl::Expression::TemplateExpr(Box::new(hcl::TemplateExpr::QuotedString(
-            super::super::super::codec::non_finite::written(text).to_string(),
-        )))
+        hcl::Expression::TemplateExpr(Box::new(hcl::TemplateExpr::QuotedString(text.to_string())))
     };
     match value {
         Value::String(text) if forms.templates.contains(text) => template(text),
@@ -453,7 +451,6 @@ pub(super) fn hcl_expression(value: &Value) -> hcl::Expression {
         // Text holding a template marker is escaped here (see
         // `heredoc::quoted`).
         Value::String(text) => {
-            let text = super::super::super::codec::non_finite::written(text);
             if text.contains("${") || text.contains("%{") {
                 super::heredoc::string_expression(text)
             } else {

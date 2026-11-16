@@ -56,7 +56,7 @@ pub(crate) fn written_alone(
                 .iter()
                 .map(move |lead| format!("{lead}{token_text}{trail}"))
         })
-        .find(|value| behavior.format_value_like(&Value::String(value.clone()), written) == written)
+        .find(|value| behavior.write_value_like(&Value::String(value.clone()), written) == written)
 }
 
 /// What the field of a token the host gave whole holds of it.

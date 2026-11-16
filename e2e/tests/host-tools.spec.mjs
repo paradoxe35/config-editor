@@ -84,6 +84,24 @@ test.describe('infinities and NaN', () => {
   });
 });
 
+test.describe('a registered language with a naive writer', () => {
+  test.skip(!built, 'js packages not built: run `npm run build` in js/');
+
+  test('writes infinities, NaN and huge integers from other languages as their text', async ({ page }) => {
+    await open(page);
+    const result = await page.evaluate(() => {
+      const t = window.tools;
+      return {
+        toml: t.convert('toml', 'rate = inf\nlow = -inf\nodd = nan\nbig = 9223372036854775807\n', 'Bare21'),
+        json: t.convert('json', '{"big": 18446744073709551615, "s": "\\ufdd0inf"}', 'Bare21'),
+      };
+    });
+    expect(result.toml.text).toBe('rate=inf\nlow=-inf\nodd=nan\nbig=9223372036854775807\n');
+    expect(result.toml.losses).toEqual(expect.arrayContaining(['/rate', '/low', '/odd']));
+    expect(result.json.text).toBe('big=18446744073709551615\ns=﷐inf\n');
+  });
+});
+
 test.describe('host inputs and data', () => {
   test.skip(!built, 'js packages not built: run `npm run build` in js/');
   test('serialize writes only what reads back the same; bad inputs throw with their index', async ({ page }) => {
