@@ -39,6 +39,27 @@ pub(crate) fn step_forward(text: &str, at: TextSize) -> TextSize {
         .map_or(at, |character| at + TextSize::of(character))
 }
 
+/// The start of the line holding byte `at` of `text`: just after the line
+/// break before it, or the text's start.
+pub(crate) fn line_start_of(text: &str, at: TextSize) -> TextSize {
+    before(text, at)
+        .and_then(|head| head.rfind('\n'))
+        .map_or_else(TextSize::default, |newline| {
+            super::offset::text_size(newline + 1)
+        })
+}
+
+/// The end of the line holding byte `at` of `text`: its line break, or the
+/// text's end.
+pub(crate) fn line_end_of(text: &str, at: TextSize) -> TextSize {
+    after(text, at)
+        .and_then(|tail| tail.find('\n'))
+        .map_or_else(
+            || TextSize::of(text),
+            |newline| at + super::offset::text_size(newline),
+        )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -52,5 +73,14 @@ mod tests {
         assert_eq!(before(text, 3.into()), Some("aé"));
         assert_eq!(after(text, 1.into()), Some("é"));
         assert_eq!(after(text, 4.into()), None);
+    }
+
+    #[test]
+    fn a_position_finds_the_ends_of_its_line() {
+        let text = "a\nbc\n";
+        assert_eq!(line_start_of(text, 3.into()), TextSize::from(2));
+        assert_eq!(line_end_of(text, 3.into()), TextSize::from(4));
+        assert_eq!(line_start_of(text, 0.into()), TextSize::from(0));
+        assert_eq!(line_end_of(text, 5.into()), TextSize::from(5));
     }
 }

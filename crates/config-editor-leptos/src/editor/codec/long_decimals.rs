@@ -8,7 +8,8 @@ use crate::editor::paths::FieldPath;
 use serde_json::Value;
 
 use super::super::language::{ConfigLanguage, pointer_key};
-use super::scalar_range;
+use super::scalar_text_range;
+use crate::editor::text::slice;
 
 /// The JSON pointers of the numbers in `value` (read from `source`) that
 /// `source` writes as a decimal its double does not spell back.
@@ -27,8 +28,8 @@ pub(super) fn rounded(language: &dyn ConfigLanguage, source: &str, value: &Value
         .into_iter()
         .zip(spans)
         .filter_map(|((pointer, float), span)| {
-            let range = scalar_range(language, source, span?)?;
-            let written = digits(source[range].trim())?;
+            let range = scalar_text_range(language, source, span?)?;
+            let written = digits(slice::slice(source, range)?.trim())?;
             (Some(written) != digits(&format!("{float:e}"))).then_some(pointer)
         })
         .collect()
@@ -66,8 +67,8 @@ fn digits(text: &str) -> Option<(bool, String, i64)> {
         Some(rest) => (true, rest),
         None => (false, text.strip_prefix('+').unwrap_or(&text)),
     };
-    let (mantissa, exponent) = match body.find(['e', 'E']) {
-        Some(at) => (&body[..at], body[at + 1..].parse::<i64>().ok()?),
+    let (mantissa, exponent) = match body.split_once(['e', 'E']) {
+        Some((mantissa, exponent)) => (mantissa, exponent.parse::<i64>().ok()?),
         None => (body, 0),
     };
     let (whole, fraction) = mantissa.split_once('.').unwrap_or((mantissa, ""));

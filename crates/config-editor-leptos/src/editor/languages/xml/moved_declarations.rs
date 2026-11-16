@@ -1,10 +1,12 @@
 //! An element a view moved keeps its namespaces: no view shows a
 //! declaration or a prefix, so a save declares on the moved element
 //! itself what the host bound its names to (`namespace_scopes`), instead
-//! of waiting on a prefix the user cannot see (QA `E36-3`: `<c:scan>` cut
-//! from `<p xmlns:c="…">` and pasted under `<q>`) or silently moving it
-//! to another namespace (QA `E37-6`: `<t>` pasted under
-//! `<q xmlns="urn:d">`, or `<c:t>` under `<q xmlns:c="urn:other">`).
+//! of waiting on a prefix the user cannot see (`<c:scan>` cut from
+//! `<p xmlns:c="…">` and pasted under `<q>`) or silently moving it to
+//! another namespace (`<t>` pasted under `<q xmlns="urn:d">`, or `<c:t>`
+//! under `<q xmlns:c="urn:other">`).
+
+#![deny(clippy::string_slice)]
 
 use super::attribute_layout::Tag;
 use super::identity::{Host, Identity};
@@ -112,7 +114,7 @@ fn prefixed_names(element: &BytesStart<'_>) -> Vec<String> {
 /// host (`previous`, or `origin` for an item pasted back from the text the
 /// session began on): one moved into or out of a default namespace, or
 /// where its prefix is bound otherwise or not at all, declares its own
-/// right after its name (QA `E36-3`, `E37-6`). An element the edit added
+/// right after its name. An element the edit added
 /// declares a prefix no declaration in scope binds as the hosts bind it;
 /// a prefix no host binds is left for the read-back to refuse.
 pub(super) fn declared_where_moved(saved: String, (previous, origin): (&str, Option<&str>), identity: &Identity<'_>) -> String {
@@ -171,22 +173,18 @@ pub(super) fn declared_where_moved(saved: String, (previous, origin): (&str, Opt
         for binding in added {
             scope.add(binding);
         }
-        if saved[..token.end].ends_with("/>") {
+        if token.closes_itself(&saved) {
             scope.pop();
         }
     }
     if inserts.is_empty() {
         return saved;
     }
-    let mut out = String::with_capacity(saved.len() + inserts.iter().map(|(_, text)| text.len()).sum::<usize>());
-    let mut from = 0;
-    for (at, text) in inserts {
-        out.push_str(&saved[from..at]);
-        out.push_str(&text);
-        from = at;
-    }
-    out.push_str(&saved[from..]);
-    out
+    // Each insert after a start tag's name, in document order.
+    let inserts = inserts.into_iter().map(|(at, text)| (TextRange::empty(text_size(at)), text));
+    crate::editor::edit::Change::replacing(TextSize::of(&saved), inserts)
+        .and_then(|change| change.apply(&saved))
+        .unwrap_or(saved)
 }
 
 #[cfg(test)]

@@ -50,6 +50,7 @@ mod namespace_scopes;
 mod folding;
 
 use crate::editor::paths::{line_column, span_between, utf16_len, FieldPath};
+use crate::editor::text::{TextRange, TextSize, byte_range, slice, text_size};
 use tokens::*;
 use scan::*;
 use plan::*;
@@ -358,8 +359,10 @@ impl SaveLayout for XmlBehavior {
     /// Element text ending in a line break before its end tag
     /// (`k2\n</secret>`) runs through the break.
     fn kept_value_end(&self, source: &str, end: usize) -> usize {
-        let rest = &source[end..];
-        if rest.trim_start().starts_with("</") { end + rest.len() - rest.trim_start().len() } else { end }
+        let at = text_size(end);
+        let rest = slice::after(source, at).unwrap_or("");
+        let kept = rest.trim_start();
+        if kept.starts_with("</") { usize::from(at + TextSize::of(rest) - TextSize::of(kept)) } else { end }
     }
 
     /// Escaped for where it goes: a quoted attribute value keeps its quotes,
@@ -386,7 +389,7 @@ impl SaveLayout for XmlBehavior {
     }
 
     fn written_value_range(&self, source: &str, range: std::ops::Range<usize>) -> std::ops::Range<usize> {
-        text::written_text_range(source, range)
+        text::written_text_range(source, byte_range(range)).into()
     }
 
     /// An element holding other markup (`xsi:type`, a namespace

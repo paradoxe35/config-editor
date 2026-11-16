@@ -7,7 +7,7 @@
 //! line for the patch, then split back where the patch left it as it was.
 
 use super::super::language::ConfigLanguage;
-use super::comment_start;
+use super::code_of;
 
 /// The host with its empty multi-line containers joined, and each joined
 /// line with the lines it stands for.
@@ -37,7 +37,7 @@ impl Joined {
 /// it has none.
 pub(super) fn join(language: &dyn ConfigLanguage, previous: &str) -> Option<Joined> {
     let host: Vec<&str> = previous.split('\n').collect();
-    let code = |line: &str| line[..comment_start(language, line)].trim_end().to_string();
+    let code = |line: &str| code_of(language, line).trim_end().to_string();
     let brackets = language.config().brackets;
     let separator = language.config().item_separator;
     let mut out: Vec<String> = Vec::with_capacity(host.len());

@@ -7,8 +7,9 @@
 
 use super::super::item_sources::{ItemSource, ItemSources, SaveTold};
 use super::super::language::{ConfigLanguage, Span, pointer_key};
-use super::{byte_range, reads_as, through_long_quote};
+use super::{reads_as, replaced, span_text_range, through_long_quote};
 use crate::editor::paths::FieldPath;
+use crate::editor::text::{TextRange, slice};
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 
@@ -311,8 +312,8 @@ fn key_span_edit(
     new_key: &str,
 ) -> Option<(std::ops::Range<usize>, String)> {
     let span = super::super::paths::memo_key_span(language, source, pointer)?;
-    let range = byte_range(source, span)?;
-    let written = &source[range.clone()];
+    let range = span_text_range(source, span)?;
+    let written = slice::slice(source, range)?;
     let flow = super::super::flow_syntax::Flow::of(language);
     let quote = written.chars().next().filter(|quote| {
         flow.quote(*quote).is_some()
@@ -320,10 +321,12 @@ fn key_span_edit(
             && written.ends_with(*quote)
     });
     let inner = match quote {
-        Some(quote) => range.start + quote.len_utf8()..range.end - quote.len_utf8(),
-        None => range.clone(),
+        Some(quote) => written
+            .strip_prefix(quote)
+            .and_then(|inner| inner.strip_suffix(quote))?,
+        None => written,
     };
-    if source[inner.clone()] != *old_key {
+    if inner != old_key {
         return None;
     }
     let text = match quote {
@@ -331,7 +334,8 @@ fn key_span_edit(
         Some(quote) if !flow.starts_quoted(new_key) => format!("{quote}{new_key}{quote}"),
         _ => new_key.to_string(),
     };
-    Some((range, text))
+    // A key edit is the language API's `usize` byte range.
+    Some((range.into(), text))
 }
 
 /// `previous` with a scalar that became a container written as an inline
@@ -357,10 +361,9 @@ pub(in super::super) fn patch_scalar_to_container(
         return None;
     }
     let span: Span = language.value_span(previous, &FieldPath::from(&pointer))?;
-    let mut range = byte_range(previous, span)?;
-    range.end = through_long_quote(language, previous, range.clone());
-    let mut patched = previous.to_string();
-    patched.replace_range(range, &text);
+    let range = span_text_range(previous, span)?;
+    let range = TextRange::new(range.start(), through_long_quote(language, previous, range));
+    let patched = replaced(previous, range, &text);
     reads_as(language, &patched, schema, new).then_some(patched)
 }
 

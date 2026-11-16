@@ -119,7 +119,7 @@ pub fn string_of(value: &Value) -> Option<&str> {
 /// once, to the model's own string.
 pub(crate) fn written(text: &str) -> &str {
     if reserved_shape(text) {
-        &text[MARK.len_utf8()..]
+        text.strip_prefix(MARK).unwrap_or(text)
     } else {
         text
     }

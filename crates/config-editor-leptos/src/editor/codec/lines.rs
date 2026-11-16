@@ -4,7 +4,7 @@
 use super::super::flow_syntax::Flow;
 use super::super::item_sources::SaveTold;
 use super::super::language::ConfigLanguage;
-use super::compare::{comment_start, comparable, spaced_trailing_comment, trailing_comment};
+use super::compare::{code_of, comparable, spaced_trailing_comment, trailing_comment};
 use super::{empty_containers, kept_inline, reads_as, serialize_told};
 use serde_json::Value;
 
@@ -450,7 +450,9 @@ fn closes_body(language: &dyn ConfigLanguage, line: &str) -> bool {
 /// `[web]` and `"web":`).
 fn key_text<'a>(language: &dyn ConfigLanguage, flow: &Flow, line: &'a str) -> &'a str {
     let mut text = line.trim_start();
-    text = &text[language.key_markup_len(text).unwrap_or(0)..];
+    text = text
+        .get(language.key_markup_len(text).unwrap_or(0)..)
+        .unwrap_or(text);
     let brackets = language.config().brackets;
     text.trim_start_matches(|character: char| {
         flow.quote(character).is_some() || brackets.iter().any(|(open, _)| *open == character)
@@ -460,7 +462,7 @@ fn key_text<'a>(language: &dyn ConfigLanguage, flow: &Flow, line: &'a str) -> &'
 /// What comes before the alias a host line ends with (`- ` of `- *x`,
 /// `udp:` of `udp: *p`), as the patch compares lines.
 fn alias_head(language: &dyn ConfigLanguage, line: &str) -> Option<String> {
-    let code = line[..comment_start(language, line)].trim();
+    let code = code_of(language, line).trim();
     let (head, token) = code.rsplit_once(' ')?;
     let config = language.config();
     let after_key = config
@@ -480,7 +482,8 @@ fn reads_alias(flow: &Flow, head: &str, wanted: &str) -> bool {
         .is_some_and(|rest| {
             !rest.is_empty()
                 && !flow.key_separator(rest).is_some_and(|(at, length)| {
-                    rest[at + length..].is_empty() || rest[at + length..].starts_with(' ')
+                    rest.get(at + length..)
+                        .is_some_and(|value| value.is_empty() || value.starts_with(' '))
                 })
                 && !rest
                     .chars()
@@ -505,6 +508,10 @@ fn in_host_indentation(
     rendered_unit: &str,
 ) -> String {
     let indent = |text: &str| text.len() - text.trim_start_matches([' ', '\t']).len();
+    fn indent_text(text: &str) -> &str {
+        text.strip_suffix(text.trim_start_matches([' ', '\t']))
+            .unwrap_or("")
+    }
     let content = line.trim_start_matches([' ', '\t']);
     if content.is_empty() {
         return line.to_string();
@@ -532,10 +539,13 @@ fn in_host_indentation(
                 content = format!(
                     "{marker}{}{}",
                     " ".repeat(gap),
-                    content[marker.len()..].trim_start_matches(' ')
+                    content
+                        .strip_prefix(marker)
+                        .unwrap_or(content.as_str())
+                        .trim_start_matches(' ')
                 );
             }
-            (sibling[..indent(sibling)].to_string(), content)
+            (indent_text(sibling).to_string(), content)
         } else if let Some((rendered, parent)) =
             placed().find(|(rendered, _)| indent(rendered) < wanted)
         {
@@ -544,7 +554,7 @@ fn in_host_indentation(
             (
                 format!(
                     "{}{}{}",
-                    &parent[..indent(parent)],
+                    indent_text(parent),
                     host_unit.repeat(levels),
                     " ".repeat(extra)
                 ),

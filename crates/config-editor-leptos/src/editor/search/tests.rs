@@ -1,6 +1,7 @@
 use super::matcher::{MAX_MATCHES, Matcher, SearchOptions, find_matches};
 use super::replace::{replace_all, replace_one};
 use super::{SearchResults, count_label};
+use crate::editor::text::{TextRange, slice};
 
 const PLAIN: SearchOptions = SearchOptions {
     case_sensitive: false,
@@ -22,7 +23,7 @@ fn found(text: &str, query: &str, options: SearchOptions) -> Vec<String> {
     find_matches(text, &matcher)
         .0
         .iter()
-        .map(|found| text[found.start..found.end].to_string())
+        .map(|found| slice::slice(text, found.range).unwrap().to_string())
         .collect()
 }
 
@@ -31,7 +32,7 @@ fn starts(text: &str, query: &str, options: SearchOptions) -> Vec<usize> {
     find_matches(text, &matcher)
         .0
         .iter()
-        .map(|found| found.start)
+        .map(|found| usize::from(found.range.start()))
         .collect()
 }
 
@@ -119,7 +120,7 @@ fn patterns_matching_empty_text_find_and_replace_where_they_match() {
         let found: Vec<usize> = find_matches(text, &matcher)
             .0
             .iter()
-            .map(|found| found.start)
+            .map(|found| usize::from(found.range.start()))
             .collect();
         if found != starts_expected {
             failures.push(format!(
@@ -136,7 +137,10 @@ fn patterns_matching_empty_text_find_and_replace_where_they_match() {
     // Multi-byte text: each empty match on a character boundary.
     let matcher = Matcher::new("x*", regex).unwrap().unwrap();
     let (matches, _) = find_matches("é😀", &matcher);
-    let at: Vec<usize> = matches.iter().map(|found| found.start).collect();
+    let at: Vec<usize> = matches
+        .iter()
+        .map(|found| usize::from(found.range.start()))
+        .collect();
     if at != [0, 2, 6] {
         failures.push(format!("x* in é😀: {at:?}"));
     }
@@ -164,7 +168,7 @@ fn matches_know_their_line() {
     assert!(!capped);
     let lines: Vec<(usize, usize)> = matches
         .iter()
-        .map(|found| (found.line, found.line_start))
+        .map(|found| (found.line, usize::from(found.line_start)))
         .collect();
     assert_eq!(lines, [(0, 0), (3, 11), (3, 11)]);
 }
@@ -185,7 +189,7 @@ fn replace_all_rewrites_every_match_in_one_text() {
     let (result, count, first) = replace_all(text, &matcher, "listen").unwrap();
     assert_eq!(result, "listen: 1\nlisten: 2\nexlisten: 3");
     assert_eq!(count, 3);
-    assert_eq!(first, 0..6);
+    assert_eq!(first, TextRange::new(0.into(), 6.into()));
     // Every match is replaced, past the highlight cap too.
     let many = "a ".repeat(MAX_MATCHES + 5);
     let (result, count, _) = replace_all(&many, &matcher_for("a"), "b").unwrap();
@@ -226,9 +230,9 @@ fn regex_replacements_expand_groups_and_escapes() {
 fn replace_one_reports_where_the_replacement_went() {
     let text = "a: 1\nb: 1";
     let matcher = matcher_for("1");
-    let (change, range) = replace_one(text, &matcher, 8..9, "22");
+    let (change, range) = replace_one(text, &matcher, TextRange::new(8.into(), 9.into()), "22");
     assert_eq!(change.apply(text).as_deref(), Some("a: 1\nb: 22"));
-    assert_eq!(range, 8..10);
+    assert_eq!(range, TextRange::new(8.into(), 10.into()));
 }
 
 #[test]
@@ -399,7 +403,7 @@ fn the_current_match_follows_an_edit_before_it() {
     let current = search.current.get_untracked().map(|index| {
         search
             .results
-            .with_untracked(|results| results.matches[index].start)
+            .with_untracked(|results| results.matches[index].range.start())
     });
-    assert_eq!(current, Some(13));
+    assert_eq!(current, Some(13.into()));
 }

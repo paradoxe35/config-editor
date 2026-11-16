@@ -4,30 +4,31 @@
 //! sections).
 
 use super::{named_entity, numeric_entity};
+use crate::editor::text::{TextRange, TextSize, slice};
 
 /// `range` (an element text's span, trimmed) widened to the element's whole
 /// content when the element holds nothing but that text: from its start
 /// tag's `>` to its end tag's `<`.
-pub(super) fn written_text_range(
-    source: &str,
-    range: std::ops::Range<usize>,
-) -> std::ops::Range<usize> {
-    let before = &source[..range.start];
-    let after = &source[range.end..];
-    let lead = before.len() - before.trim_end().len();
-    let trail = after.len() - after.trim_start().len();
-    let opened_by_start_tag = before.trim_end().ends_with('>') && {
-        let tag_end = before.trim_end().len();
-        before[..tag_end].rfind('<').is_some_and(|open| {
-            let tag = &before[open..tag_end];
+pub(super) fn written_text_range(source: &str, range: TextRange) -> TextRange {
+    let (Some(before), Some(after)) = (
+        slice::before(source, range.start()),
+        slice::after(source, range.end()),
+    ) else {
+        return range;
+    };
+    let (head, tail) = (before.trim_end(), after.trim_start());
+    let opened_by_start_tag = head.ends_with('>')
+        && head.rfind('<').is_some_and(|open| {
+            let tag = head.get(open..).unwrap_or("");
             !tag.starts_with("</")
                 && !tag.starts_with("<!")
                 && !tag.starts_with("<?")
                 && !tag.ends_with("/>")
-        })
-    };
-    if opened_by_start_tag && after[trail..].starts_with("</") {
-        range.start - lead..range.end + trail
+        });
+    if opened_by_start_tag && tail.starts_with("</") {
+        let lead = TextSize::of(before) - TextSize::of(head);
+        let trail = TextSize::of(after) - TextSize::of(tail);
+        TextRange::new(range.start() - lead, range.end() + trail)
     } else {
         range
     }

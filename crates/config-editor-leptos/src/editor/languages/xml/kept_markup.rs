@@ -9,6 +9,8 @@
 //! as an attribute stays one, and a child element stays a child (views
 //! show both alike).
 
+#![deny(clippy::string_slice)]
+
 use super::attribute_layout::{Tag, filled, markup_attributes};
 use super::identity::{Host, Identity};
 use crate::editor::item_sources::SaveTold;
@@ -97,7 +99,7 @@ impl HostElements {
             let tag = Tag::of(text, token, &read.markup);
             scope.push(declared(text, &tag));
             let namespaces = scope.names_bound(text, token, &tag);
-            if text[..token.end].ends_with("/>") {
+            if token.closes_itself(text) {
                 scope.pop();
             }
             let Some(path) = plan.path_of(token.start) else { continue };
@@ -105,7 +107,7 @@ impl HostElements {
                 .attributes
                 .iter()
                 .filter(|attribute| !attribute.markup)
-                .map(|attribute| local(&text[attribute.name.clone()]))
+                .map(|attribute| local(slice::slice(text, byte_range(attribute.name.clone())).unwrap_or_default()))
                 .collect();
             let element = HostElement {
                 markup: markup_attributes(text, token, &read.markup),
@@ -221,7 +223,7 @@ pub(super) fn changed_markup(language: &XmlBehavior, previous: &str, patched: &s
         // A declaration the save gave an element the edit added, of a
         // prefix nothing around it binds (`moved_declarations`), is a
         // host's binding.
-        let opened = !patched[..token.end].ends_with("/>");
+        let opened = !token.closes_itself(patched);
         let added: Vec<(String, String)> = saved
             .iter()
             .filter(|declaration| declaration.0.strip_prefix("xmlns:").is_some_and(|prefix| scope.bound(Some(prefix)).is_none()))

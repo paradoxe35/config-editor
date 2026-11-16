@@ -11,6 +11,15 @@
 //! view are drawn (see `components::SearchHighlights`).
 //!
 //! The rest of the editor sees only the hooks re-exported here.
+//!
+//! Matches are typed byte ranges (`TextRange`) from where the regex engine
+//! and the standard library's search give them (`matcher`) on.
+
+#![deny(
+    clippy::string_slice,
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss
+)]
 
 mod actions;
 mod components;
@@ -42,7 +51,7 @@ use leptos::prelude::*;
 use super::edit::Change;
 use super::live_settings::on_switch_off;
 use super::state::EditorState;
-use crate::editor::text::byte_range;
+use crate::editor::text::TextRange;
 use matcher::{Matcher, find_matches};
 
 /// Switching the `search` or `go_to_line` setting off closes its widget.
@@ -87,9 +96,9 @@ pub(super) struct SearchState {
     pub(super) query: RwSignal<String>,
     pub(super) replacement: RwSignal<String>,
     pub(super) options: RwSignal<SearchOptions>,
-    /// The match stepped to, as a byte range of the document, followed
-    /// through every edit (see [`EditorState::follow_current_match`]).
-    stepped: RwSignal<Option<(usize, usize)>>,
+    /// The match stepped to, followed through every edit (see
+    /// [`EditorState::follow_current_match`]).
+    stepped: RwSignal<Option<TextRange>>,
     /// Index of the match stepped to, shown distinctly: `None` once an edit
     /// changed its text.
     pub(super) current: Memo<Option<usize>>,
@@ -130,15 +139,15 @@ impl SearchState {
                 }),
             })
         });
-        let stepped = RwSignal::new(None::<(usize, usize)>);
+        let stepped = RwSignal::new(None::<TextRange>);
         let current = Memo::new(move |_| {
-            let (start, end) = stepped.get()?;
+            let stepped = stepped.get()?;
             results.with(|results| {
                 let index = results
                     .matches
-                    .binary_search_by_key(&start, |found| found.start)
+                    .binary_search_by_key(&stepped.start(), |found| found.range.start())
                     .ok()?;
-                (results.matches[index].end == end).then_some(index)
+                (results.matches[index].range == stepped).then_some(index)
             })
         });
         Self {
@@ -161,12 +170,8 @@ impl SearchState {
     /// Steps to the match at `index` of the results (none with `None`).
     pub(super) fn set_current(&self, index: Option<usize>) {
         let found = index.and_then(|index| {
-            self.results.with_untracked(|results| {
-                results
-                    .matches
-                    .get(index)
-                    .map(|found| (found.start, found.end))
-            })
+            self.results
+                .with_untracked(|results| results.matches.get(index).map(|found| found.range))
         });
         self.stepped.set(found);
     }
@@ -185,11 +190,8 @@ impl EditorState {
     /// same text, and is no longer current once the edit changed that text.
     pub(super) fn follow_current_match(&self, change: &Change) {
         let stepped = self.search().stepped;
-        if let Some((start, end)) = stepped.get_untracked() {
-            let mapped = change
-                .map_range(&byte_range(start..end))
-                .map(|range| (usize::from(range.start()), usize::from(range.end())));
-            stepped.set(mapped);
+        if let Some(range) = stepped.get_untracked() {
+            stepped.set(change.map_range(&range));
         }
     }
 }
