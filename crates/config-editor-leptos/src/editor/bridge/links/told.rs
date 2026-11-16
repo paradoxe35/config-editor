@@ -8,7 +8,7 @@ use super::super::super::language::ConfigLanguage;
 use super::super::super::parse_cache;
 use super::super::super::work_count::{Work, note, note_many};
 use super::items::items;
-use super::{Link, Links, Shown, Source, content};
+use super::{Holding, HostPaths, Link, Links, Shown, Source, content};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 
@@ -307,12 +307,11 @@ impl Links {
             return Links::default();
         };
         // A view that writes a list of one as its item (XML) names it
-        // without its index, or the other way: found as the view before
-        // spells it.
-        let before = parse_cache::parsed(from_language, from_text);
-        let spelled = |pointer: &str| match before.as_ref() {
-            Ok(before) => super::spelled_in(before, pointer),
-            Err(_) => pointer.to_string(),
+        // without its index, or the other way: each item found where the
+        // view it was written from holds it.
+        let paths = match parse_cache::parsed(from_language, from_text).as_ref() {
+            Ok(before) => HostPaths::between(before, value),
+            Err(_) => HostPaths::default(),
         };
         // The switch wrote the new text: its items are shown there.
         let shown: Arc<str> = Arc::from(text);
@@ -321,11 +320,23 @@ impl Links {
             .filter_map(|item| {
                 let source = sources
                     .get(&item.pointer)
-                    .or_else(|| sources.get(&spelled(&item.pointer)))?;
+                    .or_else(|| sources.get(&paths.item(&item.pointer).0))?;
                 let (start, end) = content(text, item.lines.start, item.lines.end)?;
                 let source = Arc::new(Source {
                     host: source.host.clone(),
                     pointer: source.pointer.clone(),
+                    // A list of one the view before wrote as its item, which
+                    // this one writes as a list.
+                    holding: match source.holding {
+                        Holding::ListShownAlone
+                            if value
+                                .pointer(&item.pointer)
+                                .is_some_and(serde_json::Value::is_array) =>
+                        {
+                            Holding::AsShown
+                        }
+                        holding => holding,
+                    },
                     shown: Some(Shown {
                         text: shown.clone(),
                         pointer: item.pointer,

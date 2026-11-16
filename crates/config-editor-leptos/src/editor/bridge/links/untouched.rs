@@ -13,7 +13,7 @@ use super::super::super::language::{ConfigLanguage, pointer_key};
 use super::super::super::parse_cache;
 use super::super::super::paths;
 use super::told::same_keys;
-use super::{Links, Source, spelled_in};
+use super::{Links, Source};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -110,15 +110,17 @@ impl Links {
                 reading,
                 ..
             } if same_keys(language, base, text) => {
-                let host_value = reading.as_ref().and_then(|reading| reading.read(host));
+                // Paired with the host as `base` is: this text holds its
+                // keys and lists alike.
+                let paths = reading
+                    .as_ref()
+                    .and_then(|reading| reading.paths(host, value))
+                    .unwrap_or_default();
                 pointers
                     .into_iter()
                     .map(|pointer| Candidate {
                         host: host.clone(),
-                        from: match &host_value {
-                            Some(host_value) => spelled_in(host_value, &pointer),
-                            None => pointer.clone(),
-                        },
+                        from: paths.value(&pointer),
                         shown: base.clone(),
                         at: pointer.clone(),
                         pointer,
@@ -153,7 +155,10 @@ impl Links {
                         }
                         Some(Candidate {
                             host: source.host.clone(),
-                            from: format!("{}{rest}", source.pointer),
+                            from: format!(
+                                "{}{rest}",
+                                source.holding.value_of(source.pointer.clone())
+                            ),
                             shown: shown.text.clone(),
                             at,
                             pointer,

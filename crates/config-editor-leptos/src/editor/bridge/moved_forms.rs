@@ -272,9 +272,10 @@ fn respelled<'a>(
 }
 
 /// `saved` (a save's text, reading `intended`) with the scalars and keys
-/// of each item `items` tells the edit moved written as where they were
-/// cut from (`previous`, or the session's first text `origin`); `Err`
-/// with the pointer of a scalar that cannot be, there.
+/// of each item `items` (by their pointers in `intended`) tells the edit
+/// moved written as where they were cut from (`previous`, or the
+/// session's first text `origin`); `Err` with the pointer of a scalar
+/// that cannot be, there.
 pub(super) fn kept(
     host: &dyn ConfigLanguage,
     saved: String,
@@ -284,14 +285,6 @@ pub(super) fn kept(
     shape: Option<&Value>,
     told: SaveTold<'_>,
 ) -> Result<String, String> {
-    // The view's pointers as the save spells them: a view that writes a
-    // list of one as its item (XML) names `/l/x` for the save's `/l/0/x`.
-    // The sources name the host's paths already.
-    let items: ItemMap = items
-        .iter()
-        .map(|(to, source)| (super::links::spelled_in(intended, to), source.clone()))
-        .collect();
-    let items = &items;
     let saved = relocated(
         host,
         saved,

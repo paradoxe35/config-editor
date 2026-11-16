@@ -17,6 +17,7 @@ use std::cell::OnceCell;
 use std::ops::Range;
 
 use super::super::super::language::ConfigLanguage;
+use super::super::super::paths::FieldPath;
 use super::super::carry::Moves;
 use super::super::locate::LineIndex;
 use super::super::locks::{Lock, Protected};
@@ -101,7 +102,7 @@ pub(super) fn kept(
             && next.locks.iter().all(|lock| {
                 lock.pointer
                     .as_deref()
-                    .is_none_or(|known| !named(known, pointer))
+                    .is_none_or(|known| !named(behavior, (before, after), known, pointer))
             })
     }) {
         return Err(refused(&protected.held_reason(lost)));
@@ -198,11 +199,17 @@ impl Spans<'_> {
                 .next
                 .unplaced
                 .iter()
-                .any(|(known, _)| named(known, pointer));
+                .any(|(known, _)| self.named(known, pointer));
         if lost {
             return Err(refused(&lock.reason));
         }
         Ok(())
+    }
+
+    /// Whether `known` (a field of the text after) is the field at
+    /// `pointer` of the text before (see [`named`]).
+    fn named(&self, known: &str, pointer: &str) -> bool {
+        named(self.behavior, (self.before, self.after), known, pointer)
     }
 
     /// The lock the text after holds the field at `pointer` by (under the
@@ -211,7 +218,7 @@ impl Spans<'_> {
         self.next.locks.iter().find(|lock| {
             lock.pointer
                 .as_deref()
-                .is_some_and(|known| named(known, pointer))
+                .is_some_and(|known| self.named(known, pointer))
         })
     }
 
@@ -374,12 +381,21 @@ impl Spans<'_> {
     }
 }
 
-/// Whether `pointer` names the field at `field`, also spelled without the
-/// `/0` of an XML element read as a list of one.
-fn named(pointer: &str, field: &str) -> bool {
-    pointer == field
-        || pointer.strip_suffix("/0") == Some(field)
-        || field.strip_suffix("/0") == Some(pointer)
+/// Whether `known` (a field of `after`) names the field at `pointer` (of
+/// `before`, the text an edit made `after` of): the same pointer, or the
+/// same item of a list written once in one text (a lone XML element or HCL
+/// block, `/l`) and repeated in the other (`/l/0`), as the language reads
+/// a value written once (see `data_reading::lone_spelling`).
+pub(in crate::editor::protect) fn named(
+    behavior: &dyn ConfigLanguage,
+    (before, after): (&str, &str),
+    known: &str,
+    pointer: &str,
+) -> bool {
+    let lone = |text: &str, written: &str| behavior.lone_item(text, &FieldPath::from(written));
+    known == pointer
+        || (known.strip_suffix("/0") == Some(pointer) && lone(before, pointer))
+        || (pointer.strip_suffix("/0") == Some(known) && lone(after, known))
 }
 
 /// From the first span's start to the last one's end.

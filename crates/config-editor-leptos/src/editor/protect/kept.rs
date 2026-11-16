@@ -108,12 +108,11 @@ impl EditorState {
                 .then(|| {
                     spans.fields.iter().find(|(field, text)| {
                         // Locked under its pointer or the other one of an
-                        // element read as a list of one or alone (XML), or
-                        // its text locked under another.
-                        let alias = field
-                            .strip_suffix("/0")
-                            .map_or_else(|| format!("{field}/0"), str::to_string);
-                        let named = |pointer: &str| pointer == field || pointer == alias;
+                        // element written once in one text and repeated in
+                        // the other (XML), or its text locked under another.
+                        let named = |pointer: &str| {
+                            super::guard::named(self.behavior(), (before, after), pointer, field)
+                        };
                         !protected.locks.iter().any(|lock| {
                             lock.pointer.as_deref().is_some_and(named)
                                 || texts(&units, &lock.ranges) == *text
