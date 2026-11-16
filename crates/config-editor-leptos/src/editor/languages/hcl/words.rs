@@ -16,6 +16,7 @@ pub(super) fn plain(source: &str, line: usize, column: usize, raw: &str) -> Plac
     let vague = sentence == "unexpected token"
         || sentence.starts_with("expected ")
         || sentence.starts_with("invalid expression")
+        || sentence.starts_with("invalid object item")
         || sentence.starts_with("invalid block body");
     if vague
         && let Some((offset, open)) = first_open(source)
@@ -99,6 +100,12 @@ fn worded(sentence: &str, at: Option<char>, source: &str, line: usize) -> Option
         "a condition is written as test ? this : that: a : is missing between the two values"
     } else if sentence.starts_with("invalid block body") {
         "a block holds attributes (name = value) and blocks, one per line: this does not belong here"
+    } else if sentence.starts_with("invalid object item") {
+        if at == Some('.') {
+            "a name or digit must follow this dot, as in a.b or 1.5"
+        } else {
+            "the entries of a map are separated by commas or line breaks: a , or } is missing here"
+        }
     } else if sentence.starts_with("invalid object value assignment") {
         "a map entry needs = or : between its key and its value, as in key = value"
     } else if sentence.starts_with("invalid escape sequence") {

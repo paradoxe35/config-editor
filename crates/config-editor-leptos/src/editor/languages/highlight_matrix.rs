@@ -435,14 +435,12 @@ fn syntax_marks_have_their_own_colours() {
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
-/// A language and a value it writes, where the colour is wrong: open
-/// findings, checked by the ignored test below until fixed.
-const KNOWN: &[(&str, &str)] = &[("HCL", "-7")];
-
-/// The colours of the keys and literals each language that colours its
-/// text writes itself, `known` the (language, value) pairs to check: all
-/// but the [`KNOWN`] ones, or only those.
-fn written_colours(known: bool) -> Vec<String> {
+/// Every key and every number, boolean and null a language writes is
+/// coloured as a key or a literal: the documents each language that colours
+/// its text writes itself, keys spelled every way the cases above spell
+/// them (a value the language cannot hold is left out).
+#[test]
+fn written_keys_and_literals_are_coloured_in_every_language() {
     let keys = [
         "plain_key",
         "quoted key",
@@ -467,8 +465,8 @@ fn written_colours(known: bool) -> Vec<String> {
         text[start..end].to_string()
     };
     for language in highlighting() {
-        for key in keys.iter().filter(|_| !known) {
-            let document = json!({ *key: "v" });
+        for key in keys {
+            let document = json!({ key: "v" });
             if !holds(language, &document) {
                 continue;
             }
@@ -496,9 +494,8 @@ fn written_colours(known: bool) -> Vec<String> {
             continue;
         }
         for value in &literals {
-            let is_known = KNOWN.contains(&(language.label(), value.to_string().as_str()));
             let document = json!({ "k": value });
-            if is_known != known || !holds(language, &document) {
+            if !holds(language, &document) {
                 continue;
             }
             let Ok(text) = text(language, &document, &[]) else {
@@ -523,20 +520,5 @@ fn written_colours(known: bool) -> Vec<String> {
             );
         }
     }
-    failures
-}
-
-/// Every key and every number, boolean and null a language writes is
-/// coloured as a key or a literal: the documents each language that colours
-/// its text writes itself, keys spelled every way the cases above spell
-/// them (a value the language cannot hold is left out).
-#[test]
-fn written_keys_and_literals_are_coloured_in_every_language() {
-    report(&written_colours(false));
-}
-
-#[test]
-#[ignore = "bug: HCL colours the minus of a negative number it writes (`k = -7`) as punctuation, not as part of the literal"]
-fn a_negative_number_hcl_writes_is_one_literal() {
-    report(&written_colours(true));
+    report(&failures);
 }

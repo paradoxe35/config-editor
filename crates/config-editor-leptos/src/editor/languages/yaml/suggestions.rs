@@ -597,7 +597,7 @@ pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionConte
         && !current_is_array_item
         && content_offset == 0
         && let Some(parent) = parent_level
-        && let Some(column) = sibling_column(source, current_line_start, current_line_end, parent)
+        && let Some(column) = sibling_column(source, current_line_start, current_line_end, parent, candidate_colon.is_some().then_some(indent))
         && column != indent
         && parent.is_none_or(|parent| indent > parent)
     {
@@ -644,8 +644,10 @@ pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionConte
 
 /// The column the entries of a mapping write their keys at, found from the
 /// lines around the caret's (`start..end`) that sit deeper than the
-/// mapping's key at `parent` (any line for the top level).
-fn sibling_column(source: &str, start: usize, end: usize, parent: Option<usize>) -> Option<usize> {
+/// mapping's key at `parent` (any line for the top level). When the
+/// caret's line holds a key at column `key` (`hea|tcp:`), the lines right
+/// below it that sit deeper are that key's value, not its siblings.
+fn sibling_column(source: &str, start: usize, end: usize, parent: Option<usize>, key: Option<usize>) -> Option<usize> {
     let indent_of = |line: &str| {
         let trimmed = line.trim_start_matches([' ', '\t']);
         (!trimmed.is_empty() && !trimmed.starts_with('#')).then(|| line.len() - trimmed.len())
@@ -659,6 +661,7 @@ fn sibling_column(source: &str, start: usize, end: usize, parent: Option<usize>)
     let after = source[(end + 1).min(source.len())..]
         .lines()
         .filter_map(indent_of)
+        .skip_while(|column| key.is_some_and(|key| *column > key))
         .take_while(|column| inside(*column));
     before.chain(after).min()
 }

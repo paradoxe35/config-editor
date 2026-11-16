@@ -17,6 +17,7 @@ use std::collections::HashMap;
 use serde_json::{Map, Value};
 
 use crate::editor::language::{ParseError, Span};
+use crate::string_value;
 
 /// A document read: its value and the spans of its keys and values.
 pub(super) struct Read {
@@ -340,7 +341,7 @@ impl Inline<'_> {
             let (text, end) =
                 quoted(self.text, self.at).map_err(|_| self.fail("unclosed string"))?;
             self.at = end;
-            Value::String(text)
+            string_value(text)
         } else {
             let end = rest.find(['|', ')', '>']).unwrap_or(rest.len());
             let word = rest[..end].trim_end();
@@ -374,8 +375,8 @@ pub(super) fn scalar(word: &str) -> Value {
                     .all(|c| c.is_ascii_digit() || matches!(c, '.' | '-'));
             match word.parse::<f64>() {
                 Ok(number) if float => serde_json::Number::from_f64(number)
-                    .map_or_else(|| Value::String(word.to_string()), Value::Number),
-                _ => Value::String(word.to_string()),
+                    .map_or_else(|| string_value(word), Value::Number),
+                _ => string_value(word),
             }
         }
     }

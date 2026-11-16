@@ -279,12 +279,16 @@ pub(super) fn value_token_len(text: &str) -> usize {
     code.trim_end().len()
 }
 
-/// The tables of the table at `path` that only headers or dotted keys
-/// deeper than them make (`[clients.acme]` making `clients`), while the
-/// caret is in a header being named whose table has no keys of its own: the
-/// header may name one of them (`[cli|]` above `[clients.acme]`), which
-/// the data, holding the table either way, cannot tell.
-pub(super) fn implied_tables(source: &str, cursor_byte: usize, path: &[SchemaPathSegment]) -> HashSet<String> {
+/// The keys of the table at `path` an entry typed at the caret may write
+/// again, though the data holds them already:
+/// - an array of tables written as `[[path.key]]` headers: one more
+///   `[[…]]` table follows, as another HCL block or XML element does;
+/// - while the caret is in a header being named whose table has no keys of
+///   its own, the tables that only headers or dotted keys deeper than them
+///   make (`[clients.acme]` making `clients`): the header may name one of
+///   them (`[cli|]` above `[clients.acme]`), which the data, holding the
+///   table either way, cannot tell.
+pub(super) fn rewritable_keys(source: &str, cursor_byte: usize, path: &[SchemaPathSegment]) -> HashSet<String> {
     let lines: Vec<&str> = source.lines().collect();
     let line_index = source[..cursor_byte.min(source.len())].matches('\n').count();
     let in_header = lines.get(line_index).is_some_and(|line| line.trim_start().starts_with('['));
@@ -298,14 +302,12 @@ pub(super) fn implied_tables(source: &str, cursor_byte: usize, path: &[SchemaPat
             .take_while(|code| parse_header(code).is_none())
             .any(|code| key_assignment(code).is_some())
     };
-    if !in_header || has_keys() {
-        return HashSet::new();
-    }
+    let names_implied = in_header && !has_keys();
     let child_of = |full: &[SchemaPathSegment]| match full.get(path.len()) {
         Some(SchemaPathSegment::Key(key)) if full.starts_with(path) => Some(key.clone()),
         _ => None,
     };
-    let (mut implied, mut written) = (HashSet::new(), HashSet::new());
+    let (mut implied, mut written, mut arrays) = (HashSet::new(), HashSet::new(), HashSet::new());
     let mut section: Vec<SchemaPathSegment> = Vec::new();
     let mut tables = Tables::default();
     for (index, line) in lines.iter().enumerate() {
@@ -321,7 +323,14 @@ pub(super) fn implied_tables(source: &str, cursor_byte: usize, path: &[SchemaPat
             if index != line_index
                 && let Some(key) = child_of(&header)
             {
-                if header.len() == path.len() + 1 { &mut written } else { &mut implied }.insert(key);
+                if header.len() == path.len() + 1 {
+                    if is_array {
+                        arrays.insert(key.clone());
+                    }
+                    written.insert(key);
+                } else {
+                    implied.insert(key);
+                }
             }
             section = tables.path.clone();
             continue;
@@ -343,8 +352,11 @@ pub(super) fn implied_tables(source: &str, cursor_byte: usize, path: &[SchemaPat
             }
         }
     }
-    implied.retain(|key| !written.contains(key));
-    implied
+    if names_implied {
+        implied.retain(|key| !written.contains(key));
+        arrays.extend(implied);
+    }
+    arrays
 }
 
 /// The text a suggestion of `key` inserts for `plan`. A value renders as

@@ -485,6 +485,46 @@ fn run(kind: Option<TokenKind>, text: &str) -> (Option<TokenKind>, String) {
     (kind, text.to_string())
 }
 
+/// A minus starting a number is part of the literal; a subtraction's is
+/// punctuation.
+#[test]
+fn a_negative_number_is_one_literal_and_a_subtraction_is_not() {
+    use TokenKind::*;
+    assert_eq!(
+        highlighted("k = [-7, (-1.5)]"),
+        vec![
+            run(Some(Key), "k"),
+            run(None, " "),
+            run(Some(Punctuation), "="),
+            run(None, " "),
+            run(Some(Punctuation), "["),
+            run(Some(Literal), "-7"),
+            run(Some(Punctuation), ","),
+            run(None, " "),
+            run(Some(Punctuation), "("),
+            run(Some(Literal), "-1.5"),
+            run(Some(Punctuation), ")"),
+            run(Some(Punctuation), "]"),
+        ]
+    );
+    assert_eq!(
+        highlighted("k = f(x) -1"),
+        vec![
+            run(Some(Key), "k"),
+            run(None, " "),
+            run(Some(Punctuation), "="),
+            run(None, " "),
+            run(Some(Key), "f"),
+            run(Some(Punctuation), "("),
+            run(Some(Key), "x"),
+            run(Some(Punctuation), ")"),
+            run(None, " "),
+            run(Some(Punctuation), "-"),
+            run(Some(Literal), "1"),
+        ]
+    );
+}
+
 #[test]
 fn block_headers_color_the_type_as_key_and_labels_as_strings() {
     use TokenKind::*;

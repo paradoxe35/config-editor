@@ -152,7 +152,7 @@ pub struct InsertContext<'a> {
     /// `[[array]]` header rather than a `[table]` one.
     pub array_item: bool,
     /// The key is written already as items the language repeats
-    /// ([`Repeats::repeated_keys`]): the entry is one more item,
+    /// ([`Typing::rewritable_keys`]): the entry is one more item,
     /// written the same way (another HCL block).
     pub another_item: bool,
 }
@@ -923,6 +923,11 @@ pub trait ConfigLanguage: Send + Sync + 'static {
 
     /// The document for `value`, keeping the framing of `previous` (this
     /// language's last text for the document) where the language has any.
+    /// Strings come as [`parse`](Self::parse) holds them: write each one's
+    /// text as [`string_of`](crate::string_of) gives it (a string spelled
+    /// like an infinity's form is held with a mark in front), and, with
+    /// [`LanguageTraits::writes_non_finite`], each number as
+    /// [`float_of`](crate::float_of) gives it.
     ///
     /// # Errors
     ///
@@ -987,9 +992,11 @@ pub trait ConfigLanguage: Send + Sync + 'static {
         self.config().flat_property_insert(key)
     }
 
-    /// A schema value (default, const, example) as document text.
+    /// A value (a schema's default, const or example, or one of the
+    /// document's) as document text, its strings written as
+    /// [`serialize`](Self::serialize) writes them. The default writes JSON.
     fn format_value(&self, value: &Value) -> String {
-        value.to_string()
+        super::codec::non_finite::unescape_strings(value).to_string()
     }
 
     /// The key under character `column` of `line`, and the column it starts at.
@@ -1400,8 +1407,9 @@ pub trait Typing {
     /// around the caret at byte `cursor_byte`) that the entry typed there
     /// may still write, though the data cannot tell: an HCL block type
     /// written as repeated blocks (one more block follows, see
-    /// [`Repeats`]), or a TOML table only its sub-tables' headers make
-    /// (a header being named may name it). Default: none.
+    /// [`Repeats`]), a TOML array of tables written as `[[…]]` headers
+    /// (one more table follows), or a TOML table only its sub-tables'
+    /// headers make (a header being named may name it). Default: none.
     fn rewritable_keys(
         &self,
         source: &str,

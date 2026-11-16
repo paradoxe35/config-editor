@@ -89,6 +89,18 @@ const HCL: &[Case] = &[
     ),
     ("a = x.", "a name must follow this dot, as in a.b", 1, 6),
     (
+        "a = { x = 1 y = 2 }",
+        "the entries of a map are separated by commas or line breaks: a , or } is missing here",
+        1,
+        13,
+    ),
+    (
+        "a = { cpu = 1.",
+        "this { is never closed: a } is missing to end the map or block",
+        1,
+        5,
+    ),
+    (
         "a = 1 2",
         "this does not belong here: an attribute holds one value, and the next attribute starts on a new line",
         1,
@@ -545,16 +557,9 @@ fn no_cut_of_a_written_document_tells_the_parsers_words() {
         Language::YAML,
         Language::JSON,
         Language::TOML,
+        Language::HCL,
         Language::XML,
     ];
     let failures = cuts_telling_the_parsers_words(&languages);
-    assert!(failures.is_empty(), "{}", failures.join("\n"));
-}
-
-#[cfg(feature = "json")]
-#[test]
-#[ignore = "bug: HCL tells its parser's words for an object on one line cut off after a number (`limits = { cpu = 1.`: \"invalid object item; expected `}`, `,` or newline\")"]
-fn no_cut_of_a_written_hcl_document_tells_the_parsers_words() {
-    let failures = cuts_telling_the_parsers_words(&[Language::HCL]);
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }

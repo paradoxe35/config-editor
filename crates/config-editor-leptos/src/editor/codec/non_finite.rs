@@ -148,7 +148,6 @@ pub(crate) fn escape_strings(value: Value) -> Value {
 
 /// `value` with each string as a writer writes it ([`written`]), for a
 /// serde writer that takes the whole value.
-#[cfg(feature = "json")]
 pub(crate) fn unescape_strings(value: &Value) -> Cow<'_, Value> {
     replaced(value, &|text| Value::String(written(text).to_string()))
 }
