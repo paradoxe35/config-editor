@@ -252,12 +252,14 @@ impl EditorState {
     pub(crate) fn solid_tokens(&self, text: &str) -> Vec<Range<usize>> {
         let secrets = self.protect().secrets;
         let mut tokens = secrets.tokens.get_untracked();
-        if secrets.known.with_untracked(Vec::is_empty) {
+        // Another document's tokens are solid here too, also where this
+        // document's host gave none of its own.
+        let others = self.protect().foreign.get_untracked();
+        if secrets.known.with_untracked(Vec::is_empty) && others.is_empty() {
             return tokens;
         }
         // Byte ranges of the copies of the host's tokens and of the other
         // documents' tokens written here.
-        let others = self.protect().foreign.get_untracked();
         let mut written: Vec<Range<usize>> = secrets.matcher.with_value(|matcher| {
             secrets.known.with_untracked(|known| {
                 let own: std::collections::HashSet<&str> =

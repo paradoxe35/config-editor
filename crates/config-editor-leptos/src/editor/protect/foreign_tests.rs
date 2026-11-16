@@ -65,11 +65,18 @@ fn another_documents_placeholder_pasted_in_is_flagged_in_every_language() {
 /// placeholder of this document's own: an edit cutting it (Backspace on
 /// its last character, part of it selected and deleted) takes it whole,
 /// a drag of part of it is refused, and Replace all leaves a match inside
-/// it, in every language.
+/// it, in every language, also in a document whose host gave no
+/// placeholder of its own.
 #[test]
 fn another_documents_placeholder_pasted_in_is_never_cut() {
     let mut failures = Vec::new();
-    for (language, text) in documents() {
+    let without_own = documents().into_iter().map(|(language, text)| {
+        let plain = [SECRET, PIN, ID]
+            .iter()
+            .fold(text, |text, token| text.replace(token, "x"));
+        (language, plain)
+    });
+    for (language, text) in documents().into_iter().chain(without_own) {
         let name = text.find("name").expect("a name field") + 4;
         let at = name + text[name..].find('a').expect("its value") + 1;
         let end = at + OTHER.len();

@@ -11,6 +11,7 @@ use std::ops::Range;
 use serde_json::Value;
 
 use super::super::super::codec;
+use super::super::super::parse_cache;
 use super::super::super::paths::key_range;
 use super::super::carry::Moves;
 use super::super::locate::{Extent, extent, inside, lookup, values_under};
@@ -34,6 +35,9 @@ pub(super) struct Placer<'r, 'a> {
     pins: Vec<(String, Value)>,
     /// The fields held, with their pinned values (see `Protected::held`).
     held: Vec<(String, Value)>,
+    /// This text is the host's own (the one the locks follow): it reads
+    /// every field as the host gave it.
+    hosts_own: bool,
 }
 
 /// What became of one field.
@@ -111,6 +115,7 @@ impl<'r, 'a> Placer<'r, 'a> {
                 .map(|previous| previous.pins.clone())
                 .unwrap_or_default(),
             held,
+            hosts_own,
         }
     }
 
@@ -360,12 +365,16 @@ impl<'r, 'a> Placer<'r, 'a> {
         // from one that parsed, under the same key. A parse of a line half
         // typed may read the user's new text as the field (`password:
         // password: '…'`, the path found at the first of a key written
-        // twice, read at the last): the text followed stays the lock.
+        // twice, read at the last): the text followed stays the lock. A
+        // text that did not parse said nothing sure of where the field is
+        // (a stand-in reads around its breaking lines): there the path wins
+        // where it reads the value pinned.
         match self.located(&pointer) {
             Some(found) => match moved {
                 Some(lock)
-                    if !covers(&found.ranges, &lock.ranges)
-                        || (self.before_parsed() && lock.key != found.key) =>
+                    if (!covers(&found.ranges, &lock.ranges)
+                        || (self.before_parsed() && lock.key != found.key))
+                        && !self.repaired_as_pinned(&pointer, &reason) =>
                 {
                     Placed::Locked(Lock { reason, ..lock })
                 }
@@ -436,6 +445,30 @@ impl<'r, 'a> Placer<'r, 'a> {
     /// Whether the text before parsed (its locks were placed by path).
     fn before_parsed(&self) -> bool {
         self.before.is_some_and(|before| before.document.is_some())
+    }
+
+    /// Whether this text, which parses after a text that did not, is the
+    /// host's own or reads the field at `pointer` (named by its path, for
+    /// `reason`) as the text before pinned it. A field a host range covers
+    /// is no path: its list index moves with items added, so its pin, read
+    /// at its pointer, says nothing of where it is.
+    fn repaired_as_pinned(&self, pointer: &str, reason: &Reason) -> bool {
+        let (Some(before), Some(document)) = (self.before, &self.reading.document) else {
+            return false;
+        };
+        if *reason == Reason::Range {
+            return false;
+        }
+        // The document before is kept only when something needed it: the
+        // parse says whether that text parsed.
+        (self.hosts_own
+            || before
+                .pins
+                .iter()
+                .find(|(known, _)| known == pointer)
+                .is_some_and(|(_, pinned)| lookup(document, pointer) == Some(pinned)))
+            && before.document.is_none()
+            && parse_cache::parsed(self.reading.behavior, &before.text).is_err()
     }
 
     /// The lock of the text before, moved through the edit, when the edit

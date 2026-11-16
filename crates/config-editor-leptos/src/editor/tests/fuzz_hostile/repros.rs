@@ -327,3 +327,104 @@ fn a_path_lock_covers_a_json_scalar_moved_below_its_key() {
         steps: vec![Step::Paths { mask: 11 }, Step::Enter { at: 13400940 }],
     });
 }
+
+/// P1: paths named after an edit lock their fields where a fresh editor
+/// does: the edit before is not applied to the new locks a second time.
+#[test]
+fn paths_named_after_an_edit_lock_where_a_fresh_editor_does() {
+    use super::live::Step;
+    super::live::replay(super::live::LiveCase {
+        language: "HCL",
+        schema: true,
+        text: "k = false\nport = \"\u{feff}\"\n".into(),
+        steps: vec![
+            Step::Type {
+                at: 15743362,
+                text: "1",
+            },
+            Step::Paths { mask: 0 },
+        ],
+    });
+}
+
+/// P1: ranges given after an edit lock where a fresh editor does.
+#[test]
+fn ranges_given_after_an_edit_lock_where_a_fresh_editor_does() {
+    use super::live::Step;
+    super::live::replay(super::live::LiveCase {
+        language: "JSON",
+        schema: true,
+        text: "{\n  \"a b\": 58052,\n  \"port\": [\n    5e-324,\n    true,\n    false\n  ],\n  \"name\": \"\u{a0}\"\n}\n".into(),
+        steps: vec![
+            Step::Type {
+                at: 6305806,
+                text: " ",
+            },
+            Step::Ranges {
+                line: Some(1009077),
+            },
+        ],
+    });
+}
+
+/// P1: an undo after new paths leaves each path lock on its own field, not
+/// on a nested field of the same name.
+#[test]
+fn an_undo_after_new_paths_locks_each_path_on_its_own_field() {
+    use super::live::Step;
+    super::live::replay(super::live::LiveCase {
+        language: "YAML",
+        schema: false,
+        text:
+            "k:\n  é:\n    x_1: 0.5\n    name: 39051\n    a b: 85951\nname: \"8080\"\nport: 22528\n"
+                .into(),
+        steps: vec![
+            Step::Enter { at: 12341837 },
+            Step::Paths { mask: 17 },
+            Step::Undo,
+        ],
+    });
+}
+
+/// P1: an undo after new paths places the locks of the text it gives back
+/// by their paths (YAML, an edit typed into a value first).
+#[test]
+fn an_undo_after_new_paths_places_the_locks_by_their_paths() {
+    use super::live::Step;
+    super::live::replay(super::live::LiveCase {
+        language: "YAML",
+        schema: false,
+        text: "a: 5671\na b:\n  - null\n".into(),
+        steps: vec![
+            Step::Type {
+                at: 14008365,
+                text: "1",
+            },
+            Step::Type {
+                at: 10296072,
+                text: " ",
+            },
+            Step::Paths { mask: 30 },
+            Step::Undo,
+        ],
+    });
+}
+
+/// P1: an undo after new paths (TOML, a cut first).
+#[test]
+fn an_undo_after_new_paths_keeps_toml_locks_on_their_fields() {
+    use super::live::Step;
+    super::live::replay(super::live::LiveCase {
+        language: "TOML",
+        schema: true,
+        text: "\n[k]\n\"a b\" = [0.5]\n\n[port]\n".into(),
+        steps: vec![
+            Step::Cut {
+                at: 350795,
+                to: 7224758,
+            },
+            Step::Paths { mask: 0 },
+            Step::Undo,
+        ],
+    });
+}

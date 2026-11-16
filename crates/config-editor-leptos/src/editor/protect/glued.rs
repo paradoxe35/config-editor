@@ -218,7 +218,7 @@ pub(crate) fn glued_elsewhere<'a>(document: &Value, known: &'a [Known]) -> Optio
         if found.is_none() {
             found = whole
                 .iter()
-                .find(|known| leaf.contains(known.token.as_str()) && leaf.trim() != known.token)
+                .find(|known| leaf.contains(known.token.as_str()) && !known.alone_in(leaf))
                 .copied();
         }
     });

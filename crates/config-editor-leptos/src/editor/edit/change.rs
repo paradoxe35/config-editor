@@ -373,10 +373,6 @@ impl Change<Bytes> {
 
     /// The change undoing this one: made on the text after, giving back
     /// `before` (the text this one was made on).
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "undo steps that keep changes build on it")
-    )]
     pub(crate) fn invert(&self, before: &str) -> Option<Self> {
         let mut shift: isize = 0;
         let mut edits = Vec::with_capacity(self.replaced.len());
@@ -409,10 +405,6 @@ impl Change<Bytes> {
     /// The change making `next` after this one, as one change of this
     /// one's text before. Moved stretches are not carried (a composed
     /// change maps positions by its replacements).
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "undo steps that keep changes build on it")
-    )]
     pub(crate) fn compose(&self, next: &Self) -> Option<Self> {
         if next.len != self.len_after() {
             return None;
@@ -559,7 +551,6 @@ impl Change<Bytes> {
     }
 
     /// The change as retain, delete and insert pieces over the text.
-    #[cfg_attr(not(test), expect(dead_code, reason = "read by `compose` and `map`"))]
     fn pieces(&self) -> Vec<Piece> {
         let mut pieces = Vec::with_capacity(self.replaced.len() * 3 + 1);
         let mut at = 0;
@@ -583,7 +574,6 @@ impl Change<Bytes> {
 }
 
 /// A piece of a change, read over the text before from its start.
-#[cfg_attr(not(test), expect(dead_code, reason = "read by `compose` and `map`"))]
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum Piece {
     Retain(usize),
@@ -591,7 +581,6 @@ enum Piece {
     Insert(String),
 }
 
-#[cfg_attr(not(test), expect(dead_code, reason = "read by `compose` and `map`"))]
 impl Piece {
     /// How much of the text the piece reads (an insertion: what it writes).
     fn len(&self) -> usize {
@@ -624,14 +613,12 @@ impl Piece {
 }
 
 /// Pieces gathered into a change.
-#[cfg_attr(not(test), expect(dead_code, reason = "made by `compose` and `map`"))]
 #[derive(Default)]
 struct Pieces {
     at: usize,
     edits: Vec<(Range<usize>, String)>,
 }
 
-#[cfg_attr(not(test), expect(dead_code, reason = "made by `compose` and `map`"))]
 impl Pieces {
     fn retain(&mut self, len: usize) {
         self.at += len;

@@ -4,7 +4,7 @@
 use leptos::prelude::*;
 
 use super::super::fold_ranges::FoldRange;
-use super::super::history::{Selection, Snapshot, ViewState};
+use super::super::history::{Record, Selection, Snapshot, ViewState};
 use super::super::languages::Language;
 use super::super::positioning::set_caret_visible;
 use super::super::state::{EditorState, directed_selection, select, textarea_selection};
@@ -289,14 +289,20 @@ impl EditorState {
                     folds: closed,
                     ..before()
                 };
-                history.record_command(before, after, left);
+                history.record_command(before, after, left, Record::undoing(edit));
             }),
             Origin::Reload { .. } => {
                 history.update(|history| history.record_action(before(), after));
             }
             Origin::Input { kind, time } => {
                 history.update(|history| {
-                    history.record_input(before(), &edit.text, after, kind, *time);
+                    history.record_input_as(
+                        before(),
+                        &edit.text,
+                        after,
+                        (kind, *time),
+                        Record::undoing(edit),
+                    );
                 });
             }
             Origin::Undo => history.update(|history| {

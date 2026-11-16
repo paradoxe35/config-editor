@@ -112,6 +112,10 @@ pub(super) struct Edit {
     /// Replace all): an Edit-as view's items follow it (see
     /// `bridge::links`); else it is read off the selection or the caret.
     pub(super) splices: Option<Vec<Splice>>,
+    /// What an undo or redo does, as its step recorded it (see
+    /// `history::Record`); `None` for every other edit.
+    #[cfg(feature = "protect")]
+    pub(super) stepped: Option<Change>,
 }
 
 /// Where the selection goes after an edit.
@@ -152,6 +156,8 @@ impl Edit {
             language: None,
             folds: None,
             splices: None,
+            #[cfg(feature = "protect")]
+            stepped: None,
         }
     }
 
@@ -206,11 +212,14 @@ impl Edit {
     /// What the edit did, exactly, as the code making it recorded it: the
     /// splices a command gave (a line command's lines moved with them),
     /// else the selection the edit replaced, when the texts agree it did
-    /// (typing, paste, cut, drop, a command replacing its selection); each
-    /// replacement without the text it writes back as it was at its ends.
+    /// (typing, paste, cut, drop, a command replacing its selection), or
+    /// for an undo or redo the change its step recorded (`stepped`, when it
+    /// still makes this edit's text); each replacement without the text it
+    /// writes back as it was at its ends.
     /// `None` for an edit with no record, whose followers read the change
-    /// off the two texts: an undo or redo (the history keeps texts, not
-    /// changes), input whose selection the browser did not give
+    /// off the two texts: an undo or redo of a step with no record (made by
+    /// such an edit, or rebased over a host value), input whose selection
+    /// the browser did not give
     /// (`UNKNOWN_SELECTION`), a command whose new text is not its selection
     /// replaced and that gave no splices (a comment toggle, a suggestion
     /// rewriting its line, Revert), and the host's own texts (a value, a
@@ -223,6 +232,11 @@ impl Edit {
     /// [`Self::change`] as recorded, before it is narrowed.
     #[cfg(feature = "protect")]
     fn recorded(&self) -> Option<Change> {
+        if matches!(self.origin, Origin::Undo | Origin::Redo) {
+            return self.stepped.clone().filter(|change| {
+                change.apply(&self.before).as_deref() == Some(self.text.as_str())
+            });
+        }
         if !matches!(self.origin, Origin::Command | Origin::Input { .. }) {
             return None;
         }
@@ -279,6 +293,8 @@ impl Edit {
             language: None,
             folds: None,
             splices: None,
+            #[cfg(feature = "protect")]
+            stepped: None,
         }
     }
 
@@ -299,6 +315,8 @@ impl Edit {
             language: to.language,
             folds: to.folds,
             splices: None,
+            #[cfg(feature = "protect")]
+            stepped: None,
         }
     }
 
@@ -320,6 +338,8 @@ impl Edit {
             language: None,
             folds: None,
             splices: None,
+            #[cfg(feature = "protect")]
+            stepped: None,
         }
     }
 
@@ -435,11 +455,18 @@ impl EditorState {
             },
             |area| textarea_selection(&area),
         );
-        Some(Edit::step(
-            redo,
-            self.doc().text.get_untracked(),
-            selection,
-            to,
-        ))
+        #[cfg_attr(
+            not(feature = "protect"),
+            expect(unused_mut, reason = "the record is kept with protect only")
+        )]
+        let mut edit = Edit::step(redo, self.doc().text.get_untracked(), selection, to);
+        #[cfg(feature = "protect")]
+        {
+            edit.stepped = self
+                .doc()
+                .history
+                .with_untracked(|history| history.next_change(redo).cloned());
+        }
+        Some(edit)
     }
 }

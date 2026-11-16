@@ -10,7 +10,6 @@ use leptos::prelude::*;
 use super::super::codec;
 use super::super::edit::{Change, CodeUnits, Edit, Origin};
 use super::super::edit_as::SaveError;
-use super::super::language::ConfigLanguage;
 use super::super::languages::Language;
 use super::super::parse_cache;
 use super::super::paths::{FieldPath, TextRange};
@@ -78,14 +77,24 @@ pub(crate) struct Marks {
     foreseen: Option<(String, Protected)>,
 }
 
-/// An edit the locks follow: the length (bytes) of the text it made, the
-/// caret it left there (UTF-16; none for an undo or redo) and what it
-/// recorded it did (`Edit::change`, in UTF-16).
+/// An edit the locks follow: the text it was made on and the text it made,
+/// the caret it left there (UTF-16; none for an undo or redo) and what it
+/// recorded it did (`Edit::change`, in UTF-16). It moves only the locks of
+/// its text before into its text after: locks found again on the text
+/// after (new paths or ranges from the host) are already where they are.
 #[derive(Clone)]
 struct Followed {
-    len: usize,
+    before: Arc<str>,
+    after: Arc<str>,
     caret: Option<usize>,
     change: Option<Arc<Change<CodeUnits>>>,
+}
+
+impl Followed {
+    /// Whether this edit made `text` from the text `previous` was found in.
+    fn made(&self, previous: Option<&Protected>, text: &str) -> bool {
+        *self.after == *text && previous.is_some_and(|previous| *self.before == *previous.text)
+    }
 }
 
 /// The protection signals of one editor.
@@ -192,7 +201,7 @@ impl ProtectState {
                 source.with(|text| {
                     let followed = marks
                         .with_value(|marks| marks.followed.clone())
-                        .filter(|followed| followed.len == text.len());
+                        .filter(|followed| followed.made(previous, text));
                     let caret = followed.as_ref().and_then(|followed| followed.caret);
                     let change = followed
                         .as_ref()
@@ -373,48 +382,37 @@ fn covered_fields(
         .collect()
 }
 
-/// The host's ranges (UTF-16 offsets of its text `old`) that cover no
-/// field (a comment) keep their text in its next text `new`: an Edit-as
-/// view locks the fields a range covers, and has nothing of a range over
-/// other text to lock, so the save back holds it as text (written there at
-/// least as often as before).
-fn text_ranges_kept(
-    behavior: &dyn ConfigLanguage,
-    reading: Option<&serde_json::Value>,
-    old: &str,
-    new: &str,
-    ranges: &[Range<usize>],
-) -> Result<(), ReadOnlyChange> {
+/// The host's ranges (UTF-16 offsets of its text `old`) keep their text in
+/// its next text `new`: an Edit-as view locks the fields a range covers by
+/// their values, and has nothing to lock of the range's other text (a
+/// comment, the line break before a key), so the save back holds the
+/// range's text as written (at least as often as before; a range of only
+/// whitespace, which formatting writes everywhere, at least once).
+fn text_ranges_kept(old: &str, new: &str, ranges: &[Range<usize>]) -> Result<(), ReadOnlyChange> {
     if ranges.is_empty() {
         return Ok(());
     }
     // Most ranges keep their text where the conversion kept their lines;
-    // only the others are read for what they cover.
+    // only the others are looked for.
     let moves = Moves::new(old, new);
     let (units, new_units): (Vec<u16>, Vec<u16>) =
         (old.encode_utf16().collect(), new.encode_utf16().collect());
-    let moved: Vec<&Range<usize>> = ranges
-        .iter()
-        .filter(|range| {
-            moves
-                .range(range)
-                .is_none_or(|to| new_units.get(to) != units.get((*range).clone()))
-        })
-        .collect();
-    if moved.is_empty() {
-        return Ok(());
-    }
-    let Ok(document) = codec::read(behavior, old, reading) else {
-        return Ok(());
-    };
-    for range in moved {
-        if !range_pointers(behavior, old, &document, std::slice::from_ref(range)).is_empty() {
-            continue;
-        }
+    for range in ranges {
+        let kept = moves
+            .range(range)
+            .is_some_and(|to| new_units.get(to) == units.get(range.clone()));
         let Some(text) = units.get(range.clone()).map(String::from_utf16_lossy) else {
             continue;
         };
-        if !text.trim().is_empty() && new.matches(&text).count() < old.matches(&text).count() {
+        if kept || text.is_empty() {
+            continue;
+        }
+        let wanted = if text.trim().is_empty() {
+            1
+        } else {
+            old.matches(&text).count()
+        };
+        if new.matches(&text).count() < wanted {
             return Err(ReadOnlyChange {
                 pointer: String::new(),
             });
@@ -669,7 +667,8 @@ impl EditorState {
         let change = recorded(edit).map(Arc::new);
         self.protect().marks.update_value(|marks| {
             marks.followed = Some(Followed {
-                len: after.len(),
+                before: Arc::from(before),
+                after: Arc::from(after),
                 caret: edit.written_end(),
                 change: change.clone(),
             });
@@ -821,19 +820,24 @@ impl EditorState {
     /// parses, reads with other text beside it in a value out of its field
     /// (see `glued::glued_elsewhere`). Read only while some placeholder is
     /// out of its field (fewer real ones on screen than the host wrote in
-    /// fields): one in its field is judged at each keystroke, and a parse
-    /// per change would cost a key a read of the document.
+    /// fields) or a copy of one is written (more on screen than are real):
+    /// one in its field is judged at each keystroke, and a parse per change
+    /// would cost a key a read of the document. A copy is judged here, by
+    /// the parse, wherever the edits that glued it were made (text typed
+    /// beside it while the text did not parse, a repair far from it, its
+    /// key renamed off a field that held it).
     fn glued_away(&self) -> Option<String> {
         let secrets = self.protect().secrets;
+        let real = secrets.tokens.with_untracked(Vec::len);
         let away = secrets.known.with_untracked(|known| {
             let written: usize = known
                 .iter()
                 .filter(|known| known.whole.is_some() && known.field.is_some())
                 .map(|known| known.count)
                 .sum();
-            written > 0 && secrets.tokens.with_untracked(Vec::len) < written
+            written > 0 && real < written
         });
-        if !away {
+        if !away && !self.copies_written(real) {
             return None;
         }
         let parsed = self
@@ -844,6 +848,32 @@ impl EditorState {
         secrets
             .known
             .with_untracked(|known| glued_elsewhere(document, known)?.field.clone())
+    }
+
+    /// Whether the text on screen writes more of the host's tokens given
+    /// whole than the `real` ones: a copy is written (one pass of the
+    /// pattern).
+    fn copies_written(&self, real: usize) -> bool {
+        let secrets = self.protect().secrets;
+        secrets.known.with_untracked(|known| {
+            if !known.iter().any(|known| known.whole.is_some()) {
+                return false;
+            }
+            self.doc().text.with_untracked(|text| {
+                secrets.matcher.with_value(|matcher| {
+                    matcher
+                        .find(text)
+                        .into_iter()
+                        .filter(|range| {
+                            known.iter().any(|known| {
+                                known.whole.is_some() && known.token == text[range.clone()]
+                            })
+                        })
+                        .count()
+                        > real
+                })
+            })
+        })
     }
 
     /// The read-only field the language cannot locate in the text on
@@ -926,7 +956,7 @@ impl EditorState {
                 },
             );
             check_save(behavior, reading, old, new, &pointers)?;
-            text_ranges_kept(behavior, reading, old, new, &ranges)
+            text_ranges_kept(old, new, &ranges)
         })
     }
 

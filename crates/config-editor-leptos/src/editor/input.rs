@@ -737,7 +737,10 @@ fn copy_line(state: EditorState, event: &web_sys::ClipboardEvent, cut: bool) {
     let Some(element) = state.textarea() else {
         return;
     };
-    // A selection cutting a secret placeholder copies it whole.
+    // A selection cutting a secret placeholder copies it whole. The
+    // browser's own copy takes the selection it had before the snap, so a
+    // snapped selection is copied here.
+    let selected_before = textarea_selection(&element);
     state.snap_to_tokens();
     let (start, end) = textarea_selection(&element);
     if start != end {
@@ -746,7 +749,8 @@ fn copy_line(state: EditorState, event: &web_sys::ClipboardEvent, cut: bool) {
             String::from_utf16_lossy(&units[start.min(units.len())..end.min(units.len())])
         });
         state.note_copied(&selected, (start, end));
-        copy_across_folds(state, event, (start, end), cut);
+        let snapped = selected_before != (start, end);
+        copy_selection(state, event, (start, end), cut, snapped);
         return;
     }
     let Some(clipboard) = event.clipboard_data() else {
@@ -793,18 +797,21 @@ fn copy_line(state: EditorState, event: &web_sys::ClipboardEvent, cut: bool) {
     );
 }
 
-/// Copy or cut of a selection across a fold takes the hidden lines too:
-/// the textarea's own copy would miss them.
-fn copy_across_folds(
+/// Copy or cut of a selection the textarea's own copy would get wrong:
+/// one across a fold takes the hidden lines too, one `snapped` to a
+/// placeholder's edges takes the placeholder whole.
+fn copy_selection(
     state: EditorState,
     event: &web_sys::ClipboardEvent,
     (start, end): (usize, usize),
     cut: bool,
+    snapped: bool,
 ) {
-    if !state
-        .view()
-        .projection
-        .with_untracked(|projection| projection.hides_within(start, end))
+    if !snapped
+        && !state
+            .view()
+            .projection
+            .with_untracked(|projection| projection.hides_within(start, end))
     {
         return;
     }

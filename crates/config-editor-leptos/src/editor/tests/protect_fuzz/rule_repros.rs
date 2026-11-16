@@ -288,3 +288,80 @@ fn a_table_typed_below_a_range_after_an_undone_move_is_taken() {
         ],
     );
 }
+
+/// P1: a pasted copy of a placeholder under a renamed key, then text typed
+/// at it inside its quotes: refused, the copy stays the token alone.
+#[test]
+fn text_typed_beside_a_copied_placeholder_inside_its_quotes_is_refused() {
+    let setup = Setup {
+        case: 13,
+        lock: Lock::Secret,
+        host: None,
+        pairs: true,
+    };
+    assert_ok(
+        &setup,
+        &[
+            Act::PasteCopy { line: 16983 },
+            Act::Entry {
+                anchor: 1,
+                name: 12,
+                paste: false,
+            },
+            Act::Entry {
+                anchor: 3,
+                name: 12,
+                paste: false,
+            },
+            Act::Entry {
+                anchor: 0,
+                name: 16,
+                paste: false,
+            },
+            Act::Type { at: 63558, text: 2 },
+            Act::Type {
+                at: 63257,
+                text: 10,
+            },
+        ],
+    );
+}
+
+/// P1: a JSON list holding a pasted copy of a placeholder: no line command
+/// leaves the copy with text beside it in its string.
+#[test]
+fn a_line_command_leaves_no_text_beside_a_copied_placeholder() {
+    let setup = Setup {
+        case: 3,
+        lock: Lock::Secret,
+        host: None,
+        pairs: false,
+    };
+    assert_ok(
+        &setup,
+        &[
+            Act::Type { at: 11729, text: 8 },
+            Act::Entry {
+                anchor: 3,
+                name: 10,
+                paste: false,
+            },
+            Act::Entry {
+                anchor: 3,
+                name: 13,
+                paste: true,
+            },
+            Act::PasteCopy { line: 34475 },
+            Act::Type { at: 18973, text: 2 },
+            Act::Entry {
+                anchor: 2,
+                name: 6,
+                paste: false,
+            },
+            Act::Line {
+                line: 41387,
+                command: 3,
+            },
+        ],
+    );
+}
