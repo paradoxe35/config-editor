@@ -12,8 +12,14 @@
 //! begins `true` in TOML), so the text is read so a few times, each
 //! changing every letter and digit differently: a quote changes in every
 //! reading, a wording in some, and only what changes in all is hidden.
+//! An error made of how that line reads beside the ones before it (a key
+//! written twice) goes once it is changed alone, so each word of that line
+//! is then changed alike where the lines before write it too, which keeps
+//! it (the language's own words elsewhere, `true`, stay).
 
 use std::ops::Range;
+
+use crate::editor::language::ParseError;
 
 /// What a hidden part of a message shows.
 const HIDDEN: &str = "…";
@@ -25,14 +31,13 @@ const SHIFTS: [u8; 3] = [1, 2, 3];
 /// `message`, the syntax error the parser found on `error_line` (one-based;
 /// `None`: anywhere) of `source`, with each part quoting the text from that
 /// line on, or the text of a placeholder (`tokens`, byte ranges), replaced
-/// by `…`. `reread` gives the message of the same error in another text
-/// (`None` when it reads).
+/// by `…`. `reread` gives the error of another text (`None` when it reads).
 pub(in crate::editor::diagnostics) fn hide_quoted_text(
     message: &str,
     source: &str,
     error_line: Option<usize>,
     tokens: &[Range<usize>],
-    reread: impl Fn(&str) -> Option<String>,
+    reread: impl Fn(&str) -> Option<ParseError>,
 ) -> String {
     let from = error_line
         .and_then(|line| line_start(source, line))
@@ -41,18 +46,45 @@ pub(in crate::editor::diagnostics) fn hide_quoted_text(
         .chain(tokens.iter().cloned())
         .collect();
     let message: Vec<char> = message.chars().collect();
-    // Whether each character of the message changed in every reading so
-    // far that found an error.
+    if masked(source, &spans, SHIFTS[0]) == source {
+        return message.into_iter().collect();
+    }
+    // When the text from that line on reads once changed, the error is in
+    // how it reads beside the lines before (a key written twice): each word
+    // of the line also changed alike where the lines before write it keeps
+    // it, on the same line, quoting the changed letters. A reading erring
+    // elsewhere found another error.
+    let beside: Vec<Range<usize>> = spans
+        .iter()
+        .cloned()
+        .chain(earlier_copies(source, from))
+        .collect();
+    let changed = changes(&message, source, &spans, None, &reread)
+        .or_else(|| changes(&message, source, &beside, Some(error_line), &reread))
+        // Every reading reads: the error is in the very letters, so all
+        // the message copies of the line is hidden.
+        .unwrap_or_else(|| copied(&message, line_text(source, from)));
+    shown(&message, &widened(&message, &changed))
+}
+
+/// Whether each character of `message` changed in every reading of
+/// `source` with its `spans` masked that found an error (on `line`, when
+/// given); `None` when none found one.
+fn changes(
+    message: &[char],
+    source: &str,
+    spans: &[Range<usize>],
+    line: Option<Option<usize>>,
+    reread: &impl Fn(&str) -> Option<ParseError>,
+) -> Option<Vec<bool>> {
     let mut changed: Option<Vec<bool>> = None;
     for shift in SHIFTS {
-        let masked = masked(source, &spans, shift);
-        if masked == source {
-            return message.into_iter().collect();
-        }
-        let Some(other) = reread(&masked) else {
+        let Some(other) = reread(&masked(source, spans, shift))
+            .filter(|other| line.is_none_or(|line| other.line == line))
+        else {
             continue;
         };
-        let here = differing(&message, &other.chars().collect::<Vec<_>>());
+        let here = differing(message, &other.message.chars().collect::<Vec<_>>());
         changed = Some(match changed {
             Some(before) => before
                 .iter()
@@ -62,10 +94,38 @@ pub(in crate::editor::diagnostics) fn hide_quoted_text(
             None => here,
         });
     }
-    // Every reading reads: the error is in the very letters, so all the
-    // message copies of the line is hidden.
-    let changed = changed.unwrap_or_else(|| copied(&message, line_text(source, from)));
-    shown(&message, &widened(&message, &changed))
+    changed
+}
+
+/// Where the text before byte `from` writes a word (letters and digits)
+/// of the line starting there, each written whole.
+fn earlier_copies(text: &str, from: usize) -> Vec<Range<usize>> {
+    let line: std::collections::HashSet<&str> = words(line_text(text, from))
+        .map(|word| &line_text(text, from)[word])
+        .collect();
+    words(&text[..from])
+        .filter(|word| line.contains(&text[word.clone()]))
+        .collect()
+}
+
+/// The byte ranges of the words (runs of letters and digits) of `text`.
+fn words(text: &str) -> impl Iterator<Item = Range<usize>> + '_ {
+    let mut start = None;
+    text.char_indices()
+        .chain(std::iter::once((text.len(), ' ')))
+        .filter_map(
+            move |(at, character)| match (character.is_alphanumeric(), start) {
+                (true, None) => {
+                    start = Some(at);
+                    None
+                }
+                (false, Some(begun)) => {
+                    start = None;
+                    Some(begun..at)
+                }
+                _ => None,
+            },
+        )
 }
 
 /// The byte the one-based `line` of `text` starts at.

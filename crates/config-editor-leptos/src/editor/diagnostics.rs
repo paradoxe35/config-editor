@@ -525,7 +525,7 @@ pub(super) fn syntax_message(
     }
     secrets::hide_quoted_text(&error.message, source, error.line, &tokens, |masked| {
         super::work_count::note_many(super::work_count::Work::ParsedBytes, masked.len());
-        behavior.parse(masked).err().map(|error| error.message)
+        behavior.parse(masked).err()
     })
 }
 
