@@ -137,8 +137,8 @@ pub(super) fn is_attribute(source: &str, pointer: &str) -> bool {
 /// `value` (the element at `path`) with the scalars the host wrote as
 /// attributes renamed `@name`, the key `quick-xml` writes as an attribute,
 /// and placed before the children. `old` is the host's value at `path`: a
-/// key renamed from one of its is at that key's path (QA `E33-2`: an
-/// element renamed while its values changed kept no attribute).
+/// key renamed from one of its is at that key's path (an element renamed
+/// while its values change keeps its attributes).
 pub(super) fn with_attributes(value: &Value, old: Option<&Value>, attributes: &AttributePaths, path: &mut Vec<String>) -> Value {
     match value {
         Value::Object(map) => {

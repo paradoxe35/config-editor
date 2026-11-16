@@ -19,8 +19,8 @@ use std::sync::Arc;
 /// Each item's source, by its pointer in the view's value.
 type ItemMap = HashMap<String, ItemSource>;
 
+mod changed_forms;
 mod collapsed;
-mod emptied_quotes;
 mod host_strings;
 mod kept_comments;
 pub(super) mod links;
@@ -48,20 +48,8 @@ mod read_back;
 mod schema_readings;
 mod shared;
 mod tags;
-mod text_scalars;
-mod typed_spellings;
-#[cfg(all(
-    test,
-    feature = "yaml",
-    feature = "json",
-    feature = "toml",
-    feature = "hcl",
-    feature = "xml"
-))]
-mod typed_spellings_tests;
-mod whole_floats;
-mod wide_numbers;
 mod written_anew;
+use changed_forms::{emptied_quotes, text_scalars, typed_spellings, whole_floats, wide_numbers};
 use merge::{View, merge_changes};
 
 /// A save's patch of the host's text: `previous` made to read as `new`.

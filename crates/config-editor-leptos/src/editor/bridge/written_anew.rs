@@ -4,7 +4,7 @@
 //! or datetime, an HCL expression or heredoc, a YAML tag or quoting, XML
 //! markup): a host that has comments waits instead, since a save keeps
 //! them (the Edit-as notice says so), and so does a save that would write
-//! a value it leaves as it was in another form (QA `E37-2`), so a save no
+//! a value it leaves as it was in another form, so a save no
 //! patch knows never passes changing one.
 
 use super::super::Language;
