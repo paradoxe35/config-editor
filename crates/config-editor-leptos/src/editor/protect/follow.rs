@@ -32,7 +32,13 @@ pub(super) fn follow_ranges(
         .iter()
         .map(|range| {
             let shifted = shift(range, &region, inserted);
-            if range.end <= region.start || range.start >= region.end || range.is_empty() {
+            // Only lines the edit wrote can hold a range's lines again: a
+            // deletion writes none (the line after it is not the range's).
+            if range.end <= region.start
+                || range.start >= region.end
+                || range.is_empty()
+                || inserted == 0
+            {
                 return shifted;
             }
             let (old, new) =

@@ -242,24 +242,34 @@ fn ended_at_caret(
 
 impl EditorState {
     /// The placeholders of `text` (UTF-16, in order) no edit may cut: the
-    /// host's tokens where they are, and, in a documents view, the tokens of
-    /// the other documents written here (flagged as theirs, and as solid as
-    /// here: removed whole or kept whole).
+    /// host's tokens where they are, every other copy of one written here
+    /// (a placeholder is one span wherever it is: pasted where no field
+    /// reads it, it is still never split), and, in a documents view, the
+    /// tokens of the other documents written here (flagged as theirs, and
+    /// as solid as here: removed whole or kept whole).
     pub(crate) fn solid_tokens(&self, text: &str) -> Vec<Range<usize>> {
         let secrets = self.protect().secrets;
         let mut tokens = secrets.tokens.get_untracked();
-        // Byte ranges of the other documents' tokens written here.
-        let mut written: Vec<Range<usize>> = self.protect().foreign.with_untracked(|others| {
-            if others.is_empty() {
-                return Vec::new();
-            }
-            secrets.matcher.with_value(|matcher| {
-                secrets.known.with_untracked(|known| {
-                    foreign_tokens(text, matcher, known, others)
-                        .into_iter()
-                        .map(|(range, _)| range)
-                        .collect()
-                })
+        if secrets.known.with_untracked(Vec::is_empty) {
+            return tokens;
+        }
+        // Byte ranges of the copies of the host's tokens and of the other
+        // documents' tokens written here.
+        let others = self.protect().foreign.get_untracked();
+        let mut written: Vec<Range<usize>> = secrets.matcher.with_value(|matcher| {
+            secrets.known.with_untracked(|known| {
+                let own: std::collections::HashSet<&str> =
+                    known.iter().map(|known| known.token.as_str()).collect();
+                matcher
+                    .find(text)
+                    .into_iter()
+                    .filter(|range| own.contains(&text[range.clone()]))
+                    .chain(
+                        foreign_tokens(text, matcher, known, &others)
+                            .into_iter()
+                            .map(|(range, _)| range),
+                    )
+                    .collect()
             })
         });
         if written.is_empty() {

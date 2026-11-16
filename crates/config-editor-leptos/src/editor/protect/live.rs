@@ -21,7 +21,7 @@ use super::carry::Moves;
 use super::follow::follow_ranges;
 use super::foreign::DocumentPlaceholders;
 use super::glued::{first_glued, glued_elsewhere, glued_in_save, glued_message};
-use super::guard::{Blocked, check_at};
+use super::guard::{Blocked, Carets, judge};
 use super::host_ranges::{HostRanges, offsets};
 use super::locate::LineIndex;
 use super::locks::{Protected, Sources, protect};
@@ -73,6 +73,10 @@ pub(crate) struct Marks {
     /// the caret it left there (UTF-16), so the locks follow it as the
     /// guard judged it (see `locks::Sources::caret`).
     followed: Option<(usize, usize)>,
+    /// The locks the guard found for the text of the edit it took (see
+    /// `guard::judge`): the memo of locks takes them for that text instead
+    /// of finding them again, so the editor holds the spans as judged.
+    foreseen: Option<(String, Protected)>,
 }
 
 /// The protection signals of one editor.
@@ -181,6 +185,29 @@ impl ProtectState {
                         .with_value(|marks| marks.followed)
                         .filter(|(length, _)| *length == text.len())
                         .map(|(_, caret)| caret);
+                    // Taken only for the text it was found for: the memo may
+                    // run between the check and the write (the host's
+                    // ranges followed first), on the text before.
+                    let fits = |(before, foreseen): &(String, Protected)| {
+                        previous.is_some_and(|previous| previous.text == *before)
+                            && foreseen_fits(foreseen, previous, text, &fields, &local_ranges)
+                            && foreseen.range_fields == range_fields
+                            && foreseen.marking == marking.is_some()
+                    };
+                    let foreseen = marks
+                        .try_update_value(|marks| {
+                            marks
+                                .foreseen
+                                .as_ref()
+                                .is_some_and(fits)
+                                .then(|| marks.foreseen.take())
+                        })
+                        .flatten()
+                        .flatten();
+                    if let Some((_, mut protected)) = foreseen {
+                        protected.epoch = epoch;
+                        return Arc::new(protected);
+                    }
                     let mut protected = protect(
                         edit.behavior(),
                         text,
@@ -383,6 +410,36 @@ fn text_ranges_kept(
     Ok(())
 }
 
+/// Whether the locks the guard found (`foreseen`) are those the memo would
+/// find for `text`: from the same locks before, paths and host ranges.
+fn foreseen_fits(
+    foreseen: &Protected,
+    previous: Option<&Protected>,
+    text: &str,
+    paths: &[FieldPath],
+    ranges: &[Range<usize>],
+) -> bool {
+    let Some(previous) = previous else {
+        return false;
+    };
+    let placed: Vec<Range<usize>> = foreseen
+        .locks
+        .iter()
+        .filter(|lock| lock.pointer.is_none())
+        .flat_map(|lock| lock.ranges.iter().cloned())
+        .collect();
+    let wanted: Vec<&Range<usize>> = ranges.iter().filter(|range| !range.is_empty()).collect();
+    foreseen.text == text
+        && foreseen.origin == previous.origin
+        && foreseen.paths.len() == paths.len()
+        && foreseen
+            .paths
+            .iter()
+            .zip(paths)
+            .all(|(pointer, path)| *pointer == path.to_pointer())
+        && placed.iter().eq(wanted)
+}
+
 /// Whether the locks memo has news for its readers: the text it was read
 /// from and the documents alone do not count.
 fn locks_changed(old: Option<&Arc<Protected>>, new: Option<&Arc<Protected>>) -> bool {
@@ -467,22 +524,31 @@ impl EditorState {
     /// The edit pipeline's check stage: whether `edit` keeps every lock;
     /// when not, why the field is locked.
     pub(crate) fn check_edit(&self, edit: &Edit) -> Result<(), String> {
-        self.protect()
+        let carets = Carets {
+            caret: Some(edit.caret()),
+            written: edit.written_end(),
+        };
+        let followed = self
+            .protect()
             .protected
             .with_untracked(|protected| {
                 self.config().schema.with_value(|schema| {
-                    check_at(
+                    judge(
                         self.behavior(),
                         schema.as_deref().map(|bundle| &bundle.schema),
                         protected,
                         (&edit.before, &edit.text),
-                        edit.written_end(),
+                        carets,
                     )
                 })
             })
             .map_err(|blocked: Blocked| {
                 self.strings_untracked(|strings| blocked.message(strings))
             })?;
+        let foreseen = followed.map(|followed| (edit.before.clone(), followed));
+        self.protect()
+            .marks
+            .update_value(|marks| marks.foreseen = foreseen);
 
         match self.glued_by(&edit.before, &edit.text) {
             Some(pointer) => {

@@ -27,6 +27,7 @@ mod gate_repros;
 mod known;
 mod mount;
 mod rng;
+mod rule_repros;
 
 use std::collections::BTreeMap;
 use std::panic::{AssertUnwindSafe, catch_unwind};

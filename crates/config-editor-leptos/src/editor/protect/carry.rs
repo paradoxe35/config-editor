@@ -208,6 +208,11 @@ impl<'a> Moves<'a> {
         if let Some(moved) = self.through_spacing(range) {
             return Some(moved);
         }
+        // An edit made inside it changed its text: no alike line elsewhere
+        // is it.
+        if range.start < self.prefix && self.old_len - self.suffix < range.end {
+            return None;
+        }
         let lines = self
             .lines
             .get_or_init(|| LineMoves::new(self.before, self.after))
