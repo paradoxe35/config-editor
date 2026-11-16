@@ -137,6 +137,7 @@ impl EditorState {
 
     /// [`Self::note_caret`] at UTF-16 `offset` of the text (see
     /// [`Self::place_caret_units`]).
+    #[cfg(feature = "protect")]
     pub(super) fn note_caret_units(&self, offset: usize) {
         let offset = self.doc().text.with_untracked(|text| byte_of(text, offset));
         self.note_caret(offset);

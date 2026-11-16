@@ -102,6 +102,7 @@ fn another_documents_placeholder_pasted_in_is_never_cut() {
             (theirs_owner, owner, state)
         };
         let (_theirs, _owner, state) = pasted();
+        #[cfg(feature = "search")]
         let shown = state.doc().text.get_untracked();
         if !state.cuts_a_token(text_size(at + '«'.len_utf8()), text_size(end)) {
             failures.push(format!("{language} ({own}): a drag of part of it taken"));
