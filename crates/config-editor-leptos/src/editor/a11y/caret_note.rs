@@ -100,13 +100,8 @@ pub(in crate::editor) fn connect_caret_note(state: EditorState) {
         state.problems().diagnostics.track();
         state.protect().track();
         state.config().settings.strings.track();
-        state.a11y().note_token.update_value(|token| *token += 1);
-        let token = state.a11y().note_token.get_value();
-        later::after(state, NOTE_DELAY_MS, move |state| {
-            if state.a11y().note_token.get_value() == token {
-                update_note(state);
-            }
-        });
+        let timer = later::after(state, NOTE_DELAY_MS, update_note);
+        later::replace_in(state.a11y().note_timer, timer);
     });
 }
 
@@ -162,9 +157,8 @@ pub(in crate::editor) fn open_docs_key(state: EditorState, event: &web_sys::Keyb
 /// `event`; false when there is none.
 pub(in crate::editor) fn open_docs(state: EditorState, event: &web_sys::KeyboardEvent) -> bool {
     let card_docs = || {
-        state.hover().card.with_untracked(|card| {
-            card.as_ref()
-                .filter(|_| state.completion().suggestions.with_untracked(Vec::is_empty))
+        state.popups().with_card(|card| {
+            card.filter(|_| state.completion().suggestions.with_untracked(Vec::is_empty))
                 .and_then(|card| card.info.docs_url.clone())
         })
     };

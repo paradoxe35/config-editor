@@ -8,7 +8,7 @@ use leptos::prelude::*;
 use wasm_bindgen::JsCast;
 use web_sys::{HtmlElement, KeyboardEvent};
 
-use super::state::EditorState;
+use super::super::state::EditorState;
 use crate::reactive::later;
 
 /// How many frames the focus waits for a card just shown to be measured.
@@ -21,7 +21,7 @@ impl EditorState {
     /// Moves the focus into the card shown at the caret, and says how to
     /// scroll it and get back. Returns whether it did (no card there: the
     /// chord shows one).
-    pub(super) fn focus_card(&self) -> bool {
+    pub(crate) fn focus_card(&self) -> bool {
         self.focus_card_within(UNMEASURED_FRAMES)
     }
 
@@ -29,18 +29,14 @@ impl EditorState {
     /// shown to be measured and placed (unseen until then, it cannot take
     /// the focus).
     fn focus_card_within(&self, frames: u8) -> bool {
-        let hover = self.hover();
-        if !hover.at_caret.get_value() || hover.card.with_untracked(Option::is_none) {
+        let popups = self.popups();
+        if !popups.card_at_caret() {
             return false;
         }
-        let Some(card) = hover.card_ref.get_untracked() else {
+        let Some(card) = popups.card_ref.get_untracked() else {
             return false;
         };
-        if frames > 0
-            && card
-                .class_list()
-                .contains("config-editor__hover--unmeasured")
-        {
+        if frames > 0 && popups.card_height.get_untracked() == 0.0 {
             later::next_frame(*self, move |state| {
                 state.focus_card_within(frames - 1);
             });
@@ -61,21 +57,23 @@ impl EditorState {
     /// Moves the focus into the problem tip F8 or `Ctrl+K Ctrl+I` showed
     /// at the caret (one without docs, so no card), as into the card.
     /// Returns whether it did.
-    pub(super) fn focus_problem_tip(&self) -> bool {
-        let problems = self.problems();
-        if problems.current.with_untracked(Option::is_none) {
+    pub(crate) fn focus_problem_tip(&self) -> bool {
+        if self.problems().current.with_untracked(Option::is_none) {
             return false;
         }
-        let Some(tip) = problems.tip_ref.get_untracked() else {
+        // Not drawn: its line is out of view, or another popup shows.
+        let Some(tip) = self
+            .popups()
+            .tip_ref
+            .get_untracked()
+            .filter(|tip| tip.offset_height() > 0)
+        else {
             return false;
         };
-        if tip.hidden() {
-            return false;
-        }
         let _ = tip.set_attribute("role", "dialog");
-        problems.tip_focused.set(true);
+        self.popups().focused.set(true);
         if crate::focus::in_place(&tip).is_err() {
-            problems.tip_focused.set(false);
+            self.popups().focused.set(false);
             return false;
         }
         let said = self.strings_untracked(|strings| strings.hover_focused.clone());
@@ -89,7 +87,7 @@ impl EditorState {
 /// docs of the link focused, else of the problem in view (see
 /// `docs_in_reach`); without a docs link in it, those `Alt+Enter` opens
 /// from the text. Returns whether it did.
-pub(super) fn opens_docs_from(
+pub(crate) fn opens_docs_from(
     state: EditorState,
     popup: &HtmlElement,
     event: &KeyboardEvent,
@@ -103,7 +101,7 @@ pub(super) fn opens_docs_from(
         return false;
     }
     let Some(url) = docs_in_reach(popup, target.as_ref()) else {
-        return super::a11y::open_docs(state, event);
+        return super::super::a11y::open_docs(state, event);
     };
     event.prevent_default();
     if let Some(window) = web_sys::window() {
@@ -148,7 +146,7 @@ fn docs_in_reach(popup: &HtmlElement, target: Option<&web_sys::EventTarget>) -> 
 /// `Ctrl+A` (`Cmd+A`) in the focused `popup` (the card, the problem
 /// tip): selects its text, to be copied, not the page's. Returns whether
 /// it did.
-pub(super) fn selects_all_in(popup: &HtmlElement, event: &KeyboardEvent) -> bool {
+pub(crate) fn selects_all_in(popup: &HtmlElement, event: &KeyboardEvent) -> bool {
     let select_all = (event.ctrl_key() || event.meta_key())
         && !event.alt_key()
         && !event.shift_key()
@@ -184,7 +182,7 @@ fn scrolled_to(key: &str, top: i32, room: i32, height: i32) -> Option<i32> {
 
 /// A key in the focused card (or on one of its links): the scroll keys
 /// scroll it, and only it (not the page past its end).
-pub(super) fn card_keys(card: &HtmlElement, event: &KeyboardEvent) {
+pub(crate) fn card_keys(card: &HtmlElement, event: &KeyboardEvent) {
     if event.ctrl_key() || event.alt_key() || event.meta_key() || event.shift_key() {
         return;
     }
@@ -204,8 +202,7 @@ pub(super) fn card_keys(card: &HtmlElement, event: &KeyboardEvent) {
 mod tests {
     use super::{LINE_STEP, scrolled_to};
 
-    /// QA 24 (M24-U1): nothing on the keyboard scrolled a long card. The
-    /// scroll keys move it by a line, a page (less a line), or to either
+    /// The scroll keys move it by a line, a page (less a line), or to either
     /// end, never past them; other keys are not taken.
     #[test]
     fn the_scroll_keys_move_the_card_within_its_ends() {

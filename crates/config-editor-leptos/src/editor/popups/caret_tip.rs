@@ -5,17 +5,17 @@
 use leptos::prelude::*;
 use wasm_bindgen::JsCast;
 
-use super::completion::visual_column;
-use super::keyboard::utf16_to_byte_index;
-use super::metrics::read_editor_metrics;
-use super::positioning::hover_card_style;
-use super::source_area::SourceArea;
-use super::state::EditorState;
+use super::super::completion::visual_column;
+use super::super::keyboard::utf16_to_byte_index;
+use super::super::metrics::read_editor_metrics;
+use super::super::positioning::hover_card_style;
+use super::super::source_area::SourceArea;
+use super::super::state::EditorState;
 use crate::cssom::Declarations;
 
 /// The style of a tip at document offset `offset` (UTF-16); `None` while
 /// that is out of view. Tracks the scroll and layout.
-pub(super) fn caret_tip_style(state: EditorState, offset: usize) -> Option<Declarations> {
+pub(crate) fn caret_tip_style(state: EditorState, offset: usize) -> Option<Declarations> {
     let element = state.textarea()?;
     state.view().layout_revision.track();
     state.view().scroll_x.track();

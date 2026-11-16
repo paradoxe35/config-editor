@@ -4,7 +4,7 @@
 use crate::cssom::cssom;
 use leptos::prelude::*;
 
-use super::super::caret_tip::caret_tip_style;
+use super::super::popups::caret_tip_style;
 use super::super::state::EditorState;
 
 #[component]
@@ -14,12 +14,12 @@ pub(in crate::editor) fn ProtectTipView(state: EditorState) -> impl IntoView {
     // text, and again for each refused key, may never be read), as the
     // read-only editor's refusal is.
     Effect::new(move |_| {
-        if let Some(tip) = state.protect().tip.get().filter(|tip| !tip.hover) {
+        if let Some(tip) = state.popups().lock_tip().filter(|tip| !tip.hover) {
             state.a11y().announce(tip.message);
         }
     });
     move || {
-        let tip = state.protect().tip.get()?;
+        let tip = state.popups().lock_tip()?;
         let style = caret_tip_style(state, tip.offset)?;
         Some(view! {
             <div

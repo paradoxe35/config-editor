@@ -14,6 +14,7 @@ use super::super::language::ConfigLanguage;
 use super::super::languages::Language;
 use super::super::parse_cache;
 use super::super::paths::{FieldPath, TextRange};
+use super::super::popups::PopupState;
 use super::super::schema::SchemaBundle;
 use super::super::secret_options::SecretOptions;
 use super::super::state::EditorState;
@@ -29,21 +30,6 @@ use super::save::{ReadOnlyChange, check_save, locked_pointers, range_pointers};
 use super::secrets::SecretState;
 use super::texts::{save_held, save_waits};
 use super::whole_guard::Placeholders;
-use crate::reactive::later::{self, Timeout};
-
-/// How long a refused edit's tooltip stays, in milliseconds.
-const TIP_MS: i32 = 2500;
-
-/// A short message at a place in the text: why an edit was refused, or
-/// what the hovered protected text is.
-#[derive(Clone, Debug, PartialEq)]
-pub(crate) struct Tip {
-    pub(crate) message: String,
-    /// UTF-16 offset it points at.
-    pub(crate) offset: usize,
-    /// Shown for the pointer (it goes when the pointer leaves).
-    pub(crate) hover: bool,
-}
 
 /// The host's side of protection (the component's props, when given).
 pub(crate) struct ProtectInit {
@@ -58,9 +44,6 @@ pub(crate) struct ProtectInit {
 /// The bookkeeping of one editor's protection.
 #[derive(Clone, Default)]
 pub(crate) struct Marks {
-    /// The timer hiding the refusal tooltip: one per editor, which a new
-    /// refusal replaces.
-    tip_timer: Timeout,
     /// Counts the texts the host gave (see [`ProtectState::trust_text`]).
     epoch: u64,
     /// The placeholder a mouse press landed inside, until it is released.
@@ -116,7 +99,8 @@ pub(crate) struct ProtectState {
     placed_at_mount: StoredValue<Option<Vec<TextRange>>>,
     /// The locks of the text on screen.
     pub(crate) protected: Memo<Arc<Protected>>,
-    pub(crate) tip: RwSignal<Option<Tip>>,
+    /// The popups, where the lock tip shows.
+    popups: PopupState,
     /// Small bookkeeping, in one slot: every editor keeps its handles.
     pub(crate) marks: StoredValue<Marks>,
     /// Secret placeholders (see `secrets`).
@@ -133,6 +117,7 @@ pub(crate) struct Inputs {
     pub(crate) host_language: Language,
     pub(crate) schema: Option<Arc<SchemaBundle>>,
     pub(crate) host_text: super::super::sync::HostTextReader,
+    pub(crate) popups: PopupState,
 }
 
 impl ProtectState {
@@ -151,6 +136,7 @@ impl ProtectState {
             host_language,
             schema,
             host_text,
+            popups: inputs_popups,
         } = inputs;
         let secrets = host_text.with_value(|host| {
             source.with_untracked(|shown| {
@@ -257,7 +243,7 @@ impl ProtectState {
             in_host,
             placed_at_mount: StoredValue::new(Some(mounted_with)),
             protected,
-            tip: RwSignal::new(None),
+            popups: inputs_popups,
             marks,
             secrets,
             foreign,
@@ -351,41 +337,20 @@ impl ProtectState {
         });
     }
 
-    /// Shows `message` at `offset` for a moment.
+    /// Shows `message` at `offset` for a moment: why an edit was refused.
     pub(crate) fn flash(&self, message: String, offset: usize) {
-        self.tip.set(Some(Tip {
-            message,
-            offset,
-            hover: false,
-        }));
-        // Native unit tests have no clock: there it stays (unless a test
-        // holds the timers).
-        if later::defers() {
-            self.cancel_tip_timer();
-            let timer = later::after(self.tip, TIP_MS, |tip| tip.set(None));
-            self.marks.update_value(|marks| marks.tip_timer = timer);
-        }
+        self.popups.flash_lock(message, offset);
     }
 
-    /// Drops the pending timer that would hide the tooltip.
-    fn cancel_tip_timer(&self) {
-        let timer = self
-            .marks
-            .try_update_value(|marks| std::mem::take(&mut marks.tip_timer));
-        if let Some(timer) = timer {
-            timer.cancel();
-        }
-    }
-
-    /// Hides the tooltip (only a hover one with `hover_only`).
+    /// Hides the lock tip (only a hover one with `hover_only`).
     pub(crate) fn hide_tip(&self, hover_only: bool) {
-        let shown = self
-            .tip
-            .with_untracked(|tip| tip.as_ref().map(|tip| tip.hover));
-        if shown.is_some_and(|hover| hover || !hover_only) {
-            self.tip.set(None);
-            self.cancel_tip_timer();
-        }
+        self.popups.hide_lock(hover_only);
+    }
+
+    /// The lock tip, while one shows.
+    #[cfg(test)]
+    pub(crate) fn tip(&self) -> Option<super::super::popups::LockTip> {
+        self.popups.lock_tip_untracked()
     }
 }
 
@@ -1061,17 +1026,7 @@ impl EditorState {
             self.protect().hide_tip(true);
             return None;
         };
-        let same = self.protect().tip.with_untracked(|tip| {
-            tip.as_ref()
-                .is_some_and(|tip| tip.hover && tip.message == message)
-        });
-        if !same {
-            self.protect().tip.set(Some(Tip {
-                message: message.clone(),
-                offset,
-                hover: true,
-            }));
-        }
+        self.protect().popups.hover_lock(message.clone(), offset);
         Some(message)
     }
 }

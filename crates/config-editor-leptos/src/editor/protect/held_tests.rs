@@ -100,12 +100,7 @@ fn a_second_copy_of_a_locked_block_is_taken_and_holds_the_save_until_it_goes() {
             "{language}: still locked"
         );
         assert!(!state.save(), "{language}: saved with the copy");
-        let message = state
-            .protect()
-            .tip
-            .get_untracked()
-            .expect("the save says why")
-            .message;
+        let message = state.protect().tip().expect("the save says why").message;
         assert!(message.contains(copy(language).0), "{language}: {message}");
         // Taking the copy out frees the save.
         let now = state.doc().text.get_untracked();

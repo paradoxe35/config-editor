@@ -199,9 +199,9 @@ impl EditorState {
                     return (start, end);
                 };
                 if reveal {
-                    self.doc().text.with_untracked(|text| {
-                        set_caret_visible(&area, text, caret, self.view().scroll_y)
-                    });
+                    self.doc()
+                        .text
+                        .with_untracked(|text| set_caret_visible(&area, text, caret));
                 }
                 // The text between the anchor and the caret stays selected,
                 // the caret at its own end.
@@ -243,8 +243,6 @@ impl EditorState {
                 select(&area, start, end, caret < anchor);
                 area.set_scroll_top(top);
                 area.set_scroll_left(left);
-                self.view().scroll_x.set(f64::from(area.scroll_left()));
-                self.view().scroll_y.set(f64::from(area.scroll_top()));
                 (start, end)
             }
             After::Kept => {

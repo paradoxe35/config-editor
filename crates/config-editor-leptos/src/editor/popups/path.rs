@@ -19,14 +19,11 @@
 //! Over the lines it covers, outside its box, the text answers as ever; a
 //! pointer that came onto them from beside the popup and moves on under it
 //! keeps the popup while where it goes on to tells whether it heads for
-//! the popup or for a line under it (see `popup_under`).
+//! the popup or for a line under it (see `under`).
+//!
+//! Pure geometry: the pointer's phase (see `machine`) asks it.
 
-use leptos::prelude::*;
-use wasm_bindgen::JsCast;
-
-use super::positioning::{POPUP_GAP, schedule_hover};
-use super::problem_hit::{column_at_cell, covering};
-use super::state::EditorState;
+use super::super::positioning::POPUP_GAP;
 
 /// How far around the popup a move still heads for it, in pixels: room for
 /// rounding, not so much that it reaches over the popup's own line.
@@ -34,14 +31,14 @@ const SLACK: f64 = 2.0;
 
 /// A box in the window's pixels.
 #[derive(Clone, Copy, Debug, PartialEq)]
-struct Rect {
-    left: f64,
-    top: f64,
-    right: f64,
-    bottom: f64,
+pub(crate) struct Rect {
+    pub(crate) left: f64,
+    pub(crate) top: f64,
+    pub(crate) right: f64,
+    pub(crate) bottom: f64,
 }
 
-pub(super) type Point = (f64, f64);
+pub(crate) type Point = (f64, f64);
 
 /// Whether the pointer going from `from` to `to`, on a way that left the
 /// popup's anchor (or its gap) at `start`, still heads for `target`: from
@@ -85,32 +82,32 @@ fn heads_for(from: Point, to: Point, target: Rect) -> bool {
 /// Whether `point` is on `target` itself: its right and bottom edges are
 /// past it, as the page hits boxes (a pointer at a card's bottom pixel row
 /// is on the line under it).
-fn inside((x, y): Point, target: Rect) -> bool {
+pub(super) fn inside((x, y): Point, target: Rect) -> bool {
     x >= target.left && x < target.right && y >= target.top && y < target.bottom
 }
 
 /// Whether `point` is on the lines `target` covers (its rows, beside it
 /// or under it): the only place where the way to it can be lost.
-fn on_covered_lines((_, y): Point, target: Rect) -> bool {
+pub(super) fn on_covered_lines((_, y): Point, target: Rect) -> bool {
     y >= target.top && y < target.bottom
 }
 
 /// The way to a popup after a move (off its anchor and its gap).
 #[derive(Clone, Copy, Debug, PartialEq)]
-struct Way {
+pub(super) struct Way {
     /// The move heads for the popup: the text it crosses waits.
-    heading: bool,
+    pub(super) heading: bool,
     /// The pointer is on its way there: the popup takes it from here.
-    on: bool,
+    pub(super) on: bool,
     /// Where the way started.
-    start: Option<Point>,
+    pub(super) start: Option<Point>,
 }
 
 /// The way to `target` after the pointer moved from `from` (none: it was
 /// not seen) to `to`, on its way there before (`on_way`, since `start`).
 /// Off the lines the popup covers, a way starts at `to`, whatever detour
 /// came before; one already heading for it goes on from where it started.
-fn way_after(
+pub(super) fn way_after(
     on_way: bool,
     from: Option<Point>,
     start: Option<Point>,
@@ -142,19 +139,19 @@ fn distance((x, y): Point, target: Rect) -> f64 {
 /// stays while it does, whatever way the pointer takes (a detour round it
 /// to its far side, along the gutter), and what the pointer crosses
 /// waits. Moving along the popup's side, or away, does not.
-fn gets_closer(from: Option<Point>, to: Point, target: Rect) -> bool {
+pub(super) fn gets_closer(from: Option<Point>, to: Point, target: Rect) -> bool {
     from.is_some_and(|from| distance(to, target) < distance(from, target))
 }
 
 /// Whether the pointer moving from `from` (none: not seen) to `to` goes
 /// farther from `target`.
-fn gets_farther(from: Option<Point>, to: Point, target: Rect) -> bool {
+pub(super) fn gets_farther(from: Option<Point>, to: Point, target: Rect) -> bool {
     from.is_none_or(|from| distance(to, target) > distance(from, target))
 }
 
 /// Where the pointer over the text is, for the popup it can enter.
 #[derive(Clone, Copy, Debug, PartialEq)]
-enum Spot {
+pub(super) enum Spot {
     /// Under the popup, which lets it through: the text there answers.
     Under,
     /// In the gap between the popup and its line, or on the popup's edge
@@ -167,7 +164,7 @@ enum Spot {
 
 /// Where `point` is for `target`, which lets the pointer through
 /// (`passing`) or not, the pointer last on its anchor at `anchor_x`.
-fn spot(point: Point, target: Rect, passing: bool, anchor_x: Option<f64>) -> Spot {
+pub(super) fn spot(point: Point, target: Rect, passing: bool, anchor_x: Option<f64>) -> Spot {
     if inside(point, target) {
         return if passing { Spot::Under } else { Spot::Gap };
     }
@@ -213,8 +210,16 @@ fn in_triangle(point: Point, a: Point, b: Point, c: Point) -> bool {
     sides.iter().all(|side| *side >= -PIXEL) || sides.iter().all(|side| *side <= PIXEL)
 }
 
+/// Whether `point` is on the lines `target` covers, beside it: at whole
+/// pixels, so one on the popup's partly covered edge pixel was still on
+/// the text.
+pub(super) fn beside(point: Point, target: Rect) -> bool {
+    on_covered_lines(point, target)
+        && (point.0 < target.left + PIXEL || point.0 > target.right - PIXEL)
+}
+
 /// The box of `popup` in the window (none while it is not laid out).
-fn popup_box(popup: &web_sys::HtmlElement) -> Option<Rect> {
+pub(super) fn popup_box(popup: &web_sys::HtmlElement) -> Option<Rect> {
     let rect = popup.get_bounding_client_rect();
     (rect.width() > 0.0).then(|| Rect {
         left: rect.left(),
@@ -222,257 +227,6 @@ fn popup_box(popup: &web_sys::HtmlElement) -> Option<Rect> {
         right: rect.right(),
         bottom: rect.bottom(),
     })
-}
-
-impl EditorState {
-    /// The pointer moved to `(x, y)` in the window, over cell `cell` of
-    /// zero-based `line`: whether it is on its way to the popup it can
-    /// enter, across other text, so what it crosses waits (and the popup
-    /// with it).
-    pub(super) fn on_the_way_to_popup(&self, x: f64, y: f64, line: usize, cell: usize) -> bool {
-        let from = self.hover().pointer.get_value();
-        self.hover().pointer.set_value(Some((x, y)));
-        let element = self.reachable_popup_element();
-        let popup = element.as_ref().and_then(popup_box);
-        let passing = element
-            .as_ref()
-            .is_some_and(super::popup_pointer::lets_through);
-        let anchor_x = self.hover().anchor_x.get_value();
-        let at = popup.map_or(Spot::Away, |popup| spot((x, y), popup, passing, anchor_x));
-        let on_way = self.hover().on_way.get_value();
-        // Over the popup, which let the pointer through (it came another
-        // way): where it goes on to decides (see `popup_under`).
-        if at == Spot::Under {
-            self.hover().on_way.set_value(false);
-            return element
-                .as_ref()
-                .is_some_and(|popup| self.under_popup(popup, line, cell));
-        }
-        self.leave_under();
-        let on_anchor = self.on_popup_anchor(line, cell);
-        // In the gap between the line and the popup: as good as on it, so
-        // resting there keeps it.
-        if at == Spot::Gap && !on_anchor {
-            self.hover().on_way.set_value(true);
-            self.hover().way_start.set_value(Some((x, y)));
-            self.popup_takes_pointer();
-            self.hold_popup();
-            return true;
-        }
-        if on_anchor {
-            self.hover().on_way.set_value(true);
-            self.hover().anchor_x.set_value(Some(x));
-            self.hover().way_start.set_value(Some((x, y)));
-            self.popup_takes_pointer();
-            return false;
-        }
-        let start = self.hover().way_start.get_value();
-        let way = popup.map_or_else(
-            // Not laid out yet: a pointer at rest stays on its way.
-            || {
-                let resting = on_way && from == Some((x, y));
-                Way {
-                    heading: resting,
-                    on: resting,
-                    start,
-                }
-            },
-            |popup| way_after(on_way, from, start, (x, y), popup),
-        );
-        self.hover().on_way.set_value(way.on);
-        self.hover().way_start.set_value(way.start);
-        if popup.is_some_and(|popup| !on_covered_lines((x, y), popup)) {
-            self.popup_takes_pointer();
-        }
-        if !way.heading && !popup.is_some_and(|popup| gets_closer(from, (x, y), popup)) {
-            if popup.is_some_and(|popup| !gets_farther(from, (x, y), popup)) {
-                self.hold_a_moment();
-            }
-            return false;
-        }
-        self.wait_on_the_way();
-        true
-    }
-
-    /// Whether the pointer came onto the popup on its way there: its last
-    /// place (over the text, or where it left it) was off the lines the
-    /// popup covers, or on them heading for it from there (each move
-    /// inside the triangle to the popup), whatever side it crossed (a card
-    /// above a long value is reached slanting across its side from the
-    /// value's end). On the lines beside it, the way was lost there. Only
-    /// then does the popup let the pointer through.
-    pub(super) fn entered_on_the_way(&self) -> bool {
-        self.hover().pointer.get_value().is_some() && self.hover().on_way.get_value()
-    }
-
-    /// Whether the pointer comes onto `popup` across its side, from the
-    /// lines it covers beside it (its last place over the text or the
-    /// gutter, at whole pixels: one on the popup's partly covered edge
-    /// pixel was still on the text): heading for it or not, it may be going
-    /// to one of those lines (see `popup_under`).
-    pub(super) fn comes_from_beside(&self, popup: &web_sys::HtmlElement) -> bool {
-        let (Some((x, y)), Some(popup)) = (self.hover().pointer.get_value(), popup_box(popup))
-        else {
-            return false;
-        };
-        on_covered_lines((x, y), popup) && (x < popup.left + PIXEL || x > popup.right - PIXEL)
-    }
-
-    /// The pointer stopped on the way and the popup went: what it rests
-    /// on shows, as if it had just moved there (off the text, nothing).
-    pub(super) fn point_again(&self) {
-        let (Some((x, y)), Some(element)) = (self.hover().pointer.get_value(), self.textarea())
-        else {
-            return;
-        };
-        self.hover().on_way.set_value(false);
-        if self.hover().on_text.get_value() {
-            super::input::pointer_at(*self, &element, x, y, true);
-        }
-    }
-
-    /// The pointer left the text for `to`, at `(x, y)` in the window: the
-    /// next move over it goes on from there (the gutter, the page). Off
-    /// the lines the popup covers, a way to it starts there, as over the
-    /// text. Onto the popup, the way so far holds (the popup decides
-    /// whether it takes the pointer).
-    pub(super) fn leave_pointer(&self, to: Option<&web_sys::EventTarget>, x: f64, y: f64) {
-        let element = self.reachable_popup_element();
-        let onto_popup = element.as_ref().is_some_and(|popup| {
-            to.and_then(|to| to.dyn_ref::<web_sys::Node>())
-                .is_some_and(|to| popup.contains(Some(to)))
-        });
-        if !onto_popup {
-            self.pointer_off_text(x, y);
-        }
-    }
-
-    /// The pointer moved to `(x, y)` in the window off the text (the
-    /// gutter, the page): as over the text, a way to the popup starts there
-    /// off the lines it covers, and is lost beside it on them.
-    pub(super) fn pointer_off_text(&self, x: f64, y: f64) {
-        self.leave_under();
-        let from = self.hover().pointer.get_value();
-        self.hover().pointer.set_value(Some((x, y)));
-        self.hover().anchor_x.set_value(None);
-        let Some(popup) = self.reachable_popup_element().as_ref().and_then(popup_box) else {
-            self.hover().on_way.set_value(false);
-            return;
-        };
-        let (on_way, start) = (
-            self.hover().on_way.get_value(),
-            self.hover().way_start.get_value(),
-        );
-        let way = way_after(on_way, from, start, (x, y), popup);
-        self.hover().on_way.set_value(way.on);
-        self.hover().way_start.set_value(way.start);
-        if !on_covered_lines((x, y), popup) {
-            self.popup_takes_pointer();
-        }
-        if way.heading || gets_closer(from, (x, y), popup) {
-            self.wait_on_the_way();
-        } else if !gets_farther(from, (x, y), popup) {
-            self.hold_a_moment();
-        }
-    }
-
-    /// The pointer moved along the popup (no farther from it): the popup
-    /// stays its moment from here, while what the pointer is on answers.
-    fn hold_a_moment(&self) {
-        self.hold_popup();
-        self.leave_hover();
-        if self.problems().hovered.with_untracked(Option::is_some) {
-            self.leave_problem();
-        }
-    }
-
-    /// The popup the pointer can enter: the hover card, else the problem
-    /// tip with a link (or one that scrolls).
-    pub(super) fn reachable_popup_element(&self) -> Option<web_sys::HtmlElement> {
-        let shown = self.hover().card.with_untracked(Option::is_some)
-            || self.problems().hovered.with_untracked(Option::is_some);
-        if !shown {
-            return None;
-        }
-        let root = self.view().root_ref.get_untracked()?;
-        let popup = root
-            .query_selector(".config-editor__hover")
-            .ok()
-            .flatten()
-            .or_else(|| {
-                root.query_selector(".config-editor__problem-tip--interactive:not([hidden])")
-                    .ok()
-                    .flatten()
-            })?;
-        popup.dyn_into().ok()
-    }
-
-    /// Whether cell `cell` of zero-based `line` is what the popup is for:
-    /// the card's key, or the problems the tip shows.
-    pub(super) fn on_popup_anchor(&self, line: usize, cell: usize) -> bool {
-        if self.hover().card.with_untracked(Option::is_some) {
-            return self
-                .field_under_pointer(line, cell)
-                .is_some_and(|field| self.card_shows(line, &field));
-        }
-        self.doc().text.with_untracked(|text| {
-            let Some((hovered_line, hovered_column)) = self.problems().hovered.get_untracked()
-            else {
-                return false;
-            };
-            let lines: Vec<&str> = text.split('\n').collect();
-            let here = lines.get(line).copied().unwrap_or("");
-            let there = lines.get(hovered_line - 1).copied().unwrap_or("");
-            let column = column_at_cell(here, cell);
-            self.problems().diagnostics.with_untracked(|problems| {
-                let now: Vec<_> = covering(problems, line + 1, column, here).collect();
-                let shown: Vec<_> =
-                    covering(problems, hovered_line, hovered_column, there).collect();
-                !now.is_empty() && now == shown
-            })
-        })
-    }
-
-    /// In the popup's gap: it (and the problems the card lists) stays, the
-    /// moment it was given to be reached called off.
-    pub(super) fn hold_popup(&self) {
-        let problems = self.problems();
-        problems.tip_token.update_value(|token| *token += 1);
-        problems.tip_leaving.set_value(false);
-        if self.hover().card.with_untracked(Option::is_some) && !self.hover().at_caret.get_value() {
-            self.hover().token.update_value(|token| *token += 1);
-        }
-    }
-
-    /// On the way to the popup: it (and the problems the card lists) stays
-    /// a moment more, then goes unless the pointer got there.
-    fn wait_on_the_way(&self) {
-        let problems = self.problems();
-        let card = self.hover().card.with_untracked(Option::is_some);
-        if card && !self.hover().at_caret.get_value() {
-            // The card and the problems it lists wait together.
-            problems.tip_token.update_value(|token| *token += 1);
-            problems.tip_leaving.set_value(false);
-            self.hover().token.update_value(|token| *token += 1);
-            let token = self.hover().token.get_value();
-            schedule_hover(*self, move |state| {
-                if state.hover().token.get_value() != token
-                    || state.hover().card_entered.get_value()
-                    || state.card_has_focus()
-                {
-                    return;
-                }
-                state.hide_hover();
-                if !state.problems().tip_entered.get_value() {
-                    state.hide_problem_tip();
-                }
-                state.point_again();
-            });
-        } else if problems.hovered.with_untracked(Option::is_some) {
-            problems.tip_leaving.set_value(false);
-            self.leave_problem();
-        }
-    }
 }
 
 #[cfg(test)]
@@ -487,11 +241,10 @@ mod tests {
         bottom: 200.0,
     };
 
-    /// the pointer heading for the card across the next
-    /// line's key swapped the card for that key's (or the problem tip), so
-    /// the card's docs could not be reached. Every small step towards a
-    /// point inside it heads for it; a step away, or along the line, does
-    /// not.
+    /// The pointer heading for the card across the next line's key keeps
+    /// the card (that key's card or problem tip waits): every small step
+    /// towards a point inside it heads for it; a step away, or along the
+    /// line, does not.
     #[test]
     fn small_steps_towards_the_card_head_for_it() {
         let key = (60.0, 45.0);
@@ -521,8 +274,8 @@ mod tests {
     /// Whether a pointer going through `points` from the popup's anchor,
     /// in moves of at most `step` pixels reported at whole pixels as mouse
     /// events are, is on its way when it gets onto `card` (the card takes
-    /// it), following the rules of `on_the_way_to_popup` (and of
-    /// `leave_pointer`: off the text, in the gutter, the same). `None`: it
+    /// it), following the rules of `Machine::over_text` (and of
+    /// `off_text`: off the text, in the gutter, the same). `None`: it
     /// never got onto it.
     fn walk(points: &[Point], step: f64, card: Rect, anchor: Rect) -> Option<bool> {
         let anchor_x = Some(points[0].0);
@@ -560,12 +313,10 @@ mod tests {
         walk(&[start, end], length / steps as f64, card, anchor)
     }
 
-    /// a card above its line closed on the way up to it
-    /// (the pointer at its bottom pixel row counted as on it, which let it
-    /// through), and one above a long value was not taken from the value's
-    /// end (it came across the card's side, not its bottom). Every way in
-    /// small steps from anywhere on the anchor to anywhere on the card, at
-    /// 15 to 40 steps, gets onto it on its way, above or below the line.
+    /// Every way in small steps from anywhere on the anchor to anywhere on
+    /// the card, at 15 to 40 steps, gets onto it on its way, above or below
+    /// the line: across its bottom pixel row (which is past it, not on it),
+    /// and across its side from the end of a value longer than the card.
     #[test]
     fn every_small_step_way_from_the_anchor_reaches_the_card() {
         // A long value at y 140..160 from x 40 to 700, cards 4 px from it.
@@ -608,12 +359,10 @@ mod tests {
         }
     }
 
-    /// a card above its line let the pointer through (and
-    /// closed under it) when it got there after straying into the
-    /// indentation or the gutter. A detour off the lines the card covers
-    /// (left, right, onto the line past the key, past the card's far
-    /// edge), at 4 to 16 px a move, keeps the way, above or below the
-    /// line.
+    /// A detour off the lines the card covers (into the indentation or the
+    /// gutter, onto the line past the key, past the card's far edge), at 4
+    /// to 16 px a move, keeps the way, above or below the line: the card
+    /// takes the pointer that gets there after it.
     #[test]
     fn a_detour_off_the_covered_lines_keeps_the_way() {
         let anchor = Rect {
@@ -663,11 +412,9 @@ mod tests {
         }
     }
 
-    /// a card below its line took the pointer that came
-    /// onto the lines it covers from beside it, so those lines could not
-    /// be hovered, clicked or scrolled. A way from beside the card, or from
-    /// its line past its side and then down, has lost its way when it
-    /// gets onto it (the card lets it through).
+    /// A way from beside the card, or from its line past its side and then
+    /// down, has lost its way when it gets onto it: the card lets it through,
+    /// so the lines it covers can still be hovered, clicked and scrolled.
     #[test]
     fn a_way_from_beside_the_card_is_not_on_the_way() {
         let anchor = Rect {
@@ -720,12 +467,11 @@ mod tests {
         assert_eq!(spot((560.0, 138.0), above, false, Some(520.0)), Spot::Away);
     }
 
-    /// a pointer going straight up or down along the
-    /// card's side, in the gutter or the indentation, stayed within a pixel
-    /// of the triangle to it at each step, so it counted as heading for it
-    /// and a line the card covers could not be reached from there. Along
-    /// its side on the lines it covers, it gets no closer: the way is
-    /// lost, whatever the step, however near the side.
+    /// A pointer going straight up or down along the card's side (in the
+    /// gutter or the indentation) stays within a pixel of the triangle to
+    /// it, but on the lines it covers it gets no closer: the way is lost,
+    /// whatever the step, however near the side, so those lines can be
+    /// reached from there.
     #[test]
     fn a_way_along_the_cards_side_is_lost() {
         let anchor = Rect {
@@ -760,11 +506,10 @@ mod tests {
         }
     }
 
-    /// the pointer resting in the 4 px gap between the
-    /// line and the card let it close. The gap above and below it counts
-    /// as on the way; the line itself, and beside the card, do not;
-    /// nor does the card itself, or the lines just beside it
-    /// (which it lets the pointer through to when it came another way).
+    /// The 4 px gap above and below the card counts as on the way, so a
+    /// pointer resting there keeps it; the line itself, beside the card,
+    /// the card itself and the lines just beside it (which it lets the
+    /// pointer through to when it came another way) do not.
     #[test]
     fn the_gap_between_the_line_and_the_card_is_on_the_way() {
         for y in [56.5, 58.0, 59.5, 203.0] {

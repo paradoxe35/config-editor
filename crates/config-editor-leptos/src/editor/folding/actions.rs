@@ -141,13 +141,12 @@ impl EditorState {
         // The line that was at the top stays there.
         let new_row = area.row_of_line(top_line);
         let scroll = (top + (new_row as f64 - top_row as f64) * line_height).max(0.0);
-        element.set_scroll_top(scroll as i32);
-        self.view().scroll_y.set(f64::from(element.scroll_top()));
+        area.set_scroll_top(scroll as i32);
         // A caret that was in view stays in view.
         if caret_shown {
             self.doc()
                 .text
-                .with_untracked(|text| reveal_offset(&area, text, caret, self.view().scroll_y));
+                .with_untracked(|text| reveal_offset(&area, text, caret));
         }
         area.follow_caret();
     }

@@ -343,9 +343,10 @@ fn show_current(state: EditorState) {
         .widget_ref
         .get_untracked()
         .map_or(0.0, |widget| f64::from(widget.offset_height()));
-    state.doc().text.with_untracked(|text| {
-        reveal_centered(&element, text, start, state.view().scroll_y, inset)
-    });
+    state
+        .doc()
+        .text
+        .with_untracked(|text| reveal_centered(&element, text, start, inset));
     state.forget_typing_aids();
     state.close_suggestions();
 }

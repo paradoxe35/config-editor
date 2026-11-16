@@ -144,16 +144,39 @@ impl SourceArea {
         self.element.scroll_top()
     }
 
+    /// Scrolls the text to `top`, and the overlays drawn over it with it
+    /// (the highlight, the underlines, the popups): the one place the
+    /// text's scroll is set, so they never wait for its scroll event.
     pub(crate) fn set_scroll_top(&self, top: i32) {
         self.element.set_scroll_top(top);
+        self.mirror_scroll();
+    }
+
+    /// Copies the text's scroll for the overlays, as the browser left it
+    /// (it keeps the scroll inside the text).
+    pub(crate) fn mirror_scroll(&self) {
+        let view = self.state.view();
+        let (left, top) = (
+            f64::from(self.element.scroll_left()),
+            f64::from(self.element.scroll_top()),
+        );
+        if view.scroll_x.get_untracked() != left {
+            view.scroll_x.set(left);
+        }
+        if view.scroll_y.get_untracked() != top {
+            view.scroll_y.set(top);
+        }
     }
 
     pub(crate) fn scroll_left(&self) -> i32 {
         self.element.scroll_left()
     }
 
+    /// Scrolls the text sideways to `left`, the overlays with it (see
+    /// [`Self::set_scroll_top`]).
     pub(crate) fn set_scroll_left(&self, left: i32) {
         self.element.set_scroll_left(left);
+        self.mirror_scroll();
     }
 
     pub(crate) fn client_height(&self) -> i32 {

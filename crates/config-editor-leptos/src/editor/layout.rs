@@ -27,6 +27,8 @@ pub(super) struct ViewState {
     pub(super) root_ref: NodeRef<leptos::html::Div>,
     /// The probe the popups' frame is measured from (see `PopupFrame`).
     pub(super) frame_probe_ref: NodeRef<leptos::html::Div>,
+    /// The text's scroll, for the overlays drawn over it: written only by
+    /// `SourceArea` (its scroll setters and the scroll event).
     pub(super) scroll_x: RwSignal<f64>,
     pub(super) scroll_y: RwSignal<f64>,
     /// Bumped on window resize and scroll so popups re-measure.

@@ -13,7 +13,7 @@
 //! | `view()`       | `ViewState`         | `layout`        |
 //! | `completion()` | `CompletionState`   | `completion`    |
 //! | `typing()`     | `TypingState`       | `typing`        |
-//! | `hover()`      | `HoverState`        | `hover`         |
+//! | `popups()`     | `PopupState`        | `popups`        |
 //! | `problems()`   | `ProblemsState`     | `problems`      |
 //! | `changes()`    | `ChangesState`      | `changes`       |
 //! | `search()`     | `SearchState`       | `search`        |
@@ -44,11 +44,11 @@ use super::host_diagnostics::HostDiagnostic;
 use super::host_editing::{
     self, BaselineConflict, HostEditing, SaveRequest, SentTexts, noting_sent,
 };
-use super::hover::HoverState;
 use super::languages::Language;
 use super::layout::{ViewState, spanning, string_bodies};
 use super::line_rows::rendered_lines;
 use super::live_settings::LiveSettings;
+use super::popups::PopupState;
 use super::problems::{self, ProblemsState};
 use super::projection::Projection;
 use super::protect::{Inputs, ProtectInit, ProtectState};
@@ -170,8 +170,8 @@ groups! {
     completion: CompletionState,
     /// Bursts of typing (see `typing`).
     typing: TypingState,
-    /// The hover card (see `hover`).
-    hover: HoverState,
+    /// The hover card, the problem tip and the lock tip (see `popups`).
+    popups: PopupState,
     /// The problems and the diagnosed text (see `problems`).
     problems: ProblemsState,
     /// Changes against the baseline (see `changes`).
@@ -261,6 +261,7 @@ impl EditorState {
             sync.clipboard = clipboard;
         }
         let doc = DocState::new(&shown, sync.edit_language);
+        let popups = PopupState::new();
         let protect = ProtectState::new(
             protect,
             Inputs {
@@ -269,6 +270,7 @@ impl EditorState {
                 host_language,
                 schema: schema.clone(),
                 host_text: sync.host_text,
+                popups,
             },
         );
         let problems = ProblemsState::new(
@@ -338,7 +340,7 @@ impl EditorState {
             #[cfg(feature = "search")]
             go_to_line: GoToLine::new(),
             typing: TypingState::new(),
-            hover: HoverState::new(),
+            popups,
             a11y: A11yState::new(),
             edit_as,
             config,

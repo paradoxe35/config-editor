@@ -44,6 +44,7 @@ pub(super) struct Inputs {
     pub(super) host_language: Language,
     pub(super) schema: Option<Arc<SchemaBundle>>,
     pub(super) host_text: super::sync::HostTextReader,
+    pub(super) popups: super::popups::PopupState,
 }
 
 /// Nothing protected.
@@ -138,7 +139,10 @@ impl ProtectState {
         Vec::new()
     }
 
-    pub(super) fn tip_open(&self) -> bool {
+    /// Whether the lock tooltip shows: never, with no locks (the edit
+    /// tests, which need YAML, ask).
+    #[cfg(all(test, feature = "yaml"))]
+    pub(crate) fn tip_open(&self) -> bool {
         false
     }
 
