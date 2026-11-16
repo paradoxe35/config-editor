@@ -134,8 +134,9 @@ impl ProtectState {
         Vec::new()
     }
 
-    /// Whether the lock tooltip shows: never, with no locks.
-    #[cfg(test)]
+    /// Whether the lock tooltip shows: never, with no locks (the edit
+    /// tests, which need YAML, ask).
+    #[cfg(all(test, feature = "yaml"))]
     pub(crate) fn tip_open(&self) -> bool {
         false
     }
