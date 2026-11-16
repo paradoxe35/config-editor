@@ -138,7 +138,7 @@ for (const [language, { after, keys, typed }] of Object.entries(EXTEND)) {
       // Taken and held where the key lands past the block's last line (no
       // keystroke is refused for how the parse reads it): the reason shows.
       if ((await editor(page).value()).includes('extra')) {
-        await expect(page.locator('.config-editor__diagnostic-marker[data-message*="no longer reads as the host gave it"]')).not.toHaveCount(0);
+        await expect(page.locator('.config-editor__diagnostic-marker[data-message*="now reads text that was added into it or beside it"]')).not.toHaveCount(0);
       }
       // The host may hear the half-typed line (its locked values as they
       // were), never the key.

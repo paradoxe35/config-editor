@@ -32,6 +32,14 @@ pub(super) struct Moves<'a> {
     change: Option<&'a Change<CodeUnits>>,
 }
 
+/// One range of the text before an edit replaced (UTF-16), the range of
+/// the text after it wrote there, and that text.
+pub(super) struct Piece {
+    pub(super) replaced: Range<usize>,
+    pub(super) wrote: Range<usize>,
+    pub(super) written: String,
+}
+
 /// The line diff of the two texts, read only when an edit changed several
 /// places.
 struct LineMoves<'a> {
@@ -187,6 +195,37 @@ impl<'a> Moves<'a> {
             ranges,
             reason: lock.reason.clone(),
         })
+    }
+
+    /// What the edit wrote, one piece per range it replaced, in order: as
+    /// its change records it (each match of a Replace All its own piece),
+    /// else the one stretch between what the two texts share.
+    pub(super) fn pieces(&self) -> Vec<Piece> {
+        if let Some(change) = self
+            .change
+            .filter(|change| change.len_after() == self.new_len)
+        {
+            let mut shift: isize = 0;
+            return change
+                .edits()
+                .map(|(replaced, written)| {
+                    let start = (replaced.start as isize + shift) as usize;
+                    let wrote = start..start + written.encode_utf16().count();
+                    shift += wrote.len() as isize - replaced.len() as isize;
+                    Piece {
+                        replaced,
+                        wrote,
+                        written: written.to_string(),
+                    }
+                })
+                .collect();
+        }
+        let wrote = self.prefix..self.new_len - self.suffix;
+        vec![Piece {
+            replaced: self.prefix..self.old_len - self.suffix,
+            written: String::from_utf16_lossy(&self.new[wrote.clone()]),
+            wrote,
+        }]
     }
 
     /// `span` moved as `old` moved to `new`, when it is on the line `old`

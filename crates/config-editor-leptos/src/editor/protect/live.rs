@@ -28,7 +28,7 @@ use super::locate::LineIndex;
 use super::locks::{Protected, Sources, protect};
 use super::save::{ReadOnlyChange, check_save, locked_pointers, range_pointers};
 use super::secrets::SecretState;
-use super::texts::{save_held, save_waits};
+use super::texts::{save_held, save_held_placeholder, save_waits};
 use super::whole_guard::Placeholders;
 
 /// The host's side of protection (the component's props, when given).
@@ -817,7 +817,7 @@ impl EditorState {
             .or_else(|| self.unplaced_waits())
             .or_else(|| {
                 let field = self.placeholder_held()?;
-                Some(self.strings_untracked(|strings| glued_message(strings, &field)))
+                Some(self.strings_untracked(|strings| save_held_placeholder(strings, &field)))
             })
     }
 
@@ -829,14 +829,14 @@ impl EditorState {
     }
 
     /// The locked field a save of the text on screen waits on because it
-    /// reads otherwise than pinned (see `locks::Protected::held`): a
-    /// duplicate shadows it, or it moved.
+    /// reads otherwise than pinned (see `locks::Protected::held`), with
+    /// the cause recorded for it.
     fn held_waits(&self) -> Option<String> {
-        let (pointer, reason) = self.protect().protected.with_untracked(|protected| {
-            let pointer = protected.held.first()?;
-            Some((pointer.clone(), protected.held_reason(pointer)))
-        })?;
-        Some(self.strings_untracked(|strings| save_held(strings, &pointer, &reason)))
+        self.protect().protected.with_untracked(|protected| {
+            let (pointer, cause) = protected.held.causes().next()?;
+            let reason = protected.held_reason(pointer);
+            Some(self.strings_untracked(|strings| save_held(strings, pointer, &reason, cause)))
+        })
     }
 
     /// The glued placeholder a save of the text on screen waits on.
