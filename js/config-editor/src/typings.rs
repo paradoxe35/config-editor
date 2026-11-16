@@ -66,6 +66,8 @@ export interface EditorOptions extends EditorSettings {
   valueRevision?: number;
   /** How secret placeholders (`«secret 3f2a»`) are matched, described and completed in fields the schema marks `writeOnly` or `x-secret`. */
   secrets?: SecretOptions;
+  /** The `channel` of an editor this one replaces (a framework re-creating its editor for a new `language` or `fileName`), with `echoes` as that editor had it: the texts it sent that the host has not handed back yet are this editor's echoes too, so none of them rolls back what was typed. The object is this editor's from then on. */
+  channel?: HostChannel;
 }
 
 /** Secret placeholders: tokens the host writes in place of real secrets. */
@@ -174,6 +176,8 @@ export interface EditorUpdate extends SettingsUpdate {
   secrets?: never;
   /** The editor is built from it: create a new one to change it. */
   echoes?: never;
+  /** The editor is built from it: create a new one to change it. */
+  channel?: never;
 }
 
 /**

@@ -255,6 +255,21 @@ impl Echoes {
         }
     }
 
+    /// A new editor takes this record over with `text` as its document (a
+    /// framework re-mounting its component): the texts on their way are
+    /// still echoes for it. A `text` other than the one sent, given or
+    /// shown last (a reset the host made while there was no editor) is the
+    /// host's own, on its way as a reset's is (see [`Echoes::replaced`]);
+    /// the text the host holds stays as it was.
+    pub fn carried(&mut self, text: &str) {
+        if self.on {
+            let print = Print::of(text);
+            if self.document != Some(print) {
+                self.reset = Some(self.send(print));
+            }
+        }
+    }
+
     /// Whether `value`, which did not apply, is a text the host held before
     /// its last reset, which it has not given back yet: ranges worked out
     /// on it are for a text the reset replaced, and are not moved into the
@@ -669,6 +684,35 @@ mod tests {
         assert_eq!(waiting(&echoes), 0);
         // A text of the host's own comes without a revision.
         assert_eq!(echoes.received("own", "abcd", NONE), Echo::Apply);
+    }
+
+    /// P4: a record carried over to a new editor (a framework re-mount)
+    /// still tells the echoes on their way apart, in any order; a document
+    /// other than the text sent last (a reset made while there was no
+    /// editor) is the host's own, and the echoes from before it never come
+    /// back over it.
+    #[test]
+    fn a_record_carried_over_tells_the_echoes_on_their_way_apart() {
+        let mut echoes = Echoes::new(true);
+        echoes.given("");
+        echoes.sent("a");
+        echoes.sent("ab");
+        echoes.carried("ab");
+        assert_eq!(waiting(&echoes), 2);
+        assert_ne!(echoes.received("a", "ab", NONE), Echo::Apply);
+        assert_eq!(echoes.received("ab", "ab", NONE), Echo::Apply);
+        // A reset while there was no editor: the echoes typed before it
+        // never replace it, and its own listing is its echo.
+        echoes.sent("abc");
+        echoes.sent("abcd");
+        echoes.carried("reset");
+        assert_ne!(echoes.received("abc", "reset", NONE), Echo::Apply);
+        assert_ne!(echoes.received("abcd", "reset", NONE), Echo::Apply);
+        assert_eq!(echoes.received("reset", "reset", NONE), Echo::Apply);
+        // Off, nothing is kept.
+        let mut echoes = Echoes::new(false);
+        echoes.carried("x");
+        assert_eq!(waiting(&echoes), 0);
     }
 
     /// A late echo older than one already passed back (a host that went

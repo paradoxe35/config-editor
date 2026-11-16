@@ -11,9 +11,9 @@ use leptos::prelude::*;
 use wasm_bindgen::prelude::*;
 
 use crate::catalog::language_name;
+use crate::host_channel::HostChannel;
 use crate::told::Told;
 use crate::values::{ChangeSummaryOut, diagnostics_to_js, path_to_js, to_js};
-use config_editor_leptos::js_support::Echoes;
 
 thread_local! {
     /// How many host callbacks are running: `destroy` from inside one waits
@@ -93,14 +93,21 @@ pub(crate) struct State {
     pub(crate) read_only_ranges: RwSignal<Vec<TextRange>>,
     /// What the state callbacks last reported (see `told`).
     pub(crate) told: StoredValue<Told, LocalStorage>,
-    /// The texts `onChange` sent that the host has not handed back yet
-    /// (with `echoes`).
-    pub(crate) echoes: StoredValue<Echoes, LocalStorage>,
+    /// The editor's channel to its host (see `host_channel`): the texts
+    /// `onChange` sent that the host has not handed back yet, and its
+    /// ranges as given.
+    pub(crate) channel: StoredValue<crate::editor::Shared, LocalStorage>,
     /// The check that the host came back to the document (see `settle`).
     pub(crate) settle: crate::settle::Slot,
 }
 
 impl State {
+    /// Runs `apply` on the editor's channel while it is mounted.
+    pub(crate) fn channel<T>(&self, apply: impl FnOnce(&mut HostChannel) -> T) -> Option<T> {
+        self.channel
+            .try_with_value(|channel| apply(&mut channel.borrow_mut()))
+    }
+
     /// Stops the callbacks once `destroy` is called (from inside one, the
     /// editor unmounts a moment later): none fires again, but `onChange`
     /// with an edit still waiting to be saved as the editor unmounts.
@@ -148,15 +155,14 @@ pub(crate) fn view(state: State, latest: Latest, setup: Setup) -> AnyView {
             // Its revision goes with it: a host passing it back with the
             // value (`valueRevision`) has its echo matched exactly.
             let revision = state
-                .echoes
-                .try_update_value(|echoes| echoes.sent(&text))
+                .channel(|channel| channel.sent(&text))
                 .unwrap_or_default();
             call_host_with(
                 &callback,
                 &[JsValue::from_str(&text), JsValue::from_f64(revision as f64)],
             );
         } else {
-            let _ = state.echoes.try_update_value(Echoes::unsent);
+            let _ = state.channel(HostChannel::unsent);
         }
     };
     let switched = move |language: Language| {

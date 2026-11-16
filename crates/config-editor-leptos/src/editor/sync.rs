@@ -45,6 +45,9 @@ impl SyncState {
 /// The host's side of the connection (from the component's props).
 pub(super) struct Host {
     pub(super) value: Option<Signal<String>>,
+    /// The revision `on_change` sent `value` with, when the host passes it
+    /// back.
+    pub(super) value_revision: MaybeProp<u64>,
     pub(super) edit_as: MaybeProp<Language>,
     pub(super) on_edit_as_change: Option<Callback<Language>>,
     /// A switch the document could not make when mounted.
@@ -203,7 +206,7 @@ impl EditorState {
     }
 
     /// `host` as shown in the language on screen, or the error it cannot
-    /// convert with (the switch then waits: see [`take_host_value`]).
+    /// convert with (the switch then waits: see [`take_host_value_at`]).
     fn shown(&self, host: &str) -> Result<String, codec::ConvertError> {
         let Some(bridge) = self.bridge() else {
             return Ok(host.to_string());
@@ -280,9 +283,13 @@ impl EditorState {
     /// view's state before it (its links, and the host text it was saved
     /// as), for the undo step.
     pub(super) fn note_view_edit(&self, edit: &Edit, origin: &Origin, left: Language) -> ViewState {
+        // A text in the host's own language is no view of it: it stands
+        // for no saved host text in a view (pasted into one, it is read in
+        // the view's language, and waits when it does not read there).
+        let in_view = left != self.config().host_language;
         let before = ViewState {
             links: self.sync().links.get_value(),
-            saved_as: self.sync().saved_as(&edit.before),
+            saved_as: self.sync().saved_as(&edit.before).filter(|_| in_view),
         };
         if edit.before == edit.text {
             return before;
@@ -422,7 +429,7 @@ pub(super) fn connect(state: EditorState, host: Host) {
         });
     }
     if let Some(value) = host.value {
-        follow_value(state, value);
+        follow_value(state, value, host.value_revision);
     }
     debounce_validation(state);
     convert_edits(state);
@@ -444,12 +451,14 @@ fn report_sync(state: EditorState, callback: Callback<bool>) {
 
 /// A controlled `value` flows into the editor, at once: input the browser
 /// sends right after a host sets the value (in the same task) lands on the
-/// new text, not on the old one the effect would replace later.
-fn follow_value(state: EditorState, value: Signal<String>) {
+/// new text, not on the old one the effect would replace later. Its
+/// `revision`, read as the value changes, is the one the host set with it.
+fn follow_value(state: EditorState, value: Signal<String>, revision: MaybeProp<u64>) {
     leptos::reactive::effect::ImmediateEffect::new_scoped(move || {
         let value = value.get();
+        let revision = revision.get_untracked();
         state.sync().line_endings.note(&value);
-        take_host_value(state, editor_text(value));
+        take_host_value_at(state, editor_text(value), revision);
     });
 }
 
@@ -475,12 +484,25 @@ fn settle_later(state: EditorState) {
     });
 }
 
-/// Shows `external` (normalized), a new text from the host. One the
-/// language on screen cannot hold (TOML has no `null`) is shown in the
-/// host's language, read as it, and the switch waits for the document to
-/// convert, as one asked for on such a document does: the host hears the
-/// language on screen, and the edits reach `on_change` meanwhile.
+/// [`take_host_value_at`] for a text the host gave with no revision.
+#[cfg(test)]
+#[allow(
+    dead_code,
+    reason = "its callers are tests of single languages: some builds have none"
+)]
 pub(super) fn take_host_value(state: EditorState, external: String) {
+    take_host_value_at(state, external, None);
+}
+
+/// Shows `external` (normalized), a new text from the host, given with the
+/// `revision` `on_change` sent it with when the host passes it back (the
+/// `value_revision` prop: its echo is matched exactly, see
+/// `Echoes::received_at`). One the language on screen cannot hold (TOML
+/// has no `null`) is shown in the host's language, read as it, and the
+/// switch waits for the document to convert, as one asked for on such a
+/// document does: the host hears the language on screen, and the edits
+/// reach `on_change` meanwhile.
+fn take_host_value_at(state: EditorState, external: String, revision: Option<u64>) {
     let host = state
         .sync()
         .session
@@ -489,7 +511,10 @@ pub(super) fn take_host_value(state: EditorState, external: String) {
     match state
         .sync()
         .echoes
-        .try_update_value(|echoes| echoes.received(&external, &host, flushed))
+        .try_update_value(|echoes| match revision {
+            Some(revision) => echoes.received_at(&external, revision, &host, flushed),
+            None => echoes.received(&external, &host, flushed),
+        })
         .unwrap_or(Echo::Apply)
     {
         Echo::Apply => {}
@@ -1078,3 +1103,6 @@ pub(super) use super::text_change::map_through_change;
 
 #[cfg(all(test, feature = "protect", feature = "json"))]
 mod gate_tests;
+
+#[cfg(all(test, feature = "yaml"))]
+mod revision_tests;

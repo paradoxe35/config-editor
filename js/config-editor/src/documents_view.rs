@@ -26,9 +26,7 @@ use crate::told::{self, Told};
 use crate::typings::{DocumentEditorResult, DocumentsOptions, DocumentsUpdate, SettingsResult};
 use crate::update::{Fixed, callback_change, given, plain_object, refuse_remount, settings_change};
 use crate::values::{diagnostics_to_js, field, text_arg, to_js};
-use config_editor_leptos::js_support::Echoes;
 
-mod echo_ranges;
 mod echoing;
 
 /// The options `new ConfigDocuments` takes apart from the settings.
@@ -89,11 +87,6 @@ pub(crate) struct State {
     texts: StoredValue<HashMap<String, Texts>, LocalStorage>,
     /// What the state callbacks last reported of each document (see `told`).
     told: StoredValue<HashMap<String, Told>, LocalStorage>,
-    /// Whether the host lists every text `onChange` gives back (`echoes`).
-    echoing: bool,
-    /// With `echoing`, each document's texts `onChange` sent that the host
-    /// has not listed back yet (see `echoes`).
-    echoes: StoredValue<HashMap<String, Echoes>, LocalStorage>,
     /// The check that the host came back to each document (see `settle`).
     settle: crate::settle::Slot,
     pub(crate) handle: DocumentsHandle,
@@ -175,30 +168,15 @@ impl State {
             .kept
             .try_update_value(std::mem::take)
             .unwrap_or_default();
-        // Whether the text listed for a document will replace what its
-        // editor holds (see `Echoes::replaces`; a document listed for the
-        // first time has nothing to keep).
-        let (texts, echoes, echoing) = (self.texts, self.echoes, self.echoing);
-        let replaces = |id: &str, value: &str| {
-            texts
-                .try_with_value(|texts| {
-                    texts.get(id).is_none_or(|known| {
-                        if !echoing {
-                            return !crate::remap::reads_as(&known.value, value);
-                        }
-                        echoes
-                            .try_update_value(|echoes| {
-                                echoes
-                                    .entry(id.to_string())
-                                    .or_insert_with(|| Echoes::new(true))
-                                    .replaces(value, &known.value)
-                            })
-                            .unwrap_or(true)
-                    })
+        // Each document's text as the view holds it, read where it is kept.
+        let listed = self
+            .texts
+            .try_with_value(|texts| {
+                documents_from(list, view, &mut kept, &|id| {
+                    texts.get(id).map(|known| known.value.as_str())
                 })
-                .unwrap_or(true)
-        };
-        let listed = documents_from(list, view, &mut kept, &replaces);
+            })
+            .unwrap_or_else(|| documents_from(list, view, &mut kept, &|_| None));
         if listed.is_err() {
             kept.abandon();
         }
@@ -207,7 +185,6 @@ impl State {
     }
 
     fn show(&self, listed: Listed) {
-        let _ = self.kept.try_update_value(|kept| kept.locks.taken());
         remember_texts(self.texts, &listed.documents);
         // A document closed takes what its editor reported with it: a
         // document listed again with its id is a new one.
@@ -216,29 +193,6 @@ impl State {
         });
         let _ = self.overrides.try_set_value(listed.overrides);
         let _ = self.documents.try_set(listed.documents);
-    }
-}
-
-impl State {
-    /// The ranges of the document `id` in `value`, a text of the host's own
-    /// replacing `current`: carried from the ones given (see
-    /// `host_locks`); `None` when it is `current`.
-    fn replaced_locks(
-        &self,
-        id: &str,
-        current: &str,
-        value: &str,
-    ) -> Option<(Vec<config_editor_leptos::TextRange>, u64)> {
-        if crate::remap::reads_as(current, value) {
-            return None;
-        }
-        self.kept
-            .try_update_value(|kept| {
-                kept.locks
-                    .get_mut(id)
-                    .map(|locks| (locks.replaced(value), locks.version()))
-            })
-            .flatten()
     }
 }
 
@@ -325,22 +279,17 @@ fn view(state: State, setup: Setup) -> AnyView {
         if let Some(callback) = host(state.on_change) {
             // The host lists this string as the document's value next.
             let value = JsValue::from_str(&text);
-            if state.echoing {
-                let _ = state.echoes.try_update_value(|echoes| {
-                    echoes
-                        .entry(id.clone())
-                        .or_insert_with(|| Echoes::new(true))
-                        .sent(&text);
-                });
-            }
             let _ = state.kept.try_update_value(|kept| {
+                if let Some(channel) = kept.channels.get_mut(&id) {
+                    channel.sent(&text);
+                }
                 kept.texts.remember(&id, "value", value.clone(), text);
             });
             call_host_with(&callback, &[JsValue::from_str(&id), value]);
-        } else if state.echoing {
-            let _ = state.echoes.try_update_value(|echoes| {
-                if let Some(echo) = echoes.get_mut(&id) {
-                    echo.unsent();
+        } else {
+            let _ = state.kept.try_update_value(|kept| {
+                if let Some(channel) = kept.channels.get_mut(&id) {
+                    channel.unsent();
                 }
             });
         }
@@ -494,10 +443,12 @@ impl ConfigDocuments {
         let options: JsValue = options.into();
         let settings = settings_from(&options)?;
         let owner = Owner::new();
+        let echoing = bool_option(&options, "echoes")?.unwrap_or(false);
         let mut kept = Kept::default();
+        kept.echoing = echoing;
         let listed = match field(&options, "documents") {
             list if list.is_undefined() || list.is_null() => Listed::default(),
-            list => owner.with(|| documents_from(&list, &settings, &mut kept, &|_, _| false))?,
+            list => owner.with(|| documents_from(&list, &settings, &mut kept, &|_| None))?,
         };
         let on_select = function_option(&options, "onSelect")?;
         let on_close = function_option(&options, "onClose")?;
@@ -508,7 +459,6 @@ impl ConfigDocuments {
         let on_problems = function_option(&options, "onProblems")?;
         let on_edit_as_change = function_option(&options, "onEditAsChange")?;
         let on_sync_change = function_option(&options, "onSyncChange")?;
-        let echoing = bool_option(&options, "echoes")?.unwrap_or(false);
         let setup = Setup {
             active: string_option(&options, "activeId")?,
             class: string_option(&options, "className")?.unwrap_or_default(),
@@ -547,25 +497,10 @@ impl ConfigDocuments {
             adds: setup.adds,
             texts: StoredValue::new_local(HashMap::new()),
             told: StoredValue::new_local(HashMap::new()),
-            echoing,
-            echoes: StoredValue::new_local(HashMap::new()),
             settle: StoredValue::new_local(Timer::default()),
             handle: DocumentsHandle::new(),
         });
         remember_texts(state.texts, &state.documents.get_untracked());
-        if echoing {
-            let given: HashMap<String, Echoes> = state.documents.with_untracked(|documents| {
-                documents
-                    .iter()
-                    .map(|document| {
-                        let mut echo = Echoes::new(true);
-                        echo.given(&document.value);
-                        (document.id.clone(), echo)
-                    })
-                    .collect()
-            });
-            let _ = state.echoes.try_set_value(given);
-        }
         let mount_element = element.clone();
         let mounted = owner.with(|| leptos::mount::mount_to(element, move || view(state, setup)));
         let id = NEXT_ID.with(|next| {
@@ -750,18 +685,19 @@ impl ConfigDocuments {
         {
             return Ok(false);
         }
+        // The host's own text: no echo to wait for, and the ranges carried
+        // into it from the ones given (see `HostChannel::replaced`).
         let ranges = self
             .state
             .texts
             .try_update_value(|texts| {
                 texts.get_mut(&id).and_then(|known| {
-                    let ranges = self.state.replaced_locks(&id, &known.value, &value);
+                    let ranges = self.state.replaced(&id, &value, &known.value);
                     known.value.clone_from(&value);
                     ranges
                 })
             })
             .flatten();
-        self.state.given(&id, &value);
         let _ = self.state.documents.try_update(|documents| {
             keep_edits(documents, &edits);
             if let Some(document) = documents.iter_mut().find(|document| document.id == id) {
@@ -913,7 +849,7 @@ impl ConfigDocuments {
         }
         let mut resend = (Vec::new(), false);
         if let Some(mut listed) = listed {
-            resend = self.state.keep_moved_past(&mut listed, flushed);
+            resend = self.state.take_listed(&mut listed, flushed);
             self.state.show(listed);
             // Taken now: `activeId` and every query answer for the new list
             // right after `update` returns.

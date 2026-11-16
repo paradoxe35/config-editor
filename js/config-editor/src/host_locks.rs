@@ -27,10 +27,10 @@
 //!   back yet (`Echoes::before_reset`) are for a text it replaced: they are
 //!   not taken, and the carried ones stay.
 //!
-//! Every rule decides from this one record per document; nothing else
-//! keeps the host's ranges.
+//! Every rule decides from this one record per document, which the
+//! document's `HostChannel` holds beside its echoes and applies the rules
+//! with; nothing else keeps the host's ranges.
 
-use std::collections::HashMap;
 use std::rc::Rc;
 
 use config_editor_leptos::TextRange;
@@ -46,35 +46,8 @@ pub(crate) fn print(list: &JsValue) -> Option<String> {
         .and_then(|text| text.as_string())
 }
 
-/// Whether ranges given again (`again`: equal to the last ones given, no
-/// `rangesFor`) stay where the editor moved them: unless the text they
-/// come with replaces the document (`replaces`). A text the document
-/// holds, an echo of one it sent or one older than the typing keeps them,
-/// whatever order the echoes come back in. Whether it replaces is known
-/// before the text is taken (`Echoes::replaces`), so ranges that stay are
-/// not read in it at all: not checked against a text they were not given
-/// for (QA 34, HO34-1: an echo warned of columns past a line's end).
-pub(crate) fn stay(again: bool, replaces: bool) -> bool {
-    again && !replaces
-}
-
-/// What became of a document's ranges listed again as given last.
-pub(crate) enum Again {
-    /// Its text does not replace the one its editor holds (that text, an
-    /// echo): they are the ones its editor was given, which it moved with
-    /// each edit since. Not in the listed text's places, they are not moved
-    /// from it to the document (QA 34: moved as if they were, a lock whose
-    /// line ended past the end of the line that took its place above it
-    /// was given again on that line).
-    Stayed,
-    /// Its text replaces the one its editor holds: they were read in it.
-    /// These are the ones its editor was given, which stay if that text
-    /// turns out not to replace its own after all.
-    Read(Vec<TextRange>),
-}
-
 /// One document's host ranges: as given, in the text they name places in.
-#[derive(Clone, Default)]
+#[derive(Clone, Debug, Default)]
 pub(crate) struct HostLocks {
     /// Their JSON, while ranges given again are compared with them: `None`
     /// once a text of the host's own replaced the document.
@@ -141,26 +114,16 @@ impl HostLocks {
         self.version
     }
 
-    /// The ranges, when `print` is their JSON and no text of the host's own
-    /// replaced the document since: they stay where the editor moved them.
-    pub(crate) fn again(&self, print: Option<&str>) -> Option<Vec<TextRange>> {
-        (self.print.is_some() && self.print.as_deref() == print).then(|| self.ranges.clone())
+    /// Whether `print` is their JSON and no text of the host's own replaced
+    /// the document since: given again, they stay where the editor moved
+    /// them.
+    pub(crate) fn again(&self, print: Option<&str>) -> bool {
+        self.print.is_some() && self.print.as_deref() == print
     }
 
     /// The text they came with.
     pub(crate) fn came_with(&self) -> &str {
         &self.came_with
-    }
-
-    /// The editor was handed them followed to `text`, as `ranges`.
-    pub(crate) fn followed(&mut self, text: &str, ranges: Vec<TextRange>) {
-        self.version = next_version();
-        self.text = if ranges.is_empty() {
-            Rc::from("")
-        } else {
-            Rc::from(text)
-        };
-        self.ranges = ranges;
     }
 
     /// A text of the host's own replaces the document: the ranges to hand
@@ -187,121 +150,6 @@ impl HostLocks {
     /// same ones given next are read in the text they come with.
     pub(crate) fn forget(&mut self) {
         self.print = None;
-    }
-}
-
-/// Each listed document's [`HostLocks`], from the last list and from the
-/// list being read (which replaces them once it is read whole); while the
-/// view takes the list, the ones before it too.
-#[derive(Default)]
-pub(crate) struct Listed {
-    last: HashMap<String, HostLocks>,
-    read: HashMap<String, HostLocks>,
-    before: HashMap<String, HostLocks>,
-}
-
-impl Listed {
-    /// Document `id`'s, from the last list.
-    #[cfg(test)]
-    pub(crate) fn get(&self, id: &str) -> Option<&HostLocks> {
-        self.last.get(id)
-    }
-
-    pub(crate) fn get_mut(&mut self, id: &str) -> Option<&mut HostLocks> {
-        self.last.get_mut(id)
-    }
-
-    /// Document `id` is listed with `value` and the ranges printed `print`:
-    /// the ranges its editor is handed, and what became of ranges listed
-    /// again as given last. Those stay where its editor moved them unless
-    /// `value` replaces its text (`replaces`); else `read` reads them, in
-    /// `value` (given the text the last ones came with, see
-    /// `protect::ranges_in`).
-    pub(crate) fn list<E>(
-        &mut self,
-        id: &str,
-        print: Option<String>,
-        value: &str,
-        replaces: impl FnOnce() -> bool,
-        read: impl FnOnce(Option<&str>) -> Result<Vec<TextRange>, E>,
-    ) -> Result<(Vec<TextRange>, Option<Again>), E> {
-        let last = self.last.get(id);
-        let (ranges, again) = match last.and_then(|locks| locks.again(print.as_deref())) {
-            Some(ranges) if stay(true, replaces()) => (ranges, Some(Again::Stayed)),
-            again => (
-                read(last.map(HostLocks::came_with))?,
-                again.map(Again::Read),
-            ),
-        };
-        let locks = match (&again, last) {
-            (Some(Again::Stayed), Some(last)) => {
-                let mut locks = last.clone();
-                locks.came(value);
-                locks
-            }
-            _ => HostLocks::given(print, value, value, ranges.clone()),
-        };
-        self.read.insert(id.to_string(), locks);
-        Ok((ranges, again))
-    }
-
-    /// The version of document `id`'s ranges, in the list being read
-    /// (`read`) or the last one.
-    pub(crate) fn version(&self, id: &str, read: bool) -> u64 {
-        let list = if read { &self.read } else { &self.last };
-        list.get(id).map_or(0, HostLocks::version)
-    }
-
-    /// The view took document `id`'s listed text as an echo or not (see
-    /// `echo_ranges::take`): its editor kept the ranges it had (`stayed`),
-    /// was handed the ones read followed to its text `current` (`kept`),
-    /// or the text came from before a reset the host has not given back
-    /// (`before_reset`: not taken).
-    pub(crate) fn took(
-        &mut self,
-        id: &str,
-        current: &str,
-        kept: Option<Vec<TextRange>>,
-        stayed: bool,
-        before_reset: bool,
-    ) {
-        if before_reset || stayed {
-            self.restore(id, before_reset);
-        } else if let (Some(ranges), Some(locks)) = (kept, self.last.get_mut(id)) {
-            locks.followed(current, ranges);
-        }
-    }
-
-    /// The list is read whole: what it read is kept for the next one, and
-    /// the ones before it until the view took it (see [`Listed::restore`]).
-    pub(crate) fn finish(&mut self) {
-        self.before = std::mem::replace(&mut self.last, std::mem::take(&mut self.read));
-    }
-
-    /// The list could not be read: the last one's stay.
-    pub(crate) fn abandon(&mut self) {
-        self.read.clear();
-    }
-
-    /// Document `id`'s editor keeps what it had before the list (the text
-    /// listed did not replace its own, or came from before a reset): its
-    /// record from before the list, `forget` for ranges not taken.
-    fn restore(&mut self, id: &str, forget: bool) {
-        if let Some(mut before) = self.before.get(id).cloned() {
-            if forget {
-                before.forget();
-            } else if let Some(listed) = self.last.get(id) {
-                // They came with the text listed now (a reset's text stays
-                // the host's until it gives one after it).
-                before.came_with = listed.came_with.clone();
-            }
-            self.last.insert(id.to_string(), before);
-        }
-    }
-
-    /// The view took the list.
-    pub(crate) fn taken(&mut self) {
-        self.before.clear();
     }
 }
 

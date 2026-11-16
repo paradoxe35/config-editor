@@ -1,23 +1,20 @@
 //! A `ConfigDocuments` with `echoes: true` and its host, which lists every
-//! document from its store after each change. The list (`documents_from`
-//! with `with_protection`, `keep_moved_past` with `echo_ranges::take`,
-//! `show`), `replaceValue` (`replaced_locks`, `keep_edits`) and the settle
-//! are `src/documents_view*.rs`'s, step for step, over the library's own
-//! pieces (`Echoes`, `host_locks::Listed`, `echo_ranges::take`,
-//! `reads_as`), and `protect::ranges_in` written over positions; the
-//! view's entries (`documents/entries.rs`: the ranges set before the
-//! value) are modelled. Keep them in step when those change.
+//! document from its store after each change. The list (`documents_from`'s
+//! `with_protection`, then `take_listed` and `show`), `replaceValue`
+//! (`keep_edits`) and the settle call each document's own channel
+//! (`HostChannel`, as `src/documents_view*.rs` and `src/documents_list.rs`
+//! do), with `protect::ranges_in` written over positions; the view's
+//! entries (`documents/entries.rs`: the ranges set before the value) are
+//! modelled.
 
 use std::collections::HashMap;
 
-use config_editor_leptos::{Document, TextRange};
+use config_editor_leptos::TextRange;
 
-use crate::echo_ranges::take;
 use crate::host::{HostDoc, ranges_in};
-use crate::host_locks::{Again, Listed};
+use crate::host_channel::{Given, HostChannel};
 use crate::model::{Act, Class, Core, Failure, Form, Outcome, ResetKind, read_ranges, user_edit};
-use crate::remap::reads_as;
-use config_editor_leptos::js_support::{Echo, Echoes, echo_clock as clock};
+use config_editor_leptos::js_support::{Echo, echo_clock as clock};
 
 /// One document: the `documents` signal's copy, its entry, its editor.
 struct Doc {
@@ -78,9 +75,8 @@ pub(crate) struct DocumentsSim {
     docs: Vec<Doc>,
     /// `State::texts`: each document's text as the view knows it.
     texts: HashMap<String, String>,
-    echoes: HashMap<String, Echoes>,
-    /// `Kept::locks`.
-    locks: Listed,
+    /// `Kept::channels`.
+    channels: HashMap<String, HostChannel>,
     active: usize,
     settle_armed: bool,
     form: Form,
@@ -91,8 +87,7 @@ impl DocumentsSim {
         let mut sim = Self {
             docs: Vec::new(),
             texts: HashMap::new(),
-            echoes: HashMap::new(),
-            locks: Listed::default(),
+            channels: HashMap::new(),
             active: 0,
             settle_armed: false,
             form,
@@ -100,17 +95,12 @@ impl DocumentsSim {
         for (index, base) in bases.into_iter().enumerate() {
             let id = ["a", "b"][index].to_string();
             let (given, print) = ranges_in(base, form);
-            let (ranges, _) = sim.locks.list(
-                &id,
-                Some(print.clone()),
-                base,
-                || false,
-                |before| read_ranges(&given, base, before),
-            )?;
+            let ranges = read_ranges(&given, base, None)?;
             sim.texts.insert(id.clone(), base.to_string());
-            let mut echoes = Echoes::new(true);
-            echoes.given(base);
-            sim.echoes.insert(id.clone(), echoes);
+            sim.channels.insert(
+                id.clone(),
+                HostChannel::new(true, base, Some(print.clone()), base, ranges.clone()),
+            );
             let mut host = HostDoc::new(base);
             host.last_print = print;
             sim.docs.push(Doc {
@@ -123,7 +113,6 @@ impl DocumentsSim {
                 host,
             });
         }
-        sim.locks.finish();
         Ok(sim)
     }
 
@@ -132,96 +121,76 @@ impl DocumentsSim {
     fn list(&mut self, own: Option<usize>) -> Outcome {
         let flushed = clock();
         let form = self.form;
-        // `documents_from` / `with_protection`.
-        let mut ranges_again: HashMap<String, Again> = HashMap::new();
-        let mut documents = Vec::new();
+        // `with_protection`: each document's channel reads its ranges.
+        let mut listed = Vec::new();
         for doc in &mut self.docs {
             doc.host.listed_store();
             doc.host.last_listed.clone_from(&doc.host.store);
             let value = doc.host.store.clone();
             let (given, print) = ranges_in(&value, form);
-            let (texts, echoes) = (&self.texts, &mut self.echoes);
-            let replaces = || match texts.get(&doc.id) {
-                None => true,
-                Some(known) => echoes
-                    .entry(doc.id.clone())
-                    .or_insert_with(|| Echoes::new(true))
-                    .replaces(&value, known),
-            };
-            let (ranges, again) =
-                self.locks
-                    .list(&doc.id, Some(print), &value, replaces, |before| {
-                        read_ranges(&given, &value, before)
-                    })?;
-            if let Some(again) = again {
-                ranges_again.insert(doc.id.clone(), again);
-            }
-            documents.push(Document::new(doc.id.clone(), "m.yaml", value).read_only_ranges(ranges));
+            let current = &self.texts[&doc.id];
+            let ranges = self
+                .channels
+                .get_mut(&doc.id)
+                .expect("listed before")
+                .ranges(
+                    Some(print),
+                    Some(&value),
+                    None,
+                    current,
+                    false,
+                    |text, came_with| read_ranges(&given, text, Some(came_with)),
+                )?;
+            listed.push((value, ranges));
         }
-        self.locks.finish();
-        // `keep_moved_past`.
+        // `take_listed`.
         let mut resend = Vec::new();
         let mut settles = false;
-        let mut took = Vec::new();
-        for (index, document) in documents.iter_mut().enumerate() {
-            let echo = self
-                .echoes
-                .entry(document.id.clone())
-                .or_insert_with(|| Echoes::new(true));
-            let Some(current) = self.texts.get(&document.id) else {
-                echo.given(&document.value);
-                continue;
-            };
-            let received = echo.received(&document.value, current, flushed);
-            let mut again = ranges_again.remove(&document.id);
-            let applies = received == Echo::Apply;
-            if applies && own != Some(index) && document.value != *current {
+        for (index, (value, ranges)) in listed.into_iter().enumerate() {
+            let doc = &mut self.docs[index];
+            let current = self.texts[&doc.id].clone();
+            let channel = self.channels.get_mut(&doc.id).expect("listed before");
+            let taken = channel.received(
+                Given {
+                    value: Some(&value),
+                    revision: None,
+                    ranges_for: None,
+                    ranges: Some(ranges),
+                    diagnostics: None,
+                    flushed,
+                    stale: false,
+                },
+                &current,
+            );
+            let applies = taken.shows();
+            if applies && own != Some(index) && value != current {
                 return Err(Failure::new(
-                    self.docs[index].host.lost_by(&document.value),
-                    format!(
-                        "{}: list applied {:?} over {current:?}",
-                        document.id, document.value
-                    ),
+                    doc.host.lost_by(&value),
+                    format!("{}: list applied {value:?} over {current:?}", doc.id),
                 ));
             }
-            let before_reset = !applies && echo.before_reset(&document.value);
-            if before_reset {
-                document.read_only_ranges = self.docs[index].ranges.clone();
-                again = Some(Again::Stayed);
+            // `show`: `remember_texts`, then the signal, taken now; ranges
+            // that stay are the ones its editor has.
+            if let Some(ranges) = taken.ranges {
+                doc.ranges = ranges;
             }
-            let (kept, stayed) = take(document, current, again, applies);
-            took.push((
-                document.id.clone(),
-                current.clone(),
-                kept,
-                stayed,
-                before_reset,
-            ));
-            if applies {
-                continue;
-            }
-            settles |= received != Echo::Skip;
-            if received == Echo::Resend {
-                resend.push((document.id.clone(), current.clone()));
+            doc.value = if applies { value } else { current.clone() };
+            self.texts.insert(doc.id.clone(), doc.value.clone());
+            match taken.echo {
+                Some(Echo::Settle) => settles = true,
+                Some(Echo::Resend) => {
+                    settles = true;
+                    resend.push((index, current));
+                }
+                _ => {}
             }
         }
-        for (id, current, kept, stayed, before_reset) in took {
-            self.locks.took(&id, &current, kept, stayed, before_reset);
-        }
-        // `show`: the list taken, `remember_texts`, then the signal, taken
-        // now.
-        self.locks.taken();
-        for (doc, document) in self.docs.iter_mut().zip(documents) {
-            self.texts.insert(doc.id.clone(), document.value.clone());
-            doc.value = document.value;
-            doc.ranges = document.read_only_ranges;
+        for doc in &mut self.docs {
             doc.sync()?;
         }
         // `tell_again`.
-        for (id, text) in resend {
-            if let Some(doc) = self.docs.iter_mut().find(|doc| doc.id == id) {
-                doc.host.told(&text);
-            }
+        for (index, text) in resend {
+            self.docs[index].host.told(&text);
         }
         self.settle_armed |= settles;
         Ok(())
@@ -233,18 +202,12 @@ impl DocumentsSim {
         if self.texts.get(&id).is_some_and(|known| known == value) {
             return Ok(false);
         }
-        // `replaced_locks`, from the text the view knows.
-        let ranges = self.texts.get(&id).and_then(|known| {
-            if reads_as(known, value) {
-                None
-            } else {
-                self.locks.get_mut(&id).map(|locks| locks.replaced(value))
-            }
+        // `State::replaced`, from the text the view knows.
+        let ranges = self.channels.get_mut(&id).and_then(|channel| {
+            let known = self.texts.get(&id)?;
+            channel.replaced(value, known)
         });
         self.texts.insert(id.clone(), value.to_string());
-        if let Some(echo) = self.echoes.get_mut(&id) {
-            echo.replaced(value);
-        }
         // `keep_edits`, the new value and ranges, then the list taken now.
         for doc in &mut self.docs {
             if let Some(core) = &doc.core {
@@ -272,9 +235,9 @@ impl DocumentsSim {
                 continue;
             };
             if self
-                .echoes
+                .channels
                 .get_mut(&doc.id)
-                .is_some_and(|echo| echo.settle(&text))
+                .is_some_and(|channel| channel.settle(&text))
             {
                 doc.host.told(&text);
             }
@@ -309,10 +272,9 @@ impl DocumentsSim {
                     let text = core.text.clone();
                     text.clone_into(&mut doc.entry_value);
                     self.texts.insert(doc.id.clone(), text.clone());
-                    self.echoes
-                        .entry(doc.id.clone())
-                        .or_insert_with(|| Echoes::new(true))
-                        .sent(&text);
+                    if let Some(channel) = self.channels.get_mut(&doc.id) {
+                        channel.sent(&text);
+                    }
                     doc.host.told(&text);
                 }
             }

@@ -1,18 +1,16 @@
-//! QA 35, HO35-1 and FW35-1: ranges a host works out in an echo of a text
-//! the user typed past, listed again (the same echo twice, two echoes
-//! giving the same ranges, three lists, older echoes after the newest),
-//! with typing between the lists. The list as a
-//! documents view reads it (`host_locks::Listed`, then [`take`]), and
-//! the editor as it takes its ranges (only ranges that differ from the
-//! ones it was given replace the ones it moved), over every language,
-//! ranges by lines and by index, and typing above, next to and below the
-//! lock: the lock stays on its field.
+//! P1: ranges a host works out in an echo of a text the user typed past,
+//! listed again (the same echo twice, two echoes giving the same ranges,
+//! three lists, older echoes after the newest), with typing between the
+//! lists. The list as a document's channel takes it, and the editor as it
+//! takes its ranges (only ranges that differ from the ones it was given
+//! replace the ones it moved), over every language, ranges by lines and by
+//! index, and typing above, next to and below the lock: the lock stays on
+//! its field.
 
-use config_editor_leptos::{Document, TextPosition, TextRange};
+use config_editor_leptos::{TextPosition, TextRange};
 
-use super::take;
-use super::tests::SAMPLES;
-use crate::host_locks::Listed;
+use super::super::HostChannel;
+use super::{SAMPLES, list};
 use crate::remap::moved_between;
 
 /// How the host writes its ranges (what a list is compared by).
@@ -38,11 +36,13 @@ const LISTS: &[(&str, &[usize])] = &[
     ("the same echo twice", &[NEWEST, NEWEST]),
     ("two echoes", &[NEWEST - 1, NEWEST]),
     ("three lists", &[NEWEST, NEWEST, NEWEST]),
-    // FW35-1: older echoes after the newest, each with its own ranges.
+    // Older echoes after the newest, each with its own ranges.
     ("newest, first, middle", &[NEWEST, 0, MIDDLE]),
     ("newest, second, middle", &[NEWEST, 1, MIDDLE]),
     ("newest, first, second", &[NEWEST, 0, 1]),
-    ("first, newest, first", &[0, NEWEST, 0]),
+    // Each echo comes once: a text handed back again after a newer one is
+    // the host's own (a revert), which replaces the document.
+    ("first, newest, middle", &[0, NEWEST, MIDDLE]),
 ];
 const NEWEST: usize = usize::MAX;
 const MIDDLE: usize = usize::MAX / 2;
@@ -96,9 +96,8 @@ fn typed_at(text: &str, lock: TextRange, place: Place, line: &str) -> String {
 struct View<'a> {
     first: &'a str,
     lock: TextRange,
-    file: &'a str,
     form: Form,
-    listed: Listed,
+    channel: HostChannel,
     /// The ranges the editor was given last (its `read_only_ranges`
     /// signal: set only when a list's differ).
     given: Vec<TextRange>,
@@ -108,24 +107,13 @@ struct View<'a> {
 }
 
 impl<'a> View<'a> {
-    fn new(file: &'a str, first: &'a str, lock: TextRange, form: Form) -> Self {
-        let mut listed = Listed::default();
-        listed
-            .list::<()>(
-                "m",
-                Some(print(lock, first, form)),
-                first,
-                || true,
-                |_| Ok(vec![lock]),
-            )
-            .expect("listed");
-        listed.finish();
+    fn new(first: &'a str, lock: TextRange, form: Form) -> Self {
+        let print = print(lock, first, form);
         Self {
             first,
             lock,
-            file,
             form,
-            listed,
+            channel: HostChannel::new(true, first, Some(print), first, vec![lock]),
             given: vec![lock],
             ranges: vec![lock],
             text: first.to_string(),
@@ -137,6 +125,7 @@ impl<'a> View<'a> {
         let (ranges, _) = moved_between(&self.text, text, Some(self.ranges.clone()), None);
         self.ranges = ranges.expect("ranges");
         text.clone_into(&mut self.text);
+        self.channel.sent(text);
     }
 
     /// The host lists `echo` (a text the editor sent and typed past) with
@@ -144,21 +133,13 @@ impl<'a> View<'a> {
     fn list_echo(&mut self, echo: &str) {
         let range = lock_in(echo, self.first, self.lock);
         let given = print(range, echo, self.form);
-        // As `documents_list::with_protection` reads it: an echo does not
-        // replace the editor's text.
-        let (ranges, again) = self
-            .listed
-            .list::<()>("m", Some(given), echo, || false, |_| Ok(vec![range]))
-            .expect("listed");
-        self.listed.finish();
-        let mut document = Document::new("m", self.file, echo.to_string()).read_only_ranges(ranges);
-        let (kept, stayed) = take(&mut document, &self.text, again, false);
-        self.listed.took("m", &self.text, kept, stayed, false);
-        self.listed.taken();
-        assert_eq!(document.value, self.text);
-        if document.read_only_ranges != self.given {
-            self.given.clone_from(&document.read_only_ranges);
-            self.ranges = document.read_only_ranges;
+        let taken = list(&mut self.channel, echo, &given, &[range], &self.text);
+        assert!(!taken.shows(), "{echo:?} over {:?}", self.text);
+        // Ranges that stay are listed as the editor has them.
+        let listed = taken.ranges.unwrap_or_else(|| self.given.clone());
+        if listed != self.given {
+            self.given.clone_from(&listed);
+            self.ranges = listed;
         }
     }
 
@@ -171,7 +152,7 @@ impl<'a> View<'a> {
 #[test]
 fn ranges_read_in_an_echo_and_listed_again_stay_on_their_field() {
     for sample in SAMPLES {
-        // Two lines typed above the lock, as FW35-1's host did.
+        // Two lines typed above the lock.
         let mut texts = sample.typed();
         let first = texts.last().expect("typed").clone();
         let second = format!("{}2", sample.line);
@@ -181,7 +162,7 @@ fn ranges_read_in_an_echo_and_listed_again_stay_on_their_field() {
             for place in [Place::Above, Place::At, Place::Below] {
                 for &(lists, order) in LISTS {
                     let what = format!("{} {form:?} {place:?} {lists}", sample.file);
-                    let mut view = View::new(sample.file, sample.text, lock, form);
+                    let mut view = View::new(sample.text, lock, form);
                     for text in &texts {
                         view.type_to(text);
                     }

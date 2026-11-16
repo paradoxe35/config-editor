@@ -36,6 +36,7 @@ mod editor_view;
 mod given;
 mod handle_calls;
 mod headless;
+mod host_channel;
 mod host_diagnostics;
 mod host_locks;
 mod languages;
