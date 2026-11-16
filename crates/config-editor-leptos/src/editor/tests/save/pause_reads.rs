@@ -1,10 +1,9 @@
 //! The work a typing pause's Edit-as save costs on a large document, counted
-//! (see `work_count`): the host's texts are each read the way the schema
-//! expects once, however many of the save's steps and checks ask (QA
-//! `P30-1`: the last check of every save, that the host's text reads back
-//! as the view holds it, read the saved text again, and an XML host's
-//! check that it still converts built its element tree twice more; a
-//! 5,000-line HCL or XML host paused 1.4 to 1.7 times as long).
+//! (see `work_count`), P5: the host's texts are each read the way the
+//! schema expects once, however many of the save's steps and checks ask
+//! (the last check, that the host's text reads back as the view holds it,
+//! reads the saved text from the same reading, and an XML host's check that
+//! it still converts builds its element tree once).
 
 use crate::editor::Language;
 use crate::editor::bridge::Bridge;
