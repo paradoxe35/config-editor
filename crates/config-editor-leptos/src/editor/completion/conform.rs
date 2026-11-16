@@ -6,6 +6,7 @@
 
 use super::super::applies::{Types, listed, scalar_text};
 use super::*;
+use crate::editor::language::pointer_key;
 
 /// Reads `value` the way `schema` expects for a language that writes arrays
 /// by repeating their key: each lone value (or, for blocks, lone object)
@@ -46,14 +47,29 @@ pub(super) fn conform(
     // A lone value the schemas take as it is (list keywords with no
     // `type` say nothing of a value that is no list) stays itself; one
     // they refuse, where they name the list type, is the one item of a
-    // list they take.
-    if types.allows_type("array")
-        && repeatable
-        && at.accepts(value, root) != Some(true)
-        && (!types.allows(value)
-            || (types != Types::ANY
-                && at.accepts(&Value::Array(vec![value.clone()]), root) == Some(true)))
-    {
+    // list they take (an option naming it beside one taking anything; an
+    // option an object's keys refute, the list it reads as taking it).
+    let names_list = |types: Types, branches: &[&Value]| {
+        types != Types::ANY || branches.iter().any(|branch| type_includes(branch, "array"))
+    };
+    let item = repeatable
+        && if types.allows_type("array") {
+            at.accepts(value, root) != Some(true)
+                && (!types.allows(value)
+                    || (names_list(types, &branches)
+                        && at.accepts(&Value::Array(vec![value.clone()]), root) == Some(true)))
+        } else {
+            value.is_object()
+                && applied.refutes()
+                && at.accepts_near(value, root) == Some(false)
+                && at.accepts_near(&Value::Array(vec![value.clone()]), root) == Some(true)
+                && {
+                    let blind = Here::walk(at.clone(), root, Seen::default());
+                    blind.types().allows_type("array")
+                        && names_list(blind.types(), &blind.branches())
+                }
+        };
+    if item {
         *value = Value::Array(vec![value.take()]);
     }
     // Each child read with every schema that applies to it there.
@@ -80,64 +96,141 @@ pub(super) fn conform(
         _ => {}
     }
     if repetition == Repetition::Elements {
-        reread_for_object(value, at, root);
+        reread_for_object(value, at, &children, root);
     }
 }
 
-/// Scalars of an XML object or list [`reread_for_object`] tries reading
-/// the other way at most: a refused value is tried a bounded number of
+/// Values of an XML object or list [`reread_for_object`] tries reading
+/// another way at most: a refused value is tried a bounded number of
 /// times.
 const MAX_REREADS: usize = 8;
 
-/// An object or list the schemas at it refuse as its scalars were read
+/// An object or list the schemas at it refuse as its values were read
 /// (`0` read as the string a `oneOf` option's `port` takes, so that two
-/// options match; `8` where a list's `contains` asks a text): each scalar
-/// read the other way (text as the number, boolean or `null` it writes,
-/// or such a value as its text), one at a time, kept where that makes the
-/// schemas take it.
-fn reread_for_object(value: &mut Value, at: &Entry<'_>, root: &Value) {
+/// options match; `8` where a list's `contains` asks a text; a lone
+/// element where an option asks a list): each value read another way
+/// ([`rereadings`]), one at a time, kept where that makes the schemas
+/// take it.
+fn reread_for_object(value: &mut Value, at: &Entry<'_>, children: &[Entry<'_>], root: &Value) {
     if !(value.is_object() || value.is_array()) || at.accepts_near(value, root) != Some(false) {
         return;
     }
-    let slots: Vec<String> = match &*value {
+    // Each slot, and whether it may be a list's one item: a lone member
+    // its schemas name a list for.
+    let listed = |child: &Entry<'_>| {
+        let here = Here::walk(child.clone(), root, Seen::default());
+        here.types().allows_type("array") && here.branches().into_iter().any(describes_array)
+    };
+    let slots: Vec<(String, bool)> = match &*value {
         Value::Object(map) => map
             .iter()
-            .filter(|(_, child)| other_reading(child).is_some())
-            .map(|(key, _)| format!("/{}", crate::editor::language::pointer_key(key)))
+            .zip(children)
+            .map(|((key, held), child)| {
+                let slot = format!("/{}", pointer_key(key));
+                (slot, !held.is_array() && listed(child))
+            })
+            .filter(|(slot, item)| *item || value.pointer(slot).and_then(other_reading).is_some())
             .take(MAX_REREADS)
             .collect(),
         Value::Array(items) => items
             .iter()
             .enumerate()
             .filter(|(_, item)| other_reading(item).is_some())
-            .map(|(index, _)| format!("/{index}"))
+            .map(|(index, _)| (format!("/{index}"), false))
             .take(MAX_REREADS)
             .collect(),
         _ => Vec::new(),
     };
-    for slot in slots {
-        let Some(other) = value.pointer(&slot).and_then(other_reading) else {
-            continue;
-        };
-        let Some(read) = value
-            .pointer_mut(&slot)
-            .map(|held| std::mem::replace(held, other))
-        else {
-            continue;
-        };
-        if at.accepts_near(value, root) == Some(true) {
+    for (slot, item) in slots {
+        if let Some(other) = value.pointer(&slot).and_then(other_reading)
+            && read_kept(value, &slot, at, root, Reading::Other(other))
+        {
             return;
         }
-        if let Some(held) = value.pointer_mut(&slot) {
-            *held = read;
+        if item && read_kept(value, &slot, at, root, Reading::Item) {
+            return;
         }
     }
+    // A scalar one level further down, which an option of this object
+    // (not of the child holding it) refuses as read.
+    let inner: Vec<String> = match &*value {
+        Value::Object(map) => map
+            .iter()
+            .map(|(key, held)| (format!("/{}", pointer_key(key)), held))
+            .collect(),
+        Value::Array(items) => items
+            .iter()
+            .enumerate()
+            .map(|(index, held)| (format!("/{index}"), held))
+            .collect(),
+        _ => Vec::new(),
+    }
+    .into_iter()
+    .flat_map(|(slot, held)| -> Vec<String> {
+        match held {
+            Value::Object(map) => map
+                .iter()
+                .filter(|(_, inner)| other_reading(inner).is_some())
+                .map(|(key, _)| format!("{slot}/{}", pointer_key(key)))
+                .collect(),
+            _ => Vec::new(),
+        }
+    })
+    .take(MAX_REREADS)
+    .collect();
+    for slot in inner {
+        if let Some(other) = value.pointer(&slot).and_then(other_reading)
+            && read_kept(value, &slot, at, root, Reading::Other(other))
+        {
+            return;
+        }
+    }
+}
+
+/// Another reading of an XML value.
+enum Reading {
+    /// This value instead.
+    Other(Value),
+    /// The value as a list's one item.
+    Item,
+}
+
+/// The value at `slot` of `value` read as `reading`, kept where the
+/// schemas at `value` then take it (else put back).
+fn read_kept(
+    value: &mut Value,
+    slot: &str,
+    at: &Entry<'_>,
+    root: &Value,
+    reading: Reading,
+) -> bool {
+    let Some(held) = value.pointer_mut(slot) else {
+        return false;
+    };
+    let before = match reading {
+        Reading::Other(other) => Some(std::mem::replace(held, other)),
+        Reading::Item => {
+            *held = Value::Array(vec![held.take()]);
+            None
+        }
+    };
+    if at.accepts_near(value, root) == Some(true) {
+        return true;
+    }
+    if let Some(held) = value.pointer_mut(slot) {
+        *held = match (before, held.take()) {
+            (Some(before), _) => before,
+            (None, Value::Array(mut items)) => items.remove(0),
+            (None, other) => other,
+        };
+    }
+    false
 }
 
 /// A scalar of XML text read the other way: text as the number, boolean
 /// or `null` it writes, or such a value as its text. (An empty element
 /// stays an object: `<cloudflare/>` is the object it starts.)
-fn other_reading(value: &Value) -> Option<Value> {
+pub(super) fn other_reading(value: &Value) -> Option<Value> {
     match value {
         Value::String(text) => text_literal(text),
         Value::Number(_) | Value::Bool(_) | Value::Null => Some(Value::String(scalar_text(value))),

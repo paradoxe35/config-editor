@@ -4,7 +4,7 @@
 //! value's `if` takes, the dependent schemas of the keys it has).
 
 use super::narrow::states;
-use super::node::{Choice, Entry, Node, Tree, all, any};
+use super::node::{Choice, Entry, Node, Tree, all, any, either};
 use super::{Seen, ref_target};
 use crate::editor::work_count::{Work, note};
 use serde_json::Value;
@@ -63,8 +63,10 @@ impl<'s, 'i> Expand<'s, 'i> {
             }
             Node::All(parts) => all(parts.iter().map(|part| self.node(part)).collect()),
             Node::Any(parts) => any(parts.iter().map(|part| self.node(part)).collect()),
-            // Entries hold no walked nodes.
-            Node::Options(_) | Node::Either(_) | Node::Cut => node.clone(),
+            // What an `if` not decided says of a child.
+            Node::Either(parts) => either(parts.iter().map(|part| self.node(part)).collect()),
+            // Entries hold no walked options.
+            Node::Options(_) | Node::Cut => node.clone(),
         };
         self.nodes.insert(key, walked.clone());
         walked
@@ -142,10 +144,12 @@ impl<'s, 'i> Expand<'s, 'i> {
     fn conditional(&mut self, schema: &'s Value) -> Option<Tree<'s>> {
         let condition = schema.get("if")?;
         self.decidable = true;
-        let decided = self
-            .seen
-            .value
-            .and_then(|value| super::decides(condition, value, self.root));
+        // An object known by its keys alone decides an `if` asking keys.
+        let decided = match (self.seen.value, self.seen.keys) {
+            (Some(value), _) => super::decides(condition, value, self.root),
+            (None, Some(keys)) => super::accepts::decides_keys(condition, keys),
+            (None, None) => None,
+        };
         let branch = |this: &mut Self, keyword: &str| {
             schema
                 .get(keyword)

@@ -73,17 +73,28 @@ impl<'a> Filler<'a> {
     }
 
     /// Whether `schema` (every schema applying to a value of it) does not
-    /// refuse `value`, as far as the quick check tells.
-    fn allows(&self, value: &Value, schema: &Value, at: Option<&Entry<'_>>) -> bool {
+    /// refuse `value`, as far as the quick check tells; `strict`: nor
+    /// does a branch of an `if` not decided that says something of it.
+    fn allows(&self, value: &Value, schema: &Value, at: Option<&Entry<'_>>, strict: bool) -> bool {
         decides(schema, value, self.root) != Some(false)
-            && at.is_none_or(|at| at.accepts(value, self.root) != Some(false))
+            && at.is_none_or(|at| {
+                let accepted = if strict {
+                    at.accepts_in_a_branch(value, self.root)
+                } else {
+                    at.accepts(value, self.root)
+                };
+                accepted != Some(false)
+            })
     }
 
     /// [`fill_value`] at `depth`: the first of its default or const, its
     /// example and its placeholder that the language keeps and the schema
     /// allows, else another value the schema allows ([`others`]: an enum
-    /// member, a number past its bound, …), else the placeholder the
-    /// language keeps.
+    /// member, a number past its bound, …), each one meeting an `if` not
+    /// decided whichever way it goes before one meeting only the way it
+    /// may go; else the placeholder the language keeps where the schemas
+    /// at the value (`at`) do not refuse it, else an empty value of a kind
+    /// they allow.
     /// `at`: every schema applying to the value, where more than `schema`.
     pub(super) fn filled(
         &mut self,
@@ -92,17 +103,27 @@ impl<'a> Filler<'a> {
         depth: usize,
     ) -> Option<Value> {
         let root = self.root;
+        // The first value taken either way; else the first taken one way.
+        let mut taken: Option<Value> = None;
+        let mut take = |this: &Self, value: &Value| {
+            if !this.keeps(value, schema) || !this.allows(value, schema, at, false) {
+                return false;
+            }
+            if this.allows(value, schema, at, true) {
+                return true;
+            }
+            taken.get_or_insert_with(|| value.clone());
+            false
+        };
         let branches = resolve_branches(schema, root);
         if let Some(value) = branches
             .iter()
             .find_map(|branch| branch.get("default").or_else(|| branch.get("const")))
-            .filter(|value| self.keeps(value, schema) && self.allows(value, schema, at))
+            .filter(|value| take(self, value))
         {
             return Some(value.clone());
         }
-        if let Some(example) = schema_example(schema, root)
-            .filter(|value| self.keeps(value, schema) && self.allows(value, schema, at))
-        {
+        if let Some(example) = schema_example(schema, root).filter(|value| take(self, value)) {
             return Some(example);
         }
         let value = match placeholder(schema, root) {
@@ -112,7 +133,7 @@ impl<'a> Filler<'a> {
             Value::Array(items) if items.is_empty() => least_items(self, schema, depth),
             other => other,
         };
-        if self.keeps(&value, schema) && self.allows(&value, schema, at) {
+        if take(self, &value) {
             return Some(value);
         }
         let empty = [
@@ -123,11 +144,33 @@ impl<'a> Filler<'a> {
             Value::Array(Vec::new()),
             Value::Object(serde_json::Map::new()),
         ];
-        others(schema, root, std::slice::from_ref(&value), OTHERS)
+        if let Some(other) = others(schema, root, std::slice::from_ref(&value), OTHERS)
             .into_iter()
             .chain(empty)
-            .find(|other| self.keeps(other, schema) && self.allows(other, schema, at))
-            .or_else(|| Some(value).filter(|value| self.keeps(value, schema)))
+            .find(|other| take(self, other))
+        {
+            return Some(other);
+        }
+        taken
+            // A schema no value meets keeps its placeholder; one the other
+            // schemas at the value refuse is not written.
+            .or_else(|| {
+                Some(value).filter(|value| {
+                    self.keeps(value, schema)
+                        && at.is_none_or(|at| at.accepts(value, root) != Some(false))
+                })
+            })
+            // Else an empty value of a kind they allow, left to type.
+            .or_else(|| {
+                let types = Here::walk(at?.clone(), root, Seen::default()).types();
+                [
+                    Value::String(String::new()),
+                    Value::Object(serde_json::Map::new()),
+                    Value::Null,
+                ]
+                .into_iter()
+                .find(|empty| types.allows(empty) && self.keeps(empty, schema))
+            })
     }
 
     /// An object of `schema`'s required children, each [`Self::filled`],

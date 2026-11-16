@@ -1,5 +1,7 @@
-//! A case printed by a run (`SCHEMA_FUZZ_TRACE`), read back and measured
-//! at each depth: `PROBE=<file> cargo test probe_case -- --ignored`.
+//! Looking into a case by hand: one printed by a run (`SCHEMA_FUZZ_TRACE`),
+//! read back and measured at each depth (`PROBE=<file> cargo test
+//! probe_case -- --ignored`); and a schema's fill, reading or suggestions
+//! (`probe_fill`, `probe_read`, `probe_suggestions`, given in files).
 
 use serde_json::Value;
 
@@ -11,7 +13,7 @@ use crate::editor::work_count::{Work, counted_all};
 #[test]
 #[ignore = "measures a case a run printed, given in PROBE"]
 fn probe_case() {
-    let text = std::fs::read_to_string(std::env::var("PROBE").unwrap()).unwrap();
+    let text = file_in("PROBE");
     let (schema, rest) = text.split_once(" doc ").unwrap();
     let (doc, _) = rest.split_once(" other ").unwrap();
     let schema: Value = serde_json::from_str(schema).unwrap();
@@ -49,4 +51,70 @@ fn probe_case() {
             );
         }
     }
+}
+
+/// The file the environment variable `name` names, read.
+fn file_in(name: &str) -> String {
+    std::fs::read_to_string(std::env::var(name).unwrap()).unwrap()
+}
+
+/// The schema in the file `PROBE_SCHEMA` names, and the language
+/// `PROBE_LANGUAGE` names (`fallback` when unset).
+fn schema_and_language(fallback: &str) -> (Value, Language) {
+    let schema: Value = serde_json::from_str(&file_in("PROBE_SCHEMA")).unwrap();
+    let label = std::env::var("PROBE_LANGUAGE").unwrap_or_else(|_| fallback.to_string());
+    let language = *Language::ALL
+        .iter()
+        .find(|language| language.label() == label)
+        .unwrap();
+    (schema, language)
+}
+
+/// What accepting the root key `PROBE_KEY` fills, in `PROBE_LANGUAGE`,
+/// under the schema in `PROBE_SCHEMA` (a file).
+#[test]
+#[ignore = "prints a fill given in PROBE_SCHEMA"]
+fn probe_fill() {
+    let (schema, language) = schema_and_language("HCL");
+    let key = std::env::var("PROBE_KEY").unwrap();
+    let property = &schema["properties"][&key];
+    let children =
+        crate::editor::completion::required_children(language.behavior(), property, &schema);
+    eprintln!("{children:#?}");
+}
+
+/// How a text reads: the schema in `PROBE_SCHEMA` and the text in
+/// `PROBE_TEXT` (files), in `PROBE_LANGUAGE` (a label).
+#[test]
+#[ignore = "reads a text given in PROBE_TEXT"]
+fn probe_read() {
+    let (schema, language) = schema_and_language("XML");
+    let both = compile(&schema).unwrap();
+    let value = both.read(language, &file_in("PROBE_TEXT"));
+    eprintln!("reads {value:?}");
+    eprintln!("valid {:?}", value.as_ref().map(|value| both.valid(value)));
+}
+
+/// Suggestions at the end of a text: the schema in `PROBE_SCHEMA` (a
+/// file), the text in `PROBE_TEXT` (a file; else `{root: {}}` nested
+/// `PROBE_DEPTH` levels in lists), in `PROBE_LANGUAGE` (a label).
+#[test]
+#[ignore = "runs suggestions on a case given in PROBE_SCHEMA"]
+fn probe_suggestions() {
+    let (schema, language) = schema_and_language("TOML");
+    let both = compile(&schema).unwrap();
+    let text = if std::env::var_os("PROBE_TEXT").is_some() {
+        file_in("PROBE_TEXT")
+    } else {
+        let depth = std::env::var("PROBE_DEPTH")
+            .ok()
+            .and_then(|depth| depth.parse().ok())
+            .unwrap_or(4);
+        both.written(language, &nested(&serde_json::json!({}), depth, true))
+            .unwrap()
+    };
+    eprintln!("{text}");
+    let caret = text.encode_utf16().count();
+    let offered = both.editor.suggestions(language, &text, caret);
+    eprintln!("{} suggestions", offered.len());
 }
