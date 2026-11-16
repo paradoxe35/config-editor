@@ -2,8 +2,9 @@ import { test } from '@playwright/test';
 import { replay } from '../runner.mjs';
 
 // Shrunk by the browser fuzz from seed 73015 on documents-react.
-// Fails the `lock-marks` check after step 6: line 1: locked "l.example.com", marked ""
-test.fixme("documents-react: lock-marks (seed 73015)", async ({ browser }) => {
+// A lock the host gives is read in the host's text and marked where it
+// names, after edits that have not reached the host.
+test("documents-react: lock-marks (seed 73015)", async ({ browser }) => {
   await replay(browser, "documents-react", "", [
     {
       "k": "lock",

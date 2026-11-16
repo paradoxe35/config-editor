@@ -26,8 +26,9 @@
 //! again by its path reads as pinned when only whitespace inside it
 //! changed (`spans`).
 //!
-//! A field the language cannot locate has no span: its value is checked
-//! instead (`pins`), the one question here that is not a span question.
+//! A field the language cannot locate has no span: nothing here judges
+//! it. Once the text parses, a value of it reading otherwise than pinned
+//! is held, as a lock's is.
 //!
 //! An edit changing one scalar on a line no lock is on, in a text that
 //! parses, is kept without moving anything (`reach`): `locks::protect`
@@ -51,7 +52,6 @@ use super::locks::{Protected, Sources, protect};
 use super::reach::out_of_reach;
 use super::texts::Reason;
 use crate::EditorStrings;
-use pins::{unplaced_hold, unplaced_text_cut};
 
 /// An edit that would change a locked field, and why it is locked.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -177,15 +177,6 @@ pub(crate) fn judge(
         (&protected.ranges, &ranges),
         carets,
     )?;
-    if !protected.unplaced.is_empty() {
-        let reason = match &next.document {
-            Some(edited) => unplaced_hold(edited, protected),
-            None => unplaced_text_cut(protected, before, after),
-        };
-        if let Some(reason) = reason {
-            return Err(refused(reason));
-        }
-    }
     Ok(Some(next))
 }
 

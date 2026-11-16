@@ -86,7 +86,8 @@ pub(super) fn kept(
         spans.lock_kept(protected, lock, &moves)?;
     }
     // A field held the text no longer has (its lock gone with its line)
-    // stays held or locked: released, nothing would follow it.
+    // stays held, locked, or kept unplaced (pinned, with no span to
+    // lock): released, nothing would follow it.
     let locked = |pointer: &str| {
         protected
             .locks
@@ -96,6 +97,7 @@ pub(super) fn kept(
     if let Some(lost) = protected.held.iter().find(|pointer| {
         !locked(pointer)
             && !next.held.contains(pointer)
+            && !next.unplaced.iter().any(|(known, _)| known == *pointer)
             && next.locks.iter().all(|lock| {
                 lock.pointer
                     .as_deref()

@@ -14,8 +14,8 @@
 //! that does not parse takes the locks of the text before, moved through
 //! the edit. Nothing is read off a half-typed line.
 //!
-//! When the text parses again, each locked field is placed afresh where its
-//! value reads as it was pinned. One that reads otherwise (a duplicate key
+//! When the text parses again, each locked field is placed afresh by its
+//! path, where its parse writes it. One that reads otherwise (a duplicate key
 //! or block shadows it, it moved under another parent, it was commented
 //! out) is *held* (`Protected::held`): it keeps the spans followed from the
 //! text before and its pinned value, and the save waits until it reads as
@@ -78,10 +78,9 @@ pub(crate) struct Protected {
     /// that do not parse (within one text from the host).
     pub(crate) parsed: Option<Arc<Value>>,
     /// Locked fields written in this text that could not be found in it
-    /// (see `Placed::Unplaced`): in a text that does not parse, checked, as
-    /// every lock, when an edit makes the text parse; in one that parses (a
-    /// language that cannot say where a field is written), pinned, so every
-    /// edit whose text parses with another value is refused.
+    /// (see `Placed::Unplaced`): with no span, nothing guards their text;
+    /// pinned, so a text that parses with another value holds them (see
+    /// `held`) until it reads them as pinned again.
     pub(crate) unplaced: Vec<(String, Reason)>,
     /// Pointers of the secret fields written in the text.
     pub(crate) secret: Vec<String>,
@@ -117,6 +116,12 @@ pub(crate) struct Protected {
     /// The fields the host's ranges cover in its own text, when this is a
     /// view in another language (see `Sources::range_fields`).
     pub(crate) range_fields: Vec<FieldPath>,
+    /// The fields whose locks were read off a text that does not parse
+    /// (its lines, or its stand-in's), here or in a text before and
+    /// followed since: their spans are a reading, not the parse's, so a
+    /// text that parses places them by their paths whatever text that
+    /// covers.
+    pub(crate) read_off: Vec<String>,
 }
 
 impl Protected {
@@ -256,7 +261,8 @@ pub(crate) fn protect(
     protected
         .locks
         .retain(|lock| seen.insert((lock.pointer.clone(), lock.ranges.clone(), lock.key.clone())));
-    protected.held = placer.held_pointers(&protected.locks);
+    protected.held = placer.held_pointers(&protected.locks, &protected.unplaced);
+    protected.read_off = placer.read_off(&protected.locks);
     protected.pins = placer.into_pins(&protected.locks, &protected.unplaced);
     for (pointer, value) in covered_pins {
         if !protected.pins.iter().any(|(known, _)| *known == pointer) {
@@ -339,6 +345,7 @@ fn carried_past(
         marking: previous.marking,
         ranges: moved,
         range_fields: previous.range_fields.clone(),
+        read_off: previous.read_off.clone(),
     })
 }
 

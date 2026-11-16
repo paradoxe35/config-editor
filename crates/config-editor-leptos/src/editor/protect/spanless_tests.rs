@@ -1,7 +1,8 @@
 //! Protected fields in a language that cannot say where a field is written
-//! (only `parse` and `serialize`, no spans): every locked value still holds
-//! (I1), checked by value on every edit whose text parses, and edits that
-//! keep every locked value stay free (I2).
+//! (only `parse` and `serialize`, no spans): with no span to guard, no edit
+//! is refused for them; a text reading a locked value otherwise holds it,
+//! so nothing changed reaches the host (P1), and edits that keep every
+//! locked value stay free.
 
 use leptos::prelude::*;
 use serde_json::{Map, Value, json};
@@ -100,13 +101,21 @@ fn allowed(protected: &Protected, before: &str, after: &str) -> bool {
     check(&Env, Some(&schema()), protected, before, after).is_ok()
 }
 
+/// Without spans nothing says where a locked value is written: an edit
+/// changing it is taken, and the text, which reads it otherwise, holds it
+/// (the save, the change event and the value wait) until it reads as
+/// pinned again (P1: nothing changed reaches the host).
 #[test]
-fn every_edit_changing_a_locked_value_is_refused_without_spans() {
+fn every_edit_changing_a_locked_value_is_held_without_spans() {
     let protected = locks(TEXT, None);
     let cases = [
         (
             "type in a locked value",
             "# c\nID=srv-19\nNAME=a\nPORT=80\n",
+        ),
+        (
+            "glue onto a locked value",
+            "# c\nID=srv-1X\nNAME=a\nPORT=80\n",
         ),
         (
             "type in a host-locked value",
@@ -121,12 +130,17 @@ fn every_edit_changing_a_locked_value_is_refused_without_spans() {
         ("comment a locked line", "# c\n#ID=srv-1\nNAME=a\nPORT=80\n"),
         ("replace all", "ID=srv-2\nPORT=81\n"),
     ];
-    let failures: Vec<&str> = cases
+    let failures: Vec<String> = cases
         .iter()
-        .filter(|(_, after)| allowed(&protected, TEXT, after))
-        .map(|(name, _)| *name)
+        .filter_map(|(name, after)| {
+            if !allowed(&protected, TEXT, after) {
+                return Some(format!("{name}: refused"));
+            }
+            let held = locks(after, Some(&protected)).held;
+            held.is_empty().then(|| format!("{name}: not held"))
+        })
         .collect();
-    assert!(failures.is_empty(), "accepted: {failures:?}");
+    assert!(failures.is_empty(), "{failures:?}");
 }
 
 #[test]
@@ -151,27 +165,37 @@ fn edits_keeping_every_locked_value_stay_free_without_spans() {
     assert!(failures.is_empty(), "refused: {failures:?}");
 }
 
+/// A repair of a broken text reading a locked value otherwise holds it;
+/// one reading it as pinned holds nothing.
 #[test]
-fn a_text_broken_on_the_way_parses_again_only_with_the_locked_values() {
+fn a_repair_reading_a_locked_value_otherwise_holds_it_without_spans() {
     let protected = locks(TEXT, None);
     let broken = "# c\nID=srv-1\nNAMEa\nPORT=80\n";
     assert!(
         allowed(&protected, TEXT, broken),
         "breaking a free line is free"
     );
-    let held = locks(broken, Some(&protected));
-    assert!(
-        !allowed(&held, broken, "# c\nID=srv-2\nNAME=a\nPORT=80\n"),
-        "repaired with another value"
-    );
-    assert!(
-        !allowed(&held, broken, "# c\nNAME=a\nPORT=80\n"),
-        "repaired by deleting the locked line"
-    );
-    assert!(
-        allowed(&held, broken, TEXT),
-        "repaired with the locked value"
-    );
+    let carried = locks(broken, Some(&protected));
+    for (name, repaired, held) in [
+        (
+            "repaired with another value",
+            "# c\nID=srv-2\nNAME=a\nPORT=80\n",
+            true,
+        ),
+        (
+            "repaired by deleting the locked line",
+            "# c\nNAME=a\nPORT=80\n",
+            true,
+        ),
+        ("repaired with the locked value", TEXT, false),
+    ] {
+        assert!(allowed(&carried, broken, repaired), "{name}: taken");
+        assert_eq!(
+            !locks(repaired, Some(&carried)).held.is_empty(),
+            held,
+            "{name}: held"
+        );
+    }
 }
 
 #[test]
@@ -207,31 +231,24 @@ fn first_refused(steps: &[&str]) -> Option<usize> {
     None
 }
 
-/// Without spans a locked value's text is its span while the text does
-/// not parse: an edit taking it away whole (changing it, deleting its
-/// line, gluing onto it) is refused at once; one leaving it whole (a space
-/// after it, a duplicate of its key) goes through, and the repair making
-/// the text read it otherwise is refused (it is never heard).
+/// Without spans, edits made while the text does not parse are taken,
+/// whatever they do to a locked value; the repair making the text read it
+/// otherwise holds it.
 #[test]
-fn a_locked_value_holds_through_broken_text_without_spans() {
+fn a_repair_after_edits_to_a_locked_value_in_broken_text_holds_it_without_spans() {
     let broken = "# c\nID=srv-1\nNAMEa\nPORT=80\n";
-    // Each case's steps, and the index of the step refused (the steps, then
-    // the repair).
-    let cases: [(&str, &[&str], usize); 5] = [
+    let cases: [(&str, &[&str]); 5] = [
         (
             "edit a locked value while another line is broken",
             &[broken, "# c\nID=srv-19\nNAMEa\nPORT=80\n"],
-            1,
         ),
         (
             "edit a host-locked value while another line is broken",
             &[broken, "# c\nID=srv-1\nNAMEa\nPORT=8\n"],
-            1,
         ),
         (
             "delete a locked line while another is broken",
             &[broken, "# c\nNAMEa\nPORT=80\n"],
-            1,
         ),
         (
             "a space after a locked value, then a new value",
@@ -240,23 +257,30 @@ fn a_locked_value_holds_through_broken_text_without_spans() {
                 "# c\nID=srv-1 \nNAMEa\nPORT=80\n",
                 "# c\nID=srv-2 \nNAMEa\nPORT=80\n",
             ],
-            2,
         ),
         (
             "a duplicate of a locked key while broken",
             &[broken, "# c\nID=srv-1\nNAMEa\nPORT=80\nID=evil\n"],
-            2,
         ),
     ];
     let failures: Vec<String> = cases
         .iter()
-        .filter_map(|(name, steps, expected)| {
+        .filter_map(|(name, steps)| {
             let last = steps[steps.len() - 1];
             let mut all: Vec<&str> = steps.to_vec();
             let repaired = last.replace("NAMEa", "NAME=a");
             all.push(&repaired);
-            let refused = first_refused(&all);
-            (refused != Some(*expected)).then(|| format!("{name}: refused at {refused:?}"))
+            if let Some(refused) = first_refused(&all) {
+                return Some(format!("{name}: refused at {refused}"));
+            }
+            let mut protected = locks(TEXT, None);
+            for text in &all {
+                protected = locks(text, Some(&protected));
+            }
+            protected
+                .held
+                .is_empty()
+                .then(|| format!("{name}: the repair is not held"))
         })
         .collect();
     assert!(failures.is_empty(), "{failures:?}");
@@ -343,17 +367,18 @@ fn a_save_waits_for_a_text_that_parses_without_spans() {
             .is_some_and(|tip| tip.contains("/PORT") || tip.contains("/ID")),
         "the reason shows: {tip:?}"
     );
-    // The value's text is its span while the text does not parse: a
-    // change to it is refused at once, and the repair keeps the locks.
+    // Without a span, a change to a locked value while the text does not
+    // parse is taken; the repair reading it otherwise holds the save until
+    // it reads as pinned again.
     assert!(
-        !change(state, "ID=srv-1", "ID=srv-2"),
+        change(state, "ID=srv-1", "ID=srv-2"),
         "a locked value changed while broken"
     );
-    assert!(
-        change(state, "NAMEa", "NAME=b"),
-        "the repair keeps the locks"
-    );
-    assert!(state.save(), "valid again, it is saved");
+    assert!(change(state, "NAMEa", "NAME=b"), "the repair is taken");
+    assert!(!state.save(), "a locked value reading otherwise waits");
+    assert_eq!(saves.get_untracked(), [TEXT], "nothing changed was sent");
+    assert!(change(state, "ID=srv-2", "ID=srv-1"), "the value put back");
+    assert!(state.save(), "reading as pinned again, it is saved");
 }
 
 /// A placeholder given as a field's whole value takes nothing beside it

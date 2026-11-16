@@ -82,6 +82,8 @@ fn byte_at(source: &str, line: usize, column: usize) -> usize {
 struct Spans {
     keys: std::collections::HashMap<Vec<String>, (usize, usize)>,
     values: std::collections::HashMap<Vec<String>, (usize, usize)>,
+    /// Each value whole: a container from its opener through its closer.
+    wholes: std::collections::HashMap<Vec<String>, (usize, usize)>,
 }
 
 /// The document's spans, read once for all the spans a batch of problems
@@ -96,13 +98,26 @@ fn scanned(source: &str) -> std::rc::Rc<Spans> {
             }
             found
         };
-        Spans { keys: by_path(scan.key_spans), values: by_path(scan.value_spans) }
+        let wholes = scan
+            .value_spans
+            .iter()
+            .zip(&scan.value_ends)
+            .map(|((path, start, end), whole)| (path.clone(), *start, whole.unwrap_or(*end)))
+            .collect();
+        Spans { keys: by_path(scan.key_spans), values: by_path(scan.value_spans), wholes: by_path(wholes) }
     })
 }
 
 pub(super) fn json_key_span(source: &str, path: &str) -> Option<(usize, usize, usize)> {
     let (start, end) = *scanned(source).keys.get(&pointer_segments(path))?;
     Some(span_between(source, start, end))
+}
+
+/// The byte range of the value at `path` whole, a container through its
+/// closer (`Text::value_ranges`).
+pub(super) fn json_value_range(source: &str, path: &str) -> Option<std::ops::Range<usize>> {
+    let (start, end) = *scanned(source).wholes.get(&pointer_segments(path))?;
+    Some(start..end)
 }
 
 pub(super) fn json_value_span(source: &str, path: &str) -> Option<(usize, usize, usize)> {

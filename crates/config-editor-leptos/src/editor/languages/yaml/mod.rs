@@ -271,6 +271,21 @@ impl ConfigLanguage for YamlBehavior {
 }
 
 impl Text for YamlBehavior {
+    /// The language's spans joined (see `Text::value_ranges`), and a
+    /// scalar written on the lines below its key from where it is written
+    /// there.
+    fn value_ranges(&self, language: &dyn ConfigLanguage, source: &str, pointer: &str) -> Vec<std::ops::Range<usize>> {
+        let parsed = crate::editor::paths::parsed_in_batch(self, source);
+        let Ok(document) = parsed.as_ref() else {
+            return Vec::new();
+        };
+        let scalar = document.pointer(pointer).is_some_and(|value| !value.is_object() && !value.is_array());
+        if scalar && let Some(below) = yaml_scalar_below_key(source, pointer) {
+            return vec![below];
+        }
+        crate::editor::paths::joined_value_ranges(language, source, pointer)
+    }
+
     fn first_span(&self, source: &str) -> Option<Span> {
         first_yaml_span(source).map(Span::from)
     }

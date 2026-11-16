@@ -669,6 +669,15 @@ mod whole_scale_tests;
     feature = "hcl",
     feature = "xml"
 ))]
+mod whole_value_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
 mod xml_copies_tests;
 #[cfg(all(
     test,

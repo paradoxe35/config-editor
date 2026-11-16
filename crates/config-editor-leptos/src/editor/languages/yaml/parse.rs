@@ -603,6 +603,68 @@ pub(super) fn yaml_value_span_for_path(source: &str, path: &str) -> Option<(usiz
     Some((line_number, column, column + value.chars().count()))
 }
 
+/// The byte range of a scalar written on the lines below its key, nothing
+/// but node properties after the key's colon (`port:` then `  8080`,
+/// `port: &p` then `  8080`): from its first character through its closing
+/// quote, or its last line indented past the key. `None` when the value
+/// starts on the key's line, or below it is a collection or a block.
+pub(super) fn yaml_scalar_below_key(source: &str, path: &str) -> Option<std::ops::Range<usize>> {
+    let wanted = crate::editor::language::pointer_segments(path);
+    let (line_number, key_column, _) = path_line(source, &wanted)?;
+    let line = crate::editor::paths::text_line(source, line_number - 1)?;
+    let key_start = line.char_indices().nth(key_column - 1)?.0;
+    let mut offset = crate::editor::paths::line_start(source, line_number);
+    // An explicit key (`? port`): its value follows the `:` starting a
+    // line of its own below it.
+    if line[..key_start].trim_end().ends_with('?') {
+        for next in source.get(offset..)?.split_inclusive('\n') {
+            let code = code_before_comment(next.trim_end_matches(['\n', '\r']));
+            if let Some(rest) = code.trim_start().strip_prefix(':') {
+                let value = rest.trim();
+                if value.is_empty() || !continues_as_text(value) && !value.starts_with(['"', '\'']) {
+                    return None;
+                }
+                let start = offset + code.len() - rest.trim_start().len();
+                return Some(start..offset + code.trim_end().len());
+            }
+            offset += next.len();
+        }
+        return None;
+    }
+    let colon = key_start + key_colon(&line[key_start..])?;
+    let code = code_before_comment(line);
+    if !without_node_properties(code.get(colon + 1..)?.trim()).is_empty() {
+        return None;
+    }
+    let mut found: Option<std::ops::Range<usize>> = None;
+    for next in source.get(offset..)?.split_inclusive('\n') {
+        let code = code_before_comment(next.trim_end_matches(['\n', '\r']));
+        let indent = code.len() - code.trim_start().len();
+        if !code.trim().is_empty() {
+            if indent <= key_start {
+                break;
+            }
+            let first = offset + indent;
+            match &mut found {
+                Some(range) => range.end = offset + code.trim_end().len(),
+                None => {
+                    let value = code.trim();
+                    if value.starts_with(['"', '\'']) {
+                        let close = super::lexical::quoted_close(&source[first..], 0)?;
+                        return Some(first..first + close);
+                    }
+                    if !continues_as_text(value) {
+                        return None;
+                    }
+                    found = Some(first..offset + code.trim_end().len());
+                }
+            }
+        }
+        offset += next.len();
+    }
+    found
+}
+
 /// The end column of a block scalar (`|`, `>-`, `&a |2`) opened by `value`
 /// on line `line_number`: it runs through its lines below indented past
 /// `owner_indent` (its key's or its dash's column), the column counting on

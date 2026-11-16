@@ -16,8 +16,8 @@ use serde_json::Value;
 use super::super::applies::Applies;
 use super::super::codec;
 use super::super::language::{ConfigLanguage, Repetition};
-use super::super::paths::{FieldPath, path_at};
-use super::locate::{Extent, LineIndex, extent};
+use super::super::paths::{FieldPath, field_range, inside, key_range, path_at};
+use super::locate::{Extent, LineIndex, within};
 use super::marks::read_only_in;
 use super::texts::Reason;
 
@@ -276,7 +276,7 @@ pub(super) fn under_own_key(
     let found = written
         .iter()
         .find(|field| field.pointer != pointer && field.pointer.rsplit('/').next() == Some(key))?;
-    extent(behavior, text, lines, None, Some(written), &found.pointer).or_else(|| {
+    read_off(behavior, text, lines, None, written, &found.pointer).or_else(|| {
         let content = lines.line_text(found.line);
         let indent = content.len() - content.trim_start().len();
         let start = lines.line_bounds(found.line).start + content[..indent].encode_utf16().count();
@@ -285,5 +285,111 @@ pub(super) fn under_own_key(
             key: None,
             ranges: std::iter::once(start..end).collect(),
         })
+    })
+}
+
+/// Where the field at `pointer` is written in a text that does not parse,
+/// read off its lines: where the language's tolerant lookup finds it
+/// (`field_range`), with what is inside it: the fields of `value` (its
+/// value pinned in the last text that parsed) where the lookup finds them,
+/// else the lines `written` inside it; joined where only its own lines lie
+/// between them, the last carried over the closers of the containers it
+/// leaves open.
+pub(super) fn read_off(
+    behavior: &dyn ConfigLanguage,
+    text: &str,
+    lines: &LineIndex<'_>,
+    value: Option<&Value>,
+    written: &[Written],
+    pointer: &str,
+) -> Option<Extent> {
+    let mut ranges = vec![lines.range(field_range(behavior, text, pointer)?)];
+    let key = key_range(behavior, text, pointer).map(|range| lines.range(range));
+    if let Some(value) = value {
+        ranges.extend(
+            inside(value, pointer)
+                .iter()
+                .filter_map(|child| field_range(behavior, text, child))
+                .map(|range| lines.range(range)),
+        );
+    }
+    for field in written.iter().filter(|_| value.is_none()) {
+        if field.pointer != pointer && within(behavior, &field.pointer, pointer) {
+            let bounds = lines.line_bounds(field.line);
+            let content = lines.line_text(field.line);
+            let code = content.trim();
+            let indent = content.len() - content.trim_start().len();
+            let start = bounds.start + content[..indent].encode_utf16().count();
+            let code = match behavior.config().item_separator {
+                Some(separator) => code.strip_suffix(separator).unwrap_or(code).trim_end(),
+                None => code,
+            };
+            ranges.push(start..start + code.encode_utf16().count());
+        }
+    }
+    if let Some(first) = ranges.first_mut() {
+        let name = lines.byte_of(first.start);
+        if let Some(open) = super::super::flow_syntax::markup_before(behavior, text, name) {
+            first.start -= text[open..name].encode_utf16().count();
+        }
+    }
+    ranges.sort_by_key(|range| (range.start, range.end));
+    let mut merged: Vec<std::ops::Range<usize>> = Vec::new();
+    for range in ranges {
+        match merged.last_mut() {
+            Some(last)
+                if range.start <= last.end
+                    || own_lines_between(behavior, text, lines, last.end..range.start, pointer) =>
+            {
+                last.end = last.end.max(range.end);
+            }
+            _ => merged.push(range),
+        }
+    }
+    if let (Some(first), Some(last)) = (merged.first().cloned(), merged.last_mut()) {
+        let covered = &text[lines.byte_of(first.start)..lines.byte_of(last.end)];
+        let mut depth = behavior.unclosed_containers(covered);
+        let mut end = lines.byte_of(last.end);
+        while depth > 0 {
+            let rest = &text[end..];
+            let skipped = rest.len() - rest.trim_start().len();
+            let Some(length) = behavior.container_closer_len(&rest[skipped..]) else {
+                break;
+            };
+            end += skipped + length;
+            depth -= 1;
+        }
+        last.end = lines.units_of(end);
+    }
+    Some(Extent {
+        key,
+        ranges: merged,
+    })
+}
+
+/// Whether the lines wholly inside `gap` are blank, comments, punctuation
+/// alone, or start with a path inside `pointer`'s.
+fn own_lines_between(
+    behavior: &dyn ConfigLanguage,
+    text: &str,
+    lines: &LineIndex<'_>,
+    gap: std::ops::Range<usize>,
+    pointer: &str,
+) -> bool {
+    let punctuation = |character: char| {
+        character.is_whitespace()
+            || (character.is_ascii_punctuation() && !matches!(character, '"' | '\''))
+    };
+    (lines.line_of(gap.start) + 1..lines.line_of(gap.end)).all(|line| {
+        let content = lines.line_text(line);
+        let indent = content.len() - content.trim_start().len();
+        if content.trim().chars().all(punctuation)
+            || behavior.comment_start(content) == Some(indent)
+        {
+            return true;
+        }
+        let at = lines.line_bounds(line).start + content[..indent].encode_utf16().count();
+        path_at(behavior, text, at)
+            .is_some_and(|path| within(behavior, &path.to_pointer(), pointer))
     })
 }

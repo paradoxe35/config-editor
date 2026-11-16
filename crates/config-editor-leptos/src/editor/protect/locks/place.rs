@@ -1,20 +1,26 @@
-//! Where each locked field is in the text, tried in order: the lock of the
-//! text before moved through the edit, when the edit kept its text (the
-//! spans are followed by position, whether or not the text parses); else the stand-in's lock (its value pinned); else located by
-//! its path (or under its own key); else kept as a field not found: in a
-//! text that does not parse, until it parses; in one that parses (a
-//! language that cannot locate fields), by its value alone, every edit then
-//! compared with it (`guard`).
+//! Where each locked field is in the text.
+//!
+//! - A text that parses places it where its parse writes it, by its path
+//!   (`locate::extent`), as a fresh editor does. Only when that path names
+//!   other text than the field's lock followed from a text before that
+//!   parsed (a list item's index another item's now, a key typed again
+//!   ahead of it) is the field held on the text it holds; when the path
+//!   names nothing, the lock followed stays.
+//! - A text that does not parse follows the locks of the text before
+//!   through the edit; a field with none to follow takes the stand-in's
+//!   lock (its value pinned), else is read off the lines (`scan`), else is
+//!   kept unplaced until the text parses.
+//! - A field the language cannot locate (no spans) is kept unplaced, by
+//!   its value: a text reading it otherwise holds it.
 
 use std::ops::Range;
 
 use serde_json::Value;
 
 use super::super::super::codec;
-use super::super::super::parse_cache;
-use super::super::super::paths::key_range;
+use super::super::super::paths::{inside, key_range};
 use super::super::carry::Moves;
-use super::super::locate::{Extent, extent, inside, lookup, values_under};
+use super::super::locate::{Extent, extent, lookup, values_under};
 use super::super::scan;
 use super::super::texts::Reason;
 use super::reading::Reading;
@@ -38,6 +44,9 @@ pub(super) struct Placer<'r, 'a> {
     /// Whether the text is the host's own (the one the locks follow): it
     /// writes every field where the host did, so its paths place them.
     hosts_own: bool,
+    /// The fields placed so far whose locks are a reading of a text that
+    /// does not parse (see `Protected::read_off`).
+    read_off: Vec<String>,
 }
 
 /// What became of one field.
@@ -116,6 +125,7 @@ impl<'r, 'a> Placer<'r, 'a> {
                 .unwrap_or_default(),
             held,
             hosts_own,
+            read_off: Vec::new(),
         }
     }
 
@@ -318,9 +328,14 @@ impl<'r, 'a> Placer<'r, 'a> {
             .collect()
     }
 
-    /// The fields held whose lock was followed into this text, and those
-    /// the text no longer has.
-    pub(super) fn held_pointers(&self, locks: &[Lock]) -> Vec<String> {
+    /// The fields held whose lock was followed into this text, those kept
+    /// unplaced (`unplaced`: no span says where they are), and those the
+    /// text no longer has.
+    pub(super) fn held_pointers(
+        &self,
+        locks: &[Lock],
+        unplaced: &[(String, Reason)],
+    ) -> Vec<String> {
         // A text that does not parse carries every one held.
         let Some(document) = &self.reading.document else {
             return self
@@ -335,6 +350,7 @@ impl<'r, 'a> Placer<'r, 'a> {
             .map(|(pointer, _)| pointer)
             .filter(|pointer| {
                 gone.contains(pointer)
+                    || unplaced.iter().any(|(known, _)| known == *pointer)
                     || locks
                         .iter()
                         .any(|lock| lock.pointer.as_deref() == Some(pointer.as_str()))
@@ -353,53 +369,64 @@ impl<'r, 'a> Placer<'r, 'a> {
         let follow =
             self.reading.document.is_none() || self.held.iter().any(|(held, _)| *held == pointer);
         if follow && let Some(lock) = moved.clone() {
+            if self.was_read_off(&pointer) {
+                self.read_off.push(pointer.clone());
+            }
             return Placed::Locked(Lock { reason, ..lock });
         }
         if let Some((lock, pin)) = self.stand_in_lock(&pointer) {
             self.pins.push(pin);
+            self.read_off.push(pointer.clone());
             return Placed::Locked(Lock { reason, ..lock });
         }
         // A text that parses places it by its path, as a fresh editor
-        // would, where that covers the text followed from the text before
-        // (placed by a stand-in or carried while it did not parse), or,
-        // from one that parsed, under the same key. A parse of a line half
-        // typed may read the user's new text as the field (`password:
-        // password: '…'`, the path found at the first of a key written
-        // twice, read at the last): the text followed stays the lock. A
-        // text that did not parse said nothing sure of where a field is (a
-        // stand-in reads around its breaking lines): a lock followed out of
-        // it goes where its path says in the host's own text, which has no
-        // half-typed line, and where its path reads the value pinned.
+        // would: the parse knows where its value is written. Only a text
+        // that does not parse follows the text before (above).
         match self.located(&pointer) {
-            Some(found) => match moved {
-                Some(lock)
-                    if !self.hosts_own
-                        && !self.repaired_as_pinned(&pointer, &reason)
-                        && (!covers(&found.ranges, &lock.ranges)
-                            || (self.before_parsed() && lock.key != found.key)) =>
-                {
-                    Placed::Locked(Lock { reason, ..lock })
+            // Its path names other text than the field's (a list item's
+            // index another item's now; a key typed again ahead of it,
+            // which the language's spans find first while its parse reads
+            // the last): the field is held, on the text it holds, until the
+            // text writes it where its path says again.
+            Some(found)
+                if let Some(lock) = moved
+                    .as_ref()
+                    .filter(|lock| self.names_other_text(lock, &found))
+                    .cloned() =>
+            {
+                self.hold(&pointer);
+                Placed::Locked(Lock { reason, ..lock })
+            }
+            Some(found) => {
+                if self.reading.document.is_none() {
+                    self.read_off.push(pointer.clone());
                 }
-                _ => Placed::Locked(Lock {
+                Placed::Locked(Lock {
                     guards: self.ancestor_keys(&pointer),
                     pointer: Some(pointer),
                     key: found.key,
                     ranges: found.ranges,
                     reason,
-                }),
-            },
+                })
+            }
             None => match moved {
-                // Not found where its path says (a key half typed before
-                // it): the text followed.
-                Some(lock) => Placed::Locked(Lock { reason, ..lock }),
+                // Not found where its path says (a text that does not
+                // parse, a key half typed before it that the language's
+                // spans read as another): the text followed.
+                Some(lock) => {
+                    if self.was_read_off(&pointer) {
+                        self.read_off.push(pointer.clone());
+                    }
+                    Placed::Locked(Lock { reason, ..lock })
+                }
                 // A field a host range covers is found again from the range
                 // in each text that parses (the range's own lock keeps the
                 // text meanwhile): a half-typed parse's path for it is no
                 // field.
-                None if reason != Reason::Range && self.kept_unplaced(&pointer) => {
+                _ if reason != Reason::Range && self.kept_unplaced(&pointer) => {
                     Placed::Unplaced(pointer, reason)
                 }
-                None => Placed::Absent,
+                _ => Placed::Absent,
             },
         }
     }
@@ -444,30 +471,63 @@ impl<'r, 'a> Placer<'r, 'a> {
             .filter(move |pointer| lookup(document, pointer).is_none())
     }
 
-    /// Whether the text before parsed (its locks were placed by path).
-    fn before_parsed(&self) -> bool {
-        self.before.is_some_and(|before| before.document.is_some())
+    /// Whether the lock `found` by its path covers other text than
+    /// `followed`, the field's lock followed from the text before, placed
+    /// by a parse: whitespace aside, their values are written differently
+    /// (a lock's text never changes, so the path names another value).
+    fn names_other_text(&self, followed: &Lock, found: &Extent) -> bool {
+        let pointer = followed.pointer.as_deref().unwrap_or_default();
+        !self.hosts_own
+            && !self.was_read_off(pointer)
+            && self.written(&followed.ranges) != self.written(&found.ranges)
     }
 
-    /// Whether this text, which parses after a text that did not, reads
-    /// the field at `pointer` (named by its path, for `reason`) as the text
-    /// before pinned it. A field a host range covers is no path: its list
-    /// index moves with items added, so its pin, read at its pointer, says
-    /// nothing of where it is.
-    fn repaired_as_pinned(&self, pointer: &str, reason: &Reason) -> bool {
-        let (Some(before), Some(document)) = (self.before, &self.reading.document) else {
-            return false;
-        };
-        // The document before is kept only when something needed it: the
-        // parse says whether that text parsed.
-        *reason != Reason::Range
-            && before
+    /// Whether the lock of the text before for `pointer` was read off a
+    /// text that does not parse.
+    fn was_read_off(&self, pointer: &str) -> bool {
+        self.carried
+            .or(self.before)
+            .is_some_and(|previous| previous.read_off.iter().any(|known| known == pointer))
+    }
+
+    /// The fields among `locks` whose locks are a reading of a text that
+    /// does not parse (see `Protected::read_off`).
+    pub(super) fn read_off(&self, locks: &[Lock]) -> Vec<String> {
+        self.read_off
+            .iter()
+            .filter(|pointer| {
+                locks
+                    .iter()
+                    .any(|lock| lock.pointer.as_deref() == Some(pointer.as_str()))
+            })
+            .cloned()
+            .collect()
+    }
+
+    /// The text of `ranges`, whitespace left out.
+    fn written(&self, ranges: &[Range<usize>]) -> String {
+        let Reading { text, lines, .. } = self.reading;
+        ranges
+            .iter()
+            .flat_map(|range| text[lines.byte_of(range.start)..lines.byte_of(range.end)].chars())
+            .filter(|character| !character.is_whitespace())
+            .collect()
+    }
+
+    /// Holds the field at `pointer` at the value pinned in the text before.
+    fn hold(&mut self, pointer: &str) {
+        let pin = self.before.and_then(|before| {
+            before
                 .pins
                 .iter()
                 .find(|(known, _)| known == pointer)
-                .is_some_and(|(_, pinned)| lookup(document, pointer) == Some(pinned))
-            && before.document.is_none()
-            && parse_cache::parsed(self.reading.behavior, &before.text).is_err()
+                .map(|(_, value)| value.clone())
+        });
+        if let Some(value) = pin
+            && !self.held.iter().any(|(known, _)| known == pointer)
+        {
+            self.held.push((pointer.to_string(), value));
+        }
     }
 
     /// The lock of the text before, moved through the edit, when the edit
@@ -521,12 +581,15 @@ impl<'r, 'a> Placer<'r, 'a> {
         lookup(&document, pointer).cloned()
     }
 
-    /// Located in the text, with what is inside it as the parsed text (or
-    /// the value pinned in the last one that parsed) has it; without a
-    /// value, the lines written inside it. Not found where its path says (a
-    /// bracket left open above it moves every line below into the list):
-    /// the lines written under its own key wherever they seem to be, so an
-    /// unreadable text locks more rather than less.
+    /// Where the field at `pointer` is written: in a text that parses,
+    /// where the parse writes it. In a text that does not parse (a field
+    /// whose lock could not be followed into it, a path named while it
+    /// does not parse, a host text that never parsed), read off its lines
+    /// (`scan::read_off`): the fields inside it as the value pinned in the
+    /// last text that parsed has them, else the lines written inside it;
+    /// not found where its path says (a bracket left open above it moves
+    /// every line below into the list), the lines written under its own key
+    /// wherever they seem to be, so such a text locks more rather than less.
     fn located(&self, pointer: &str) -> Option<Extent> {
         let Reading {
             behavior,
@@ -535,14 +598,17 @@ impl<'r, 'a> Placer<'r, 'a> {
             document,
             ..
         } = self.reading;
-        let value = self.value(pointer);
-        let inside = match (value, document) {
-            (None, None) => Some(self.reading.written()),
-            _ => None,
-        };
-        extent(*behavior, text, lines, value, inside, pointer).or_else(|| {
-            inside.and_then(|written| scan::under_own_key(*behavior, text, lines, written, pointer))
-        })
+        if document.is_some() {
+            return extent(*behavior, text, lines, pointer);
+        }
+        match self.value(pointer) {
+            Some(value) => scan::read_off(*behavior, text, lines, Some(value), &[], pointer),
+            None => {
+                let written = self.reading.written();
+                scan::read_off(*behavior, text, lines, None, written, pointer)
+                    .or_else(|| scan::under_own_key(*behavior, text, lines, written, pointer))
+            }
+        }
     }
 
     /// The value of the field at `pointer`: in the parsed text, else the
@@ -640,6 +706,7 @@ fn held_pins(before: &Protected, document: &Value) -> Vec<(String, Value)> {
         .filter(|(pointer, value)| {
             lookup(document, pointer) != Some(value)
                 && (before.held.contains(pointer)
+                    || before.unplaced.iter().any(|(known, _)| known == pointer)
                     || before
                         .locks
                         .iter()
@@ -700,15 +767,6 @@ fn items_read_fewer(before: &Protected, document: &Value) -> Vec<(String, Value)
         }
     }
     found
-}
-
-/// Whether each of `inner` lies inside one of `outer`.
-fn covers(outer: &[Range<usize>], inner: &[Range<usize>]) -> bool {
-    inner.iter().all(|inner| {
-        outer
-            .iter()
-            .any(|outer| outer.start <= inner.start && inner.end <= outer.end)
-    })
 }
 
 /// How many fields under `keys` (any list index between them) of `value`

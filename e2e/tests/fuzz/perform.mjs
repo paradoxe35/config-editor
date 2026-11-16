@@ -327,9 +327,12 @@ export async function perform(run, action) {
         return { value: editor?.value, text: editor?.text, range: editor?.rangeOf('/public_address') ?? null };
       });
       if (action.on && state.range && state.value === state.text) {
-        // A path locks the value; its key may be renamed.
+        // A path locks the value; its key may be renamed. A field with
+        // no value (`public_address:` alone) is its key alone: nothing to
+        // mark.
         const field = state.value.slice(state.range.start, state.range.end);
-        const text = field.slice(field.indexOf(':') + 1).trim();
+        const colon = field.indexOf(':');
+        const text = colon < 0 ? '' : field.slice(colon + 1).trim();
         if (text) run.setLock(null, 'path', { range: state.range, text, path: '/public_address' });
       } else run.setLock(null, 'path', null);
       return host(page, 'singleProps', { readOnlyPaths: action.on ? ['/public_address'] : [] });

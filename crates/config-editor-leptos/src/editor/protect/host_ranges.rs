@@ -57,7 +57,7 @@ impl HostRanges {
                 return None;
             }
             note(Work::RangesFollowed);
-            Some(follow(behavior, text, host, ranges, reading))
+            Some(followed_to(behavior, text, host, ranges, reading))
         });
         match followed {
             Some(ranges) => {
@@ -72,7 +72,7 @@ impl HostRanges {
 /// `ranges` of `text` in `host`, a text written from it: by position where
 /// their text was kept, else at the fields they covered when those read
 /// the same in `host`, else what is left of them.
-fn follow(
+pub(super) fn followed_to(
     behavior: &dyn ConfigLanguage,
     text: &str,
     host: &str,

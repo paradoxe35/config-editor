@@ -9,6 +9,7 @@ mod lines;
 mod span_memo;
 mod types;
 mod walk;
+mod written;
 
 pub(crate) use fields::fields;
 #[cfg(any(feature = "toml", feature = "hcl"))]
@@ -32,6 +33,11 @@ pub(crate) use span_memo::{key_span as memo_key_span, value_span as memo_value_s
 pub use types::{FieldPath, TextPosition, TextRange};
 #[cfg(any(feature = "yaml", feature = "json", feature = "toml", feature = "xml"))]
 pub(crate) use walk::Checkpoints;
+pub(crate) use written::joined_value_ranges;
+#[cfg(any(feature = "json", feature = "yaml"))]
+pub(crate) use written::parsed as parsed_in_batch;
+#[cfg(feature = "protect")]
+pub(crate) use written::{inside, whole_value};
 
 use super::codec::{inline_location, written_inline};
 use super::completion::{hovered_key, path_with_key};

@@ -34,17 +34,16 @@ impl PartialEq for DocumentPlaceholders {
 }
 
 impl DocumentPlaceholders {
-    /// The tokens of `known` (an editor's), from `source`, found by
+    /// `tokens` (those an editor's host gave), from `source`, found by
     /// `matcher`; `None` when the host gave none.
     pub(crate) fn new(
         source: String,
         matcher: Arc<SecretMatcher>,
-        known: &[Known],
+        tokens: HashSet<String>,
     ) -> Option<Self> {
-        if known.is_empty() {
+        if tokens.is_empty() {
             return None;
         }
-        let tokens = known.iter().map(|known| known.token.clone()).collect();
         Some(DocumentPlaceholders {
             source,
             matcher,
@@ -126,7 +125,8 @@ mod tests {
     fn placeholders(source: &str, options: &SecretOptions, host: &str) -> DocumentPlaceholders {
         let matcher = SecretMatcher::new(options);
         let known = matcher.known(Language::YAML.behavior(), host, None);
-        DocumentPlaceholders::new(source.to_string(), Arc::new(matcher), &known)
+        let tokens = known.iter().map(|known| known.token.clone()).collect();
+        DocumentPlaceholders::new(source.to_string(), Arc::new(matcher), tokens)
             .expect("the host gave a token")
     }
 

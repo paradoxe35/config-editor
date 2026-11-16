@@ -125,3 +125,45 @@ fn an_edit_a_lock_held_reaches_the_host_when_the_locks_go() {
         );
     }
 }
+
+/// P1: ranges the host gives while an edit is held name places in the
+/// host's text, which the edit has not reached: they lock (and mark) the
+/// text they name there, followed to the text on screen, not the places
+/// of the same numbers on screen.
+#[test]
+fn ranges_given_while_an_edit_is_held_lock_the_hosts_text() {
+    let text = "listen: 7835\npublic_address: tunnel.example.com\n";
+    let _owner = Owner::new();
+    _owner.set();
+    let host = Host {
+        paths: RwSignal::new(Vec::new()),
+        ranges: RwSignal::new(vec![TextRange::new(
+            TextPosition::new(1, 2),
+            TextPosition::new(1, 12),
+        )]),
+        heard: RwSignal::new(Vec::new()),
+    };
+    let state = mount(text, &host);
+    // A key renamed past a range covering part of it is held: not sent,
+    // so the host is a text behind the screen.
+    assert!(write(state, 0..0, "por"), "the edit is taken");
+    assert!(state.changes_held(), "held");
+    // The host locks `n: ` of `listen: 7835`, in its own text.
+    host.ranges.set(vec![TextRange::new(
+        TextPosition::new(1, 6),
+        TextPosition::new(1, 9),
+    )]);
+    state.place_ranges();
+    let shown = state.doc().text.get_untracked();
+    let units: Vec<u16> = shown.encode_utf16().collect();
+    let locked: Vec<String> = state.protect().protected.with_untracked(|protected| {
+        protected
+            .locks
+            .iter()
+            .filter(|lock| lock.pointer.is_none())
+            .flat_map(|lock| lock.ranges.iter())
+            .map(|range| String::from_utf16_lossy(&units[range.clone()]))
+            .collect()
+    });
+    assert_eq!(locked, ["n: "], "in {shown:?}");
+}

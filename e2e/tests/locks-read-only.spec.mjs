@@ -755,15 +755,18 @@ test.describe(() => {
         await page.keyboard.type('x');
       },
     };
+    // Without spans nothing says where the value is written: the edit is
+    // taken, and nothing reaching the host reads another value (a text
+    // reading it otherwise is held, one that does not parse waits).
     for (const [name, edit] of Object.entries(cases)) {
-      test(`${name}: the value holds and nothing sent carries another`, async ({ page }) => {
+      test(`${name}: nothing sent carries another value`, async ({ page }) => {
         await open(page);
         await mount(page, { language: 'bare21', value: TEXT, readOnlyPaths: ['/listen'] });
         await edit(page);
-        await expect.poll(() => value(page)).toContain('listen=7835\n');
+        await expect.poll(() => value(page)).not.toBe(TEXT);
         const carried = await page.evaluate(() => {
           window.qa.save();
-          return [...window.sent, ...window.saved].filter((text) => !text.includes('listen=7835\n'));
+          return [...window.sent, ...window.saved].filter((text) => !text.split('\n').includes('listen=7835'));
         });
         expect(carried).toEqual([]);
       });
@@ -782,17 +785,22 @@ test.describe(() => {
       expect(await page.evaluate(() => window.qa.save())).toBe(true);
     });
 
-    test('a refusal takes back only what it refuses', async ({ page }) => {
-      // Typed on a free line, the `=` that would join it to nothing locked
-      // goes through; on the locked line, the first key is refused and the
-      // user's own text on other lines stays.
+    test('typing over the locked line is taken, and nothing sent carries it', async ({ page }) => {
+      // Typed on a free line, then over the locked line: both taken; the
+      // text reads the locked field otherwise, so the save waits and
+      // nothing sent or saved carries another value.
       await open(page);
       await mount(page, { language: 'bare21', value: TEXT, readOnlyPaths: ['/listen'] });
       await caretAt(page, 'name=x', 6);
       await page.keyboard.type('abc');
       await caretAt(page, 'listen=7835', 0, 11);
       await page.keyboard.type('z');
-      await expect.poll(() => value(page)).toBe('# c\nid=abc\nlisten=7835\nname=xabc\n');
+      await expect.poll(() => value(page)).toBe('# c\nid=abc\nz\nname=xabc\n');
+      expect(await page.evaluate(() => window.qa.save())).toBe(false);
+      const carried = await page.evaluate(() =>
+        [...window.sent, ...window.saved].filter((text) => !text.split('\n').includes('listen=7835')),
+      );
+      expect(carried).toEqual([]);
     });
   });
 });
