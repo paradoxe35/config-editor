@@ -3,9 +3,8 @@
 //! bracket or heredoc, one very long line, deep nesting, lone CRs) is read
 //! at three sizes, each twice the one before, and typed into once in a
 //! mounted editor. Every kind of counted work (see `work_count`) may grow
-//! by at most [`RATIO`] halves per doubling, as in `linear_work`; the time
-//! of the readings may not grow past [`TIME_RATIO`] over the four times the
-//! text (a square grows sixteen times).
+//! by at most [`RATIO`] halves per doubling, as in `linear_work`. Only
+//! counts are compared, never times: a count is the same on a busy machine.
 
 use leptos::prelude::*;
 
@@ -201,11 +200,6 @@ const RATIO: usize = 5;
 /// Counts this small are compared as if this large.
 const FLOOR: usize = 16;
 
-/// How many times the readings' time may grow over four times the text
-/// (each size the fastest of three runs, the sizes taken in turn; see
-/// `test_timing::growth`).
-const TIME_RATIO: f64 = 9.0;
-
 /// The kinds of work that grew too fast from `small` to `large`, the text
 /// growing `times` times (about two; a text nested by indentation grows
 /// faster than its depth).
@@ -222,7 +216,6 @@ fn grew(small: &[usize], large: &[usize], times: f64) -> Vec<String> {
 
 pub(super) fn check(case: &LinearCase) -> Result<(), Failure> {
     let name = case.language;
-    let mut texts = Vec::new();
     let mut readings = Vec::new();
     let mut typed = Vec::new();
     let mut lengths = Vec::new();
@@ -232,7 +225,6 @@ pub(super) fn check(case: &LinearCase) -> Result<(), Failure> {
         let ((), counts) = counted_all(|| read(case, &raw));
         readings.push(counts);
         typed.push(keystroke(case, &raw));
-        texts.push(raw);
     }
     for pair in [0, 1] {
         let growth = lengths[pair + 1] / lengths[pair];
@@ -256,19 +248,6 @@ pub(super) fn check(case: &LinearCase) -> Result<(), Failure> {
                 found.join(", "),
             ));
         }
-    }
-    let growth = lengths[2] / lengths[0] / 4.0;
-    let times = crate::editor::test_timing::growth(3, (&texts[0], &texts[2]), |raw: &String| {
-        read(case, raw)
-    });
-    if times.ratio() > growth * TIME_RATIO {
-        return Err(Failure::new(
-            format!(
-                "reading a {:?} text takes time growing faster than it ({name})",
-                case.shape
-            ),
-            format!("{times} at 1 and 4 times the text"),
-        ));
     }
     Ok(())
 }

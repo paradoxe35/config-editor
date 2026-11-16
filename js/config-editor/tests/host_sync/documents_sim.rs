@@ -127,6 +127,7 @@ impl DocumentsSim {
             doc.host.listed_store();
             doc.host.last_listed.clone_from(&doc.host.store);
             let value = doc.host.store.clone();
+            doc.host.gave(&value);
             let (given, print) = ranges_in(&value, form);
             let current = &self.texts[&doc.id];
             let ranges = self
@@ -283,7 +284,7 @@ impl DocumentsSim {
                 if let Some((text, listing)) = self.docs[index].host.take(*pick) {
                     // A listing renders the store; an echo is stored.
                     if !listing {
-                        self.docs[index].host.store = text;
+                        self.docs[index].host.hold(&text);
                     }
                     self.list(None)?;
                     if *dup {
@@ -307,7 +308,7 @@ impl DocumentsSim {
                     // holds it once (its echo, if on its way), so it keeps
                     // its store and lists nothing.
                     if replaced {
-                        text.clone_into(&mut host.store);
+                        host.hold(&text);
                         text.clone_into(&mut host.last_listed);
                         host.lists(&text);
                     }
@@ -317,8 +318,7 @@ impl DocumentsSim {
                 let index = self.doc(*doc);
                 let host = &mut self.docs[index].host;
                 if let Some(text) = host.resets(ResetKind::NewVersion(*edit), "").pop() {
-                    host.queue.clear();
-                    host.store = text;
+                    host.own(&text);
                     self.list(Some(index))?;
                 }
             }
@@ -372,7 +372,7 @@ impl DocumentsSim {
                     break;
                 };
                 if !listing {
-                    self.docs[index].host.store = text;
+                    self.docs[index].host.hold(&text);
                 }
                 self.list(None)?;
             } else {
@@ -383,7 +383,7 @@ impl DocumentsSim {
         for doc in &self.docs {
             if doc.host.store != doc.shown() {
                 return Err(Failure::new(
-                    Class::NotConverged,
+                    Class::not_converged(doc.host.holds_given_again),
                     format!(
                         "{}: host holds {:?}, the editor {:?}",
                         doc.id,

@@ -121,7 +121,7 @@ pub(crate) enum Work {
     /// host's value (`bridge::merge`).
     MergeKeyVisit,
     /// Two list items compared while matching a list's items to the ones
-    /// they were (`codec::moves`).
+    /// they were (`item_sources::pairing`).
     ItemComparison,
     /// The docs of a place looked up (`completion::key_hover`): its key or
     /// value read off the whole document.
@@ -241,6 +241,19 @@ pub(crate) enum Work {
         allow(dead_code, reason = "only YAML, HCL and XML keep readings")
     )]
     ScannedBytes,
+    /// A byte of a line passed looking for its end from an entry on it
+    /// (`inline::line_end`; one note per byte, see [`note_many`]): a line
+    /// of many entries is passed once, not once per entry.
+    LineEndBytes,
+    /// A byte of a line counted again from the line's start for a token's
+    /// character column (`languages::columns`, a column asked before the
+    /// last one; one note per byte, see [`note_many`]): the tokens of a
+    /// line read in order count it once, not once per token.
+    #[cfg_attr(
+        not(any(feature = "json", feature = "xml")),
+        allow(dead_code, reason = "only the JSON and XML columns note it")
+    )]
+    ColumnRecount,
 }
 
 impl Work {
@@ -296,6 +309,8 @@ impl Work {
             Self::ItemLinesBytes => 46,
             Self::HostChecked => 47,
             Self::ScannedBytes => 48,
+            Self::LineEndBytes => 49,
+            Self::ColumnRecount => 50,
         }
     }
 
@@ -351,12 +366,14 @@ impl Work {
         Self::ItemLinesBytes,
         Self::HostChecked,
         Self::ScannedBytes,
+        Self::LineEndBytes,
+        Self::ColumnRecount,
     ];
 }
 
 /// How many kinds of work there are.
 #[cfg(test)]
-const KINDS: usize = 49;
+const KINDS: usize = 51;
 
 #[cfg(test)]
 thread_local! {

@@ -23,6 +23,10 @@ impl<'a> Columns<'a> {
     /// before the last one asked counts again from the line's start.
     pub(super) fn at(&mut self, byte: usize) -> usize {
         if byte < self.byte {
+            crate::editor::work_count::note_many(
+                crate::editor::work_count::Work::ColumnRecount,
+                byte,
+            );
             self.byte = 0;
             self.column = 0;
         }

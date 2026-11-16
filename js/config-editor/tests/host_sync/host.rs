@@ -23,6 +23,12 @@ pub(crate) struct HostDoc {
     /// editor held then.
     pub(crate) resets: Vec<String>,
     pub(crate) same_resets: Vec<String>,
+    /// The text it gave the editor last in an update or a list (a reset's
+    /// text is given by `replaceValue`, and listed later).
+    last_given: String,
+    /// Whether the host holds a text of its own that is the one it gave
+    /// last, given again (see [`HostDoc::own`]).
+    pub(crate) holds_given_again: bool,
 }
 
 impl HostDoc {
@@ -35,12 +41,40 @@ impl HostDoc {
             last_print: String::new(),
             resets: Vec::new(),
             same_resets: Vec::new(),
+            last_given: text.to_string(),
+            holds_given_again: false,
         }
     }
 
     /// An `onChange` text, on its way back.
     pub(crate) fn told(&mut self, text: &str) {
         self.queue.push((text.to_string(), false));
+    }
+
+    /// The host gives the editor `text` in an update or a list.
+    pub(crate) fn gave(&mut self, text: &str) {
+        text.clone_into(&mut self.last_given);
+    }
+
+    /// The host stores `text` (an echo, or a reset's text).
+    pub(crate) fn hold(&mut self, text: &str) {
+        if self.store != text {
+            text.clone_into(&mut self.store);
+            self.holds_given_again = false;
+        }
+    }
+
+    /// The host gives `text` of its own (`update({ value })`), its pending
+    /// echoes dropped (a reset's listing still on its way among them). A
+    /// text that is the one it gave last is, by the echo contract, that
+    /// text given again (a framework's render passing an unchanged prop):
+    /// no news, so the editor keeps its document (the reset's text), and
+    /// the two may differ at rest. It happens only after a reset: else
+    /// the host holds the text it gave last, and a new version differs.
+    pub(crate) fn own(&mut self, text: &str) {
+        self.queue.clear();
+        text.clone_into(&mut self.store);
+        self.holds_given_again = text == self.last_given;
     }
 
     /// A reset's listing, on its way.

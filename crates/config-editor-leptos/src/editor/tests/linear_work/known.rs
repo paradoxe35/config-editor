@@ -24,8 +24,9 @@ pub(super) const KNOWN: &[Known] = &[];
 /// work named, for good.
 pub(super) const ALLOWED: &[Known] = &[
     // A Replace all over a view's items: the list matching that tells
-    // which changed list items moved (`codec::moves::matching`) scores
-    // every pair of changed items up to a budget of 250 000 pairs, then
+    // which changed list items moved (`item_sources::pairing::by_values`)
+    // scores every pair of changed items up to a budget of
+    // `PAIRS_COMPARED` (250 000) pairs, then
     // only nearby ones: quadratic up to that cap, linear past it (QA 37,
     // SP37-1: the item trail itself is linear, `large_edit_work`).
     Known {

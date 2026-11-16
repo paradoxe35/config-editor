@@ -52,6 +52,60 @@ export async function settle(page, ms = 1500) {
   return false;
 }
 
+// How long a syntax error takes to show (the editor's diagnostics pause,
+// 250 ms, and a margin).
+const ERROR_SHOWN_MS = 400;
+
+// The lock a path names in `state` (the editor's value, `rangeOf` the
+// path): its value, read off the field's text. A path locks the value; its
+// key may be renamed. A field with no value (`public_address:` alone) is
+// its key alone: nothing to mark.
+function pathLock(state) {
+  const field = state.value.slice(state.range.start, state.range.end);
+  const colon = field.indexOf(':');
+  const text = colon < 0 ? '' : field.slice(colon + 1).trim();
+  return text ? { range: state.range, text, path: '/public_address' } : null;
+}
+
+// The lock a path names in a text that does not parse: `rangeOf` reads the
+// field off its lines through the character breaking it, while the editor
+// locks the field as the text reads with that character blanked, leaving
+// it free for the repair (`protect::scan::stand_in`). The fuzz has no
+// reading of its own of a value in such a text, so it takes the part of
+// the value the editor marks, and from then on checks that it holds. None
+// when a line of the value is out of view or its marks are not inside it.
+async function markedLock(page, state, lock) {
+  const at = state.value.indexOf(lock.text, state.range.start);
+  const first = state.value.slice(0, at).split('\n').length;
+  const lines = lock.text.split('\n');
+  const marks = await page.evaluate(
+    async ([first, count]) => {
+      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      const root = window.__fz.root();
+      return Array.from({ length: count }, (_, index) => {
+        const row = root?.querySelector(`.config-editor__highlight .config-editor__code-line[data-line="${first + index}"]`);
+        return row ? [...row.querySelectorAll('.config-editor__locked')].map((span) => span.textContent).join('').trim() : null;
+      });
+    },
+    [first, lines.length],
+  );
+  // Each line's part of the value inside its marks (the editor may mark
+  // more: the key's `:` before it).
+  const kept = marks.map((mark, index) => {
+    const piece = lines[index].trim();
+    if (!mark || !piece) return null;
+    if (mark.includes(piece)) return piece;
+    return lines[index].includes(mark) ? mark : null;
+  });
+  const last = lines.length - 1;
+  if (kept.some((part, index) => !part || (index > 0 && index < last && part !== lines[index].trim()))) return null;
+  // From the first line's part to the end of the last line's.
+  const start = lines[0].indexOf(kept[0]);
+  const lastStart = lock.text.length - lines[last].length;
+  const end = lastStart + lines[last].indexOf(kept[last]) + kept[last].length;
+  return { ...lock, text: lock.text.slice(start, end) };
+}
+
 export async function host(page, call, arg) {
   return page.evaluate(
     ([call, arg]) => {
@@ -322,20 +376,21 @@ export async function perform(run, action) {
       // A locked path may hold undo back (it would write the path again).
       run.locked = true;
       if (!(await settle(page))) return;
+      // The syntax error, if any, is shown once its pause is over.
+      await page.waitForTimeout(ERROR_SHOWN_MS);
       const state = await page.evaluate(() => {
         const editor = window.__fz.editor();
-        return { value: editor?.value, text: editor?.text, range: editor?.rangeOf('/public_address') ?? null };
+        return {
+          value: editor?.value,
+          text: editor?.text,
+          range: editor?.rangeOf('/public_address') ?? null,
+          errored: window.__fz.errored(),
+        };
       });
-      if (action.on && state.range && state.value === state.text) {
-        // A path locks the value; its key may be renamed. A field with
-        // no value (`public_address:` alone) is its key alone: nothing to
-        // mark.
-        const field = state.value.slice(state.range.start, state.range.end);
-        const colon = field.indexOf(':');
-        const text = colon < 0 ? '' : field.slice(colon + 1).trim();
-        if (text) run.setLock(null, 'path', { range: state.range, text, path: '/public_address' });
-      } else run.setLock(null, 'path', null);
-      return host(page, 'singleProps', { readOnlyPaths: action.on ? ['/public_address'] : [] });
+      const lock = action.on && state.range && state.value === state.text ? pathLock(state) : null;
+      const given = await host(page, 'singleProps', { readOnlyPaths: action.on ? ['/public_address'] : [] });
+      run.setLock(null, 'path', lock && state.errored ? await markedLock(page, state, lock) : lock);
+      return given;
     }
     case 'unlock': {
       run.locked = true;
