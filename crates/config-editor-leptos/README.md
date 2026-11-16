@@ -1679,15 +1679,15 @@ const ENV: Language = Language::new(&DOTENV);
 // <ConfigEditor language=ENV .../>, ENV.convert(text, Language::YAML), …
 ```
 
-| Method                                         | Adds                                                     |
-| ---------------------------------------------- | -------------------------------------------------------- |
-| `info`, `parse` (required)                     | Name, icon, extensions; syntax errors and the data model |
-| `config`                                       | Comments, quotes, brackets, separators, and the traits   |
-| `serialize`                                    | Conversion into the language (Edit-as, either way)       |
-| `key_span`, `value_span`                       | Positions for schema diagnostics and read-only fields    |
-| `completion_context`, `write_insert`, `format_value` | Schema completion; see [below](#completion-and-hover) |
-| `hover_key`                                    | Hover docs                                               |
-| `highlight`                                    | Syntax colors                                            |
+| Method                                               | Adds                                                     |
+| ---------------------------------------------------- | -------------------------------------------------------- |
+| `info`, `parse` (required)                           | Name, icon, extensions; syntax errors and the data model |
+| `config`                                             | Comments, quotes, brackets, separators, and the traits   |
+| `serialize`                                          | Conversion into the language (Edit-as, either way)       |
+| `key_span`, `value_span`                             | Positions for schema diagnostics and read-only fields    |
+| `completion_context`, `write_insert`, `format_value` | Schema completion; see [below](#completion-and-hover)    |
+| `hover_key`                                          | Hover docs                                               |
+| `highlight`                                          | Syntax colors                                            |
 
 Everything else comes in groups, each a trait of its own that a language
 implements only when its syntax needs more than the defaults, returning
@@ -1717,7 +1717,7 @@ caret itself. For an INI file (`[section]` headers, `key = value` lines):
 | Method               | Returns                                                                                                                                                                    |
 | -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `completion_context` | The caret's place: `path` (`[Key("server")]` under `[server]`), the `typed` word and the UTF-16 range it replaces, and `value_key` after `key =`, where values are offered |
-| `write_insert`       | The text an accepted key writes for the `InsertPlan` the editor made from the schema, and the caret in it: `("port = ", 7)`, or `[server]` and a line break for an object |
+| `write_insert`       | The text an accepted key writes for the `InsertPlan` the editor made from the schema, and the caret in it: `("port = ", 7)`, or `[server]` and a line break for an object  |
 | `format_value`       | A schema value (`enum`, `boolean`, `default`) as the document writes it: `fast` rather than `"fast"`                                                                       |
 | `hover_key`          | The key under a column of a line and the column it starts at; hover shows its schema docs                                                                                  |
 
@@ -1795,15 +1795,15 @@ belongs to).
 <details>
 <summary>The groups, their hooks, and their helpers</summary>
 
-| Group (method on `ConfigLanguage`) | Hooks                                                                                                                         | Adds                                                                                                     | Helpers                                                                                                            |
-| ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| Group (method on `ConfigLanguage`) | Hooks                                                                                                                                                   | Adds                                                                                                                  | Helpers                                                                                               |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
 | `Text` (`text`)                    | `comments`, `comment_start`, `lexical_state`, `string_body_lines`, `multiline_strings`, `multiline_constructs`, `highlight_continued`, `fold_ranges`, … | Comments and strings, over lines too; where the caret is in one (from `comments` and `quotes` by default); what folds | `comment_start_outside_quotes`, `configured_lexical_state`, `MultilineConstruct`, the `*_fold_ranges` |
-| `Typing` (`typing`)                | `newline`, `toggle_comments`, `auto_close`, `complete_on_type`, `reindent_on_type`, `value_follows_key`, `empty_value_slots`, `rewritable_keys`, … | Enter, Ctrl+/, closers typed or written for the user, the empty values `Tab` walks, keys written again | `bracket_newline`, `toggle_line_comments`, `value_after_separator`, `empty_slots_at_line_ends` |
-| `Hover` (`hover`)                  | `hover_path`, `hover_cursor`, `item_start`                                                                                    | Hover on keys the completion context cannot place, and on list items                                    | `bracket_item_start`                                                                                               |
-| `SaveLayout` (`layout`)            | `opens_list_item`, `item_lines`, `key_renames`, `written_key`, `format_value_like`, `edits_one_scalar`, …                     | How an Edit-as save keeps the language's own forms                                                       | —                                                                                                                  |
-| `Markup` (`markup`, optional)      | `delimiters` (required), `closing_markup_len`, `key_markup_len`, `element_end`, `content_texts`, …                            | Tags: Enter past an end tag, locks over a `<`, element text kept                                         | —                                                                                                                  |
-| `Sharing` (`sharing`, optional)    | `tags`, `written_at`, `detach_shared`, `references_back`, `expressions`, …                                                    | Values written once and read in several places, or written with more than their data                     | —                                                                                                                  |
-| `Repeats` (`repeats`, optional)    | `repeated`, `lone_item` (both required)                                                                                       | Lists written by repeating a key (XML elements, HCL blocks)                                              | —                                                                                                                  |
+| `Typing` (`typing`)                | `newline`, `toggle_comments`, `auto_close`, `complete_on_type`, `reindent_on_type`, `value_follows_key`, `empty_value_slots`, `rewritable_keys`, …      | Enter, Ctrl+/, closers typed or written for the user, the empty values `Tab` walks, keys written again                | `bracket_newline`, `toggle_line_comments`, `value_after_separator`, `empty_slots_at_line_ends`        |
+| `Hover` (`hover`)                  | `hover_path`, `hover_cursor`, `item_start`                                                                                                              | Hover on keys the completion context cannot place, and on list items                                                  | `bracket_item_start`                                                                                  |
+| `SaveLayout` (`layout`)            | `opens_list_item`, `item_lines`, `key_renames`, `written_key`, `format_value_like`, `edits_one_scalar`, …                                               | How an Edit-as save keeps the language's own forms                                                                    | —                                                                                                     |
+| `Markup` (`markup`, optional)      | `delimiters` (required), `closing_markup_len`, `key_markup_len`, `element_end`, `content_texts`, …                                                      | Tags: Enter past an end tag, locks over a `<`, element text kept                                                      | —                                                                                                     |
+| `Sharing` (`sharing`, optional)    | `tags`, `written_at`, `detach_shared`, `references_back`, `expressions`, …                                                                              | Values written once and read in several places, or written with more than their data                                  | —                                                                                                     |
+| `Repeats` (`repeats`, optional)    | `repeated`, `lone_item` (both required)                                                                                                                 | Lists written by repeating a key (XML elements, HCL blocks)                                                           | —                                                                                                     |
 
 The traits in `config().traits` (`LanguageTraits`): `writes_non_finite`,
 `one_number_type`, `indent_is_structure`, `plain_scalars`,
