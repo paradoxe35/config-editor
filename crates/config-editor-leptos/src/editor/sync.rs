@@ -10,7 +10,7 @@ use std::sync::Arc;
 use super::bridge::links::{Clipboard, Links};
 use super::bridge::{self, Bridge};
 use super::codec;
-use super::diagnostics::DIAGNOSTICS_DEBOUNCE_MS;
+use super::diagnostics::{DIAGNOSTICS_DEBOUNCE_MS, Placeholders, syntax_message};
 use super::edit::{Edit, Origin};
 use super::edit_as::{EditAsProblem, EditAsText, SaveError};
 use super::history::{EditHistory, ViewState};
@@ -1050,6 +1050,14 @@ pub(super) fn switch_to(state: EditorState, next: Language) {
             state.sync().load_problems.set(view_warnings);
         }
         Err(error) => {
+            // A parse error of the text the switch read: of the view's
+            // when it has edits the host has not had, else of the host's.
+            let error = if unsaved {
+                without_secret_quotes(state, error, &text, current)
+            } else {
+                let host = state.config().host_language;
+                without_secret_quotes(state, error, &host_text_before, host)
+            };
             state.sync().pending_switch.set(Some(next));
             state.sync().load_problems.set(vec![EditAsProblem {
                 at: bridge::locate_error(current.behavior(), &text, &error),
@@ -1061,6 +1069,35 @@ pub(super) fn switch_to(state: EditorState, next: Language) {
             }]);
         }
     }
+}
+
+/// `error`, when it is a parse error of `source` (in `language`), worded
+/// as its syntax problem is (see `diagnostics::syntax_message`): without
+/// what it quotes where a secret may be.
+fn without_secret_quotes(
+    state: EditorState,
+    error: SaveError,
+    source: &str,
+    language: Language,
+) -> SaveError {
+    let SaveError::Convert(codec::ConvertError::Parse(mut parse)) = error else {
+        return error;
+    };
+    let protect = state.protect();
+    let (accepted, patterns) = (protect.accepted_tokens(), protect.placeholder_patterns());
+    parse.message = state.config().schema.with_value(|schema| {
+        syntax_message(
+            source,
+            &parse,
+            schema.as_deref(),
+            language.behavior(),
+            Placeholders {
+                accepted: &accepted,
+                patterns: &patterns,
+            },
+        )
+    });
+    SaveError::Convert(codec::ConvertError::Parse(parse))
 }
 
 /// Why `language` cannot write documents, when it cannot (a language

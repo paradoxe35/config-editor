@@ -1,4 +1,4 @@
-//! The secrets a problem message must not quote, found by the schema and
+//! The secrets a schema message must not quote, found by the schema and
 //! by their texts.
 
 use std::borrow::Cow;
@@ -23,14 +23,14 @@ use crate::editor::language::{SchemaPathSegment, pointer_index, pointer_segments
 /// By text: a quoted value hides each scalar whose text is a secret's,
 /// wherever it is, so a secret one reading places elsewhere (an option
 /// reading its field as a list of one) is hidden too.
-pub(super) struct Secrets<'s> {
+pub(in crate::editor::diagnostics) struct Secrets<'s> {
     schema: Option<SchemaSecrets<'s>>,
     texts: HashSet<String>,
 }
 
 impl<'s> Secrets<'s> {
     /// No secrets.
-    pub(super) fn none() -> Self {
+    pub(in crate::editor::diagnostics) fn none() -> Self {
         Self {
             schema: None,
             texts: HashSet::new(),
@@ -41,7 +41,7 @@ impl<'s> Secrets<'s> {
     /// found in), written in a language that repeats a key for a list or
     /// not (`repeats_arrays`), and the texts of the values at the pointers
     /// of each document `readings` gives.
-    pub(super) fn new(
+    pub(in crate::editor::diagnostics) fn new(
         document: &'s Value,
         root: &'s Value,
         repeats_arrays: bool,
@@ -67,7 +67,7 @@ impl<'s> Secrets<'s> {
     }
 
     /// Whether `value` (at `pointer`) is a secret field's or inside one.
-    pub(super) fn holds(&self, pointer: &str, value: &Value) -> bool {
+    pub(in crate::editor::diagnostics) fn holds(&self, pointer: &str, value: &Value) -> bool {
         self.is_secret_text(value)
             || self
                 .schema
@@ -76,7 +76,7 @@ impl<'s> Secrets<'s> {
     }
 
     /// Whether `value` (at `pointer`) holds a secret, or is one.
-    pub(super) fn touches(&self, pointer: &str, value: &Value) -> bool {
+    pub(in crate::editor::diagnostics) fn touches(&self, pointer: &str, value: &Value) -> bool {
         self.holds(pointer, value)
             || self.holds_text(value)
             || self
@@ -86,7 +86,12 @@ impl<'s> Secrets<'s> {
     }
 
     /// `value` (at `pointer`) with each secret inside it `mark`.
-    pub(super) fn hidden(&self, pointer: &str, value: &Value, mark: &Value) -> Value {
+    pub(in crate::editor::diagnostics) fn hidden(
+        &self,
+        pointer: &str,
+        value: &Value,
+        mark: &Value,
+    ) -> Value {
         let mut hidden = value.clone();
         if let Some(schema) = &self.schema {
             schema.hide(&mut hidden, &mut schema.path(pointer), mark);

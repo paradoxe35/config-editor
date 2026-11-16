@@ -22,6 +22,9 @@ pub(crate) struct SchemaBundle {
     /// Some schema is `readOnly`, `writeOnly` or `x-secret`: documents are
     /// walked for them.
     pub(crate) has_marks: bool,
+    /// Some schema is `writeOnly` or `x-secret`: a syntax message hides
+    /// what it quotes of the text (see `diagnostics`).
+    pub(crate) has_secrets: bool,
     /// The validator and its explaining twins.
     #[cfg(feature = "schema-validation")]
     pub(crate) validation: crate::editor::diagnostics::Validation,
@@ -47,12 +50,14 @@ pub(crate) fn build_schema(schema_text: &str) -> Result<SchemaBundle, String> {
     crate::editor::ui_refs::to_pointers(&mut schema);
     let facts = Facts::of(&schema);
     let has_marks = crate::editor::protect::mentions_marks(&schema);
+    let has_secrets = has_marks && crate::editor::protect::mentions_secrets(&schema);
     Ok(SchemaBundle {
         schema,
         warnings: facts.warnings,
         warned_console: std::sync::atomic::AtomicBool::new(false),
         has_deprecated: facts.has_deprecated,
         has_marks,
+        has_secrets,
         #[cfg(feature = "schema-validation")]
         validation,
     })

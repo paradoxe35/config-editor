@@ -285,6 +285,11 @@ pub(super) fn mentions_marks(_schema: &Value) -> bool {
     false
 }
 
+/// No schema marks are read.
+pub(super) fn mentions_secrets(_schema: &Value) -> bool {
+    false
+}
+
 #[cfg(feature = "schema-validation")]
 pub(super) fn secret_pointers(
     _document: &Value,
