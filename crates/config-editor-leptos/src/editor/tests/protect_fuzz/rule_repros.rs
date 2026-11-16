@@ -486,3 +486,30 @@ fn a_range_field_read_again_on_the_same_text_stays_locked() {
         ],
     );
 }
+
+/// P1: in Dot's one-line map, its key renamed, a `"` typed after `user:`
+/// (a quote Dot declares and its parser reads as text) and then a `}`
+/// typed before the placeholder inside its quotes: refused, though the
+/// declared quote makes the text's reading name `user` as the field there.
+#[test]
+fn a_moved_placeholder_after_a_quote_its_parser_reads_as_text_never_glues() {
+    let setup = Setup {
+        case: 11,
+        lock: Lock::Secret,
+        host: None,
+        pairs: false,
+    };
+    assert_ok(
+        &setup,
+        &[
+            Act::ReplaceAll { pair: 6 },
+            Act::Type { at: 59986, text: 5 },
+            Act::Entry {
+                anchor: 1,
+                name: 2,
+                paste: false,
+            },
+            Act::Type { at: 42935, text: 9 },
+        ],
+    );
+}
