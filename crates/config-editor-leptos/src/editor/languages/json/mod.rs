@@ -16,8 +16,7 @@ mod editing;
 #[cfg(feature = "folding")]
 mod folding;
 
-use crate::editor::paths::FieldPath;
-use crate::editor::paths::{first_line_span, line_column, span_between, utf16_len};
+use crate::editor::paths::{first_line_span, line_column, span_between, utf16_len, FieldPath};
 use tokens::*;
 use scan::*;
 use parse::*;

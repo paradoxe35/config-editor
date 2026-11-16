@@ -5,8 +5,7 @@
 //! an empty block (`svc {}`), which Terraform refuses for a block type.
 //! The key goes with them.
 
-use super::super::language::ConfigLanguage;
-use crate::editor::language::pointer_key;
+use super::super::language::{ConfigLanguage, pointer_key};
 use crate::editor::paths::FieldPath;
 use serde_json::Value;
 use std::borrow::Cow;

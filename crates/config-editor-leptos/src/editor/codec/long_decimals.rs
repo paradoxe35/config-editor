@@ -4,11 +4,10 @@
 //! (`123456789.12345679`). The value reads back the same, but the digits
 //! written are gone, so a conversion lists each one as a loss.
 
-use crate::editor::language::pointer_key;
 use crate::editor::paths::FieldPath;
 use serde_json::Value;
 
-use super::super::language::ConfigLanguage;
+use super::super::language::{ConfigLanguage, pointer_key};
 use super::scalar_range;
 
 /// The JSON pointers of the numbers in `value` (read from `source`) that

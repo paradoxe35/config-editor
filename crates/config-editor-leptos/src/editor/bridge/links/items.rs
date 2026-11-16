@@ -5,9 +5,8 @@
 //! lines do not tell the others apart.
 
 use super::super::super::codec;
-use super::super::super::language::ConfigLanguage;
+use super::super::super::language::{ConfigLanguage, pointer_key};
 use super::super::super::paths;
-use crate::editor::language::pointer_key;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::ops::Range;

@@ -1,6 +1,7 @@
 //! What the checks compare with: the `jsonschema` crate's verdict on a
 //! value, and the editor's own reading and problems of a text.
 
+use crate::editor::language::pointer_key;
 use serde_json::Value;
 
 use crate::editor::Language;
@@ -99,7 +100,7 @@ impl Both {
     /// Whether `witness` holds `key` at its root with no error at or
     /// inside it: the key's schema can be met there.
     pub(super) fn met(&self, witness: &Value, key: &str) -> bool {
-        let pointer = format!("/{}", key.replace('~', "~0").replace('/', "~1"));
+        let pointer = format!("/{}", pointer_key(key));
         witness.pointer(&pointer).is_some()
             && !self.reference.iter_errors(witness).any(|error| {
                 let at = error.instance_path().as_str();

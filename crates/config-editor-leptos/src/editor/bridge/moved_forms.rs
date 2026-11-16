@@ -11,10 +11,9 @@
 
 use super::super::codec::{self, byte_range, written_range};
 use super::super::item_sources::{ItemSource, SaveTold};
-use super::super::language::{ConfigLanguage, Span};
+use super::super::language::{ConfigLanguage, Span, pointer_key};
 use super::super::work_count::{Work, note};
 use super::ItemMap;
-use crate::editor::language::pointer_key;
 use crate::editor::paths::FieldPath;
 
 mod whole;

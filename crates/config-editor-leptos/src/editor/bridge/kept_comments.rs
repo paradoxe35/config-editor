@@ -20,10 +20,9 @@
 
 use super::super::codec;
 use super::super::item_sources::ItemSource;
-use super::super::language::{ConfigLanguage, Span};
+use super::super::language::{ConfigLanguage, Span, pointer_key};
 use super::super::paths;
 use super::ItemMap;
-use crate::editor::language::pointer_key;
 use crate::editor::paths::FieldPath;
 use serde_json::Value;
 use std::collections::{BTreeMap, HashMap};

@@ -3,11 +3,10 @@
 //! view's order.
 
 use super::super::item_sources::SaveTold;
-use super::super::language::ConfigLanguage;
+use super::super::language::{ConfigLanguage, pointer_key};
 use super::super::paths;
 use super::reorder::{comment_only, indent_of};
 use super::{byte_range, comment_start, key_markup_start, read};
-use crate::editor::language::pointer_key;
 use crate::editor::paths::FieldPath;
 use serde_json::Value;
 use std::collections::HashMap;

@@ -10,10 +10,9 @@
 
 use super::super::super::codec::{self, byte_range, written_range};
 use super::super::super::item_sources::SaveTold;
-use super::super::super::language::ConfigLanguage;
+use super::super::super::language::{ConfigLanguage, pointer_key};
 use super::super::super::paths;
 use super::{Moved, line_indent, reindented};
-use crate::editor::language::pointer_key;
 use crate::editor::paths::FieldPath;
 use serde_json::Value;
 use std::ops::Range;

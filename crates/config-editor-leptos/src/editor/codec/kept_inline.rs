@@ -8,9 +8,7 @@
 
 use super::super::flow_syntax::Flow;
 use super::super::item_sources::ItemSources;
-use super::super::language::{ConfigLanguage, OneLine, Span};
-use crate::editor::language::pointer_key;
-use crate::editor::language::unescaped_key;
+use super::super::language::{ConfigLanguage, OneLine, Span, pointer_key, unescaped_key};
 use crate::editor::paths::FieldPath;
 use serde_json::Value;
 use std::ops::Range;

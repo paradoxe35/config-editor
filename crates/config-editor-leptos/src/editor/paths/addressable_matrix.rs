@@ -5,6 +5,7 @@
 //! languages, lines ended by LF and CRLF; hand-written documents and random
 //! data each serializer writes.
 
+use crate::editor::language::pointer_key;
 use serde_json::{Value, json};
 
 use super::super::Language;
@@ -236,7 +237,7 @@ fn rejecting_items(document: &Value, at: &str, target: &str) -> Value {
     if at == target {
         return json!({ "items": false });
     }
-    let child = |key: &str| format!("{at}/{}", key.replace('~', "~0").replace('/', "~1"));
+    let child = |key: &str| format!("{at}/{}", pointer_key(key));
     match document {
         Value::Object(members) => {
             let properties: serde_json::Map<String, Value> = members
