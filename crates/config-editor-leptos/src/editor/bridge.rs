@@ -232,6 +232,7 @@ impl Bridge {
                 items: told.items.clone(),
                 base: None,
                 earlier: told.earlier.clone(),
+                loose: Vec::new(),
             };
             let base = byte_order_mark::split(base).0;
             return self.to_unmarked_host(edit_text, base, origin, Some(&told), untouched);

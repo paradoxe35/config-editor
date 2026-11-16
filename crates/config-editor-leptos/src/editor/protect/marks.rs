@@ -19,9 +19,18 @@ pub(crate) struct SchemaMarks {
 /// Whether `schema` mentions any of the marks at all, so documents under a
 /// schema without them skip the walk.
 pub(crate) fn mentions_marks(schema: &Value) -> bool {
+    mentions(schema, &["readOnly", "writeOnly", "x-secret"])
+}
+
+/// Whether `schema` marks any field secret.
+pub(crate) fn mentions_secrets(schema: &Value) -> bool {
+    mentions(schema, &["writeOnly", "x-secret"])
+}
+
+fn mentions(schema: &Value, marks: &[&str]) -> bool {
     let mut found = false;
     crate::editor::schema::each_schema(schema, &(), &mut |_, members, ()| {
-        found |= ["readOnly", "writeOnly", "x-secret"]
+        found |= marks
             .iter()
             .any(|mark| members.get(*mark) == Some(&Value::Bool(true)));
         (!found).then_some(())

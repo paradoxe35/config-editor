@@ -8,7 +8,7 @@ use super::super::super::language::ConfigLanguage;
 use super::super::super::parse_cache;
 use super::super::super::work_count::{Work, note, note_many};
 use super::items::items;
-use super::{Holding, HostPaths, Link, Links, Shown, Source, content};
+use super::{Holding, HostPaths, HostReading, Link, Links, Shown, Source, content};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 
@@ -23,7 +23,13 @@ pub(crate) struct Told {
     /// and its items pasted back).
     pub(crate) base: Option<String>,
     pub(crate) earlier: Option<String>,
+    /// The links on lines with no item, kept across the save (see
+    /// [`Links::saved`]).
+    pub(crate) loose: Vec<Link>,
 }
+
+/// Items of a view by their pointers, each with its link's source.
+type Paired = Vec<(String, Arc<Source>)>;
 
 /// Whether `before` and `after` (in `language`) read as values with the
 /// same keys in the same order and lists of the same lengths, all the
@@ -120,7 +126,7 @@ impl Links {
         {
             return None;
         }
-        let paired = self.paired(language, text)?;
+        let (paired, loose) = self.paired_and_loose(language, text)?;
         let mut last = LastHost::new(previous);
         // The host texts before the last the items come from, by how many
         // name each, most first.
@@ -166,17 +172,56 @@ impl Links {
             items,
             base: base.map(|host| host.to_string()),
             earlier: earlier.map(|host| host.to_string()),
+            loose: of_one_host(loose),
         })
+    }
+
+    /// The links once `text` (in `language`) is saved as the host text
+    /// `host` (read as `reading`): each item of `text` the new host's item
+    /// at its own pointer, as [`Links::fresh`] makes them, and the links of
+    /// `text` on lines with no item kept with their sources (`loose`, as
+    /// the save's [`Told`] read them, else read here). Those are an item's
+    /// text pasted inside a scalar or a comment: cut and pasted as an item
+    /// again, it is still that item, and keeps its form.
+    pub(crate) fn saved(
+        &mut self,
+        language: &dyn ConfigLanguage,
+        (host, text): (&str, &str),
+        reading: Option<HostReading>,
+        loose: Option<Vec<Link>>,
+    ) -> Links {
+        // None kept loose, and none read since: each is an item's.
+        let none = matches!(self, Links::Fresh { loose, .. } if loose.is_empty());
+        let kept = match loose {
+            Some(loose) => loose,
+            None if none => Vec::new(),
+            None => self
+                .paired_and_loose(language, text)
+                .map(|(_, loose)| of_one_host(loose))
+                .unwrap_or_default(),
+        };
+        let mut links = Links::fresh(host, text, reading);
+        if let Links::Fresh { loose, .. } = &mut links {
+            *loose = Arc::new(kept);
+        }
+        links
     }
 
     /// Each item of `text` (in `language`) with a link, and its source:
     /// paired with the links starting on its first line, outermost first;
     /// `None` when no item has one.
-    pub(super) fn paired(
+    pub(super) fn paired(&mut self, language: &dyn ConfigLanguage, text: &str) -> Option<Paired> {
+        self.paired_and_loose(language, text)
+            .map(|(paired, _)| paired)
+    }
+
+    /// [`Links::paired`], and the links starting on a line no item starts
+    /// on.
+    fn paired_and_loose(
         &mut self,
         language: &dyn ConfigLanguage,
         text: &str,
-    ) -> Option<Vec<(String, Arc<Source>)>> {
+    ) -> Option<(Paired, Vec<Link>)> {
         if !self.fits(text.len()) {
             return None;
         }
@@ -204,6 +249,11 @@ impl Links {
                     .push((end, item.pointer));
             }
         }
+        let loose: Vec<Link> = on_line
+            .iter()
+            .filter(|(line, _)| !items_on_line.contains_key(line))
+            .flat_map(|(_, links)| links.iter().map(|link| (*link).clone()))
+            .collect();
         let depth = |pointer: &str| pointer.matches('/').count();
         let mut paired = Vec::new();
         for (line, mut items) in items_on_line {
@@ -276,7 +326,7 @@ impl Links {
                 .map(|(link, _)| link.source.clone());
             paired.extend(left.into_iter().cloned().zip(unused));
         }
-        Some(paired)
+        Some((paired, loose))
     }
 
     /// The links of `text` (in `language`), the text of these links
@@ -350,4 +400,27 @@ impl Links {
         links.sort_by(|left, right| left.start.cmp(&right.start).then(right.end.cmp(&left.end)));
         Links::Kept(Arc::new(links))
     }
+}
+
+/// Of `loose` links, those of the host text most of them name: a save
+/// reads items from one earlier text (see [`Links::told`]), and each text
+/// a link names stays in memory while it is kept.
+fn of_one_host(loose: Vec<Link>) -> Vec<Link> {
+    let mut named: Vec<(Arc<str>, usize)> = Vec::new();
+    for link in &loose {
+        match named
+            .iter_mut()
+            .find(|(host, _)| Arc::ptr_eq(host, &link.source.host))
+        {
+            Some((_, count)) => *count += 1,
+            None => named.push((link.source.host.clone(), 1)),
+        }
+    }
+    let Some((host, _)) = named.into_iter().max_by_key(|(_, count)| *count) else {
+        return Vec::new();
+    };
+    loose
+        .into_iter()
+        .filter(|link| Arc::ptr_eq(&link.source.host, &host))
+        .collect()
 }

@@ -10,7 +10,7 @@ use std::sync::Arc;
 use super::bridge::links::{Clipboard, Links};
 use super::bridge::{self, Bridge};
 use super::codec;
-use super::diagnostics::DIAGNOSTICS_DEBOUNCE_MS;
+use super::diagnostics::{DIAGNOSTICS_DEBOUNCE_MS, Placeholders, syntax_message};
 use super::edit::{Edit, Origin};
 use super::edit_as::{EditAsProblem, EditAsText, SaveError};
 use super::history::{EditHistory, ViewState};
@@ -698,6 +698,7 @@ pub(super) fn convert_now(state: EditorState, text: String, language: Language) 
         // The links are the text on screen's.
         let on_screen = state.doc().text.with_untracked(|current| *current == text)
             && state.sync().edit_language.get_untracked() == language;
+        let mut loose = None;
         let result = match known {
             Some(host) => Ok(host),
             None => {
@@ -709,7 +710,10 @@ pub(super) fn convert_now(state: EditorState, text: String, language: Language) 
                 } else {
                     Default::default()
                 };
-                bridge.to_host_linked(&text, &previous, &origin, told.as_ref(), &untouched)
+                let saved =
+                    bridge.to_host_linked(&text, &previous, &origin, told.as_ref(), &untouched);
+                loose = told.map(|told| told.loose);
+                saved
             }
         };
         // However the edit got there, the gate decides whether the host
@@ -733,7 +737,13 @@ pub(super) fn convert_now(state: EditorState, text: String, language: Language) 
         state.note_in_sync(result.is_ok());
         if let Ok(saved) = result {
             if on_screen {
-                let links = Links::fresh(&saved, &text, Some(bridge.reading()));
+                let mut links = state.sync().links.get_value();
+                let links = links.saved(
+                    language.behavior(),
+                    (&saved, &text),
+                    Some(bridge.reading()),
+                    loose,
+                );
                 state.sync().links.set_value(links);
             }
             let changed = saved != previous;
@@ -1053,6 +1063,14 @@ pub(super) fn switch_to(state: EditorState, next: Language) {
             state.sync().load_problems.set(view_warnings);
         }
         Err(error) => {
+            // A parse error of the text the switch read: of the view's
+            // when it has edits the host has not had, else of the host's.
+            let error = if unsaved {
+                without_secret_quotes(state, error, &text, current)
+            } else {
+                let host = state.config().host_language;
+                without_secret_quotes(state, error, &host_text_before, host)
+            };
             state.sync().pending_switch.set(Some(next));
             state.sync().load_problems.set(vec![EditAsProblem {
                 at: bridge::locate_error(current.behavior(), &text, &error),
@@ -1064,6 +1082,35 @@ pub(super) fn switch_to(state: EditorState, next: Language) {
             }]);
         }
     }
+}
+
+/// `error`, when it is a parse error of `source` (in `language`), worded
+/// as its syntax problem is (see `diagnostics::syntax_message`): without
+/// what it quotes where a secret may be.
+fn without_secret_quotes(
+    state: EditorState,
+    error: SaveError,
+    source: &str,
+    language: Language,
+) -> SaveError {
+    let SaveError::Convert(codec::ConvertError::Parse(mut parse)) = error else {
+        return error;
+    };
+    let protect = state.protect();
+    let (accepted, patterns) = (protect.accepted_tokens(), protect.placeholder_patterns());
+    parse.message = state.config().schema.with_value(|schema| {
+        syntax_message(
+            source,
+            &parse,
+            schema.as_deref(),
+            language.behavior(),
+            Placeholders {
+                accepted: &accepted,
+                patterns: &patterns,
+            },
+        )
+    });
+    SaveError::Convert(codec::ConvertError::Parse(parse))
 }
 
 /// Why `language` cannot write documents, when it cannot (a language

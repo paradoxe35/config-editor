@@ -7,7 +7,9 @@
 //! `clipboard`), and text inserted that is a record's text (a paste, a
 //! drop, a line moved or copied) takes the record's links. A save reads
 //! each item's source from them (`item_sources`): nothing is told by
-//! comparing texts or values.
+//! comparing texts or values. After a save each item is the new host's,
+//! and a link on a line with no item (an item's text pasted inside a
+//! scalar or a comment) keeps its source (see [`Links::saved`]).
 
 use super::super::Language;
 use super::super::language::ConfigLanguage;
@@ -88,6 +90,11 @@ pub(crate) enum Links {
         /// How `host` reads, to name each item by its host path when the
         /// items are read; `None` when the view is in the host's language.
         reading: Option<HostReading>,
+        /// Links of `base` on lines where it has no item (an item's text
+        /// pasted inside a scalar or a comment), kept from before the save
+        /// that made `host`: that text is still that item's when it is cut
+        /// and pasted as an item again (see [`Links::saved`]).
+        loose: Arc<Vec<Link>>,
     },
     /// The items' links, by where they start (an outer item before the
     /// ones inside it).
@@ -105,13 +112,23 @@ impl PartialEq for Links {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
             (
-                Links::Fresh { base, pending, .. },
+                Links::Fresh {
+                    base,
+                    pending,
+                    loose,
+                    ..
+                },
                 Links::Fresh {
                     base: theirs,
                     pending: their_pending,
+                    loose: their_loose,
                     ..
                 },
-            ) => Arc::ptr_eq(base, theirs) && Arc::ptr_eq(pending, their_pending),
+            ) => {
+                Arc::ptr_eq(base, theirs)
+                    && Arc::ptr_eq(pending, their_pending)
+                    && Arc::ptr_eq(loose, their_loose)
+            }
             (Links::Kept(links), Links::Kept(theirs)) => {
                 Arc::ptr_eq(links, theirs) || links.is_empty() && theirs.is_empty()
             }
@@ -131,6 +148,7 @@ impl Links {
             base: Arc::from(text),
             pending: Arc::default(),
             reading,
+            loose: Arc::default(),
         }
     }
 
@@ -143,10 +161,13 @@ impl Links {
                 host,
                 base,
                 pending,
+                loose,
                 ..
             } => {
                 let shared = matches!(newer, Some(Links::Fresh { base: theirs, .. }) if Arc::ptr_eq(base, theirs));
-                pending.len() * 24 + if shared { 0 } else { host.len() + base.len() }
+                pending.len() * 24
+                    + loose.len() * std::mem::size_of::<Link>()
+                    + if shared { 0 } else { host.len() + base.len() }
             }
             Links::Kept(links) => links.len() * std::mem::size_of::<Link>(),
         }
@@ -279,14 +300,15 @@ impl Links {
 
     /// The links, read from the items now if not yet (`Fresh`).
     fn read(&mut self, language: &dyn ConfigLanguage) -> Arc<Vec<Link>> {
-        let (host, base, pending, reading) = match self {
+        let (host, base, pending, reading, loose) = match self {
             Links::Kept(links) => return links.clone(),
             Links::Fresh {
                 host,
                 base,
                 pending,
                 reading,
-            } => (host, base, pending, reading),
+                loose,
+            } => (host, base, pending, reading, loose),
         };
         let parsed = parse_cache::parsed(language, base);
         let mut links: Vec<Link> = match parsed.as_ref() {
@@ -320,6 +342,7 @@ impl Links {
             }
             Err(_) => Vec::new(),
         };
+        links.extend(loose.iter().cloned());
         // By where they start, an outer item before the ones inside it
         // (the items read in the value's order, which need not be the
         // text's: `within` and the edits find links by start).

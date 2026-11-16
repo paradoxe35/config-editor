@@ -28,7 +28,6 @@ mod explanation;
 mod meta_wording;
 #[cfg(feature = "schema-validation")]
 mod placeholders;
-#[cfg(feature = "schema-validation")]
 mod secrets;
 #[cfg(feature = "schema-validation")]
 mod specific;
@@ -48,10 +47,6 @@ pub(super) type PlaceholderPattern = Box<dyn Fn(&str) -> Vec<std::ops::Range<usi
 
 /// The secret placeholders the problems of a text are found with.
 #[derive(Clone, Copy, Default)]
-#[cfg_attr(
-    not(feature = "schema-validation"),
-    expect(dead_code, reason = "only the schema check reads them")
-)]
 pub(super) struct Placeholders<'p> {
     /// The host's tokens, each with the field whose current secret it
     /// stands for: the schema check accepts it there whatever its schema
@@ -431,13 +426,14 @@ pub(super) fn validate_keyed(
                     let width = quoted + word + closing;
                     (width > 1).then_some(column + width)
                 });
+                let message = syntax_message(source, &error, schema, behavior, placeholders);
                 let problem = Diagnostic {
                     line: error.line.or(fallback.map(|span| span.line)),
                     column: error.column.or(fallback.map(|span| span.start_column)),
                     end_column: word_end
                         .or(error.column.map(|column| column + 1))
                         .or(fallback.map(|span| span.end_column)),
-                    message: error.message,
+                    message,
                     severity: Severity::Error,
                     ..Diagnostic::default()
                 };
@@ -460,9 +456,6 @@ pub(super) fn validate_keyed(
     let deprecated = schema
         .map(|schema| deprecation_warnings(&reading, schema, source, behavior, strings))
         .unwrap_or_default();
-    // Without `schema-validation` no check could reject a placeholder.
-    #[cfg(not(feature = "schema-validation"))]
-    let _ = placeholders;
     #[cfg(feature = "schema-validation")]
     if let Some(schema) = schema {
         let read = schema_problems::Reading {
@@ -505,6 +498,35 @@ pub(super) fn validate_keyed(
         return (diagnostics, keys);
     }
     (deprecated, Vec::new())
+}
+
+/// The message of the syntax `error` of `source`, without the text it
+/// quotes where a secret may be: when the schema marks secrets or the text
+/// holds placeholders (the host's, or any a placeholder pattern finds), see
+/// [`secrets::hide_quoted_text`]. Every message repeating a parse error
+/// words it so.
+pub(super) fn syntax_message(
+    source: &str,
+    error: &super::language::ParseError,
+    schema: Option<&SchemaBundle>,
+    behavior: &dyn ConfigLanguage,
+    placeholders: Placeholders<'_>,
+) -> String {
+    let tokens: Vec<std::ops::Range<usize>> = placeholders
+        .patterns
+        .iter()
+        .flat_map(|pattern| pattern(source))
+        .collect();
+    let secrets = schema.is_some_and(|schema| schema.has_secrets)
+        || !placeholders.accepted.is_empty()
+        || !tokens.is_empty();
+    if !secrets {
+        return error.message.clone();
+    }
+    secrets::hide_quoted_text(&error.message, source, error.line, &tokens, |masked| {
+        super::work_count::note_many(super::work_count::Work::ParsedBytes, masked.len());
+        behavior.parse(masked).err().map(|error| error.message)
+    })
 }
 
 /// Pointers of the values of `document` that are one of `accepted`: each

@@ -115,3 +115,32 @@ fn a_secret_in_a_dot_map_read_as_one_string_is_not_quoted() {
         &[Act::NewValue, Act::Type { at: 36723, text: 0 }],
     );
 }
+
+/// A syntax message quoting a broken XML name that runs into the
+/// element's new secret value hides the value.
+#[test]
+fn a_secret_after_a_broken_xml_name_is_not_quoted_in_the_syntax_message() {
+    assert_ok(
+        &secret(6, None, false),
+        &[
+            Act::Entry {
+                anchor: 3,
+                name: 5,
+                paste: false,
+            },
+            Act::Entry {
+                anchor: 0,
+                name: 15,
+                paste: true,
+            },
+            Act::Type { at: 2317, text: 5 },
+            Act::Type { at: 23299, text: 5 },
+            Act::Entry {
+                anchor: 1,
+                name: 2,
+                paste: true,
+            },
+            Act::NewValue,
+        ],
+    );
+}

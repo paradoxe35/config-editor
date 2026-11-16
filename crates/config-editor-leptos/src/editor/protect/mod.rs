@@ -60,7 +60,7 @@ pub(crate) use glued::glued_message;
 #[cfg(feature = "schema-validation")]
 pub(crate) use hooks::secret_pointers;
 pub(crate) use live::{Inputs, ProtectInit, ProtectState};
-pub(crate) use marks::mentions_marks;
+pub(crate) use marks::{mentions_marks, mentions_secrets};
 pub(crate) use save::ReadOnlyChange;
 pub(crate) use texts::{moved_placeholder, save_refused};
 
