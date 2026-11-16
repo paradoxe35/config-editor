@@ -17,7 +17,7 @@ use super::super::work_count::{Work, note};
 use std::sync::Arc;
 
 mod clipboard;
-mod held;
+mod holding;
 mod items;
 pub(crate) mod splices;
 #[cfg(all(test, feature = "yaml"))]
@@ -26,7 +26,7 @@ mod told;
 mod untouched;
 
 pub(crate) use clipboard::Clipboard;
-pub(crate) use held::{Held, HostPaths};
+pub(crate) use holding::{Holding, HostPaths};
 use items::items;
 pub(crate) use splices::{Inserted, Piece, Splice, pieces};
 pub(crate) use told::Told;
@@ -42,9 +42,9 @@ pub(crate) struct Source {
     pub(crate) host: Arc<str>,
     pub(crate) pointer: String,
     /// How the host holds the item, recorded where the view was written
-    /// from it (see `held`): a list of one the view writes as its item
+    /// from it (see `holding`): a list of one the view writes as its item
     /// holds what the view writes inside it under its `/0`.
-    pub(crate) held: Held,
+    pub(crate) holding: Holding,
     /// Where the editor wrote the item in a view (built from the host
     /// text, or converted by a switch): what tells the scalars the user
     /// left as the editor wrote them (see `untouched`).
@@ -279,17 +279,14 @@ impl Links {
 
     /// The links, read from the items now if not yet (`Fresh`).
     fn read(&mut self, language: &dyn ConfigLanguage) -> Arc<Vec<Link>> {
-        let Links::Fresh {
-            host,
-            base,
-            pending,
-            reading,
-        } = self
-        else {
-            let Links::Kept(links) = self else {
-                unreachable!()
-            };
-            return links.clone();
+        let (host, base, pending, reading) = match self {
+            Links::Kept(links) => return links.clone(),
+            Links::Fresh {
+                host,
+                base,
+                pending,
+                reading,
+            } => (host, base, pending, reading),
         };
         let parsed = parse_cache::parsed(language, base);
         let mut links: Vec<Link> = match parsed.as_ref() {
@@ -302,7 +299,7 @@ impl Links {
                     .into_iter()
                     .filter_map(|item| {
                         let (start, end) = content(base, item.lines.start, item.lines.end)?;
-                        let (pointer, held) = paths.item(&item.pointer);
+                        let (pointer, holding) = paths.item(&item.pointer);
                         Some(Link {
                             start,
                             end,
@@ -315,7 +312,7 @@ impl Links {
                                     kept: None,
                                 }),
                                 pointer,
-                                held,
+                                holding,
                             }),
                         })
                     })

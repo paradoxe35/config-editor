@@ -8,7 +8,7 @@ use super::super::super::language::ConfigLanguage;
 use super::super::super::parse_cache;
 use super::super::super::work_count::{Work, note, note_many};
 use super::items::items;
-use super::{Held, HostPaths, Link, Links, Shown, Source, content};
+use super::{Holding, HostPaths, Link, Links, Shown, Source, content};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 
@@ -327,15 +327,15 @@ impl Links {
                     pointer: source.pointer.clone(),
                     // A list of one the view before wrote as its item, which
                     // this one writes as a list.
-                    held: match source.held {
-                        Held::ListShownAlone
+                    holding: match source.holding {
+                        Holding::ListShownAlone
                             if value
                                 .pointer(&item.pointer)
                                 .is_some_and(serde_json::Value::is_array) =>
                         {
-                            Held::AsShown
+                            Holding::AsShown
                         }
-                        held => held,
+                        holding => holding,
                     },
                     shown: Some(Shown {
                         text: shown.clone(),

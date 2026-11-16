@@ -155,7 +155,10 @@ impl Links {
                         }
                         Some(Candidate {
                             host: source.host.clone(),
-                            from: format!("{}{rest}", source.held.value_of(source.pointer.clone())),
+                            from: format!(
+                                "{}{rest}",
+                                source.holding.value_of(source.pointer.clone())
+                            ),
                             shown: shown.text.clone(),
                             at,
                             pointer,

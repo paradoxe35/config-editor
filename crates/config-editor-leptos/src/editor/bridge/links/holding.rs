@@ -15,7 +15,7 @@ use super::super::super::language::pointer_key;
 
 /// How the host holds a view's node.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(crate) enum Held {
+pub(crate) enum Holding {
     /// As the view holds it.
     #[default]
     AsShown,
@@ -28,7 +28,7 @@ pub(crate) enum Held {
 /// written from holds it, where the two differ.
 #[derive(Clone, Debug, Default)]
 pub(crate) struct HostPaths {
-    by_view: HashMap<String, (String, Held)>,
+    by_view: HashMap<String, (String, Holding)>,
 }
 
 impl HostPaths {
@@ -42,11 +42,11 @@ impl HostPaths {
 
     /// The node `view` (a pointer of the view) is written from, and how it
     /// holds it: at the same pointer as shown where nothing is recorded.
-    pub(crate) fn item(&self, view: &str) -> (String, Held) {
+    pub(crate) fn item(&self, view: &str) -> (String, Holding) {
         self.by_view
             .get(view)
             .cloned()
-            .unwrap_or_else(|| (view.to_string(), Held::AsShown))
+            .unwrap_or_else(|| (view.to_string(), Holding::AsShown))
     }
 
     /// The pointer of the value the view's node `view` writes: the item of
@@ -56,8 +56,8 @@ impl HostPaths {
         held.value_of(pointer)
     }
 
-    fn note(&mut self, view: &str, from: &str, held: Held) {
-        if view != from || held != Held::AsShown {
+    fn note(&mut self, view: &str, from: &str, held: Holding) {
+        if view != from || held != Holding::AsShown {
             self.by_view
                 .entry(view.to_string())
                 .or_insert_with(|| (from.to_string(), held));
@@ -67,21 +67,21 @@ impl HostPaths {
     fn walk(&mut self, from: &Value, view: &Value, at: &mut String, shown: &mut String) {
         match (from, view) {
             (Value::Array(items), shown_value) if items.len() == 1 && !shown_value.is_array() => {
-                self.note(shown, at, Held::ListShownAlone);
+                self.note(shown, at, Holding::ListShownAlone);
                 let length = at.len();
                 at.push_str("/0");
                 self.walk(&items[0], view, at, shown);
                 at.truncate(length);
             }
             (from_value, Value::Array(items)) if items.len() == 1 && !from_value.is_array() => {
-                self.note(shown, at, Held::AsShown);
+                self.note(shown, at, Holding::AsShown);
                 let length = shown.len();
                 shown.push_str("/0");
                 self.walk(from, &items[0], at, shown);
                 shown.truncate(length);
             }
             (Value::Object(held), Value::Object(map)) => {
-                self.note(shown, at, Held::AsShown);
+                self.note(shown, at, Holding::AsShown);
                 for (key, child) in map {
                     let Some(from_child) = held.get(key) else {
                         continue;
@@ -98,7 +98,7 @@ impl HostPaths {
                 }
             }
             (Value::Array(held), Value::Array(items)) => {
-                self.note(shown, at, Held::AsShown);
+                self.note(shown, at, Holding::AsShown);
                 for (index, (from_item, item)) in held.iter().zip(items).enumerate() {
                     let (length, shown_length) = (at.len(), shown.len());
                     let index = index.to_string();
@@ -111,17 +111,17 @@ impl HostPaths {
                     shown.truncate(shown_length);
                 }
             }
-            _ => self.note(shown, at, Held::AsShown),
+            _ => self.note(shown, at, Holding::AsShown),
         }
     }
 }
 
-impl Held {
+impl Holding {
     /// The pointer of the value a node held so at `pointer` writes.
     pub(crate) fn value_of(self, pointer: String) -> String {
         match self {
-            Held::AsShown => pointer,
-            Held::ListShownAlone => pointer + "/0",
+            Holding::AsShown => pointer,
+            Holding::ListShownAlone => pointer + "/0",
         }
     }
 }
@@ -137,10 +137,13 @@ mod tests {
             &json!({"a": [{"x": 1}], "b": 2}),
             &json!({"a": {"x": 1}, "b": 2}),
         );
-        assert_eq!(paths.item("/a"), ("/a".to_string(), Held::ListShownAlone));
+        assert_eq!(
+            paths.item("/a"),
+            ("/a".to_string(), Holding::ListShownAlone)
+        );
         assert_eq!(paths.value("/a"), "/a/0");
         assert_eq!(paths.item("/a/x").0, "/a/0/x");
-        assert_eq!(paths.item("/b"), ("/b".to_string(), Held::AsShown));
+        assert_eq!(paths.item("/b"), ("/b".to_string(), Holding::AsShown));
     }
 
     #[test]
