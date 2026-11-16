@@ -100,6 +100,10 @@ impl ProtectState {
         Vec::new()
     }
 
+    pub(super) fn placeholder_patterns(&self) -> Vec<super::diagnostics::PlaceholderPattern> {
+        Vec::new()
+    }
+
     pub(super) fn own_placeholders(&self, _source: String) -> Option<DocumentPlaceholders> {
         None
     }

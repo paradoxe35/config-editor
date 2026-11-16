@@ -39,7 +39,7 @@ pub(in crate::editor) fn host_problems(
     view: &str,
     edit: &dyn ConfigLanguage,
     schema: &SchemaBundle,
-    accepted: &[(String, String)],
+    placeholders: super::Placeholders<'_>,
     strings: &EditorStrings,
 ) -> Option<HostProblems> {
     #[cfg(feature = "schema-validation")]
@@ -65,7 +65,7 @@ pub(in crate::editor) fn host_problems(
             view,
             (edit, &placed),
             schema,
-            accepted,
+            placeholders,
             strings,
         );
         Some(HostProblems {

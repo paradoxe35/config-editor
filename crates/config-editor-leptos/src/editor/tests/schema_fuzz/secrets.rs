@@ -10,7 +10,7 @@ use super::reference::compile;
 use super::runner::{Case, Property, Verdict, failure, language, run};
 use super::schemas::{Draw, PATTERN, schema};
 use super::suggestions::with_entry;
-use crate::editor::TextPosition;
+use crate::editor::{Language, TextPosition};
 
 pub(super) fn draw(rng: &mut Rng, index: usize) -> Case {
     let draw = Draw {
@@ -124,15 +124,29 @@ pub(super) fn check(case: &Case) -> Verdict {
     let Some(both) = compile(&case.schema) else {
         return Verdict::Skipped;
     };
-    let mut held = Vec::new();
-    secrets(&case.schema, &case.schema, &case.doc, 0, &mut held);
-    if held.is_empty() {
-        return Verdict::Skipped;
-    }
     let language = case.language;
     let Some(text) = both.written(language, &case.doc) else {
         return Verdict::Skipped;
     };
+    // XML writes no list of lists, nor an empty list in one: the items of
+    // an inner list are items of the outer one, so a value after them is
+    // read at another index (`[[], "s"]` reads `["s"]`), where the schema
+    // need not mark it. The secrets are those the schema marks where the
+    // editor reads the text.
+    let read = (language == Language::XML)
+        .then(|| both.read(language, &text))
+        .flatten();
+    let mut held = Vec::new();
+    secrets(
+        &case.schema,
+        &case.schema,
+        read.as_ref().unwrap_or(&case.doc),
+        0,
+        &mut held,
+    );
+    if held.is_empty() {
+        return Verdict::Skipped;
+    }
     let leaked = |shown: &str| {
         held.iter()
             .find(|secret| shown.contains(secret.as_str()))
