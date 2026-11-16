@@ -8,10 +8,12 @@ use super::commands::{copied_lines, line_range};
 use super::completion::should_auto_trigger;
 use super::edit::{Assoc, Change, Edit};
 use super::history::EditHistory;
+use super::keyboard::utf16_to_byte_index;
 use super::positioning::pointer_text_position;
 use super::problem_hit::column_at_cell;
 use super::source_area::SourceArea;
 use super::state::{EditorState, directed_selection, normalize_newlines, textarea_selection};
+use super::text::graphemes;
 use crate::reactive::later;
 
 /// The textarea an event came from, in document offsets.
@@ -650,13 +652,17 @@ fn copy_line(state: EditorState, event: &web_sys::ClipboardEvent, cut: bool) {
     state.snap_to_tokens();
     let (start, end) = textarea_selection(&element);
     if start != end {
-        let selected = state.doc().text.with_untracked(|text| {
+        let (selected, split) = state.doc().text.with_untracked(|text| {
             let units: Vec<u16> = text.encode_utf16().collect();
-            String::from_utf16_lossy(&units[start.min(units.len())..end.min(units.len())])
+            let selected =
+                String::from_utf16_lossy(&units[start.min(units.len())..end.min(units.len())]);
+            (selected, splits_a_character(text, (start, end)))
         });
         state.note_copied(&selected, (start, end));
-        let snapped = selected_before != (start, end);
-        copy_selection(state, event, (start, end), cut, snapped);
+        // The browser's own copy of a selection splitting a character
+        // drawn as one writes nothing: the editor copies it.
+        let ours = selected_before != (start, end) || split;
+        copy_selection(state, event, (start, end), cut, ours);
         return;
     }
     let Some(clipboard) = event.clipboard_data() else {
@@ -703,17 +709,28 @@ fn copy_line(state: EditorState, event: &web_sys::ClipboardEvent, cut: bool) {
     state.commit(edit.caret_at(caret));
 }
 
+/// Whether the selection `(start, end)` (UTF-16 units of `text`) has an
+/// edge inside a character drawn as one: inside a surrogate pair, or
+/// inside a grapheme (an emoji joined to others, a letter and its accent).
+fn splits_a_character(text: &str, (start, end): (usize, usize)) -> bool {
+    [start, end].into_iter().any(|edge| {
+        let byte = utf16_to_byte_index(text, edge);
+        text[..byte].encode_utf16().count() != edge || !graphemes::is_boundary(text, byte)
+    })
+}
+
 /// Copy or cut of a selection the textarea's own copy would get wrong:
-/// one across a fold takes the hidden lines too, one `snapped` to a
-/// placeholder's edges takes the placeholder whole.
+/// one across a fold takes the hidden lines too, one snapped to a
+/// placeholder's edges takes the placeholder whole, one splitting a
+/// character is copied as selected; `ours` says it is one of the last two.
 fn copy_selection(
     state: EditorState,
     event: &web_sys::ClipboardEvent,
     (start, end): (usize, usize),
     cut: bool,
-    snapped: bool,
+    ours: bool,
 ) {
-    if !snapped
+    if !ours
         && !state
             .view()
             .projection
@@ -773,7 +790,25 @@ fn paste_line(state: EditorState, event: &web_sys::ClipboardEvent) {
 #[cfg(test)]
 mod tests {
     use super::super::edit::Change;
-    use super::{press_offset, replay};
+    use super::{press_offset, replay, splits_a_character};
+
+    /// A selection edge inside a character drawn as one (half a joined
+    /// emoji, a letter without its accent, half a surrogate pair) splits
+    /// it: the textarea's own copy of such a selection writes nothing.
+    #[test]
+    fn a_selection_inside_a_joined_character_splits_it() {
+        // `é`, then a man and a woman joined, then `5`, in UTF-16 units.
+        let text = "é👨\u{200d}👩\u{200d}5";
+        assert!(!splits_a_character(text, (0, 1)), "the é");
+        assert!(!splits_a_character(text, (1, 7)), "the joined pair");
+        assert!(splits_a_character(text, (3, 4)), "the first joiner");
+        assert!(splits_a_character(text, (4, 6)), "the woman alone");
+        assert!(splits_a_character(text, (1, 2)), "half the man");
+        assert!(!splits_a_character(text, (7, 8)), "the 5");
+        let accented = "e\u{301}x";
+        assert!(splits_a_character(accented, (0, 1)), "e without its accent");
+        assert!(!splits_a_character(accented, (0, 2)), "e and its accent");
+    }
 
     /// A press lands on the character drawn under it: a tab before a
     /// secret placeholder is drawn wider than one cell, and an accent

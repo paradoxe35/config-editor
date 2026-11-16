@@ -4,6 +4,7 @@
 //! ([`Utf16`]: the textarea's selection, the host's ranges as placed on
 //! screen).
 
+pub(crate) mod graphemes;
 mod offset;
 
 #[cfg_attr(

@@ -125,6 +125,7 @@ pub(super) fn found(
         strings,
         secrets: &secrets,
         placeholders: &placeholders,
+        tokens: &wording::Tokens::new(accepted.iter().map(|(token, _)| token.as_str())),
         levels: std::cell::Cell::new(0),
         explanations: &explanations,
     };
