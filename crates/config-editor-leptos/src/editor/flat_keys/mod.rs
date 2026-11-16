@@ -1,12 +1,19 @@
-//! Completion and hover for flat key/value languages (`.env`, `.properties`:
-//! one `KEY=value` entry per line, no nesting), from the separators of a
-//! [`LanguageConfig`] alone. A language with such syntax delegates its
-//! completion and hover hooks to these methods instead of writing them.
+//! Completion and hover for languages known by their declared syntax alone
+//! (`.env`, `.properties`, a JavaScript language without `contextAt`): one
+//! `KEY=value` entry per line, values written between the declared
+//! brackets on that line, and list items on lines of their own after the
+//! declared item marker, all read from a [`LanguageConfig`]. A language
+//! with such syntax delegates its completion and hover hooks to these
+//! methods instead of writing them.
+
+mod context;
+mod insert;
+
+pub use insert::{flat_value_text, flat_write_insert};
 
 use serde_json::Value;
 
-use super::keyboard::utf16_to_byte_index;
-use super::language::{CompletionContext, LanguageConfig, Span, pointer_index, pointer_segments};
+use super::language::{LanguageConfig, Span, pointer_index, pointer_segments};
 
 impl LanguageConfig {
     /// The separator a flat language writes after a new key: its
@@ -28,77 +35,6 @@ impl LanguageConfig {
     pub fn flat_separator(&self) -> Option<String> {
         let separator = self.separators.first()?;
         Some(self.written_separator.unwrap_or(separator).to_string())
-    }
-
-    /// [`ConfigLanguage::completion_context`](super::language::ConfigLanguage::completion_context)
-    /// for a flat language: before the line's first separator the caret is
-    /// at a top-level key (the word before it typed); after it, in that
-    /// key's value. Nothing is offered on a comment line or without
-    /// separators. `cursor` is a UTF-16 index, as the hook's.
-    ///
-    /// ```
-    /// use config_editor_leptos::language::LanguageConfig;
-    /// let env = LanguageConfig { separators: &["="], ..LanguageConfig::default() };
-    /// let key = env.flat_completion_context("PORT=1\nLO", 9);
-    /// assert_eq!((key.typed.as_str(), key.value_key), ("LO", None));
-    /// let value = env.flat_completion_context("LOG=de", 6);
-    /// assert_eq!((value.typed.as_str(), value.value_key.as_deref()), ("de", Some("LOG")));
-    /// ```
-    pub fn flat_completion_context(&self, source: &str, cursor: usize) -> CompletionContext {
-        let nothing = CompletionContext {
-            no_properties: true,
-            replace_start: cursor,
-            replace_end: cursor,
-            ..CompletionContext::default()
-        };
-        if self.separators.is_empty() {
-            return nothing;
-        }
-        let cursor_byte = utf16_to_byte_index(source, cursor.min(source.encode_utf16().count()));
-        let line_start = source[..cursor_byte].rfind('\n').map_or(0, |at| at + 1);
-        let before = &source[line_start..cursor_byte];
-        let code = before.trim_start();
-        let base_indent = before[..before.len() - code.len()].to_string();
-        if self.is_comment_line(code) {
-            return nothing;
-        }
-        let units = |text: &str| text.encode_utf16().count();
-        match self.first_separator(code) {
-            Some((at, separator)) => {
-                let key = code[..at].trim();
-                if key.is_empty() {
-                    return nothing;
-                }
-                let after = &code[at + separator.len()..];
-                let typed = after.trim_start();
-                CompletionContext {
-                    path: Vec::new(),
-                    typed: typed.to_string(),
-                    replace_start: cursor - units(typed),
-                    replace_end: cursor,
-                    value_key: Some(key.to_string()),
-                    // A value goes after the spacing a new entry writes.
-                    value_needs_space: after.is_empty()
-                        && self
-                            .flat_separator()
-                            .is_some_and(|written| written.ends_with(' ')),
-                    base_indent,
-                    ..CompletionContext::default()
-                }
-            }
-            None => {
-                // The word before the caret (`export LO|` types `LO`).
-                let typed = code.rsplit(char::is_whitespace).next().unwrap_or_default();
-                CompletionContext {
-                    path: Vec::new(),
-                    typed: typed.to_string(),
-                    replace_start: cursor - units(typed),
-                    replace_end: cursor,
-                    base_indent,
-                    ..CompletionContext::default()
-                }
-            }
-        }
     }
 
     /// [`ConfigLanguage::write_insert`](super::language::ConfigLanguage::write_insert)

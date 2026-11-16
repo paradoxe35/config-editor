@@ -139,7 +139,13 @@ fn key_suggestions_carry_their_option_and_list_the_matched_one_first() {
             }
         }
         // Before anything decides, each key names its option.
-        let options = offered(language, &json!({"dns": {}})).unwrap_or_default();
+        let options = match offered(language, &json!({"dns": {}})) {
+            Ok(options) => options,
+            Err(error) => {
+                failures.push(error);
+                continue;
+            }
+        };
         for (key, detail) in [("route53", "Route 53"), ("records", "Manual")] {
             if !options
                 .iter()

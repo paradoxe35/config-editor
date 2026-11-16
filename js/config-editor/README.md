@@ -1609,31 +1609,41 @@ component may register its language each time it mounts). Its name is the label 
 Suggestions and hover docs run through the same engine as the built-in
 languages', in one of two ways.
 
-**Flat languages (`separators` only).** A language with one `KEY=value`
-entry per line and no nesting, like the `.env` one above, gets them from its
-`separators` with no more code:
+**Languages known by their syntax (no callbacks).** A language with one
+`KEY=value` entry per line, like the `.env` one above, gets them from its
+`separators` with no more code, and from the syntax it declares for values
+written on one line (`mapBrackets`, `listBrackets`, `itemSeparator`,
+`itemMarker`, see below):
 
 - before a line's first separator, the schema's top-level keys are
   suggested, those already written on other lines left out;
 - after it, the key's values (an `enum`, `true` / `false`, a `const`), a
   string written bare when it reads back as written (`LOG_LEVEL=debug`);
-- accepting a key writes it and the first separator, the caret after it:
-  `KEY=`, or with the spacing `writtenSeparator` gives (`writtenSeparator:
-": "` writes `key: `);
+- inside a map written on one line (`server: <host: 'a'; |>`), the map's
+  keys and values; inside a list, its items; on a line starting with
+  `itemMarker` below a key with no value, the keys of that list's item;
+- accepting a key writes the entry as your `serialize` writes it, with the
+  value the schema gives (a default, required children, a list's items),
+  the caret at the first value left to type, and `Tab` to the next: `KEY=`,
+  or with the spacing `writtenSeparator` gives (`writtenSeparator: ": "`
+  writes `key: `); a key your `parse` would not read back is not suggested;
+- typed in front of a key (`LOG|PORT=80`), a new entry goes before it, on a
+  line of its own; a suggestion completing the key (`PO|RTX=80`) renames
+  it, keeping its value;
 - hovering a key shows its schema docs;
 - nothing is suggested on a line comment.
 
 **Nested languages (callbacks).** A language with objects inside objects
 says where the caret is with three optional callbacks. Each one replaces its
-part of the flat default; the rest (the schema at a path, filtering and
+part of the default above; the rest (the schema at a path, filtering and
 ranking, the popup, value docs, required fields, `oneOf` choices) is the
 editor's, as for the built-in languages.
 
-| Callback                  | When it is called                                                                                           | Returns                                                                                                                                                                                                                                                                         | `null` / missing                                                         |
-| ------------------------- | ----------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
-| `contextAt(text, offset)` | As suggestions open or update, and to place a hovered key; `offset` is the caret's string index             | `{ path, at, prefix }`. `at: "key"`: a key is typed in the object at `path`. `at: "value"`: the caret is in the value of the key that ends `path` (a path ending in an index: an array item). `prefix`: what is typed before the caret, which suggestions filter by and replace | `null`: nothing to suggest there. Missing: the flat default              |
-| `insertKey(key, kind)`    | For each key suggested; `kind` is what the schema expects as its value: `"scalar"`, `"object"` or `"array"` | `{ text, caret }`: the text written, and the caret's string index in it. Lines after the first are indented as the caret's line                                                                                                                                                 | `null`: the key is not suggested. Missing: the key and first separator   |
-| `keyAt(text, offset)`     | As the mouse rests on the text; `offset` is the string index under it                                       | `{ key, path, start }`: the key's name, its full path (ending with it), and the string index where it starts                                                                                                                                                                    | `null`: no key there. Missing: the key before the line's first separator |
+| Callback                  | When it is called                                                                                           | Returns                                                                                                                                                                                                                                                                         | `null` / missing                                                              |
+| ------------------------- | ----------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| `contextAt(text, offset)` | As suggestions open or update, and to place a hovered key; `offset` is the caret's string index             | `{ path, at, prefix }`. `at: "key"`: a key is typed in the object at `path`. `at: "value"`: the caret is in the value of the key that ends `path` (a path ending in an index: an array item). `prefix`: what is typed before the caret, which suggestions filter by and replace | `null`: nothing to suggest there. Missing: the default above                  |
+| `insertKey(key, kind)`    | For each key suggested; `kind` is what the schema expects as its value: `"scalar"`, `"object"` or `"array"` | `{ text, caret }`: the text written, and the caret's string index in it. Lines after the first are indented as the caret's line                                                                                                                                                 | `null`: the key is not suggested. Missing: the entry as `serialize` writes it |
+| `keyAt(text, offset)`     | As the mouse rests on the text; `offset` is the string index under it                                       | `{ key, path, start }`: the key's name, its full path (ending with it), and the string index where it starts                                                                                                                                                                    | `null`: no key there. Missing: the key before the line's first separator      |
 
 Paths are keys and array indices, as `["server", "tls"]`. Keys already
 written in the object at the caret are left out: the editor reads the

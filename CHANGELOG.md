@@ -16,7 +16,8 @@ WebAssembly.
 - YAML, JSON, TOML, HCL and XML, and your own: in Rust through the
   `ConfigLanguage` trait, or in JavaScript with `registerLanguage` (schema
   suggestions and hover included, from `separators` alone for flat formats
-  such as `.env`, or through callbacks for nested ones).
+  such as `.env`, from the brackets, item separator and item marker they
+  declare for values on one line, or through callbacks for nested ones).
 - One JSON Schema drives every language: they all parse into the same data.
   The schema is given as JSON or YAML text.
 - The shared code knows no language's characters: brackets, separators,

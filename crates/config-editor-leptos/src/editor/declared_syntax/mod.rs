@@ -12,7 +12,10 @@ mod save_tests;
 
 use serde_json::Value;
 
-use super::language::{ConfigLanguage, LanguageConfig, LanguageInfo, ParseError, SaveLayout, Span};
+use super::language::{
+    CompletionContext, ConfigLanguage, InsertContext, InsertPlan, LanguageConfig, LanguageInfo,
+    ParseError, SaveLayout, Span, Typing, flat_value_text, flat_write_insert,
+};
 
 /// Dot as declared: `full` with all its syntax, else only its comments and
 /// separator (a host that declares no more).
@@ -89,12 +92,46 @@ impl ConfigLanguage for Dot {
         self.config().flat_value_span(source, pointer)
     }
 
+    /// As the bridge reads a language without `contextAt`; DotBare keeps
+    /// the trait's default, as it declares no brackets to read the caret
+    /// inside the one-line values the shared suggestion cases write.
+    fn completion_context(&self, source: &str, cursor: usize) -> CompletionContext {
+        if self.full {
+            self.config().flat_completion_context(source, cursor)
+        } else {
+            CompletionContext::default()
+        }
+    }
+
+    fn write_insert(
+        &self,
+        key: &str,
+        plan: &InsertPlan<'_>,
+        context: &InsertContext<'_>,
+    ) -> Option<(String, usize)> {
+        flat_write_insert(self, key, plan, context)
+    }
+
+    fn hover_key(&self, line: &str, column: usize) -> Option<(String, usize)> {
+        self.config().flat_hover_key(line, column)
+    }
+
     fn format_value(&self, value: &Value) -> String {
-        self.config().flat_format_value(value)
+        flat_value_text(self, value)
+    }
+
+    fn typing(&self) -> &dyn Typing {
+        self
     }
 
     fn layout(&self) -> &dyn SaveLayout {
         self
+    }
+}
+
+impl Typing for Dot {
+    fn empty_value_slots(&self, language: &dyn ConfigLanguage, text: &str) -> Vec<usize> {
+        language.config().flat_empty_value_slots(text)
     }
 }
 

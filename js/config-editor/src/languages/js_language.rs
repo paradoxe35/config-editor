@@ -7,6 +7,7 @@ use std::ops::Range;
 use config_editor_leptos::language::{
     CompletionContext, ConfigLanguage, Hover, InsertContext, InsertPlan, LanguageConfig,
     LanguageInfo, ParseError, SaveLayout, SchemaPathSegment, Span, Text, Token, TokenKind, Tokens,
+    Typing, flat_value_text, flat_write_insert,
 };
 use js_sys::{Array, Function};
 use serde_json::Value;
@@ -345,7 +346,7 @@ impl ConfigLanguage for JsLanguage {
         if self.has("insertKey") {
             assist::insert_key(self, key, plan, context)
         } else {
-            self.config.get().flat_property_insert(key)
+            flat_write_insert(self, key, plan, context)
         }
     }
 
@@ -355,7 +356,7 @@ impl ConfigLanguage for JsLanguage {
         if self.has("contextAt") {
             value.to_string()
         } else {
-            self.config.get().flat_format_value(value)
+            flat_value_text(self, value)
         }
     }
 
@@ -378,6 +379,10 @@ impl ConfigLanguage for JsLanguage {
         self
     }
 
+    fn typing(&self) -> &dyn Typing {
+        self
+    }
+
     fn layout(&self) -> &dyn SaveLayout {
         self
     }
@@ -394,6 +399,12 @@ impl Text for JsLanguage {
 
     fn string_body_lines(&self, source: &str) -> Vec<Range<usize>> {
         ranges::body_lines(source, &self.multiline(source).strings)
+    }
+}
+
+impl Typing for JsLanguage {
+    fn empty_value_slots(&self, _language: &dyn ConfigLanguage, text: &str) -> Vec<usize> {
+        self.config.get().flat_empty_value_slots(text)
     }
 }
 
