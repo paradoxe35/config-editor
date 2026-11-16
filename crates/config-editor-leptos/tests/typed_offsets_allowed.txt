@@ -1,9 +1,5 @@
 # Files of the crate's own code still allowed plain `usize` offsets in
 # signatures and fields (see `typed_offsets.rs`): `path count why`.
-editor/bridge/links.rs 10 link splices count str bytes as `usize`; to type with the bridge area
-editor/bridge/links/clipboard.rs 1 link splices count str bytes as `usize`; to type with the bridge area
-editor/bridge/links/splices.rs 3 link splices count str bytes as `usize`; to type with the bridge area
-editor/bridge/moved_forms.rs 1 link splices count str bytes as `usize`; to type with the bridge area
 editor/changes/unified.rs 1 still counts in UTF-16 or str `usize` bytes; to type with its area
 editor/comment_scope.rs 4 still counts in UTF-16 or str `usize` bytes; to type with its area
 editor/comment_toggle.rs 4 public `Toggled` edits and selection are `usize` by the public API (crate edge)

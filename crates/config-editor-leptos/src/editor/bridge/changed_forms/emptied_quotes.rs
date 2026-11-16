@@ -4,9 +4,10 @@
 //! empty string is written.
 
 use super::super::changed_scalars;
-use crate::editor::codec;
+use crate::editor::codec::{self, span_text_range};
 use crate::editor::language::ConfigLanguage;
 use crate::editor::paths::FieldPath;
+use crate::editor::text::slice;
 use serde_json::Value;
 
 /// `previous` with each string the edit fills again (empty in `old`, text
@@ -39,7 +40,7 @@ pub(in crate::editor::bridge) fn restored(
     let before = codec::read(host, origin, shape).ok()?;
     let written_in = |text: &str, pointer: &str| {
         let span = host.value_span(text, &FieldPath::from(pointer))?;
-        codec::byte_range(text, span)
+        span_text_range(text, span)
     };
     let mut edits = Vec::new();
     for pointer in changed {
@@ -50,7 +51,11 @@ pub(in crate::editor::bridge) fn restored(
         else {
             continue;
         };
-        let was_text = &origin[was];
+        let (Some(was_text), Some(emptied)) =
+            (slice::slice(origin, was), slice::slice(previous, now))
+        else {
+            continue;
+        };
         let flow = crate::editor::flow_syntax::Flow::of(host);
         let quoted = was_text
             .chars()
@@ -61,7 +66,7 @@ pub(in crate::editor::bridge) fn restored(
                     && was_text.ends_with(quote)
                     && !was_text.contains('\n')
             });
-        let emptied = previous[now.clone()].trim();
+        let emptied = emptied.trim();
         let empty_quotes = emptied.chars().count() == 2
             && emptied
                 .chars()
@@ -74,10 +79,10 @@ pub(in crate::editor::bridge) fn restored(
     if edits.is_empty() {
         return None;
     }
-    edits.sort_by_key(|(range, _)| std::cmp::Reverse(range.start));
+    edits.sort_by_key(|(range, _)| std::cmp::Reverse(range.start()));
     let mut restyled = previous.to_string();
     for (range, text) in edits {
-        restyled.replace_range(range, &text);
+        slice::replace(&mut restyled, range, &text)?;
     }
     Some(restyled)
 }

@@ -94,7 +94,7 @@ use super::history::Selection;
 use super::input::UNKNOWN_SELECTION;
 use super::languages::Language;
 use super::state::{EditorState, directed_selection};
-use super::text::{TextRange, TextSize, byte_of, text_size};
+use super::text::{TextRange, TextSize, byte_of};
 
 /// A change to the document: the text before, what the edit did to it
 /// (the text after is made from that), the selection it was made on,
@@ -669,25 +669,21 @@ pub(super) fn change_of_splices(
     // Where each splice's text lands in the text after: what the ones
     // before it wrote, less what they removed (kept as two sums, so no
     // step goes below zero).
-    let (mut grown, mut shrunk) = (0usize, 0usize);
+    let (mut grown, mut shrunk) = (TextSize::default(), TextSize::default());
     let mut moved = Vec::new();
     for splice in splices {
-        let at = (splice.at + grown).checked_sub(shrunk)?;
+        let at = (splice.range.start() + grown).checked_sub(shrunk)?;
         moved.extend(splice.moved.iter().map(|piece| Moved {
-            from: text_size(piece.from),
-            len: text_size(piece.len),
-            to: text_size(at + piece.to),
+            to: at + piece.to,
+            ..*piece
         }));
-        grown += splice.inserted.len();
-        shrunk += splice.removed;
+        grown += TextSize::of(splice.inserted.as_str());
+        shrunk += splice.range.len();
     }
-    let edits = splices.iter().map(|splice| {
-        let start = TextSize::try_from(splice.at).ok()?;
-        let len = TextSize::try_from(splice.removed).ok()?;
-        Some((TextRange::at(start, len), splice.inserted.clone()))
-    });
-    let edits: Option<Vec<_>> = edits.collect();
-    Some(Change::of_ranges(TextSize::of(before), edits?)?.with_moved(moved))
+    let edits = splices
+        .iter()
+        .map(|splice| (splice.range, splice.inserted.clone()));
+    Some(Change::of_ranges(TextSize::of(before), edits)?.with_moved(moved))
 }
 
 impl EditorState {

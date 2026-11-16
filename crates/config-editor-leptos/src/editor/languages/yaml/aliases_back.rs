@@ -68,7 +68,8 @@ fn written_out(source: &str, pointer: &str) -> Option<std::ops::Range<usize>> {
     if memo_key_span(&YamlBehavior, source, pointer)?.line != span.line {
         return None;
     }
-    let range = crate::editor::codec::byte_range(source, span)?;
+    let range: std::ops::Range<usize> =
+        crate::editor::codec::span_text_range(source, span)?.into();
     let text = &source[range.clone()];
     (!text.trim().is_empty() && !text.starts_with(['|', '>', '*', '&', '!'])).then_some(range)
 }

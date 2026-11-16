@@ -5,6 +5,8 @@
 //! reading the text from the top for each one (a pause growing with the
 //! square of the document's length).
 
+#![allow(clippy::string_slice, reason = "the tests cut their own texts")]
+
 use serde_json::{Value, json};
 
 use super::super::Bridge;

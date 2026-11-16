@@ -4,55 +4,45 @@
 //! ([`Edit::made`]): said by the code making it, or read off the two texts
 //! at the edge that made it (input the browser did not say enough of).
 
-use super::super::super::edit::{Edit, Origin};
+use super::super::super::edit::{Edit, Moved, Origin};
+use super::super::super::text::{TextRange, TextSize, slice, text_size};
 use super::Clipboard;
 
-/// `removed` bytes at byte `at` of the text before, replaced by
-/// `inserted`: an edit's record, as the command making it gives it
-/// ([`Edit::splicing`]).
+/// `range` of the text before (bytes), replaced by `inserted`: an edit's
+/// record, as the command making it gives it ([`Edit::splicing`]).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Splice {
-    pub(crate) at: usize,
-    pub(crate) removed: usize,
+    pub(crate) range: TextRange,
     pub(crate) inserted: String,
     /// Text of the text before written again in `inserted` (moved or
-    /// copied): its links go with it.
+    /// copied), each stretch's `to` from the start of `inserted`: its
+    /// links go with it.
     pub(crate) moved: Vec<Moved>,
 }
 
-/// `len` bytes at `from` of the text before, written at `to` of a
-/// splice's inserted text.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct Moved {
-    pub(crate) from: usize,
-    pub(crate) len: usize,
-    pub(crate) to: usize,
-}
-
 /// Where each line of `text` starts, and its end.
-fn starts(text: &str) -> Vec<usize> {
-    std::iter::once(0)
-        .chain(text.match_indices('\n').map(|(at, _)| at + 1))
-        .chain(std::iter::once(text.len() + 1))
+fn starts(text: &str) -> Vec<TextSize> {
+    std::iter::once(TextSize::default())
+        .chain(text.match_indices('\n').map(|(at, _)| text_size(at + 1)))
+        .chain(std::iter::once(TextSize::of(text) + TextSize::from(1)))
         .collect()
 }
 
 impl Splice {
-    /// `at..at + removed` replaced by `inserted`.
+    /// `range` replaced by `inserted`.
     #[cfg(test)]
     #[allow(dead_code, reason = "used by the tests of some builds only")]
-    pub(crate) fn replace(at: usize, removed: usize, inserted: impl Into<String>) -> Self {
+    pub(crate) fn replace(range: TextRange, inserted: impl Into<String>) -> Self {
         Splice {
-            at,
-            removed,
+            range,
             inserted: inserted.into(),
             moved: Vec::new(),
         }
     }
 
     /// The splices of a command that knows each range it replaced (byte
-    /// ranges of the text before, sorted and apart): an indent's lines, a
-    /// Replace all's matches.
+    /// ranges of the text before as the tests find them, sorted and
+    /// apart): an indent's lines, a Replace all's matches.
     #[cfg(test)]
     #[allow(dead_code, reason = "used by the tests of some builds only")]
     pub(crate) fn each(
@@ -61,7 +51,9 @@ impl Splice {
         edits
             .into_iter()
             .filter(|(range, inserted)| !range.is_empty() || !inserted.is_empty())
-            .map(|(range, inserted)| Splice::replace(range.start, range.len(), inserted))
+            .map(|(range, inserted)| {
+                Splice::replace(super::super::super::text::byte_range(range), inserted)
+            })
             .collect()
     }
 
@@ -71,13 +63,16 @@ impl Splice {
     #[allow(dead_code, reason = "used by the tests of some builds only")]
     pub(crate) fn make(before: &str, splices: &[Splice]) -> Option<String> {
         let mut out = String::with_capacity(before.len());
-        let mut at = 0;
+        let mut at = TextSize::default();
         for splice in splices {
-            out.push_str(before.get(at..splice.at)?);
+            out.push_str(slice::slice(
+                before,
+                TextRange::new(at, splice.range.start()),
+            )?);
             out.push_str(&splice.inserted);
-            at = splice.at.checked_add(splice.removed)?;
+            at = splice.range.end();
         }
-        out.push_str(before.get(at..)?);
+        out.push_str(slice::after(before, at)?);
         Some(out)
     }
 
@@ -93,8 +88,8 @@ impl Splice {
         let first = pieces.iter().map(|(from, _, to)| (*from).min(*to)).min()?;
         let old_end = pieces.iter().map(|(from, count, _)| from + count).max()?;
         let new_end = pieces.iter().map(|(_, count, to)| to + count).max()?;
-        let byte = |starts: &[usize], text: &str, line: usize| {
-            starts.get(line).map(|at| (*at).min(text.len()))
+        let byte = |starts: &[TextSize], text: &str, line: usize| {
+            starts.get(line).map(|at| (*at).min(TextSize::of(text)))
         };
         let (at, end) = (byte(&old, before, first)?, byte(&old, before, old_end)?);
         let (from, to) = (byte(&new, after, first)?, byte(&new, after, new_end)?);
@@ -103,7 +98,11 @@ impl Splice {
             .filter_map(|&(line, count, place)| {
                 let start = byte(&old, before, line)?;
                 // To the end of its last line's text.
-                let end = old.get(line + count)?.saturating_sub(1).min(before.len());
+                let end = old
+                    .get(line + count)?
+                    .checked_sub(TextSize::from(1))
+                    .unwrap_or_default()
+                    .min(TextSize::of(before));
                 Some(Moved {
                     from: start,
                     len: end.checked_sub(start)?,
@@ -111,10 +110,12 @@ impl Splice {
                 })
             })
             .collect();
+        if end < at || to < from {
+            return None;
+        }
         Some(Splice {
-            at,
-            removed: end - at,
-            inserted: after.get(from..to)?.to_string(),
+            range: TextRange::new(at, end),
+            inserted: slice::slice(after, TextRange::new(from, to))?.to_string(),
             moved,
         })
     }
@@ -130,7 +131,8 @@ pub(crate) enum Inserted {
     /// Replace): no item's.
     Generated,
     /// Text of the text before, moved or copied by the edit (a line
-    /// command): the links of that text go with it.
+    /// command), each stretch's `to` from the start of the piece's
+    /// inserted text: the links of that text go with it.
     Moved(Vec<Moved>),
     /// The editor's own record of copied or removed text, pasted or
     /// dropped: the record's links.
@@ -142,20 +144,19 @@ pub(crate) enum Inserted {
     Reindented,
 }
 
-/// One piece of an edit: `removed` bytes at `at` of the text before,
-/// replaced by `inserted`, which came from `source`.
+/// One piece of an edit: `range` of the text before (bytes), replaced by
+/// `inserted`, which came from `source`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Piece {
-    pub(crate) at: usize,
-    pub(crate) removed: usize,
+    pub(crate) range: TextRange,
     pub(crate) inserted: String,
     pub(crate) source: Inserted,
 }
 
 impl Piece {
-    /// The end of what it removes.
-    pub(crate) fn end(&self) -> usize {
-        self.at + self.removed
+    /// The length of what it writes.
+    pub(crate) fn inserted_len(&self) -> TextSize {
+        TextSize::of(self.inserted.as_str())
     }
 }
 
@@ -184,26 +185,28 @@ pub(crate) fn pieces(edit: &Edit, clipboard: &Clipboard) -> Vec<Piece> {
     let moved = change.moved();
     let pasting = pastes(edit);
     let typed = matches!(edit.origin, Origin::Input { .. }) && !pasting;
-    let mut shift: isize = 0;
+    // Where each replacement's text lands in the text after: what the ones
+    // before it wrote, less what they removed (kept as two sums, so no
+    // step goes below zero).
+    let (mut grown, mut shrunk) = (TextSize::default(), TextSize::default());
     let mut out = Vec::new();
     for (range, inserted) in change.edits() {
-        let range = std::ops::Range::<usize>::from(range);
-        let at_after = range.start.wrapping_add_signed(shift);
-        shift += inserted.len() as isize - range.len() as isize;
+        let Some(at_after) = (range.start() + grown).checked_sub(shrunk) else {
+            continue;
+        };
+        let written = TextRange::at(at_after, TextSize::of(inserted));
+        grown += TextSize::of(inserted);
+        shrunk += range.len();
         let carried: Vec<Moved> = moved
             .iter()
-            .map(|stretch| Moved {
-                from: usize::from(stretch.from),
-                len: usize::from(stretch.len),
-                to: usize::from(stretch.to),
-            })
-            .filter(|stretch| at_after <= stretch.to && stretch.to < at_after + inserted.len())
+            .filter(|stretch| written.contains(stretch.to))
             .map(|stretch| Moved {
                 to: stretch.to - at_after,
-                ..stretch
+                ..*stretch
             })
             .collect();
-        let removed = &before[range.clone()];
+        // The change's ranges are of `before`, on its characters.
+        let removed = slice::slice(before, range).unwrap_or_default();
         let source = if !carried.is_empty() {
             Inserted::Moved(carried)
         } else if pasting && clipboard.holds(inserted) {
@@ -218,8 +221,7 @@ pub(crate) fn pieces(edit: &Edit, clipboard: &Clipboard) -> Vec<Piece> {
             Inserted::Generated
         };
         let piece = Piece {
-            at: range.start,
-            removed: range.len(),
+            range,
             inserted: inserted.to_string(),
             source,
         };
@@ -227,7 +229,7 @@ pub(crate) fn pieces(edit: &Edit, clipboard: &Clipboard) -> Vec<Piece> {
             Inserted::Typed | Inserted::Generated | Inserted::External => piece.narrowed(before),
             _ => piece,
         };
-        if piece.removed > 0 || !piece.inserted.is_empty() {
+        if !piece.range.is_empty() || !piece.inserted.is_empty() {
             out.push(piece);
         }
     }
@@ -238,7 +240,9 @@ impl Piece {
     /// The same piece of `before` without the text it writes back as it
     /// was at either end.
     fn narrowed(self, before: &str) -> Piece {
-        let removed = &before[self.at..self.end()];
+        let Some(removed) = slice::slice(before, self.range) else {
+            return self;
+        };
         let inserted = self.inserted.as_str();
         let mut prefix = removed
             .bytes()
@@ -248,7 +252,13 @@ impl Piece {
         while !removed.is_char_boundary(prefix) || !inserted.is_char_boundary(prefix) {
             prefix -= 1;
         }
-        let (removed_rest, inserted_rest) = (&removed[prefix..], &inserted[prefix..]);
+        let prefix = text_size(prefix);
+        let (Some(removed_rest), Some(inserted_rest)) = (
+            slice::after(removed, prefix),
+            slice::after(inserted, prefix),
+        ) else {
+            return self;
+        };
         let mut suffix = removed_rest
             .bytes()
             .rev()
@@ -260,10 +270,16 @@ impl Piece {
         {
             suffix -= 1;
         }
+        let suffix = text_size(suffix);
+        let kept = TextSize::of(inserted_rest) - suffix;
         Piece {
-            at: self.at + prefix,
-            removed: removed_rest.len() - suffix,
-            inserted: inserted_rest[..inserted_rest.len() - suffix].to_string(),
+            range: TextRange::at(
+                self.range.start() + prefix,
+                TextSize::of(removed_rest) - suffix,
+            ),
+            inserted: slice::before(inserted_rest, kept)
+                .unwrap_or_default()
+                .to_string(),
             source: self.source,
         }
     }

@@ -9,10 +9,11 @@
 
 use crate::editor::Language;
 use crate::editor::bridge::WHOLE_RENDERS;
-use crate::editor::codec::written_range;
+use crate::editor::codec::written_text_range;
 use crate::editor::language::{pointer_key, unescaped_key};
 use crate::editor::paths::FieldPath;
 use crate::editor::save_matrix::{ALL, find_slot, report, save_conversion};
+use crate::editor::text::slice;
 use serde_json::{Map, Value};
 
 /// Hosts without comments, each holding every form of value its language
@@ -154,8 +155,8 @@ fn moved_to(pointer: &str, touched: &str, op: Op) -> Option<String> {
 fn written(host: Language, text: &str, pointer: &str) -> Option<String> {
     let behavior = host.behavior();
     let span = behavior.value_span(text, &FieldPath::from(pointer))?;
-    let range = written_range(behavior, text, span)?;
-    Some(text[range].to_string())
+    let range = written_text_range(behavior, text, span)?;
+    slice::slice(text, range).map(str::to_string)
 }
 
 /// Whether a save waited on what the view or the host holds no form for:

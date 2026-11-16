@@ -1,8 +1,11 @@
 //! The links follow each kind of edit as it is made, in a YAML view.
 
+#![allow(clippy::string_slice, reason = "the tests cut their own texts")]
+
 use super::super::super::edit::Edit;
 use super::super::super::item_sources::ItemSource;
 use super::super::super::languages::Language;
+use super::super::super::text;
 use super::super::super::work_count::{Work, counted};
 use super::{Clipboard, Links, Splice, pieces};
 use std::collections::HashMap;
@@ -11,7 +14,7 @@ const HOST: &str = "the host's text";
 
 /// An edit of `text`: `from..to` replaced by `inserted`.
 fn splice(from: usize, to: usize, inserted: &str) -> Splice {
-    Splice::replace(from, to - from, inserted)
+    Splice::replace(text::byte_range(from..to), inserted)
 }
 
 /// Every `from` in `text` replaced by `to`, each its own splice (as
@@ -61,9 +64,10 @@ impl View {
     }
 
     fn copy(&mut self, from: usize, to: usize) {
-        let copied = self
-            .links
-            .copied((Language::YAML.behavior(), &self.text), from, to);
+        let copied = self.links.copied(
+            (Language::YAML.behavior(), &self.text),
+            text::byte_range(from..to),
+        );
         self.clipboard.copied(&self.text[from..to], copied);
     }
 

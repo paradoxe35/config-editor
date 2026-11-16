@@ -4,6 +4,16 @@
 //! The host's text (`value`, `baseline`, `initial_value`) is shown converted;
 //! edits convert back before `on_change`, keeping the host's framing. Both
 //! directions go through `codec`, so no language needs bridge support.
+//!
+//! Positions in the texts are bytes (`TextSize`, `TextRange`), cut through
+//! `text::slice`; a language hook's `usize` bytes convert where they come
+//! in.
+
+#![deny(
+    clippy::string_slice,
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss
+)]
 
 use super::Language;
 use super::byte_order_mark;
@@ -1125,8 +1135,8 @@ fn located(
         {
             break Some(span);
         }
-        match at.rfind('/') {
-            Some(parent) if parent > 0 => at = &at[..parent],
+        match at.rsplit_once('/') {
+            Some((parent, _)) if !parent.is_empty() => at = parent,
             _ => break behavior.first_span(source),
         }
     };
@@ -1219,6 +1229,7 @@ fn in_order_of(value: serde_json::Value, order: &serde_json::Value) -> serde_jso
     feature = "hcl",
     feature = "xml"
 ))]
+#[allow(clippy::string_slice, reason = "the tests cut their own texts")]
 mod tests {
     use super::super::Language;
     use super::super::diagnostics::{Diagnostic, Severity};

@@ -8,6 +8,7 @@
 //! indent, or indented after). Any other text (an external paste) takes
 //! none, and its items are new.
 
+use super::super::super::text::{TextRange, TextSize};
 use super::{Link, Source};
 use std::sync::Arc;
 
@@ -20,16 +21,15 @@ const MOST_BYTES: usize = 8 * 1024 * 1024;
 /// trailing blanks: what a record is matched by.
 struct Shape {
     key: String,
-    /// Where each of those lines' text starts in the text, and how long
-    /// it is.
-    starts: Vec<(usize, usize)>,
+    /// Where each of those lines' text is in the text.
+    starts: Vec<TextRange>,
 }
 
 impl Shape {
     fn of(text: &str) -> Option<Shape> {
         let mut key = String::new();
         let mut starts = Vec::new();
-        let mut at = 0;
+        let mut at = TextSize::default();
         for line in text.split('\n') {
             let content = line.trim();
             if !content.is_empty() {
@@ -37,35 +37,38 @@ impl Shape {
                     key.push('\n');
                 }
                 key.push_str(content);
-                starts.push((at + line.len() - line.trim_start().len(), content.len()));
+                let indent = TextSize::of(line) - TextSize::of(line.trim_start());
+                starts.push(TextRange::at(at + indent, TextSize::of(content)));
             }
-            at += line.len() + 1;
+            at += TextSize::of(line) + TextSize::from(1);
         }
         (!starts.is_empty()).then_some(Shape { key, starts })
     }
 
-    /// `offset` of the text as a line of the shape and a character in its
+    /// `offset` of the text as a line of the shape and a byte in its
     /// text (in a blank margin: that text's nearest end).
-    fn place(&self, offset: usize, end: bool) -> (usize, usize) {
+    fn place(&self, offset: TextSize, end: bool) -> (usize, TextSize) {
         let line = self
             .starts
-            .partition_point(|(start, _)| *start < offset + usize::from(!end))
+            .partition_point(|start| start.start() < offset + TextSize::from(u32::from(!end)))
             .saturating_sub(1);
-        let (start, length) = self.starts[line];
-        (line, offset.saturating_sub(start).min(length))
+        let text = self.starts[line];
+        let column = offset.checked_sub(text.start()).unwrap_or_default();
+        (line, column.min(text.len()))
     }
 
-    /// The offset of a line of the shape's character.
-    fn offset(&self, (line, column): (usize, usize)) -> usize {
-        self.starts[line].0 + column
+    /// The offset of a line of the shape's byte.
+    fn offset(&self, (line, column): (usize, TextSize)) -> TextSize {
+        self.starts[line].start() + column
     }
 }
 
-/// A record's link: its start's and its end's line and character.
+/// A record's link: its start's and its end's line (of the shape) and
+/// byte in that line's text.
 #[derive(Clone, Debug)]
 struct Placed {
-    start: (usize, usize),
-    end: (usize, usize),
+    start: (usize, TextSize),
+    end: (usize, TextSize),
     source: Arc<Source>,
 }
 
@@ -81,8 +84,8 @@ fn placed(text: &str, links: Vec<Link>) -> Option<(String, Vec<Placed>)> {
     let links = links
         .into_iter()
         .map(|link| Placed {
-            start: shape.place(link.start, false),
-            end: shape.place(link.end, true),
+            start: shape.place(link.range.start(), false),
+            end: shape.place(link.range.end(), true),
             source: link.source,
         })
         .collect();
@@ -94,12 +97,13 @@ fn placed(text: &str, links: Vec<Link>) -> Option<(String, Vec<Placed>)> {
 fn put(shape: &Shape, links: &[Placed]) -> Vec<Link> {
     links
         .iter()
-        .map(|link| Link {
-            start: shape.offset(link.start),
-            end: shape.offset(link.end),
-            source: link.source.clone(),
+        .filter_map(|link| {
+            let (start, end) = (shape.offset(link.start), shape.offset(link.end));
+            (start < end).then(|| Link {
+                range: TextRange::new(start, end),
+                source: link.source.clone(),
+            })
         })
-        .filter(|link| link.start < link.end)
         .collect()
 }
 
@@ -147,10 +151,10 @@ impl Clipboard {
 
     /// `text` copied with the links `links` (from its start, as
     /// [`super::Links::copied`] reads them).
-    pub(crate) fn copied(&mut self, text: &str, links: Vec<(usize, usize, Arc<Source>)>) {
+    pub(crate) fn copied(&mut self, text: &str, links: Vec<(TextRange, Arc<Source>)>) {
         let links = links
             .into_iter()
-            .map(|(start, end, source)| Link { start, end, source })
+            .map(|(range, source)| Link { range, source })
             .collect();
         self.keep(text, links);
     }

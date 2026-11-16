@@ -19,7 +19,7 @@ use super::languages::Language;
 use super::paths::TextPosition;
 use super::schema::SchemaBundle;
 use super::state::{EditorState, textarea_selection};
-use crate::editor::text::{TextSize, byte_of, utf16_of};
+use crate::editor::text::{TextRange, TextSize, byte_of, utf16_of};
 use crate::reactive::later;
 
 mod echoes;
@@ -377,10 +377,14 @@ impl EditorState {
         } else {
             self.sync().links.get_value()
         };
-        let copied = self
-            .doc()
-            .text
-            .with_untracked(|current| links.copied((language, current), start.into(), end.into()));
+        // A selection from its end copies no link.
+        let copied = if start <= end {
+            self.doc().text.with_untracked(|current| {
+                links.copied((language, current), TextRange::new(start, end))
+            })
+        } else {
+            Vec::new()
+        };
         if !own {
             self.sync().links.set_value(links);
         }

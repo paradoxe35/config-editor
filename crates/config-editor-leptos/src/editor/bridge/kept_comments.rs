@@ -24,10 +24,9 @@ use super::super::language::{ConfigLanguage, Span, pointer_key};
 use super::super::paths;
 use super::ItemMap;
 use crate::editor::paths::FieldPath;
-use crate::editor::text::text_size;
+use crate::editor::text::{TextRange, TextSize, checked_range, slice, text_size};
 use serde_json::Value;
 use std::collections::{BTreeMap, HashMap};
-use std::ops::Range;
 
 /// A comment's words: its text without the language's markers, each run
 /// of blanks as one space.
@@ -49,23 +48,33 @@ fn words(language: &dyn ConfigLanguage, comment: &str) -> String {
     text.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
+/// The comments `text` writes (in `language`), each with its place: the
+/// language's hook gives `usize` byte ranges.
+fn comments<'t>(language: &dyn ConfigLanguage, text: &'t str) -> Vec<(TextRange, &'t str)> {
+    language
+        .comments(text)
+        .iter()
+        .filter_map(|range| {
+            let range = checked_range(range)?;
+            Some((range, slice::slice(text, range)?))
+        })
+        .collect()
+}
+
 /// The words of each comment `text` writes, with how many write them.
 fn counted(language: &dyn ConfigLanguage, text: &str) -> HashMap<String, usize> {
     let mut counts = HashMap::new();
-    for range in language.comments(text) {
-        if let Some(comment) = text.get(range) {
-            *counts.entry(words(language, comment)).or_insert(0) += 1;
-        }
+    for (_, comment) in comments(language, text) {
+        *counts.entry(words(language, comment)).or_insert(0) += 1;
     }
     counts
 }
 
 /// The comments `text` writes, by their words (see [`words`]).
 pub(super) fn comment_words(language: &dyn ConfigLanguage, text: &str) -> Vec<String> {
-    language
-        .comments(text)
+    comments(language, text)
         .into_iter()
-        .filter_map(|range| text.get(range).map(|comment| words(language, comment)))
+        .map(|(_, comment)| words(language, comment))
         .collect()
 }
 
@@ -104,19 +113,27 @@ fn indent(line: &str) -> usize {
 /// `lines` starting at `starts`) belongs to, of the lines that write an
 /// item (`items`, by line); `None` when no line writes one.
 fn owner_line(
-    (lines, starts): (&[&str], &[usize]),
+    (lines, starts): (&[&str], &[TextSize]),
     items: &BTreeMap<usize, Vec<&String>>,
-    comment: &Range<usize>,
+    comment: TextRange,
 ) -> Option<usize> {
-    let line_of = |at: usize| starts.partition_point(|start| *start <= at) - 1;
-    let first = line_of(comment.start);
-    let last = line_of(comment.end.saturating_sub(1).max(comment.start));
-    let before = &lines[first][..comment.start - starts[first]];
+    let line_of = |at: TextSize| starts.partition_point(|start| *start <= at) - 1;
+    let first = line_of(comment.start());
+    let last_byte = comment
+        .end()
+        .checked_sub(TextSize::from(1))
+        .unwrap_or_default();
+    let last = line_of(last_byte.max(comment.start()));
+    let before = slice::before(lines[first], comment.start() - starts[first]).unwrap_or_default();
     if !before.trim().is_empty() {
         return Some(first);
     }
-    let after_end = (comment.end - starts[last]).min(lines[last].len());
-    if !lines[last][after_end..].trim().is_empty() {
+    let after_end = (comment.end() - starts[last]).min(TextSize::of(lines[last]));
+    if !slice::after(lines[last], after_end)
+        .unwrap_or_default()
+        .trim()
+        .is_empty()
+    {
         return Some(last);
     }
     let above = items.range(..first).next_back().map(|(line, _)| *line);
@@ -144,16 +161,23 @@ fn kept(
     // item the links do not tell is told by what it holds: an index
     // another item takes after a removal is not it.
     let mut now = String::new();
+    // Where each step of the pointer ends (at the next `/`).
+    let ends = pointer
+        .match_indices('/')
+        .map(|(slash, _)| slash)
+        .chain(std::iter::once(pointer.len()))
+        .filter(|end| *end > 0);
     let mut at = 0;
-    while at < pointer.len() {
-        let end = pointer[at + 1..]
-            .find('/')
-            .map_or(pointer.len(), |next| at + 1 + next);
-        let (prefix, parent) = (&pointer[..end], &pointer[..at]);
+    for end in ends {
+        let (Some(prefix), Some(parent), Some(step)) =
+            (pointer.get(..end), pointer.get(..at), pointer.get(at..end))
+        else {
+            return false;
+        };
         match moved.and_then(|moved| moved.get(prefix)) {
             Some(to) => now = (*to).to_string(),
             None => {
-                now.push_str(&pointer[at..end]);
+                now.push_str(step);
                 let in_list = old.pointer(parent).is_some_and(Value::is_array);
                 if in_list && intended.pointer(&now) != old.pointer(prefix) {
                     return false;
@@ -184,13 +208,9 @@ pub(super) fn first_lost(
     deleted: &dyn Fn(&str) -> bool,
 ) -> Option<(String, String)> {
     let mut left = counted(host, saved);
-    let comments = host.comments(previous);
     // Only comments the save no longer writes as often need an owner.
     let mut missing = Vec::new();
-    for range in comments {
-        let Some(comment) = previous.get(range.clone()) else {
-            continue;
-        };
+    for (range, comment) in comments(host, previous) {
         let words = words(host, comment);
         match left.get_mut(&words) {
             Some(count) if *count > 0 => *count -= 1,
@@ -247,10 +267,10 @@ pub(super) fn first_lost(
     });
     let lines: Vec<&str> = previous.split('\n').collect();
     let mut starts = Vec::with_capacity(lines.len());
-    let mut at = 0;
+    let mut at = TextSize::default();
     for line in &lines {
         starts.push(at);
-        at += line.len() + 1;
+        at += TextSize::of(*line) + TextSize::from(1);
     }
     let moved: Option<HashMap<&str, &str>> = items.map(|items| {
         items
@@ -262,7 +282,7 @@ pub(super) fn first_lost(
             .collect()
     });
     missing.into_iter().find_map(|(range, words)| {
-        let line = owner_line((&lines, &starts), &on_line, &range)?;
+        let line = owner_line((&lines, &starts), &on_line, range)?;
         let items = on_line.get(&line)?;
         items
             .iter()

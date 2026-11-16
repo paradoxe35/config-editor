@@ -8,10 +8,11 @@
 //! that source, and the save takes the host's value, which the host's
 //! writers keep as written. A scalar typed otherwise is the user's value.
 
-use super::super::super::codec;
+use super::super::super::codec::{self, written_text_range};
 use super::super::super::language::{ConfigLanguage, pointer_key};
 use super::super::super::parse_cache;
 use super::super::super::paths;
+use super::super::super::text::slice;
 use super::told::same_keys;
 use super::{Links, Source};
 use serde_json::Value;
@@ -77,7 +78,7 @@ fn written<'t>(
             .map(|pointer| {
                 let span = paths::memo_value_span(language, text, pointer)
                     .or_else(|| codec::inline_location(language, text, pointer, false))?;
-                text.get(codec::written_range(language, text, span)?)
+                slice::slice(text, written_text_range(language, text, span)?)
             })
             .collect()
     })
@@ -142,9 +143,9 @@ impl Links {
                             if let Some(source) = sources.get(item) {
                                 break source;
                             }
-                            item = &item[..item.rfind('/')?];
+                            item = item.rsplit_once('/')?.0;
                         };
-                        let rest = &pointer[item.len()..];
+                        let rest = pointer.strip_prefix(item).unwrap_or_default();
                         let shown = source
                             .shown
                             .as_ref()

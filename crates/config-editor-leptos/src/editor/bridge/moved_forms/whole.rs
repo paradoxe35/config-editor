@@ -8,31 +8,31 @@
 //! written, where that text reads back the same there; else its scalars
 //! are written back one by one (see `kept`).
 
-use super::super::super::codec::{self, byte_range, written_range};
+use super::super::super::codec::{self, span_text_range, written_text_range};
 use super::super::super::item_sources::SaveTold;
 use super::super::super::language::{ConfigLanguage, pointer_key};
 use super::super::super::paths;
-use super::{Moved, line_indent, reindented};
+use super::super::super::text::{TextRange, TextSize, slice, text_size};
+use super::{Moved, indent_of, line_indent, reindented};
 use crate::editor::paths::FieldPath;
 use serde_json::Value;
-use std::ops::Range;
 
 /// A text split in lines once, for every item placed in it.
 struct Lines<'a> {
     text: &'a str,
     lines: Vec<&'a str>,
     /// Where each line starts.
-    starts: Vec<usize>,
+    starts: Vec<TextSize>,
 }
 
 impl<'a> Lines<'a> {
     fn of(text: &'a str) -> Self {
         let lines: Vec<&str> = text.split('\n').collect();
         let mut starts = Vec::with_capacity(lines.len());
-        let mut at = 0;
+        let mut at = TextSize::default();
         for line in &lines {
             starts.push(at);
-            at += line.len() + 1;
+            at += TextSize::of(*line) + TextSize::from(1);
         }
         Lines {
             text,
@@ -48,38 +48,37 @@ enum Place {
     /// right above it, its own, and those its value runs on): from the
     /// first one's first character that is not blank to the end of the
     /// last.
-    Lines(Range<usize>),
+    Lines(TextRange),
     /// Sharing its line (in a container written on one line): from its
     /// key's start (a list item's: its value's) to its value's end.
-    Inline(Range<usize>),
+    Inline(TextRange),
 }
 
 /// Where the item at `pointer` is written in `text`.
 fn place(host: &dyn ConfigLanguage, text: &Lines<'_>, pointer: &str) -> Option<Place> {
     if let Some(lines) = codec::own_lines(host, text.text, &text.lines, pointer) {
         let first = text.lines[lines.start];
-        let start = text.starts[lines.start] + first.len() - first.trim_start().len();
+        let start = text.starts[lines.start] + TextSize::of(indent_of(first));
         let last = lines.end - 1;
-        return Some(Place::Lines(
-            start..text.starts[last] + text.lines[last].len(),
-        ));
+        let end = text.starts[last] + TextSize::of(text.lines[last]);
+        return Some(Place::Lines(TextRange::new(start, end.max(start))));
     }
     inline(host, text, pointer).map(Place::Inline)
 }
 
 /// The bytes of the item at `pointer` in `text` from its key's start (a
 /// list item's: its value's) to its value's end.
-fn inline(host: &dyn ConfigLanguage, text: &Lines<'_>, pointer: &str) -> Option<Range<usize>> {
+fn inline(host: &dyn ConfigLanguage, text: &Lines<'_>, pointer: &str) -> Option<TextRange> {
     // A member of a container written inline is found in it, its key
     // with its quotes.
     let value = codec::inline_location(host, text.text, pointer, false)
         .or_else(|| paths::memo_value_span(host, text.text, pointer))?;
-    let value = written_range(host, text.text, value)?;
+    let value = written_text_range(host, text.text, value)?;
     let start = codec::inline_location(host, text.text, pointer, true)
         .or_else(|| paths::memo_key_span(host, text.text, pointer))
-        .and_then(|key| byte_range(text.text, key))
-        .map_or(value.start, |key| key.start.min(value.start));
-    Some(start..value.end)
+        .and_then(|key| span_text_range(text.text, key))
+        .map_or(value.start(), |key| key.start().min(value.start()));
+    Some(TextRange::new(start, value.end()))
 }
 
 /// The write of the item `item` at its place in `text` as its source
@@ -93,23 +92,23 @@ fn write(
     text: &Lines<'_>,
     source: &Lines<'_>,
     item: &Moved<'_>,
-) -> Option<(Range<usize>, String)> {
+) -> Option<(TextRange, String)> {
     // The source's text from `was`, its key written as the place's (a
     // key renamed in the view keeps its new name).
-    let renamed = |was: &Range<usize>, now: &Range<usize>| -> Option<String> {
+    let renamed = |was: TextRange, now: TextRange| -> Option<String> {
         let key = |text: &str, pointer: &str| {
-            paths::memo_key_span(host, text, pointer).and_then(|key| byte_range(text, key))
+            paths::memo_key_span(host, text, pointer).and_then(|key| span_text_range(text, key))
         };
-        let mut written = source.text[was.clone()].to_string();
+        let mut written = slice::slice(source.text, was)?.to_string();
         if let (Some(old), Some(new)) = (key(source.text, &item.from), key(text.text, &item.to)) {
-            if old.start < was.start
-                || old.end > was.end
-                || new.start < now.start
-                || new.end > now.end
-            {
+            if !was.contains_range(old) || !now.contains_range(new) {
                 return None;
             }
-            written.replace_range(old.start - was.start..old.end - was.start, &text.text[new]);
+            slice::replace(
+                &mut written,
+                old - was.start(),
+                slice::slice(text.text, new)?,
+            )?;
         }
         Some(written)
     };
@@ -118,9 +117,9 @@ fn write(
         place(host, source, &item.from)?,
     ) {
         (Place::Lines(now), Place::Lines(was)) => {
-            let written = renamed(&was, &now)?;
+            let written = renamed(was, now)?;
             let written = written.as_str();
-            let place_last = &text.text[now.clone()]
+            let place_last = slice::slice(text.text, now)?
                 .rsplit('\n')
                 .next()
                 .unwrap_or_default();
@@ -133,13 +132,13 @@ fn write(
                 Some(head) => format!("{head}\n{last}"),
                 None => last,
             };
-            let indent = line_indent(text.text, now.start);
-            let from = line_indent(source.text, was.start);
+            let indent = line_indent(text.text, now.start());
+            let from = line_indent(source.text, was.start());
             let written = reindented(&written, from, indent);
             // The comment lines the place has above the item that its
             // source has not (another item's, which the save put there)
             // stay.
-            let above = |lines: &Lines<'_>, start: usize, pointer: &str| -> Vec<String> {
+            let above = |lines: &Lines<'_>, start: TextSize, pointer: &str| -> Vec<String> {
                 let top = lines.starts.partition_point(|at| *at <= start) - 1;
                 first_line(host, lines.text, pointer)
                     .filter(|first| *first >= top)
@@ -151,8 +150,8 @@ fn write(
                     })
                     .unwrap_or_default()
             };
-            let theirs = above(source, was.start, &item.from);
-            let others: Vec<String> = above(text, now.start, &item.to)
+            let theirs = above(source, was.start(), &item.from);
+            let others: Vec<String> = above(text, now.start(), &item.to)
                 .into_iter()
                 .filter(|line| !theirs.contains(line))
                 .collect();
@@ -164,7 +163,7 @@ fn write(
             (now, written)
         }
         (Place::Inline(now), Place::Inline(was)) => {
-            let written = renamed(&was, &now)?;
+            let written = renamed(was, now)?;
             (now, written)
         }
         // An item its source writes on a line of its own, now sharing
@@ -172,7 +171,7 @@ fn write(
         // its key to its value's end, a value on one line only.
         (Place::Inline(now), Place::Lines(_)) => {
             let was = inline(host, source, &item.from)?;
-            let written = renamed(&was, &now)?;
+            let written = renamed(was, now)?;
             if written.contains('\n') {
                 return None;
             }
@@ -184,11 +183,11 @@ fn write(
         // value's end, over the same part of its place.
         (Place::Lines(_), Place::Inline(was)) => {
             let now = inline(host, text, &item.to)?;
-            let written = renamed(&was, &now)?;
+            let written = renamed(was, now)?;
             (now, written)
         }
     };
-    (text.text[now.clone()] != written).then_some((now, written))
+    (slice::slice(text.text, now)? != written).then_some((now, written))
 }
 
 /// The line (from 0) the item at `pointer` of `text` starts on: its key's,
@@ -212,7 +211,7 @@ fn comments(
     text: &Lines<'_>,
     source: &Lines<'_>,
     item: &Moved<'_>,
-) -> Option<(Range<usize>, String)> {
+) -> Option<(TextRange, String)> {
     let now = codec::own_lines(host, text.text, &text.lines, &item.to)?;
     let was = codec::own_lines(host, source.text, &source.lines, &item.from)?;
     let (first, from) = (
@@ -222,9 +221,11 @@ fn comments(
     if !(now.contains(&first) && was.contains(&from)) {
         return None;
     }
+    // The language's hook gives a `usize` byte of the line.
     let trailing = |line: &'_ str| -> Option<String> {
         host.comment_start(line)
-            .map(|at| line[at..].trim().to_string())
+            .and_then(|at| slice::after(line, text_size(at)))
+            .map(|comment| comment.trim().to_string())
             .filter(|comment| !comment.is_empty())
     };
     let above: Vec<&str> = source.lines[was.start..from]
@@ -232,7 +233,7 @@ fn comments(
         .map(|line| line.trim())
         .collect();
     let line = text.lines[first];
-    let indent = &line[..line.len() - line.trim_start().len()];
+    let indent = indent_of(line);
     let written: Vec<&str> = text.lines[now.start..first]
         .iter()
         .map(|line| line.trim())
@@ -263,7 +264,8 @@ fn comments(
         _ => out.push(line.to_string()),
     }
     let start = text.starts[now.start];
-    changed.then(|| (start..text.starts[first] + line.len(), out.join("\n")))
+    let end = text.starts[first] + TextSize::of(line);
+    changed.then(|| (TextRange::new(start, end.max(start)), out.join("\n")))
 }
 
 /// `work` run while a batch reads each of `texts` (with the spans of its
@@ -308,7 +310,7 @@ pub(super) fn kept(
             sources.push(Lines::of(item.source.text));
         }
     }
-    let write = |text: &Lines<'_>, item: &Moved<'_>| -> Option<(Range<usize>, String)> {
+    let write = |text: &Lines<'_>, item: &Moved<'_>| -> Option<(TextRange, String)> {
         // Not an item whose keys the edit put in another order: its
         // source's text would put them back (the read back compares
         // values, not their order).
@@ -353,7 +355,7 @@ pub(super) fn kept(
     };
     // The text written and every source text (the host's last, an
     // earlier one items were pasted back from) each read once.
-    let batched = |text: &str, work: &dyn Fn() -> Vec<Option<(Range<usize>, String)>>| {
+    let batched = |text: &str, work: &dyn Fn() -> Vec<Option<(TextRange, String)>>| {
         let mut texts: Vec<(&str, Vec<String>)> = vec![(text, spans_of(text, false))];
         for source in &sources {
             texts.push((source.text, spans_of(source.text, true)));
@@ -365,7 +367,7 @@ pub(super) fn kept(
     // reads the same.
     let with_comments = |text: String| -> String {
         let lines = Lines::of(&text);
-        let mut edits: Vec<(Range<usize>, String)> = batched(&text, &|| {
+        let mut edits: Vec<(TextRange, String)> = batched(&text, &|| {
             moved
                 .iter()
                 .map(|item| {
@@ -379,19 +381,18 @@ pub(super) fn kept(
         .into_iter()
         .flatten()
         .collect();
-        edits.sort_by_key(|(range, _)| std::cmp::Reverse(range.start));
+        edits.sort_by_key(|(range, _)| std::cmp::Reverse(range.start()));
         edits.dedup_by(|left, right| left.0 == right.0);
         let apart = edits
             .windows(2)
-            .all(|pair| pair[1].0.end <= pair[0].0.start);
+            .all(|pair| pair[1].0.end() <= pair[0].0.start());
         if edits.is_empty() || !apart {
             return text;
         }
-        let mut all = text.clone();
-        for (range, written) in &edits {
-            all.replace_range(range.clone(), written);
+        match all_made(&text, &edits) {
+            Some(all) if reads(&all) => all,
+            _ => text,
         }
-        if reads(&all) { all } else { text }
     };
     let all_writes = batched(&saved, &|| {
         let lines = Lines::of(&saved);
@@ -402,7 +403,7 @@ pub(super) fn kept(
     // one with none (a new map the links name, written anew) is written
     // on its own.
     let mut outer: Vec<&str> = Vec::new();
-    let mut writes: Vec<(Range<usize>, String)> = Vec::new();
+    let mut writes: Vec<(TextRange, String)> = Vec::new();
     for (item, write) in moved.iter().zip(&all_writes) {
         if let Some(write) = write
             && !outer.iter().any(|outer| inside(&item.to, outer))
@@ -411,18 +412,16 @@ pub(super) fn kept(
             writes.push(write.clone());
         }
     }
-    writes.sort_by_key(|(range, _)| std::cmp::Reverse(range.start));
+    writes.sort_by_key(|(range, _)| std::cmp::Reverse(range.start()));
     let apart = writes
         .windows(2)
-        .all(|pair| pair[1].0.end <= pair[0].0.start);
-    if apart && !writes.is_empty() {
-        let mut all = saved.clone();
-        for (range, written) in &writes {
-            all.replace_range(range.clone(), written);
-        }
-        if reads(&all) {
-            return with_comments(all);
-        }
+        .all(|pair| pair[1].0.end() <= pair[0].0.start());
+    if apart
+        && !writes.is_empty()
+        && let Some(all) = all_made(&saved, &writes)
+        && reads(&all)
+    {
+        return with_comments(all);
     }
     // Else one at a time, an outer item first: an item inside one
     // written is written with it.
@@ -446,10 +445,10 @@ pub(super) fn kept(
             continue;
         }
         let whole = write(&Lines::of(&text), item)
-            .map(|(range, replaced)| {
+            .and_then(|(range, replaced)| {
                 let mut next = text.clone();
-                next.replace_range(range, &replaced);
-                next
+                slice::replace(&mut next, range, &replaced)?;
+                Some(next)
             })
             .filter(|next| reads(next));
         if let Some(next) = whole {
@@ -528,7 +527,8 @@ fn forms_kept(
             .zip(&pointers)
             .map(|(span, pointer)| {
                 let span = span.or_else(|| codec::inline_location(host, source, pointer, false))?;
-                written_range(host, source, span).map(|range| source[range].trim().to_string())
+                let range = written_text_range(host, source, span)?;
+                slice::slice(source, range).map(|written| written.trim().to_string())
             })
             .collect()
     };
@@ -584,6 +584,16 @@ fn changed_inside(
     let source = Lines::of(&patched);
     let (range, replaced) = write(host, &Lines::of(text), &source, item)?;
     let mut next = text.to_string();
-    next.replace_range(range, &replaced);
+    slice::replace(&mut next, range, &replaced)?;
     Some(next)
+}
+
+/// `text` with `edits` (sorted from the last, apart) made; `None` when
+/// one is no cut of it.
+fn all_made(text: &str, edits: &[(TextRange, String)]) -> Option<String> {
+    let mut all = text.to_string();
+    for (range, written) in edits {
+        slice::replace(&mut all, *range, written)?;
+    }
+    Some(all)
 }

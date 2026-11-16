@@ -9,9 +9,10 @@
 //! there) makes the save wait, never pass written in another form. So do
 //! the scalars left beside it in the map or list it landed in.
 
-use super::super::codec::{self, byte_range, written_range};
+use super::super::codec::{self, span_text_range, written_text_range};
 use super::super::item_sources::{ItemSource, SaveTold};
 use super::super::language::{ConfigLanguage, Span, pointer_key};
+use super::super::text::{TextRange, TextSize, slice};
 use super::super::work_count::{Work, note};
 use super::ItemMap;
 use crate::editor::paths::FieldPath;
@@ -19,7 +20,6 @@ use crate::editor::paths::FieldPath;
 mod whole;
 use serde_json::Value;
 use std::collections::HashSet;
-use std::ops::Range;
 
 /// A host text an item was cut from, and its value.
 #[derive(Clone, Copy)]
@@ -51,7 +51,7 @@ struct Pair {
 /// it was: its range in the save, and its text there.
 struct Respelled<'a> {
     pointer: String,
-    range: Range<usize>,
+    range: TextRange,
     written: &'a str,
     /// The indent of the line it starts on where it was.
     indent: &'a str,
@@ -154,10 +154,14 @@ fn unindented(text: &str) -> impl Iterator<Item = &str> {
 }
 
 /// The indent of the line of `text` holding byte `at`.
-fn line_indent(text: &str, at: usize) -> &str {
-    let start = text[..at].rfind('\n').map_or(0, |line| line + 1);
-    let line = &text[start..];
-    &line[..line.len() - line.trim_start().len()]
+fn line_indent(text: &str, at: TextSize) -> &str {
+    slice::after(text, slice::line_start_of(text, at)).map_or("", indent_of)
+}
+
+/// The blanks `line` starts with.
+fn indent_of(line: &str) -> &str {
+    let indent = TextSize::of(line) - TextSize::of(line.trim_start());
+    slice::before(line, indent).unwrap_or_default()
 }
 
 /// `written` (a scalar's text over lines, its first line's indent
@@ -247,9 +251,9 @@ fn respelled<'a>(
         let range = |text: &str, span: Option<Span>| {
             let span = span?;
             if key {
-                byte_range(text, span)
+                span_text_range(text, span)
             } else {
-                written_range(host, text, span)
+                written_text_range(host, text, span)
             }
         };
         for (pair, (now, was)) in pairs.iter().zip(spans(host, saved, &pairs, moved, key)) {
@@ -257,12 +261,17 @@ fn respelled<'a>(
             let (Some(now), Some(was)) = (range(saved, now), range(text, was)) else {
                 continue;
             };
-            if unindented(&saved[now.clone()]).ne(unindented(&text[was.clone()])) {
+            let (Some(saved_text), Some(written)) =
+                (slice::slice(saved, now), slice::slice(text, was))
+            else {
+                continue;
+            };
+            if unindented(saved_text).ne(unindented(written)) {
                 out.push(Respelled {
                     pointer: pair.to.clone(),
                     range: now,
-                    written: &text[was.clone()],
-                    indent: line_indent(text, was.start),
+                    written,
+                    indent: line_indent(text, was.start()),
                     needed: !key,
                 });
             }
@@ -480,37 +489,43 @@ fn relocated(
     }
     // Written back, the last first so the ranges before stay, as the text
     // reads unchanged: all at once, else one at a time.
-    respelled.sort_by_key(|respelled| std::cmp::Reverse(respelled.range.start));
+    respelled.sort_by_key(|respelled| std::cmp::Reverse(respelled.range.start()));
     if respelled
         .windows(2)
-        .any(|pair| pair[1].range.end > pair[0].range.start)
+        .any(|pair| pair[1].range.end() > pair[0].range.start())
     {
         respelled.retain(|respelled| respelled.needed);
     }
     let written = |text: &str, respelled: &Respelled<'_>, reindent: bool| {
         if reindent {
-            let indent = line_indent(text, respelled.range.start);
+            let indent = line_indent(text, respelled.range.start());
             reindented(respelled.written, respelled.indent, indent)
         } else {
             respelled.written.to_string()
         }
     };
-    let mut all = saved.clone();
+    let mut all = Some(saved.clone());
     for respelled in &respelled {
-        let written = written(&all, respelled, true);
-        all.replace_range(respelled.range.clone(), &written);
+        all = all.and_then(|mut all| {
+            let written = written(&all, respelled, true);
+            slice::replace(&mut all, respelled.range, &written)?;
+            Some(all)
+        });
     }
-    if read(&all).as_ref() == Some(&before) {
+    if let Some(all) = all
+        && read(&all).as_ref() == Some(&before)
+    {
         return Ok(all);
     }
     let mut text = saved;
     for respelled in &respelled {
         let kept = [true, false].into_iter().find_map(|reindent| {
             let mut next = text.clone();
-            next.replace_range(
-                respelled.range.clone(),
+            slice::replace(
+                &mut next,
+                respelled.range,
                 &written(&text, respelled, reindent),
-            );
+            )?;
             (read(&next).as_ref() == Some(&before)).then_some(next)
         });
         match kept {

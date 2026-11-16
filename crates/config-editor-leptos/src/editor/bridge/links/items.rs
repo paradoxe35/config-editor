@@ -7,16 +7,16 @@
 use super::super::super::codec;
 use super::super::super::language::{ConfigLanguage, pointer_key};
 use super::super::super::paths;
+use super::super::super::text::{TextRange, TextSize, text_size};
 use serde_json::Value;
 use std::collections::HashMap;
-use std::ops::Range;
 
 /// A list item or map entry of a view's text.
 #[derive(Clone, Debug)]
 pub(super) struct Item {
     pub(super) pointer: String,
-    /// Its lines, from the start of the first.
-    pub(super) lines: Range<usize>,
+    /// Its lines (bytes), from the start of the first.
+    pub(super) lines: TextRange,
 }
 
 /// The list items and map entries of `text` in `language` with lines of
@@ -41,9 +41,7 @@ pub(super) fn items(language: &dyn ConfigLanguage, text: &str, value: &Value) ->
             })
             .unzip()
     });
-    let starts: Vec<usize> = std::iter::once(0)
-        .chain(text.match_indices('\n').map(|(at, _)| at + 1))
-        .collect();
+    let starts = line_starts(text);
     // The lines (from 1) each pointer's own key and value are on.
     let lines: Vec<Option<(usize, usize)>> = values
         .iter()
@@ -79,13 +77,13 @@ pub(super) fn items(language: &dyn ConfigLanguage, text: &str, value: &Value) ->
         };
         let (Some(start), end) = (
             starts.get(first - 1).copied(),
-            starts.get(last).copied().unwrap_or(text.len()),
+            starts.get(last).copied().unwrap_or(TextSize::of(text)),
         ) else {
             continue;
         };
         found.push(Item {
             pointer: pointer.clone(),
-            lines: start..end,
+            lines: TextRange::new(start, end.max(start)),
         });
     }
     // Entries starting on one line are told apart by no line, unless all
@@ -101,10 +99,10 @@ pub(super) fn items(language: &dyn ConfigLanguage, text: &str, value: &Value) ->
     };
     // Each line's first item, whether all are inside it, whether each is
     // inside the one before, and the last one seen.
-    let mut on_line: HashMap<usize, (&str, bool, bool, &str)> = HashMap::new();
+    let mut on_line: HashMap<TextSize, (&str, bool, bool, &str)> = HashMap::new();
     for item in &found {
         on_line
-            .entry(item.lines.start)
+            .entry(item.lines.start())
             .and_modify(|(first, alone, chain, last)| {
                 *alone &= inside(&item.pointer, first);
                 *chain &= inside(&item.pointer, last);
@@ -115,13 +113,20 @@ pub(super) fn items(language: &dyn ConfigLanguage, text: &str, value: &Value) ->
     let kept: Vec<bool> = found
         .iter()
         .map(|item| {
-            let (first, alone, chain, _) = on_line[&item.lines.start];
+            let (first, alone, chain, _) = on_line[&item.lines.start()];
             alone && (chain || first == item.pointer)
         })
         .collect();
     let mut kept = kept.into_iter();
     found.retain(|_| kept.next().unwrap_or(false));
     found
+}
+
+/// Where each line of `text` starts.
+pub(super) fn line_starts(text: &str) -> Vec<TextSize> {
+    std::iter::once(TextSize::default())
+        .chain(text.match_indices('\n').map(|(at, _)| text_size(at + 1)))
+        .collect()
 }
 
 /// Each value's pointer under `pointer`, with whether it is an item (a

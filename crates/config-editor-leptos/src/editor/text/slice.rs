@@ -23,6 +23,14 @@ pub(crate) fn after(text: &str, at: TextSize) -> Option<&str> {
         .flatten()
 }
 
+/// Writes `with` over `range` of `text`; `None` (and `text` as it was)
+/// when `range` is no cut of it (see [`slice`]).
+pub(crate) fn replace(text: &mut String, range: TextRange, with: &str) -> Option<()> {
+    slice(text, range)?;
+    text.replace_range(usize::from(range.start())..usize::from(range.end()), with);
+    Some(())
+}
+
 /// The start of the character before byte `at` of `text`; `at` at the
 /// text's start (or off a boundary).
 pub(crate) fn step_back(text: &str, at: TextSize) -> TextSize {

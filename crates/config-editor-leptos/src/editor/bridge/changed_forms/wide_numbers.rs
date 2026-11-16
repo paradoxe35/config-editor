@@ -5,6 +5,7 @@
 //! that refuses them (TOML) still waits.
 
 use crate::editor::language::{ConfigLanguage, ParseError, with_edits};
+use crate::editor::text::{checked_range, slice};
 
 /// `text` (in `edit`) with each number literal the editor cannot hold
 /// exactly written as a string of the same characters, when those are all
@@ -28,13 +29,15 @@ pub(in crate::editor::bridge) fn as_text(
     let mut text = text.to_string();
     let mut error = error.clone();
     loop {
+        // The language's hook and `with_edits` count `usize` bytes.
         let stand_ins: Vec<_> = edit
             .unheld_numbers(&text, &error)
             .into_iter()
             .filter(|range| !range.is_empty())
-            .map(|range| {
-                let written = format!("{quote}{}{quote}", &text[range.clone()]);
-                (range, written)
+            .filter_map(|range| {
+                let number = slice::slice(&text, checked_range(&range)?)?;
+                let written = format!("{quote}{number}{quote}");
+                Some((range, written))
             })
             .collect();
         if stand_ins.is_empty() {

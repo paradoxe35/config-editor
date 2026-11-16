@@ -6,9 +6,10 @@
 use super::super::super::item_sources::ItemSource;
 use super::super::super::language::ConfigLanguage;
 use super::super::super::parse_cache;
+use super::super::super::text::TextSize;
 use super::super::super::work_count::{Work, note, note_many};
-use super::items::items;
-use super::{Holding, HostPaths, HostReading, Link, Links, Shown, Source, content};
+use super::items::{items, line_starts};
+use super::{Holding, HostPaths, HostReading, Link, Links, Shown, Source, content, outer_first};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 
@@ -222,7 +223,7 @@ impl Links {
         language: &dyn ConfigLanguage,
         text: &str,
     ) -> Option<(Paired, Vec<Link>)> {
-        if !self.fits(text.len()) {
+        if !self.fits(TextSize::of(text)) {
             return None;
         }
         let links = self.read(language);
@@ -231,22 +232,24 @@ impl Links {
         }
         let parsed = parse_cache::parsed(language, text);
         let value = parsed.as_ref().as_ref().ok()?;
-        let starts: Vec<usize> = std::iter::once(0)
-            .chain(text.match_indices('\n').map(|(at, _)| at + 1))
-            .collect();
-        let line_of = |at: usize| starts.partition_point(|start| *start <= at) - 1;
+        let starts = line_starts(text);
+        let line_of = |at: TextSize| starts.partition_point(|start| *start <= at) - 1;
         let mut on_line: BTreeMap<usize, Vec<&Link>> = BTreeMap::new();
         for link in links.iter() {
-            on_line.entry(line_of(link.start)).or_default().push(link);
+            on_line
+                .entry(line_of(link.range.start()))
+                .or_default()
+                .push(link);
         }
-        let mut items_on_line: BTreeMap<usize, Vec<(usize, String)>> = BTreeMap::new();
+        // Each item's end, by the line it starts on.
+        let mut items_on_line: BTreeMap<usize, Vec<(TextSize, String)>> = BTreeMap::new();
         for item in items(language, text, value) {
             note(Work::LinkStep);
-            if let Some((start, end)) = content(text, item.lines.start, item.lines.end) {
+            if let Some(range) = content(text, item.lines) {
                 items_on_line
-                    .entry(line_of(start))
+                    .entry(line_of(range.start()))
                     .or_default()
-                    .push((end, item.pointer));
+                    .push((range.end(), item.pointer));
             }
         }
         let loose: Vec<Link> = on_line
@@ -268,8 +271,9 @@ impl Links {
             });
             links.sort_by(|left, right| {
                 right
-                    .end
-                    .cmp(&left.end)
+                    .range
+                    .end()
+                    .cmp(&left.range.end())
                     .then(depth(&left.source.pointer).cmp(&depth(&right.source.pointer)))
             });
             // A link ending where an item ends is that item's. Items
@@ -287,7 +291,7 @@ impl Links {
                     .filter(|at| items[*at].0 == *end)
                     .collect();
                 let ending: Vec<usize> = (0..links.len())
-                    .filter(|at| !link_used[*at] && links[*at].end == *end)
+                    .filter(|at| !link_used[*at] && links[*at].range.end() == *end)
                     .collect();
                 for (item, link) in alike.iter().rev().zip(ending.iter().rev()) {
                     paired.push((items[*item].1.clone(), links[*link].source.clone()));
@@ -371,7 +375,7 @@ impl Links {
                 let source = sources
                     .get(&item.pointer)
                     .or_else(|| sources.get(&paths.item(&item.pointer).0))?;
-                let (start, end) = content(text, item.lines.start, item.lines.end)?;
+                let range = content(text, item.lines)?;
                 let source = Arc::new(Source {
                     host: source.host.clone(),
                     pointer: source.pointer.clone(),
@@ -394,10 +398,10 @@ impl Links {
                         kept: Some(kept.clone()),
                     }),
                 });
-                Some(Link { start, end, source })
+                Some(Link { range, source })
             })
             .collect();
-        links.sort_by(|left, right| left.start.cmp(&right.start).then(right.end.cmp(&left.end)));
+        links.sort_by(outer_first);
         Links::Kept(Arc::new(links))
     }
 }

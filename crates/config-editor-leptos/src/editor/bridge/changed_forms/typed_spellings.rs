@@ -5,10 +5,11 @@
 //! of the one it replaces (`0x1F90` edited to 8083 is `0x1F93`).
 
 use super::super::changed_scalars;
-use crate::editor::codec;
+use crate::editor::codec::{self, span_text_range};
 use crate::editor::item_sources::ItemSources;
 use crate::editor::language::{ConfigLanguage, pointer_key};
 use crate::editor::paths::FieldPath;
+use crate::editor::text::{TextRange, TextSize, slice, text_size};
 use serde_json::Value;
 
 /// `saved` (the host text `previous` patched to read as `target`) with
@@ -67,7 +68,9 @@ pub(in crate::editor::bridge) fn kept(
             true => inside_quotes(host, &saved, range),
             false => range,
         };
-        let written = &saved[range.clone()];
+        let Some(written) = slice::slice(&saved, range) else {
+            continue;
+        };
         // An anchor or tag before it (`&x 2`, `!!float 2`), or an alias
         // (`*x`), stays the host's; so does a string it writes quoted or
         // over lines (see `spelled`).
@@ -98,7 +101,7 @@ pub(in crate::editor::bridge) fn kept(
         .map(|(pointer, ..)| (*pointer).clone())
         .collect();
     let held: Vec<String> = numbers.iter().map(|pointer| from(pointer)).collect();
-    let was: std::collections::HashMap<String, std::ops::Range<usize>> = numbers
+    let was: std::collections::HashMap<String, TextRange> = numbers
         .iter()
         .cloned()
         .zip(ranges(host, previous, &held))
@@ -109,12 +112,15 @@ pub(in crate::editor::bridge) fn kept(
     // the edit read a number (`4.10` is the text `4.10` there).
     let mut as_text = Vec::new();
     for ((pointer, value, range), typed) in places.into_iter().zip(typed) {
-        let written = &saved[range.clone()];
-        let typed =
-            typed.and_then(|range| spelled(host, edit, edit_text[range].trim(), written, value));
+        let Some(written) = slice::slice(&saved, range) else {
+            continue;
+        };
+        let typed = typed
+            .and_then(|range| slice::slice(edit_text, range))
+            .and_then(|typed| spelled(host, edit, typed.trim(), written, value));
         let in_form = || {
             let number = value.as_number()?;
-            host.number_in_form(previous[was.get(pointer)?.clone()].trim(), number)
+            host.number_in_form(slice::slice(previous, *was.get(pointer)?)?.trim(), number)
                 .filter(|text| text != written)
         };
         if let Some(text) = typed.or_else(in_form) {
@@ -127,10 +133,12 @@ pub(in crate::editor::bridge) fn kept(
     if edits.is_empty() {
         return Spelled::as_saved(saved);
     }
-    edits.sort_by_key(|(range, _)| std::cmp::Reverse(range.start));
+    edits.sort_by_key(|(range, _)| std::cmp::Reverse(range.start()));
     let mut spelled = saved.clone();
     for (range, text) in edits {
-        spelled.replace_range(range, &text);
+        if slice::replace(&mut spelled, range, &text).is_none() {
+            return Spelled::as_saved(saved);
+        }
     }
     let reads = |text: &str| codec::read(host, text, shape).ok();
     let (Some(mut read), Some(before)) = (reads(&spelled), reads(&saved)) else {
@@ -193,14 +201,16 @@ pub(in crate::editor::bridge) fn respelled(
         .count()
         .min(room);
     // Only an edit that typed or removed a digit can spell a number anew.
-    let (start, end) = (prefix, edit_text.len() - suffix);
     // (Bytes: the ends may part a character the two texts begin alike.)
-    let digit = |text: &[u8]| text.iter().any(u8::is_ascii_digit);
-    if !digit(&edit_text.as_bytes()[start..end])
-        && !digit(&shown.as_bytes()[start..shown.len() - suffix])
-    {
+    let digit = |text: &str, end: usize| {
+        text.as_bytes()
+            .get(prefix..end)
+            .is_some_and(|bytes| bytes.iter().any(u8::is_ascii_digit))
+    };
+    if !digit(edit_text, edit_text.len() - suffix) && !digit(shown, shown.len() - suffix) {
         return Vec::new();
     }
+    let (start, end) = (text_size(prefix), text_size(edit_text.len() - suffix));
     // An edit inside the one value it changed (a digit typed into a
     // string) spells no other number anew: no value is written inside
     // another, so none touches it. Only that value is looked up.
@@ -209,8 +219,8 @@ pub(in crate::editor::bridge) fn respelled(
     if let [_] = changed.as_slice()
         && let Some(Some(range)) = ranges(edit, edit_text, &changed).pop()
         && let range = trimmed(edit_text, range)
-        && range.start < start
-        && end < range.end
+        && range.start() < start
+        && end < range.end()
     {
         return Vec::new();
     }
@@ -221,12 +231,12 @@ pub(in crate::editor::bridge) fn respelled(
     }
     // The numbers touching the changed bytes.
     let typed = ranges(edit, edit_text, &numbers);
-    let touched: Vec<(String, std::ops::Range<usize>)> = numbers
+    let touched: Vec<(String, TextRange)> = numbers
         .into_iter()
         .zip(typed)
         .filter_map(|(pointer, range)| {
             let range = trimmed(edit_text, range?);
-            (range.start <= end && start <= range.end).then_some((pointer, range))
+            (range.start() <= end && start <= range.end()).then_some((pointer, range))
         })
         .collect();
     if touched.is_empty() {
@@ -239,7 +249,7 @@ pub(in crate::editor::bridge) fn respelled(
         .zip(was)
         .filter_map(|((pointer, range), was)| {
             let was = trimmed(shown, was?);
-            (shown[was] != edit_text[range]).then_some(pointer)
+            (slice::slice(shown, was) != slice::slice(edit_text, range)).then_some(pointer)
         })
         .collect()
 }
@@ -252,7 +262,7 @@ fn ranges(
     language: &dyn ConfigLanguage,
     text: &str,
     pointers: &[String],
-) -> Vec<Option<std::ops::Range<usize>>> {
+) -> Vec<Option<TextRange>> {
     crate::editor::paths::with_spans(language, text, &[], || {
         language
             .value_spans(
@@ -260,7 +270,7 @@ fn ranges(
                 &pointers.iter().map(FieldPath::from).collect::<Vec<_>>(),
             )
             .into_iter()
-            .map(|span| codec::byte_range(text, span?))
+            .map(|span| span_text_range(text, span?))
             .collect()
     })
 }
@@ -294,12 +304,8 @@ fn same_numbers(old: &Value, new: &Value, pointer: String, out: &mut Vec<String>
 }
 
 /// `range` of `text` inside the quotes of `language` around it, if any.
-fn inside_quotes(
-    language: &dyn ConfigLanguage,
-    text: &str,
-    range: std::ops::Range<usize>,
-) -> std::ops::Range<usize> {
-    let written = &text[range.clone()];
+fn inside_quotes(language: &dyn ConfigLanguage, text: &str, range: TextRange) -> TextRange {
+    let written = slice::slice(text, range).unwrap_or_default();
     let flow = crate::editor::flow_syntax::Flow::of(language);
     match written.chars().next() {
         Some(quote)
@@ -307,17 +313,20 @@ fn inside_quotes(
                 && written.ends_with(quote)
                 && flow.quote(quote).is_some() =>
         {
-            range.start + quote.len_utf8()..range.end - quote.len_utf8()
+            let quote = TextSize::of(quote);
+            TextRange::new(range.start() + quote, range.end() - quote)
         }
         _ => range,
     }
 }
 
 /// `range` of `text` without the whitespace at its ends.
-fn trimmed(text: &str, range: std::ops::Range<usize>) -> std::ops::Range<usize> {
-    let slice = &text[range.clone()];
-    let start = range.start + (slice.len() - slice.trim_start().len());
-    start..start + slice.trim().len()
+fn trimmed(text: &str, range: TextRange) -> TextRange {
+    let Some(written) = slice::slice(text, range) else {
+        return range;
+    };
+    let start = range.start() + (TextSize::of(written) - TextSize::of(written.trim_start()));
+    TextRange::at(start, TextSize::of(written.trim()))
 }
 
 /// `typed` (the edit's text of `value`) as the host saves it in place of

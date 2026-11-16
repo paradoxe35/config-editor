@@ -15,7 +15,9 @@ use super::super::Language;
 use super::super::language::ConfigLanguage;
 use super::super::parse_cache;
 use super::super::schema::SchemaBundle;
+use super::super::text::{TextRange, TextSize, slice};
 use super::super::work_count::{Work, note};
+use std::cmp::Ordering;
 use std::sync::Arc;
 
 mod clipboard;
@@ -71,10 +73,21 @@ pub(crate) struct Shown {
 /// source.
 #[derive(Clone, Debug)]
 pub(crate) struct Link {
-    start: usize,
-    end: usize,
+    range: TextRange,
     source: Arc<Source>,
 }
+
+/// Links by where they start, an outer one before those inside it.
+fn outer_first(left: &Link, right: &Link) -> Ordering {
+    left.range
+        .start()
+        .cmp(&right.range.start())
+        .then(right.range.end().cmp(&left.range.end()))
+}
+
+/// Typing kept before the links are read: the range it replaced (in the
+/// text the typing before it left) and how many bytes it wrote.
+type Pending = (TextRange, TextSize);
 
 /// The links of a view's text.
 #[derive(Clone, Debug)]
@@ -86,7 +99,7 @@ pub(crate) enum Links {
     Fresh {
         host: Arc<str>,
         base: Arc<str>,
-        pending: Arc<Vec<(usize, usize, usize)>>,
+        pending: Arc<Vec<Pending>>,
         /// How `host` reads, to name each item by its host path when the
         /// items are read; `None` when the view is in the host's language.
         reading: Option<HostReading>,
@@ -165,7 +178,7 @@ impl Links {
                 ..
             } => {
                 let shared = matches!(newer, Some(Links::Fresh { base: theirs, .. }) if Arc::ptr_eq(base, theirs));
-                pending.len() * 24
+                pending.len() * std::mem::size_of::<Pending>()
                     + loose.len() * std::mem::size_of::<Link>()
                     + if shared { 0 } else { host.len() + base.len() }
             }
@@ -189,16 +202,17 @@ impl Links {
         }
         // The links are of the text the edit is made on: every write of
         // the text on screen is an edit they follow.
+        let length = TextSize::of(before);
         debug_assert!(
-            self.fits(before.len()),
+            self.fits(length),
             "links of another text than the one edited"
         );
-        if !self.fits(before.len()) {
+        if !self.fits(length) {
             *self = Links::default();
         }
         // Typing changes no item's link: kept until the links are read.
         let typed = pieces.iter().all(|piece| {
-            piece.removed < 2
+            piece.range.len() < TextSize::from(2)
                 && matches!(
                     piece.source,
                     Inserted::Typed | Inserted::Generated | Inserted::External
@@ -212,11 +226,11 @@ impl Links {
             // the ones before it left (the pieces name the text before the
             // whole edit).
             let pending = Arc::make_mut(pending);
-            let mut growth = 0isize;
+            let mut shift = Shift::default();
             pending.extend(pieces.iter().map(|piece| {
-                let at = piece.at.wrapping_add_signed(growth);
-                growth += piece.inserted.len() as isize - piece.removed as isize;
-                (at, piece.removed, piece.inserted.len())
+                let at = shift.of(piece.range.start());
+                shift.past(piece);
+                (TextRange::at(at, piece.range.len()), piece.inserted_len())
             }));
             return;
         }
@@ -227,20 +241,20 @@ impl Links {
                 Inserted::Moved(moved) => moved
                     .iter()
                     .flat_map(|moved| {
-                        within(&links, moved.from, moved.from + moved.len)
+                        let range = TextRange::at(moved.from, moved.len);
+                        within(&links, range)
                             .into_iter()
-                            .chain(heads(&links, before, moved.from, moved.from + moved.len))
+                            .chain(heads(&links, before, range))
                             .map(|link| Link {
-                                start: link.start + moved.to,
-                                end: link.end + moved.to,
+                                range: link.range + moved.to,
                                 source: link.source,
                             })
                     })
                     .collect(),
                 Inserted::Pasted => clipboard.links_of(&piece.inserted),
                 Inserted::Reindented => clipboard::reindented(
-                    &before[piece.at..piece.end()],
-                    within(&links, piece.at, piece.end()),
+                    slice::slice(before, piece.range).unwrap_or_default(),
+                    within(&links, piece.range),
                     &piece.inserted,
                 ),
                 Inserted::Typed | Inserted::Generated | Inserted::External => Vec::new(),
@@ -248,53 +262,54 @@ impl Links {
             .collect();
         let (mut kept, removed) = shifted(&links, pieces, Some(&inserted));
         for (piece, links) in pieces.iter().zip(removed) {
-            if !links.is_empty() {
-                clipboard.keep(&before[piece.at..piece.end()], links);
+            if !links.is_empty()
+                && let Some(removed) = slice::slice(before, piece.range)
+            {
+                clipboard.keep(removed, links);
             }
         }
-        kept.sort_by(|left, right| left.start.cmp(&right.start).then(right.end.cmp(&left.end)));
+        kept.sort_by(outer_first);
         // Each link a range of the text after the edit.
-        let length = pieces.iter().fold(before.len(), |length, piece| {
-            length + piece.inserted.len() - piece.removed
+        let length = pieces.iter().fold(length, |length, piece| {
+            length + piece.inserted_len() - piece.range.len()
         });
+        let inside = |link: &Link| !link.range.is_empty() && link.range.end() <= length;
         debug_assert!(
-            kept.iter()
-                .all(|link| link.start < link.end && link.end <= length),
-            "a link outside the text of {length} bytes after {pieces:?}"
+            kept.iter().all(inside),
+            "a link outside the text of {length:?} bytes after {pieces:?}"
         );
-        kept.retain(|link| link.start < link.end && link.end <= length);
+        kept.retain(inside);
         *self = Links::Kept(Arc::new(kept));
     }
 
     /// Whether the links can be of a text of `length` bytes.
-    fn fits(&self, length: usize) -> bool {
+    fn fits(&self, length: TextSize) -> bool {
         match self {
             Links::Fresh { base, pending, .. } => {
                 pending
                     .iter()
-                    .try_fold(base.len(), |at, &(_, removed, inserted)| {
-                        (at + inserted).checked_sub(removed)
+                    .try_fold(TextSize::of(&**base), |at, &(removed, inserted)| {
+                        (at + inserted).checked_sub(removed.len())
                     })
                     == Some(length)
             }
-            Links::Kept(links) => links.iter().all(|link| link.end <= length),
+            Links::Kept(links) => links.iter().all(|link| link.range.end() <= length),
         }
     }
 
-    /// The links of `text[range]` (bytes), from its start: what a copy of
-    /// it takes.
+    /// The links of `range` of `text`, from its start: what a copy of it
+    /// takes.
     pub(crate) fn copied(
         &mut self,
         (language, text): (&dyn ConfigLanguage, &str),
-        start: usize,
-        end: usize,
-    ) -> Vec<(usize, usize, Arc<Source>)> {
-        if !self.fits(text.len()) {
+        range: TextRange,
+    ) -> Vec<(TextRange, Arc<Source>)> {
+        if !self.fits(TextSize::of(text)) {
             return Vec::new();
         }
-        within(&self.read(language), start, end)
+        within(&self.read(language), range)
             .into_iter()
-            .map(|link| (link.start, link.end, link.source))
+            .map(|link| (link.range, link.source))
             .collect()
     }
 
@@ -320,11 +335,10 @@ impl Links {
                 items(language, base, value)
                     .into_iter()
                     .filter_map(|item| {
-                        let (start, end) = content(base, item.lines.start, item.lines.end)?;
+                        let range = content(base, item.lines)?;
                         let (pointer, holding) = paths.item(&item.pointer);
                         Some(Link {
-                            start,
-                            end,
+                            range,
                             source: Arc::new(Source {
                                 host: host.clone(),
                                 shown: Some(Shown {
@@ -346,12 +360,11 @@ impl Links {
         // By where they start, an outer item before the ones inside it
         // (the items read in the value's order, which need not be the
         // text's: `within` and the edits find links by start).
-        links.sort_by(|left, right| left.start.cmp(&right.start).then(right.end.cmp(&left.end)));
-        for &(at, removed, inserted) in pending.iter() {
+        links.sort_by(outer_first);
+        for &(range, inserted) in pending.iter() {
             let typed = Piece {
-                at,
-                removed,
-                inserted: " ".repeat(inserted),
+                range,
+                inserted: " ".repeat(usize::from(inserted)),
                 source: Inserted::Typed,
             };
             links = shifted(&links, std::slice::from_ref(&typed), None).0;
@@ -393,50 +406,80 @@ impl HostReading {
     }
 }
 
-/// The text of the lines `start..end` of `text` from its first character
-/// that is not blank to the end of its last one; `None` when blank.
-fn content(text: &str, start: usize, end: usize) -> Option<(usize, usize)> {
-    let lines = &text[start..end];
-    let trimmed = lines.trim_start();
+/// The text of the lines `lines` (bytes) of `text` from its first
+/// character that is not blank to the end of its last one; `None` when
+/// blank.
+fn content(text: &str, lines: TextRange) -> Option<TextRange> {
+    let written = slice::slice(text, lines)?;
+    let trimmed = written.trim_start();
     if trimmed.is_empty() {
         return None;
     }
-    let from = start + lines.len() - trimmed.len();
-    Some((from, from + trimmed.trim_end().len()))
+    let from = lines.start() + TextSize::of(written) - TextSize::of(trimmed);
+    Some(TextRange::at(from, TextSize::of(trimmed.trim_end())))
 }
 
-/// The links wholly inside `start..end`, from `start`.
-fn within(links: &[Link], start: usize, end: usize) -> Vec<Link> {
-    let first = links.partition_point(|link| link.start < start);
-    links[first..]
+/// The links wholly inside `range`, from its start.
+fn within(links: &[Link], range: TextRange) -> Vec<Link> {
+    let first = links.partition_point(|link| link.range.start() < range.start());
+    links
+        .get(first..)
+        .unwrap_or_default()
         .iter()
-        .take_while(|link| link.start < end)
-        .filter(|link| link.end <= end)
+        .take_while(|link| link.range.start() < range.end())
+        .filter(|link| link.range.end() <= range.end())
         .map(|link| Link {
-            start: link.start - start,
-            end: link.end - start,
+            range: link.range - range.start(),
             source: link.source.clone(),
         })
         .collect()
 }
 
-/// The links starting inside `start..end` of `text` that run past it,
-/// from `start`, cut at its last character that is not blank: the head
-/// of an item (its key's line) moved away from the rest of its lines
-/// stays that item's.
-fn heads(links: &[Link], text: &str, start: usize, end: usize) -> Vec<Link> {
-    let last = start + text[start..end].trim_end().len();
-    let first = links.partition_point(|link| link.start < start);
-    links[first..]
+/// The links starting inside `range` of `text` that run past it, from
+/// its start, cut at its last character that is not blank: the head of an
+/// item (its key's line) moved away from the rest of its lines stays that
+/// item's.
+fn heads(links: &[Link], text: &str, range: TextRange) -> Vec<Link> {
+    let Some(written) = slice::slice(text, range) else {
+        return Vec::new();
+    };
+    let last = range.start() + TextSize::of(written.trim_end());
+    let first = links.partition_point(|link| link.range.start() < range.start());
+    links
+        .get(first..)
+        .unwrap_or_default()
         .iter()
-        .take_while(|link| link.start < end)
-        .filter(|link| link.end > end && link.start < last)
+        .take_while(|link| link.range.start() < range.end())
+        .filter(|link| link.range.end() > range.end() && link.range.start() < last)
         .map(|link| Link {
-            start: link.start - start,
-            end: last - start,
+            range: TextRange::new(link.range.start(), last) - range.start(),
             source: link.source.clone(),
         })
         .collect()
+}
+
+/// How far a position moves past some splices: the bytes they wrote, less
+/// those they removed (kept as two sums, so no step goes below zero).
+#[derive(Clone, Copy, Debug, Default)]
+struct Shift {
+    grown: TextSize,
+    shrunk: TextSize,
+}
+
+impl Shift {
+    /// The shift once `piece` is made too.
+    fn past(&mut self, piece: &Piece) {
+        self.grown += piece.inserted_len();
+        self.shrunk += piece.range.len();
+    }
+
+    /// Where `at` (a position of the text before, past the splices'
+    /// removals) lands.
+    fn of(self, at: TextSize) -> TextSize {
+        (at + self.grown)
+            .checked_sub(self.shrunk)
+            .unwrap_or_default()
+    }
 }
 
 /// `links` (sorted by start) after `splices` (sorted, apart, in the text
@@ -449,37 +492,42 @@ fn shifted(
     splices: &[Piece],
     inserted: Option<&[Vec<Link>]>,
 ) -> (Vec<Link>, Vec<Vec<Link>>) {
-    // How far each splice's start moves: the growth of those before it.
+    // How far each splice's start moves: the shift of those before it.
     let mut moved = Vec::with_capacity(splices.len() + 1);
-    let mut growth = 0isize;
+    let mut shift = Shift::default();
     for splice in splices {
-        moved.push(growth);
-        growth += splice.inserted.len() as isize - splice.removed as isize;
+        moved.push(shift);
+        shift.past(splice);
     }
-    moved.push(growth);
-    let at = |offset: usize, by: isize| (offset as isize + by) as usize;
+    moved.push(shift);
     let mut out = Vec::with_capacity(links.len());
     let mut removed = vec![Vec::new(); splices.len()];
     // The first splice not wholly before the link's start.
     let mut first = 0;
     for link in links {
-        let (s, e) = (link.start, link.end);
-        while first < splices.len() && splices[first].at + splices[first].removed <= s {
+        let (s, e) = (link.range.start(), link.range.end());
+        while splices
+            .get(first)
+            .is_some_and(|splice| splice.range.end() <= s)
+        {
             first += 1;
         }
-        let start = at(s, moved[first]);
-        let mut end = e as isize + moved[first];
+        let start = moved[first].of(s);
+        // Where its end lands, as the shift of the splices up to it.
+        let mut end = Shift {
+            grown: e + moved[first].grown,
+            shrunk: moved[first].shrunk,
+        };
         let mut alive = true;
         for (index, splice) in splices.iter().enumerate().skip(first) {
             note(Work::LinkStep);
-            let (a, b) = (splice.at, splice.at + splice.removed);
+            let (a, b) = (splice.range.start(), splice.range.end());
             if a >= e {
                 break;
             }
             if a <= s && b >= e {
                 removed[index].push(Link {
-                    start: s - a,
-                    end: e - a,
+                    range: link.range - a,
                     source: link.source.clone(),
                 });
                 alive = false;
@@ -490,10 +538,9 @@ fn shifted(
             // start keeps its head with the removed text (a header cut
             // and pasted back heads the item again).
             if a < s || a == s && b > s {
-                if a == s && b - a > 1 {
+                if a == s && splice.range.len() > TextSize::from(1) {
                     removed[index].push(Link {
-                        start: 0,
-                        end: b - a,
+                        range: TextRange::up_to(splice.range.len()),
                         source: link.source.clone(),
                     });
                 }
@@ -501,25 +548,27 @@ fn shifted(
                 break;
             }
             if b > e {
-                end = (at(a, moved[index]) + splice.inserted.len()) as isize;
+                end = Shift {
+                    grown: moved[index].of(a) + splice.inserted_len(),
+                    shrunk: TextSize::default(),
+                };
                 break;
             }
-            end += splice.inserted.len() as isize - splice.removed as isize;
+            end.past(splice);
         }
-        if alive && end as usize > start {
+        let end = end.grown.checked_sub(end.shrunk);
+        if alive && let Some(end) = end.filter(|end| *end > start) {
             out.push(Link {
-                start,
-                end: end as usize,
+                range: TextRange::new(start, end),
                 source: link.source.clone(),
             });
         }
     }
     if let Some(inserted) = inserted {
         for (index, (splice, links)) in splices.iter().zip(inserted).enumerate() {
-            let place = at(splice.at, moved[index]);
+            let place = moved[index].of(splice.range.start());
             out.extend(links.iter().map(|link| Link {
-                start: place + link.start,
-                end: place + link.end,
+                range: link.range + place,
                 source: link.source.clone(),
             }));
         }

@@ -31,7 +31,7 @@ fn typed_over(language: Language, text: &str, pointer: &str, typed: &str) -> Opt
     let span = language
         .behavior()
         .value_span(text, &FieldPath::from(pointer))?;
-    let range = codec::byte_range(text, span)?;
+    let range: std::ops::Range<usize> = codec::span_text_range(text, span)?.into();
     let mut typed_text = text.to_string();
     typed_text.replace_range(range, typed);
     Some(typed_text)
@@ -128,7 +128,8 @@ fn numbers_and_booleans_typed_in_their_own_spelling_keep_the_host_type_and_spell
                 let spelled = host
                     .behavior()
                     .value_span(&saved, &FieldPath::from(&pointer))
-                    .and_then(|span| codec::byte_range(&saved, span))
+                    .and_then(|span| codec::span_text_range(&saved, span))
+                    .map(std::ops::Range::<usize>::from)
                     .map(|range| saved[range].trim().to_string());
                 if expected.is_number()
                     && host.behavior().scalar_reads_as(typed, expected)
@@ -196,7 +197,8 @@ fn a_number_typed_in_a_view_keeps_its_spelling_in_a_host_whose_values_are_text()
                     let written = host
                         .behavior()
                         .value_span(&saved, &FieldPath::from(*pointer))
-                        .and_then(|span| codec::byte_range(&saved, span))
+                        .and_then(|span| codec::span_text_range(&saved, span))
+                        .map(std::ops::Range::<usize>::from)
                         .map(|range| saved[range].trim().trim_matches('"').to_string());
                     if written.as_deref() != Some(typed) {
                         failures.push(format!("{case}: written {written:?}:\n{saved}"));

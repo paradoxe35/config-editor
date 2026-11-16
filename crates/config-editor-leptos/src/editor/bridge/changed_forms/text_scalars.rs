@@ -247,9 +247,9 @@ fn radix_integer(text: &str) -> Option<i64> {
         None => (false, text.strip_prefix('+').unwrap_or(text)),
     };
     let (radix, digits) = match digits.get(..2)? {
-        "0x" | "0X" => (16, &digits[2..]),
-        "0o" | "0O" => (8, &digits[2..]),
-        "0b" | "0B" => (2, &digits[2..]),
+        "0x" | "0X" => (16, digits.get(2..)?),
+        "0o" | "0O" => (8, digits.get(2..)?),
+        "0b" | "0B" => (2, digits.get(2..)?),
         _ => return None,
     };
     if digits.is_empty() || digits.starts_with(['+', '-']) {

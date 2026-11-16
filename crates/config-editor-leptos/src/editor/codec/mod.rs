@@ -925,16 +925,6 @@ pub(super) fn written_text_range(
     checked_range(&written)
 }
 
-/// [`written_text_range`] as a `usize` range, for the areas that still cut
-/// by `usize`.
-pub(super) fn written_range(
-    language: &dyn ConfigLanguage,
-    source: &str,
-    span: Span,
-) -> Option<std::ops::Range<usize>> {
-    written_text_range(language, source, span).map(Into::into)
-}
-
 /// The end of `range`, run through the closing delimiter when the value
 /// starts with one of the language's multi-character quotes and spans
 /// lines.
@@ -972,12 +962,6 @@ pub(super) fn span_text_range(source: &str, span: Span) -> Option<TextRange> {
     };
     let (start, end) = (byte_of(span.start_column), byte_of(span.end_column));
     (start < end).then(|| TextRange::new(start, end))
-}
-
-/// [`span_text_range`] as a `usize` range, for the areas that still cut by
-/// `usize`.
-pub(super) fn byte_range(source: &str, span: Span) -> Option<std::ops::Range<usize>> {
-    span_text_range(source, span).map(Into::into)
 }
 
 /// JSON pointers where `expected` and `actual` differ, at the deepest level
