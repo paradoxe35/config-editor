@@ -24,7 +24,6 @@ use super::texts::{document, language, literal, shown};
 use crate::editor::edit::Edit;
 use crate::editor::keyboard::utf16_to_byte_index;
 use crate::editor::keys::enter::{Pressed, enter_at};
-use crate::editor::line_endings::editor_text;
 use crate::editor::paths::{FieldPath, TextPosition, TextRange};
 use crate::editor::protect::ProtectInit;
 use crate::editor::schema::{SchemaBundle, build_schema};
@@ -441,8 +440,8 @@ pub(super) fn check(case: &LiveCase) -> Result<(), Failure> {
                     1 => document(&mut Rng::new(u64::from(*seed)), language(name)),
                     _ => before.clone(),
                 };
-                state.sync().line_endings.note(&value);
-                take_host_value(state, editor_text(value));
+                let text = state.sync().line_endings.received(value);
+                take_host_value(state, text);
                 // The host's ranges are placed again in a new text.
                 ranges_placed |= state.doc().text.get_untracked() != before;
             }

@@ -1,7 +1,6 @@
-//! P4: a Leptos host passing each `on_change` text back with its revision
-//! (the `value_revision` prop) has its echoes matched exactly: a late echo
-//! of a confirmed revision is no news, and a host behind but catching up
-//! is not sent the document again.
+//! A controlled `value` as the editor follows it (`follow_value`): its
+//! revision passed back, and a leading U+FEFF read by the byte order mark
+//! the host's first text had.
 
 use std::sync::{Arc, Mutex};
 
@@ -62,6 +61,10 @@ fn sent_revision(state: EditorState) -> u64 {
         .expect("a text on its way")
 }
 
+/// P4: a Leptos host passing each `on_change` text back with its revision
+/// (the `value_revision` prop) has its echoes matched exactly: a late echo
+/// of a confirmed revision is no news, and a host behind but catching up
+/// is not sent the document again.
 #[test]
 fn a_late_echo_with_its_revision_is_no_news() {
     let value = RwSignal::new("a: 1\n".to_string());
@@ -88,4 +91,34 @@ fn a_late_echo_with_its_revision_is_no_news() {
     revision.set(None);
     value.set("b: 2\n".to_string());
     assert_eq!(state.doc().text.get_untracked(), "b: 2\n");
+}
+
+/// P2: the byte order mark is the host's first text's, recorded once: a
+/// later text starting with U+FEFF loses it as that mark only when the
+/// first text had one; without one, the U+FEFF is a character of the
+/// document, kept on screen and sent back.
+#[test]
+fn a_later_text_starting_with_u_feff_is_read_by_the_first_texts_mark() {
+    // No mark at load: a U+FEFF the host gives later is text.
+    let value = RwSignal::new("a: 1\n".to_string());
+    let (_owner, state, _) = mounted(value, RwSignal::new(None));
+    value.set("\u{feff}a: 2\n".to_string());
+    assert_eq!(state.doc().text.get_untracked(), "\u{feff}a: 2\n");
+    assert_eq!(
+        state
+            .sync()
+            .line_endings
+            .restore("\u{feff}a: 2\n".to_string()),
+        "\u{feff}a: 2\n"
+    );
+    // A mark at load: the same text's U+FEFF is that mark, and the host
+    // hears it back once.
+    let value = RwSignal::new("\u{feff}a: 1\n".to_string());
+    let (_owner, state, _) = mounted(value, RwSignal::new(None));
+    value.set("\u{feff}a: 2\n".to_string());
+    assert_eq!(state.doc().text.get_untracked(), "a: 2\n");
+    assert_eq!(
+        state.sync().line_endings.restore("a: 2\n".to_string()),
+        "\u{feff}a: 2\n"
+    );
 }

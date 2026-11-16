@@ -457,8 +457,8 @@ fn follow_value(state: EditorState, value: Signal<String>, revision: MaybeProp<u
     leptos::reactive::effect::ImmediateEffect::new_scoped(move || {
         let value = value.get();
         let revision = revision.get_untracked();
-        state.sync().line_endings.note(&value);
-        take_host_value_at(state, editor_text(value), revision);
+        let text = state.sync().line_endings.received(value);
+        take_host_value_at(state, text, revision);
     });
 }
 
@@ -1105,4 +1105,4 @@ pub(super) use super::text_change::map_through_change;
 mod gate_tests;
 
 #[cfg(all(test, feature = "yaml"))]
-mod revision_tests;
+mod value_tests;
