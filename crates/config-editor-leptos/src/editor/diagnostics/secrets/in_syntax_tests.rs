@@ -242,3 +242,58 @@ fn a_syntax_message_without_secrets_keeps_its_quotes() {
     let plain = messages(&Quoting, text, "/password", false, &[]);
     assert_eq!(plain, ["`not a line` is no `key = value` line"]);
 }
+
+/// A key written twice, in each language taking a key once, after lines
+/// holding words of the language (`true`): the line the error is on reads
+/// alone, so what its message quotes is found by how it reads beside the
+/// lines before it.
+fn written_twice(key: &str) -> Vec<(&'static str, &'static dyn ConfigLanguage, String)> {
+    let mut cases: Vec<(&'static str, &'static dyn ConfigLanguage, String)> = vec![(
+        "the custom language",
+        &crate::editor::odd_syntax::ODD,
+        format!("user := app\n{key} := 1\nport := 10\n{key} := 2\n"),
+    )];
+    #[cfg(feature = "yaml")]
+    cases.push((
+        "YAML",
+        crate::editor::Language::YAML.behavior(),
+        format!("{key}:\n  max: 10\nuser: app\nenabled: true\n{key}:\n  max: 99\n"),
+    ));
+    #[cfg(feature = "toml")]
+    cases.push((
+        "TOML",
+        crate::editor::Language::TOML.behavior(),
+        format!("{key} = 1\nuser = \"app\"\nenabled = true\n{key} = 2\n"),
+    ));
+    #[cfg(feature = "json")]
+    cases.push((
+        "JSON",
+        crate::editor::Language::JSON.behavior(),
+        format!("{{\"{key}\": 1, \"user\": \"app\", \"on\": true,\n\"{key}\": 2}}\n"),
+    ));
+    #[cfg(feature = "hcl")]
+    cases.push((
+        "HCL",
+        crate::editor::Language::HCL.behavior(),
+        format!("{key} = 1\nuser = \"app\"\nenabled = true\n{key} = 2\n"),
+    ));
+    cases
+}
+
+/// A message about a key written twice keeps its own words where a
+/// secret may be: only the key it quotes is hidden, whatever letters the
+/// key shares with the words around it.
+#[test]
+fn a_key_written_twice_keeps_the_words_of_its_message() {
+    for key in ["limits", "keytwice", "writtenonce"] {
+        for (label, behavior, text) in written_twice(key) {
+            let plain = messages(behavior, &text, "/password", false, &[]);
+            let hidden = messages(behavior, &text, "/password", true, &[]);
+            assert_eq!(plain.len(), 1, "{label}, {key}: {plain:?}");
+            assert_eq!(hidden.len(), 1, "{label}, {key}: {hidden:?}");
+            for (plain, hidden) in plain.iter().zip(&hidden) {
+                assert_eq!(*hidden, plain.replace(key, "…"), "{label}, {key}");
+            }
+        }
+    }
+}
