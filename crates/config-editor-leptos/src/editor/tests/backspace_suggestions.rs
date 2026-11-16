@@ -120,7 +120,7 @@ fn backspace_reads_no_list_that_showed_nothing() {
         assert!(!state.suggestions_showing(), "{label}: udpq");
         let ((), read) = counted(Work::CompletionContext, || input(state, at + 1, None));
         assert_eq!(read, 0, "{label}: the caret's place read for a list");
-        assert!(!state.completion().requested.get_untracked(), "{label}");
+        assert!(!state.list_mode().is_open(), "{label}");
     }
     crate::editor::parse_cache::release();
 }

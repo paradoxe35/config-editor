@@ -86,7 +86,7 @@ fn type_x(state: EditorState, at: usize) {
     let byte = crate::editor::keyboard::utf16_to_byte_index(&before, at);
     let mut text = before.clone();
     text.insert(byte, 'x');
-    state.completion().requested.set(true);
+    state.set_list_mode(crate::editor::completion::ListMode::TYPED);
     let typed = Edit::input(
         before,
         (at, at),

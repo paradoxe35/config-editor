@@ -377,3 +377,29 @@ fn clearing_the_query_takes_back_no_results() {
     query("", false);
     assert_eq!(said(), "Folded lines 1–2");
 }
+
+/// The match stepped to stays current through an edit elsewhere: one
+/// before it adds a match before it, and it is still the one shown.
+#[cfg(feature = "yaml")]
+#[test]
+fn the_current_match_follows_an_edit_before_it() {
+    use leptos::prelude::*;
+
+    use crate::editor::languages::Language;
+    use crate::editor::sync::take_host_value;
+    use crate::editor::test_state::TestEditor;
+
+    let (_owner, state) = TestEditor::new(Language::YAML, "a: x\nb: x\n").mount();
+    let search = state.search();
+    search.open.set(true);
+    search.query.set("x".to_string());
+    // The second `x`, at byte 8.
+    search.set_current(Some(1));
+    take_host_value(state, "z: x\na: x\nb: x\n".to_string());
+    let current = search.current.get_untracked().map(|index| {
+        search
+            .results
+            .with_untracked(|results| results.matches[index].start)
+    });
+    assert_eq!(current, Some(13));
+}

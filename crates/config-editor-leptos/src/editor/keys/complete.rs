@@ -93,13 +93,14 @@ pub(super) fn complete(
         .typed("insertText", event.time_stamp());
     // Opened by the `<` before the typed `/`, so Enter right after it steps
     // past the completion rather than splitting it.
-    state.remember(Closer {
-        distance: edit.text.encode_utf16().count() - done.caret,
-        len: done.len,
-        opener: Some('<'),
-        completion: true,
-    });
-    state.commit(edit);
+    if state.commit(edit) {
+        state.remember(Closer {
+            start: done.caret,
+            len: done.len,
+            opener: Some('<'),
+            completion: true,
+        });
+    }
     state.close_suggestions();
     true
 }

@@ -85,8 +85,12 @@ pub(super) struct SearchState {
     pub(super) query: RwSignal<String>,
     pub(super) replacement: RwSignal<String>,
     pub(super) options: RwSignal<SearchOptions>,
-    /// Index of the match stepped to, shown distinctly.
-    pub(super) current: RwSignal<Option<usize>>,
+    /// The match stepped to, as a byte range of the document, followed
+    /// through every edit (see [`EditorState::follow_current_match`]).
+    stepped: RwSignal<Option<(usize, usize)>>,
+    /// Index of the match stepped to, shown distinctly: `None` once an edit
+    /// changed its text.
+    pub(super) current: Memo<Option<usize>>,
     /// What the last replace all did, announced in place of the count.
     pub(super) notice: RwSignal<Option<SearchNotice>>,
     pub(super) results: Memo<SearchResults>,
@@ -124,13 +128,25 @@ impl SearchState {
                 }),
             })
         });
+        let stepped = RwSignal::new(None::<(usize, usize)>);
+        let current = Memo::new(move |_| {
+            let (start, end) = stepped.get()?;
+            results.with(|results| {
+                let index = results
+                    .matches
+                    .binary_search_by_key(&start, |found| found.start)
+                    .ok()?;
+                (results.matches[index].end == end).then_some(index)
+            })
+        });
         Self {
             open,
             replacing: RwSignal::new(false),
             query,
             replacement: RwSignal::new(String::new()),
             options,
-            current: RwSignal::new(None),
+            stepped,
+            current,
             notice: RwSignal::new(None),
             results,
             widget_ref: NodeRef::new(),
@@ -140,11 +156,39 @@ impl SearchState {
         }
     }
 
+    /// Steps to the match at `index` of the results (none with `None`).
+    pub(super) fn set_current(&self, index: Option<usize>) {
+        let found = index.and_then(|index| {
+            self.results.with_untracked(|results| {
+                results
+                    .matches
+                    .get(index)
+                    .map(|found| (found.start, found.end))
+            })
+        });
+        self.stepped.set(found);
+    }
+
     /// The compiled query, when it is valid and not empty.
     fn matcher(&self) -> Option<Matcher> {
         let options = self.options.get_untracked();
         self.query
             .with_untracked(|query| Matcher::new(query, options).ok().flatten())
+    }
+}
+
+impl EditorState {
+    /// Maps the match stepped to through `change` (an edit's
+    /// `Edit::mapping`), as the edit pipeline writes it: it stays on the
+    /// same text, and is no longer current once the edit changed that text.
+    pub(super) fn follow_current_match(&self, change: &super::edit::Change) {
+        let stepped = self.search().stepped;
+        if let Some((start, end)) = stepped.get_untracked() {
+            let mapped = change
+                .map_range(&(start..end))
+                .map(|range| (range.start, range.end));
+            stepped.set(mapped);
+        }
     }
 }
 

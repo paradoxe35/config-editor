@@ -3,7 +3,7 @@
 use leptos::prelude::*;
 use web_sys::KeyboardEvent;
 
-use super::super::completion::apply_completion;
+use super::super::completion::{ListMode, apply_completion};
 use super::super::keyboard::utf16_to_byte_index;
 use super::super::state::EditorState;
 
@@ -21,15 +21,16 @@ pub(super) fn request(state: EditorState, event: &KeyboardEvent) -> bool {
             _ => None,
         }
     });
+    let replace_word = selected.is_some() || state.list_mode().replaces_word();
     if let Some((element, end)) = selected {
         let _ = element.set_selection_range(end, end);
-        // The selected word is to be replaced: every key is offered.
-        state.completion().replace_word.set(true);
     }
     state.completion().active.set(0);
-    state.completion().asked.set_value(true);
-    state.completion().explicit.set(true);
-    state.completion().requested.set(true);
+    // The selected word is to be replaced: every key is offered.
+    state.set_list_mode(ListMode::Asked {
+        replace_word,
+        heeded: true,
+    });
     // The user asked: nothing to offer is said, with the reason where the
     // text is protected (a secret placeholder).
     if state.completion().suggestions.with_untracked(Vec::is_empty)
@@ -77,6 +78,9 @@ pub(super) fn step_past_unchanged(state: EditorState, event: &KeyboardEvent) -> 
     if let Some(element) = state.textarea() {
         let _ = element.set_selection_range(caret as u32, caret as u32);
     }
+    // After an explicit Ctrl+Space, Enter on what is already written only
+    // closes the list.
+    let asked = state.list_mode().is_explicit();
     state.close_suggestions();
     // Text after the caret on its line (`nodelay| = true`) would be split
     // off by a new line: Enter only closes the list there. A closer the
@@ -89,9 +93,6 @@ pub(super) fn step_past_unchanged(state: EditorState, event: &KeyboardEvent) -> 
                 .next()
                 .is_some_and(|rest| !rest.trim().is_empty())
         });
-    // After an explicit Ctrl+Space, Enter on what is already written only
-    // closes the list.
-    let asked = state.completion().explicit.get_untracked();
     if key == "Tab" || line_continues || asked {
         event.prevent_default();
         return None;
@@ -128,6 +129,6 @@ pub(super) fn list_keys(state: EditorState, event: &KeyboardEvent) -> bool {
     };
     event.prevent_default();
     state.completion().active.set(next);
-    state.completion().asked.set_value(true);
+    state.set_list_mode(state.list_mode().heeding(true));
     true
 }

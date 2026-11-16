@@ -21,7 +21,11 @@ impl EditorState {
         Vec::new()
     }
 
-    pub(super) fn folds_through(&self, _new: &str) -> Option<Vec<FoldRange>> {
+    pub(super) fn folds_through(
+        &self,
+        _change: &super::edit::Change,
+        _new: &str,
+    ) -> Option<Vec<FoldRange>> {
         None
     }
 

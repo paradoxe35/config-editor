@@ -6,6 +6,7 @@ use leptos::prelude::*;
 use web_sys::KeyboardEvent;
 
 use super::super::commands::{backspace_indent, toggled_selection, typed_closer};
+use super::super::completion::ListMode;
 use super::super::edit::{Assoc, Change, Edit};
 use super::super::keyboard::{
     delete_empty_pair, is_closer, is_closing_bracket, is_quote, paired_edit, skip_closing_pair,
@@ -175,7 +176,7 @@ fn type_over_closer(state: EditorState, event: &KeyboardEvent, start: usize, typ
         && closer.len > 1
     {
         state.remember(Closer {
-            distance: closer.distance - (next - start),
+            start: next,
             len: closer.len - (next - start),
             ..closer
         });
@@ -184,7 +185,6 @@ fn type_over_closer(state: EditorState, event: &KeyboardEvent, start: usize, typ
     state.place_caret(next);
     // The value or container is finished: its suggestions are done too.
     state.close_suggestions();
-    state.completion().explicit.set(false);
     true
 }
 
@@ -334,9 +334,10 @@ fn delete_pair(state: EditorState, event: &KeyboardEvent, start: usize) -> bool 
             let change = Change::replace_bytes(&before, byte - quote_len..byte + quote_len, "");
             let edit = Edit::command(before, change, (start, start))
                 .typed("deleteContentBackward", event.time_stamp());
-            state.forget_closer_at(start);
-            state.remember_closer(&edit.text, start - 1, closer.len - 1, closer.opener);
-            state.commit(edit);
+            // The edit takes the closer it cuts; what is left of it stays.
+            if state.commit(edit) {
+                state.remember_closer(start - 1, closer.len - 1, closer.opener);
+            }
             return true;
         }
     }
@@ -344,7 +345,6 @@ fn delete_pair(state: EditorState, event: &KeyboardEvent, start: usize) -> bool 
         return false;
     };
     event.prevent_default();
-    state.forget_closer_at(start);
     state.commit(
         Edit::command(before, change, (start, start))
             .typed("deleteContentBackward", event.time_stamp()),
@@ -366,35 +366,40 @@ fn auto_close(state: EditorState, event: &KeyboardEvent, start: usize, typed: ch
     let edit = Edit::command(before, change, (start, start))
         .caret_at(caret)
         .typed("insertText", event.time_stamp());
-    let updated = &edit.text;
-    // Closing markup is the editor's: Enter after a value steps past it.
-    if let Some(len) = state.behavior().closing_markup_len(&closing) {
-        state.remember_closer(
-            updated,
-            caret,
-            closing[..len].encode_utf16().count(),
-            Some(typed),
-        );
-    } else if closing.chars().count() == 1
-        && closing
-            .chars()
-            .all(|closer| is_closing_bracket(state.behavior(), closer))
+    if state.commit(edit)
+        && let Some((len, opener)) = kept_closer(state.behavior(), &closing, typed)
+    {
+        state.remember_closer(caret, len, opener);
+    }
+    state.close_suggestions();
+    true
+}
+
+/// The closer `closing`, which typing `typed` wrote, leaves to type over:
+/// its UTF-16 length and the opener a value typed in it follows.
+fn kept_closer(
+    behavior: &dyn ConfigLanguage,
+    closing: &str,
+    typed: char,
+) -> Option<(usize, Option<char>)> {
+    if let Some(len) = behavior.closing_markup_len(closing) {
+        // Closing markup is the editor's: Enter after a value steps past it.
+        return Some((closing[..len].encode_utf16().count(), Some(typed)));
+    }
+    let mut characters = closing.chars();
+    if characters
+        .next()
+        .is_some_and(|closer| is_closing_bracket(behavior, closer))
+        && characters.next().is_none()
     {
         // A bracket the language closes (HCL's `${` in a string): typed
         // over, deleted with its opener.
-        state.remember_closer(updated, caret, 1, Some(typed));
-    } else if !closing.is_empty()
-        && closing
-            .chars()
-            .all(|quote| is_quote(state.behavior(), quote))
-    {
-        // A closing quote run (TOML's `"""`) is typed over and deleted with
-        // its opener; Enter inside it is a line break of the string.
-        state.remember_closer(updated, caret, closing.encode_utf16().count(), None);
+        return Some((1, Some(typed)));
     }
-    state.commit(edit);
-    state.close_suggestions();
-    true
+    // A closing quote run (TOML's `"""`) is typed over and deleted with its
+    // opener; Enter inside it is a line break of the string.
+    (!closing.is_empty() && closing.chars().all(|quote| is_quote(behavior, quote)))
+        .then(|| (closing.encode_utf16().count(), None))
 }
 
 /// The history kind of a selection wrapped in a typed pair (see
@@ -438,8 +443,9 @@ fn open_pair(
     // A quote ends a string value; Enter opens a bracket pair instead of
     // stepping out of it.
     let opener = is_quote(state.behavior(), opening).then_some(opening);
-    state.remember_closer(&edit.text, selection_end, 1, opener);
-    state.commit(edit);
+    if state.commit(edit) {
+        state.remember_closer(selection_end, 1, opener);
+    }
     // A wrapped selection keeps its direction.
     if backward
         && selection_start != selection_end
@@ -447,7 +453,11 @@ fn open_pair(
     {
         select(&element, selection_start, selection_end, true);
     }
-    state.completion().requested.set(opens_entry);
+    state.set_list_mode(if opens_entry {
+        ListMode::TYPED
+    } else {
+        ListMode::Closed
+    });
     true
 }
 

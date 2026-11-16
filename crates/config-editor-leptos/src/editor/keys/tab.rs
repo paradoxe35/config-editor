@@ -17,7 +17,7 @@ pub(super) fn tab(state: EditorState, event: &KeyboardEvent) {
     let (start, end) = textarea_selection(&element);
     let text = state.doc().text.get_untracked();
     if !event.shift_key() && start == end {
-        let in_block = in_slot_region(state, &text, start);
+        let in_block = in_slot_region(state, start);
         if next_placeholder_slot(state, &text, start) || step_out_of_value(state, &text, start) {
             return;
         }
@@ -47,35 +47,28 @@ pub(super) fn tab(state: EditorState, event: &KeyboardEvent) {
 
 /// Whether `caret` is in the block a suggestion just wrote (whose values
 /// Tab walks).
-fn in_slot_region(state: EditorState, text: &str, caret: usize) -> bool {
+fn in_slot_region(state: EditorState, caret: usize) -> bool {
     state
         .completion()
         .slot_region
         .get_value()
-        .is_some_and(|(region_start, from_end)| {
-            let region_end = text.encode_utf16().count().saturating_sub(from_end);
-            caret >= region_start && caret <= region_end
-        })
+        .is_some_and(|(start, end)| (start..=end).contains(&caret))
 }
 
 /// In a block a suggestion just wrote, Tab goes to its next empty value or
 /// selects the next value it wrote, as through a snippet's placeholders.
 pub(super) fn next_placeholder_slot(state: EditorState, text: &str, caret: usize) -> bool {
-    let Some((region_start, from_end)) = state.completion().slot_region.get_value() else {
+    let Some((region_start, region_end)) = state.completion().slot_region.get_value() else {
         return false;
     };
-    let length = text.encode_utf16().count();
-    let region_end = length.saturating_sub(from_end);
-    let stops: Vec<(usize, usize)> = state
-        .completion()
-        .value_stops
-        .get_value()
-        .into_iter()
-        .filter(|(start, _)| *start <= length)
-        .map(|(start, end)| (length - start, length - end))
-        .collect();
-    let next = (caret >= region_start && caret <= region_end)
-        .then(|| next_stop(text, caret, region_end, &stops, state.behavior()))
+    let next = (region_start..=region_end)
+        .contains(&caret)
+        .then(|| {
+            state
+                .completion()
+                .value_stops
+                .with_value(|stops| next_stop(text, caret, region_end, stops, state.behavior()))
+        })
         .flatten();
     match next {
         Some((anchor, end)) => {

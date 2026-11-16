@@ -84,7 +84,7 @@ pub(in crate::editor) fn dismiss(state: EditorState) {
     let search = state.search();
     search.open.set(false);
     search.replacing.set(false);
-    search.current.set(None);
+    search.set_current(None);
     if let Some(widget) = search.widget_ref.get_untracked() {
         widget.set_hidden(true);
     }
@@ -108,7 +108,7 @@ pub(in crate::editor) fn select_nearest(state: EditorState, reveal: bool) {
         let index = results.matches.partition_point(|found| found.start < from);
         (!results.matches.is_empty()).then(|| index % results.matches.len())
     });
-    search.current.set(current);
+    search.set_current(current);
     if reveal && current.is_some() {
         show_current(state);
     }
@@ -175,7 +175,7 @@ pub(in crate::editor) fn step(state: EditorState, backward: bool) {
         })
     });
     if next.is_some() {
-        search.current.set(next);
+        search.set_current(next);
         show_current(state);
     }
 }
@@ -215,7 +215,7 @@ pub(in crate::editor) fn replace_current(state: EditorState) {
         (!matches.is_empty())
             .then(|| matches.partition_point(|found| found.start < inserted.end) % matches.len())
     });
-    search.current.set(next);
+    search.set_current(next);
     if next.is_some() {
         show_current(state);
     }
@@ -257,7 +257,7 @@ pub(in crate::editor) fn replace_all(state: EditorState) {
         return;
     }
     let count = replaced.count;
-    search.current.set(None);
+    search.set_current(None);
     search.notice.set(Some(SearchNotice::Replaced {
         count,
         skipped: replaced.skipped,

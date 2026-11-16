@@ -14,6 +14,10 @@ pub(super) fn shortcuts(_state: EditorState, _event: &KeyboardEvent) -> bool {
 
 pub(super) fn follow_settings(_state: EditorState) {}
 
+impl EditorState {
+    pub(super) fn follow_current_match(&self, _change: &super::edit::Change) {}
+}
+
 pub(super) fn close_on_escape(_state: EditorState) -> bool {
     false
 }

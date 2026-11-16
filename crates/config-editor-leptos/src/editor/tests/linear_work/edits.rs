@@ -330,7 +330,7 @@ pub(super) fn make(state: EditorState, kind: EditKind, last: &str) {
             let text = shown(state);
             let at = line_end(&text, middle(&text, "port"));
             enter_at(state, (at, at), Pressed::Enter, None);
-            state.completion().requested.set(true);
+            state.set_list_mode(crate::editor::completion::ListMode::TYPED);
             let at = state.doc().caret.get_untracked();
             type_at(state, at, "h");
             let _ = state.completion().suggestions.get_untracked();

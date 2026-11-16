@@ -45,10 +45,6 @@ pub(crate) trait Unit: Copy + std::fmt::Debug + PartialEq + Eq {
 pub(crate) struct Bytes;
 
 /// Positions in UTF-16 code units (the browser's offsets).
-#[cfg_attr(
-    not(any(test, feature = "protect")),
-    expect(dead_code, reason = "only protection follows UTF-16 spans")
-)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct CodeUnits;
 
@@ -250,10 +246,6 @@ impl<U: Unit> Change<U> {
     /// `range` (of the text before) in the text after: its start keeps
     /// after text inserted at it, its end before; `None` when the change
     /// deleted text inside it or wrote inside it.
-    #[cfg_attr(
-        not(any(test, feature = "protect")),
-        expect(dead_code, reason = "only protection follows UTF-16 spans")
-    )]
     pub(crate) fn map_range(&self, range: &Range<usize>) -> Option<Range<usize>> {
         let start = self.map_pos(range.start, Assoc::After);
         let end = self.map_pos(range.end, Assoc::Before);
@@ -615,10 +607,6 @@ impl Change<Bytes> {
 
     /// The same change counted in UTF-16 code units of `before` (the text
     /// it is made on).
-    #[cfg_attr(
-        not(any(test, feature = "protect")),
-        expect(dead_code, reason = "only protection follows UTF-16 spans")
-    )]
     pub(crate) fn in_utf16(&self, before: &str) -> Option<Change<CodeUnits>> {
         let mut units = 0;
         let mut at = 0;

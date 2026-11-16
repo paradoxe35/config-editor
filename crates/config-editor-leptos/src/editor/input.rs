@@ -307,22 +307,15 @@ pub(super) fn flush_input(state: EditorState) {
 /// `before`, and updates the suggestions and popups after it.
 pub(super) fn apply_input(state: EditorState, edit: Edit, before: &str, input_type: &str) {
     let showing = state.suggestions_showing();
-    if !showing {
-        // A list that opens by itself is not one the user asked for.
-        state.completion().asked.set_value(false);
-    }
+    let mode = state.list_mode();
     // "No suggestions" is said only for a list the user asked for.
-    let listed = showing && state.completion().asked.get_value();
+    let listed = showing && mode.heeded();
     // Backspace with the list asked for refilters it instead of closing,
     // also when the filter had left nothing: taking back what emptied it
     // brings the options back. A list the user closed is not asked for,
     // nor one typing asked for that showed no options since (its filter
     // emptied nothing, so a Backspace brings nothing back).
-    let showed = state.completion().requested.get_untracked()
-        && (showing
-            || state.completion().showed.get_value()
-            || state.completion().explicit.get_untracked());
-    let refilter = input_type == "deleteContentBackward" && showed;
+    let refilter = input_type == "deleteContentBackward" && mode.brings_back(showing);
     let committed = state.commit(edit);
     if input_type == "insertFromDrop" {
         if committed {
@@ -347,20 +340,11 @@ pub(super) fn apply_input(state: EditorState, edit: Edit, before: &str, input_ty
     state.completion().placeholder.set_value(None);
     state.completion().active.set(0);
     // Typed text filters the list again.
-    if state.completion().replace_word.get_untracked() {
-        state.completion().replace_word.set(false);
-    }
-    if !refilter {
-        state.completion().explicit.set(false);
-    }
-    state.completion().requested.set(auto_trigger || refilter);
-    state
-        .completion()
-        .showed
-        .set_value((auto_trigger || refilter) && showed);
+    state.set_list_mode(mode.after_typing(auto_trigger, refilter, showing));
     super::a11y::say_no_suggestions_after(state, listed);
     if !state.suggestions_showing() {
-        state.completion().asked.set_value(false);
+        // A list that opens by itself is not one the user asked for.
+        state.set_list_mode(state.list_mode().heeding(false));
     }
     state.hide_hover();
     state.hide_shown_problem();
@@ -505,11 +489,8 @@ fn selection_change(state: EditorState) {
         return;
     };
     if element.caret() != state.doc().caret.get_untracked() {
-        if state.completion().requested.get_untracked()
-            && state.completion().suggestions.with_untracked(Vec::is_empty)
-        {
+        if state.completion().suggestions.with_untracked(Vec::is_empty) {
             state.close_suggestions();
-            state.completion().explicit.set(false);
         }
         element.follow_caret();
     }
@@ -533,7 +514,7 @@ pub(super) fn key_up(state: EditorState, event: &web_sys::KeyboardEvent) {
     // would have suggestions.
     let list_was_open = !state.completion().suggestions.with_untracked(Vec::is_empty);
     // A selection (Ctrl+A, Shift+arrows) ends any suggestion list.
-    if start != end && state.completion().requested.get_untracked() {
+    if start != end {
         state.close_suggestions();
     }
     if element.caret() != state.doc().caret.get_untracked() {
@@ -548,9 +529,8 @@ pub(super) fn key_up(state: EditorState, event: &web_sys::KeyboardEvent) {
     };
     if navigation {
         state.forget_typing_aids();
-        if state.completion().requested.get_untracked() {
+        if state.list_mode().is_open() {
             state.close_suggestions();
-            state.completion().explicit.set(false);
             state.completion().active.set(0);
         }
     }

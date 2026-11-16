@@ -1,6 +1,7 @@
 //! The projection, folds through edits, and the language-free building
 //! blocks. The per-language ranges are in `languages/fold_matrix.rs`.
 
+use super::super::edit::Change;
 use super::super::fold_ranges::*;
 use super::super::projection::{Projection, Side};
 use super::follow::{follow_edit, keep_valid};
@@ -186,8 +187,13 @@ fn folds_follow_edits_and_open_when_touched() {
     ];
     let mut failures = Vec::new();
     for (from, to, expected) in cases {
-        let new = old.replacen(from, to, 1);
-        let moved = follow_edit(&folds, old, &new);
+        let at = old.find(from).expect("in the text");
+        // As the pipeline follows it: without the text written back.
+        let change = Change::replace_bytes(old, at..at + from.len(), to)
+            .narrowed(old)
+            .expect("made on it");
+        let new = change.apply(old).expect("made on it");
+        let moved = follow_edit(&folds, old, &change, &new);
         if moved != expected {
             failures.push(format!(
                 "{from:?} -> {to:?}: {moved:?}, expected {expected:?}"
@@ -195,6 +201,53 @@ fn folds_follow_edits_and_open_when_touched() {
         }
     }
     assert!(failures.is_empty(), "{failures:#?}");
+}
+
+/// A fold follows the edit as it was made, not where the two texts alone
+/// would place it: a character typed before a folded line's last one, the
+/// same as it, is typed before the line's end (the texts alone put it at
+/// the end, which opens the fold), and a change made on both sides of a
+/// fold leaves it closed between them.
+#[test]
+fn folds_follow_the_change_made_not_a_diff_of_the_texts() {
+    let old = "a:
+  b: 1
+c:
+  d: 2
+e:
+  f: 3";
+    let folds = [fold(0, 1), fold(2, 3), fold(4, 5)];
+    // `c|:` + `:`: typed at 11, before the line's end at 12.
+    let typed = Change::replace_bytes(old, 11..11, ":");
+    let new = typed.apply(old).unwrap();
+    assert_eq!(
+        new,
+        "a:
+  b: 1
+c::
+  d: 2
+e:
+  f: 3"
+    );
+    assert_eq!(follow_edit(&folds, old, &typed, &new), folds);
+    // `1` and `3` replaced by `9` at once (a Replace All): the folds
+    // holding them open, the one between them stays.
+    let replaced = Change::replacing(
+        old.len(),
+        [(8..9, "9".to_string()), (28..29, "9".to_string())],
+    )
+    .unwrap();
+    let new = replaced.apply(old).unwrap();
+    assert_eq!(
+        new,
+        "a:
+  b: 9
+c:
+  d: 2
+e:
+  f: 9"
+    );
+    assert_eq!(follow_edit(&folds, old, &replaced, &new), [fold(2, 3)]);
 }
 
 #[test]

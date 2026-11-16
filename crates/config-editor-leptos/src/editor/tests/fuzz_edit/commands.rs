@@ -137,7 +137,7 @@ pub(super) fn check(case: &CommandCase) -> Result<(), Failure> {
         editor.schema = Some(crate::editor::save_properties::schema());
         let (_owner, state) = editor.mount();
         state.doc().caret.set(range.0);
-        state.completion().requested.set(true);
+        state.set_list_mode(crate::editor::completion::ListMode::TYPED);
         let options = state.completion().suggestions.get_untracked();
         if let Some(option) = options.first() {
             state.accept(option, false);

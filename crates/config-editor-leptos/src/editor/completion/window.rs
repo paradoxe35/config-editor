@@ -123,8 +123,10 @@ mod tests {
         let mut editor = TestEditor::new(Language::YAML, "");
         editor.schema = Some(Arc::new(build_schema(&schema).expect("the schema")));
         let (owner, state) = editor.mount();
-        state.completion().explicit.set(true);
-        state.completion().requested.set(true);
+        state.set_list_mode(crate::editor::completion::ListMode::Asked {
+            replace_word: false,
+            heeded: false,
+        });
         assert_eq!(
             state.completion().suggestions.with_untracked(Vec::len),
             count

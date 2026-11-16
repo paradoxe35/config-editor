@@ -5,6 +5,7 @@
 use leptos::prelude::*;
 
 use super::drag_move::DragDelete;
+use super::edit::{Assoc, Change};
 use super::history::{EditHistory, Selection};
 use super::input::{InputBurst, UNKNOWN_SELECTION};
 use super::state::EditorState;
@@ -13,9 +14,9 @@ use super::state::EditorState;
 /// markup such as an XML end tag.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct Closer {
-    /// UTF-16 distance from the document end to where it starts; typing
-    /// before it does not change it.
-    pub(super) distance: usize,
+    /// UTF-16 offset where it starts, mapped through every edit (see
+    /// [`EditorState::follow_typing_aids`]): typing before it moves it on.
+    pub(super) start: usize,
     /// UTF-16 length.
     pub(super) len: usize,
     /// For a closer that ends a value (a string, an element's text): the
@@ -72,49 +73,33 @@ impl TypingState {
 impl EditorState {
     /// The inserted closer starting at UTF-16 `offset`, if any.
     pub(super) fn closer_at(&self, offset: usize) -> Option<Closer> {
-        let distance = self
-            .doc()
-            .text
-            .with_untracked(|text| text.encode_utf16().count())
-            .checked_sub(offset)?;
         self.typing().closers.with_value(|closers| {
             closers
                 .iter()
-                .find(|closer| closer.distance == distance)
+                .find(|closer| closer.start == offset)
                 .copied()
         })
     }
 
     /// Forgets the inserted closer starting at UTF-16 `offset`.
     pub(super) fn forget_closer_at(&self, offset: usize) {
-        let distance = self
-            .doc()
-            .text
-            .with_untracked(|text| text.encode_utf16().count())
-            .saturating_sub(offset);
         self.typing()
             .closers
-            .update_value(|closers| closers.retain(|closer| closer.distance != distance));
+            .update_value(|closers| closers.retain(|closer| closer.start != offset));
     }
 
-    /// Remembers a closer written at UTF-16 `offset` of `text` (the document
-    /// after the edit that wrote it).
-    pub(super) fn remember_closer(
-        &self,
-        text: &str,
-        offset: usize,
-        len: usize,
-        opener: Option<char>,
-    ) {
+    /// Remembers a closer the edit just made wrote at UTF-16 `start` of the
+    /// document.
+    pub(super) fn remember_closer(&self, start: usize, len: usize, opener: Option<char>) {
         self.remember(Closer {
-            distance: text.encode_utf16().count() - offset,
+            start,
             len,
             opener,
             completion: false,
         });
     }
 
-    /// Remembers `closer`.
+    /// Remembers `closer`, which the edit just made wrote.
     pub(super) fn remember(&self, closer: Closer) {
         self.typing()
             .closers
@@ -128,5 +113,69 @@ impl EditorState {
         self.completion().slot_region.set_value(None);
         self.completion().value_stops.update_value(Vec::clear);
         self.doc().history.update(EditHistory::seal);
+    }
+
+    /// Maps the typing aids kept by position through `change` (an edit's
+    /// `Edit::mapping`, made of `before`), as the edit pipeline writes
+    /// it: the inserted closers, and the default, the block
+    /// and the values an accepted suggestion left for Tab. One whose own
+    /// text the edit changed goes. A text in another language (`switching`,
+    /// an Edit-as switch) keeps none of them.
+    pub(super) fn follow_typing_aids(&self, change: &Change, before: &str, switching: bool) {
+        let (typing, completion) = (self.typing(), self.completion());
+        let kept = typing.closers.with_value(|closers| !closers.is_empty())
+            || completion.placeholder.with_value(Option::is_some)
+            || completion.slot_region.with_value(Option::is_some)
+            || completion.value_stops.with_value(|stops| !stops.is_empty());
+        if !kept {
+            return;
+        }
+        let change = (!switching).then(|| change.in_utf16(before)).flatten();
+        let Some(change) = change else {
+            typing.closers.update_value(Vec::clear);
+            completion.placeholder.set_value(None);
+            completion.slot_region.set_value(None);
+            completion.value_stops.update_value(Vec::clear);
+            return;
+        };
+        let span = |(start, end): (usize, usize)| {
+            change
+                .map_range(&(start..end))
+                .map(|range| (range.start, range.end))
+        };
+        typing.closers.update_value(|closers| {
+            closers.retain_mut(
+                |closer| match span((closer.start, closer.start + closer.len)) {
+                    Some((start, _)) => {
+                        closer.start = start;
+                        true
+                    }
+                    None => false,
+                },
+            );
+        });
+        completion.placeholder.update_value(|placeholder| {
+            // (anchor, caret), the caret at either end.
+            *placeholder = placeholder.and_then(|(anchor, caret)| {
+                let (start, end) = span((anchor.min(caret), anchor.max(caret)))?;
+                Some(if caret < anchor {
+                    (end, start)
+                } else {
+                    (start, end)
+                })
+            });
+        });
+        completion.slot_region.update_value(|region| {
+            // Text typed at either end of the block is in it.
+            *region = region.map(|(start, end)| {
+                (
+                    change.map_pos(start, Assoc::Before).pos,
+                    change.map_pos(end, Assoc::After).pos,
+                )
+            });
+        });
+        completion
+            .value_stops
+            .update_value(|stops| *stops = stops.iter().copied().filter_map(span).collect());
     }
 }

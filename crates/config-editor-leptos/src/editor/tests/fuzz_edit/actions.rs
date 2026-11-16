@@ -429,7 +429,7 @@ pub(super) fn apply(state: EditorState, action: &Action, context: &mut Context) 
                 .results
                 .with_untracked(|results| results.matches.len());
             if found > 0 {
-                state.search().current.set(Some(index as usize % found));
+                state.search().set_current(Some(index as usize % found));
                 crate::editor::search::replace_one_match(state);
             }
             state.search().open.set(false);
@@ -437,7 +437,7 @@ pub(super) fn apply(state: EditorState, action: &Action, context: &mut Context) 
         Action::Complete { at, pick } => {
             let at = offset(&text, at);
             place(state, at);
-            state.completion().requested.set(true);
+            state.set_list_mode(crate::editor::completion::ListMode::TYPED);
             let options = state.completion().suggestions.get_untracked();
             if !options.is_empty() {
                 let option = options[pick as usize % options.len()].clone();

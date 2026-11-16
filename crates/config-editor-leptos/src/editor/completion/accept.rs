@@ -155,7 +155,6 @@ pub(crate) fn inserted_closers(
     (anchor, caret): (usize, usize),
     behavior: &dyn ConfigLanguage,
 ) -> Vec<Closer> {
-    let length = updated.encode_utf16().count();
     let insert = completion.insert.as_str();
     let mut offset = caret.saturating_sub(completion.cursor_offset);
     let mut closers = Vec::new();
@@ -173,7 +172,7 @@ pub(crate) fn inserted_closers(
         if offset >= caret {
             if config.brackets.iter().any(|(_, close)| *close == character) {
                 closers.push(Closer {
-                    distance: length - offset,
+                    start: offset,
                     len: 1,
                     opener: None,
                     completion: false,
@@ -184,14 +183,14 @@ pub(crate) fn inserted_closers(
                 .any(|quote| quote.starts_with(character))
             {
                 closers.push(Closer {
-                    distance: length - offset,
+                    start: offset,
                     len: 1,
                     opener: opener(offset),
                     completion: false,
                 });
             } else if let Some(len) = behavior.closing_markup_len(&insert[byte..]) {
                 closers.push(Closer {
-                    distance: length - offset,
+                    start: offset,
                     len: insert[byte..byte + len].encode_utf16().count(),
                     opener: opener(offset),
                     completion: false,

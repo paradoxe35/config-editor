@@ -12,6 +12,7 @@ use super::super::languages::Language;
 use super::super::protect::ProtectState;
 use super::super::schema::SchemaBundle;
 use super::super::state::EditorState;
+use super::list_mode::{ListMode, ListQuery};
 use super::{
     Completion, RowSize, accept_reopens_suggestions, completions_in, inserted_closers, next_slot,
     stop_ranges,
@@ -22,20 +23,10 @@ use crate::strings::fill;
 /// The suggestions part of the editor state.
 #[derive(Clone, Copy)]
 pub(crate) struct CompletionState {
-    /// The list is asked for (typing, `Ctrl+Space`); it shows when it has
+    /// How the list was opened (see [`ListMode`]); set through
+    /// [`EditorState::set_list_mode`]. It shows when it is open and has
     /// options.
-    pub(crate) requested: RwSignal<bool>,
-    /// Asked for with `Ctrl+Space` (or after an accept): offers more than
-    /// what matches a typed prefix.
-    pub(crate) explicit: RwSignal<bool>,
-    /// The list was asked for over a selected word (Ctrl+Space): it offers
-    /// every key, and accepting one replaces the word.
-    pub(crate) replace_word: RwSignal<bool>,
-    /// The list showed options since it was last asked for: Backspace
-    /// asks for it again, as taking back what the filter emptied it with
-    /// can bring them back; a list that showed none has none to bring back,
-    /// and is not worked out again on each Backspace.
-    pub(crate) showed: StoredValue<bool>,
+    pub(crate) mode: RwSignal<ListMode>,
     /// The highlighted option.
     pub(crate) active: RwSignal<usize>,
     pub(crate) suggestions: Memo<Vec<Completion>>,
@@ -46,19 +37,16 @@ pub(crate) struct CompletionState {
     pub(crate) row_size: Memo<RowSize>,
     /// How far the list is scrolled, in pixels (see `window`).
     pub(crate) list_top: RwSignal<f64>,
-    /// The user opened the open list (`Ctrl+Space`) or moved in it: typing
-    /// that empties it says so; a list that opened by itself closes
-    /// silently.
-    pub(crate) asked: StoredValue<bool>,
-    /// An inserted default left selected after an accept: typing replaces
-    /// it, Tab keeps it and moves past it, Enter keeps it and starts a new
-    /// line.
+    /// An inserted default left selected after an accept, as UTF-16
+    /// (anchor, caret): typing replaces it, Tab keeps it and moves past it,
+    /// Enter keeps it and starts a new line. It, the block and its values
+    /// follow every edit (see `EditorState::follow_typing_aids`).
     pub(crate) placeholder: StoredValue<Option<(usize, usize)>>,
-    /// The block an accepted suggestion wrote, as (start, distance from the
-    /// end): Tab walks its empty value slots.
+    /// The block an accepted suggestion wrote, as UTF-16 (start, end):
+    /// Tab walks its empty value slots.
     pub(crate) slot_region: StoredValue<Option<(usize, usize)>>,
-    /// The values that block wrote (defaults, examples), each as distances
-    /// of its start and end from the end of the text: Tab selects them.
+    /// The values that block wrote (defaults, examples), as UTF-16 (start,
+    /// end): Tab selects them.
     pub(crate) value_stops: StoredValue<Vec<(usize, usize)>>,
 }
 
@@ -105,11 +93,19 @@ impl CompletionState {
             string_bodies,
             strings,
         } = sources;
-        let requested = RwSignal::new(false);
-        let explicit = RwSignal::new(false);
-        let replace_word = RwSignal::new(false);
+        let mode = RwSignal::new(ListMode::Closed);
+        // Only what the options depend on: the rest of the mode changing
+        // works nothing out again.
+        let query = Memo::new(move |_| mode.with(|mode| mode.query()));
         let suggestions = Memo::new(move |_| {
-            if !requested.get() || !enabled.get() {
+            let Some(ListQuery {
+                explicit,
+                replace_word,
+            }) = query.get()
+            else {
+                return Vec::new();
+            };
+            if !enabled.get() {
                 return Vec::new();
             }
             let behavior = edit_language.get_untracked().behavior();
@@ -119,11 +115,11 @@ impl CompletionState {
                     completions_in(
                         text,
                         at,
-                        explicit.get(),
+                        explicit,
                         schema.as_deref(),
                         !read_only.get(),
                         behavior,
-                        replace_word.get(),
+                        replace_word,
                         bodies,
                     )
                 });
@@ -137,7 +133,7 @@ impl CompletionState {
                                 behavior,
                                 source: text,
                                 cursor: at,
-                                explicit: explicit.get(),
+                                explicit,
                                 schema: schema.as_deref().map(|bundle| &bundle.schema),
                             },
                             strings,
@@ -154,16 +150,12 @@ impl CompletionState {
         });
         let row_size = Memo::new(move |_| suggestions.with(|options| RowSize::of(options)));
         Self {
-            requested,
-            explicit,
-            replace_word,
-            showed: StoredValue::new(false),
+            mode,
             active: RwSignal::new(0),
             suggestions,
             listing,
             row_size,
             list_top: RwSignal::new(0.0),
-            asked: StoredValue::new(false),
             placeholder: StoredValue::new(None),
             slot_region: StoredValue::new(None),
             value_stops: StoredValue::new(Vec::new()),
@@ -176,30 +168,37 @@ impl EditorState {
     /// that filtered down to nothing shows no popup, so no key treats it as
     /// one (Escape goes on to the find widget, Tab to the focus).
     pub(crate) fn suggestions_showing(&self) -> bool {
-        self.completion().requested.get_untracked()
-            && !self.completion().suggestions.with_untracked(Vec::is_empty)
+        self.list_mode().is_open() && !self.completion().suggestions.with_untracked(Vec::is_empty)
+    }
+
+    /// How the list was opened (untracked).
+    pub(crate) fn list_mode(&self) -> ListMode {
+        self.completion().mode.get_untracked()
+    }
+
+    /// Opens, closes or changes the list as `mode` says.
+    pub(crate) fn set_list_mode(&self, mode: ListMode) {
+        if self.list_mode() != mode {
+            self.completion().mode.set(mode);
+        }
     }
 
     /// Escape in the text: closes the list when it shows (`true`); a request
     /// with no options is dropped and left for the next thing Escape closes.
     pub(crate) fn escape_suggestions(&self) -> bool {
         let showing = self.suggestions_showing();
-        if self.completion().requested.get_untracked() {
-            self.close_suggestions();
-        }
+        self.close_suggestions();
         showing
     }
 
     pub(crate) fn close_suggestions(&self) {
-        self.completion().requested.set(false);
-        if self.completion().replace_word.get_untracked() {
-            self.completion().replace_word.set(false);
-        }
+        self.set_list_mode(ListMode::Closed);
     }
 
     /// Writes `option` into the document, remembering what it inserted for
     /// Tab and closer handling.
     pub(crate) fn accept(&self, option: &Completion, reveal: bool) {
+        let mode = self.list_mode();
         let before = self.doc().text.get_untracked();
         // The word it replaces, written over with its insert.
         let change = Change::replace_units(&before, option.start, option.end, &option.insert);
@@ -220,39 +219,22 @@ impl EditorState {
             self.say_why_read_only(option);
         }
         // Closers after the replaced text stay (an XML end tag the editor
-        // wrote before a value was accepted into it); the insert adds its own.
-        let old_length = before.encode_utf16().count();
+        // wrote before a value was accepted into it, followed through the
+        // edit); the insert adds its own.
         let inserted = inserted_closers(option, &updated, (anchor, caret), self.behavior());
-        self.typing().closers.update_value(|closers| {
-            closers.retain(|closer| old_length - closer.distance.min(old_length) >= option.end);
-            closers.extend(inserted);
-        });
-        self.completion()
-            .placeholder
-            .set_value((anchor != caret).then_some((anchor, caret)));
         // Tab walks the empty values the insert wrote after the caret, on one
         // line (`{ server = "|", key_name = "" }`) or several.
         let insert_start = caret.saturating_sub(option.cursor_offset);
         let insert_end = insert_start + option.insert.encode_utf16().count();
         let has_slots = next_slot(&updated, caret, insert_end, self.behavior()).is_some();
-        // The values it wrote are stops too, measured from the end so typing
-        // before them keeps them in place.
-        let total = updated.encode_utf16().count();
+        // The values it wrote are stops too.
         let stops: Vec<(usize, usize)> =
             stop_ranges(&option.insert, option.cursor_offset, &option.fills)
                 .into_iter()
-                .map(|(start, end)| (total - (insert_start + start), total - (insert_start + end)))
+                .map(|(start, end)| (insert_start + start, insert_start + end))
                 .collect();
-        let has_stops = !stops.is_empty();
-        self.completion().value_stops.set_value(stops);
-        self.completion().slot_region.set_value(
-            (option.insert.contains('\n') || has_slots || has_stops).then(|| {
-                (
-                    insert_start,
-                    updated.encode_utf16().count().saturating_sub(insert_end),
-                )
-            }),
-        );
+        let region = (option.insert.contains('\n') || has_slots || !stops.is_empty())
+            .then_some((insert_start, insert_end));
         let reopen =
             accept_reopens_suggestions(option, self.config().settings.auto_trigger.get_untracked());
         self.hide_hover();
@@ -262,9 +244,26 @@ impl EditorState {
             self.close_suggestions();
             return;
         }
+        // Kept from here on by position, through every edit (see
+        // `follow_typing_aids`).
+        self.typing()
+            .closers
+            .update_value(|closers| closers.extend(inserted));
+        self.completion()
+            .placeholder
+            .set_value((anchor != caret).then_some((anchor, caret)));
+        self.completion().value_stops.set_value(stops);
+        self.completion().slot_region.set_value(region);
         self.completion().active.set(0);
-        self.completion().explicit.set(true);
-        self.completion().requested.set(reopen);
+        // Opened again, as asked for: it offers what may follow.
+        self.set_list_mode(if reopen {
+            ListMode::Asked {
+                replace_word: mode.replaces_word(),
+                heeded: mode.heeded(),
+            }
+        } else {
+            ListMode::Closed
+        });
     }
 
     /// A read-only key accepted as it stands changes nothing, so no refusal

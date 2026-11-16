@@ -48,7 +48,7 @@ pub(in crate::editor) fn connect_suggestions(state: EditorState) {
 /// nothing: it hides, and a screen reader is told why (the find widget says
 /// "No results" likewise). A list that opened by itself closes silently.
 pub(in crate::editor) fn say_no_suggestions_after(state: EditorState, listed: bool) {
-    if listed && state.completion().requested.get_untracked() && !state.suggestions_showing() {
+    if listed && state.list_mode().is_open() && !state.suggestions_showing() {
         say_no_suggestions(state);
     }
 }

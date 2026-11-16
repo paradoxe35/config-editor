@@ -9,7 +9,7 @@ use super::super::keyboard::utf16_to_byte_index;
 use super::super::languages::Language;
 use super::super::positioning::set_caret_visible;
 use super::super::state::{EditorState, directed_selection, select};
-use super::{After, Assoc, Edit, Origin};
+use super::{After, Assoc, Change, Edit, Origin};
 
 /// The stages, in the order an edit passes them.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -118,8 +118,15 @@ impl EditorState {
         if changed && !edit.origin.is_checked() {
             self.protect().trust_text();
         }
+        // What is kept by position follows the change: folds (in
+        // `write_text`), typed closers, Tab stops, the current match.
+        let mapping = edit.mapping();
+        if changed {
+            self.follow_typing_aids(&mapping, &edit.before, switching.is_some());
+            self.follow_current_match(&mapping);
+        }
         let version = self.doc().version.get_value();
-        let rewritten = self.write_text(edit.text.clone(), edit.folds.take());
+        let rewritten = self.write_text(&mapping, edit.text.clone(), edit.folds.take());
         let links = self.note_view_edit(&edit, &origin, language_before);
         let rewritten = switching
             .is_some_and(|language| self.fold_fields(&folded_fields, language))
@@ -154,13 +161,14 @@ impl EditorState {
         true
     }
 
-    /// Writes `text` as the document, the only place that does: closed
-    /// folds move with the lines (or are `folds`, when the edit says), the
+    /// Writes `text`, which `change` makes of the document, as the
+    /// document, the only place that does: closed folds move with the lines
+    /// through the change (or are `folds`, when the edit says), the
     /// document's version moves on, and the textarea shows the result.
     /// Returns whether the textarea's text had to be rewritten (its
     /// selection is then lost).
-    fn write_text(&self, text: String, folds: Option<Vec<FoldRange>>) -> bool {
-        let moved = folds.or_else(|| self.folds_through(&text));
+    fn write_text(&self, change: &Change, text: String, folds: Option<Vec<FoldRange>>) -> bool {
+        let moved = folds.or_else(|| self.folds_through(change, &text));
         self.doc()
             .text
             .with_untracked(|before| self.note_text_change(before, &text));

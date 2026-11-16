@@ -5,25 +5,25 @@
 use leptos::prelude::*;
 
 use super::super::commands::line_at_cursor;
+use super::super::edit::Change;
 use super::super::fold_ranges::FoldRange;
-use super::super::keyboard::utf16_to_byte_index;
 use super::super::metrics::read_editor_metrics;
 use super::super::positioning::reveal_offset;
 use super::super::state::{EditorState, directed_selection};
 use super::follow::{follow_edit, keep_valid};
 
 impl EditorState {
-    /// The closed folds moved through the change of the document to `new`
-    /// (see [`follow_edit`]); `None` with nothing folded. The edit pipeline
-    /// asks before it writes the text and settles them after.
-    pub(crate) fn folds_through(&self, new: &str) -> Option<Vec<FoldRange>> {
+    /// The closed folds moved through `change`, which makes `new` of the
+    /// document (see [`follow_edit`]); `None` with nothing folded. The edit
+    /// pipeline asks before it writes the text and settles them after.
+    pub(crate) fn folds_through(&self, change: &Change, new: &str) -> Option<Vec<FoldRange>> {
         if self.fold().folded.with_untracked(Vec::is_empty) {
             return None;
         }
         Some(self.fold().folded.with_untracked(|folds| {
             self.doc()
                 .text
-                .with_untracked(|old| follow_edit(folds, old, new))
+                .with_untracked(|old| follow_edit(folds, old, change, new))
         }))
     }
 
@@ -53,14 +53,12 @@ impl EditorState {
         if start >= end || self.fold().folded.with_untracked(Vec::is_empty) {
             return false;
         }
-        let new = self.doc().text.with_untracked(|doc| {
-            let (from, to) = (
-                utf16_to_byte_index(doc, start),
-                utf16_to_byte_index(doc, end),
-            );
-            format!("{}{}", &doc[..from], &doc[to..])
+        let (change, new) = self.doc().text.with_untracked(|doc| {
+            let change = Change::replace_units(doc, start, end, "");
+            let new = change.apply(doc).unwrap_or_else(|| doc.clone());
+            (change, new)
         });
-        let Some(moved) = self.folds_through(&new) else {
+        let Some(moved) = self.folds_through(&change, &new) else {
             return false;
         };
         let ranges = self.behavior().fold_ranges(&new);

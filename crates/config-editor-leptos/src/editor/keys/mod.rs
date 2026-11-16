@@ -26,6 +26,8 @@ pub(in crate::editor) mod fold_scale_tests;
     feature = "xml"
 ))]
 mod fold_unit_tests;
+#[cfg(all(test, feature = "yaml", feature = "json", feature = "folding"))]
+mod kept_positions_tests;
 pub(super) mod line_edit;
 #[cfg(test)]
 mod line_edit_tests;
@@ -180,7 +182,6 @@ pub(super) fn on_root_keydown(state: EditorState, event: &KeyboardEvent) {
         // back itself): the text takes the focus back, not the page.
         let from_tip = from_problem_tip(event);
         state.close_suggestions();
-        state.completion().explicit.set(false);
         super::changes::close_preview(state);
         state.hide_hover();
         state.hide_shown_problem();

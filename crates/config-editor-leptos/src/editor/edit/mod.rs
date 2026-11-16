@@ -40,7 +40,10 @@
 //!    shows at the caret. Before anything is written, so a refusal has
 //!    nothing to undo.
 //! 3. **Apply** — what is kept by position follows the edit (secret
-//!    placeholders, the host's ranges; folds inside `write_text`), the text
+//!    placeholders and the host's ranges; and mapped through
+//!    [`Edit::mapping`], with no rule of their own: typed closers, the Tab
+//!    stops an accept left, the current match, and folds inside
+//!    `write_text`), the text
 //!    is written, what is found by reading the text is found again (the
 //!    indent unit, placeholders and ranges after a host text), and the
 //!    selection is placed. Positions follow before the text changes, since
@@ -323,10 +326,20 @@ impl Edit {
             self.origin,
             Origin::Command | Origin::Input { .. } | Origin::Undo | Origin::Redo
         );
-        (self.told && judged).then(|| {
-            let made = self.made.clone();
-            made.clone().narrowed(&self.before).unwrap_or(made)
-        })
+        (self.told && judged).then(|| self.mapping())
+    }
+
+    /// The change every position kept across the edit is mapped through
+    /// (folds, typed closers, Tab stops, the current match): what the edit
+    /// did, as said, or for an edit that did not say, as read off the
+    /// texts ([`Change::diffed_at`] for browser input, [`Change::diffed`]
+    /// for the host's texts); each replacement without the text it writes
+    /// back as it was at its ends.
+    pub(super) fn mapping(&self) -> Change {
+        self.made
+            .clone()
+            .narrowed(&self.before)
+            .unwrap_or_else(|| self.made.clone())
     }
 
     /// What the edit does to the text before, said or read off the texts.

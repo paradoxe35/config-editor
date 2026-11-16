@@ -205,8 +205,17 @@ fn open_line_after_fold(
     block_end: usize,
 ) {
     let indent = indent_at(&text, line_start_of(&text, selection.1));
-    let change = Change::insert_units(&text, block_end, &format!("\n{indent}"));
-    state.commit(Edit::command(text, change, selection));
+    // Written at the start of the line after the block, not at the end of
+    // its last (hidden) line, which would open the fold.
+    let next_line = block_end + 1;
+    let edit = if next_line <= text.encode_utf16().count() {
+        let change = Change::insert_units(&text, next_line, &format!("{indent}\n"));
+        Edit::command(text, change, selection).caret_at(next_line + indent.len())
+    } else {
+        let change = Change::insert_units(&text, block_end, &format!("\n{indent}"));
+        Edit::command(text, change, selection)
+    };
+    state.commit(edit);
     state.close_suggestions();
 }
 

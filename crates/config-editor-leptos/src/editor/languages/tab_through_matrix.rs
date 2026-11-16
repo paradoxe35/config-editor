@@ -4,6 +4,7 @@
 //! no later value lands one stop early.
 
 use super::super::completion::{apply_completion, completions, next_stop, stop_ranges};
+use super::super::edit::{Assoc, Change};
 use super::super::schema::build_schema;
 use super::Language;
 use serde_json::{Value, json};
@@ -40,28 +41,27 @@ fn typed_through(language: Language, schema: &str, typed: &[&str]) -> String {
         .expect("svc offered");
     let (mut text, mut anchor, mut caret) = apply_completion(&source, option);
     let insert_start = caret - option.cursor_offset;
-    let insert_end = insert_start + option.insert.len();
-    // Kept from the end, as the editor keeps them.
-    let total = text.len();
-    let stops: Vec<(usize, usize)> =
+    // Kept by position, mapped through each edit, as the editor keeps them.
+    let mut stops: Vec<(usize, usize)> =
         stop_ranges(&option.insert, option.cursor_offset, &option.fills)
             .into_iter()
-            .map(|(start, end)| (total - (insert_start + start), total - (insert_start + end)))
+            .map(|(start, end)| (insert_start + start, insert_start + end))
             .collect();
-    let after_region = total - insert_end;
+    let mut region_end = insert_start + option.insert.len();
     for value in typed {
         let start = anchor.min(caret);
         let end = anchor.max(caret);
-        text.replace_range(start..end, value);
+        let change = Change::replace_bytes(&text, start..end, value);
+        text = change.apply(&text).expect("made on it");
         caret = start + value.len();
-        let length = text.len();
-        let region_end = length - after_region;
-        let here: Vec<(usize, usize)> = stops
+        stops = stops
             .iter()
-            .filter(|(start, _)| *start <= length)
-            .map(|(start, end)| (length - start, length - end))
+            .filter_map(|(start, end)| change.map_range(&(*start..*end)))
+            .map(|range| (range.start, range.end))
             .collect();
-        match next_stop(&text, caret, region_end, &here, language.behavior()) {
+        region_end = change.map_pos(region_end, Assoc::After).pos;
+        let here = &stops;
+        match next_stop(&text, caret, region_end, here, language.behavior()) {
             Some((from, to)) => (anchor, caret) = (from, to),
             None => break,
         }
