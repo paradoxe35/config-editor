@@ -269,7 +269,7 @@ fn line_end_of(text: &str, offset: usize) -> usize {
 mod tests {
     use super::break_in_indentation;
 
-    /// Round 11: Enter inside a line's indentation keeps the line's column.
+    /// Enter inside a line's indentation keeps the line's column.
     #[test]
     fn enter_inside_indentation_moves_the_line_down_whole() {
         for (text, cursor, expected) in [

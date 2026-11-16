@@ -149,7 +149,7 @@ pub(super) struct Stepped {
 }
 
 impl Edit {
-    /// `made` of `before`, as a command makes it.
+    /// `made` of `before`, as a command makes it (`origin` set after).
     fn making(before: String, made: Change, told: bool, restore: Selection, after: After) -> Self {
         let (made, text) = match made.apply(&before) {
             Some(text) => (made, text),
