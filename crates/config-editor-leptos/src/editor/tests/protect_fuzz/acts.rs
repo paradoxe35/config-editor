@@ -101,6 +101,16 @@ pub(super) fn draw(rng: &mut Rng) -> Act {
     }
 }
 
+/// Whether a string in `value` holds `token` with other text.
+fn beside_text(value: &serde_json::Value, token: &str) -> bool {
+    match value {
+        serde_json::Value::String(text) => text.contains(token) && text.trim() != token,
+        serde_json::Value::Array(items) => items.iter().any(|item| beside_text(item, token)),
+        serde_json::Value::Object(map) => map.values().any(|item| beside_text(item, token)),
+        _ => false,
+    }
+}
+
 fn shown(state: EditorState) -> String {
     state.doc().text.get_untracked()
 }
@@ -318,8 +328,14 @@ pub(super) fn make(setup: &Setup, mounted: &Mounted, act: &Act) -> Result<(), (C
                 return Ok(());
             };
             let end = start + protected.len();
+            // Over a placeholder written with other text in its string, a
+            // secret would be read beside that text (and shown with it):
+            // refusing it is no over-refusal.
+            let glued = view
+                .parse(&before)
+                .is_ok_and(|document| beside_text(&document, TOKEN));
             let taken = paste(state, start, end, NEW_SECRET);
-            if protected == TOKEN {
+            if protected == TOKEN && !glued {
                 let expected = format!("{}{NEW_SECRET}{}", &before[..start], &before[end..]);
                 return expect(taken, &expected, "a new secret value");
             }

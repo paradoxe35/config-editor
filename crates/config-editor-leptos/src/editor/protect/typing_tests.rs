@@ -13,7 +13,6 @@ use super::super::host_editing::SaveRequest;
 use super::super::paths::FieldPath;
 use super::super::state::EditorState;
 use super::super::test_state::TestEditor;
-use super::spanless_tests::{ENV, TEXT as ENV_TEXT};
 use super::tests::documents;
 
 /// Types `typed` one character at a time at the caret `at` (UTF-16, ASCII
@@ -145,12 +144,11 @@ fn a_refused_key_does_not_hold_back_what_is_free_after_the_field() {
         ("id = \"abc\"", " # c", &["#c", "//c", "/*c*/"]),
         ("<id", " ", &[]),
     ];
-    let mut cases: Vec<(Language, &str, &str, &str, &[&str])> = documents()
+    let cases: Vec<(Language, &str, &str, &str, &[&str])> = documents()
         .into_iter()
         .zip(lines)
         .map(|((language, text), (line, comment, glued))| (language, text, line, comment, glued))
         .collect();
-    cases.push((Language::new(&ENV), ENV_TEXT, "ID=srv-1", " ", &[]));
     let mut failures = Vec::new();
     for (language, text, line, comment, glued) in cases {
         let breaks: &[&str] = if line == "<id" { &[] } else { &["\n", " \n"] };

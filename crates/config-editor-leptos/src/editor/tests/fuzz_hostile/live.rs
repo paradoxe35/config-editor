@@ -426,13 +426,17 @@ pub(super) fn check(case: &LiveCase) -> Result<(), Failure> {
                     .collect(),
             ),
             Step::Ranges { line } => {
+                // The host works them out on its own text: the one on
+                // screen once every edit reached it, else (an edit held) an
+                // older one, from which the editor follows them.
+                let host = state.sync().host_text.get_value();
                 props.ranges.set(
-                    line.map(|line| vec![line_range(&before, line)])
+                    line.map(|line| vec![line_range(&host, line)])
                         .unwrap_or_default(),
                 );
                 // As the component's effect does when they change.
                 state.place_ranges();
-                ranges_placed = true;
+                ranges_placed = host == before;
             }
             Step::Value { kind, seed } => {
                 let value = match kind % 3 {
@@ -602,7 +606,6 @@ fn kind(step: &Step) -> &'static str {
 }
 
 /// Runs one case, failing with what it found (for a pasted repro).
-#[allow(dead_code, reason = "called by pasted repros")]
 pub(super) fn replay(case: LiveCase) {
     if let Err(failure) = check(&case) {
         panic!("{}\n{}", failure.class, failure.detail);

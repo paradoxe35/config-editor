@@ -1438,6 +1438,31 @@ pub trait Text {
         default_fold_ranges(source, &language.config(), &string_bodies(language, source))
     }
 
+    /// The byte ranges the value at `pointer` is written in, whole: from
+    /// its first character over every line it takes to its last closer (a
+    /// string's closing quote, a block's `}`, an element's end tag, a
+    /// heredoc's terminator), read from the parse. One range, unless the
+    /// language writes one value in several places with other fields
+    /// between them (a TOML table and a sub-table written apart, repeated
+    /// elements or blocks). Empty when `source` does not parse or does not
+    /// write `pointer`.
+    ///
+    /// A lock covers these ranges with the field's key, so no edit changes
+    /// a part of a locked value. The default joins the language's one-line
+    /// [`value_span`](ConfigLanguage::value_span) of the value and the key
+    /// and value spans of everything inside it where no other field's key
+    /// is written between them, and carries the last over the closers of
+    /// the containers they leave open ([`container_closer_len`](Self::container_closer_len)).
+    /// A language without spans gets none: its fields are checked by value.
+    fn value_ranges(
+        &self,
+        language: &dyn ConfigLanguage,
+        source: &str,
+        pointer: &str,
+    ) -> Vec<std::ops::Range<usize>> {
+        super::paths::joined_value_ranges(language, source, pointer)
+    }
+
     /// How many containers `text` opens and leaves open: by default its
     /// [`LanguageConfig::brackets`] outside its quotes; XML counts the
     /// elements it starts and does not end.
@@ -2297,6 +2322,11 @@ impl dyn ConfigLanguage {
     /// See [`Text::fold_ranges`].
     pub fn fold_ranges(&self, source: &str) -> Vec<FoldRange> {
         self.text().fold_ranges(self, source)
+    }
+
+    /// See [`Text::value_ranges`].
+    pub fn value_ranges(&self, source: &str, pointer: &str) -> Vec<std::ops::Range<usize>> {
+        self.text().value_ranges(self, source, pointer)
     }
 
     /// See [`Text::unclosed_containers`].

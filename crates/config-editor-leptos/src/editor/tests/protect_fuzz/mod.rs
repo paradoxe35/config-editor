@@ -439,10 +439,10 @@ fn a_placeholder_in_a_custom_list_item_never_takes_text_inside_its_quotes() {
 /// password: '«…»'`, which Dot reads as the token glued into `passwordx`:
 /// the placeholder and its edges are as they were, so each key is taken
 /// and what reaches the host waits until it reads as the host's again.
-/// Seed 778: in Dot's one-line map, a key typed before the locked one's
-/// entry (`password db: 'x'; password: 'hunter2'`) leaves the field where
-/// its path cannot be found: its lock is the text followed, so the next
-/// keys typed are taken.
+/// In Dot's one-line map, a key typed before the locked one's entry
+/// (`password db: 'x'; password: 'hunter2'`) leaves the field where its
+/// path cannot be found: its lock is the text followed, so the next keys
+/// typed are taken.
 #[test]
 fn a_lock_its_path_cannot_find_while_a_key_is_typed_keeps_its_text() {
     let setup = Setup {
@@ -536,10 +536,11 @@ fn a_range_covered_item_read_otherwise_is_held_whatever_its_index_in_the_hosts_t
     );
 }
 
-/// Seed 12922: in Dot's one-line map, a key typed before two entries of the
-/// locked key (`password:  password: 'x'; password: '…'`): its path is found
-/// at the first, the user's, while the parse reads the last; the lock stays
-/// the text followed, so typing goes on.
+/// In Dot's one-line map, a key typed before two entries of the locked key
+/// (`password:  password: 'x'; password: '…'`): its path is found at the
+/// first, the user's, while the parse reads the last. The path names other
+/// text than the field's, so the field is held on the text it holds, and
+/// typing goes on.
 #[test]
 fn a_lock_found_at_a_key_typed_again_keeps_the_text_it_followed() {
     let setup = Setup {

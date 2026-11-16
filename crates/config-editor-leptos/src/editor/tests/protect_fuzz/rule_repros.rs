@@ -38,11 +38,10 @@ fn an_undo_after_line_copies_keeps_an_xml_range() {
     );
 }
 
-/// A cut of a half-typed line beside a locked list is taken. Open
-/// (over-refusal, also before the one rule): the cut line holds the key
-/// holding the item, which a span rule refuses to cut.
+/// A cut of a half-typed line beside a locked list is taken: the line cut
+/// holds a key of the list's name, and another key of that name holds the
+/// item now.
 #[test]
-#[ignore = "open: a holder key cut where another key of the same name holds the item now"]
 fn a_cut_of_a_half_typed_key_beside_a_locked_list_is_taken() {
     let setup = Setup {
         case: 1,
@@ -178,10 +177,9 @@ fn a_cut_of_one_of_two_alike_lines_beside_a_range_is_taken() {
 }
 
 /// An entry typed below a half-typed list item in a declared language is
-/// taken. Open (over-refusal, also before the one rule): the item's field
-/// has no span, and the text kept for it is counted as written whole.
+/// taken: the item's field has no span, so no edit is refused for it (a
+/// text reading it otherwise holds it).
 #[test]
-#[ignore = "open: an unplaced field's value text counted in a typed word while broken"]
 fn an_entry_below_a_half_typed_item_is_taken() {
     let setup = Setup {
         case: 14,
@@ -255,11 +253,9 @@ fn an_entry_above_a_range_covered_item_is_taken() {
 }
 
 /// A TOML table typed a key at a time below a range's table, after a line
-/// moved and undone: taken. Open (over-refusal, also before the one rule):
-/// the lock of the field the range covers runs on over the blank lines
-/// after it, so a key typed there writes inside its span.
+/// moved and undone: taken. The lock of the field the range covers ends
+/// where its value does, not over the blank lines after it.
 #[test]
-#[ignore = "open: a range-covered field's span runs on over blank lines after an undone line move"]
 fn a_table_typed_below_a_range_after_an_undone_move_is_taken() {
     let setup = Setup {
         case: 4,
@@ -362,6 +358,103 @@ fn a_line_command_leaves_no_text_beside_a_copied_placeholder() {
                 line: 41387,
                 command: 3,
             },
+        ],
+    );
+}
+
+/// An entry typed below a DotBare list whose items the language cannot
+/// locate (an item holding the separator, `* 'o:ther'`): taken. The field
+/// has no span; its value reading otherwise would hold the save, nothing
+/// is refused for it.
+#[test]
+fn an_entry_below_a_spanless_list_item_is_taken() {
+    let setup = Setup {
+        case: 14,
+        lock: Lock::Schema,
+        host: None,
+        pairs: false,
+    };
+    assert_ok(
+        &setup,
+        &[
+            Act::Line {
+                line: 20294,
+                command: 2,
+            },
+            Act::Type { at: 53079, text: 4 },
+            Act::Entry {
+                anchor: 1,
+                name: 3,
+                paste: false,
+            },
+        ],
+    );
+}
+
+/// As above, after the lines around the list are pasted and typed into.
+#[test]
+fn an_entry_below_a_pasted_spanless_list_item_is_taken() {
+    let setup = Setup {
+        case: 14,
+        lock: Lock::Schema,
+        host: None,
+        pairs: true,
+    };
+    assert_ok(
+        &setup,
+        &[
+            Act::Entry {
+                anchor: 2,
+                name: 13,
+                paste: true,
+            },
+            Act::Entry {
+                anchor: 3,
+                name: 10,
+                paste: true,
+            },
+            Act::PasteCopy { line: 49108 },
+            Act::Type { at: 40308, text: 4 },
+            Act::Entry {
+                anchor: 1,
+                name: 0,
+                paste: false,
+            },
+        ],
+    );
+}
+
+/// P1: a new secret value pasted over a placeholder that a line typed into
+/// (`-, «…»`) left read beside other text (`keys: "-, «…» - other …"`):
+/// refused, so the secret is never read (and shown) beside that text; the
+/// refusal is no over-refusal.
+#[test]
+fn a_new_secret_over_a_placeholder_read_beside_text_is_refused() {
+    let setup = Setup {
+        case: 1,
+        lock: Lock::Secret,
+        host: None,
+        pairs: true,
+    };
+    assert_ok(
+        &setup,
+        &[
+            Act::Entry {
+                anchor: 2,
+                name: 5,
+                paste: false,
+            },
+            Act::Entry {
+                anchor: 2,
+                name: 6,
+                paste: false,
+            },
+            Act::PasteCopy { line: 32709 },
+            Act::Type {
+                at: 39594,
+                text: 10,
+            },
+            Act::NewValue,
         ],
     );
 }

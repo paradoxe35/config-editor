@@ -86,14 +86,25 @@ impl ProtectState {
             || self.foreign.with(|foreign| !foreign.is_empty())
     }
 
-    /// This editor's real placeholders, as the other editors of a
-    /// documents view read them (`source`: its document's file name).
-    /// Tracked.
+    /// This editor's placeholders, as the other editors of a documents
+    /// view read them (`source`: its document's file name): every token
+    /// its host gave since it was made, not only those of its last text,
+    /// so a copy written elsewhere while it was one stays one there after
+    /// a reload (else a paste could split it, and pieces of a token reach
+    /// that document's host). Tracked.
     pub(crate) fn own_placeholders(&self, source: String) -> Option<DocumentPlaceholders> {
         let matcher = self.secrets.matcher.get_value();
-        self.secrets
-            .known
-            .with(|known| DocumentPlaceholders::new(source, matcher, known))
+        let tokens = self.secrets.known.with(|known| {
+            self.marks
+                .try_update_value(|marks| {
+                    marks
+                        .given
+                        .extend(known.iter().map(|known| known.token.clone()));
+                    marks.given.clone()
+                })
+                .unwrap_or_default()
+        });
+        DocumentPlaceholders::new(source, matcher, tokens)
     }
 
     /// The document problem (an error) saying the host's placeholder pattern

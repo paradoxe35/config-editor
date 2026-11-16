@@ -23,7 +23,7 @@ use super::follow::follow_ranges;
 use super::foreign::DocumentPlaceholders;
 use super::glued::{first_glued, glued_elsewhere, glued_in_save, glued_message};
 use super::guard::{Blocked, Carets, judge};
-use super::host_ranges::{HostRanges, offsets};
+use super::host_ranges::{HostRanges, followed_to, offsets};
 use super::locate::LineIndex;
 use super::locks::{Protected, Sources, protect};
 use super::save::{ReadOnlyChange, check_save, locked_pointers, range_pointers};
@@ -59,6 +59,9 @@ pub(crate) struct Marks {
     /// `guard::judge`): the memo of locks takes them for that text instead
     /// of finding them again, so the editor holds the spans as judged.
     foreseen: Option<(String, Protected)>,
+    /// Every token the host gave since the editor was made (see
+    /// `own_placeholders`).
+    pub(crate) given: std::collections::HashSet<String>,
 }
 
 /// An edit the locks follow: the text it was made on and the text it made,
@@ -732,7 +735,20 @@ impl EditorState {
         let host = self.config().host_language == self.sync().edit_language.get_untracked();
         let placed = self.protect().host_ranges.with_untracked(|ranges| {
             if host {
-                self.doc().text.with_untracked(|text| offsets(text, ranges))
+                // They name places in the host's text: the text on screen
+                // when every edit reached the host, else an older one (an
+                // edit held, the text not parsing), followed from there.
+                let host_text = self.sync().host_text.get_value();
+                let placed = offsets(&host_text, ranges);
+                self.doc().text.with_untracked(|text| {
+                    if *text == host_text || placed.is_empty() {
+                        return placed;
+                    }
+                    self.config().schema.with_value(|schema| {
+                        let reading = schema.as_deref().map(|bundle| &bundle.schema);
+                        followed_to(self.behavior(), &host_text, text, &placed, reading)
+                    })
+                })
             } else {
                 self.sync()
                     .host_text

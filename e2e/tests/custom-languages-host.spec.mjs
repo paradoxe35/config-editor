@@ -135,11 +135,13 @@ test.describe('read-only fields in a registered language without spans', () => {
         await open(page);
         await mount(page, { language, value: TEXT, schema: SCHEMA, readOnlyPaths: ['/PORT'] });
         await edit(page);
-        if (name === 'a duplicate overriding it' && (await value(page)) !== TEXT) {
-          // Taken and held where the language finds the field's line (no
-          // keystroke is refused for how the parse reads it): the save waits
-          // with its reason, and the host never gets it. Refused where it
-          // gives no spans.
+        const held = name === 'a duplicate overriding it' || language === 'envbare';
+        if (held && (await value(page)) !== TEXT) {
+          // Taken and held (no keystroke is refused for how the parse reads
+          // a field): a duplicate where the language finds the field's line,
+          // and any edit in a language that gives no spans, whose fields are
+          // checked by value. The save waits with its reason, and the host
+          // never gets it.
           expect(await page.evaluate(() => window.qa.save())).toBe(false);
           await expect(
             page.locator('.config-editor__diagnostic-marker[data-message*="no longer reads as the host gave it"]'),
