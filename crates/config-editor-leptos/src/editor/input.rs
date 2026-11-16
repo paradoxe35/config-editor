@@ -2,6 +2,7 @@
 //! scrolling, hover docs, and the whole-line clipboard.
 
 use leptos::prelude::*;
+use unicode_segmentation::GraphemeCursor;
 use wasm_bindgen::JsCast;
 
 use super::commands::{copied_lines, line_range};
@@ -13,7 +14,6 @@ use super::positioning::pointer_text_position;
 use super::problem_hit::column_at_cell;
 use super::source_area::SourceArea;
 use super::state::{EditorState, directed_selection, normalize_newlines, textarea_selection};
-use super::text::graphemes;
 use crate::reactive::later;
 
 /// The textarea an event came from, in document offsets.
@@ -695,7 +695,8 @@ fn copy_line(state: EditorState, event: &web_sys::ClipboardEvent, cut: bool) {
 fn splits_a_character(text: &str, (start, end): (usize, usize)) -> bool {
     [start, end].into_iter().any(|edge| {
         let byte = utf16_to_byte_index(text, edge);
-        text[..byte].encode_utf16().count() != edge || !graphemes::is_boundary(text, byte)
+        text[..byte].encode_utf16().count() != edge
+            || GraphemeCursor::new(byte, text.len(), true).is_boundary(text, 0) != Ok(true)
     })
 }
 
@@ -788,6 +789,51 @@ mod tests {
         let accented = "e\u{301}x";
         assert!(splits_a_character(accented, (0, 1)), "e without its accent");
         assert!(!splits_a_character(accented, (0, 2)), "e and its accent");
+    }
+
+    /// Every caret place inside a character drawn as one splits it, in
+    /// every script (Hangul jamo, Indic conjuncts and vowel signs, a
+    /// Prepend mark), and every place between them does not; a mark after
+    /// a newline stands alone, and a joiner joins only an emoji to one.
+    #[test]
+    fn every_place_inside_a_character_drawn_as_one_splits_it() {
+        let clusters = [
+            "a",
+            "e\u{301}",
+            "👨\u{200d}👩\u{200d}👧",
+            "🇫🇷",
+            "🇩🇪",
+            "👍🏽",
+            "1\u{fe0f}\u{20e3}",
+            "\r\n",
+            "日",
+            "🏴\u{e0067}\u{e0062}\u{e0065}\u{e006e}\u{e0067}\u{e007f}",
+            "\u{1112}\u{1161}\u{11ab}",
+            "\u{d55c}\u{11ab}",
+            "क्षि",
+            "\u{0995}\u{09cd}\u{09b7}",
+            "\u{0b95}\u{0bc1}",
+            "\u{0e01}\u{0e33}",
+            "\u{1780}\u{17d2}\u{1780}",
+            "\u{0600}1",
+            "\n",
+            "\u{301}",
+            "a\u{200d}",
+            "👩",
+            "x",
+        ];
+        let text: String = clusters.concat();
+        let mut starts = vec![0];
+        for cluster in clusters {
+            starts.push(starts.last().copied().unwrap_or(0) + cluster.encode_utf16().count());
+        }
+        for edge in 0..=text.encode_utf16().count() {
+            assert_eq!(
+                splits_a_character(&text, (edge, edge)),
+                !starts.contains(&edge),
+                "unit {edge} of {text:?}"
+            );
+        }
     }
 
     /// A press lands on the character drawn under it: a tab before a

@@ -9,11 +9,11 @@ use std::collections::{BTreeSet, HashSet};
 
 use jsonschema::error::{ValidationError, ValidationErrorKind};
 use serde_json::Value;
+use unicode_segmentation::GraphemeCursor;
 
 use super::fields::Secrets;
 use super::{Explanations, Fields};
 use crate::EditorStrings;
-use crate::editor::text::graphemes;
 use crate::strings::fill;
 
 /// What stands for a secret inside a value while it is written as JSON,
@@ -726,11 +726,21 @@ pub(super) fn cut(text: &str, tokens: &Tokens) -> String {
 fn cut_point(text: &str, max: usize, tokens: &Tokens) -> Option<usize> {
     let (mut end, _) = text.char_indices().nth(max)?;
     loop {
-        let before = graphemes::floor(text, tokens.around(text, end).unwrap_or(end));
+        let before = grapheme_floor(text, tokens.around(text, end).unwrap_or(end));
         if before == end {
             return Some(end);
         }
         end = before;
+    }
+}
+
+/// The last place at or before byte `at` (a character's start) of `text`
+/// where a character as the user sees it starts.
+fn grapheme_floor(text: &str, at: usize) -> usize {
+    let mut cursor = GraphemeCursor::new(at, text.len(), true);
+    match cursor.is_boundary(text, 0) {
+        Ok(false) => cursor.prev_boundary(text, 0).ok().flatten().unwrap_or(0),
+        _ => at,
     }
 }
 
@@ -744,7 +754,17 @@ mod tests {
     fn a_cut_value_keeps_its_tokens_and_characters_whole() {
         let token = "«secret 3f2a»";
         let tokens = Tokens::new([token]);
-        let pieces = [token, "👨\u{200d}👩\u{200d}👧", "e\u{301}", "🇫🇷", "日"];
+        let pieces = [
+            token,
+            "👨\u{200d}👩\u{200d}👧",
+            "e\u{301}",
+            "🇫🇷",
+            "日",
+            "\u{1112}\u{1161}\u{11ab}",
+            "क्षि",
+            "\u{0995}\u{09cd}\u{09b7}",
+            "\u{0e01}\u{0e33}",
+        ];
         for piece in pieces {
             let width = piece.chars().count();
             for lead in MAX_QUOTED_VALUE.saturating_sub(width + 1)..=MAX_QUOTED_VALUE {

@@ -261,6 +261,7 @@ dependencies = [
  "serde_json",
  "text-size",
  "toml",
+ "unicode-segmentation",
  "wasm-bindgen",
  "web-sys",
 ]
