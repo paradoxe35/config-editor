@@ -9,9 +9,9 @@ use crate::editor::edit::Edit;
 use crate::editor::languages::Language;
 use crate::editor::test_state::TestEditor;
 
-/// HS38-1: once every CRLF line of a mixed file (mostly CRLF) is cut, the next edit
-/// wrote every line with CRLF (the file's most common ending once), the
-/// lines left alone included.
+/// P2: once every CRLF line of a mixed file (mostly CRLF) is cut, the next
+/// edit writes the lines left alone with the endings they have, not with
+/// the file's most common ending once.
 #[test]
 fn lines_left_alone_keep_their_ending_after_the_last_crlf_line_goes() {
     let heard = RwSignal::new(Vec::<String>::new());
@@ -44,8 +44,8 @@ fn lines_left_alone_keep_their_ending_after_the_last_crlf_line_goes() {
     assert_eq!(heard.get_untracked().last().unwrap(), "c: 30\nd: 40\n");
 }
 
-/// HS38-3: an empty line after a lone CR, given an LF, was handed back as
-/// one CRLF with the CR before it: a line lost in what the host heard.
+/// P2: an empty line after a lone CR, given an LF, reaches the host as a
+/// line of its own, not as one CRLF with the CR before it.
 #[test]
 fn an_empty_line_after_a_lone_cr_reaches_the_host() {
     super::endings::replay(super::endings::EndingsCase {
@@ -60,8 +60,8 @@ fn an_empty_line_after_a_lone_cr_reaches_the_host() {
     });
 }
 
-/// HS38-4: a JSON or HCL syntax error after characters of several bytes on its
-/// line was placed by bytes (serde's column), past where it is.
+/// A JSON or HCL syntax error after characters of several bytes on its
+/// line is placed by characters, not by bytes (serde's column).
 #[test]
 fn a_json_syntax_error_is_placed_by_characters() {
     let column = |text: &str| Language::JSON.parse(text).unwrap_err().column;
@@ -88,9 +88,8 @@ fn the_custom_language_places_its_errors_by_characters() {
     }
 }
 
-/// HS38-5: the suggestions' reading of an XML start tag holding many
-/// tokens (a long line after `<a `) tokenized the tag again for each of
-/// them: time growing with the square of the line.
+/// P5: the suggestions' reading of an XML start tag holding many tokens
+/// (a long line after `<a `) tokenizes the tag once, not once per token.
 #[test]
 fn reading_a_long_xml_start_tag_grows_with_it() {
     super::linear::replay(super::linear::LinearCase {
@@ -102,9 +101,8 @@ fn reading_a_long_xml_start_tag_grows_with_it() {
     });
 }
 
-/// HS38-6: HCL's tokenizer found the end of the line again for each
-/// string on it: a long line of strings (after an open `"""`) cost its
-/// square in every reading.
+/// P5: HCL's tokenizer finds the end of a line once, not once per string
+/// on it (a long line of strings after an open `"""`).
 #[test]
 fn reading_a_long_hcl_line_of_strings_grows_with_it() {
     super::linear::replay(super::linear::LinearCase {
@@ -116,9 +114,9 @@ fn reading_a_long_hcl_line_of_strings_grows_with_it() {
     });
 }
 
-/// HS38-2: the path at a caret after a run of XML end tags on one line
-/// walked back one end tag at a time, reading the text from its top for
-/// each (and nesting a call for each: a long run could exhaust the stack).
+/// P5: the path at a caret after a run of XML end tags on one line steps
+/// back over the whole run at once, reading the text from its top once
+/// (one nested call per end tag could exhaust the stack).
 #[test]
 fn the_path_after_a_run_of_end_tags_reads_the_text_once() {
     use crate::editor::work_count::{Work, counted};
@@ -134,10 +132,9 @@ fn the_path_after_a_run_of_end_tags_reads_the_text_once() {
     }
 }
 
-/// SP38-4: the path at a caret (and HCL's suggestion context) on a long
-/// HCL line of open lists (`a = [1, [1, …`) cost about 10 times as long
-/// at four times the line: the keys on the line looked for its end once
-/// per entry.
+/// P5: the path at a caret (and HCL's suggestion context) on a long HCL
+/// line of open lists (`a = [1, [1, …`) grows with the line: the keys on
+/// the line look for its end once, not once per entry.
 #[test]
 fn reading_a_long_hcl_line_of_open_lists_grows_with_it() {
     super::linear::replay(super::linear::LinearCase {
@@ -315,5 +312,18 @@ fn ranges_taken_away_leave_no_covered_field_locked() {
             Step::Ranges { line: None },
             Step::Undo,
         ],
+    });
+}
+
+/// P1: Enter between a JSON key and its scalar: the path lock covers the
+/// key and the value below it, as in a fresh editor.
+#[test]
+fn a_path_lock_covers_a_json_scalar_moved_below_its_key() {
+    use super::live::Step;
+    super::live::replay(super::live::LiveCase {
+        language: "JSON",
+        schema: false,
+        text: "{\n  \"a b\": [\n    \"\"\n  ],\n  \"x_1\": 95658\n}\n".into(),
+        steps: vec![Step::Paths { mask: 11 }, Step::Enter { at: 13400940 }],
     });
 }

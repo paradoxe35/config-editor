@@ -11,11 +11,7 @@ struct Known {
     finding: &'static str,
 }
 
-const KNOWN: &[Known] = &[Known {
-    properties: &["linear"],
-    class: "reading a LongLine text takes time growing faster than it (HCL)",
-    finding: "SP38-4",
-}];
+const KNOWN: &[Known] = &[];
 
 /// The finding excusing `class` in `property`, if one does.
 pub(super) fn excused(property: &str, class: &str) -> Option<&'static str> {
