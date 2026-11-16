@@ -5,8 +5,10 @@ use super::ops::{Op, Put, Take};
 use super::replay;
 use crate::editor::languages::Language;
 
+/// P2: an edit made in the host's own language stays in the host text when a
+/// view of another language saves after it.
 #[test]
-fn fz38_1_1() {
+fn hcl_edits_and_a_replace_all_in_the_host_survive_a_switch_to_yaml() {
     replay(
         Language::HCL,
         Language::HCL,
@@ -31,8 +33,10 @@ fn fz38_1_1() {
     );
 }
 
+/// P2: values a cut TOML header leaves at the root keep the host comment above
+/// them.
 #[test]
-fn fz38_4_1() {
+fn a_cut_toml_header_keeps_the_hcl_comment_above_the_values_it_held() {
     replay(
         Language::HCL,
         Language::TOML,
@@ -44,8 +48,9 @@ fn fz38_4_1() {
     );
 }
 
+/// P2: a cut and paste in a view keeps the host's comments.
 #[test]
-fn fz38_11_1() {
+fn an_hcl_entry_cut_and_pasted_back_in_yaml_keeps_the_hosts_comments() {
     replay(
         Language::HCL,
         Language::YAML,
@@ -69,8 +74,10 @@ fn fz38_11_1() {
     );
 }
 
+/// P2: an edit made in the host's own language stays in the host text when a
+/// view of another language saves after it.
 #[test]
-fn fz38_1_2() {
+fn toml_typing_in_the_host_survives_a_switch_and_an_edit_in_yaml() {
     replay(
         Language::TOML,
         Language::TOML,
@@ -100,8 +107,10 @@ fn fz38_1_2() {
     );
 }
 
+/// P2: line moves, deletes and copies in a view keep the host comment above an
+/// element they leave alone.
 #[test]
-fn fz38_4_2() {
+fn an_xml_comment_above_an_element_survives_line_moves_in_an_hcl_view() {
     replay(
         Language::XML,
         Language::HCL,
@@ -126,8 +135,9 @@ fn fz38_4_2() {
     );
 }
 
+/// P2: a cut and paste in a view keeps the host's comments.
 #[test]
-fn fz38_11_2() {
+fn an_xml_line_cut_and_pasted_back_in_toml_keeps_the_hosts_comments() {
     replay(
         Language::XML,
         Language::TOML,
@@ -151,8 +161,10 @@ fn fz38_11_2() {
     );
 }
 
+/// P2: values whose block, table or element changes (a header cut or renamed,
+/// a line moved across one) keep their host text.
 #[test]
-fn fz38_4_3() {
+fn xml_values_keep_their_form_after_a_toml_line_move_and_an_undo() {
     replay(
         Language::XML,
         Language::TOML,
@@ -173,8 +185,10 @@ fn fz38_4_3() {
     );
 }
 
+/// P2: values whose block, table or element changes (a header cut or renamed,
+/// a line moved across one) keep their host text.
 #[test]
-fn fz38_4_4() {
+fn yaml_values_keep_their_form_when_hcl_pastes_move_them_to_another_block() {
     replay(
         Language::YAML,
         Language::HCL,
@@ -198,8 +212,10 @@ fn fz38_4_4() {
     );
 }
 
+/// P2: a line deleted in a view keeps the comment of a flow map the view
+/// writes as its own table.
 #[test]
-fn fz38_4_5() {
+fn a_yaml_flow_maps_comment_survives_a_line_deleted_in_a_toml_view() {
     replay(
         Language::YAML,
         Language::TOML,
@@ -218,8 +234,10 @@ fn fz38_4_5() {
     );
 }
 
+/// P2: an edit made in the host's own language stays in the host text when a
+/// view of another language saves after it.
 #[test]
-fn fz38_1_3() {
+fn a_yaml_cut_made_after_leaving_an_xml_view_survives_a_switch_to_hcl() {
     replay(
         Language::YAML,
         Language::XML,
@@ -235,8 +253,10 @@ fn fz38_1_3() {
     );
 }
 
+/// P2: an edit made in the host's own language stays in the host text when a
+/// view of another language saves after it.
 #[test]
-fn fz38_1_4() {
+fn a_yaml_entry_cut_in_the_host_stays_cut_after_a_switch_to_toml() {
     replay(
         Language::YAML,
         Language::YAML,
@@ -251,8 +271,10 @@ fn fz38_1_4() {
     );
 }
 
+/// P2: an edit made in the host's own language stays in the host text when a
+/// view of another language saves after it.
 #[test]
-fn fz38_1_5() {
+fn hcl_cuts_in_the_host_survive_cuts_and_a_paste_in_a_toml_view() {
     replay(
         Language::HCL,
         Language::HCL,
@@ -280,8 +302,10 @@ fn fz38_1_5() {
     );
 }
 
+/// P3: a whole-text paste in a view that renames a block's label moves its
+/// values: they keep their host form.
 #[test]
-fn fz38_4_6() {
+fn a_whole_text_paste_renaming_an_hcl_block_keeps_its_values_forms() {
     replay(
         Language::HCL,
         Language::TOML,
@@ -290,8 +314,10 @@ fn fz38_4_6() {
     );
 }
 
+/// P2: values whose block, table or element changes (a header cut or renamed,
+/// a line moved across one) keep their host text.
 #[test]
-fn fz38_4_7() {
+fn an_hcl_list_left_alone_by_a_yaml_line_delete_keeps_its_one_line_form() {
     replay(
         Language::HCL,
         Language::YAML,
@@ -306,8 +332,10 @@ fn fz38_4_7() {
     );
 }
 
+/// P2: a whole-text paste in a view rewrites only what it changed: untouched
+/// objects keep their lines.
 #[test]
-fn fz38_12_1() {
+fn a_whole_text_paste_after_undos_in_hcl_keeps_json_objects_over_lines() {
     replay(
         Language::JSON,
         Language::HCL,
@@ -331,8 +359,10 @@ fn fz38_12_1() {
     );
 }
 
+/// P2: values whose block, table or element changes (a header cut or renamed,
+/// a line moved across one) keep their host text.
 #[test]
-fn fz38_4_8() {
+fn json_values_keep_their_form_when_an_hcl_line_moves_across_blocks() {
     replay(
         Language::JSON,
         Language::HCL,
@@ -344,8 +374,10 @@ fn fz38_4_8() {
     );
 }
 
+/// P2: values whose block, table or element changes (a header cut or renamed,
+/// a line moved across one) keep their host text.
 #[test]
-fn fz38_4_9() {
+fn a_toml_table_cut_and_pasted_elsewhere_keeps_the_json_spellings() {
     replay(
         Language::JSON,
         Language::TOML,
@@ -364,8 +396,10 @@ fn fz38_4_9() {
     );
 }
 
+/// P2: values whose block, table or element changes (a header cut or renamed,
+/// a line moved across one) keep their host text.
 #[test]
-fn fz38_4_10() {
+fn a_json_value_moved_out_of_its_xml_element_keeps_its_spelling() {
     replay(
         Language::JSON,
         Language::XML,
@@ -377,8 +411,10 @@ fn fz38_4_10() {
     );
 }
 
+/// P2: values whose block, table or element changes (a header cut or renamed,
+/// a line moved across one) keep their host text.
 #[test]
-fn fz38_4_11() {
+fn json_values_keep_their_form_after_a_yaml_backspace_and_a_rename() {
     replay(
         Language::JSON,
         Language::YAML,
@@ -397,8 +433,10 @@ fn fz38_4_11() {
     );
 }
 
+/// P2: an edit made in the host's own language stays in the host text when a
+/// view of another language saves after it.
 #[test]
-fn fz38_1_6() {
+fn a_toml_paste_made_after_leaving_an_hcl_view_survives_a_switch_to_xml() {
     replay(
         Language::TOML,
         Language::HCL,
@@ -418,8 +456,10 @@ fn fz38_1_6() {
     );
 }
 
+/// P2: values whose block, table or element changes (a header cut or renamed,
+/// a line moved across one) keep their host text.
 #[test]
-fn fz38_4_12() {
+fn toml_values_keep_their_form_when_an_hcl_line_moves_across_blocks() {
     replay(
         Language::TOML,
         Language::HCL,
@@ -431,8 +471,10 @@ fn fz38_4_12() {
     );
 }
 
+/// P3: a paste over a selected line in a view keeps the forms of the host's
+/// values.
 #[test]
-fn e38_1_1() {
+fn toml_values_keep_their_form_after_a_paste_over_a_blank_line_in_yaml() {
     replay(
         Language::TOML,
         Language::JSON,
@@ -451,8 +493,10 @@ fn e38_1_1() {
     );
 }
 
+/// P2: values whose block, table or element changes (a header cut or renamed,
+/// a line moved across one) keep their host text.
 #[test]
-fn fz38_4_13() {
+fn a_toml_value_moved_out_of_its_hcl_block_keeps_its_spelling() {
     replay(
         Language::TOML,
         Language::JSON,
@@ -467,8 +511,10 @@ fn fz38_4_13() {
     );
 }
 
+/// P2: an edit made in the host's own language stays in the host text when a
+/// view of another language saves after it.
 #[test]
-fn fz38_1_7() {
+fn a_toml_line_moved_in_the_host_keeps_its_spelling_through_a_switch() {
     replay(
         Language::TOML,
         Language::TOML,
@@ -483,8 +529,10 @@ fn fz38_1_7() {
     );
 }
 
+/// P2: values whose block, table or element changes (a header cut or renamed,
+/// a line moved across one) keep their host text.
 #[test]
-fn fz38_4_14() {
+fn toml_values_keep_their_form_when_an_xml_line_moves_across_elements() {
     replay(
         Language::TOML,
         Language::XML,
@@ -496,8 +544,10 @@ fn fz38_4_14() {
     );
 }
 
+/// P2: values whose block, table or element changes (a header cut or renamed,
+/// a line moved across one) keep their host text.
 #[test]
-fn fz38_4_15() {
+fn toml_values_keep_their_form_when_a_yaml_line_moves_across_maps() {
     replay(
         Language::TOML,
         Language::YAML,
@@ -509,8 +559,10 @@ fn fz38_4_15() {
     );
 }
 
+/// P2: values whose block, table or element changes (a header cut or renamed,
+/// a line moved across one) keep their host text.
 #[test]
-fn fz38_4_16() {
+fn xml_values_keep_their_form_after_a_toml_cut_and_a_rename() {
     replay(
         Language::XML,
         Language::HCL,
@@ -529,8 +581,10 @@ fn fz38_4_16() {
     );
 }
 
+/// P2: values whose block, table or element changes (a header cut or renamed,
+/// a line moved across one) keep their host text.
 #[test]
-fn fz38_4_17() {
+fn xml_attributes_keep_their_form_when_a_toml_line_moves_across_tables() {
     replay(
         Language::XML,
         Language::TOML,
@@ -542,8 +596,10 @@ fn fz38_4_17() {
     );
 }
 
+/// P2: an edit made in the host's own language stays in the host text when a
+/// view of another language saves after it.
 #[test]
-fn fz38_1_8() {
+fn xml_lines_cut_in_the_host_keep_attributes_through_a_switch_to_toml() {
     replay(
         Language::XML,
         Language::XML,
@@ -562,8 +618,10 @@ fn fz38_1_8() {
     );
 }
 
+/// P2: values whose block, table or element changes (a header cut or renamed,
+/// a line moved across one) keep their host text.
 #[test]
-fn fz38_4_18() {
+fn xml_values_keep_their_form_when_their_yaml_root_key_is_cut() {
     replay(
         Language::XML,
         Language::YAML,
@@ -575,8 +633,10 @@ fn fz38_4_18() {
     );
 }
 
+/// P2: an edit made in the host's own language stays in the host text when a
+/// view of another language saves after it.
 #[test]
-fn fz38_1_9() {
+fn yaml_edits_after_leaving_an_hcl_view_and_an_undo_stay_in_the_host() {
     replay(
         Language::YAML,
         Language::HCL,
@@ -597,8 +657,10 @@ fn fz38_1_9() {
     );
 }
 
+/// P2: values whose block, table or element changes (a header cut or renamed,
+/// a line moved across one) keep their host text.
 #[test]
-fn fz38_4_19() {
+fn yaml_values_keep_their_form_when_an_hcl_line_moves_across_blocks() {
     replay(
         Language::YAML,
         Language::HCL,
@@ -610,8 +672,10 @@ fn fz38_4_19() {
     );
 }
 
+/// P3: a paste over a selected line in a view keeps the forms of the host's
+/// values.
 #[test]
-fn e38_1_2() {
+fn yaml_values_keep_their_form_after_a_paste_over_a_line_in_toml() {
     replay(
         Language::YAML,
         Language::JSON,
@@ -631,8 +695,10 @@ fn e38_1_2() {
     );
 }
 
+/// P3: a paste over a selected line in a view keeps the forms of the host's
+/// values.
 #[test]
-fn e38_1_3() {
+fn a_toml_header_cut_and_pasted_over_a_blank_line_keeps_the_yaml_forms() {
     replay(
         Language::YAML,
         Language::TOML,
@@ -651,8 +717,10 @@ fn e38_1_3() {
     );
 }
 
+/// P2: values whose block, table or element changes (a header cut or renamed,
+/// a line moved across one) keep their host text.
 #[test]
-fn fz38_4_20() {
+fn a_yaml_hex_keeps_its_spelling_when_its_toml_header_is_cut() {
     replay(
         Language::YAML,
         Language::TOML,
@@ -664,8 +732,10 @@ fn fz38_4_20() {
     );
 }
 
+/// P2: values whose block, table or element changes (a header cut or renamed,
+/// a line moved across one) keep their host text.
 #[test]
-fn fz38_4_21() {
+fn yaml_values_keep_their_form_when_an_xml_line_moves_across_elements() {
     replay(
         Language::YAML,
         Language::XML,
@@ -677,8 +747,10 @@ fn fz38_4_21() {
     );
 }
 
+/// P2: an edit to a list item in a view keeps the item's other values as the
+/// host wrote them.
 #[test]
-fn fz38_8_1() {
+fn a_line_deleted_in_a_list_item_keeps_the_items_other_yaml_forms() {
     replay(
         Language::YAML,
         Language::XML,
@@ -687,8 +759,10 @@ fn fz38_8_1() {
     );
 }
 
+/// P2: an edit made in the host's own language stays in the host text when a
+/// view of another language saves after it.
 #[test]
-fn fz38_1_10() {
+fn a_yaml_cut_in_the_host_keeps_its_tags_through_undos_in_hcl() {
     replay(
         Language::YAML,
         Language::YAML,
@@ -714,8 +788,10 @@ fn fz38_1_10() {
     );
 }
 
+/// P2: an edit made in the host's own language stays in the host text when a
+/// view of another language saves after it.
 #[test]
-fn fz38_16_1() {
+fn a_yaml_line_moved_into_another_map_in_the_host_survives_a_switch() {
     replay(
         Language::YAML,
         Language::YAML,
@@ -730,8 +806,10 @@ fn fz38_16_1() {
     );
 }
 
+/// P2: a block a cut empties in a view stays in the host as the view reads it,
+/// not dropped.
 #[test]
-fn fz38_3_1() {
+fn an_hcl_block_emptied_by_a_cut_in_json_saves_what_the_view_reads() {
     replay(
         Language::HCL,
         Language::JSON,
@@ -743,8 +821,10 @@ fn fz38_3_1() {
     );
 }
 
+/// P2: a null in a view is saved as null, not as an empty block; where the
+/// host cannot write one, the save waits.
 #[test]
-fn fz38_2_1() {
+fn a_yaml_null_left_by_a_deleted_line_is_no_empty_hcl_block() {
     replay(
         Language::HCL,
         Language::YAML,
@@ -753,8 +833,9 @@ fn fz38_2_1() {
     );
 }
 
+/// P2: a null in a view is saved as null, not as an empty map or list.
 #[test]
-fn fz38_2_2() {
+fn a_json_null_stays_null_after_a_yaml_line_move() {
     replay(
         Language::JSON,
         Language::YAML,
@@ -766,8 +847,10 @@ fn fz38_2_2() {
     );
 }
 
+/// P2: a null in a view that the host cannot write is not saved as an empty
+/// list: the save waits.
 #[test]
-fn fz38_2_3() {
+fn a_yaml_null_a_toml_host_cannot_hold_is_no_empty_list() {
     replay(
         Language::TOML,
         Language::YAML,
@@ -782,7 +865,7 @@ fn fz38_2_3() {
 /// P2: a `#` typed right after a TOML value starts a comment, which the
 /// save does not write into the value.
 #[test]
-fn fz38_13_1() {
+fn a_hash_typed_after_a_toml_value_starts_a_comment() {
     replay(
         Language::XML,
         Language::TOML,
@@ -801,8 +884,9 @@ fn fz38_13_1() {
     );
 }
 
+/// P2: a switch after an undone edit saves, or shows why the save waits.
 #[test]
-fn fz38_10_1() {
+fn an_undo_in_yaml_then_a_switch_saves_an_empty_hcl_block_without_waiting() {
     replay(
         Language::HCL,
         Language::YAML,
@@ -820,8 +904,9 @@ fn fz38_10_1() {
     );
 }
 
+/// P2: a switch after an undone edit saves, or shows why the save waits.
 #[test]
-fn fz38_10_2() {
+fn an_undo_in_json_then_a_switch_saves_empty_xml_elements_without_waiting() {
     replay(
         Language::XML,
         Language::JSON,
@@ -839,8 +924,9 @@ fn fz38_10_2() {
     );
 }
 
+/// P2: a switch after an undone edit saves, or shows why the save waits.
 #[test]
-fn fz38_10_3() {
+fn an_undo_in_yaml_then_a_switch_saves_empty_xml_elements_without_waiting() {
     replay(
         Language::XML,
         Language::YAML,
@@ -859,8 +945,10 @@ fn fz38_10_3() {
     );
 }
 
+/// P2: values a cut TOML header leaves at the root keep the host comment of a
+/// flow map among them.
 #[test]
-fn fz38_4_22() {
+fn a_cut_toml_header_keeps_the_yaml_comment_in_a_flow_map_under_it() {
     replay(
         Language::YAML,
         Language::TOML,
@@ -872,8 +960,10 @@ fn fz38_4_22() {
     );
 }
 
+/// P2: a whole-text paste in a view rewrites only what it changed: values it
+/// moves to another block keep their host text.
 #[test]
-fn fz38_4_23() {
+fn json_values_keep_their_form_after_a_whole_paste_and_a_move_in_xml() {
     replay(
         Language::JSON,
         Language::XML,
@@ -892,8 +982,10 @@ fn fz38_4_23() {
     );
 }
 
+/// P2: a whole-text paste in a view rewrites only what it changed: values it
+/// moves to another block keep their host text.
 #[test]
-fn fz38_4_24() {
+fn toml_values_keep_their_form_after_a_whole_paste_and_a_move_in_hcl() {
     replay(
         Language::TOML,
         Language::HCL,
@@ -908,8 +1000,10 @@ fn fz38_4_24() {
     );
 }
 
+/// P2: a whole-text paste in a view rewrites only what it changed: values it
+/// moves to another block keep their host text.
 #[test]
-fn fz38_4_25() {
+fn a_toml_inline_table_keeps_its_form_after_a_whole_paste_in_yaml() {
     replay(
         Language::TOML,
         Language::XML,
@@ -922,8 +1016,10 @@ fn fz38_4_25() {
     );
 }
 
+/// P2: values whose block, table or element changes (a header cut or renamed,
+/// a line moved across one) keep their host text.
 #[test]
-fn fz38_4_26() {
+fn toml_values_keep_their_form_after_a_yaml_cut_and_an_undo_past_a_save() {
     replay(
         Language::TOML,
         Language::YAML,
@@ -944,8 +1040,10 @@ fn fz38_4_26() {
     );
 }
 
+/// P2: values whose block, table or element changes (a header cut or renamed,
+/// a line moved across one) keep their host text.
 #[test]
-fn fz38_4_27() {
+fn xml_values_keep_their_form_after_a_toml_line_cut_pasted_elsewhere() {
     replay(
         Language::XML,
         Language::TOML,
@@ -964,8 +1062,10 @@ fn fz38_4_27() {
     );
 }
 
+/// P2: a whole-text paste in a view rewrites only what it changed: values it
+/// moves to another block keep their host text.
 #[test]
-fn fz38_4_28() {
+fn xml_values_keep_their_form_after_a_whole_paste_and_a_cut_in_yaml() {
     replay(
         Language::XML,
         Language::YAML,
@@ -980,8 +1080,10 @@ fn fz38_4_28() {
     );
 }
 
+/// P2: values whose block, table or element changes (a header cut or renamed,
+/// a line moved across one) keep their host text.
 #[test]
-fn fz38_4_29() {
+fn yaml_values_keep_their_form_when_a_typed_letter_renames_their_block() {
     replay(
         Language::YAML,
         Language::HCL,
@@ -994,8 +1096,10 @@ fn fz38_4_29() {
     );
 }
 
+/// P2: values whose block, table or element changes (a header cut or renamed,
+/// a line moved across one) keep their host text.
 #[test]
-fn fz38_4_30() {
+fn yaml_values_keep_their_form_when_a_backspace_renames_their_table() {
     replay(
         Language::YAML,
         Language::TOML,
@@ -1008,8 +1112,10 @@ fn fz38_4_30() {
     );
 }
 
+/// P2: an edit made in the host's own language stays in the host text when a
+/// view of another language saves after it.
 #[test]
-fn fz38_1_11() {
+fn a_yaml_line_deleted_in_the_host_stays_deleted_after_an_edit_in_hcl() {
     replay(
         Language::YAML,
         Language::YAML,
@@ -1031,7 +1137,7 @@ fn fz38_1_11() {
 /// that writes the array inline would drop the comment above its header,
 /// so it waits.
 #[test]
-fn sv38_18_1() {
+fn a_save_that_would_drop_the_comment_above_an_array_of_tables_waits() {
     replay(
         Language::TOML,
         Language::HCL,
@@ -1052,7 +1158,7 @@ fn sv38_18_1() {
 
 /// P2: an undo past a save brings an item back with the comment lines its source has above it.
 #[test]
-fn fz38_6_1() {
+fn an_undo_past_a_save_brings_a_block_back_with_its_comment() {
     replay(
         Language::HCL,
         Language::TOML,
@@ -1077,9 +1183,10 @@ fn fz38_6_1() {
     );
 }
 
-/// P2: an undo past a save brings an item back with the comment lines its source has above it.
+/// P2: a table header cut and pasted back (its block empty) comes back with
+/// the comment lines its source has above it.
 #[test]
-fn fz38_6_2() {
+fn an_empty_tables_header_cut_and_pasted_back_keeps_the_comment_above() {
     replay(
         Language::HCL,
         Language::TOML,
@@ -1098,9 +1205,10 @@ fn fz38_6_2() {
     );
 }
 
-/// P2: an undo past a save brings an item back with the comment lines its source has above it.
+/// P2: a key cut and pasted back in a YAML view comes back with the comment
+/// lines its HCL source has above it.
 #[test]
-fn fz38_6_3() {
+fn a_yaml_key_cut_and_pasted_back_keeps_the_hcl_comment_above_it() {
     replay(
         Language::HCL,
         Language::YAML,
@@ -1121,7 +1229,7 @@ fn fz38_6_3() {
 
 /// P2: a table header cut and pasted back heads its item again, which keeps the comment above it.
 #[test]
-fn fz38_6_4() {
+fn a_tables_header_cut_and_pasted_back_keeps_the_comment_above_it() {
     replay(
         Language::HCL,
         Language::TOML,
@@ -1142,7 +1250,7 @@ fn fz38_6_4() {
 
 /// P2: a table header cut and pasted back heads its item again, which keeps the comment above it.
 #[test]
-fn fz38_6_5() {
+fn a_tables_header_pasted_over_a_line_keeps_the_comment_above_it() {
     replay(
         Language::HCL,
         Language::TOML,
@@ -1163,7 +1271,7 @@ fn fz38_6_5() {
 
 /// P3: a map renamed and edited in one save is renamed in place, its lines kept.
 #[test]
-fn fz38_4_31() {
+fn a_map_renamed_and_edited_in_one_save_is_renamed_in_place() {
     replay(
         Language::JSON,
         Language::YAML,
@@ -1184,7 +1292,7 @@ fn fz38_4_31() {
 
 /// P3: a map renamed and edited in one save is renamed in place, its lines kept.
 #[test]
-fn fz38_4_32() {
+fn a_map_renamed_by_a_whole_paste_and_edited_is_renamed_in_place() {
     replay(
         Language::JSON,
         Language::HCL,
@@ -1202,7 +1310,7 @@ fn fz38_4_32() {
 
 /// P2: a list item's entry the save writes after the item's marker keeps its form (a view that writes a list of one as its item).
 #[test]
-fn fz38_8_2() {
+fn a_list_of_one_written_as_its_item_keeps_the_items_entry_forms() {
     replay(
         Language::YAML,
         Language::XML,
@@ -1219,7 +1327,7 @@ fn fz38_8_2() {
 
 /// P2: a label typed onto an HCL block (`spec x{`) adds a level, not a rename: the save writes a map, not a list of one.
 #[test]
-fn sv38_19_1() {
+fn a_label_typed_onto_an_hcl_block_adds_a_level_not_a_rename() {
     replay(
         Language::YAML,
         Language::HCL,
@@ -1234,7 +1342,7 @@ fn sv38_19_1() {
 
 /// P3: an item of an HCL list written over lines, copied, keeps its source's form (a YAML quoted string).
 #[test]
-fn fz38_9_1() {
+fn a_copied_item_of_an_hcl_list_over_lines_keeps_its_source_form() {
     replay(
         Language::YAML,
         Language::TOML,
@@ -1251,7 +1359,7 @@ fn fz38_9_1() {
 
 /// P3: a block a cut leaves alone in its list is the host's block written once: its values keep their form.
 #[test]
-fn fz38_4_33() {
+fn a_block_a_cut_leaves_alone_in_its_list_keeps_its_values_forms() {
     replay(
         Language::HCL,
         Language::TOML,
@@ -1265,7 +1373,7 @@ fn fz38_4_33() {
 
 /// P3: a YAML key with a quote in it (`alpha"`) is found, so its items keep their links and forms.
 #[test]
-fn fz38_4_34() {
+fn a_yaml_key_with_a_quote_in_it_keeps_its_items_links() {
     replay(
         Language::JSON,
         Language::TOML,
@@ -1287,7 +1395,7 @@ fn fz38_4_34() {
 
 /// P3: a JSON key with an escaped quote keeps its entry's lines when an edit inside it is restyled.
 #[test]
-fn fz38_4_35() {
+fn a_json_key_with_an_escaped_quote_keeps_its_entrys_lines() {
     replay(
         Language::JSON,
         Language::TOML,
@@ -1310,7 +1418,7 @@ fn fz38_4_35() {
 
 /// The user's own spelling: a number split by Enter and joined back as `1000.` is theirs, written in the host's spelling of it.
 #[test]
-fn user_spelled_1() {
+fn a_number_split_and_joined_back_by_the_user_takes_the_hosts_spelling() {
     replay(
         Language::JSON,
         Language::XML,
@@ -1336,7 +1444,7 @@ fn user_spelled_1() {
 
 /// The user's own order: lines cut and pasted over others put a map's keys in another order, which the save keeps.
 #[test]
-fn user_ordered_1() {
+fn keys_put_in_another_order_by_cut_and_paste_keep_that_order() {
     replay(
         Language::JSON,
         Language::YAML,
@@ -1361,7 +1469,7 @@ fn user_ordered_1() {
 
 /// The user's own value: a hex number edited and typed back as `31` is theirs.
 #[test]
-fn user_spelled_2() {
+fn a_hex_number_edited_and_typed_back_as_decimal_is_the_users_value() {
     replay(
         Language::TOML,
         Language::YAML,
@@ -1390,7 +1498,7 @@ fn user_spelled_2() {
 
 /// P3: a TOML header moved into a multi-line string is text there, so the keys after it keep their links and forms (a YAML `!!str` tag).
 #[test]
-fn sw38_4_1() {
+fn a_toml_header_moved_into_a_multi_line_string_is_text_there() {
     replay(
         Language::YAML,
         Language::HCL,
@@ -1405,9 +1513,10 @@ fn sw38_4_1() {
     );
 }
 
-/// P3: a TOML header moved into a multi-line string is text there, so the keys after it keep their links and forms (a YAML `!!str` tag).
+/// P3: a TOML header cut and pasted into a multi-line string is text there,
+/// so the keys after it keep their links and forms (a YAML `!!str` tag).
 #[test]
-fn sw38_4_2() {
+fn a_toml_header_pasted_into_a_multi_line_string_is_text_there() {
     replay(
         Language::YAML,
         Language::TOML,
@@ -1425,9 +1534,10 @@ fn sw38_4_2() {
     );
 }
 
-/// P3: a TOML header moved into a multi-line string is text there, so the keys after it keep their links and forms (a YAML `!!str` tag).
+/// P3: a TOML entry cut and pasted into a multi-line string is text there,
+/// so the keys after it keep their links and their HCL forms.
 #[test]
-fn sw38_4_3() {
+fn a_toml_table_pasted_into_a_multi_line_string_keeps_the_hcl_forms() {
     replay(
         Language::HCL,
         Language::TOML,
@@ -1447,7 +1557,7 @@ fn sw38_4_3() {
 
 /// The user's own value: a key whose value a paste over another line made, cut and pasted again, is written as that save wrote it.
 #[test]
-fn user_made_1() {
+fn a_value_a_paste_made_cut_and_pasted_again_keeps_how_the_save_wrote_it() {
     replay(
         Language::JSON,
         Language::YAML,
