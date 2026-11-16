@@ -272,6 +272,10 @@ impl Edit {
     /// [`Self::new`] from UTF-16 offsets, as the tests write them: the
     /// selection of `before`, the caret of `text`.
     #[cfg(test)]
+    #[cfg_attr(
+        not(all(feature = "yaml", feature = "json")),
+        allow(dead_code, reason = "only the tests over several languages use it")
+    )]
     pub(super) fn new_units(
         before: String,
         selection: (usize, usize),
@@ -301,6 +305,10 @@ impl Edit {
 
     /// The caret the edit leaves, as a UTF-16 offset of the text after.
     #[cfg(test)]
+    #[cfg_attr(
+        not(all(feature = "yaml", feature = "json")),
+        allow(dead_code, reason = "only the tests over several languages use it")
+    )]
     pub(super) fn caret_units(&self) -> usize {
         super::text::utf16_of(&self.text, self.caret())
     }

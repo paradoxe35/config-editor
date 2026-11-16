@@ -120,6 +120,10 @@ impl EditorState {
 
     /// The caret as a UTF-16 offset of the text, as the tests read it.
     #[cfg(test)]
+    #[cfg_attr(
+        not(all(feature = "yaml", feature = "json")),
+        allow(dead_code, reason = "only the tests over several languages use it")
+    )]
     pub(super) fn caret_units(&self) -> usize {
         let caret = self.doc().caret.get_untracked();
         self.doc()
@@ -130,6 +134,10 @@ impl EditorState {
     /// Records the caret at UTF-16 `offset` of the text, as the tests set
     /// it.
     #[cfg(test)]
+    #[cfg_attr(
+        not(all(feature = "yaml", feature = "json")),
+        allow(dead_code, reason = "only the tests over several languages use it")
+    )]
     pub(super) fn set_caret_units(&self, offset: usize) {
         let offset = self.doc().text.with_untracked(|text| byte_of(text, offset));
         self.doc().caret.set(offset);
