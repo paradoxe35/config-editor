@@ -4,16 +4,11 @@
 
 use serde_json::{Value, json};
 
-use super::runner::{Case, Verdict};
+use super::runner::Case;
 
 /// `case` made as small as it can be (in at most `budget` checks) while
-/// `verdict` says it fails as `class`.
-pub(super) fn shrink(
-    case: Case,
-    class: &str,
-    budget: usize,
-    verdict: &dyn Fn(&Case) -> Verdict,
-) -> Case {
+/// `fails_alike` says it still fails the way it did.
+pub(super) fn shrink(case: Case, budget: usize, fails_alike: &dyn Fn(&Case) -> bool) -> Case {
     let mut current = case;
     let mut checks = 0;
     'smaller: loop {
@@ -26,7 +21,7 @@ pub(super) fn shrink(
                 }
                 let mut next = current.clone();
                 *field_of_mut(&mut next, field) = candidate;
-                if matches!(verdict(&next), Verdict::Fails(failure) if failure.class == class) {
+                if fails_alike(&next) {
                     current = next;
                     continue 'smaller;
                 }
@@ -36,7 +31,7 @@ pub(super) fn shrink(
         if current.pick > 0 {
             let mut next = current.clone();
             next.pick /= 2;
-            if matches!(verdict(&next), Verdict::Fails(failure) if failure.class == class) {
+            if fails_alike(&next) {
                 current = next;
                 continue 'smaller;
             }

@@ -146,12 +146,7 @@ pub(super) fn run(property: &Property) {
                     continue;
                 }
                 let check = property.check;
-                let shrunk = shrink(
-                    case.clone(),
-                    &found.class,
-                    property.shrink_budget,
-                    &|case| verdict(check, case),
-                );
+                let shrunk = smallest(property, case.clone(), &found.class);
                 let detail = match verdict(check, &shrunk) {
                     Verdict::Fails(failure) => failure.detail,
                     _ => found.detail.clone(),
@@ -201,6 +196,18 @@ pub(super) fn run(property: &Property) {
     );
 }
 
+/// `case`, failing as `class`, made as small as it can be while it fails
+/// the same way: as `class`, and allowed by the same finding (or none), as
+/// the class is named by that finding.
+fn smallest(property: &Property, case: Case, class: &str) -> Case {
+    let check = property.check;
+    let allowance = known::excused(property.name, class, &case);
+    shrink(case, property.shrink_budget, &|next| {
+        matches!(verdict(check, next), Verdict::Fails(failure) if failure.class == class)
+            && known::excused(property.name, class, next) == allowance
+    })
+}
+
 /// The shrunk case as a test to paste into this module.
 fn repro(property: &Property, case: &Case) -> String {
     format!(
@@ -228,4 +235,42 @@ fn language_constant(language: Language) -> &'static str {
 /// The five built-in languages.
 pub(super) fn language(index: usize) -> Language {
     Language::ALL[index % Language::ALL.len()]
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+
+    /// A class is named by the finding allowing its first case, so its
+    /// shrunk case stays inside that allowance: a smaller case the finding
+    /// does not explain would show an allowed class as open.
+    #[test]
+    fn a_shrunk_case_keeps_the_allowance_of_its_class() {
+        const CLASS: &str = "a save reads otherwise than the view";
+        let property = Property {
+            name: "edit_as",
+            check_path: "",
+            cases: 0,
+            shrink_budget: 500,
+            draw: |_, _| unreachable!("the test draws no case"),
+            check: |_| Verdict::Fails(failure(CLASS, "")),
+        };
+        let case = Case {
+            language: Language::YAML,
+            pick: 3,
+            schema: json!({"properties": {"a": {"type": "array"}}}),
+            doc: json!({"a": [1], "b": {"c": "two"}}),
+            other: json!({"a": [1, 2]}),
+        };
+        let allowance = known::excused(property.name, CLASS, &case);
+        assert!(allowance.is_some(), "the first case is allowed");
+        let shrunk = smallest(&property, case, CLASS);
+        assert_eq!(
+            known::excused(property.name, CLASS, &shrunk),
+            allowance,
+            "shrunk to {shrunk:?}"
+        );
+    }
 }

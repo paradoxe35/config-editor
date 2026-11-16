@@ -98,6 +98,22 @@ pub(super) const KNOWN: &[Known] = &[
         class: "a fill writes a value its schema refuses (",
         applies: |case| asks_list_items(&case.schema),
     },
+    // The same list told by the count of its items: a key at the root
+    // whose own list asks items.
+    Known {
+        finding: "documented: a key's own list is written empty, the caret inside",
+        property: "fill",
+        class: "a fill writes too few list items",
+        applies: |case| {
+            case.schema
+                .get("properties")
+                .and_then(Value::as_object)
+                .is_some_and(|keys| {
+                    keys.values()
+                        .any(|key| key.get("minItems").is_some() || key.get("contains").is_some())
+                })
+        },
+    },
     Known {
         finding: "documented: a key's own list is written empty, the caret inside",
         property: "suggestions",
