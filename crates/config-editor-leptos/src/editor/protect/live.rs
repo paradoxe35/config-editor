@@ -494,16 +494,19 @@ fn text_ranges_kept(old: &str, new: &str, ranges: &[Range<usize>]) -> Result<(),
 }
 
 /// The host's `given` ranges (UTF-16 of `host`) as `placed` in `text`
-/// (in the same order), each whose text `text` does not hold there made
-/// empty where it starts: an edit the host has not heard changed it
-/// before the host locked it, so it locks nothing on screen, and the first
-/// such range's text and index say why the save waits. Edits that write
-/// the text back (an undo) place it again (see `follow_edit`).
+/// (in the same order). One whose text `text` does not hold there takes
+/// its place in `others` (the same ranges placed another way, made only
+/// then) when that holds it; else it is made empty where it starts: an
+/// edit the host has not heard changed it before the host locked it, so
+/// it locks nothing on screen, and the first such range's text and index
+/// say why the save waits. Edits that write the text back (an undo) place
+/// it again (see `follow_edit`).
 fn keeping_their_text(
     host: &str,
     given: &[Range<usize>],
     text: &str,
     mut placed: Vec<Range<usize>>,
+    others: impl FnOnce() -> Vec<Range<usize>>,
 ) -> (Vec<Range<usize>>, Option<(String, usize)>) {
     fn slice<'t>(of: &'t str, range: &Range<usize>) -> Option<&'t str> {
         let (start, end) = (byte_of(of, range.start), byte_of(of, range.end));
@@ -511,14 +514,25 @@ fn keeping_their_text(
             .then(|| text::slice::slice(of, text::TextRange::new(start, end)))
             .flatten()
     }
+    let mut others = Some(others);
+    let mut other: Vec<Range<usize>> = Vec::new();
     let mut changed = None;
     for (index, (given, placed)) in given.iter().zip(placed.iter_mut()).enumerate() {
         let Some(locked) = slice(host, given) else {
             continue;
         };
-        if slice(text, placed) != Some(locked) {
-            *placed = placed.start..placed.start;
-            changed.get_or_insert_with(|| (locked.to_string(), index));
+        if slice(text, placed) == Some(locked) {
+            continue;
+        }
+        if let Some(others) = others.take() {
+            other = others();
+        }
+        match other.get(index) {
+            Some(found) if slice(text, found) == Some(locked) => *placed = found.clone(),
+            _ => {
+                *placed = placed.start..placed.start;
+                changed.get_or_insert_with(|| (locked.to_string(), index));
+            }
         }
     }
     (placed, changed)
@@ -876,21 +890,20 @@ impl EditorState {
             .protect()
             .host_ranges
             .with_untracked(|ranges| offsets(&host_text, ranges));
-        let placed = if *text == host_text || given.is_empty() {
-            given.clone()
-        } else {
-            self.mapped_since_host(&host_text, text, &given)
-                .unwrap_or_else(|| {
-                    self.config().schema.with_value(|schema| {
-                        let reading = schema.as_deref().map(|bundle| &bundle.schema);
-                        followed_to(self.behavior(), &host_text, text, &given, reading)
-                    })
-                })
+        if *text == host_text || given.is_empty() {
+            self.protect().ranges_changed.set(None);
+            self.protect().ranges.set(given);
+            return;
+        }
+        let followed = || {
+            self.config().schema.with_value(|schema| {
+                let reading = schema.as_deref().map(|bundle| &bundle.schema);
+                followed_to(self.behavior(), &host_text, text, &given, reading)
+            })
         };
-        let (placed, changed) = if *text == host_text {
-            (placed, None)
-        } else {
-            keeping_their_text(&host_text, &given, text, placed)
+        let (placed, changed) = match self.mapped_since_host(&host_text, text, &given) {
+            Some(mapped) => keeping_their_text(&host_text, &given, text, mapped, followed),
+            None => keeping_their_text(&host_text, &given, text, followed(), Vec::new),
         };
         self.protect().ranges_changed.set(changed);
         self.protect().ranges.set(placed);
