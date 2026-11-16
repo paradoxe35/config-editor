@@ -63,7 +63,7 @@ impl EditAsState {
         host_language: Language,
         edit_language: RwSignal<Language>,
         diagnosed_text: RwSignal<String>,
-        host_text: StoredValue<String>,
+        host_text: super::sync::HostTextReader,
     ) -> Self {
         let reasons = Memo::new(move |_| {
             let edit = edit_language.get();

@@ -66,7 +66,7 @@ pub(crate) struct Marks {
     /// The placeholder a mouse press landed inside, until it is released.
     pub(crate) pressed: Option<Range<usize>>,
     /// The last change event was held back (see
-    /// [`EditorState::hold_change`]): new locks from the host that release
+    /// [`EditorState::note_held_back`]): new locks from the host that release
     /// it send the text on screen then.
     held_back: bool,
     /// The last edit followed: the length (bytes) of the text it made and
@@ -109,7 +109,7 @@ pub(crate) struct Inputs {
     pub(crate) edit_language: RwSignal<Language>,
     pub(crate) host_language: Language,
     pub(crate) schema: Option<Arc<SchemaBundle>>,
-    pub(crate) host_text: StoredValue<String>,
+    pub(crate) host_text: super::super::sync::HostTextReader,
 }
 
 impl ProtectState {
@@ -444,7 +444,7 @@ impl EditorState {
         let text = self.doc().text.get_untracked();
         let edit = self.sync().edit_language.get_untracked();
         if edit != self.config().host_language {
-            if text != self.sync().synced_edit.get_value() {
+            if !self.sync().is_synced(&text) {
                 super::super::sync::convert_now(*self, text, edit);
             }
             return;
@@ -454,14 +454,12 @@ impl EditorState {
         }
     }
 
-    /// Whether the change event for the text on screen waits (see
-    /// [`Self::changes_held`]), noting it for [`Self::locks_changed_by_host`].
-    pub(crate) fn hold_change(&self) -> bool {
-        let held = self.changes_held();
+    /// Notes whether the host's gate (see `sync::gate`) held the last text
+    /// back, for [`Self::locks_changed_by_host`].
+    pub(crate) fn note_held_back(&self, held: bool) {
         self.protect()
             .marks
             .update_value(|marks| marks.held_back = held);
-        held
     }
 
     /// The edit pipeline's check stage: whether `edit` keeps every lock;

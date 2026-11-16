@@ -1,4 +1,4 @@
-//! A documents view's echoes (the `echoes` option, see `crate::echoes`):
+//! A documents view's echoes (the `echoes` option, see the core's `Echoes`):
 //! a listed text its editor sent and moved past keeps what the editor
 //! holds, and a host left on such a text hears the document again.
 
@@ -11,10 +11,10 @@ use wasm_bindgen::JsValue;
 use super::State;
 use super::echo_ranges::take;
 use crate::documents_list::Listed;
-use crate::echoes::{Echo, Echoes};
 use crate::host_locks::Again;
 use crate::mount::call_host_with;
 use crate::settle;
+use config_editor_leptos::js_support::{Echo, Echoes};
 
 impl State {
     /// With `echoing`, takes echoes out of `listed`: a document whose
@@ -57,7 +57,6 @@ impl State {
                     .collect();
                 echoes.retain(|id, _| ids.contains(id.as_str()));
             }
-            let now = js_sys::Date::now();
             // Each document's text read where it is kept, not copied.
             self.texts.try_with_value(|texts| {
                 for document in &mut listed.documents {
@@ -69,7 +68,6 @@ impl State {
                         echo.given(&document.value);
                         continue;
                     };
-                    echo.at(now);
                     let echo = echo.received(&document.value, current, flushed);
                     let mut again = listed.ranges_again.remove(&document.id);
                     let applies = echo == Echo::Apply;

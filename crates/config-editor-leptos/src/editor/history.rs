@@ -12,6 +12,7 @@
 use super::bridge::links::Links;
 use super::fold_ranges::FoldRange;
 use super::languages::Language;
+use std::sync::Arc;
 
 mod rebase;
 
@@ -28,9 +29,38 @@ pub(super) struct Snapshot {
     /// The folds closed in `value`, for a step that said them (a line
     /// command); `None` for every other step: the folds follow the change.
     pub(super) folds: Option<Vec<FoldRange>>,
-    /// The links of `value`'s items to the host's, in an Edit-as view
-    /// (see `bridge::links`): undo and redo put them back with the text.
+    /// What an Edit-as view keeps with `value`: undo and redo put it back
+    /// with the text.
+    pub(super) view: ViewState,
+}
+
+/// What an undo step keeps of an Edit-as view's text besides the text.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(super) struct ViewState {
+    /// The links of the text's items to the host's (see `bridge::links`).
     pub(super) links: Links,
+    /// The host text the text was saved as, when it was: an undo back to it
+    /// sends that host text exactly, comments a fresh save could not bring
+    /// back included.
+    pub(super) saved_as: Option<Arc<str>>,
+}
+
+impl ViewState {
+    /// Bytes it holds, for the history's budget (see [`Links::bytes`]): a
+    /// host text it shares with `newer` (the state of the step after it)
+    /// counted there only.
+    fn bytes(&self, newer: Option<&ViewState>) -> usize {
+        let shared = matches!(
+            (&self.saved_as, newer.and_then(|newer| newer.saved_as.as_ref())),
+            (Some(host), Some(theirs)) if Arc::ptr_eq(host, theirs)
+        );
+        let saved = if shared {
+            0
+        } else {
+            self.saved_as.as_ref().map_or(0, |host| host.len())
+        };
+        self.links.bytes(newer.map(|newer| &newer.links)) + saved
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -212,15 +242,15 @@ impl EditHistory {
         self.undo.push(step);
         // The newest steps that fit in both budgets.
         let mut bytes = 0;
-        let mut newer: Option<&Links> = None;
+        let mut newer: Option<&ViewState> = None;
         let kept = self
             .undo
             .iter()
             .rev()
             .take(MAX_STEPS)
             .take_while(|step| {
-                bytes += step.before.value.len() + step.before.links.bytes(newer);
-                newer = Some(&step.before.links);
+                bytes += step.before.value.len() + step.before.view.bytes(newer);
+                newer = Some(&step.before.view);
                 bytes <= MAX_BYTES
             })
             .count()
@@ -264,7 +294,8 @@ impl EditHistory {
             // The host's change moved the lines the folds were said on, and
             // the items the links are on.
             (step.before.folds, step.after_folds) = (None, None);
-            step.before.links = Links::default();
+            // The text is no longer one saved.
+            step.before.view = ViewState::default();
             let (start, end) = step.before.selection;
             step.before.selection = (
                 rebase::mapped(&before, &rebased, start),
@@ -279,11 +310,11 @@ impl EditHistory {
     /// The state before the newest step, given the current text.
     #[cfg(test)]
     pub(super) fn undo(&mut self, current: String) -> Option<Snapshot> {
-        self.undo_with(current, Links::default())
+        self.undo_with(current, ViewState::default())
     }
 
-    /// [`Self::undo`] from `current` with the links `links`.
-    pub(super) fn undo_with(&mut self, current: String, links: Links) -> Option<Snapshot> {
+    /// [`Self::undo`] from `current`, whose view keeps `view`.
+    pub(super) fn undo_with(&mut self, current: String, view: ViewState) -> Option<Snapshot> {
         let step = self.undo.pop()?;
         self.redo.push(Step {
             before: Snapshot {
@@ -291,7 +322,7 @@ impl EditHistory {
                 selection: step.after,
                 language: step.after_language,
                 folds: step.after_folds,
-                links,
+                view,
             },
             after: step.before.selection,
             after_language: step.before.language,
@@ -299,6 +330,21 @@ impl EditHistory {
         });
         self.open = None;
         Some(step.before)
+    }
+
+    /// The host text a step's text `text` was saved as, newest first: an
+    /// edit giving back a text saved before (an item pasted back where it
+    /// was cut) saves as that text was saved, the host's text as it was.
+    /// Only steps with a saved text, and of its length, are compared.
+    pub(super) fn saved_as(&self, text: &str) -> Option<Arc<str>> {
+        self.undo
+            .iter()
+            .chain(&self.redo)
+            .rev()
+            .map(|step| &step.before)
+            .filter(|before| before.view.saved_as.is_some() && before.value.len() == text.len())
+            .find(|before| before.value == text)
+            .and_then(|before| before.view.saved_as.clone())
     }
 
     /// The state the newest step returns to, without moving it (see
@@ -333,11 +379,11 @@ impl EditHistory {
     /// The state after the newest undone step, given the current text.
     #[cfg(test)]
     pub(super) fn redo(&mut self, current: String) -> Option<Snapshot> {
-        self.redo_with(current, Links::default())
+        self.redo_with(current, ViewState::default())
     }
 
-    /// [`Self::redo`] from `current` with the links `links`.
-    pub(super) fn redo_with(&mut self, current: String, links: Links) -> Option<Snapshot> {
+    /// [`Self::redo`] from `current`, whose view keeps `view`.
+    pub(super) fn redo_with(&mut self, current: String, view: ViewState) -> Option<Snapshot> {
         let step = self.redo.pop()?;
         self.undo.push(Step {
             before: Snapshot {
@@ -345,7 +391,7 @@ impl EditHistory {
                 selection: step.after,
                 language: step.after_language,
                 folds: step.after_folds,
-                links,
+                view,
             },
             after: step.before.selection,
             after_language: step.before.language,
@@ -366,7 +412,7 @@ mod tests {
             selection: (caret, caret),
             language: None,
             folds: None,
-            links: Links::default(),
+            view: ViewState::default(),
         }
     }
 
@@ -409,7 +455,7 @@ mod tests {
             selection: (from, to),
             language: None,
             folds: None,
-            links: Links::default(),
+            view: ViewState::default(),
         };
         history.record_input(
             composing("name: に", 6, 7),
@@ -528,7 +574,7 @@ mod tests {
             selection: (0, 9),
             language: None,
             folds: None,
-            links: Links::default(),
+            view: ViewState::default(),
         };
         history.record_action(before.clone(), (0, 13));
         assert_eq!(history.undo("  a: 1\n  b: 2".into()), Some(before));
@@ -539,7 +585,7 @@ mod tests {
                 selection: (0, 13),
                 language: None,
                 folds: None,
-                links: Links::default(),
+                view: ViewState::default(),
             })
         );
     }
@@ -554,7 +600,7 @@ mod tests {
             selection: (0, 0),
             language: Some(Language::YAML),
             folds: None,
-            links: Links::default(),
+            view: ViewState::default(),
         };
         history.record_switch(yaml.clone(), (4, 4), Language::JSON);
         assert_eq!(history.undo("{\"a\": 1}\n".into()), Some(yaml));

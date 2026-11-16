@@ -115,6 +115,40 @@ fn copied(case: &Case, view: Language, pausing: bool) -> Result<(), String> {
     Ok(())
 }
 
+/// The editors of a documents view share one clipboard per host language:
+/// an item copied in one document's view and pasted in another's keeps the
+/// form its host wrote it in (P3), as a paste in the same document does.
+#[test]
+fn an_item_copied_into_another_document_keeps_its_hosts_form() {
+    let clipboard = StoredValue::new(crate::editor::bridge::links::Clipboard::default());
+    let mount = |text: &str| {
+        let mut editor = TestEditor::new(Language::TOML, text);
+        editor.edit_as = Some(Language::JSON);
+        editor.clipboard = Some(clipboard);
+        editor.mount()
+    };
+    let (_first_owner, first) = mount("l = [\n  0x1F,\n  2,\n]\n");
+    let (_second_owner, second) = mount("m = [\n  3,\n]\n");
+    let text = first.doc().text.get_untracked();
+    let (from, to) = first_items(Language::JSON, &text)[0];
+    let line = text[from..to].to_string();
+    copy(first, (from, to));
+    let before = second.doc().text.get_untracked();
+    let (at, _) = first_items(Language::JSON, &before)[0];
+    let after = format!("{}{line}{}", &before[..at], &before[at..]);
+    let start = units(&before[..at]);
+    second.commit(Edit::new(
+        before,
+        (start, start),
+        after,
+        start + units(&line),
+    ));
+    pause(second);
+    assert!(second.sync().in_sync.get_untracked(), "the save waits");
+    let saved = second.sync().host_text.get_value();
+    assert!(saved.contains("0x1F"), "{saved}");
+}
+
 #[test]
 fn a_list_item_copied_keeps_its_hosts_form() {
     let mut failures = Vec::new();

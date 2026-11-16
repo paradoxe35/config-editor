@@ -104,10 +104,9 @@ impl ProblemsState {
         } = sources;
         let diagnosed_text = RwSignal::new(shown);
         let edit_language = sync.edit_language;
-        let host_text = sync.host_text;
         let (load_problems, conversion_problems) = (sync.load_problems, sync.conversion_problems);
         let line_endings = sync.line_endings;
-        let (synced, synced_edit) = (sync.synced, sync.synced_edit);
+        let (synced, session) = (sync.synced, sync.session);
         let host_schema = schema.clone();
         let checked = Memo::new(move |_| {
             let enabled = enabled.get();
@@ -187,9 +186,10 @@ impl ProblemsState {
                 return None;
             }
             let accepted = protect.accepted_tokens();
-            let view = synced_edit.get_value();
+            let view = session.with_value(|session| session.view.to_string());
             strings.with(|strings| {
-                host_text.with_value(|host| {
+                session.with_value(|session| {
+                    let host: &str = &session.host;
                     host_problems(
                         host,
                         host_language.behavior(),
@@ -249,7 +249,8 @@ impl ProblemsState {
                             // The host's text matching the text checked (it
                             // follows every conversion back); the fields its
                             // ranges start in kept while it stays the same.
-                            let found = host_text.with_value(|host| {
+                            let found = session.with_value(|session| {
+                                let host: &str = &session.host;
                                 HostTargets::cached(
                                     host_targets,
                                     host_language.behavior(),

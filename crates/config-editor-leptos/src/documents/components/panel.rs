@@ -171,6 +171,9 @@ fn editor(
         .handle
         .open_with(opening.filter(|_| entry.edit_as.get_untracked().is_some()));
     entry.handle.share_placeholders(follows.placeholders.read());
+    entry
+        .handle
+        .share_clipboard(documents.clipboard_for(entry.setup.language));
     let read_only_reason = entry.read_only_reason;
     let edit_as = entry.edit_as;
     let edit_as = Signal::derive(move || edit_as.get());

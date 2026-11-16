@@ -210,9 +210,7 @@ impl HostEditing {
         let baseline = RwSignal::new(editor_text(baseline));
         let SyncState {
             edit_language,
-            shown_cache,
-            host_text,
-            synced_edit,
+            session,
             synced,
             ..
         } = *sync;
@@ -221,21 +219,12 @@ impl HostEditing {
         let converted = Memo::new(move |_| {
             let host = baseline.get();
             let edit = edit_language.get();
-            // Usually the baseline is the host text a switch just converted.
-            let cached = shown_cache.with_value(|cache| {
-                cache
-                    .as_ref()
-                    .filter(|(language, from, _)| *language == edit && *from == host)
-                    .map(|(_, _, shown)| shown.clone())
-            });
-            cached.unwrap_or_else(
-                || match Bridge::new(host_language, edit, schema.get_value()) {
-                    Some(bridge) => bridge
-                        .to_edit(&host)
-                        .map_or_else(|_| host.clone(), |conversion| conversion.text),
-                    None => host,
-                },
-            )
+            match Bridge::new(host_language, edit, schema.get_value()) {
+                Some(bridge) => bridge
+                    .to_edit(&host)
+                    .map_or_else(|_| host.clone(), |conversion| conversion.text),
+                None => host,
+            }
         });
         // A baseline the host's text is (nothing unsaved, a formatting-only
         // edit converted back to it) is shown as the edited text it saved
@@ -244,9 +233,9 @@ impl HostEditing {
             synced.track();
             let host = baseline.get();
             let bridged = edit_language.get() != host_language;
-            host_text.with_value(|host_text| {
-                synced_edit.with_value(|synced_edit| {
-                    shown_baseline(bridged, &host, (host_text, synced_edit), || converted.get())
+            session.with_value(|session| {
+                shown_baseline(bridged, &host, (&session.host, &session.view), || {
+                    converted.get()
                 })
             })
         });

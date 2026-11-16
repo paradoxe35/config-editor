@@ -142,7 +142,7 @@ export interface ConfigEditorProps extends EditorSettings {
 export const ConfigEditor = forwardRef<ConfigEditorHandle, ConfigEditorProps>(function ConfigEditor(props, ref) {
   const host = useRef<HTMLDivElement>(null);
   // Everything an editor needs from a component (live props, re-mounts,
-  // the bound value through `ValueSync`), shared with the Vue and Svelte
+  // the bound value through the editor's `echoes`), shared with the Vue and Svelte
   // packages: `EditorBinding` from `@pngwasi/config-editor/binding`.
   const binding = useRef<EditorBinding | null>(null);
   binding.current ??= new EditorBinding("config-editor-react", props);

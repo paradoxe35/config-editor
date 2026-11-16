@@ -11,9 +11,9 @@ use leptos::prelude::*;
 use wasm_bindgen::prelude::*;
 
 use crate::catalog::language_name;
-use crate::echoes::Echoes;
 use crate::told::Told;
 use crate::values::{ChangeSummaryOut, diagnostics_to_js, path_to_js, to_js};
+use config_editor_leptos::js_support::Echoes;
 
 thread_local! {
     /// How many host callbacks are running: `destroy` from inside one waits

@@ -232,3 +232,46 @@ fn a_switch_undone_back_to_a_saved_text_saves_as_it() {
         assert_eq!(state.sync().host_text.get_value(), saved, "to {target:?}");
     }
 }
+
+/// A controlled host sets its `value` to each `on_change` text at once:
+/// the echo of an edit typed in the host's language is no new session, so
+/// an undo back across the switch still saves as the host text the view
+/// was saved as (the switch's step records it).
+#[test]
+fn a_controlled_echo_keeps_the_host_text_an_undo_back_saves_as() {
+    let heard = RwSignal::new(Vec::<String>::new());
+    let mut editor = TestEditor::new(Language::XML, &shapes(&left(&[1, 2], None)));
+    editor.edit_as = Some(Language::YAML);
+    editor.on_change = Some(Callback::new(move |text: String| {
+        heard.update(|heard| heard.push(text));
+    }));
+    let (_owner, state) = editor.mount();
+    let echo = |state: EditorState| {
+        for text in heard.try_update(std::mem::take).unwrap_or_default() {
+            super::super::sync::take_host_value(state, text);
+        }
+    };
+    let before = state.doc().text.get_untracked();
+    let (next, caret) = without_item(Language::YAML, &before, 0);
+    state.commit(Edit::new(before, (caret, caret), next, caret));
+    pause(state);
+    echo(state);
+    let saved = state.sync().host_text.get_value();
+    assert_eq!(saved, shapes(&left(&[1, 2], Some(0))));
+    switch_to(state, Language::XML);
+    let before = state.doc().text.get_untracked();
+    let typed = before.replacen("</shapes>", "  <shape />\n</shapes>", 1);
+    let end = before.encode_utf16().count();
+    state.commit(Edit::new(before, (end, end), typed, end));
+    echo(state);
+    for _ in 0..2 {
+        let undo = state.history_edit(false).expect("a step to undo");
+        state.commit(undo);
+        echo(state);
+    }
+    assert_eq!(state.sync().edit_language.get_untracked(), Language::YAML);
+    pause(state);
+    echo(state);
+    assert!(state.sync().in_sync.get_untracked(), "the save waits");
+    assert_eq!(state.sync().host_text.get_value(), saved);
+}

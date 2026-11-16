@@ -56,6 +56,7 @@ const PROPS = {
   edit_as: { option: 'editAs', update: 'editAs' },
   initial_value: { exempt: '`value` is both the initial and the live document in JS; the components have `defaultValue`' },
   value: { option: 'value', update: 'value' },
+  echoes: { exempt: 'the JS `echoes` option (see OPTIONS_JS_ONLY): a component\'s binding always sets it' },
   baseline: { option: 'baseline', update: 'baseline' },
   schema: { option: 'schema', fixed: 'the schema is compiled once, when the editor is built' },
   file_name: { option: 'fileName', fixed: 'a toolbar label, read once' },
@@ -363,7 +364,7 @@ const CRATE_EXPORTS = {
 // and no component has, and why.
 const OPTIONS_JS_ONLY = {
   rangesFor: 'says which text the ranges were given for (a text the document has moved past): in Rust the ranges props are signals the host sets for the document; a component\'s binding passes its bound value',
-  echoes: 'a host handing every `onChange` text back through `update`: in Rust the `value` prop is a signal the host sets, with no echo to tell apart; a component\'s binding tells its parent\'s echoes apart itself (`ValueSync`)',
+  echoes: 'a host handing every `onChange` text back through `update`: the Rust `echoes` prop, which a component\'s binding always sets (its parent passes every edit back as its value)',
 };
 const DOCUMENTS_OPTIONS_JS_ONLY = {
   echoes: 'a host listing every `onChange` text back through `update`: in Rust the `documents` prop is a signal the host sets; a component\'s binding always sets it (its parent lists every edit back)',
@@ -376,7 +377,7 @@ const UPDATE_ONLY = {};
 // does not expose, and why.
 const EDITOR_JS_ONLY = {
   update: 'the props: a component applies each change itself',
-  replaceValue: 'a component\'s parent sets `value`, and the binding tells its late echoes apart itself (its `setValue` replaces the value through it)',
+  replaceValue: 'a component\'s parent sets `value`, and the editor tells its late echoes apart (`echoes`) (its `setValue` replaces the value through it)',
   destroy: 'the component unmounts the editor itself',
   settings: 'the setting props',
 };

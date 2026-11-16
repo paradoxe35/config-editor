@@ -10,7 +10,7 @@ use super::model::{CloseRequest, Document};
 use super::plan::{Fate, SchemaCache, Setup, active_after, reconcile};
 use super::tab_names::TabNames;
 use crate::EditorStrings;
-use crate::editor::DocumentPlaceholders;
+use crate::editor::{Clipboard, DocumentPlaceholders, same_document};
 use crate::reactive::{Relay, detached_owner, later};
 use crate::{
     Diagnostic, EditorHandle, EditorSettings, FieldPath, HostDiagnostic, Language, SaveRequest,
@@ -79,7 +79,7 @@ impl Entry {
             .baseline
             .clone()
             .unwrap_or_else(|| document.value.clone());
-        let dirty = differs(&document.value, &baseline);
+        let dirty = !same_document(&document.value, &baseline);
         let edited = opens_edited(document, &setup);
         owner.with(|| Entry {
             id: document.id.clone(),
@@ -183,9 +183,10 @@ impl Entry {
         // Its dirty state now, as its editor will report it once it has
         // shown the new text (a `saveAll` in the same task acts on it).
         if changed {
-            let dirty = self
-                .value
-                .with_untracked(|value| self.baseline.with_untracked(|base| differs(value, base)));
+            let dirty = self.value.with_untracked(|value| {
+                self.baseline
+                    .with_untracked(|base| !same_document(value, base))
+            });
             documents.note_dirty(self, dirty);
         }
     }
@@ -235,11 +236,6 @@ fn opens_edited(document: &Document, setup: &Setup) -> bool {
         && document
             .edit_as
             .is_some_and(|language| language != setup.language)
-}
-
-/// Whether two texts differ, line endings aside.
-fn differs(text: &str, baseline: &str) -> bool {
-    text != baseline && text.replace("\r\n", "\n") != baseline.replace("\r\n", "\n")
 }
 
 /// Sets `signal` to `value` unless it holds it already; returns whether
@@ -340,6 +336,9 @@ pub(super) struct Documents {
     /// added one yet: the next one added in answer is selected, its editor
     /// focused (see `adding`).
     pub(super) adding: Adding,
+    /// One clipboard per host language for every editor of the view: an
+    /// item copied in one document and pasted in another keeps its source.
+    clipboards: StoredValue<Vec<(Language, StoredValue<Clipboard>)>>,
 }
 
 thread_local! {
@@ -385,6 +384,7 @@ impl Documents {
             focus_editor,
             tab_names,
             said: RwSignal::new(String::new()),
+            clipboards: StoredValue::new(Vec::new()),
             callbacks,
             follows: Follows {
                 active: Relay::new(move || active.get()),
@@ -436,6 +436,22 @@ impl Documents {
     }
 
     /// The open document `id`.
+    /// The clipboard the editors of documents in `language` share.
+    pub(super) fn clipboard_for(&self, language: Language) -> StoredValue<Clipboard> {
+        if let Some(shared) = self.clipboards.with_value(|clipboards| {
+            clipboards
+                .iter()
+                .find(|(known, _)| *known == language)
+                .map(|(_, clipboard)| *clipboard)
+        }) {
+            return shared;
+        }
+        let clipboard = StoredValue::new(Clipboard::default());
+        self.clipboards
+            .update_value(|clipboards| clipboards.push((language, clipboard)));
+        clipboard
+    }
+
     pub(super) fn entry(&self, id: &str) -> Option<Entry> {
         self.entries
             .try_with_untracked(|entries| entries.iter().find(|entry| entry.id == id).cloned())

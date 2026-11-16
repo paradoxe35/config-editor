@@ -20,7 +20,7 @@
     value = $bindable(),
     // The value as the parent passes it. Writing `value` (for `bind:value`)
     // overrides it here when the parent passes `value` one way: the editor's
-    // own edit would then hide the parent's late echoes from `ValueSync`,
+    // own edit would then hide the parent's late echoes from the editor,
     // which must see what the parent has, as it has it.
     value: hostValue,
     onChange,
@@ -32,7 +32,7 @@
 
   let host: HTMLDivElement;
   // Everything an editor needs from a component (live props, re-mounts, the
-  // bound value through `ValueSync`), shared with the React and Vue
+  // bound value through the editor's `echoes`), shared with the React and Vue
   // packages: `EditorBinding` from `@pngwasi/config-editor`.
   const binding = new EditorBinding("config-editor-svelte");
   const { handle } = binding;

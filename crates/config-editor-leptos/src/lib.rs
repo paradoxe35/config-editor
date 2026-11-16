@@ -131,7 +131,7 @@ pub use editor::{
 /// Rust API: no stability promise, and not for other crates.
 #[doc(hidden)]
 pub mod js_support {
-    pub use crate::editor::{flush_pending_input, is_web_url};
+    pub use crate::editor::{Echo, Echoes, SETTLE_MS, echo_clock, flush_pending_input, is_web_url};
 
     /// A timer [`after`] set, to [`cancel`](Self::cancel) it.
     #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]

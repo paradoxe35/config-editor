@@ -8,7 +8,8 @@
 //! - `documents_view`: the `ConfigDocuments` class (several documents as
 //!   tabs); `editor_view`: one document's editor, an `EditorView`.
 //! - `update`: what both classes' `update` shares (partial options).
-//! - `echoes`: telling a host's late echo of an edit from a text of its own.
+//! - echoes (the core's `js_support::Echoes`): telling a host's late echo of
+//!   an edit from a text of its own.
 //! - `settle`: the check, a pause after an echo left the host on an older
 //!   text, that the host came back to the document.
 //! - `handle_calls`: what both editor classes answer about their text.
@@ -30,7 +31,6 @@ mod catalog;
 mod documents;
 mod documents_list;
 mod documents_view;
-mod echoes;
 mod editor;
 mod editor_view;
 mod given;

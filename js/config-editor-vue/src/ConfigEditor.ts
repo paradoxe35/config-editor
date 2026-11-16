@@ -110,7 +110,7 @@ export const ConfigEditor = defineComponent({
   setup(props, { emit, expose }) {
     const host = ref<HTMLDivElement>();
     // Everything an editor needs from a component (live props, re-mounts,
-    // the bound value through `ValueSync`), shared with the React and
+    // the bound value through the editor's `echoes`), shared with the React and
     // Svelte packages: `EditorBinding` from `@pngwasi/config-editor`.
     const binding = new EditorBinding("config-editor-vue");
     const onChange = (value: string) => emit("update:modelValue", value);

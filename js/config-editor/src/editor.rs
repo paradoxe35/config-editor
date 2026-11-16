@@ -11,7 +11,6 @@ use js_sys::Function;
 use leptos::prelude::*;
 use wasm_bindgen::prelude::*;
 
-use crate::echoes::{self, Echo, Echoes};
 use crate::handle_calls;
 use crate::host_diagnostics::host_diagnostics_from;
 use crate::host_locks::{HostLocks, print, stay};
@@ -33,6 +32,7 @@ use crate::update::{
     Fixed, callback_change, flag_change, given, plain_object, refuse_remount, settings_change,
 };
 use crate::values::{context_arg, field, text_arg};
+use config_editor_leptos::js_support::{Echo, Echoes, echo_clock};
 
 /// A config editor mounted into an element.
 ///
@@ -360,7 +360,7 @@ impl ConfigEditor {
         // What the host set from `onChange` meanwhile is newer than this
         // call, and stays.
         self.reentry.note_options(&options);
-        let flushed = echoes::clock();
+        let flushed = echo_clock();
         // Whether `value` is the text the host was told last, before the
         // flush below sends it what the user typed since (see `echo` below).
         let told = value.as_deref().is_some_and(|value| {
@@ -492,10 +492,7 @@ impl ConfigEditor {
             }
             state
                 .echoes
-                .try_update_value(|echoes| {
-                    echoes.at(js_sys::Date::now());
-                    echoes.received(value, &latest, flushed)
-                })
+                .try_update_value(|echoes| echoes.received(value, &latest, flushed))
                 .unwrap_or(Echo::Apply)
         });
         let shown = value.as_ref().filter(|_| echo == Some(Echo::Apply));

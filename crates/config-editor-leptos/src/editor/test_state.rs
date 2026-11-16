@@ -36,6 +36,8 @@ pub(super) struct TestEditor {
     pub(super) read_only_reason: Option<String>,
     /// The placeholders of a documents view's editors.
     pub(super) foreign: Option<Signal<std::sync::Arc<Vec<super::protect::DocumentPlaceholders>>>>,
+    /// A clipboard shared with other editors (a documents view's).
+    pub(super) clipboard: Option<StoredValue<super::bridge::links::Clipboard>>,
 }
 
 impl TestEditor {
@@ -56,6 +58,7 @@ impl TestEditor {
             opening: None,
             read_only_reason: None,
             foreign: None,
+            clipboard: None,
         }
     }
 
@@ -85,6 +88,7 @@ impl TestEditor {
             },
             on_save: self.on_save,
             on_baseline_conflict: None,
+            clipboard: self.clipboard,
         });
         (owner, state)
     }

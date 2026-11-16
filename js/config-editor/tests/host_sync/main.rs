@@ -29,10 +29,6 @@ mod remap;
 #[path = "../../src/host_locks.rs"]
 mod host_locks;
 
-#[allow(dead_code)]
-#[path = "../../src/echoes.rs"]
-mod echoes;
-
 #[path = "../../src/documents_view/echo_ranges.rs"]
 mod echo_ranges;
 
