@@ -5,7 +5,7 @@
 //! lines do not tell the others apart.
 
 use super::super::super::codec;
-use super::super::super::language::ConfigLanguage;
+use super::super::super::language::{ConfigLanguage, pointer_key};
 use super::super::super::paths;
 use serde_json::Value;
 use std::collections::HashMap;
@@ -133,7 +133,7 @@ fn walk(value: &Value, pointer: &mut String, item: bool, out: &mut Vec<(String, 
         Value::Object(map) => {
             for (key, child) in map {
                 pointer.push('/');
-                pointer.push_str(&key.replace('~', "~0").replace('/', "~1"));
+                pointer.push_str(&pointer_key(key));
                 walk(child, pointer, true, out);
                 pointer.truncate(length);
             }

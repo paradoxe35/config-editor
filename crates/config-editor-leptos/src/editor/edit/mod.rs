@@ -373,13 +373,6 @@ impl Edit {
         self
     }
 
-    /// Makes it the host's text `host` the user chose to reload (see
-    /// [`Origin::Reload`]).
-    pub(super) fn reloading(mut self, host: String) -> Self {
-        self.origin = Origin::Reload { host };
-        self
-    }
-
     /// Input the browser applied: `before` became `text`, made on
     /// `selection` ((anchor, caret), or [`UNKNOWN_SELECTION`] when the
     /// browser did not say), the selection left at `typed`. Its change is
@@ -466,6 +459,28 @@ impl Edit {
             language: to.language,
             folds: to.folds,
         })
+    }
+
+    /// The host's text `host`, shown as `text`, that the user chose to
+    /// reload over `before` (see [`Origin::Reload`]), with `restore`
+    /// selected (where undo puts it back). Its change is read off the
+    /// texts line by line, since the host says only what the text is and
+    /// it differs from `before` both where the host changed it and where
+    /// the user did; the selection stays on the same text, mapped through
+    /// it, and the view where it was.
+    pub(super) fn reload(before: String, restore: Selection, text: String, host: String) -> Self {
+        let made = Change::diffed_by_lines(&before, &text);
+        Self {
+            before,
+            made,
+            told: false,
+            text,
+            restore,
+            after: After::Mapped,
+            origin: Origin::Reload { host },
+            language: None,
+            folds: None,
+        }
     }
 
     /// A text the host replaced the document with: a controlled `value`

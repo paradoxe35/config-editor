@@ -1682,15 +1682,15 @@ const ENV: Language = Language::new(&DOTENV);
 // <ConfigEditor language=ENV .../>, ENV.convert(text, Language::YAML), …
 ```
 
-| Method                                               | Adds                                                     |
-| ---------------------------------------------------- | -------------------------------------------------------- |
-| `info`, `parse` (required)                           | Name, icon, extensions; syntax errors and the data model |
-| `config`                                             | Comments, quotes, brackets, separators, and the traits   |
-| `serialize`                                          | Conversion into the language (Edit-as, either way)       |
-| `key_span`, `value_span`                             | Positions for schema diagnostics and read-only fields    |
-| `completion_context`, `write_insert`, `format_value` | Schema completion; see [below](#completion-and-hover)    |
-| `hover_key`                                          | Hover docs                                               |
-| `highlight`                                          | Syntax colors                                            |
+| Method                                               | Adds                                                                                                        |
+| ---------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `info`, `parse` (required)                           | Name, icon, extensions; syntax errors and the data model                                                    |
+| `config`                                             | Comments, quotes, brackets, separators, and the traits                                                      |
+| `serialize`                                          | Conversion into the language (Edit-as, either way)                                                          |
+| `key_span`, `value_span`                             | Where the key and value at a `FieldPath` are written: positions for schema diagnostics and read-only fields |
+| `completion_context`, `write_insert`, `format_value` | Schema completion; see [below](#completion-and-hover)                                                       |
+| `hover_key`                                          | Hover docs                                                                                                  |
+| `highlight`                                          | Syntax colors                                                                                               |
 
 Everything else comes in groups, each a trait of its own that a language
 implements only when its syntax needs more than the defaults, returning

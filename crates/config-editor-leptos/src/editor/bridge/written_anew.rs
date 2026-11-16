@@ -10,7 +10,8 @@
 use super::super::Language;
 use super::super::codec::{self, ConvertError, written_range};
 use super::super::edit_as::SaveError;
-use super::super::language::ConfigLanguage;
+use super::super::language::{ConfigLanguage, pointer_key};
+use crate::editor::paths::FieldPath;
 use serde_json::Value;
 use std::ops::Range;
 
@@ -60,10 +61,11 @@ fn changed_form(
 ) -> Option<String> {
     let mut kept = Vec::new();
     unchanged_scalars(old, target, &mut String::new(), &mut kept);
+    let paths: Vec<FieldPath> = kept.iter().map(FieldPath::from).collect();
     // Each text's spans placed from its lines split once (see `with_lines`).
     let written = |text: &str| -> Vec<Option<Range<usize>>> {
         super::with_lines(host, text, || {
-            host.value_spans(text, &kept)
+            host.value_spans(text, &paths)
                 .into_iter()
                 .map(|span| written_range(host, text, span?))
                 .collect()
@@ -86,7 +88,7 @@ fn unchanged_scalars(old: &Value, target: &Value, pointer: &mut String, out: &mu
                 if let Some(other) = right.get(key) {
                     let length = pointer.len();
                     pointer.push('/');
-                    pointer.push_str(&codec::escape(key));
+                    pointer.push_str(&pointer_key(key));
                     unchanged_scalars(value, other, pointer, out);
                     pointer.truncate(length);
                 }

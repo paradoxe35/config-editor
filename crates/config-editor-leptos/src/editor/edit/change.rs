@@ -24,12 +24,13 @@
 //!
 //! The code making an edit says its change ([`Change::replace_units`] and
 //! the like, from the browser's UTF-16 offsets). Only a text from outside
-//! is read off two texts ([`Change::diffed`]): a host value, a reload, a
-//! browser input that does not say what it did.
+//! is read off two texts ([`Change::diffed`], [`Change::diffed_by_lines`]):
+//! a host value, a reload, a browser input that does not say what it did.
 
 use std::marker::PhantomData;
 use std::ops::Range;
 
+use super::super::diff::{DiffEdit, myers_edits};
 use super::super::keyboard::utf16_to_byte_index;
 use super::super::text::{TextRange, TextSize};
 use super::super::text_change::{changed_bytes, edit_range};
@@ -330,6 +331,53 @@ impl Change<Bytes> {
         Self::replace_bytes(before, start..end_before, &after[start..end_after])
     }
 
+    /// [`Self::diffed`] line by line: each run of lines the line diff finds
+    /// the texts do not share one replacement, narrowed to what differs in
+    /// it. For a text from outside that may differ in several places (the
+    /// host's text a reload writes over unsaved edits): a position on a line
+    /// both texts keep stays on its text. One stretch, as `diffed`, when the
+    /// line diff gives up.
+    pub(crate) fn diffed_by_lines(before: &str, after: &str) -> Self {
+        let old: Vec<&str> = before.split_inclusive('\n').collect();
+        let new: Vec<&str> = after.split_inclusive('\n').collect();
+        let Some(script) = myers_edits(&old, &new) else {
+            return Self::diffed(before, after);
+        };
+        let (mut old_lines, mut new_lines) = (old.iter(), new.iter());
+        let mut edits: Vec<(Range<usize>, String)> = Vec::new();
+        // The run of lines being replaced: where it starts, what it writes.
+        let mut run: Option<(usize, String)> = None;
+        let mut at = 0;
+        for step in script {
+            match step {
+                DiffEdit::Equal => {
+                    if let Some((start, text)) = run.take() {
+                        edits.push((start..at, text));
+                    }
+                    at += old_lines.next().map_or(0, |line| line.len());
+                    new_lines.next();
+                }
+                DiffEdit::Delete => {
+                    run.get_or_insert_with(|| (at, String::new()));
+                    at += old_lines.next().map_or(0, |line| line.len());
+                }
+                DiffEdit::Insert => {
+                    let (_, text) = run.get_or_insert_with(|| (at, String::new()));
+                    text.push_str(new_lines.next().copied().unwrap_or_default());
+                }
+            }
+        }
+        if let Some((start, text)) = run {
+            edits.push((start..at, text));
+        }
+        let lines = Self::replacing(before.len(), edits)
+            .filter(|change| change.apply(before).as_deref() == Some(after));
+        match lines {
+            Some(change) => change.clone().narrowed(before).unwrap_or(change),
+            None => Self::diffed(before, after),
+        }
+    }
+
     /// [`Self::diffed`], for browser input that did not say what it did:
     /// placed by the caret it left (UTF-16 `caret` of `after`), where text
     /// it inserted ends, which tells apart places the texts alone cannot
@@ -339,30 +387,6 @@ impl Change<Bytes> {
         let range = utf16_to_byte_index(before, start)..utf16_to_byte_index(before, end);
         Self::replacing_selection(before, after, range)
             .unwrap_or_else(|| Self::diffed(before, after))
-    }
-
-    /// The change between two texts with as many lines, line by line: each
-    /// changed line one replacement, from its first changed byte to its
-    /// last. For a language hook that hands back a whole text it made line
-    /// by line (Ctrl+/: a marker added or taken at each line); `None` when
-    /// the line counts differ.
-    pub(crate) fn line_by_line(before: &str, after: &str) -> Option<Self> {
-        if before.matches('\n').count() != after.matches('\n').count() {
-            return None;
-        }
-        let mut edits = Vec::new();
-        let mut at = 0;
-        for (old, new) in before.split('\n').zip(after.split('\n')) {
-            if old != new {
-                let line: Change<Bytes> = Self::diffed(old, new);
-                edits.extend(
-                    line.edits()
-                        .map(|(range, text)| (at + range.start..at + range.end, text.to_string())),
-                );
-            }
-            at += old.len() + 1;
-        }
-        Self::replacing(before.len(), edits)
     }
 
     /// Whether it writes back what it replaces everywhere: `before` (the

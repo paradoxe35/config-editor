@@ -3,6 +3,7 @@
 //! change first, then one structural change at a time.
 
 use super::super::item_sources::ItemSources;
+use crate::editor::language::pointer_key;
 use serde_json::{Map, Value};
 use std::collections::HashMap;
 
@@ -93,7 +94,7 @@ fn one_structural_step(current: &Value, target: &Value, pointer: &str) -> Option
                 return Some(Value::Object(rebuilt));
             }
             for (key, value) in left {
-                let child = format!("{pointer}/{}", super::escape(key));
+                let child = format!("{pointer}/{}", pointer_key(key));
                 if let Some(next) = one_structural_step(value, &right[key], &child) {
                     let mut map = left.clone();
                     map.insert(key.clone(), next);
@@ -131,14 +132,14 @@ fn with_brought(current: &Value, target: &Value, pointer: &str, sources: &ItemSo
                 .collect();
             let renamed = |from: &str| {
                 from.rsplit_once('/').is_some_and(|(parent, key)| {
-                    parent == pointer && lost.iter().any(|(_, lost)| super::escape(lost) == key)
+                    parent == pointer && lost.iter().any(|(_, lost)| pointer_key(lost) == key)
                 })
             };
             let brought = |key: &String| {
                 !left.contains_key(key)
                     && sources
                         .items
-                        .get(&format!("{pointer}/{}", super::escape(key)))
+                        .get(&format!("{pointer}/{}", pointer_key(key)))
                         .is_some_and(|source| !renamed(source.pointer()))
             };
             let places: HashMap<&String, usize> = left
@@ -155,7 +156,7 @@ fn with_brought(current: &Value, target: &Value, pointer: &str, sources: &ItemSo
                         out.insert(lost_key.clone(), left[lost_key].clone());
                         next_lost += 1;
                     }
-                    let child = format!("{pointer}/{}", super::escape(key));
+                    let child = format!("{pointer}/{}", pointer_key(key));
                     out.insert(
                         key.clone(),
                         with_brought(&left[key], value, &child, sources),

@@ -20,6 +20,7 @@
 
 pub(super) mod completion;
 
+use crate::editor::paths::FieldPath;
 use serde_json::Value;
 
 use super::super::declared_syntax::{DOT, DOT_BARE};
@@ -53,20 +54,20 @@ pub(super) fn every_language() -> Vec<Language> {
 
 /// Every language but those named in `left_out` (by label): the languages
 /// a case passes in while it waits for a fix in the others, which an
-/// ignored test of their own runs.
+/// ignored test of their own runs. Only the schema matrices, which need
+/// every language and schema validation, use it.
+#[cfg(all(
+    feature = "schema-validation",
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
 pub(super) fn every_language_but(left_out: &[&str]) -> Vec<Language> {
     every_language()
         .into_iter()
         .filter(|language| !left_out.contains(&language.label()))
-        .collect()
-}
-
-/// The languages named (by label), for the ignored tests of a case that
-/// fails in them.
-pub(super) fn only(named: &[&str]) -> Vec<Language> {
-    every_language()
-        .into_iter()
-        .filter(|language| named.contains(&language.label()))
         .collect()
 }
 
@@ -271,7 +272,7 @@ pub(super) fn write(
             let text = text(language, document, one_line)?;
             let span = language
                 .behavior()
-                .value_span(&text, pointer)
+                .value_span(&text, &FieldPath::from(pointer))
                 .ok_or_else(|| unplaced(language, "value", pointer, &text))?;
             let (start, _) = byte_range(&text, span);
             let byte = char_offset(&text, start, offset);
@@ -354,7 +355,7 @@ pub(super) fn name_range(
 ) -> Result<(usize, usize), String> {
     let span = language
         .behavior()
-        .key_span(text, pointer)
+        .key_span(text, &FieldPath::from(pointer))
         .ok_or_else(|| unplaced(language, "key", pointer, text))?;
     let (start, end) = byte_range(text, span);
     let name = pointer_segments(pointer).pop().unwrap_or_default();
@@ -394,7 +395,7 @@ pub(super) fn value_place(
 ) -> Result<(usize, usize), String> {
     let span = language
         .behavior()
-        .value_span(text, pointer)
+        .value_span(text, &FieldPath::from(pointer))
         .ok_or_else(|| unplaced(language, "value", pointer, text))?;
     let (start, _) = byte_range(text, span);
     let at = text[start..]
@@ -538,9 +539,12 @@ const NOT_APPLICABLE: &str = "not applicable:";
 /// Whether `language` places keys below the top level.
 fn places_nested(language: Language) -> bool {
     let document = serde_json::json!({"a": {"b": 1}});
-    language
-        .serialize(&document)
-        .is_ok_and(|text| language.behavior().key_span(&text, "/a/b").is_some())
+    language.serialize(&document).is_ok_and(|text| {
+        language
+            .behavior()
+            .key_span(&text, &FieldPath::from("/a/b"))
+            .is_some()
+    })
 }
 
 /// Why the `what` (a key or a value) at `pointer` is not found in `text`.

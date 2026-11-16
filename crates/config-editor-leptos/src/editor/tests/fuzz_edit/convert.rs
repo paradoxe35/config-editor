@@ -6,6 +6,7 @@
 //! opened and switched back with no edit leaves the host's text as it
 //! was.
 
+use crate::editor::language::pointer_key;
 use leptos::prelude::*;
 use serde_json::Value;
 
@@ -88,7 +89,7 @@ fn differences(a: &Value, b: &Value, at: String, out: &mut Vec<String>) {
     match (a, b) {
         (Value::Object(left), Value::Object(right)) => {
             for (key, value) in left {
-                let pointer = format!("{at}/{}", key.replace('~', "~0").replace('/', "~1"));
+                let pointer = format!("{at}/{}", pointer_key(key));
                 match right.get(key) {
                     Some(other) => differences(value, other, pointer, out),
                     None => out.push(pointer),
@@ -96,10 +97,7 @@ fn differences(a: &Value, b: &Value, at: String, out: &mut Vec<String>) {
             }
             for key in right.keys() {
                 if !left.contains_key(key) {
-                    out.push(format!(
-                        "{at}/{}",
-                        key.replace('~', "~0").replace('/', "~1")
-                    ));
+                    out.push(format!("{at}/{}", pointer_key(key)));
                 }
             }
         }
@@ -239,11 +237,7 @@ fn numbers_in(value: &Value, at: String, out: &mut Vec<String>) {
         Value::Number(_) => out.push(at),
         Value::Object(map) => {
             for (key, value) in map {
-                numbers_in(
-                    value,
-                    format!("{at}/{}", key.replace('~', "~0").replace('/', "~1")),
-                    out,
-                );
+                numbers_in(value, format!("{at}/{}", pointer_key(key)), out);
             }
         }
         Value::Array(items) => {

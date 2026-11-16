@@ -197,7 +197,7 @@ pub(super) fn values_under<'v>(value: &'v Value, keys: &[&str], found: &mut Vec<
             .for_each(|item| values_under(item, keys, found)),
         _ if keys.is_empty() => found.push(value),
         Value::Object(map) => {
-            if let Some(child) = map.get(&keys[0].replace("~1", "/").replace("~0", "~")) {
+            if let Some(child) = map.get(&crate::editor::language::unescaped_key(keys[0])) {
                 values_under(child, &keys[1..], found);
             }
         }

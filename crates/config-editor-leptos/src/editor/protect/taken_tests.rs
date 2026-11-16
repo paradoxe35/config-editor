@@ -231,7 +231,7 @@ fn press(
             if let Some((updated, start, end)) =
                 language
                     .behavior()
-                    .toggle_comments(&text, selection.0, selection.1)
+                    .toggled_text(&text, selection.0, selection.1)
                 && updated != text
             {
                 let edit = Edit::new(text, selection, updated, end).selecting_from(start);

@@ -210,8 +210,7 @@ fn a_narrowed_change_leaves_out_what_it_writes_back() {
     assert!(same.narrowed(before).unwrap().edits().next().is_none());
 }
 
-/// A change read off two texts makes the one from the other, and one
-/// read line by line keeps each line's change on its line.
+/// A change read off two texts makes the one from the other.
 #[test]
 fn a_change_read_off_two_texts_makes_the_second() {
     let mut rng = Rng(seed() ^ 4);
@@ -224,16 +223,21 @@ fn a_change_read_off_two_texts_makes_the_second() {
             Change::diffed(&before, &after).apply(&before).as_deref(),
             Some(after.as_str())
         );
-        if let Some(lines) = Change::line_by_line(&before, &after) {
-            assert_eq!(lines.apply(&before).as_deref(), Some(after.as_str()));
-        }
+        assert_eq!(
+            Change::diffed_by_lines(&before, &after)
+                .apply(&before)
+                .as_deref(),
+            Some(after.as_str())
+        );
     }
-    // Two alike lines commented: each line its own insertion, so a span
-    // on the line between them is kept.
-    let lines = Change::line_by_line("a\nb\na\n", "# a\nb\n# a\n").unwrap();
+    // Lines changed apart, and lines added: a line kept between them keeps
+    // its text.
+    let lines = Change::diffed_by_lines("a: 1\nb: 2\nc: 3x\n", "a: 100\nb: 2\nc: 3\n");
     assert_eq!(
         lines.edits().collect::<Vec<_>>(),
-        vec![(0..0, "# "), (4..4, "# ")]
+        vec![(4..4, "00"), (14..15, "")]
     );
-    assert_eq!(lines.map_range(&(2..3)), Some(4..5));
+    assert_eq!(lines.map_range(&(5..9)), Some(7..11));
+    let added = Change::diffed_by_lines("b\n", "a\nb\nc\n");
+    assert_eq!(added.map_range(&(0..1)), Some(2..3));
 }

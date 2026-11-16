@@ -1,6 +1,6 @@
 //! The problems shown: the editor's own (syntax, schema, conversion), the
 //! host's (see `host_diagnostics`), checked on the text after each pause in
-//! typing and moved with the lines edits shift meanwhile; and the problem
+//! typing and following the edits made meanwhile; and the problem
 //! F8 moved to (its tip is a popup's, see `popups`).
 
 use std::sync::Arc;
@@ -8,8 +8,9 @@ use std::sync::Arc;
 use leptos::prelude::*;
 
 use super::diagnostics::{
-    Diagnostic, capped, host_problems, shift_diagnostics, validate_keyed, with_host_problems,
+    Diagnostic, capped, follow_diagnostics, host_problems, validate_keyed, with_host_problems,
 };
+use super::edit::Change;
 use super::edit_as::{EditAsProblem, EditAsText};
 use super::host_diagnostics::{
     DiagnosticTarget, HostDiagnostic, HostTargets, RangeText, merge as merge_host,
@@ -45,6 +46,16 @@ pub(super) struct ProblemsState {
     /// The underline cap left some problems' lines without an underline
     /// (set by the underlines, said in the footer).
     pub(super) underlines_cut: RwSignal<bool>,
+    /// The edits made since `diagnosed_text` was checked, composed: what
+    /// moves the problems found on it onto the text on screen.
+    since_check: StoredValue<Option<SinceCheck>>,
+}
+
+/// The change from the text last checked to the text on screen.
+struct SinceCheck {
+    /// Made of a text this long (the one checked).
+    from_len: usize,
+    change: Change,
 }
 
 /// What the problems are found from.
@@ -245,12 +256,32 @@ impl ProblemsState {
                 })
             })
         });
-        // Until validation catches up with an edit, markers move with the
-        // lines the edit shifted, so they never sit on the wrong text.
+        // Until validation catches up with the edits, markers follow them
+        // (see `follow_problems`), so they never sit on other text. Should
+        // the edits since not lead to the text on screen, the markers with
+        // a place wait for the next check.
+        let since_check = StoredValue::new(None);
         let diagnostics = Memo::new(move |_| {
-            let checked = diagnosed_text.get();
             let found = validated.with(|own| host_placed.with(|host| merge_host(own, host)));
-            text.with(|current| shift_diagnostics(&checked, current, &found))
+            diagnosed_text.with(|checked| {
+                text.with(|current| {
+                    if checked == current {
+                        return found;
+                    }
+                    since_check.with_value(|since: &Option<SinceCheck>| match since {
+                        Some(since)
+                            if since.from_len == checked.len()
+                                && since.change.len_after() == current.len() =>
+                        {
+                            follow_diagnostics(&since.change, checked, current, &found)
+                        }
+                        _ => found
+                            .into_iter()
+                            .filter(|problem| problem.line.is_none())
+                            .collect(),
+                    })
+                })
+            })
         });
         let walk = Memo::new(move |_| {
             text.with(|current| diagnostics.with(|found| stops(current, found)))
@@ -263,7 +294,37 @@ impl ProblemsState {
             current: RwSignal::new(None),
             walked: RwSignal::new(None),
             underlines_cut: RwSignal::new(false),
+            since_check,
         }
+    }
+}
+
+impl EditorState {
+    /// Notes that `change` (an edit's [`Edit::mapping`](super::edit::Edit))
+    /// is about to make `before`, the document, into the text after it, as
+    /// the edit pipeline writes it: the problems found on the text last
+    /// checked follow it until the next check. Before the text is written,
+    /// so the problems read with the new text follow it.
+    pub(super) fn follow_problems(&self, change: &Change, before: &str) {
+        let problems = self.problems();
+        let fresh = problems
+            .diagnosed_text
+            .with_untracked(|checked| checked == before);
+        problems.since_check.update_value(|since| {
+            *since = if fresh {
+                Some(SinceCheck {
+                    from_len: before.len(),
+                    change: change.clone(),
+                })
+            } else {
+                since.take().and_then(|since| {
+                    Some(SinceCheck {
+                        change: since.change.compose(change)?,
+                        ..since
+                    })
+                })
+            };
+        });
     }
 }
 

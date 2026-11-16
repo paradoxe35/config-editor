@@ -10,7 +10,7 @@ use serde_json::Value;
 use super::super::language::{ConfigLanguage, ParseError, Span};
 use super::super::parse_cache;
 use super::span_memo::batch_cached;
-use super::{key_span, line_start, spanning, split_line, value_span};
+use super::{FieldPath, key_span, line_start, spanning, split_line, value_span};
 
 /// Fields inside one value read at most (a lock on a large container
 /// covers what they span).
@@ -29,12 +29,15 @@ pub(crate) fn whole_value(
 ) -> (Vec<Range<usize>>, bool) {
     if let Some(ranges) = super::spellings(behavior, source, pointer)
         .iter()
-        .map(|spelling| behavior.value_ranges(source, spelling))
+        .map(|spelling| behavior.value_ranges(source, &FieldPath::from(spelling)))
         .find(|ranges| !ranges.is_empty())
     {
         return (ranges, false);
     }
-    match behavior.written_at(source, pointer) {
+    match behavior
+        .written_at(source, &FieldPath::from(pointer))
+        .map(|written| written.to_pointer())
+    {
         Some(written) if written != pointer => (whole_value(behavior, source, &written).0, true),
         _ => (Vec::new(), false),
     }
@@ -226,7 +229,8 @@ impl KeyStarts {
             .into_iter()
             .map(|(pointer, _)| pointer)
             .collect();
-        let spans = behavior.key_spans(source, &pointers);
+        let paths: Vec<FieldPath> = pointers.iter().map(FieldPath::from).collect();
+        let spans = behavior.key_spans(source, &paths);
         let mut starts: Vec<(usize, String)> = pointers
             .into_iter()
             .zip(spans)

@@ -16,8 +16,10 @@ use crate::editor::highlight::pieces::{RowPieces, splits};
 use crate::editor::highlight::spanning::{Spanning, tokens_after};
 use crate::editor::highlight::{Token, runs_of};
 use crate::editor::language::Span;
+use crate::editor::language::pointer_key;
 use crate::editor::languages::Language;
 use crate::editor::line_endings::editor_text;
+use crate::editor::paths::FieldPath;
 
 #[derive(Clone, Debug)]
 pub(super) struct ReadCase {
@@ -215,7 +217,7 @@ fn pointers(value: &serde_json::Value, prefix: String, out: &mut Vec<String>) {
     match value {
         serde_json::Value::Object(map) => {
             for (key, value) in map {
-                let key = key.replace('~', "~0").replace('/', "~1");
+                let key = pointer_key(key);
                 pointers(value, format!("{prefix}/{key}"), out);
             }
         }
@@ -443,7 +445,7 @@ pub(super) fn check(case: &ReadCase) -> Result<(), Failure> {
             let _ = behavior.complete_on_type(&text, at, typed);
             let _ = behavior.reindent_on_type(&text, at, typed);
         }
-        if let Some((toggled, from, to)) = behavior.toggle_comments(&text, at, at)
+        if let Some((toggled, from, to)) = behavior.toggled_text(&text, at, at)
             && (from > to || to > units(&toggled))
         {
             return fail(
@@ -478,7 +480,7 @@ pub(super) fn check(case: &ReadCase) -> Result<(), Failure> {
         }
         let _ = language.path_at(raw, position);
     }
-    if let Some((toggled, from, to)) = behavior.toggle_comments(&text, 0, end)
+    if let Some((toggled, from, to)) = behavior.toggled_text(&text, 0, end)
         && (from > to || to > units(&toggled))
     {
         return fail(
@@ -492,6 +494,7 @@ pub(super) fn check(case: &ReadCase) -> Result<(), Failure> {
     if let Ok(value) = &parsed {
         let mut found = Vec::new();
         pointers(value, String::new(), &mut found);
+        let found_paths: Vec<FieldPath> = found.iter().map(FieldPath::from).collect();
         for (pointer, range) in found
             .iter()
             .zip(language.ranges_of(raw, found.iter().cloned()))
@@ -516,8 +519,8 @@ pub(super) fn check(case: &ReadCase) -> Result<(), Failure> {
             }
         }
         for spans in [
-            behavior.key_spans(&text, &found),
-            behavior.value_spans(&text, &found),
+            behavior.key_spans(&text, &found_paths),
+            behavior.value_spans(&text, &found_paths),
         ] {
             for (pointer, span) in found.iter().zip(spans) {
                 if let Some(span) = span

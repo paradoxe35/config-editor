@@ -9,6 +9,7 @@
 //! stage is one kind of change the patches make line by line, so a comment
 //! stays with its item through all of them.
 
+use crate::editor::language::pointer_key;
 use serde_json::{Map, Value};
 
 use super::super::item_sources::Pairing;
@@ -51,7 +52,7 @@ fn staged(
             for (key, value) in left {
                 let length = pointer.len();
                 pointer.push('/');
-                pointer.push_str(&super::escape(key));
+                pointer.push_str(&pointer_key(key));
                 let stages = match right.get(key) {
                     Some(other) => staged(value, other, (pointer, pairing), found),
                     None => [value.clone(), value.clone(), value.clone()],

@@ -2,13 +2,13 @@
 //! (`KEY=value` lines). It gets schema validation with positions, highlighting,
 //! and conversion to and from every built-in language.
 
-use config_editor_leptos::Language;
 #[cfg(feature = "schema-validation")]
 use config_editor_leptos::Schema;
 use config_editor_leptos::language::{
-    ConfigLanguage, LanguageInfo, Lexical, ParseError, Span, Text, Token, TokenKind, Tokens,
-    value_after_separator,
+    ConfigLanguage, LanguageInfo, Lexical, ParseError, SchemaPathSegment, Span, Text, Token,
+    TokenKind, Tokens, value_after_separator,
 };
+use config_editor_leptos::{FieldPath, Language};
 use serde_json::{Map, Value};
 
 mod ini;
@@ -78,10 +78,12 @@ impl ConfigLanguage for DotEnv {
         Ok(text)
     }
 
-    fn key_span(&self, source: &str, pointer: &str) -> Option<Span> {
-        let wanted = pointer.strip_prefix('/')?;
+    fn key_span(&self, source: &str, path: &FieldPath) -> Option<Span> {
+        let [SchemaPathSegment::Key(wanted)] = path.segments() else {
+            return None;
+        };
         Self::entries(source)
-            .find(|(_, key, ..)| *key == wanted)
+            .find(|(_, key, ..)| *key == wanted.as_str())
             .map(|(line, key, start, ..)| Span {
                 line,
                 start_column: start + 1,
@@ -89,10 +91,12 @@ impl ConfigLanguage for DotEnv {
             })
     }
 
-    fn value_span(&self, source: &str, pointer: &str) -> Option<Span> {
-        let wanted = pointer.strip_prefix('/')?;
+    fn value_span(&self, source: &str, path: &FieldPath) -> Option<Span> {
+        let [SchemaPathSegment::Key(wanted)] = path.segments() else {
+            return None;
+        };
         Self::entries(source)
-            .find(|(_, key, ..)| *key == wanted)
+            .find(|(_, key, ..)| *key == wanted.as_str())
             .map(|(line, _, _, start, end)| Span {
                 line,
                 start_column: start + 1,
@@ -221,7 +225,9 @@ fn highlighting_is_plain_data() {
 fn a_language_described_by_config_gets_editing_without_code() {
     let ini: &dyn ConfigLanguage = &Ini;
     // Ctrl+/ writes the first comment marker; comments are found on lines.
-    let (commented, _, _) = ini.toggle_comments("a = 1\n", 0, 0).unwrap();
+    let toggled = ini.toggle_comments("a = 1\n", 0, 0).unwrap();
+    assert_eq!(toggled.edits, [(0..0, "; ".to_string())]);
+    let commented = toggled.apply("a = 1\n").unwrap();
     assert_eq!(commented, "; a = 1\n");
     assert_eq!(ini.comment_start("a = 1 # note"), Some(6));
     // Enter between brackets opens an indented line.
@@ -304,8 +310,9 @@ impl ConfigLanguage for LongStrings {
 fn a_language_declaring_its_quotes_gets_whole_strings_commented() {
     let text = "a = 1\nb = \"\"\"x\ny\"\"\"\nc = 2\n";
     let caret = text.find("y\"").unwrap();
-    let (commented, _, _) = (&LongStrings as &dyn ConfigLanguage)
+    let commented = (&LongStrings as &dyn ConfigLanguage)
         .toggle_comments(text, caret, caret)
+        .and_then(|toggled| toggled.apply(text))
         .unwrap();
     assert_eq!(commented, "a = 1\n; b = \"\"\"x\n; y\"\"\"\nc = 2\n");
 }

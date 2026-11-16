@@ -11,9 +11,10 @@
 
 use super::super::codec::{self, byte_range, written_range};
 use super::super::item_sources::{ItemSource, SaveTold};
-use super::super::language::{ConfigLanguage, Span};
+use super::super::language::{ConfigLanguage, Span, pointer_key};
 use super::super::work_count::{Work, note};
 use super::ItemMap;
+use crate::editor::paths::FieldPath;
 
 mod whole;
 use serde_json::Value;
@@ -100,7 +101,7 @@ fn pairs(
         (Value::Object(saved), Value::Object(held)) => {
             for (key, child) in saved {
                 if let Some(was) = held.get(key) {
-                    let key = key.replace('~', "~0").replace('/', "~1");
+                    let key = pointer_key(key);
                     let (to, from) = (format!("{to}/{key}"), format!("{from}/{key}"));
                     // An item with a source of its own is paired from it.
                     if own.contains(&to) {
@@ -189,10 +190,11 @@ fn spans(
     // A member of a container written inline (`b: {sub: x}`) is found in
     // it.
     let lookup = |text: &str, pointers: &[String]| {
+        let paths: Vec<FieldPath> = pointers.iter().map(FieldPath::from).collect();
         let spans = if key {
-            host.key_spans(text, pointers)
+            host.key_spans(text, &paths)
         } else {
-            host.value_spans(text, pointers)
+            host.value_spans(text, &paths)
         };
         spans
             .into_iter()
@@ -385,7 +387,7 @@ fn left_beside<'a>(
         let children: Vec<(String, &Value)> = match now {
             Value::Object(map) => map
                 .iter()
-                .map(|(key, child)| (codec::escape(key), child))
+                .map(|(key, child)| (pointer_key(key), child))
                 .collect(),
             Value::Array(list) => list
                 .iter()

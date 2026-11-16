@@ -8,8 +8,8 @@
 
 use super::super::flow_syntax::Flow;
 use super::super::item_sources::ItemSources;
-use super::super::language::{ConfigLanguage, OneLine, Span};
-use super::escape;
+use super::super::language::{ConfigLanguage, OneLine, Span, pointer_key, unescaped_key};
+use crate::editor::paths::FieldPath;
 use serde_json::Value;
 use std::ops::Range;
 
@@ -167,7 +167,8 @@ fn hide_in_place(
         // Parents before children, as the outermost-first pass expects.
         candidates.sort_by_key(|pointer| pointer.matches('/').count());
     }
-    let spans = language.value_spans(previous, &candidates);
+    let paths: Vec<FieldPath> = candidates.iter().map(FieldPath::from).collect();
+    let spans = language.value_spans(previous, &paths);
     let mut found: Vec<(String, OneLine)> = Vec::new();
     // Outermost first (`collect` lists parents before their children).
     for (pointer, span) in candidates.into_iter().zip(spans) {
@@ -206,7 +207,7 @@ fn hide_in_place(
                 written: String::new(),
                 value: range,
             })
-            .or_else(|| language.one_line_container(previous, &pointer));
+            .or_else(|| language.one_line_container(previous, &FieldPath::from(&pointer)));
         if let Some(one_line) = one_line {
             found.push((pointer, one_line));
         }
@@ -242,7 +243,8 @@ fn hide_in_place(
                             })
                     })
         });
-        let spans = language.value_spans(previous, &strings);
+        let paths: Vec<FieldPath> = strings.iter().map(FieldPath::from).collect();
+        let spans = language.value_spans(previous, &paths);
         for (pointer, span) in strings.into_iter().zip(spans) {
             let inside_found = found.iter().any(|(outer, _)| {
                 pointer.starts_with(outer.as_str()) && pointer[outer.len()..].starts_with('/')
@@ -343,7 +345,7 @@ fn same_place(value: &Value, segments: &[String], pointer: String, out: &mut Vec
             }
         }
         Value::Object(map) => {
-            let key = first.replace("~1", "/").replace("~0", "~");
+            let key = unescaped_key(first);
             if let Some(child) = map.get(&key) {
                 same_place(child, rest, format!("{pointer}/{first}"), out);
             }
@@ -376,7 +378,7 @@ fn collect(
                     value,
                     lines,
                     (multi_line_lists, multi_line_maps),
-                    format!("{pointer}/{}", escape(key)),
+                    format!("{pointer}/{}", pointer_key(key)),
                     out,
                 );
             }
@@ -404,7 +406,7 @@ fn collect_containers(value: &Value, pointer: String, out: &mut Vec<String>) {
                 out.push(pointer.clone());
             }
             for (key, child) in map {
-                collect_containers(child, format!("{pointer}/{}", escape(key)), out);
+                collect_containers(child, format!("{pointer}/{}", pointer_key(key)), out);
             }
         }
         Value::Array(items) => {
@@ -425,7 +427,7 @@ fn collect_strings(value: &Value, pointer: String, out: &mut Vec<String>) {
         Value::String(_) if !pointer.is_empty() => out.push(pointer),
         Value::Object(map) => {
             for (key, child) in map {
-                collect_strings(child, format!("{pointer}/{}", escape(key)), out);
+                collect_strings(child, format!("{pointer}/{}", pointer_key(key)), out);
             }
         }
         Value::Array(items) => {
@@ -465,7 +467,7 @@ fn on_one_line(pointer: &str, container: &Value, lines: &[&str]) -> bool {
     let own = pointer.rsplit('/').next().unwrap_or_default();
     let mut texts = Vec::new();
     if crate::editor::language::pointer_index(own).is_none() {
-        texts.push(own.replace("~1", "/").replace("~0", "~"));
+        texts.push(unescaped_key(own));
     }
     leaves(container, &mut texts)
         && texts.len() <= MAX_ONE_LINE_LEAVES

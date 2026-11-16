@@ -17,7 +17,7 @@ fn toggle(language: Language, marked: &str) -> String {
     let utf16 = |byte: usize| source[..byte].encode_utf16().count();
     let (updated, from, to) = language
         .behavior()
-        .toggle_comments(&source, utf16(start), utf16(end))
+        .toggled_text(&source, utf16(start), utf16(end))
         .unwrap();
     let byte = |offset: usize| {
         updated

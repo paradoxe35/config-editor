@@ -243,7 +243,12 @@ fn the_hosts_own_text_passes_the_read_only_check() {
     let (_owner, state) = editor();
     let edit = || Edit::new(TEXT.into(), (0, 0), read_only_changed(), 0);
     assert!(!state.commit(edit()));
-    assert!(state.commit(edit().reloading(read_only_changed())));
+    assert!(state.commit(Edit::reload(
+        TEXT.into(),
+        (0, 0),
+        read_only_changed(),
+        read_only_changed()
+    )));
     assert_eq!(text(state), read_only_changed());
     assert!(can_undo(state), "one undo step");
     assert_eq!(seen().len(), 1, "sent through on_change");
@@ -254,9 +259,12 @@ fn the_hosts_own_text_passes_the_read_only_check() {
 fn a_refused_undo_keeps_the_history() {
     let (_owner, state) = editor();
     // The host's text changed the read-only value; undoing it would too.
-    assert!(state.commit(
-        Edit::new(TEXT.into(), (0, 0), read_only_changed(), 0).reloading(read_only_changed())
-    ));
+    assert!(state.commit(Edit::reload(
+        TEXT.into(),
+        (0, 0),
+        read_only_changed(),
+        read_only_changed()
+    )));
     let undo = state.history_edit(false).expect("one step");
     take_trace();
     assert!(!state.commit(undo));

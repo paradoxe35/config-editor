@@ -165,13 +165,13 @@ fn read_all(language: Language, text: &str) {
     let _ = behavior.empty_value_slots(text);
     let _ = behavior.first_span(text);
     let units = text.encode_utf16().count();
-    let _ = behavior.toggle_comments(text, 0, units);
+    let _ = behavior.toggled_text(text, 0, units);
     for cursor in 0..=units {
         let _ = behavior.newline(text, cursor);
         let _ = behavior.lexical_state(text, cursor);
         let _ = behavior.completion_context(text, cursor);
         let _ = completions(text, cursor, true, None, true, behavior);
-        let _ = behavior.toggle_comments(text, cursor, cursor);
+        let _ = behavior.toggled_text(text, cursor, cursor);
         for typed in ['"', '\'', '<', '>', '/', '{', '[', '$', ':', '-', '\n'] {
             let _ = behavior.auto_close(text, cursor, typed);
             let _ = behavior.reindent_on_type(text, cursor, typed);

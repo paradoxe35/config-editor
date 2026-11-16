@@ -21,6 +21,7 @@ mod changes;
 mod codec;
 mod commands;
 mod comment_scope;
+mod comment_toggle;
 mod completion;
 mod components;
 mod decimal_text;

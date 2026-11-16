@@ -6,8 +6,9 @@
 //! Each is kept only if it reads back as the new document.
 
 use super::super::item_sources::{ItemSource, ItemSources, SaveTold};
-use super::super::language::{ConfigLanguage, Span};
-use super::{byte_range, escape, reads_as, through_long_quote};
+use super::super::language::{ConfigLanguage, Span, pointer_key};
+use super::{byte_range, reads_as, through_long_quote};
+use crate::editor::paths::FieldPath;
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 
@@ -79,7 +80,7 @@ fn collect_renames(
             if let Some(sources) = sources {
                 for key in &gained {
                     let Some(ItemSource::Previous(from)) =
-                        sources.items.get(&format!("{now}/{}", escape(key)))
+                        sources.items.get(&format!("{now}/{}", pointer_key(key)))
                     else {
                         continue;
                     };
@@ -91,7 +92,7 @@ fn collect_renames(
                     }
                     if let Some(lost) = lost
                         .iter()
-                        .find(|lost| escape(lost) == name && !to.contains_key(*lost))
+                        .find(|lost| pointer_key(lost) == name && !to.contains_key(*lost))
                     {
                         to.insert(lost, key);
                         taken.insert(key);
@@ -125,12 +126,12 @@ fn collect_renames(
                 };
                 let (at_length, now_length) = (at.len(), now.len());
                 at.push('/');
-                at.push_str(&escape(key));
+                at.push_str(&pointer_key(key));
                 if name != key {
                     out.push((at.clone(), key.clone(), name.clone()));
                 }
                 now.push('/');
-                now.push_str(&escape(name));
+                now.push_str(&pointer_key(name));
                 collect_renames(value, &right[name], (at, now), sources, out);
                 at.truncate(at_length);
                 now.truncate(now_length);
@@ -186,12 +187,12 @@ pub(in super::super) fn source_pointer(renames: &[Rename], pointer: &str) -> Str
     let mut out = String::new();
     for segment in pointer.split('/').skip(1) {
         let renamed = renames.iter().find(|(at, _, new_key)| {
-            escape(new_key) == segment
+            pointer_key(new_key) == segment
                 && at.rsplit_once('/').is_some_and(|(parent, _)| parent == out)
         });
         out.push('/');
         match renamed {
-            Some((_, old_key, _)) => out.push_str(&escape(old_key)),
+            Some((_, old_key, _)) => out.push_str(&pointer_key(old_key)),
             None => out.push_str(segment),
         }
     }
@@ -239,7 +240,7 @@ fn renamed_value(
                         let (name, held) = renamed.unwrap_or_else(|| (key.clone(), key.clone()));
                         let length = at.len();
                         at.push('/');
-                        at.push_str(&escape(&held));
+                        at.push_str(&pointer_key(&held));
                         let child = renamed_value(child, renames, at, forward);
                         at.truncate(length);
                         (name, child)
@@ -282,8 +283,8 @@ fn renamed(
     let mut edits = super::super::paths::with_spans(language, previous, &pointers, || {
         let mut edits = Vec::with_capacity(renames.len());
         for (pointer, old_key, new_key) in renames {
-            let written = language.written_key(previous, pointer, new_key)?;
-            match language.key_renames(previous, pointer, &written) {
+            let written = language.written_key(previous, &FieldPath::from(pointer), new_key)?;
+            match language.key_renames(previous, &FieldPath::from(pointer), &written) {
                 Some(own) => edits.extend(own),
                 None => edits.push(key_span_edit(
                     language, previous, pointer, old_key, &written,
@@ -355,7 +356,7 @@ pub(in super::super) fn patch_scalar_to_container(
     if text.contains('\n') {
         return None;
     }
-    let span: Span = language.value_span(previous, &pointer)?;
+    let span: Span = language.value_span(previous, &FieldPath::from(&pointer))?;
     let mut range = byte_range(previous, span)?;
     range.end = through_long_quote(language, previous, range.clone());
     let mut patched = previous.to_string();
@@ -380,7 +381,7 @@ fn only_change(old: &Value, new: &Value, pointer: String) -> Option<String> {
             only_change(
                 &left[key],
                 &right[key],
-                format!("{pointer}/{}", escape(key)),
+                format!("{pointer}/{}", pointer_key(key)),
             )
         }
         _ => Some(pointer),

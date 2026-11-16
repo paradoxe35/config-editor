@@ -3,6 +3,7 @@
 //! the same new text and the same counts, matches in read-only text left
 //! as they are and counted, and the locked value unchanged.
 
+use crate::editor::language::pointer_key;
 use leptos::prelude::*;
 use serde_json::Value;
 
@@ -69,11 +70,7 @@ fn scalar_pointers(value: &Value, at: String, out: &mut Vec<String>) {
     match value {
         Value::Object(map) => {
             for (key, value) in map {
-                scalar_pointers(
-                    value,
-                    format!("{at}/{}", key.replace('~', "~0").replace('/', "~1")),
-                    out,
-                );
+                scalar_pointers(value, format!("{at}/{}", pointer_key(key)), out);
             }
         }
         Value::Array(items) => {

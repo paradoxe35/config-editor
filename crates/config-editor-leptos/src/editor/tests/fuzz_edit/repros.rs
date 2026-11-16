@@ -15,7 +15,7 @@ use crate::editor::test_state::TestEditor;
 #[test]
 fn toggling_an_xml_line_of_overlapping_comment_markers_does_not_panic() {
     for text in ["<!--->", "<!--->\n", "<a/>\n<!--->\n"] {
-        let _ = Language::XML.behavior().toggle_comments(text, 0, 0);
+        let _ = Language::XML.behavior().toggled_text(text, 0, 0);
     }
 }
 
@@ -69,14 +69,10 @@ fn an_xml_element_holding_a_comment_is_commented_and_uncommented() {
     let text = "<a>1</a>\n<c>\n  <!-- n -->\n  <b>2</b>\n</c>\n";
     let behavior = Language::XML.behavior();
     let at = text.find("</c>").expect("the closer");
-    let (once, from, to) = behavior
-        .toggle_comments(text, at, at + 4)
-        .expect("commented");
+    let (once, from, to) = behavior.toggled_text(text, at, at + 4).expect("commented");
     let (from, to) =
         crate::editor::commands::toggled_selection(text, (at, at + 4), &once, (from, to));
-    let (twice, _, _) = behavior
-        .toggle_comments(&once, from, to)
-        .expect("uncommented");
+    let (twice, _, _) = behavior.toggled_text(&once, from, to).expect("uncommented");
     assert_eq!(twice, text);
 }
 

@@ -12,6 +12,7 @@ use super::super::completion::{apply_completion, completions};
 use super::super::schema::build_schema;
 use super::Language;
 use super::harness::{At, completing, report, write};
+use crate::editor::language::pointer_key;
 use serde_json::{Value, json};
 
 const KEYS: &[&str] = &[
@@ -79,7 +80,7 @@ fn read(language: Language, text: &str, schema: &Value, pointer: &str) -> Option
 }
 
 fn pointer_of(key: &str) -> String {
-    format!("/{}", key.replace('~', "~0").replace('/', "~1"))
+    format!("/{}", pointer_key(key))
 }
 
 #[test]

@@ -11,8 +11,9 @@ use super::codec::{self, Conversion, ConvertError};
 use super::diagnostics::{Diagnostic, Severity};
 use super::edit_as::{EditAsProblem, EditAsText, SaveError};
 use super::item_sources::{ItemSource, ItemSources, Pairing, SaveTold};
-use super::language::ConfigLanguage;
+use super::language::{ConfigLanguage, pointer_key};
 use super::schema::SchemaBundle;
+use crate::editor::paths::FieldPath;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -983,7 +984,7 @@ fn host_scalars(
             let Some(slot) = value.pointer_mut(&pointer) else {
                 continue;
             };
-            match host.scalar_edit(previous, &pointer, slot) {
+            match host.scalar_edit(previous, &FieldPath::from(&pointer), slot) {
                 Ok(Some(own)) => *slot = own,
                 Ok(None) => {}
                 Err(reason) => {
@@ -1036,7 +1037,7 @@ fn changed_scalars(
         (Value::Object(left), Value::Object(right)) => {
             for (key, value) in right {
                 if let Some(before) = left.get(key) {
-                    let child = format!("{pointer}/{}", key.replace('~', "~0").replace('/', "~1"));
+                    let child = format!("{pointer}/{}", pointer_key(key));
                     changed_scalars(before, value, child, out);
                 }
             }
@@ -1096,9 +1097,10 @@ fn located(
     // nearest ancestor that is there.
     let mut at = pointer;
     let span = loop {
+        let path = FieldPath::from(at);
         if let Some(span) = behavior
-            .value_span(source, at)
-            .or_else(|| behavior.key_span(source, at))
+            .value_span(source, &path)
+            .or_else(|| behavior.key_span(source, &path))
         {
             break Some(span);
         }
@@ -1138,7 +1140,7 @@ fn dropped_empty(
     let children: Vec<(String, &Value)> = match value {
         Value::Object(map) => map
             .iter()
-            .map(|(key, child)| (codec::escape(key), child))
+            .map(|(key, child)| (pointer_key(key), child))
             .collect(),
         Value::Array(items) => items
             .iter()

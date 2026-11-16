@@ -3,6 +3,7 @@
 
 use super::super::schema_readings;
 use crate::editor::decimal_text::decimal;
+use crate::editor::language::pointer_key;
 use serde_json::Value;
 
 /// `value` (the host value with the edit merged in) with each scalar the
@@ -52,7 +53,7 @@ fn read_otherwise(
             for (key, child) in map {
                 if let Some(other) = theirs.get(key) {
                     at.push('/');
-                    at.push_str(&key.replace('~', "~0").replace('/', "~1"));
+                    at.push_str(&pointer_key(key));
                     read_otherwise(child, (seen, other), at, out);
                     at.truncate(length);
                 }
@@ -85,7 +86,7 @@ fn in_host_types_at(
     at: &str,
     retyped: &mut Retyped,
 ) -> Result<Value, String> {
-    let child = |key: &str| format!("{at}/{}", key.replace('~', "~0").replace('/', "~1"));
+    let child = |key: &str| format!("{at}/{}", pointer_key(key));
     match (old, value) {
         (Value::Object(old), Value::Object(map)) if !map.is_empty() => {
             let seen = seen.and_then(Value::as_object);

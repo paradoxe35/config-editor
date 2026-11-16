@@ -3,6 +3,7 @@
 
 use super::burrow;
 use crate::editor::languages::Language;
+use crate::editor::paths::FieldPath;
 
 #[test]
 fn every_unknown_key_gets_its_own_marker() {
@@ -170,8 +171,12 @@ fn span_lookups_grow_with_the_document_only() {
             // Timed: the lookups read the text with the language's parser.
             let growth =
                 crate::editor::test_timing::growth(5, (&small, &large), |text: &String| {
-                    let _ = language.behavior().value_span(text, pointer);
-                    let _ = language.behavior().key_span(text, pointer);
+                    let _ = language
+                        .behavior()
+                        .value_span(text, &FieldPath::from(pointer));
+                    let _ = language
+                        .behavior()
+                        .key_span(text, &FieldPath::from(pointer));
                 });
             assert!(growth.ratio() < 10.0, "{language} {pointer}: {growth}");
         }

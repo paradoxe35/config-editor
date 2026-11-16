@@ -103,7 +103,7 @@ fn toggle_yaml_line_comments(
     selection_start: usize,
     selection_end: usize,
 ) -> Option<(String, usize, usize)> {
-    LANGUAGE.toggle_comments(source, selection_start, selection_end)
+    LANGUAGE.toggled_text(source, selection_start, selection_end)
 }
 
 fn test_schema() -> SchemaBundle {

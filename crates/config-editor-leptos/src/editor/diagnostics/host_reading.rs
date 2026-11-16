@@ -6,7 +6,8 @@
 //! checked too (once each time it changes), and each problem only the
 //! host's reading has is placed by its value in the view.
 
-use super::{Diagnostic, MORE_PROBLEMS_CODE, capped, incomplete, shift_diagnostics};
+use super::super::edit::Change;
+use super::{Diagnostic, MORE_PROBLEMS_CODE, capped, follow_diagnostics, incomplete};
 use crate::EditorStrings;
 use crate::editor::language::ConfigLanguage;
 use crate::editor::schema::SchemaBundle;
@@ -96,7 +97,10 @@ pub(in crate::editor) fn with_host_problems(
     let extra = if host.on == checked {
         extra
     } else {
-        shift_diagnostics(&host.on, checked, &extra)
+        // The view's text when the host's was checked, read off the two
+        // texts: no edit record links them (the host's check is its own).
+        let change: Change = Change::diffed(&host.on, checked);
+        follow_diagnostics(&change, &host.on, checked, &extra)
     };
     let mut all = own.to_vec();
     // A list already cut says more follow.

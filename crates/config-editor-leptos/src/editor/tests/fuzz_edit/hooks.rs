@@ -168,7 +168,7 @@ pub(super) fn check(case: &HookCase) -> Result<(), Failure> {
             let _ = behavior.complete_on_type(text, at, typed);
             let _ = behavior.reindent_on_type(text, at, typed);
         }
-        let _ = behavior.toggle_comments(text, at, at);
+        let _ = behavior.toggled_text(text, at, at);
         let _ = schema_suggestions(&bundle, behavior, text, at);
     }
     for (index, line) in text.split('\n').enumerate() {

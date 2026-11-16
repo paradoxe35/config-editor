@@ -3,7 +3,7 @@
 
 use super::super::codec::{canonical, same_order};
 use super::super::item_sources::{ItemSource, ItemSources};
-use super::super::language::{ConfigLanguage, Repetition};
+use super::super::language::{ConfigLanguage, Repetition, pointer_key};
 use serde_json::{Map, Value};
 
 use super::super::work_count::{Work, note};
@@ -116,7 +116,7 @@ fn merge_at(
     if seen == edited && (!view.moves || same_order(seen, edited)) {
         return Ok(host.clone());
     }
-    let child = |key: &str| format!("{at}/{}", key.replace('~', "~0").replace('/', "~1"));
+    let child = |key: &str| format!("{at}/{}", pointer_key(key));
     // The edit replaces the host's value whole: only where the view showed
     // all of it.
     let replaced = || {

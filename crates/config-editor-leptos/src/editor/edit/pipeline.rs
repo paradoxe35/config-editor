@@ -119,12 +119,14 @@ impl EditorState {
             self.protect().trust_text();
         }
         // What is kept by position follows the change: folds (in
-        // `write_text`), typed closers, Tab stops, the current match.
+        // `write_text`), typed closers, Tab stops, the current match, the
+        // problems found before it.
         let mapping = edit.mapping();
         if changed {
             self.follow_typing_aids(&mapping, &edit.before, switching.is_some());
             self.follow_current_match(&mapping);
         }
+        self.follow_problems(&mapping, &edit.before);
         let version = self.doc().version.get_value();
         let rewritten = self.write_text(&mapping, edit.text.clone(), edit.folds.take());
         let links = self.note_view_edit(&edit, &origin, language_before);

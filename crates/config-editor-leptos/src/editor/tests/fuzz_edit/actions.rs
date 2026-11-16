@@ -8,7 +8,7 @@ use leptos::prelude::*;
 
 use super::docs::{LANGUAGES, offset, selection, units};
 use super::runner::Rng;
-use crate::editor::commands::{indent_lines, tab_insert, toggled_selection};
+use crate::editor::commands::{indent_lines, tab_insert, toggled_change, toggled_selection};
 use crate::editor::edit::Edit;
 use crate::editor::keyboard::{paired_text, replace_selection, utf16_to_byte_index};
 use crate::editor::keys::enter::{Pressed, enter_at};
@@ -268,12 +268,13 @@ fn tab(state: EditorState, (start, end): (usize, usize), shift: bool) {
 /// Ctrl+/ as `keys::typing::toggle_comments` makes it.
 fn comment(state: EditorState, (start, end): (usize, usize)) {
     let before = shown(state);
-    let Some((updated, from, to)) = state.behavior().toggle_comments(&before, start, end) else {
+    let Some(toggled) = state.behavior().toggle_comments(&before, start, end) else {
         return;
     };
-    let (from, to) = toggled_selection(&before, (start, end), &updated, (from, to));
+    let (change, updated) = toggled_change(&before, &toggled).expect("Ctrl+/ edits fit the text");
+    let (from, to) = toggled_selection(&before, (start, end), &updated, toggled.selection);
     if updated != before {
-        state.commit(Edit::new(before, (start, end), updated, to).selecting_from(from));
+        state.commit(Edit::command(before, change, (start, end)).selecting(from, to));
     }
 }
 

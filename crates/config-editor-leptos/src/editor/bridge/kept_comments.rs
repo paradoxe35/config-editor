@@ -20,9 +20,10 @@
 
 use super::super::codec;
 use super::super::item_sources::ItemSource;
-use super::super::language::{ConfigLanguage, Span};
+use super::super::language::{ConfigLanguage, Span, pointer_key};
 use super::super::paths;
 use super::ItemMap;
+use crate::editor::paths::FieldPath;
 use serde_json::Value;
 use std::collections::{BTreeMap, HashMap};
 use std::ops::Range;
@@ -74,7 +75,7 @@ fn pointers(value: &Value, pointer: &mut String, out: &mut Vec<String>) {
         Value::Object(map) => {
             for (key, child) in map {
                 pointer.push('/');
-                pointer.push_str(&codec::escape(key));
+                pointer.push_str(&pointer_key(key));
                 out.push(pointer.clone());
                 pointers(child, pointer, out);
                 pointer.truncate(length);
@@ -214,8 +215,9 @@ pub(super) fn first_lost(
     };
     // Every span and item's lines from one read of the text.
     let on_line: BTreeMap<usize, Vec<&String>> = paths::with_spans(host, previous, &all, || {
-        let keys = found(host.key_spans(previous, &all), true);
-        let values = found(host.value_spans(previous, &all), false);
+        let paths: Vec<FieldPath> = all.iter().map(FieldPath::from).collect();
+        let keys = found(host.key_spans(previous, &paths), true);
+        let values = found(host.value_spans(previous, &paths), false);
         let mut on_line: BTreeMap<usize, Vec<&String>> = BTreeMap::new();
         for ((pointer, key), value) in all.iter().zip(keys).zip(values) {
             let mut lines: Vec<usize> = key
@@ -229,7 +231,9 @@ pub(super) fn first_lost(
                 .rsplit_once('/')
                 .and_then(|(parent, _)| old.pointer(parent))
                 .is_some_and(Value::is_array);
-            if in_list && let Some(own) = host.item_lines(previous, pointer) {
+            if in_list
+                && let Some(own) = host.item_lines(previous, &FieldPath::from(pointer.as_str()))
+            {
                 lines.push(paths::line_of_byte(previous, own.start));
             }
             lines.sort_unstable();

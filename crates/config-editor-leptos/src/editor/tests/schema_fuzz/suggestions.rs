@@ -5,6 +5,7 @@
 //! judged where a witness document holds it validly (its schema can be
 //! met), in schemas whose defaults and examples fit.
 
+use crate::editor::language::pointer_key;
 use std::collections::HashSet;
 
 use serde_json::Value;
@@ -110,7 +111,7 @@ pub(super) fn check(case: &Case) -> Verdict {
         let Some(after) = both.read(language, &accepted) else {
             continue;
         };
-        let key = format!("/{}", offered.label().replace('~', "~0").replace('/', "~1"));
+        let key = format!("/{}", pointer_key(offered.label()));
         for (at, keyword) in errors(&both, &after) {
             let inside = at == key || at.starts_with(&format!("{key}/"));
             if inside && (keyword == "required" || after.pointer(&at).is_none_or(holds_empty)) {

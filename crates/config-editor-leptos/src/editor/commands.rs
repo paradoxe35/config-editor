@@ -1,6 +1,6 @@
 use super::edit::{Assoc, Change};
 use super::keyboard::utf16_to_byte_index;
-use super::language::{ConfigLanguage, LanguageConfig};
+use super::language::{ConfigLanguage, LanguageConfig, Toggled};
 use super::projection::Projection;
 use super::work_count::{Work, note};
 
@@ -47,6 +47,15 @@ pub(super) fn copied_lines(
         line_range(source, first.min(start)).0,
         line_range(source, last.max(hidden_end)).1,
     )
+}
+
+/// The change Ctrl+/'s `toggled` edits make of `before`, and the text
+/// after; `None` when they do not fit it (a custom language's mistake,
+/// which then changes nothing).
+pub(super) fn toggled_change(before: &str, toggled: &Toggled) -> Option<(Change, String)> {
+    let change = Change::replacing(before.len(), toggled.edits.iter().cloned())?;
+    let text = change.apply(before)?;
+    Some((change, text))
 }
 
 /// The selection Ctrl+/ leaves in `updated`: `toggled` (UTF-16) as the

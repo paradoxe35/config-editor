@@ -354,7 +354,7 @@ fn enter_inside_braces_indents_one_level() {
 
 #[test]
 fn json_has_no_comments_so_toggling_is_unsupported() {
-    assert!(LANGUAGE.toggle_comments("{}", 0, 2).is_none());
+    assert!(LANGUAGE.toggled_text("{}", 0, 2).is_none());
 }
 
 #[test]

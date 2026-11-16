@@ -9,7 +9,7 @@
 //! writers keep as written. A scalar typed otherwise is the user's value.
 
 use super::super::super::codec;
-use super::super::super::language::ConfigLanguage;
+use super::super::super::language::{ConfigLanguage, pointer_key};
 use super::super::super::parse_cache;
 use super::super::super::paths;
 use super::told::same_keys;
@@ -45,7 +45,7 @@ fn scalars(value: &Value, pointer: &mut String, out: &mut Vec<String>) {
             for (key, child) in map {
                 let length = pointer.len();
                 pointer.push('/');
-                pointer.push_str(&codec::escape(key));
+                pointer.push_str(&pointer_key(key));
                 scalars(child, pointer, out);
                 pointer.truncate(length);
             }

@@ -1,3 +1,4 @@
+use crate::editor::paths::FieldPath;
 use super::super::super::completion::{
     Completion, accept_marked, apply_completion, completions, key_hover,
 };
@@ -278,11 +279,11 @@ fn object_properties_expand_to_a_table_header_with_required_children() {
 fn toggle_comments_adds_and_removes_hash_prefixes() {
     let source = "listen = 7835\n";
     let (commented, _, _) = LANGUAGE
-        .toggle_comments(source, 0, source.encode_utf16().count())
+        .toggled_text(source, 0, source.encode_utf16().count())
         .unwrap();
     assert_eq!(commented, "# listen = 7835\n");
     let (restored, _, _) = LANGUAGE
-        .toggle_comments(&commented, 0, commented.encode_utf16().count())
+        .toggled_text(&commented, 0, commented.encode_utf16().count())
         .unwrap();
     assert_eq!(restored, source);
 }
@@ -293,7 +294,7 @@ fn toggle_comments_adds_and_removes_hash_prefixes() {
 fn toggle_comments_uncomments_a_selected_line_into_broken_text() {
     let source = "# a = [1,\nb = 2\n";
     let end = "# a = [1,".encode_utf16().count();
-    let (uncommented, _, _) = LANGUAGE.toggle_comments(source, 0, end).unwrap();
+    let (uncommented, _, _) = LANGUAGE.toggled_text(source, 0, end).unwrap();
     assert_eq!(uncommented, "a = [1,\nb = 2\n");
 }
 
@@ -593,9 +594,9 @@ fn dates_and_times_read_as_their_text() {
 #[test]
 fn a_dotted_keys_span_is_its_last_segment() {
     let source = "websocket.bogus = 2\n\"a.b\".c = 1\n";
-    let span = LANGUAGE.key_span(source, "/websocket/bogus").unwrap();
+    let span = LANGUAGE.key_span(source, &FieldPath::from("/websocket/bogus")).unwrap();
     assert_eq!((span.start_column, span.end_column), (11, 16));
-    let span = LANGUAGE.key_span(source, "/a.b/c").unwrap();
+    let span = LANGUAGE.key_span(source, &FieldPath::from("/a.b/c")).unwrap();
     assert_eq!((span.line, span.start_column, span.end_column), (2, 7, 8));
 }
 

@@ -20,6 +20,7 @@ mod newlines;
 mod plain;
 mod constructs;
 mod enter;
+use crate::editor::paths::FieldPath;
 use style::{comparable_yaml_line, node_properties_len};
 mod aliases;
 mod aliases_back;
@@ -181,7 +182,8 @@ impl ConfigLanguage for YamlBehavior {
         self.parse_raw(source).map_err(words::told)
     }
 
-    fn key_span(&self, source: &str, pointer: &str) -> Option<Span> {
+    fn key_span(&self, source: &str, path: &FieldPath) -> Option<Span> {
+        let pointer = &path.to_pointer();
         match root_flow_span(source) {
             Some(root) => in_flow_root(self, source, root, pointer, true),
             // A key inside a flow collection over lines (`tcp: {` then
@@ -194,7 +196,8 @@ impl ConfigLanguage for YamlBehavior {
     }
 
     /// The root's value is found only when it is a flow collection.
-    fn value_span(&self, source: &str, pointer: &str) -> Option<Span> {
+    fn value_span(&self, source: &str, path: &FieldPath) -> Option<Span> {
+        let pointer = &path.to_pointer();
         match root_flow_span(source) {
             Some(root) => in_flow_root(self, source, root, pointer, false),
             None => yaml_value_span_for_path(source, pointer).map(Span::from),
@@ -274,7 +277,8 @@ impl Text for YamlBehavior {
     /// The language's spans joined (see `Text::value_ranges`), and a
     /// scalar written on the lines below its key from where it is written
     /// there.
-    fn value_ranges(&self, language: &dyn ConfigLanguage, source: &str, pointer: &str) -> Vec<std::ops::Range<usize>> {
+    fn value_ranges(&self, language: &dyn ConfigLanguage, source: &str, path: &FieldPath) -> Vec<std::ops::Range<usize>> {
+        let pointer = &path.to_pointer();
         let parsed = crate::editor::paths::parsed_in_batch(self, source);
         let Ok(document) = parsed.as_ref() else {
             return Vec::new();
@@ -398,7 +402,7 @@ impl SaveLayout for YamlBehavior {
     /// As the document writer writes it: plain where every reader takes it
     /// as that text (`foo bar`, `a/b`, `Über`), quoted where YAML 1.1 types
     /// it (`on`, `1_000`, a date) or it holds what plain text cannot.
-    fn written_key(&self, _language: &dyn ConfigLanguage, _source: &str, _pointer: &str, key: &str) -> Option<String> {
+    fn written_key(&self, _language: &dyn ConfigLanguage, _source: &str, _path: &FieldPath, key: &str) -> Option<String> {
         let mut entry = serde_json::Map::new();
         entry.insert(key.to_string(), Value::from(0));
         let written = self
@@ -485,8 +489,8 @@ impl Sharing for YamlBehavior {
         aliases::detach_shared(previous, old, new)
     }
 
-    fn written_at(&self, source: &str, pointer: &str) -> Option<String> {
-        aliases::written_at(source, pointer)
+    fn written_at(&self, source: &str, path: &FieldPath) -> Option<FieldPath> {
+        aliases::written_at(source, &path.to_pointer()).map(FieldPath::from)
     }
 
     fn references_back(&self, saved: &str, origin: &str) -> Option<String> {

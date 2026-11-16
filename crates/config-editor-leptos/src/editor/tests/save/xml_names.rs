@@ -4,6 +4,7 @@
 //! without turning the attribute into an element.
 
 use crate::editor::Language;
+use crate::editor::paths::FieldPath;
 use crate::editor::save_matrix::{from_every_view, report};
 use serde_json::{Value, json};
 
@@ -27,7 +28,7 @@ fn an_attribute_and_an_element_of_one_name_are_two_values() {
         json!({"r": {"@a": 1, "b": 2, "a": {}}})
     );
     let span = |text: &str, pointer: &str| {
-        let span = xml.value_span(text, pointer)?;
+        let span = xml.value_span(text, &FieldPath::from(pointer))?;
         let line = text.lines().nth(span.line - 1)?;
         Some(line[span.start_column - 1..span.end_column - 1].to_string())
     };
@@ -35,7 +36,10 @@ fn an_attribute_and_an_element_of_one_name_are_two_values() {
     assert_eq!(span(TWO, "/r/a/0").as_deref(), Some("2"));
     assert_eq!(span(TWO, "/r/a/1").as_deref(), Some("3"));
     assert_eq!(span(ONE, "/r/a").as_deref(), Some("2"));
-    let key = |text: &str, pointer: &str| xml.key_span(text, pointer).map(|span| span.line);
+    let key = |text: &str, pointer: &str| {
+        xml.key_span(text, &FieldPath::from(pointer))
+            .map(|span| span.line)
+    };
     assert_eq!(key(TWO, "/r/@a"), Some(1));
     assert_eq!(key(TWO, "/r/a/1"), Some(3));
 }

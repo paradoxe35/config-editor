@@ -2,6 +2,7 @@
 //! each path, for every path of a set of documents in every language, their
 //! lines ended by LF, CRLF or a lone CR.
 
+use crate::editor::language::pointer_key;
 use serde_json::{Value, json};
 
 use super::super::Language;
@@ -10,7 +11,7 @@ use super::path_matrix::documents;
 /// Every path of `value` (the root first), as pointers.
 pub(super) fn pointers(value: &Value, at: &str, out: &mut Vec<String>) {
     out.push(at.to_string());
-    let child = |key: &str| format!("{at}/{}", key.replace('~', "~0").replace('/', "~1"));
+    let child = |key: &str| format!("{at}/{}", pointer_key(key));
     match value {
         Value::Object(members) => {
             for (key, member) in members {

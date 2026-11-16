@@ -4,8 +4,9 @@
 
 use super::super::flow_syntax::Flow;
 use super::super::item_sources::SaveTold;
-use super::super::language::ConfigLanguage;
-use super::{byte_range, comment_start, escape, inline_location, reads_as};
+use super::super::language::{ConfigLanguage, pointer_key};
+use super::{byte_range, comment_start, inline_location, reads_as};
+use crate::editor::paths::FieldPath;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::ops::Range;
@@ -96,7 +97,7 @@ fn line_items(
         let item_pointer = format!("{pointer}/{index}");
         let container = item.is_object() || item.is_array();
         let own_lines = language
-            .item_lines(previous, &item_pointer)
+            .item_lines(previous, &FieldPath::from(&item_pointer))
             .or_else(|| element_lines(language, previous, &item_pointer));
         let (range, own) = match own_lines {
             Some(range) if container => (range, true),
@@ -106,7 +107,7 @@ fn line_items(
                     inline_location(language, previous, &item_pointer, false)?
                 } else {
                     language
-                        .value_span(previous, &item_pointer)
+                        .value_span(previous, &FieldPath::from(&item_pointer))
                         .or_else(|| inline_location(language, previous, &item_pointer, false))?
                 };
                 (byte_range(previous, span)?, false)
@@ -150,7 +151,10 @@ fn element_lines(
     previous: &str,
     pointer: &str,
 ) -> Option<Range<usize>> {
-    let name = byte_range(previous, language.key_span(previous, pointer)?)?;
+    let name = byte_range(
+        previous,
+        language.key_span(previous, &FieldPath::from(pointer))?,
+    )?;
     let open = super::key_markup_start(language, previous, name.start)?;
     Some(open..language.element_end(previous, open)?)
 }
@@ -212,7 +216,7 @@ fn permuted_lists<'a>(
                 permuted_lists(
                     value,
                     &right[key],
-                    format!("{pointer}/{}", escape(key)),
+                    format!("{pointer}/{}", pointer_key(key)),
                     out,
                 )?;
             }
@@ -308,7 +312,7 @@ pub(super) fn block_items(
             .unwrap_or(lines.len());
         (start, 0)
     } else {
-        let key = language.key_span(previous, pointer)?;
+        let key = language.key_span(previous, &FieldPath::from(pointer))?;
         let key_line = key.line.checked_sub(1)?;
         let key_indent = indent_of(lines.get(key_line)?);
         let key_code = code(lines[key_line]);
@@ -392,7 +396,7 @@ pub(in super::super) fn unmoved_comments(
                 let range = |index: usize| {
                     let item = format!("{pointer}/{index}");
                     let span = language
-                        .value_span(previous, &item)
+                        .value_span(previous, &FieldPath::from(&item))
                         .or_else(|| inline_location(language, previous, &item, false))?;
                     byte_range(previous, span)
                 };
@@ -427,7 +431,10 @@ fn lines_under_key(
     lines: &[&str],
     pointer: &str,
 ) -> Option<Range<usize>> {
-    let key_line = language.key_span(previous, pointer)?.line.checked_sub(1)?;
+    let key_line = language
+        .key_span(previous, &FieldPath::from(pointer))?
+        .line
+        .checked_sub(1)?;
     let key = lines.get(key_line)?;
     let code = key[..comment_start(language, key)].trim_end();
     if !language
