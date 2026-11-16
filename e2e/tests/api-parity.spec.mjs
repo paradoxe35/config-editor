@@ -144,6 +144,9 @@ const CONFIG_LANGUAGE = {
   value_span: { custom: 'valueSpan' },
   value_spans: { custom: 'valueSpan' },
   key_spans: { custom: 'keySpan' },
+  // A whole written value's ranges: the core joins a JS language's own key
+  // and value spans (the hook's default).
+  value_ranges: { custom: ['keySpan', 'valueSpan'] },
   first_span: { exempt: 'the first non-blank character: nothing the language says' },
   completion_context: { custom: ['separators', 'contextAt'] },
   write_insert: { custom: ['separators', 'insertKey'] },
