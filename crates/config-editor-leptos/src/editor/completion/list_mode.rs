@@ -1,5 +1,6 @@
-//! How the suggestion list was opened, one state for what used to be read
-//! off several flags: closed, opened by typing, or asked for.
+//! How the suggestion list was opened: closed, opened by typing, or asked
+//! for, with what each of them keeps (one state, so no two parts of it can
+//! disagree).
 
 /// How the suggestion list was opened. It shows when it is open and has
 /// options.

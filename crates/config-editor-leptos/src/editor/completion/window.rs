@@ -134,9 +134,9 @@ mod tests {
         (owner, state)
     }
 
-    /// D5.perf-3: 1,200 keys in scope built 1,200 options on every open
-    /// and filter. The rows built stay those of one window, however many
-    /// there are, wherever the list is scrolled and the highlight is.
+    /// The rows built stay those of one window, however many suggestions
+    /// there are (1,200 keys in scope), wherever the list is scrolled and
+    /// the highlight is, on every open and filter (P5).
     #[test]
     fn the_rows_built_do_not_grow_with_the_suggestions() {
         let built = |count: usize, top: f64, active: usize| {

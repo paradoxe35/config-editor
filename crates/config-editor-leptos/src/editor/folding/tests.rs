@@ -354,7 +354,7 @@ fn the_default_folds_indentation_brackets_and_comments() {
     );
 }
 
-/// QA 20: a closed fold's chip told a hidden problem only by its colour;
+/// A closed fold's chip tells a hidden problem by more than its colour:
 /// its label and title name the most serious one.
 #[test]
 fn a_fold_chip_names_the_most_serious_problem_it_hides() {
@@ -379,7 +379,7 @@ fn a_fold_chip_names_the_most_serious_problem_it_hides() {
             Some((Severity::Hint, 1)),
             "Unfold lines 3–7, hides a problem: Hint",
         ),
-        // QA 21: two hidden problems were worded as one.
+        // Two hidden problems are counted, not worded as one.
         (
             Some((Severity::Error, 2)),
             "Unfold lines 3–7, hides 2 problems, the most serious: Error",

@@ -60,8 +60,7 @@ fn typed_through(language: Language, schema: &str, typed: &[&str]) -> String {
             .map(|range| (range.start, range.end))
             .collect();
         region_end = change.map_pos(region_end, Assoc::After).pos;
-        let here = &stops;
-        match next_stop(&text, caret, region_end, here, language.behavior()) {
+        match next_stop(&text, caret, region_end, &stops, language.behavior()) {
             Some((from, to)) => (anchor, caret) = (from, to),
             None => break,
         }
@@ -222,7 +221,7 @@ fn tab_walks_the_items_of_lists_filled_at_every_depth() {
             &["a", "1", "b", "2", "N"][..],
             json!({"hosts": [{"h": "a", "p": 1}, {"h": "b", "p": 2}], "name": "N"}),
         ),
-        // QA 36: a list of objects holding a required list of objects of
+        // A list of objects holding a required list of objects of
         // two fields: Tab goes from `from` to `to`, then to `proto`.
         (
             r#"{"type":"object","required":["rules","name"],"properties":{"name":{"type":"string"},

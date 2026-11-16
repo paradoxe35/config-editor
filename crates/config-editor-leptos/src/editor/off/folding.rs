@@ -5,6 +5,7 @@
 
 use web_sys::KeyboardEvent;
 
+use super::edit::Change;
 use super::fold_ranges::FoldRange;
 use super::state::EditorState;
 
@@ -21,11 +22,7 @@ impl EditorState {
         Vec::new()
     }
 
-    pub(super) fn folds_through(
-        &self,
-        _change: &super::edit::Change,
-        _new: &str,
-    ) -> Option<Vec<FoldRange>> {
+    pub(super) fn folds_through(&self, _change: &Change, _new: &str) -> Option<Vec<FoldRange>> {
         None
     }
 

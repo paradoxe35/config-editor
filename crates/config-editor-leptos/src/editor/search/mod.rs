@@ -39,6 +39,7 @@ pub(super) use actions::replace_current as replace_one_match;
 
 use leptos::prelude::*;
 
+use super::edit::Change;
 use super::live_settings::on_switch_off;
 use super::state::EditorState;
 use matcher::{Matcher, find_matches};
@@ -181,7 +182,7 @@ impl EditorState {
     /// Maps the match stepped to through `change` (an edit's
     /// `Edit::mapping`), as the edit pipeline writes it: it stays on the
     /// same text, and is no longer current once the edit changed that text.
-    pub(super) fn follow_current_match(&self, change: &super::edit::Change) {
+    pub(super) fn follow_current_match(&self, change: &Change) {
         let stepped = self.search().stepped;
         if let Some((start, end)) = stepped.get_untracked() {
             let mapped = change
