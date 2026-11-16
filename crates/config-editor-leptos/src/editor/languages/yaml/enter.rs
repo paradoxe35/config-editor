@@ -87,37 +87,8 @@ fn innermost_dash_column(line: &str) -> usize {
 /// inside a quoted scalar. A bracket opens one only where a node starts
 /// (`a: [`, `- {`, `[[`), not inside a plain scalar (`a: b[1`).
 fn flow_open_at_end(code: &str) -> bool {
-    let mut depth = 0usize;
-    let mut quote: Option<char> = None;
-    let mut previous: Option<char> = None;
-    let mut characters = code.chars().peekable();
-    while let Some(character) = characters.next() {
-        match quote {
-            Some('"') if character == '\\' => {
-                characters.next();
-                continue;
-            }
-            Some('\'') if character == '\'' && characters.peek() == Some(&'\'') => {
-                characters.next();
-                continue;
-            }
-            Some(open) if character == open => quote = None,
-            Some(_) => continue,
-            None => {
-                let node_starts = previous.is_none_or(|previous| matches!(previous, '[' | '{' | ',' | ':' | '-' | '?'));
-                match character {
-                    '"' | '\'' if node_starts => quote = Some(character),
-                    '[' | '{' if depth > 0 || node_starts => depth += 1,
-                    ']' | '}' if depth > 0 => depth -= 1,
-                    _ => {}
-                }
-            }
-        }
-        if !character.is_whitespace() {
-            previous = Some(character);
-        }
-    }
-    depth > 0 && quote.is_none()
+    let read = super::lexical::read_line(code, code.len());
+    read.flow > 0 && read.quote.is_none()
 }
 
 /// The column where the node holding a list whose dash is at column `dash`

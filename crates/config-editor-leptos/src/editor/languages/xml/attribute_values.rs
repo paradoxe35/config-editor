@@ -29,7 +29,7 @@ fn find(
         Value::Object(map) => map.iter().find_map(|(key, child)| {
             let at = pointer.len();
             pointer.push('/');
-            pointer.push_str(&key.replace('~', "~0").replace('/', "~1"));
+            pointer.push_str(&crate::editor::language::pointer_key(key));
             path.push(key.clone());
             let was = old.and_then(|old| old.get(key));
             let container = child.is_array() || child.is_object();

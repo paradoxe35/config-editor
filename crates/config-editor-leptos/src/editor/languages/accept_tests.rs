@@ -5,8 +5,8 @@
 //! it, so top-level, nested, map-entry, and array-item containers are covered.
 
 use super::super::completion::{apply_completion, completions};
-use super::super::diagnostics::build_schema;
 use super::super::language::SchemaPathSegment;
+use super::super::schema::build_schema;
 use super::Language;
 use serde_json::{Map, Value, json};
 

@@ -67,9 +67,9 @@ impl Token {
 }
 
 /// A construct a language writes over several lines, as
-/// [`ConfigLanguage::multiline_constructs`] reports it.
+/// [`Text::multiline_constructs`] reports it.
 ///
-/// [`ConfigLanguage::multiline_constructs`]: crate::language::ConfigLanguage::multiline_constructs
+/// [`Text::multiline_constructs`]: crate::language::Text::multiline_constructs
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MultilineConstruct {
     /// Its byte range in the document.
@@ -107,11 +107,11 @@ pub enum ConstructKind {
     /// As one kind of token: a string, a YAML plain scalar's continuation
     /// lines ([`TokenKind::Value`]), CDATA text.
     Colored(TokenKind),
-    /// As structure, by [`ConfigLanguage::highlight_continued`]: a TOML
+    /// As structure, by [`Text::highlight_continued`]: a TOML
     /// array, a YAML flow collection, an XML start tag with its attributes
     /// over lines. Comments and strings inside it are colored as those.
     ///
-    /// [`ConfigLanguage::highlight_continued`]: crate::language::ConfigLanguage::highlight_continued
+    /// [`Text::highlight_continued`]: crate::language::Text::highlight_continued
     Structure,
 }
 

@@ -14,9 +14,11 @@ use super::super::line_rows::MarkedLines;
 use super::foreign::{DocumentPlaceholders, foreign_placeholders};
 use super::glued::glued_placeholders;
 use super::live::ProtectState;
+use super::locate::LineIndex;
 use super::locks::Lock;
 use super::problems::unknown_placeholders;
 use super::suggest::{Around, adjust};
+use super::texts::{Reason, save_held};
 use super::view::line_marks;
 use crate::EditorStrings;
 use crate::strings::fill;
@@ -153,17 +155,74 @@ impl ProtectState {
         })
     }
 
-    /// A warning at each locked field held (see `locks::Protected::held`):
-    /// why its change, value and save wait. Tracked.
-    pub(crate) fn held_problems(&self, text: &str, strings: &EditorStrings) -> Vec<Diagnostic> {
+    /// A warning at each locked field held (see `locks::Protected::held`),
+    /// and at a placeholder the parse reads with text beside it (see
+    /// `ProtectState::placeholder_held`, `glued_away`): why the change, the
+    /// value and the save wait. `text` is written in `behavior`. Tracked.
+    pub(crate) fn held_problems(
+        &self,
+        behavior: &dyn ConfigLanguage,
+        text: &str,
+        strings: &EditorStrings,
+    ) -> Vec<Diagnostic> {
+        let mut problems = self.held_lock_problems(text, strings);
+        problems.extend(self.held_placeholder_problem(behavior, text, strings));
+        problems
+    }
+
+    /// The placeholder hold's warning, at the first copy of its token
+    /// written in `text` (else its first token, else the first line).
+    fn held_placeholder_problem(
+        &self,
+        behavior: &dyn ConfigLanguage,
+        text: &str,
+        strings: &EditorStrings,
+    ) -> Option<Diagnostic> {
+        if self.secrets.known.with_untracked(Vec::is_empty) {
+            return None;
+        }
+        let field = self
+            .placeholder_held(behavior, text)
+            .or_else(|| self.glued_away(behavior, text))?;
+        let token = self.secrets.known.with_untracked(|known| {
+            known
+                .iter()
+                .find(|known| known.field.as_deref() == Some(field.as_str()))
+                .map(|known| known.token.clone())
+        });
+        let real = self.secrets.tokens.get_untracked();
+        let lines = LineIndex::new(text);
+        let start = token
+            .and_then(|token| {
+                let found: Vec<usize> = text
+                    .match_indices(token.as_str())
+                    .map(|(at, _)| lines.units_of(at))
+                    .collect();
+                found
+                    .iter()
+                    .copied()
+                    .find(|at| !real.iter().any(|real| real.start == *at))
+                    .or_else(|| found.first().copied())
+            })
+            .unwrap_or(0);
+        let reason = Reason::Given(strings.secret_label.clone());
+        Some(warning_at(
+            &lines,
+            text,
+            start,
+            save_held(strings, &field, &reason),
+        ))
+    }
+
+    /// [`Self::held_problems`]' warnings at the locked fields held.
+    fn held_lock_problems(&self, text: &str, strings: &EditorStrings) -> Vec<Diagnostic> {
         self.protected.with(|protected| {
-            let lines = super::locate::LineIndex::new(text);
+            let lines = LineIndex::new(text);
             protected
                 .held
                 .iter()
                 .map(|pointer| {
-                    let message =
-                        super::texts::save_held(strings, pointer, &protected.held_reason(pointer));
+                    let message = save_held(strings, pointer, &protected.held_reason(pointer));
                     // Marked where its lock starts; one the text no longer
                     // has (commented out, cut), where the lock nearest to
                     // it by path starts (a field holding it first), else
@@ -175,17 +234,7 @@ impl ProtectState {
                         .or_else(|| nearest_lock(&protected.locks, pointer))
                         .and_then(|lock| lock.ranges.first())
                         .map_or(0, |range| range.start);
-                    let line = lines.line_of(start);
-                    let line_start = lines.byte_of(lines.line_bounds(line).start);
-                    let column = text[line_start..lines.byte_of(start)].chars().count() + 1;
-                    Diagnostic {
-                        line: Some(line + 1),
-                        column: Some(column),
-                        end_column: Some(column + 1),
-                        message,
-                        severity: Severity::Warning,
-                        ..Diagnostic::default()
-                    }
+                    warning_at(&lines, text, start, message)
                 })
                 .collect()
         })
@@ -201,8 +250,9 @@ impl ProtectState {
     }
 
     /// Whether the tooltip shows.
+    #[cfg(test)]
     pub(crate) fn tip_open(&self) -> bool {
-        self.tip.with_untracked(Option::is_some)
+        self.tip().is_some()
     }
 
     /// Subscribes to what the protected text at a place is (the locks and
@@ -218,6 +268,22 @@ impl ProtectState {
 #[cfg(feature = "schema-validation")]
 pub(crate) fn secret_pointers(document: &Value, root: &Value, repeats_arrays: bool) -> Vec<String> {
     super::marks::secret_fields(document, root, repeats_arrays)
+}
+
+/// A warning saying `message` at UTF-16 `start` of `text` (whose lines are
+/// `lines`), one character wide.
+fn warning_at(lines: &LineIndex<'_>, text: &str, start: usize, message: String) -> Diagnostic {
+    let line = lines.line_of(start);
+    let line_start = lines.byte_of(lines.line_bounds(line).start);
+    let column = text[line_start..lines.byte_of(start)].chars().count() + 1;
+    Diagnostic {
+        line: Some(line + 1),
+        column: Some(column),
+        end_column: Some(column + 1),
+        message,
+        severity: Severity::Warning,
+        ..Diagnostic::default()
+    }
 }
 
 /// The lock of `locks` nearest to the field at `pointer` by path: the one

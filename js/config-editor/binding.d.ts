@@ -36,7 +36,9 @@ export const SETTING_TYPES: Readonly<Record<keyof EditorSettings, "boolean" | "s
 export interface EditorBindingProps extends EditorSettings {
   value?: string;
   defaultValue?: string;
-  onChange?: (value: string) => void;
+  /** The `revision` `onChange` gave `value` with, when the parent stores it beside the value and never goes back to an older one: its echo is matched exactly (no pause). */
+  valueRevision?: number;
+  onChange?: (value: string, revision: number) => void;
   language?: LanguageName;
   editAs?: LanguageName | null;
   onEditAsChange?: (language: LanguageName) => void;

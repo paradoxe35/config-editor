@@ -3,7 +3,6 @@
 //! reported instead of silently matching nothing.
 
 use crate::editor::pattern_engine::Regex;
-use serde_json::Value;
 use std::cell::RefCell;
 use std::collections::HashMap;
 
@@ -17,7 +16,7 @@ thread_local! {
 }
 
 /// Whether `key` matches the regex `pattern`. A pattern the engine cannot
-/// compile matches nothing; [`unsupported_patterns`] reports it.
+/// compile matches nothing; the schema's warnings name it.
 pub(crate) fn pattern_matches(pattern: &str, key: &str) -> bool {
     COMPILED.with(|cache| {
         let mut cache = cache.borrow_mut();
@@ -41,61 +40,24 @@ pub(crate) fn pattern_decides(pattern: &str, text: &str) -> Option<bool> {
     (matched || compiles(pattern)).then_some(matched)
 }
 
-/// Whether the engine can compile `pattern`, compiling it into the cache.
-fn compiles(pattern: &str) -> bool {
+/// Whether the engine can compile `pattern`, compiling it into the cache
+/// (each of a schema's patterns is compiled with the schema, see
+/// `schema::compile`).
+pub(crate) fn compiles(pattern: &str) -> bool {
     pattern_matches(pattern, "");
     COMPILED.with(|cache| cache.borrow().get(pattern).is_some_and(Option::is_some))
-}
-
-/// Compiles every `patternProperties` regex in `schema`, and describes each
-/// one the engine cannot read: keys it was meant to match get no
-/// completions or hover docs.
-pub(crate) fn unsupported_patterns(schema: &Value) -> Vec<String> {
-    let mut warnings = Vec::new();
-    collect(schema, &mut String::new(), &mut warnings);
-    warnings
-}
-
-/// Every level of the schema: it was read from JSON, which the editor reads
-/// to 128 levels at most (`build_schema`), so the walk is bounded by it.
-fn collect(schema: &Value, pointer: &mut String, warnings: &mut Vec<String>) {
-    let length = pointer.len();
-    match schema {
-        Value::Object(map) => {
-            for (key, child) in map {
-                pointer.push('/');
-                pointer.push_str(&key.replace('~', "~0").replace('/', "~1"));
-                if key == "patternProperties"
-                    && let Some(patterns) = child.as_object()
-                {
-                    for pattern in patterns.keys().filter(|pattern| !compiles(pattern)) {
-                        let place = pointer.as_str();
-                        warnings.push(format!(
-                            "{place}: the pattern \"{pattern}\" is not supported by the editor's \
-                             completion engine; keys it matches get no completions or hover docs \
-                             (validation still checks them)"
-                        ));
-                    }
-                }
-                collect(child, pointer, warnings);
-                pointer.truncate(length);
-            }
-        }
-        Value::Array(items) => {
-            for (index, item) in items.iter().enumerate() {
-                pointer.push('/');
-                pointer.push_str(&index.to_string());
-                collect(item, pointer, warnings);
-                pointer.truncate(length);
-            }
-        }
-        _ => {}
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::editor::schema::build_schema;
+
+    fn warnings(schema: &serde_json::Value) -> Vec<String> {
+        build_schema(&schema.to_string())
+            .map(|bundle| bundle.warnings)
+            .unwrap_or_default()
+    }
 
     #[test]
     fn unsupported_patterns_are_reported_once_each_with_their_place() {
@@ -110,7 +72,7 @@ mod tests {
             },
             "$defs": {"env": {"patternProperties": {"^[A-Z_]+$": {}}}}
         });
-        let warnings = unsupported_patterns(&schema);
+        let warnings = warnings(&schema);
         assert_eq!(warnings.len(), 1, "{warnings:?}");
         assert!(
             warnings[0].starts_with(
@@ -127,7 +89,7 @@ mod tests {
     #[test]
     fn unicode_classes_follow_the_engine() {
         let schema = serde_json::json!({"patternProperties": {"^\\p{L}+$": {}}});
-        let warnings = unsupported_patterns(&schema);
+        let warnings = warnings(&schema);
         assert_eq!(
             warnings.is_empty(),
             cfg!(feature = "schema-validation"),
@@ -135,15 +97,14 @@ mod tests {
         );
     }
 
-    /// Schema L.5: a pattern deep in the schema is warned about as one near
-    /// its root (one at nesting depth 33 was not).
+    /// A pattern deep in the schema is warned about as one near its root.
     #[test]
     fn an_unsupported_pattern_deep_in_the_schema_is_warned_about() {
         let mut schema = serde_json::json!({"patternProperties": {"^(?!x-)": {}}});
         for _ in 0..50 {
             schema = serde_json::json!({"properties": {"a": schema}});
         }
-        let warnings = super::unsupported_patterns(&schema);
+        let warnings = warnings(&schema);
         assert_eq!(warnings.len(), 1, "{warnings:?}");
     }
 }

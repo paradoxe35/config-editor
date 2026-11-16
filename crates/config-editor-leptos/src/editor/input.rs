@@ -7,11 +7,11 @@ use wasm_bindgen::JsCast;
 use super::bridge::links::Splice;
 use super::commands::{copied_lines, line_range};
 use super::completion::should_auto_trigger;
-use super::components::HoverCard;
 use super::edit::{After, Edit};
 use super::history::EditHistory;
 use super::keyboard::replace_selection;
-use super::positioning::{hover_card_anchor, pointer_text_position, schedule_hover};
+use super::positioning::pointer_text_position;
+use super::problem_hit::column_at_cell;
 use super::source_area::SourceArea;
 use super::state::{EditorState, normalize_newlines, textarea_selection};
 use crate::reactive::later;
@@ -395,16 +395,11 @@ pub(super) fn apply_input(state: EditorState, edit: Edit, before: &str, input_ty
 /// (each after its moment to reach it).
 pub(super) fn mouse_leave(state: EditorState, event: &web_sys::MouseEvent) {
     let (x, y) = (f64::from(event.client_x()), f64::from(event.client_y()));
-    state.hover().on_text.set_value(false);
-    state.leave_pointer(event.related_target().as_ref(), x, y);
-    state.leave_hover();
-    if state.problems().hovered.with_untracked(Option::is_some) {
-        state.leave_problem();
-    }
+    state.pointer_left_text(event.related_target().as_ref(), x, y);
 }
 
 /// The pointer moved over the gutter: as off the text, for the way to the
-/// popup it can enter (see `hover_path`).
+/// popup it can enter (see `popups::path`).
 pub(super) fn gutter_move(state: EditorState, event: &web_sys::MouseEvent) {
     if event.buttons() == 0 {
         state.pointer_off_text(f64::from(event.client_x()), f64::from(event.client_y()));
@@ -428,73 +423,15 @@ pub(super) fn gutter_press(state: EditorState, event: &web_sys::MouseEvent) {
 
 /// Hovering a problem shows its tip (see `problem_hit`); hovering a key
 /// shows its schema docs after a short pause; hovering a
-/// read-only value says why it is read-only.
+/// read-only value says why it is read-only (see `popups`).
 pub(super) fn mouse_move(state: EditorState, event: &web_sys::MouseEvent) {
     let Some(element) = target_textarea(state, event) else {
         return;
     };
     let (x, y) = (f64::from(event.client_x()), f64::from(event.client_y()));
-    state.hover().on_text.set_value(true);
+    state.pointer_on_text();
     // Not while a button is held (a drag selecting text).
-    pointer_at(state, &element, x, y, event.buttons() == 0);
-}
-
-/// The pointer is at `(x, y)` in the window over the text (`free`: no
-/// button held): what is there shows.
-pub(super) fn pointer_at(state: EditorState, element: &SourceArea, x: f64, y: f64, free: bool) {
-    let (line, column) = pointer_text_position(element, x, y);
-    // Heading for the popup across other text: that text waits.
-    if free && state.on_the_way_to_popup(x, y, line, column) {
-        return;
-    }
-    if free {
-        state.point_at_problems(line, column);
-        state.note_on_problems();
-    }
-    if !state.completion().suggestions.with_untracked(Vec::is_empty) {
-        state.hide_hover();
-        return;
-    }
-    let on_protected = state.hover_protected(line, column).is_some();
-    if !state.config().settings.hover_docs.get_untracked() {
-        return;
-    }
-    let Some(info) = state.docs_under_pointer(line, column) else {
-        state.leave_hover();
-        return;
-    };
-    // The value's own message takes the place of its key's docs there.
-    if on_protected && column >= info.start_column + info.key.chars().count() {
-        state.leave_hover();
-        return;
-    }
-    let identity = (line, info.start_column, info.key.clone());
-    if state.hover().pending.get_value().as_ref() == Some(&identity) {
-        return;
-    }
-    if state.card_shows(line, &info) {
-        // Back on its key within the moment it was given to be reached:
-        // it stays.
-        state.keep_hover();
-        return;
-    }
-    state.hide_hover();
-    state.hover().pending.set_value(Some(identity));
-    let token = state.hover().token.get_value();
-    let anchor = hover_card_anchor(element, line, info.start_column);
-    schedule_hover(state, move |state| {
-        if state.hover().token.get_value() == token {
-            state.hover().pending.set_value(None);
-            // The pointer rests on its key: on the way to it.
-            state.hover().on_way.set_value(true);
-            state.hover().card.set(Some(HoverCard {
-                info,
-                line,
-                caret: None,
-                anchor,
-            }));
-        }
-    });
+    state.pointer_at(&element, x, y, event.buttons() == 0);
 }
 
 pub(super) fn blur(state: EditorState, event: &web_sys::FocusEvent) {
@@ -542,15 +479,24 @@ fn mouse_down(state: EditorState, event: &web_sys::MouseEvent) {
     let Some(element) = target_textarea(state, event) else {
         return;
     };
-    let (line, column) = pointer_text_position(
+    let (line, cell) = pointer_text_position(
         &element,
         f64::from(event.client_x()),
         f64::from(event.client_y()),
     );
-    let offset = state.doc().text.with_untracked(|text| {
-        super::paths::TextPosition::new(line + 1, column + 1).to_offset(text)
-    });
+    let offset = state
+        .doc()
+        .text
+        .with_untracked(|text| press_offset(text, line, cell));
     state.press_at(offset);
+}
+
+/// The UTF-16 offset a press on rendered cell `cell` of zero-based `line`
+/// lands on: the character drawn there (a tab is wider than a cell, a
+/// joined accent takes none).
+fn press_offset(text: &str, line: usize, cell: usize) -> usize {
+    let column = column_at_cell(super::paths::split_line(text, line).unwrap_or(""), cell);
+    super::paths::TextPosition::new(line + 1, column).to_offset(text)
 }
 
 /// The end of a mouse selection: a drag that started on a secret
@@ -638,8 +584,7 @@ pub(super) fn key_up(state: EditorState, event: &web_sys::KeyboardEvent) {
 pub(super) fn scroll(state: EditorState, event: &web_sys::Event) {
     state.hide_hover();
     if let Some(element) = target_textarea(state, event) {
-        state.view().scroll_x.set(f64::from(element.scroll_left()));
-        state.view().scroll_y.set(f64::from(element.scroll_top()));
+        element.mirror_scroll();
     }
 }
 
@@ -723,7 +668,10 @@ fn copy_line(state: EditorState, event: &web_sys::ClipboardEvent, cut: bool) {
     let Some(element) = state.textarea() else {
         return;
     };
-    // A selection cutting a secret placeholder copies it whole.
+    // A selection cutting a secret placeholder copies it whole. The
+    // browser's own copy takes the selection it had before the snap, so a
+    // snapped selection is copied here.
+    let selected_before = textarea_selection(&element);
     state.snap_to_tokens();
     let (start, end) = textarea_selection(&element);
     if start != end {
@@ -732,7 +680,8 @@ fn copy_line(state: EditorState, event: &web_sys::ClipboardEvent, cut: bool) {
             String::from_utf16_lossy(&units[start.min(units.len())..end.min(units.len())])
         });
         state.note_copied(&selected, (start, end));
-        copy_across_folds(state, event, (start, end), cut);
+        let snapped = selected_before != (start, end);
+        copy_selection(state, event, (start, end), cut, snapped);
         return;
     }
     let Some(clipboard) = event.clipboard_data() else {
@@ -779,18 +728,21 @@ fn copy_line(state: EditorState, event: &web_sys::ClipboardEvent, cut: bool) {
     );
 }
 
-/// Copy or cut of a selection across a fold takes the hidden lines too:
-/// the textarea's own copy would miss them.
-fn copy_across_folds(
+/// Copy or cut of a selection the textarea's own copy would get wrong:
+/// one across a fold takes the hidden lines too, one `snapped` to a
+/// placeholder's edges takes the placeholder whole.
+fn copy_selection(
     state: EditorState,
     event: &web_sys::ClipboardEvent,
     (start, end): (usize, usize),
     cut: bool,
+    snapped: bool,
 ) {
-    if !state
-        .view()
-        .projection
-        .with_untracked(|projection| projection.hides_within(start, end))
+    if !snapped
+        && !state
+            .view()
+            .projection
+            .with_untracked(|projection| projection.hides_within(start, end))
     {
         return;
     }
@@ -846,7 +798,28 @@ fn paste_line(state: EditorState, event: &web_sys::ClipboardEvent) {
 
 #[cfg(test)]
 mod tests {
-    use super::changed_range;
+    use super::{changed_range, press_offset};
+
+    /// A press lands on the character drawn under it: a tab before a
+    /// secret placeholder is drawn wider than one cell, and an accent
+    /// joined to its letter takes none, so a cell is not a character
+    /// column (a press there was taken as inside or outside the
+    /// placeholder wrongly).
+    #[test]
+    fn a_press_lands_on_the_character_drawn_under_it() {
+        // `a:`, then a tab drawn up to cell 4, then the placeholder.
+        let text = "x: 1\na:\t\u{ab}secret\u{bb}\n";
+        let line_start = 5;
+        assert_eq!(
+            press_offset(text, 1, 4),
+            line_start + 3,
+            "on its opening mark"
+        );
+        assert_eq!(press_offset(text, 1, 5), line_start + 4, "inside it");
+        // `e` and its accent are one cell.
+        let text = "e\u{301}=\u{ab}s\u{bb}";
+        assert_eq!(press_offset(text, 0, 2), 3, "on its opening mark");
+    }
 
     /// Round 11: the selection an edit replaced, read off the change when
     /// the browser sent no `beforeinput` (undo puts the caret back there).

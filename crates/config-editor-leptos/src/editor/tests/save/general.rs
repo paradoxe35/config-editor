@@ -1092,7 +1092,7 @@ fn yaml_merge_keys_merge_the_anchored_map() {
 fn round_13_saves_change_only_the_edit() {
     use serde_json::{Value, json};
     let schema = std::sync::Arc::new(
-        crate::editor::diagnostics::build_schema(include_str!(
+        crate::editor::schema::build_schema(include_str!(
             "../../../../tests/fixtures/tunnel.schema.json"
         ))
         .unwrap(),

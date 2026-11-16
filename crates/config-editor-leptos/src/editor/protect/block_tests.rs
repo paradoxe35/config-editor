@@ -122,7 +122,8 @@ fn each_case(mut run: impl FnMut(&str, Language, Language, &str, &Tokens)) {
 #[cfg(feature = "schema-validation")]
 #[test]
 fn an_untouched_placeholder_alone_in_a_multi_line_form_passes_the_schema_check() {
-    use super::super::diagnostics::{build_schema, validate, validate_with};
+    use super::super::diagnostics::{validate, validate_with};
+    use super::super::schema::build_schema;
     use super::guarantee_tests::problems;
     let bundle = build_schema(
         r#"{"type": "object", "properties": {
@@ -197,13 +198,12 @@ fn a_key_typed_at_either_edge_of_a_placeholder_alone_in_a_multi_line_form_is_ref
             }
             if !state
                 .protect()
-                .tip
-                .get_untracked()
+                .tip()
                 .is_some_and(|tip| tip.message.starts_with(SAYS))
             {
                 failures.push(format!(
                     "{case}, {step}: refusal {:?}",
-                    state.protect().tip.get_untracked()
+                    state.protect().tip()
                 ));
             }
             if let Some(glued) = heard

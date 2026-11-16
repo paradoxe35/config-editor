@@ -364,25 +364,6 @@ fn is_of_type(value: &Value, name: &str) -> bool {
     }
 }
 
-/// Whether some schema in `schema` is decided by the document: a
-/// conditional (`if`, a dependent schema), or `oneOf`/`anyOf` options
-/// (the one an object is in decides the keys of the objects inside it).
-/// Only then is the document read to decide them.
-pub(crate) fn mentions_conditionals(schema: &Value) -> bool {
-    match schema {
-        Value::Object(members) => members.iter().any(|(keyword, member)| {
-            matches!(
-                keyword.as_str(),
-                "if" | "dependentSchemas" | "oneOf" | "anyOf"
-            ) || (keyword == "dependencies" && member.is_object())
-                || (!matches!(keyword.as_str(), "const" | "enum" | "default" | "examples")
-                    && mentions_conditionals(member))
-        }),
-        Value::Array(items) => items.iter().any(mentions_conditionals),
-        _ => false,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

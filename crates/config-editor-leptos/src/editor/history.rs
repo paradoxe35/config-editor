@@ -12,8 +12,12 @@
 use super::bridge::links::Links;
 use super::fold_ranges::FoldRange;
 use super::languages::Language;
+use std::sync::Arc;
 
 mod rebase;
+mod record;
+
+pub(super) use record::Record;
 
 /// A selection as `(start, end)` UTF-16 offsets; equal for a caret.
 pub(super) type Selection = (usize, usize);
@@ -28,9 +32,38 @@ pub(super) struct Snapshot {
     /// The folds closed in `value`, for a step that said them (a line
     /// command); `None` for every other step: the folds follow the change.
     pub(super) folds: Option<Vec<FoldRange>>,
-    /// The links of `value`'s items to the host's, in an Edit-as view
-    /// (see `bridge::links`): undo and redo put them back with the text.
+    /// What an Edit-as view keeps with `value`: undo and redo put it back
+    /// with the text.
+    pub(super) view: ViewState,
+}
+
+/// What an undo step keeps of an Edit-as view's text besides the text.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(super) struct ViewState {
+    /// The links of the text's items to the host's (see `bridge::links`).
     pub(super) links: Links,
+    /// The host text the text was saved as, when it was: an undo back to it
+    /// sends that host text exactly, comments a fresh save could not bring
+    /// back included.
+    pub(super) saved_as: Option<Arc<str>>,
+}
+
+impl ViewState {
+    /// Bytes it holds, for the history's budget (see [`Links::bytes`]): a
+    /// host text it shares with `newer` (the state of the step after it)
+    /// counted there only.
+    fn bytes(&self, newer: Option<&ViewState>) -> usize {
+        let shared = matches!(
+            (&self.saved_as, newer.and_then(|newer| newer.saved_as.as_ref())),
+            (Some(host), Some(theirs)) if Arc::ptr_eq(host, theirs)
+        );
+        let saved = if shared {
+            0
+        } else {
+            self.saved_as.as_ref().map_or(0, |host| host.len())
+        };
+        self.links.bytes(newer.map(|newer| &newer.links)) + saved
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -41,6 +74,8 @@ struct Step {
     after_language: Option<Language>,
     /// The folds the step left closed, when it said them.
     after_folds: Option<Vec<FoldRange>>,
+    /// What popping the step does to the text it is popped from.
+    record: Record,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -83,6 +118,7 @@ impl EditHistory {
     /// event's type, leaving `text`. A step that grew back to the text it
     /// started from (`-` typed, then the Enter that ends a list takes it
     /// away) is no step any more: undo never changes nothing.
+    #[cfg(test)]
     pub(super) fn record_input(
         &mut self,
         before: Snapshot,
@@ -90,6 +126,24 @@ impl EditHistory {
         after: Selection,
         input_type: &str,
         timestamp: f64,
+    ) {
+        self.record_input_as(
+            before,
+            text,
+            after,
+            (input_type, timestamp),
+            Record::default(),
+        );
+    }
+
+    /// [`Self::record_input`] of an edit popped as `record` says.
+    pub(super) fn record_input_as(
+        &mut self,
+        before: Snapshot,
+        text: &str,
+        after: Selection,
+        (input_type, timestamp): (&str, f64),
+        record: Record,
     ) {
         let group = match input_type {
             "insertText" | "insertLineBreak" | "insertParagraph" => Some(Group::Typing),
@@ -107,6 +161,7 @@ impl EditHistory {
             && self.open.is_some_and(|(open, _)| open == Group::Dragging);
         if dropping && let Some(step) = self.undo.last_mut() {
             step.after = after;
+            step.record = std::mem::take(&mut step.record).after(record);
             self.open = None;
             if step.before.value == text {
                 self.undo.pop();
@@ -137,12 +192,14 @@ impl EditHistory {
                 return;
             }
             step.after = after;
+            step.record = std::mem::take(&mut step.record).after(record);
         } else {
             self.push(Step {
                 before,
                 after,
                 after_language: None,
                 after_folds: None,
+                record,
             });
         }
         self.open = group.map(|group| (group, timestamp));
@@ -175,7 +232,7 @@ impl EditHistory {
     /// An edit the editor made (a command, an accepted suggestion): always
     /// its own step.
     pub(super) fn record_action(&mut self, before: Snapshot, after: Selection) {
-        self.record_command(before, after, None);
+        self.record_command(before, after, None, Record::default());
     }
 
     /// [`Self::record_action`] for a command leaving `after_folds` closed
@@ -185,12 +242,14 @@ impl EditHistory {
         before: Snapshot,
         after: Selection,
         after_folds: Option<Vec<FoldRange>>,
+        record: Record,
     ) {
         self.push(Step {
             before,
             after,
             after_language: None,
             after_folds,
+            record,
         });
         self.open = None;
     }
@@ -203,6 +262,7 @@ impl EditHistory {
             after,
             after_language: Some(language),
             after_folds: None,
+            record: Record::default(),
         });
         self.open = None;
     }
@@ -212,15 +272,15 @@ impl EditHistory {
         self.undo.push(step);
         // The newest steps that fit in both budgets.
         let mut bytes = 0;
-        let mut newer: Option<&Links> = None;
+        let mut newer: Option<&ViewState> = None;
         let kept = self
             .undo
             .iter()
             .rev()
             .take(MAX_STEPS)
             .take_while(|step| {
-                bytes += step.before.value.len() + step.before.links.bytes(newer);
-                newer = Some(&step.before.links);
+                bytes += step.before.value.len() + step.before.view.bytes(newer);
+                newer = Some(&step.before.view);
                 bytes <= MAX_BYTES
             })
             .count()
@@ -264,7 +324,9 @@ impl EditHistory {
             // The host's change moved the lines the folds were said on, and
             // the items the links are on.
             (step.before.folds, step.after_folds) = (None, None);
-            step.before.links = Links::default();
+            // The text is no longer one saved, nor the change recorded.
+            step.before.view = ViewState::default();
+            step.record = Record::default();
             let (start, end) = step.before.selection;
             step.before.selection = (
                 rebase::mapped(&before, &rebased, start),
@@ -279,19 +341,20 @@ impl EditHistory {
     /// The state before the newest step, given the current text.
     #[cfg(test)]
     pub(super) fn undo(&mut self, current: String) -> Option<Snapshot> {
-        self.undo_with(current, Links::default())
+        self.undo_with(current, ViewState::default())
     }
 
-    /// [`Self::undo`] from `current` with the links `links`.
-    pub(super) fn undo_with(&mut self, current: String, links: Links) -> Option<Snapshot> {
+    /// [`Self::undo`] from `current`, whose view keeps `view`.
+    pub(super) fn undo_with(&mut self, current: String, view: ViewState) -> Option<Snapshot> {
         let step = self.undo.pop()?;
         self.redo.push(Step {
+            record: step.record.reversed(&current),
             before: Snapshot {
                 value: current,
                 selection: step.after,
                 language: step.after_language,
                 folds: step.after_folds,
-                links,
+                view,
             },
             after: step.before.selection,
             after_language: step.before.language,
@@ -299,6 +362,21 @@ impl EditHistory {
         });
         self.open = None;
         Some(step.before)
+    }
+
+    /// The host text a step's text `text` was saved as, newest first: an
+    /// edit giving back a text saved before (an item pasted back where it
+    /// was cut) saves as that text was saved, the host's text as it was.
+    /// Only steps with a saved text, and of its length, are compared.
+    pub(super) fn saved_as(&self, text: &str) -> Option<Arc<str>> {
+        self.undo
+            .iter()
+            .chain(&self.redo)
+            .rev()
+            .map(|step| &step.before)
+            .filter(|before| before.view.saved_as.is_some() && before.value.len() == text.len())
+            .find(|before| before.value == text)
+            .and_then(|before| before.view.saved_as.clone())
     }
 
     /// The state the newest step returns to, without moving it (see
@@ -311,6 +389,14 @@ impl EditHistory {
     /// [`Self::redo`]).
     pub(super) fn next_redo(&self) -> Option<&Snapshot> {
         self.redo.last().map(|step| &step.before)
+    }
+
+    /// What the next undo (or redo, with `redo`) does to the text, when
+    /// its step recorded it.
+    #[cfg(feature = "protect")]
+    pub(super) fn next_change(&self, redo: bool) -> Option<&super::edit::Change> {
+        let steps = if redo { &self.redo } else { &self.undo };
+        steps.last()?.record.change()
     }
 
     /// Whether there is a step to undo.
@@ -333,19 +419,20 @@ impl EditHistory {
     /// The state after the newest undone step, given the current text.
     #[cfg(test)]
     pub(super) fn redo(&mut self, current: String) -> Option<Snapshot> {
-        self.redo_with(current, Links::default())
+        self.redo_with(current, ViewState::default())
     }
 
-    /// [`Self::redo`] from `current` with the links `links`.
-    pub(super) fn redo_with(&mut self, current: String, links: Links) -> Option<Snapshot> {
+    /// [`Self::redo`] from `current`, whose view keeps `view`.
+    pub(super) fn redo_with(&mut self, current: String, view: ViewState) -> Option<Snapshot> {
         let step = self.redo.pop()?;
         self.undo.push(Step {
+            record: step.record.reversed(&current),
             before: Snapshot {
                 value: current,
                 selection: step.after,
                 language: step.after_language,
                 folds: step.after_folds,
-                links,
+                view,
             },
             after: step.before.selection,
             after_language: step.before.language,
@@ -366,7 +453,7 @@ mod tests {
             selection: (caret, caret),
             language: None,
             folds: None,
-            links: Links::default(),
+            view: ViewState::default(),
         }
     }
 
@@ -409,7 +496,7 @@ mod tests {
             selection: (from, to),
             language: None,
             folds: None,
-            links: Links::default(),
+            view: ViewState::default(),
         };
         history.record_input(
             composing("name: に", 6, 7),
@@ -528,7 +615,7 @@ mod tests {
             selection: (0, 9),
             language: None,
             folds: None,
-            links: Links::default(),
+            view: ViewState::default(),
         };
         history.record_action(before.clone(), (0, 13));
         assert_eq!(history.undo("  a: 1\n  b: 2".into()), Some(before));
@@ -539,7 +626,7 @@ mod tests {
                 selection: (0, 13),
                 language: None,
                 folds: None,
-                links: Links::default(),
+                view: ViewState::default(),
             })
         );
     }
@@ -554,7 +641,7 @@ mod tests {
             selection: (0, 0),
             language: Some(Language::YAML),
             folds: None,
-            links: Links::default(),
+            view: ViewState::default(),
         };
         history.record_switch(yaml.clone(), (4, 4), Language::JSON);
         assert_eq!(history.undo("{\"a\": 1}\n".into()), Some(yaml));
@@ -616,5 +703,58 @@ mod tests {
         let huge = "y".repeat(MAX_BYTES + 1);
         history.record_action(at(&huge, 0), (0, 0));
         assert_eq!(history.undo.len(), 1);
+    }
+
+    /// An undo and a redo of a step typed in two edits make exactly the
+    /// change the step recorded, undone and made again: of two alike
+    /// lines, the one typed into is the one changed back (a diff of the
+    /// texts would take the first).
+    #[cfg(feature = "protect")]
+    #[test]
+    fn undo_and_redo_make_the_change_their_step_recorded() {
+        use super::super::edit::Edit;
+        let typed = |before: &str, at: usize, text: &str| {
+            let after = format!("{}{text}{}", &before[..at], &before[at..]);
+            let caret = at + text.len();
+            Edit::input(
+                before.into(),
+                (at, at),
+                after,
+                (caret, caret),
+                "insertText".into(),
+                0.0,
+            )
+        };
+        let mut history = EditHistory::default();
+        // `a\na\n`: an `a` typed after the second line's `a`, twice.
+        let first = typed("a\na\n", 3, "a");
+        let second = typed("a\naa\n", 4, "a");
+        for (edit, time) in [(&first, 0.0), (&second, 100.0)] {
+            let caret = edit.caret();
+            history.record_input_as(
+                at(&edit.before, caret - 1),
+                &edit.text,
+                (caret, caret),
+                ("insertText", time),
+                Record::undoing(edit),
+            );
+        }
+        assert_eq!(history.undo.len(), 1);
+        let undo = history
+            .next_change(false)
+            .expect("the undo's change")
+            .clone();
+        assert_eq!(undo.apply("a\naaa\n").as_deref(), Some("a\na\n"));
+        assert_eq!(undo.edits().collect::<Vec<_>>(), vec![(3..5, "")]);
+        history.undo("a\naaa\n".into());
+        let redo = history
+            .next_change(true)
+            .expect("the redo's change")
+            .clone();
+        assert_eq!(redo.edits().collect::<Vec<_>>(), vec![(3..3, "aa")]);
+        // A step the host's change rebased has no record: read off the texts.
+        history.redo("a\na\n".into());
+        history.rebase("a\naaa\n", "b\na\naaa\n");
+        assert!(history.next_change(false).is_none());
     }
 }

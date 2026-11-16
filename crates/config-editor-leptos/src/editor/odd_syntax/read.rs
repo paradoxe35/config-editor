@@ -75,10 +75,6 @@ fn columns(line: &str, at: usize) -> usize {
     line[..at].chars().count() + 1
 }
 
-fn escape(key: &str) -> String {
-    key.replace('~', "~0").replace('/', "~1")
-}
-
 pub(super) fn read(source: &str) -> Result<Read, ParseError> {
     let lines: Vec<Line<'_>> = source
         .split('\n')
@@ -171,7 +167,7 @@ impl Reader<'_> {
                         indent + rest[..key_end].chars().count() + 1,
                     ));
                 };
-                let child = format!("{pointer}/{}", escape(&key));
+                let child = format!("{pointer}/{}", crate::editor::language::pointer_key(&key));
                 let span = self.span(self.at, indent, indent + key_end);
                 self.keys.insert(child.clone(), span);
                 if map.contains_key(&key) {
@@ -325,7 +321,10 @@ impl Inline<'_> {
                         return Err(self.fail("expected `:=`"));
                     }
                     self.at += 2;
-                    let child = self.value(&format!("{pointer}/{}", escape(&key)))?;
+                    let child = self.value(&format!(
+                        "{pointer}/{}",
+                        crate::editor::language::pointer_key(&key)
+                    ))?;
                     map.insert(key, child);
                     self.skip_space();
                     match self.text[self.at..].chars().next() {

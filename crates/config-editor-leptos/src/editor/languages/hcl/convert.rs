@@ -103,7 +103,7 @@ pub(super) fn changed_form(previous: &str, patched: &str) -> Option<String> {
         .iter()
         .find(|path| blocks_after.contains(*path))
         .or_else(|| blocks_before.iter().find(|path| attributes_after.contains(*path)))?;
-    Some(switched.iter().map(|segment| format!("/{}", segment.replace('~', "~0").replace('/', "~1"))).collect())
+    Some(switched.iter().map(|segment| format!("/{}", crate::editor::language::pointer_key(segment))).collect())
 }
 
 /// The blocks of `source` opened and closed on their header's line, with
@@ -180,7 +180,7 @@ pub(super) fn labelled_blocks(source: &str) -> LabelledBlocks {
 
 /// The JSON pointer of `path`.
 fn pointer_of(path: &[String]) -> String {
-    path.iter().map(|segment| format!("/{}", segment.replace('~', "~0").replace('/', "~1"))).collect()
+    path.iter().map(|segment| format!("/{}", crate::editor::language::pointer_key(segment))).collect()
 }
 
 pub(super) fn hcl_body(

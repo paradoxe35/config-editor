@@ -5,12 +5,10 @@
 //! separators.
 
 use config_editor_leptos::language::{
-    CompletionContext, ConfigLanguage, InsertContext, LanguageConfig, LanguageInfo, ParseError,
-    SchemaPathSegment,
+    CompletionContext, ConfigLanguage, LanguageConfig, LanguageInfo, ParseError,
 };
 use config_editor_leptos::{Language, Schema, TextPosition};
 use serde_json::{Map, Value};
-use std::collections::HashSet;
 
 struct Flat {
     label: &'static str,
@@ -56,25 +54,6 @@ impl ConfigLanguage for Flat {
 
     fn completion_context(&self, source: &str, cursor: usize) -> CompletionContext {
         self.config().flat_completion_context(source, cursor)
-    }
-
-    fn existing_keys(
-        &self,
-        source: &str,
-        cursor_byte: usize,
-        path: &[SchemaPathSegment],
-    ) -> Option<HashSet<String>> {
-        self.config().flat_existing_keys(source, cursor_byte, path)
-    }
-
-    fn property_insert(
-        &self,
-        key: &str,
-        _property: &Value,
-        _root: &Value,
-        _context: &InsertContext<'_>,
-    ) -> Option<(String, usize)> {
-        self.config().flat_property_insert(key)
     }
 
     fn format_value(&self, value: &Value) -> String {

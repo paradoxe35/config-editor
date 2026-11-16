@@ -3,6 +3,8 @@
 
 use leptos::prelude::*;
 
+use super::bridge::links::Clipboard;
+
 use super::paths::{
     FieldPath, TextPosition, TextRange, field_range, lines, offset_of, path_at, units_at,
 };
@@ -44,6 +46,10 @@ pub struct EditorHandle {
     /// The placeholders of every editor of a `ConfigDocuments` view, taken
     /// when the editor mounts (see `protect::foreign`).
     foreign: StoredValue<Option<Signal<Arc<Vec<DocumentPlaceholders>>>>>,
+    /// The clipboard records the editor mounting next shares (a
+    /// `ConfigDocuments` view's editors of one host language), taken when
+    /// it mounts.
+    clipboard: StoredValue<Option<StoredValue<Clipboard>>>,
 }
 
 impl Default for EditorHandle {
@@ -69,6 +75,7 @@ impl EditorHandle {
             show: StoredValue::new(None),
             opening: StoredValue::new(None),
             foreign: StoredValue::new(None),
+            clipboard: StoredValue::new(None),
         }
     }
 
@@ -102,6 +109,18 @@ impl EditorHandle {
     /// mounting view owns).
     pub(crate) fn share_placeholders(self, placeholders: Signal<Arc<Vec<DocumentPlaceholders>>>) {
         let _ = self.foreign.try_set_value(Some(placeholders));
+    }
+
+    /// The editor mounting next with this handle keeps its copies' records
+    /// in `clipboard`, which other editors read and write too: an item
+    /// copied in one pasted in another keeps its source.
+    pub(crate) fn share_clipboard(self, clipboard: StoredValue<Clipboard>) {
+        let _ = self.clipboard.try_set_value(Some(clipboard));
+    }
+
+    /// The clipboard to share, once.
+    pub(super) fn take_clipboard(self) -> Option<StoredValue<Clipboard>> {
+        self.clipboard.try_update_value(std::mem::take).flatten()
     }
 
     /// The placeholders of a documents view's editors, once.
@@ -175,11 +194,21 @@ impl EditorHandle {
     /// `on_change` and `on_save` get.
     pub fn value(&self) -> Option<String> {
         let state = self.editor()?;
-        let text = state.host_document()?;
-        if state.changes_held() {
-            return None;
-        }
+        let text = state.to_host(super::sync::Route::Value).ok()?;
         Some(state.sync().line_endings.restore(text))
+    }
+
+    /// The revision of the text `on_change` sent last, while the host has
+    /// not handed it back (with the `echoes` prop): read it in `on_change`
+    /// and pass it back as the `value_revision` prop with that text, for an
+    /// exact echo match. `None` before the editor mounts, without `echoes`,
+    /// and once the host has handed back every text sent.
+    pub fn sent_revision(&self) -> Option<u64> {
+        self.editor()?
+            .sync()
+            .echoes
+            .try_with_value(super::sync::Echoes::latest_revision)
+            .flatten()
     }
 
     /// The unified diff (`diff -u`) of the baseline against
@@ -191,7 +220,7 @@ impl EditorHandle {
     #[cfg(feature = "diff")]
     pub fn unified_diff(&self, context: usize) -> Option<String> {
         let state = self.editor()?;
-        let current = state.host_document()?;
+        let current = state.to_host(super::sync::Route::UnifiedDiff).ok()?;
         let baseline = state.editing().baseline.try_get_untracked()?;
         Some(super::changes::unified_diff(&baseline, &current, context))
     }

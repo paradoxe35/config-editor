@@ -44,7 +44,7 @@ pub(super) fn shared_of(source: &str) -> (HashMap<String, String>, Vec<Shared>) 
             let pointer = segments
                 .iter()
                 .map(|segment| match segment {
-                    SchemaPathSegment::Key(key) => format!("/{}", key.replace('~', "~0").replace('/', "~1")),
+                    SchemaPathSegment::Key(key) => format!("/{}", crate::editor::language::pointer_key(key)),
                     SchemaPathSegment::ArrayItem(index) => format!("/{index}"),
                 })
                 .collect::<String>();
@@ -64,13 +64,13 @@ pub(super) fn shared_of(source: &str) -> (HashMap<String, String>, Vec<Shared>) 
 struct Sharing {
     anchors: HashMap<String, String>,
     aliases: Vec<Shared>,
-    value: Option<Value>,
+    value: std::rc::Rc<Result<Value, ParseError>>,
 }
 
 fn sharing(source: &str) -> std::rc::Rc<Sharing> {
     crate::editor::paths::batch_cached(source, || {
         let (anchors, aliases) = shared_of(source);
-        Sharing { anchors, aliases, value: YamlBehavior.parse(source).ok() }
+        Sharing { anchors, aliases, value: crate::editor::parse_cache::parsed(&YamlBehavior, source) }
     })
 }
 
@@ -93,10 +93,10 @@ pub(super) fn alias_key_span(source: &str, pointer: &str) -> Option<Span> {
         return None;
     }
     let (map, key) = pointer.rsplit_once('/')?;
-    let key = key.replace("~1", "/").replace("~0", "~");
+    let key = crate::editor::language::unescaped_key(key);
     let sharing = sharing(source);
     let Sharing { anchors, aliases, value } = &*sharing;
-    let value = value.as_ref()?;
+    let value = value.as_ref().as_ref().ok()?;
     let alias = aliases.iter().find(|alias| {
         let in_key = source[alias.end..].trim_start_matches(' ').starts_with(':');
         in_key
@@ -118,7 +118,7 @@ pub(super) fn written_at(source: &str, pointer: &str) -> Option<String> {
     }
     let sharing = sharing(source);
     let Sharing { anchors, aliases, value } = &*sharing;
-    let value = value.as_ref()?;
+    let value = value.as_ref().as_ref().ok()?;
     let mut at = pointer.to_string();
     let mut moved = false;
     // Each alias or merge passed on the way, at most once; of several
@@ -180,7 +180,7 @@ pub(super) fn detach_shared(previous: &str, old: &Value, new: &Value) -> Option<
             return None;
         };
         let entry = |key: &String, value: &Value| {
-            let pointer = format!("{anchor}/{}", key.replace('~', "~0").replace('/', "~1"));
+            let pointer = format!("{anchor}/{}", crate::editor::language::pointer_key(key));
             format!("{}: {}", yaml_key(key), written_value(previous, &pointer, value))
         };
         let lone = lone_merge(&previous[line_start..line_end], &alias.name);
@@ -367,16 +367,7 @@ fn merge_layout(source: &str, line_start: usize) -> (String, usize) {
 
 /// Whether byte `at` of `code` sits inside a quoted string.
 pub(super) fn in_quotes(code: &str, at: usize) -> bool {
-    let mut quote = None;
-    for character in code[..at].chars() {
-        match quote {
-            Some(open) if character == open => quote = None,
-            Some(_) => {}
-            None if matches!(character, '"' | '\'') => quote = Some(character),
-            None => {}
-        }
-    }
-    quote.is_some()
+    super::lexical::read(code, at, super::lexical::Comments::AsCode, |_, _| false).0.quote.is_some()
 }
 
 /// The keys written at column `indent` in the block holding the line at

@@ -1,15 +1,14 @@
 //! The problems shown: the editor's own (syntax, schema, conversion), the
 //! host's (see `host_diagnostics`), checked on the text after each pause in
 //! typing and moved with the lines edits shift meanwhile; and the problem
-//! F8 moved to.
+//! F8 moved to (its tip is a popup's, see `popups`).
 
 use std::sync::Arc;
 
 use leptos::prelude::*;
 
 use super::diagnostics::{
-    Diagnostic, SchemaBundle, capped, host_problems, shift_diagnostics, validate_keyed,
-    with_host_problems,
+    Diagnostic, capped, host_problems, shift_diagnostics, validate_keyed, with_host_problems,
 };
 use super::edit_as::{EditAsProblem, EditAsText};
 use super::host_diagnostics::{
@@ -17,17 +16,12 @@ use super::host_diagnostics::{
     place as place_host,
 };
 use super::languages::Language;
-use super::problem_hit::{column_at_cell, covering};
 use super::problem_walk::{Stop, stops};
 use super::protect::ProtectState;
+use super::schema::SchemaBundle;
 use super::state::EditorState;
 use super::sync::SyncState;
 use crate::EditorStrings;
-use crate::reactive::later;
-
-/// How long the problem tip stays after the pointer leaves its underline,
-/// in milliseconds: time to reach it.
-const TIP_GRACE_MS: i32 = 200;
 
 /// The problems part of the editor state.
 #[derive(Clone, Copy)]
@@ -48,25 +42,9 @@ pub(super) struct ProblemsState {
     /// The problem F8 went to last and the caret it left: from there the
     /// next press goes on (several problems at one place each get a turn).
     pub(super) walked: RwSignal<Option<(Diagnostic, usize)>>,
-    /// The place under the pointer (or the focused underline's start),
-    /// `(line, column)`: the messages of every problem covering it show in
-    /// the problem tip (see `components::diagnostics`).
-    pub(super) hovered: RwSignal<Option<(usize, usize)>>,
-    /// The pointer is over the problem tip (so leaving the underline for it
-    /// keeps it open).
-    pub(super) tip_entered: StoredValue<bool>,
-    /// Bumped on each hover change, so a hide scheduled before it never lands.
-    pub(super) tip_token: StoredValue<u64>,
-    /// A hide is scheduled (the pointer left the problems): moving on
-    /// does not put it off.
-    pub(super) tip_leaving: StoredValue<bool>,
     /// The underline cap left some problems' lines without an underline
     /// (set by the underlines, said in the footer).
     pub(super) underlines_cut: RwSignal<bool>,
-    /// The problem tip's element (a second `Ctrl+K Ctrl+I` focuses it).
-    pub(super) tip_ref: NodeRef<leptos::html::Div>,
-    /// The focus is in the problem tip: it is a dialog then.
-    pub(super) tip_focused: RwSignal<bool>,
 }
 
 /// What the problems are found from.
@@ -104,10 +82,9 @@ impl ProblemsState {
         } = sources;
         let diagnosed_text = RwSignal::new(shown);
         let edit_language = sync.edit_language;
-        let host_text = sync.host_text;
         let (load_problems, conversion_problems) = (sync.load_problems, sync.conversion_problems);
         let line_endings = sync.line_endings;
-        let (synced, synced_edit) = (sync.synced, sync.synced_edit);
+        let (synced, session) = (sync.synced, sync.session);
         let host_schema = schema.clone();
         let checked = Memo::new(move |_| {
             let enabled = enabled.get();
@@ -143,7 +120,9 @@ impl ProblemsState {
                             .collect()
                     };
                     found.extend(protect.placeholder_pattern_problem(strings));
-                    found.extend(diagnosed_text.with(|text| protect.held_problems(text, strings)));
+                    found.extend(
+                        diagnosed_text.with(|text| protect.held_problems(behavior, text, strings)),
+                    );
                     found.extend(load_problems.with(worded));
                     found.extend(conversion_problems.with(worded));
                     let marking = schema
@@ -187,9 +166,10 @@ impl ProblemsState {
                 return None;
             }
             let accepted = protect.accepted_tokens();
-            let view = synced_edit.get_value();
+            let view = session.with_value(|session| session.view.to_string());
             strings.with(|strings| {
-                host_text.with_value(|host| {
+                session.with_value(|session| {
+                    let host: &str = &session.host;
                     host_problems(
                         host,
                         host_language.behavior(),
@@ -249,7 +229,8 @@ impl ProblemsState {
                             // The host's text matching the text checked (it
                             // follows every conversion back); the fields its
                             // ranges start in kept while it stays the same.
-                            let found = host_text.with_value(|host| {
+                            let found = session.with_value(|session| {
+                                let host: &str = &session.host;
                                 HostTargets::cached(
                                     host_targets,
                                     host_language.behavior(),
@@ -281,13 +262,7 @@ impl ProblemsState {
             walk,
             current: RwSignal::new(None),
             walked: RwSignal::new(None),
-            hovered: RwSignal::new(None),
-            tip_entered: StoredValue::new(false),
-            tip_token: StoredValue::new(0),
-            tip_leaving: StoredValue::new(false),
             underlines_cut: RwSignal::new(false),
-            tip_ref: NodeRef::new(),
-            tip_focused: RwSignal::new(false),
         }
     }
 }
@@ -304,105 +279,5 @@ impl EditorState {
             self.focus_at(line, column);
         }
         self.problems().current.set(position);
-    }
-
-    /// Hides the message F8 showed, and the one under the pointer.
-    pub(super) fn hide_shown_problem(&self) {
-        if self.problems().current.get_untracked().is_some() {
-            // The tip had the focus: the text takes it back, not the page.
-            let focused = self.problems().tip_focused.get_untracked();
-            self.problems().current.set(None);
-            if focused && let Some(element) = self.textarea() {
-                let _ = element.focus_in_place();
-            }
-        }
-        self.hide_problem_tip();
-    }
-
-    /// The focus moved from inside the editor (the text, the tip, a
-    /// control) `to` another element (or out of the window, `None`): out
-    /// of the editor, the tip closes, as the hover card does.
-    pub(super) fn tip_follows_focus(&self, to: Option<&web_sys::EventTarget>) {
-        use wasm_bindgen::JsCast;
-        let inside = self.view().root_ref.get_untracked().is_some_and(|root| {
-            to.and_then(|to| to.dyn_ref::<web_sys::Node>())
-                .is_some_and(|to| root.contains(Some(to)))
-        });
-        if !inside {
-            self.problems().tip_focused.set(false);
-            self.hide_shown_problem();
-        }
-    }
-
-    /// Shows the problems covering one-based `place` (under the pointer, or
-    /// a focused underline's start).
-    pub(super) fn hover_problem(&self, place: (usize, usize)) {
-        let problems = self.problems();
-        problems.tip_token.update_value(|token| *token += 1);
-        problems.tip_leaving.set_value(false);
-        if problems.hovered.get_untracked() != Some(place) {
-            problems.hovered.set(Some(place));
-        }
-    }
-
-    /// The pointer is over rendered cell `cell` of zero-based `line`: the
-    /// tip shows the problems covering the character there, or closes (a
-    /// moment later) where none does.
-    pub(super) fn point_at_problems(&self, line: usize, cell: usize) {
-        match self.problem_place_at(line, cell) {
-            Some(place) => self.hover_problem(place),
-            None if self.problems().hovered.with_untracked(Option::is_some) => {
-                self.leave_problem();
-            }
-            None => {}
-        }
-    }
-
-    /// The place (one-based line, column) of rendered cell `cell` of
-    /// zero-based `line` when problems cover the character there.
-    pub(super) fn problem_place_at(&self, line: usize, cell: usize) -> Option<(usize, usize)> {
-        self.doc().text.with_untracked(|text| {
-            let line_text = text.split('\n').nth(line).unwrap_or("");
-            let place = (line + 1, column_at_cell(line_text, cell));
-            self.problems().diagnostics.with_untracked(|problems| {
-                covering(problems, place.0, place.1, line_text)
-                    .next()
-                    .is_some()
-                    .then_some(place)
-            })
-        })
-    }
-
-    /// The pointer left an underline: its tip closes a moment later, unless
-    /// the pointer reached the tip (to scroll it or click a docs link).
-    pub(super) fn leave_problem(&self) {
-        let problems = self.problems();
-        if problems.tip_leaving.get_value() {
-            return;
-        }
-        problems.tip_leaving.set_value(true);
-        problems.tip_token.update_value(|token| *token += 1);
-        let token = problems.tip_token.get_value();
-        later::after(*self, TIP_GRACE_MS, move |state| {
-            let problems = state.problems();
-            if problems.tip_token.get_value() != token {
-                return;
-            }
-            problems.tip_leaving.set_value(false);
-            if !problems.tip_entered.get_value() {
-                state.hide_problem_tip();
-            }
-        });
-    }
-
-    /// Hides the tip of the underline under the pointer.
-    pub(super) fn hide_problem_tip(&self) {
-        let problems = self.problems();
-        problems.tip_token.update_value(|token| *token += 1);
-        problems.tip_entered.set_value(false);
-        problems.tip_leaving.set_value(false);
-        if problems.hovered.with_untracked(Option::is_some) {
-            problems.hovered.set(None);
-        }
     }
 }

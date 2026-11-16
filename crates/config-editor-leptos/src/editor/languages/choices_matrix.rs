@@ -9,7 +9,7 @@
 //! `|` marks the caret.
 
 use super::super::completion::{ChoiceHover, ValueDoc, completions, key_hover};
-use super::super::diagnostics::{SchemaBundle, build_schema};
+use super::super::schema::{SchemaBundle, build_schema};
 use super::Language;
 
 fn help() -> SchemaBundle {

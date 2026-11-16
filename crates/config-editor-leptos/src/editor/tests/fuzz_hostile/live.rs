@@ -21,13 +21,12 @@ use leptos::prelude::*;
 
 use super::runner::{Cap, Case, Failure, Rng, cases, run};
 use super::texts::{document, language, literal, shown};
-use crate::editor::diagnostics::{SchemaBundle, build_schema};
 use crate::editor::edit::Edit;
 use crate::editor::keyboard::utf16_to_byte_index;
 use crate::editor::keys::enter::{Pressed, enter_at};
-use crate::editor::line_endings::editor_text;
 use crate::editor::paths::{FieldPath, TextPosition, TextRange};
 use crate::editor::protect::ProtectInit;
+use crate::editor::schema::{SchemaBundle, build_schema};
 use crate::editor::state::{EditorState, Init};
 use crate::editor::sync::take_host_value;
 use crate::{EditorSettings, EditorTheme};
@@ -262,6 +261,7 @@ fn mount(
         },
         on_save: None,
         on_baseline_conflict: None,
+        clipboard: None,
     })
     .0
 }
@@ -440,8 +440,8 @@ pub(super) fn check(case: &LiveCase) -> Result<(), Failure> {
                     1 => document(&mut Rng::new(u64::from(*seed)), language(name)),
                     _ => before.clone(),
                 };
-                state.sync().line_endings.note(&value);
-                take_host_value(state, editor_text(value));
+                let text = state.sync().line_endings.received(value);
+                take_host_value(state, text);
                 // The host's ranges are placed again in a new text.
                 ranges_placed |= state.doc().text.get_untracked() != before;
             }
@@ -528,7 +528,7 @@ pub(super) fn check(case: &LiveCase) -> Result<(), Failure> {
             state.strings_untracked(|strings| {
                 state
                     .protect()
-                    .held_problems(&after, strings)
+                    .held_problems(state.behavior(), &after, strings)
                     .into_iter()
                     .map(|problem| problem.message)
                     .collect()

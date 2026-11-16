@@ -259,6 +259,7 @@ dependencies = [
  "regex-lite",
  "serde",
  "serde_json",
+ "text-size",
  "toml",
  "wasm-bindgen",
  "web-sys",
@@ -1978,6 +1979,12 @@ dependencies = [
  "wasm-bindgen",
  "web-sys",
 ]
+
+[[package]]
+name = "text-size"
+version = "1.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f18aa187839b2bdb1ad2fa35ead8c4c2976b64e4363c386d45ac0f7ee85c9233"
 
 [[package]]
 name = "thiserror"

@@ -3,14 +3,10 @@
 //! [`LanguageConfig`] alone. A language with such syntax delegates its
 //! completion and hover hooks to these methods instead of writing them.
 
-use std::collections::HashSet;
-
 use serde_json::Value;
 
 use super::keyboard::utf16_to_byte_index;
-use super::language::{
-    CompletionContext, LanguageConfig, SchemaPathSegment, Span, pointer_index, pointer_segments,
-};
+use super::language::{CompletionContext, LanguageConfig, Span, pointer_index, pointer_segments};
 
 impl LanguageConfig {
     /// The separator a flat language writes after a new key: its
@@ -105,49 +101,7 @@ impl LanguageConfig {
         }
     }
 
-    /// [`ConfigLanguage::existing_keys`](super::language::ConfigLanguage::existing_keys)
-    /// for a flat language: the keys written before a separator on every
-    /// line but the caret's (`cursor_byte` is a byte index), at the top
-    /// level only.
-    ///
-    /// ```
-    /// use config_editor_leptos::language::LanguageConfig;
-    /// let env = LanguageConfig { separators: &["="], line_comments: &["#"], ..LanguageConfig::default() };
-    /// let keys = env.flat_existing_keys("# A=1\nPORT=1\nLO", 15, &[]).unwrap();
-    /// assert_eq!(keys.into_iter().collect::<Vec<_>>(), ["PORT"]);
-    /// ```
-    pub fn flat_existing_keys(
-        &self,
-        source: &str,
-        cursor_byte: usize,
-        path: &[SchemaPathSegment],
-    ) -> Option<HashSet<String>> {
-        if !path.is_empty() || self.separators.is_empty() {
-            return None;
-        }
-        let cursor_byte = cursor_byte.min(source.len());
-        let caret_line = source[..cursor_byte].matches('\n').count();
-        Some(
-            source
-                .split('\n')
-                .enumerate()
-                .filter(|(index, _)| *index != caret_line)
-                .filter_map(|(_, line)| {
-                    let code = line.trim_start();
-                    if self.is_comment_line(code) {
-                        return None;
-                    }
-                    let (at, _) = self.first_separator(code)?;
-                    let key = code[..at].trim();
-                    // `export KEY=…` names `KEY`.
-                    let key = key.rsplit(char::is_whitespace).next().unwrap_or(key);
-                    (!key.is_empty()).then(|| key.to_string())
-                })
-                .collect(),
-        )
-    }
-
-    /// [`ConfigLanguage::property_insert`](super::language::ConfigLanguage::property_insert)
+    /// [`ConfigLanguage::write_insert`](super::language::ConfigLanguage::write_insert)
     /// for a flat language: the key and [`flat_separator`](Self::flat_separator),
     /// the caret after them. `None` without separators.
     ///
@@ -224,7 +178,7 @@ impl LanguageConfig {
         }
     }
 
-    /// [`ConfigLanguage::format_value_like`](super::language::ConfigLanguage::format_value_like)
+    /// [`SaveLayout::format_value_like`](super::language::SaveLayout::format_value_like)
     /// for a language known by its syntax alone: `formatted` (the value as
     /// the language writes it), or a string in the quotes `written` is in
     /// (`'two'`) when `formatted` is not and those quotes hold it as it is
@@ -514,6 +468,7 @@ mod tests {
         item_separator: None,
         item_marker: None,
         written_separator: None,
+        traits: crate::editor::language::LanguageTraits::NONE,
     };
 
     const COLON: LanguageConfig = LanguageConfig {
@@ -565,21 +520,7 @@ mod tests {
         let none = LanguageConfig::default();
         assert!(none.flat_completion_context("PO", 2).no_properties);
         assert_eq!(none.flat_property_insert("PO"), None);
-        assert_eq!(none.flat_existing_keys("A=1\n", 0, &[]), None);
         assert_eq!(none.flat_hover_key("A=1", 0), None);
-    }
-
-    #[test]
-    fn existing_keys_skip_the_caret_line_and_comments() {
-        let source = "A=1\n# B=2\nexport C=3\nD\nE=";
-        let keys = ENV.flat_existing_keys(source, source.len(), &[]).unwrap();
-        let mut keys: Vec<_> = keys.into_iter().collect();
-        keys.sort();
-        assert_eq!(keys, ["A", "C"]);
-        assert_eq!(
-            ENV.flat_existing_keys(source, 0, &[SchemaPathSegment::Key("A".into())]),
-            None
-        );
     }
 
     #[test]

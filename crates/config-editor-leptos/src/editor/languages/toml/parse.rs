@@ -59,17 +59,6 @@ fn toml_to_json(value: &toml::Value) -> Value {
     }
 }
 
-pub(super) fn span_between(source: &str, start: usize, end: usize) -> (usize, usize, usize) {
-    let (line, column) = line_column(source, start);
-    (
-        line,
-        column,
-        column + source[start..end.min(source.len())].chars().count(),
-    )
-}
-
-/// Splits a line into code and trailing comment. A `#` starts a comment only
-/// at the line start or after whitespace; `#` inside strings stays code.
 /// Where `delimiter` closes a string in `text` (not escaped, for `"""`).
 pub(super) fn closing_delimiter(text: &str, delimiter: &str) -> Option<usize> {
     let mut from = 0;
@@ -83,55 +72,9 @@ pub(super) fn closing_delimiter(text: &str, delimiter: &str) -> Option<usize> {
     None
 }
 
+/// `line` split into its code and its comment (see `lexical`).
 pub(super) fn split_toml_comment(line: &str) -> (&str, Option<&str>) {
-    let mut quote: Option<char> = None;
-    let mut escaped = false;
-    // The end of a triple-quoted string closed on this line.
-    let mut skip_until = 0;
-    for (index, character) in line.char_indices() {
-        if index < skip_until {
-            continue;
-        }
-        if let Some(active) = quote {
-            if active == '"' && escaped {
-                escaped = false;
-            } else if active == '"' && character == '\\' {
-                escaped = true;
-            } else if character == active {
-                if active == '\'' && line[index..].starts_with("''") {
-                    continue;
-                }
-                quote = None;
-            }
-        } else if matches!(character, '"' | '\'') {
-            // A run of 3+ quotes opens a multi-line string even if unterminated here.
-            let run = line[index..]
-                .chars()
-                .take_while(|next| *next == character)
-                .count();
-            if run >= 3 {
-                let delimiter = &line[index..index + 3];
-                let Some(close) = closing_delimiter(&line[index + 3..], delimiter) else {
-                    return (line, None);
-                };
-                // Up to two more quotes end the string's own text.
-                let end = index + 3 + close + 3;
-                let extra = line[end..]
-                    .chars()
-                    .take_while(|next| *next == character)
-                    .count()
-                    .min(2);
-                skip_until = end + extra;
-                continue;
-            }
-            quote = Some(character);
-        } else if character == '#' {
-            // Outside a string a `#` starts a comment, right after a
-            // value too (`n = 1#c` reads `1`).
-            return (&line[..index], Some(&line[index..]));
-        }
-    }
-    (line, None)
+    super::lexical::split_comment(line)
 }
 
 /// A table-addressing header: `[table]`, `[[array]]`, or dotted `a.b.c`.
@@ -251,7 +194,6 @@ pub(super) fn value_span_in_line(line: &str) -> Option<(usize, usize)> {
     let end = start + trimmed.trim_end_matches([' ', '\t']).len();
     (start < end).then_some((start, end))
 }
-
 
 /// The table path in effect after each line, in one pass: `[[a.b]]` adds the
 /// entry's index, and a later `[a.b.c]` belongs to the latest `a.b` entry.
@@ -494,7 +436,6 @@ pub(super) fn inline_entries_on(code: &str, base: &[String]) -> Vec<InlineEntry>
     entries
 }
 
-
 /// The span of the value from `start` to `end` of a line's `code` (at
 /// `offset`): a container is marked at its opening bracket.
 pub(super) fn value_span_at(source: &str, code: &str, offset: usize, start: usize, end: usize) -> (usize, usize, usize) {
@@ -524,17 +465,6 @@ fn multi_line_string_end(source: &str, start: usize) -> Option<usize> {
         }
         at = found + 1;
     }
-}
-
-pub(super) fn first_line_span(source: &str) -> Option<(usize, usize, usize)> {
-    source.lines().enumerate().find_map(|(index, line)| {
-        let start = line.find(|character: char| !character.is_whitespace())?;
-        Some((
-            index + 1,
-            line[..start].chars().count() + 1,
-            line.chars().count() + 1,
-        ))
-    })
 }
 
 /// Where the last segment of a dotted key starts (after its last `.` outside

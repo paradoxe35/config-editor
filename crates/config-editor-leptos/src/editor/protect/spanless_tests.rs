@@ -337,7 +337,7 @@ fn a_save_waits_for_a_text_that_parses_without_spans() {
         [TEXT],
         "only the valid text was sent"
     );
-    let tip = state.protect().tip.get_untracked().map(|tip| tip.message);
+    let tip = state.protect().tip().map(|tip| tip.message);
     assert!(
         tip.as_deref()
             .is_some_and(|tip| tip.contains("/PORT") || tip.contains("/ID")),

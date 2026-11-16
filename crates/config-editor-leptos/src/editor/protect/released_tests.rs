@@ -43,6 +43,7 @@ fn mount(text: &str, host: &Host) -> EditorState {
         },
         on_save: None,
         on_baseline_conflict: None,
+        clipboard: None,
     })
     .0
 }

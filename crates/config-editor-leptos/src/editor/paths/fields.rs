@@ -10,7 +10,7 @@ pub(crate) fn fields(document: &Value) -> Vec<(String, bool)> {
         let mut visit = |segment: &str, child: &Value, found: &mut Vec<(String, bool)>| {
             let length = pointer.len();
             pointer.push('/');
-            pointer.push_str(&segment.replace('~', "~0").replace('/', "~1"));
+            pointer.push_str(&crate::editor::language::pointer_key(segment));
             found.push((pointer.clone(), !(child.is_object() || child.is_array())));
             walk(child, pointer, found);
             pointer.truncate(length);

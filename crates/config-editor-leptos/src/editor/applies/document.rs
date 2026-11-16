@@ -121,7 +121,7 @@ fn walk<'s>(
     match value {
         Value::Object(map) => {
             for (key, member) in map {
-                let step = key.replace('~', "~0").replace('/', "~1");
+                let step = crate::editor::language::pointer_key(key);
                 if child(SchemaPathSegment::Key(key.clone()), &step, member, pointer) == Next::Stop
                 {
                     return Next::Stop;

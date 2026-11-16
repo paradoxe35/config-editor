@@ -2013,3 +2013,197 @@ fn a_comment_goes_with_its_cut_element_though_the_name_comes_back() {
         ],
     );
 }
+
+/// P2: XML elements moved into an element the user added (a cut and paste,
+/// then typing in an HCL view) keep their own namespace when saved.
+#[test]
+fn xml_elements_moved_into_an_added_element_keep_their_namespace() {
+    replay(
+        Language::XML,
+        Language::HCL,
+        "<root xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" xmlns:p=\"urn:p\">\n  <alpha>\n    <p:k1>v</p:k1>\n    <k2>42</k2>\n    <k3 id=\"1\">text</k3>\n  </alpha>\n  <beta>\n    <k4 id=\"1\">text</k4>\n    <k5>\n      <item>a</item>\n      <item>b</item>\n    </k5>\n  </beta>\n</root>\n",
+        &[
+            Op::Cut {
+                line: 34,
+                how: Take::Entry,
+            },
+            Op::Paste {
+                line: 40,
+                how: Put::OverLine,
+            },
+            Op::Type {
+                line: 4,
+                column: 8,
+                text: "x",
+            },
+        ],
+    );
+}
+
+/// P5: an item below an element the edit added, at a place its list
+/// does not hold, is no host element (and no crash).
+#[test]
+fn an_item_below_an_added_element_past_its_list_is_new() {
+    replay(
+        Language::XML,
+        Language::YAML,
+        "<project xmlns=\"http://maven.apache.org/POM/4.0.0\" xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\">\n  <modelVersion>4.0.0</modelVersion>\n  <groupId>com.example</groupId>\n  <artifactId>demo</artifactId>\n  <version>1.0.0</version>\n  <properties>\n    <java.version>17</java.version>\n  </properties>\n  <dependencies>\n    <dependency>\n      <groupId>org.slf4j</groupId>\n      <artifactId>slf4j-api</artifactId>\n      <version>2.0.13</version> <!-- logging -->\n    </dependency>\n    <dependency>\n      <groupId>junit</groupId>\n      <artifactId>junit</artifactId>\n      <scope>test</scope>\n    </dependency>\n  </dependencies>\n</project>\n",
+        &[
+            Op::Type {
+                line: 8,
+                column: 1001,
+                text: ":",
+            },
+            Op::Cut {
+                line: 43,
+                how: Take::Text,
+            },
+        ],
+    );
+}
+
+/// P2: after an edit, a switch, an undo and a cut in an XML view of a
+/// YAML host, the saved host reads as the view.
+#[test]
+fn a_cut_after_an_undo_in_a_switched_view_saves_what_the_view_reads() {
+    replay(
+        Language::YAML,
+        Language::XML,
+        "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  labels: {app: web, tier: \"front\"}\nspec:\n  replicas: 0x3\n  selector:\n    matchLabels:\n      app: web\n  template:\n    spec:\n      containers:\n        - name: web\n          image: \"nginx:1.25\"\n          args: [--port, '8080']\n          env:\n            - name: GREETING\n              value: |\n                hello\n                world\n            - name: LEVEL\n              value: !!str 3\n          resources:\n            limits: {cpu: 500m, memory: 128Mi}\n",
+        &[
+            Op::Enter {
+                line: 36,
+                column: 1000,
+            },
+            Op::MoveLine {
+                line: 47,
+                down: true,
+            },
+            Op::Switch { to: 3 },
+            Op::Type {
+                line: 37,
+                column: 1000,
+                text: "x",
+            },
+            Op::Undo,
+            Op::Cut {
+                line: 53,
+                how: Take::Entry,
+            },
+        ],
+    );
+}
+
+/// P2: a text cut in the host's language (one that does not read, a stray
+/// `x` typed) and pasted whole into a view stands for no saved host text:
+/// it is read in the view's language, and the save waits as it does not
+/// read there, instead of sending the host the text as it was.
+#[test]
+fn a_host_language_text_pasted_into_a_view_is_read_in_the_view() {
+    replay(
+        Language::JSON,
+        Language::JSON,
+        "{\n  \"name\": \"web-app\",\n  \"version\": \"1.0.0\",\n  \"private\": true,\n  \"scripts\": {\n    \"build\": \"vite build\",\n    \"test\": \"vitest run\"\n  },\n  \"dependencies\": {\"react\": \"^18.3.1\", \"react-dom\": \"^18.3.1\"},\n  \"engines\": {\n    \"node\": \">=18\"\n  },\n  \"files\": [\"dist\", \"src\"],\n  \"ratio\": 1.50,\n  \"size\": 1e3\n}\n",
+        &[
+            Op::Type {
+                line: 24,
+                column: 1000,
+                text: "x",
+            },
+            Op::Cut {
+                line: 16,
+                how: Take::Entry,
+            },
+            Op::Switch { to: 3 },
+            Op::CopyLine {
+                line: 15,
+                down: false,
+            },
+            Op::Undo,
+            Op::Paste {
+                line: 46,
+                how: Put::OverBlank,
+            },
+        ],
+    );
+}
+
+/// P2: an entry copied in a JSON view of a TOML host and pasted in a YAML
+/// view: the original, left alone, keeps its host text (`3.5e2`).
+#[test]
+fn a_value_copied_across_views_leaves_the_originals_text_alone() {
+    replay(
+        Language::TOML,
+        Language::JSON,
+        "[beta]\nk5 = 3.5e2\n",
+        &[
+            Op::Copy {
+                line: 61,
+                how: Take::Entry,
+            },
+            Op::Switch { to: 0 },
+            Op::Paste {
+                line: 55,
+                how: Put::Before,
+            },
+        ],
+    );
+}
+
+/// P2: a line copied up in an XML view of a YAML host: the original list
+/// item, left alone, keeps its host text (`'q'`).
+#[test]
+fn a_line_copied_in_a_view_leaves_the_originals_text_alone() {
+    replay(
+        Language::YAML,
+        Language::XML,
+        "alpha:\n  k1:\n    - !Ref A\n    - 'q'\n    - 3\n  k2: >-\n  k3: plain words\nbeta:\n  k4: [a, 'b', 3] # note 5\n  k5: !Ref Param\n",
+        &[
+            Op::MoveLine {
+                line: 40,
+                down: true,
+            },
+            Op::CopyLine {
+                line: 1,
+                down: false,
+            },
+        ],
+    );
+}
+
+/// P2: a TOML host shown as HCL, then as YAML: a comment pasted over a
+/// line in the view is saved, or the save waits saying why.
+#[test]
+fn a_comment_pasted_over_a_line_in_a_switched_view_is_saved() {
+    replay(
+        Language::TOML,
+        Language::HCL,
+        "# note 2\n[alpha]\nk1 = [1, 0x2, 3]\n# note 1\nk2 = 3.5e2\n\n# note 6\n[beta]\n# note 3\nk3 = 1_000\n# note 4\nk4 = 0x1F # note 5\nk5 = 0x1F\n\n[gamma]\nk6 = [1, 0x2, 3]\nk7 = true\nk8 = 0o17\n",
+        &[
+            Op::Switch { to: 2 },
+            Op::Copy {
+                line: 28,
+                how: Take::Line,
+            },
+            Op::Switch { to: 3 },
+            Op::Paste {
+                line: 13,
+                how: Put::Before,
+            },
+            Op::Backspace {
+                line: 54,
+                column: 1000,
+                count: 1,
+            },
+            Op::Switch { to: 0 },
+            Op::Paste {
+                line: 0,
+                how: Put::Before,
+            },
+            Op::Paste {
+                line: 8,
+                how: Put::OverLine,
+            },
+        ],
+    );
+}

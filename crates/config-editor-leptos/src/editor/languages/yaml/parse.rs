@@ -364,26 +364,7 @@ fn multi_line_scalar_end(source: &str, line_number: usize, column: usize, value:
     let line_end = line_start + full_line.len();
     let text = &source[start..];
     let end = match value.chars().next()? {
-        quote @ ('"' | '\'') => {
-            let mut escaped = false;
-            let mut chars = text.char_indices().skip(1).peekable();
-            let mut close = None;
-            while let Some((at, character)) = chars.next() {
-                if escaped {
-                    escaped = false;
-                } else if quote == '"' && character == '\\' {
-                    escaped = true;
-                } else if character == quote {
-                    if quote == '\'' && chars.peek().is_some_and(|(_, next)| *next == '\'') {
-                        chars.next();
-                        continue;
-                    }
-                    close = Some(start + at + 1);
-                    break;
-                }
-            }
-            close?
-        }
+        '"' | '\'' => start + super::lexical::quoted_close(text, 0)?,
         // A comment ends a plain scalar.
         _ if continues_as_text(value) && line_comment_start(&full_line[start - line_start..]).is_none() => {
             let mut end = start + value.len();

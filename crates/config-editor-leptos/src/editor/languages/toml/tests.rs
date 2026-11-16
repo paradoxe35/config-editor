@@ -3,10 +3,13 @@ use super::super::super::completion::{
 };
 #[cfg(feature = "schema-validation")]
 use super::super::super::diagnostics::validate;
-use super::super::super::diagnostics::{SchemaBundle, build_schema};
+use super::super::super::schema::{SchemaBundle, build_schema};
 use super::super::super::language::ConfigLanguage;
 use super::super::super::highlight::{TokenKind, runs};
 use super::{TomlBehavior, highlight};
+
+/// The language under test, read as the editor reads one.
+const LANGUAGE: &dyn ConfigLanguage = &TomlBehavior;
 
 fn schema() -> SchemaBundle {
     build_schema(
@@ -64,7 +67,7 @@ fn an_object_accepted_under_a_table_header_opens_the_nested_table_path() {
     let schema = nested_schema();
     let accepted = accept_marked("[web]\nle|", "letsencrypt", &schema, &TomlBehavior);
     assert_eq!(accepted, "[web]\n[web.letsencrypt]\nemail = \"|\"\n");
-    let document = TomlBehavior
+    let document = LANGUAGE
         .parse(&accepted.replace('|', "a@b.c"))
         .expect("the accepted document parses");
     assert_eq!(document["web"]["letsencrypt"]["email"], "a@b.c");
@@ -79,21 +82,21 @@ fn a_dotted_key_completes_only_its_last_segment() {
 
 #[test]
 fn duplicate_keys_are_a_parse_error_on_the_repeated_line() {
-    let error = TomlBehavior.parse("listen = 1\nlisten = 2\n").unwrap_err();
+    let error = LANGUAGE.parse("listen = 1\nlisten = 2\n").unwrap_err();
     assert_eq!(error.line, Some(2));
     assert!(!error.message.is_empty(), "{}", error.message);
 }
 
 #[test]
 fn syntax_errors_report_a_position() {
-    let error = TomlBehavior.parse("listen = \n").unwrap_err();
+    let error = LANGUAGE.parse("listen = \n").unwrap_err();
     assert_eq!(error.line, Some(1));
     assert!(error.column.is_some());
 }
 
 #[test]
 fn tables_parse_into_nested_values() {
-    let document = match TomlBehavior.parse("[server]\nhost = \"example.com\"\n") {
+    let document = match LANGUAGE.parse("[server]\nhost = \"example.com\"\n") {
         Ok(document) => document,
         Err(error) => panic!("parse failed: {}", error.message),
     };
@@ -274,11 +277,11 @@ fn object_properties_expand_to_a_table_header_with_required_children() {
 #[test]
 fn toggle_comments_adds_and_removes_hash_prefixes() {
     let source = "listen = 7835\n";
-    let (commented, _, _) = TomlBehavior
+    let (commented, _, _) = LANGUAGE
         .toggle_comments(source, 0, source.encode_utf16().count())
         .unwrap();
     assert_eq!(commented, "# listen = 7835\n");
-    let (restored, _, _) = TomlBehavior
+    let (restored, _, _) = LANGUAGE
         .toggle_comments(&commented, 0, commented.encode_utf16().count())
         .unwrap();
     assert_eq!(restored, source);
@@ -290,7 +293,7 @@ fn toggle_comments_adds_and_removes_hash_prefixes() {
 fn toggle_comments_uncomments_a_selected_line_into_broken_text() {
     let source = "# a = [1,\nb = 2\n";
     let end = "# a = [1,".encode_utf16().count();
-    let (uncommented, _, _) = TomlBehavior.toggle_comments(source, 0, end).unwrap();
+    let (uncommented, _, _) = LANGUAGE.toggle_comments(source, 0, end).unwrap();
     assert_eq!(uncommented, "a = [1,\nb = 2\n");
 }
 
@@ -335,9 +338,9 @@ fn every_caret_position_in_messy_documents_is_handled_without_panicking() {
         "",
     ] {
         for cursor in 0..=source.encode_utf16().count() {
-            let _ = TomlBehavior.parse(source);
-            let _ = TomlBehavior.completion_context(source, cursor);
-            let _ = TomlBehavior.lexical_state(source, cursor);
+            let _ = LANGUAGE.parse(source);
+            let _ = LANGUAGE.completion_context(source, cursor);
+            let _ = LANGUAGE.lexical_state(source, cursor);
             for force in [false, true] {
                 for option in completions(
                     source,
@@ -579,7 +582,7 @@ fn tricky_lines_are_covered_exactly_once() {
 
 #[test]
 fn dates_and_times_read_as_their_text() {
-    let value = TomlBehavior
+    let value = LANGUAGE
         .parse("day = 1979-05-27\nat = 07:32:00\nstamp = 1979-05-27T07:32:00Z\n")
         .unwrap();
     assert_eq!(value["day"], "1979-05-27");
@@ -590,9 +593,9 @@ fn dates_and_times_read_as_their_text() {
 #[test]
 fn a_dotted_keys_span_is_its_last_segment() {
     let source = "websocket.bogus = 2\n\"a.b\".c = 1\n";
-    let span = TomlBehavior.key_span(source, "/websocket/bogus").unwrap();
+    let span = LANGUAGE.key_span(source, "/websocket/bogus").unwrap();
     assert_eq!((span.start_column, span.end_column), (11, 16));
-    let span = TomlBehavior.key_span(source, "/a.b/c").unwrap();
+    let span = LANGUAGE.key_span(source, "/a.b/c").unwrap();
     assert_eq!((span.line, span.start_column, span.end_column), (2, 7, 8));
 }
 
@@ -600,7 +603,7 @@ fn a_dotted_keys_span_is_its_last_segment() {
 #[test]
 fn an_integer_past_the_signed_64_bit_range_is_named_in_the_error() {
     let value = serde_json::json!({"big": 9_223_372_036_854_775_808_u64});
-    let error = TomlBehavior.serialize(&value, None).unwrap_err();
+    let error = LANGUAGE.serialize(&value, None).unwrap_err();
     assert_eq!(error, "TOML integers end at 9223372036854775807 (at /big)");
 }
 
@@ -653,11 +656,45 @@ fn the_key_under_the_pointer_on_a_long_inline_table_costs_the_line_once() {
     let (small, large) = (line(2500), line(10_000));
     let last = |line: &String| line.chars().count() - 8;
     let growth = crate::editor::test_timing::growth(5, (&small, &large), |line: &String| {
-        TomlBehavior.hover_key(line, last(line))
+        LANGUAGE.hover_key(line, last(line))
     });
     assert_eq!(
-        TomlBehavior.hover_key(&large, last(&large)).map(|(key, _)| key),
+        LANGUAGE.hover_key(&large, last(&large)).map(|(key, _)| key),
         Some("k9999".to_string())
     );
     assert!(growth.ratio() < 8.0, "2500 keys, then 10000: {growth}");
+}
+
+/// A `#` right after a value starts a comment (TOML reads `n = 1#c` as
+/// `1`): every reading of the line agrees, the comment hook, the comments
+/// and the caret's lexical state.
+#[test]
+fn a_hash_right_after_a_value_starts_a_comment_in_every_reading() {
+    let line = "n = 1#c";
+    assert_eq!(LANGUAGE.comment_start(line), Some(5));
+    assert_eq!(LANGUAGE.comments(&format!("{line}\n")), vec![5..7]);
+    let state = LANGUAGE.lexical_state(line, line.len());
+    assert_eq!((state.quote, state.in_comment), (None, true));
+    assert_eq!(LANGUAGE.parse(line).unwrap(), serde_json::json!({"n": 1}));
+}
+
+/// A list key quoted for its characters (`"é" = []`) leaves the caret
+/// between the brackets: the caret is counted in UTF-16 units, not bytes.
+#[test]
+fn a_list_written_for_a_quoted_key_takes_the_caret_inside() {
+    use super::super::super::language::{EntryPosition, InsertContext, InsertPlan};
+    let root = serde_json::json!({});
+    let list = serde_json::json!({"type": "array", "items": {"type": "integer"}});
+    let context = InsertContext {
+        base_indent: "",
+        unit: "  ",
+        position: EntryPosition::Block,
+        path: &[],
+        array_item: false,
+        another_item: false,
+    };
+    let toml: &dyn ConfigLanguage = &TomlBehavior;
+    let (insert, caret) = toml.write_insert("é", &InsertPlan::of(toml, &list, &root), &context).unwrap();
+    assert_eq!(insert, "\"é\" = []");
+    assert_eq!(caret, "\"é\" = [".encode_utf16().count());
 }

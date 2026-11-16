@@ -132,6 +132,8 @@ a file instead (see
 | `edit_as`              | `Language`, `Option<Language>` or a signal | unset                 | Show and edit the document in another language. Changing it converts the open document in place, unsaved edits included.                                                                                                                                                                                                                                                                                                                                                                                  |
 | `initial_value`        | `String`                                   | `""`                  | Starting text, also the diff baseline (uncontrolled).                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | `value`                | `Signal<String>`                           | —                     | Controlled text. Updates flow in; the caret stays on the same text and the scroll position is kept.                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `echoes`               | `bool`                                     | `false`               | Set it when the host hands every `on_change` text back as `value`, maybe late and in any order (a store saving each text, then giving it back): each such echo is told apart from a text of the host's own, so a late one never rolls back what was typed since, and a host left on an older text hears the document again. Read at mount.                                                                                                                                                                |
+| `value_revision`       | `u64`, `Option<u64>` or a signal           | unset                 | With `echoes`: the revision `on_change` sent `value` with (`EditorHandle::sent_revision`, read in `on_change`), for a host that stores it beside the text and never goes back to an older one. Its echo is then matched exactly, with no pause. Set it before `value`, and to `None` for a text of the host's own. The editor counts each text it sent as on its way until that revision or a later one comes back, and does not send it again by itself: a host that loses one must send it again.       |
 | `on_change`            | `Fn(String)`                               | —                     | Called with the document after every edit (after each typing pause while editing as another language).                                                                                                                                                                                                                                                                                                                                                                                                    |
 | `on_edit_as_change`    | `Fn(Language)`                             | —                     | Called with the language on screen: once on mount, then each time an `edit_as` switch completes and when undo or redo steps back across one. A switch waits while the document cannot convert yet (TOML has no `null`): until then the host's language stays on screen, edited and sent to `on_change` as it is, with the reason shown on the value in the way. Label the language shown from this, not from `edit_as`.                                                                                   |
 | `on_sync_change`       | `Fn(bool)`                                 | —                     | Called with whether the text on screen is written back to the host's document: once on mount, then each time that changes. `false` while an `edit_as` edit cannot convert back (invalid text, a value `language` cannot hold or would read back differently, a read-only value changed: `EditorHandle::value` is `None` and `on_change` waits), whatever brought it there (typing, paste, cut, drop, undo, a switch, a reload, a new `value`); read after each typing pause. Always `true` in `language`. |
@@ -1595,7 +1597,7 @@ let language = Language::from_path("infra/main.tf");   // Some(Language::HCL)
   numbers beyond every bound (NaN beyond both `minimum` and `maximum`),
   never integers or multiples of anything. A YAML plain number too large
   for a float (`1e400`) is an infinity. A custom language says it writes them with
-  `ConfigLanguage::writes_non_finite`. A real string spelled that way stays
+  `LanguageTraits::writes_non_finite`. A real string spelled that way stays
   a string: parsers hold it with one more U+FDD0 (`string_value` makes it,
   `string_of` reads it back), and every writer takes that one off; build a
   string with `string_value` when its text may start with U+FDD0 (a custom
@@ -1656,8 +1658,8 @@ keyed by the name as written.
 
 Every built-in language implements the public `ConfigLanguage` trait, and
 yours can too. Only `info` and `parse` are required; each further method adds
-a capability (diagnostic positions, completion, hover, highlighting, editing,
-conversion):
+a capability (diagnostic positions, completion, hover, highlighting,
+conversion), and `config` describes the syntax and traits as data:
 
 ```rust
 use config_editor_leptos::Language;
@@ -1679,15 +1681,21 @@ const ENV: Language = Language::new(&DOTENV);
 // <ConfigEditor language=ENV .../>, ENV.convert(text, Language::YAML), …
 ```
 
-| Method                                                                                              | Adds                                                            |
-| --------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
-| `info`, `parse` (required)                                                                          | Name, icon, extensions; syntax errors and the data model        |
-| `serialize`                                                                                         | Conversion into the language (Edit-as, either way)              |
-| `key_span`, `value_span`                                                                            | Positions for schema diagnostics and read-only fields           |
-| `completion_context`, `existing_keys`, `property_insert`, `format_value`                            | Schema completion; see [below](#completion-and-hover)           |
-| `hover_key`                                                                                         | Hover docs                                                      |
-| `highlight`, `comments`, `multiline_strings`                                                        | Syntax colors, comments and strings over several lines included |
-| `newline`, `toggle_comments`, `auto_close`, `complete_on_type`, `reindent_on_type`, `lexical_state` | Editing behavior                                                |
+| Method                                               | Adds                                                     |
+| ---------------------------------------------------- | -------------------------------------------------------- |
+| `info`, `parse` (required)                           | Name, icon, extensions; syntax errors and the data model |
+| `config`                                             | Comments, quotes, brackets, separators, and the traits   |
+| `serialize`                                          | Conversion into the language (Edit-as, either way)       |
+| `key_span`, `value_span`                             | Positions for schema diagnostics and read-only fields    |
+| `completion_context`, `write_insert`, `format_value` | Schema completion; see [below](#completion-and-hover)    |
+| `hover_key`                                          | Hover docs                                               |
+| `highlight`                                          | Syntax colors                                            |
+
+Everything else comes in groups, each a trait of its own that a language
+implements only when its syntax needs more than the defaults, returning
+itself from the group's method on `ConfigLanguage`
+(`fn text(&self) -> &dyn Text { self }`; see
+[Optional refinements](#optional-refinements)).
 
 Read-only fields hold in a language without spans too: the editor then
 compares the field's value on every edit whose text parses, and refuses one
@@ -1704,21 +1712,21 @@ the reason.
 ### Completion and hover
 
 The editor's completion and hover read the schema; your language only says
-where the caret is and how an entry is written. For an INI file
-(`[section]` headers, `key = value` lines):
+where the caret is and how an entry is written. The keys already written
+are not offered again: the editor reads them off the document around the
+caret itself. For an INI file (`[section]` headers, `key = value` lines):
 
 | Method               | Returns                                                                                                                                                                    |
 | -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `completion_context` | The caret's place: `path` (`[Key("server")]` under `[server]`), the `typed` word and the UTF-16 range it replaces, and `value_key` after `key =`, where values are offered |
-| `existing_keys`      | The keys already in the mapping at `path`, which are not offered again                                                                                                     |
-| `property_insert`    | The text an accepted key writes and the caret in it: `("port = ", 7)`, or `[server]` and a line break for an object                                                        |
+| `write_insert`       | The text an accepted key writes for the `InsertPlan` the editor made from the schema, and the caret in it: `("port = ", 7)`, or `[server]` and a line break for an object  |
 | `format_value`       | A schema value (`enum`, `boolean`, `default`) as the document writes it: `fast` rather than `"fast"`                                                                       |
 | `hover_key`          | The key under a column of a line and the column it starts at; hover shows its schema docs                                                                                  |
 
 A flat language (one `KEY=value` entry per line, no nesting) needs none of
-that code: its `config().separators` give all five, through
-`LanguageConfig::flat_completion_context`, `flat_existing_keys`,
-`flat_property_insert`, `flat_format_value` and `flat_hover_key` (the
+that code: its `config().separators` give the rest, through
+`LanguageConfig::flat_completion_context`, `flat_property_insert` (the
+default of `write_insert`), `flat_format_value` and `flat_hover_key` (the
 crate's `tests/flat_language_completion.rs`). This is what a JavaScript
 language registered with only `separators` gets.
 
@@ -1754,7 +1762,7 @@ characters; it asks the language.
 <summary>The LanguageConfig fields, with an example</summary>
 
 ```rust
-use config_editor_leptos::language::LanguageConfig;
+use config_editor_leptos::language::{LanguageConfig, LanguageTraits};
 
 fn config(&self) -> LanguageConfig {
     LanguageConfig {
@@ -1769,6 +1777,7 @@ fn config(&self) -> LanguageConfig {
         item_separator: Some(','),      // between their items
         item_marker: None,              // e.g. Some("-"): a list item on lines of its own
         written_separator: None,       // e.g. Some(" = "): how a new entry writes it
+        traits: LanguageTraits::NONE,  // e.g. indent_is_structure: true (YAML)
     }
 }
 ```
@@ -1777,30 +1786,30 @@ fn config(&self) -> LanguageConfig {
 
 ### Optional refinements
 
-Small hooks that polish editing for some kinds of languages. Each defaults to
-what `config` describes (or to nothing), so skip the ones that don't fit, and
-override one only when your syntax needs more than `config` says: HCL
-overrides `value_follows_key` for its `name { … }` blocks, XML overrides them
-all.
+Groups of hooks that polish editing for some kinds of languages. Each
+refinement group defaults to what `config` describes (or to nothing), so
+implement one only when your syntax needs more than `config` says, and
+within it only the methods that differ: HCL refines `value_follows_key` for
+its `name { … }` blocks, XML refines nearly all of them. A group method
+whose default reads the language takes it as `language` (the language it
+belongs to).
 
 <details>
-<summary>The hooks by kind of language, and their helpers</summary>
+<summary>The groups, their hooks, and their helpers</summary>
 
-| Kind of language                        | Method                                        | Adds                                                                                                        | Helper                                                                                                             |
-| --------------------------------------- | --------------------------------------------- | ----------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| Key/value (`key: value`, `key = value`) | `value_follows_key`                           | Completing a key that already has a value renames just the key                                              | —                                                                                                                  |
-|                                         | `line_has_value`                              | A space typed after a complete value ends the entry                                                         | `value_after_separator`                                                                                            |
-|                                         | `empty_value_slots`                           | `Tab` walks the empty values of an accepted block                                                           | `empty_slots_at_line_ends`                                                                                         |
-| Markup (`<k>…</k>`)                     | `closing_markup_len`                          | Enter after a typed value steps past the end tag the editor wrote                                           | —                                                                                                                  |
-|                                         | `key_markup_len`, `markup_delimiters`         | A lock covers the `<` before a name, and the caret on it is on the key                                      | —                                                                                                                  |
-|                                         | `element_end`, `unclosed_containers`          | Edit-as moves a repeated element with all its lines; a lock carries over the end tags its field opened      | —                                                                                                                  |
-|                                         | `content_texts`, `space_is_content`           | A lock keeps the whitespace of element text                                                                 | —                                                                                                                  |
-| With list items of their own lines      | `opens_list_item`                             | Edit-as keeps the comments above a list's first item with the item; the default reads `item_marker`         | —                                                                                                                  |
-| With document markers (`---`)           | `document_marker`                             | Edit-as finds a top-level list after them                                                                   | —                                                                                                                  |
-| With sections (`[table]`)               | `starts_section`                              | A lock in a large text that does not parse finds the section's lines                                        | —                                                                                                                  |
-| With trailing comments                  | `comment_start`                               | Edit-as keeps a line's comment when the line is renamed or moves                                            | `comment_start_outside_quotes`                                                                                     |
-| With values over lines (`[` … `]`)      | `multiline_constructs`, `highlight_continued` | Each line of an array, a flow collection or a start tag written over several lines is colored as its inside | `MultilineConstruct::structure`, `MultilineConstruct::colored`                                                     |
-| Any                                     | `fold_ranges`                                 | What folds; the default folds by indentation, `config`'s brackets and comments, and multi-line strings      | `indent_fold_ranges`, `bracket_fold_ranges`, `comment_fold_ranges`, `string_body_fold_ranges`, `merge_fold_ranges` |
+| Group (method on `ConfigLanguage`) | Hooks                                                                                                                                                   | Adds                                                                                                                  | Helpers                                                                                               |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| `Text` (`text`)                    | `comments`, `comment_start`, `lexical_state`, `string_body_lines`, `multiline_strings`, `multiline_constructs`, `highlight_continued`, `fold_ranges`, … | Comments and strings, over lines too; where the caret is in one (from `comments` and `quotes` by default); what folds | `comment_start_outside_quotes`, `configured_lexical_state`, `MultilineConstruct`, the `*_fold_ranges` |
+| `Typing` (`typing`)                | `newline`, `toggle_comments`, `auto_close`, `complete_on_type`, `reindent_on_type`, `value_follows_key`, `empty_value_slots`, `rewritable_keys`, …      | Enter, Ctrl+/, closers typed or written for the user, the empty values `Tab` walks, keys written again                | `bracket_newline`, `toggle_line_comments`, `value_after_separator`, `empty_slots_at_line_ends`        |
+| `Hover` (`hover`)                  | `hover_path`, `hover_cursor`, `item_start`                                                                                                              | Hover on keys the completion context cannot place, and on list items                                                  | `bracket_item_start`                                                                                  |
+| `SaveLayout` (`layout`)            | `opens_list_item`, `item_lines`, `key_renames`, `written_key`, `format_value_like`, `edits_one_scalar`, …                                               | How an Edit-as save keeps the language's own forms                                                                    | —                                                                                                     |
+| `Markup` (`markup`, optional)      | `delimiters` (required), `closing_markup_len`, `key_markup_len`, `element_end`, `content_texts`, …                                                      | Tags: Enter past an end tag, locks over a `<`, element text kept                                                      | —                                                                                                     |
+| `Sharing` (`sharing`, optional)    | `tags`, `written_at`, `detach_shared`, `references_back`, `expressions`, …                                                                              | Values written once and read in several places, or written with more than their data                                  | —                                                                                                     |
+| `Repeats` (`repeats`, optional)    | `repeated`, `lone_item` (both required)                                                                                                                 | Lists written by repeating a key (XML elements, HCL blocks)                                                           | —                                                                                                     |
+
+The traits in `config().traits` (`LanguageTraits`): `writes_non_finite`,
+`one_number_type`, `indent_is_structure`, `plain_scalars`,
+`scalars_are_text`.
 
 `config_editor_leptos::language` also exports the other helpers the built-in
 languages use (tokens, schema lookups, inline-container scanning, indent

@@ -196,3 +196,85 @@ fn a_lock_away_from_a_keystroke_costs_it_no_read_of_the_document_in_every_view()
     super::super::parse_cache::release();
     assert!(costly.is_empty(), "{costly:#?}");
 }
+
+/// The out-of-reach fast path gives the full rule's answer: random edits
+/// (characters typed, deleted or replaced anywhere, in documents locked by
+/// the schema, by paths and by a host range) are judged alike with the
+/// fast path and without it.
+#[test]
+fn the_fast_path_answers_as_the_full_rule_on_random_edits() {
+    use super::guard::{check, without_reach};
+    use super::reach::out_of_reach;
+    use super::tests::{documents, schema};
+
+    let schema = schema();
+    let mut seed: u64 = std::env::var("REACH_SEED")
+        .ok()
+        .and_then(|seed| seed.parse().ok())
+        .unwrap_or(0x9e37_79b9_7f4a_7c15);
+    let cases: usize = std::env::var("REACH_CASES")
+        .ok()
+        .and_then(|cases| cases.parse().ok())
+        .unwrap_or(400);
+    let mut next = move |below: usize| {
+        seed ^= seed << 13;
+        seed ^= seed >> 7;
+        seed ^= seed << 17;
+        usize::try_from(seed % below.max(1) as u64).unwrap_or(0)
+    };
+    let typed = ["1", "a", " ", ":", "\"", "\n", "#", "x9", "=", ","];
+    let mut differ = Vec::new();
+    let mut fast = 0;
+    for (language, text) in documents() {
+        let behavior = language.behavior();
+        let paths = [FieldPath::from("/port"), FieldPath::from("/meta")];
+        let at = text.find("abc").expect("the id");
+        let range = at..at + 3;
+        let sources = [
+            Sources {
+                marking_schema: Some(&schema),
+                reading_schema: Some(&schema),
+                ..Sources::default()
+            },
+            Sources {
+                reading_schema: Some(&schema),
+                paths: &paths,
+                ..Sources::default()
+            },
+            Sources {
+                reading_schema: Some(&schema),
+                ranges: std::slice::from_ref(&range),
+                ..Sources::default()
+            },
+        ];
+        for sources in sources {
+            let protected = protect(behavior, text, sources);
+            for _ in 0..cases {
+                let starts: Vec<usize> = text.char_indices().map(|(at, _)| at).collect();
+                let at = starts[next(starts.len())];
+                let end = (at + next(3)).min(text.len());
+                let end = (end..=text.len())
+                    .find(|end| text.is_char_boundary(*end))
+                    .unwrap_or(text.len());
+                let insert = if next(3) == 0 {
+                    ""
+                } else {
+                    typed[next(typed.len())]
+                };
+                let after = format!("{}{insert}{}", &text[..at], &text[end..]);
+                let with = check(behavior, Some(&schema), &protected, text, &after).is_ok();
+                let without = without_reach(|| {
+                    check(behavior, Some(&schema), &protected, text, &after).is_ok()
+                });
+                if out_of_reach(behavior, &protected, text, &after).is_some() {
+                    fast += 1;
+                }
+                if with != without {
+                    differ.push(format!("{language}: {text:?} -> {after:?}: fast {with}"));
+                }
+            }
+        }
+    }
+    assert!(fast > 0, "no edit took the fast path");
+    assert!(differ.is_empty(), "{differ:#?}");
+}

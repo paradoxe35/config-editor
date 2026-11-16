@@ -12,7 +12,7 @@ mod save_tests;
 
 use serde_json::Value;
 
-use super::language::{ConfigLanguage, LanguageConfig, LanguageInfo, ParseError, Span};
+use super::language::{ConfigLanguage, LanguageConfig, LanguageInfo, ParseError, SaveLayout, Span};
 
 /// Dot as declared: `full` with all its syntax, else only its comments and
 /// separator (a host that declares no more).
@@ -93,7 +93,18 @@ impl ConfigLanguage for Dot {
         self.config().flat_format_value(value)
     }
 
-    fn format_value_like(&self, value: &Value, written: &str) -> String {
+    fn layout(&self) -> &dyn SaveLayout {
+        self
+    }
+}
+
+impl SaveLayout for Dot {
+    fn format_value_like(
+        &self,
+        _language: &dyn ConfigLanguage,
+        value: &Value,
+        written: &str,
+    ) -> String {
         self.config()
             .quoted_like(value, written, self.format_value(value))
     }

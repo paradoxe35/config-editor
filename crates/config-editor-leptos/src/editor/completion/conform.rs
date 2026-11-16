@@ -4,7 +4,7 @@
 //! as the type of an option it fits (`<workers>4</workers>` is the number
 //! for "an integer or `auto`", `<v>1.3</v>` the string a `const` lists).
 
-use super::super::applies::{listed, scalar_text};
+use super::super::applies::{Types, listed, scalar_text};
 use super::*;
 
 /// Reads `value` the way `schema` expects for a language that writes arrays
@@ -34,13 +34,9 @@ pub(super) fn conform(
         Seen::value(value.is_object().then_some(&*value)),
     );
     let branches = applied.branches();
-    let wants_array = branches.iter().any(|branch| {
-        branch.get("items").is_some()
-            || branch.get("prefixItems").is_some()
-            || type_includes(branch, "array")
-    });
+    let types = applied.types();
     if repetition == Repetition::Elements {
-        read_text(value, at, &branches, root);
+        read_text(value, at, &branches, types, root);
     }
     let repeatable = match repetition {
         Repetition::Elements => !value.is_array(),
@@ -48,11 +44,15 @@ pub(super) fn conform(
         _ => false,
     };
     // A lone value the schemas take as it is (list keywords with no
-    // `type` say nothing of a value that is no list) stays itself.
-    if wants_array
+    // `type` say nothing of a value that is no list) stays itself; one
+    // they refuse, where they name the list type, is the one item of a
+    // list they take.
+    if types.allows_type("array")
         && repeatable
-        && !branches.iter().any(|branch| accepts(branch, value))
         && at.accepts(value, root) != Some(true)
+        && (!types.allows(value)
+            || (types != Types::ANY
+                && at.accepts(&Value::Array(vec![value.clone()]), root) == Some(true)))
     {
         *value = Value::Array(vec![value.take()]);
     }
@@ -84,42 +84,52 @@ pub(super) fn conform(
     }
 }
 
-/// Scalars of an XML object [`reread_for_object`] tries reading the other
-/// way at most: a refused object is tried a bounded number of times.
+/// Scalars of an XML object or list [`reread_for_object`] tries reading
+/// the other way at most: a refused value is tried a bounded number of
+/// times.
 const MAX_REREADS: usize = 8;
 
-/// An object the schemas at it refuse as its scalars were read (`0` read
-/// as the string a `oneOf` option's `port` takes, so that two options
-/// match): each scalar read the other way (text as the number, boolean or
-/// `null` it writes, or such a value as its text), one at a time, kept
-/// where that makes the schemas take the object.
+/// An object or list the schemas at it refuse as its scalars were read
+/// (`0` read as the string a `oneOf` option's `port` takes, so that two
+/// options match; `8` where a list's `contains` asks a text): each scalar
+/// read the other way (text as the number, boolean or `null` it writes,
+/// or such a value as its text), one at a time, kept where that makes the
+/// schemas take it.
 fn reread_for_object(value: &mut Value, at: &Entry<'_>, root: &Value) {
-    if !value.is_object() || at.accepts_near(value, root) != Some(false) {
+    if !(value.is_object() || value.is_array()) || at.accepts_near(value, root) != Some(false) {
         return;
     }
-    let keys: Vec<String> = value
-        .as_object()
-        .map(|map| {
-            map.iter()
-                .filter(|(_, child)| other_reading(child).is_some())
-                .map(|(key, _)| key.clone())
-                .take(MAX_REREADS)
-                .collect()
-        })
-        .unwrap_or_default();
-    for key in keys {
-        let Some(slot) = value.get_mut(&key) else {
+    let slots: Vec<String> = match &*value {
+        Value::Object(map) => map
+            .iter()
+            .filter(|(_, child)| other_reading(child).is_some())
+            .map(|(key, _)| format!("/{}", crate::editor::language::pointer_key(key)))
+            .take(MAX_REREADS)
+            .collect(),
+        Value::Array(items) => items
+            .iter()
+            .enumerate()
+            .filter(|(_, item)| other_reading(item).is_some())
+            .map(|(index, _)| format!("/{index}"))
+            .take(MAX_REREADS)
+            .collect(),
+        _ => Vec::new(),
+    };
+    for slot in slots {
+        let Some(other) = value.pointer(&slot).and_then(other_reading) else {
             continue;
         };
-        let Some(other) = other_reading(slot) else {
+        let Some(read) = value
+            .pointer_mut(&slot)
+            .map(|held| std::mem::replace(held, other))
+        else {
             continue;
         };
-        let read = std::mem::replace(slot, other);
         if at.accepts_near(value, root) == Some(true) {
             return;
         }
-        if let Some(slot) = value.get_mut(&key) {
-            *slot = read;
+        if let Some(held) = value.pointer_mut(&slot) {
+            *held = read;
         }
     }
 }
@@ -142,18 +152,18 @@ fn other_reading(value: &Value) -> Option<Value> {
 /// the text; and empty text (an empty element, read as `{}`, or an empty
 /// attribute) is the empty string where the schema wants text, else
 /// `null` where it allows that.
-fn read_text(value: &mut Value, at: &Entry<'_>, branches: &[&Value], root: &Value) {
+fn read_text(value: &mut Value, at: &Entry<'_>, branches: &[&Value], types: Types, root: &Value) {
     let allowed = |candidate: &Value| {
-        branches.iter().any(|branch| {
-            accepts(branch, candidate)
-                || listed(branch).any(|listed| listed == candidate)
-                || whole(candidate).is_some_and(|whole| accepts(branch, &whole))
-        })
+        types.allows(candidate)
+            || branches
+                .iter()
+                .any(|branch| listed(branch).any(|listed| listed == candidate))
+            || whole(candidate).is_some_and(|whole| types.allows(&whole))
     };
     let empty = match value {
         Value::Number(_) | Value::Bool(_) | Value::Null => {
             let text = scalar_text(value);
-            if read_as_text(value, &text, at, branches, root) {
+            if read_as_text(value, &text, at, branches, types, root) {
                 *value = Value::String(text);
             }
             return;
@@ -165,7 +175,7 @@ fn read_text(value: &mut Value, at: &Entry<'_>, branches: &[&Value], root: &Valu
             if let Some(typed) = text_literal(text)
                 && allowed(&typed)
                 && !fits(&Value::String(text.clone()))
-                && !read_as_text(&typed, text, at, branches, root)
+                && !read_as_text(&typed, text, at, branches, types, root)
             {
                 *value = typed;
                 return;
@@ -178,10 +188,7 @@ fn read_text(value: &mut Value, at: &Entry<'_>, branches: &[&Value], root: &Valu
     if !empty || allowed(value) {
         return;
     }
-    if branches
-        .iter()
-        .any(|branch| type_includes(branch, "string"))
-    {
+    if types.allows_type("string") {
         *value = Value::String(String::new());
     } else if allowed(&Value::Null) {
         *value = Value::Null;
@@ -217,6 +224,7 @@ fn read_as_text(
     text: &str,
     at: &Entry<'_>,
     branches: &[&Value],
+    types: Types,
     root: &Value,
 ) -> bool {
     let text = Value::String(text.to_string());
@@ -231,10 +239,12 @@ fn read_as_text(
     if fits(&text) {
         return true;
     }
-    let allowed = listed.contains(&value) || branches.iter().any(|branch| accepts(branch, value));
+    let allowed = listed.contains(&value) || types.allows(value);
     !allowed
-        && (branches
-            .iter()
-            .any(|branch| type_includes(branch, "string"))
+        && (types.allows_type("string")
             || (!listed.is_empty() && listed.iter().all(|allowed| allowed.is_string())))
 }
+
+#[cfg(test)]
+#[path = "conform_tests.rs"]
+mod tests;

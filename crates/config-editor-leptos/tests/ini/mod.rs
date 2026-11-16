@@ -5,11 +5,10 @@
 //! all schema completion and hover docs need.
 
 use config_editor_leptos::language::{
-    CompletionContext, ConfigLanguage, InsertContext, LanguageConfig, LanguageInfo, ParseError,
-    SchemaPathSegment, object_branch, utf16_to_byte_index,
+    CompletionContext, ConfigLanguage, InsertContext, InsertPlan, LanguageConfig, LanguageInfo,
+    ParseError, SchemaPathSegment, utf16_to_byte_index,
 };
 use serde_json::{Map, Value};
-use std::collections::HashSet;
 
 pub struct Ini;
 
@@ -128,50 +127,15 @@ impl ConfigLanguage for Ini {
         }
     }
 
-    /// The keys of the section at `path`; the top level's include the
-    /// section names.
-    fn existing_keys(
-        &self,
-        source: &str,
-        cursor_byte: usize,
-        path: &[SchemaPathSegment],
-    ) -> Option<HashSet<String>> {
-        let wanted = match path {
-            [] => None,
-            [SchemaPathSegment::Key(name)] => Some(name.as_str()),
-            _ => return None,
-        };
-        let caret_line = source[..cursor_byte].matches('\n').count();
-        let mut section = None;
-        let mut keys = HashSet::new();
-        for (index, line) in source.lines().enumerate() {
-            if index == caret_line || Self::is_comment(line) {
-                continue;
-            }
-            if let Some(name) = Self::header(line) {
-                if wanted.is_none() {
-                    keys.insert(name.to_string());
-                }
-                section = Some(name);
-            } else if section == wanted
-                && let Some((key, _)) = line.split_once('=')
-            {
-                keys.insert(key.trim().to_string());
-            }
-        }
-        Some(keys)
-    }
-
     /// `key = ` with the caret after it; an object is a `[section]`, which
     /// only the top level holds.
-    fn property_insert(
+    fn write_insert(
         &self,
         key: &str,
-        property: &Value,
-        root: &Value,
+        plan: &InsertPlan<'_>,
         context: &InsertContext<'_>,
     ) -> Option<(String, usize)> {
-        let text = if object_branch(property, root).is_some() {
+        let text = if plan.object {
             if !context.path.is_empty() {
                 return None;
             }

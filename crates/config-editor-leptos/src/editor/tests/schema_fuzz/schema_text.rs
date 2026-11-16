@@ -8,7 +8,7 @@ use serde_json::{Map, Value};
 use super::random::Rng;
 use super::runner::{Case, Property, Verdict, failure, language, run};
 use super::schemas::{Draw, schema};
-use crate::editor::diagnostics::{Schema, build_schema};
+use crate::editor::schema::{Schema, build_schema};
 
 pub(super) fn draw(rng: &mut Rng, index: usize) -> Case {
     let draw = Draw {

@@ -74,9 +74,13 @@ impl<'a> Identity<'a> {
     /// [`Self::host_path`], or with `copy` the host item a last item the
     /// edit added holds the same data as.
     fn resolve(&self, path: &[Seg], copy: bool) -> Option<(Vec<String>, Host)> {
-        let Some(mut old) = self.old else {
+        let Some(first) = self.old else {
             return Some((super::strings(path), Host::Previous));
         };
+        // The host element the walk is in: `None` inside an element the
+        // edit added, where only an element moved in, which its link
+        // names, is a host element again.
+        let mut old = Some(first);
         let mut new = self.new;
         let mut side = Host::Previous;
         // The list's pointer in `new` (an index for every item), and each
@@ -87,12 +91,12 @@ impl<'a> Identity<'a> {
         let mut at = 0;
         while at < path.len() {
             let Seg::Key(key) = &path[at] else { return None };
-            let (Value::Object(new_map), Value::Object(old_map)) = (new, old) else { return None };
+            let Value::Object(new_map) = new else { return None };
             let new_child = new_map.get(key)?;
             pointer.push('/');
             pointer.push_str(key);
             new_at.push('/');
-            new_at.push_str(&escaped(key));
+            new_at.push_str(&crate::editor::language::pointer_key(key));
             let new_items = items(new_child);
             let index = match path.get(at + 1) {
                 Some(Seg::Index(index)) => {
@@ -102,29 +106,31 @@ impl<'a> Identity<'a> {
                 _ if new_items.len() == 1 => 0,
                 _ => return None,
             };
+            let new_item = new_items.get(index)?;
             let item_at = |index: usize| match new_child {
                 Value::Array(_) => format!("{new_at}/{index}"),
                 _ => new_at.clone(),
             };
             // Pasted back from the session's first text: that item (or
-            // key, which the host's last text may not hold, QA `E35-1`);
-            // or moved from another element of the host's last text (QA
-            // `E36-2`), one of its descendants too (QA `E37-6`), also into
-            // an element pasted back: that one.
+            // key, which the host's last text may not hold); or moved from
+            // another element of the host's last text, a descendant of one
+            // too, also into an element pasted back or one the edit added:
+            // that one.
+            let added = old.is_none();
             let moved = self.told.and_then(|(sources, origin)| match sources.of(&item_at(index), !new_child.is_array())? {
-                ItemSource::Origin(from) if side == Host::Previous || !of_parent(from, &old_at) => {
+                ItemSource::Origin(from) if added || side == Host::Previous || !of_parent(from, &old_at) => {
                     Some((origin?.pointer(from)?, from, Host::Origin))
                 }
                 ItemSource::Origin(_) => None,
-                ItemSource::Previous(from) if side == Host::Origin || !of_parent(from, &old_at) => {
+                ItemSource::Previous(from) if added || side == Host::Origin || !of_parent(from, &old_at) => {
                     Some((self.old?.pointer(from)?, from, Host::Previous))
                 }
                 ItemSource::Previous(_) => None,
             });
             if let Some((held, from, held_in)) = moved {
-                old = held;
-                new = &new_items[index];
-                host = from.split('/').skip(1).map(|segment| segment.replace("~1", "/").replace("~0", "~")).collect();
+                old = Some(held);
+                new = new_item;
+                host = from.split('/').skip(1).map(crate::editor::language::unescaped_key).collect();
                 side = held_in;
                 new_at = item_at(index);
                 old_at = from.clone();
@@ -133,12 +139,14 @@ impl<'a> Identity<'a> {
                 at += 1;
                 continue;
             }
-            let old_key = host_key(old_map, new_map, key)?;
-            let old_child = &old_map[old_key];
-            old_at.push('/');
-            old_at.push_str(&escaped(old_key));
-            let old_items = items(old_child);
-            let place = {
+            // The host element this one is, if any.
+            let held = 'held: {
+                let Some(Value::Object(old_map)) = old else { break 'held None };
+                let Some(old_key) = host_key(old_map, new_map, key) else { break 'held None };
+                let old_child = &old_map[old_key];
+                old_at.push('/');
+                old_at.push_str(&crate::editor::language::pointer_key(old_key));
+                let old_items = items(old_child);
                 let mut lists = self.lists.borrow_mut();
                 let places = lists.entry(pointer.clone()).or_insert_with(|| {
                     let told: Vec<Told> = match self.told {
@@ -164,18 +172,26 @@ impl<'a> Identity<'a> {
                     };
                     told_places(old_items, new_items, &told)
                 });
-                *places.get(index)?
+                let place = match places.get(index).copied().flatten() {
+                    Some(place) => Some(place),
+                    None if copy && at + 1 == path.len() => old_items.iter().position(|held| alike(held, new_item)),
+                    None => None,
+                };
+                place.map(|place| (old_key, old_child.is_array(), &old_items[place], place))
             };
-            let place = match place {
-                Some(place) => place,
-                None if copy && at + 1 == path.len() => old_items.iter().position(|held| alike(held, &new_items[index]))?,
-                None => return None,
-            };
-            host.push(old_key.clone());
-            if old_child.is_array() {
-                host.push(place.to_string());
-                old_at.push('/');
-                old_at.push_str(&place.to_string());
+            match held {
+                Some((old_key, repeated, item, place)) => {
+                    host.push(old_key.clone());
+                    if repeated {
+                        host.push(place.to_string());
+                        old_at.push('/');
+                        old_at.push_str(&place.to_string());
+                    }
+                    old = Some(item);
+                }
+                // An element the edit added: its descendants are host
+                // elements only where their links name one.
+                None => old = None,
             }
             if new_child.is_array() {
                 new_at.push('/');
@@ -183,11 +199,10 @@ impl<'a> Identity<'a> {
             }
             pointer.push('/');
             pointer.push_str(&index.to_string());
-            old = &old_items[place];
-            new = &new_items[index];
+            new = new_item;
             at += 1;
         }
-        Some((host, side))
+        old.map(|_| (host, side))
     }
 }
 
@@ -210,10 +225,6 @@ fn place_in(pointer: &str, list: &str, repeated: bool) -> Option<usize> {
         return (pointer == list || pointer.strip_prefix(list) == Some("/0")).then_some(0);
     }
     pointer.strip_prefix(list)?.strip_prefix('/')?.parse().ok()
-}
-
-fn escaped(key: &str) -> String {
-    key.replace('~', "~0").replace('/', "~1")
 }
 
 /// The key of `old` that `new`'s `key` is: itself, or the one key `new`

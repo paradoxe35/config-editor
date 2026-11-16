@@ -114,7 +114,7 @@ impl Wording<'_> {
                 *value,
                 Value::from(pattern.as_str())
             ),
-            ValidationErrorKind::FalseSchema => super::super::false_schema::message(&value),
+            ValidationErrorKind::FalseSchema => super::super::schema::false_schema_message(&value),
             ValidationErrorKind::Contains => self.contains(error),
             // Counts, not the whole list or object printed.
             ValidationErrorKind::MinItems { limit } => {
@@ -224,7 +224,7 @@ impl Wording<'_> {
                 .as_object()
                 .is_some_and(|members| members.keys().all(|keyword| annotation(keyword)))
         {
-            return super::super::false_schema::message(value);
+            return super::super::schema::false_schema_message(value);
         }
         // A `type` beside a `const` or `enum` adds nothing to their names.
         let only = schema.as_object().and_then(|members| {
@@ -319,7 +319,7 @@ impl Wording<'_> {
         let mut segments = schema_path.rsplit('/');
         let trigger = match (segments.next(), segments.next(), segments.next()) {
             (Some("not"), Some(trigger), Some("dependentSchemas" | "dependencies")) => {
-                Some(trigger.replace("~1", "/").replace("~0", "~"))
+                Some(crate::editor::language::unescaped_key(trigger))
             }
             _ => None,
         };
@@ -472,7 +472,7 @@ impl Wording<'_> {
                 .and_then(|rest| rest.strip_prefix('/'))
                 .filter(|key| !key.contains('/'))
         {
-            let key = key.replace("~1", "/").replace("~0", "~");
+            let key = crate::editor::language::unescaped_key(key);
             return fill(&strings.option_refuses, &[("option", &name), ("key", &key)]);
         }
         let message = self.message(error);

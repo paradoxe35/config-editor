@@ -4,13 +4,13 @@
 //! structure (a TOML array, a YAML flow collection, an XML start tag with
 //! its attributes over lines). A language highlights one line at a time;
 //! the lines after a construct's first are colored here, from the comments
-//! ([`ConfigLanguage::comments`]) and constructs
-//! ([`ConfigLanguage::multiline_constructs`]) the language finds in the
+//! ([`Text::comments`]) and constructs
+//! ([`Text::multiline_constructs`]) the language finds in the
 //! whole document, so every line of one is colored as what it is, folded
 //! or scrolled out of view or not.
 //!
-//! [`ConfigLanguage::comments`]: super::super::language::ConfigLanguage::comments
-//! [`ConfigLanguage::multiline_constructs`]: super::super::language::ConfigLanguage::multiline_constructs
+//! [`Text::comments`]: super::super::language::Text::comments
+//! [`Text::multiline_constructs`]: super::super::language::Text::multiline_constructs
 
 use std::ops::Range;
 
@@ -37,10 +37,10 @@ pub(crate) struct Spanning {
     /// Comments and strings: colored as one kind of token, none starting
     /// inside an earlier one, in order.
     pub(crate) colored: Vec<SpanLines>,
-    /// Structure, colored by [`ConfigLanguage::highlight_continued`]: the
+    /// Structure, colored by [`Text::highlight_continued`]: the
     /// outermost ones, in order.
     ///
-    /// [`ConfigLanguage::highlight_continued`]: super::super::language::ConfigLanguage::highlight_continued
+    /// [`Text::highlight_continued`]: super::super::language::Text::highlight_continued
     pub(crate) structures: Vec<SpanLines>,
 }
 
@@ -172,7 +172,7 @@ fn opened(spans: &[SpanLines], index: usize) -> Option<(usize, TokenKind)> {
 /// The tokens of `line` when constructs opened on earlier lines reach it
 /// (`start`): the bytes a comment or string covers are of its kind, those
 /// inside structure are colored by the language's
-/// [`highlight_continued`](super::super::language::ConfigLanguage::highlight_continued),
+/// [`highlight_continued`](super::super::language::Text::highlight_continued),
 /// and the rest by its `highlight`, up to where a comment or string going
 /// on past the line's end starts (of its kind from there).
 pub(crate) fn tokens_after(language: Language, line: &str, start: LineStart) -> Vec<Token> {

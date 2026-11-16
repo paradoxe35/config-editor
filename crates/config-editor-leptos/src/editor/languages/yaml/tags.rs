@@ -12,6 +12,13 @@ pub(super) fn yaml_tags(source: &str) -> Vec<(String, String)> {
     if !source.contains('!') {
         return Vec::new();
     }
+    /// The tags of a text, read once for it: the parse keeps no tags.
+    struct Tags(Vec<(String, String)>);
+    crate::editor::parse_cache::reading(source, (), || Tags(tags_read(source))).0.clone()
+}
+
+/// [`yaml_tags`], read off a parse into YAML's own nodes (the tags kept).
+fn tags_read(source: &str) -> Vec<(String, String)> {
     let Ok(config) = super::limits::parser_config(source) else {
         return Vec::new();
     };
@@ -37,17 +44,12 @@ pub(super) fn yaml_tags(source: &str) -> Vec<(String, String)> {
                 entries
                     .iter()
                     .rev()
-                    .map(|(key, item)| (format!("{pointer}/{}", escape(key)), item)),
+                    .map(|(key, item)| (format!("{pointer}/{}", crate::editor::language::pointer_key(key)), item)),
             ),
             _ => {}
         }
     }
     found
-}
-
-/// `key` as a JSON pointer segment.
-fn escape(key: &str) -> String {
-    key.replace('~', "~0").replace('/', "~1")
 }
 
 #[cfg(test)]

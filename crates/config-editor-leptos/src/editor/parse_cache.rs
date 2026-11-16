@@ -12,7 +12,8 @@
 //! And the documents read the way a schema expects (see [`conformed`]),
 //! which an Edit-as save reads in several of its steps, and the copies of
 //! fields' keys written more than once (see `copies`), which a keystroke's
-//! checks each look for.
+//! checks each look for. And what a language reads off a whole text
+//! besides its parse (see [`reading`]).
 //!
 //! Two parses (an Edit-as view's text and the host's, which each pause
 //! reads in turn), three documents read as a schema expects and one entry
@@ -30,7 +31,21 @@ use super::language::{CompletionContext, ConfigLanguage, Lexical, ParseError};
 use super::work_count::{Work, note, note_many};
 
 mod conformed;
+mod readings;
 pub(crate) use conformed::conformed;
+#[cfg(all(test, any(feature = "hcl", feature = "xml")))]
+pub(crate) use readings::any_kept;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+pub(crate) use readings::forget as forget_readings;
+#[cfg(any(feature = "yaml", feature = "hcl", feature = "xml"))]
+pub(crate) use readings::reading;
 
 /// How many parses are kept.
 const PARSES_KEPT: usize = 2;
@@ -111,12 +126,9 @@ pub(crate) fn known_to_parse(language: &dyn ConfigLanguage, text: &str) -> Optio
 }
 
 /// The lines of `text`'s multi-line string bodies in `language` (see
-/// [`ConfigLanguage::string_body_lines`]), from the last reading when it was
+/// [`Text::string_body_lines`]), from the last reading when it was
 /// of the same text in the same language.
-pub(crate) fn string_bodies(
-    language: &(impl ConfigLanguage + ?Sized),
-    text: &str,
-) -> Rc<Vec<Range<usize>>> {
+pub(crate) fn string_bodies(language: &dyn ConfigLanguage, text: &str) -> Rc<Vec<Range<usize>>> {
     let label = language.info().label;
     let cached = BODIES.with(|last| {
         last.borrow()
@@ -153,7 +165,7 @@ pub(crate) fn completion_context(
 }
 
 /// Whether the caret at UTF-16 `cursor` of `text` is in a string or a
-/// comment (see [`ConfigLanguage::lexical_state`]), from the last reading
+/// comment (see [`Text::lexical_state`]), from the last reading
 /// when it was of the same place: the suggestions, what protection makes of
 /// them and the keys typing pairs ask more than once.
 pub(crate) fn lexical_state(language: &dyn ConfigLanguage, text: &str, cursor: usize) -> Lexical {
@@ -261,11 +273,8 @@ pub(crate) fn release() {
             holders.get() == 0
         })
         .unwrap_or(false);
-    // The last editor gone: what the languages keep goes too.
     if last {
-        for language in super::Language::ALL {
-            language.behavior().forget_kept();
-        }
+        readings::forget();
     }
     let _ = LAST.try_with(|last| last.borrow_mut().clear());
     let _ = BODIES.try_with(|last| last.borrow_mut().take());

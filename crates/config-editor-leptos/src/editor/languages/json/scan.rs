@@ -351,15 +351,6 @@ pub(super) fn caret_snapshot(source: &str, cursor: usize) -> Snapshot {
     walk.snapshot(partial.map(|index| tokens[index]))
 }
 
-pub(super) fn utf16(text: &str) -> usize {
-    text.encode_utf16().count()
-}
-
-/// One-based line and character column of a byte offset.
-pub(super) fn line_column(source: &str, byte: usize) -> (usize, usize) {
-    crate::editor::paths::line_column(source, byte)
-}
-
 /// One-line JSON, spaced as people write it: `{"a": 1, "b": [1, 2]}`.
 pub(super) fn json_text(value: &Value) -> String {
     match value {

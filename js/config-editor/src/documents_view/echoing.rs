@@ -1,129 +1,115 @@
-//! A documents view's echoes (the `echoes` option, see `crate::echoes`):
-//! a listed text its editor sent and moved past keeps what the editor
-//! holds, and a host left on such a text hears the document again.
+//! A documents view's side of each document's channel to the host (see
+//! `host_channel`): a listed text its editor sent and moved past keeps
+//! what the editor holds, its ranges and diagnostics move to it, and a
+//! host left on such a text hears the document again.
 
-use std::collections::HashSet;
+use std::collections::HashMap;
 
-use config_editor_leptos::js_support::flush_pending_input;
+use config_editor_leptos::TextRange;
+use config_editor_leptos::js_support::{Echo, flush_pending_input};
 use leptos::prelude::{GetValue, UpdateValue, WithUntracked, WithValue};
 use wasm_bindgen::JsValue;
 
 use super::State;
-use super::echo_ranges::take;
 use crate::documents_list::Listed;
-use crate::echoes::{Echo, Echoes};
-use crate::host_locks::Again;
+use crate::host_channel::Given;
 use crate::mount::call_host_with;
 use crate::settle;
 
 impl State {
-    /// With `echoing`, takes echoes out of `listed`: a document whose
-    /// listed text is one its editor sent and has moved past keeps what it
-    /// holds (the texts sent from `flushed` on, while the list was read,
-    /// were unknown to the host). Returns the documents whose host was left on such an echo,
-    /// with the text to send it again, and whether a document waits for
-    /// the check after a pause ([`Echo::Settle`]).
-    pub(super) fn keep_moved_past(
+    /// Takes `listed`: each document listed before goes through its
+    /// channel's second step (see `HostChannel::received`), the texts sent
+    /// from `flushed` on (while the list was read) unknown to the host. A
+    /// document whose listed text keeps what its editor holds is listed
+    /// with that text, and with the ranges its editor has when they stay.
+    /// Returns the documents whose host was left on an older text, with
+    /// the text to send it again, and whether a document waits for the
+    /// check after a pause ([`Echo::Settle`]).
+    pub(super) fn take_listed(
         &self,
         listed: &mut Listed,
         flushed: u64,
     ) -> (Vec<(String, String)>, bool) {
         let mut resend = Vec::new();
         let mut settles = false;
-        if !self.echoing {
-            return (resend, settles);
-        }
-        // What each document's editor did with the ranges listed (see
-        // `host_locks::Listed::took`).
-        let mut took = Vec::new();
-        let shown_ranges = |id: &str| {
-            self.documents
-                .try_with_untracked(|documents| {
-                    documents
-                        .iter()
-                        .find(|document| document.id == id)
-                        .map(|document| document.read_only_ranges.clone())
-                })
-                .flatten()
-                .unwrap_or_default()
-        };
-        let _ = self.echoes.try_update_value(|echoes| {
-            {
-                // The documents no longer listed: one lookup each.
-                let ids: HashSet<&str> = listed
-                    .documents
+        let Listed {
+            documents, ranges, ..
+        } = listed;
+        // The ranges each editor has, for the ones that stay.
+        let shown: HashMap<String, Vec<TextRange>> = self
+            .documents
+            .try_with_untracked(|shown| {
+                shown
                     .iter()
-                    .map(|document| document.id.as_str())
-                    .collect();
-                echoes.retain(|id, _| ids.contains(id.as_str()));
-            }
-            let now = js_sys::Date::now();
+                    .filter(|document| ranges.contains_key(&document.id))
+                    .map(|document| (document.id.clone(), document.read_only_ranges.clone()))
+                    .collect()
+            })
+            .unwrap_or_default();
+        let _ = self.kept.try_update_value(|kept| {
             // Each document's text read where it is kept, not copied.
             self.texts.try_with_value(|texts| {
-                for document in &mut listed.documents {
-                    let echo = echoes
-                        .entry(document.id.clone())
-                        .or_insert_with(|| Echoes::new(true));
-                    let Some(current) = texts.get(&document.id).map(|texts| &texts.value) else {
-                        // Listed for the first time.
-                        echo.given(&document.value);
+                for document in documents.iter_mut() {
+                    let (Some(listed), Some(current), Some(channel)) = (
+                        ranges.remove(&document.id),
+                        texts.get(&document.id).map(|texts| &texts.value),
+                        kept.channels.get_mut(&document.id),
+                    ) else {
+                        // Listed for the first time: taken as listed.
                         continue;
                     };
-                    echo.at(now);
-                    let echo = echo.received(&document.value, current, flushed);
-                    let mut again = listed.ranges_again.remove(&document.id);
-                    let applies = echo == Echo::Apply;
-                    // Ranges listed with a text from before the host's last
-                    // reset are for a text it replaced: the shown ones stay
-                    // (see `Echoes::before_reset`), and the same ones listed
-                    // next are read in their text.
-                    let before_reset = !applies
-                        && echoes
-                            .get(&document.id)
-                            .is_some_and(|echo| echo.before_reset(&document.value));
-                    if before_reset {
-                        document.read_only_ranges = shown_ranges(&document.id);
-                        again = Some(Again::Stayed);
+                    let diagnostics = std::mem::take(&mut document.host_diagnostics);
+                    let taken = channel.received(
+                        Given {
+                            value: Some(&document.value),
+                            revision: None,
+                            ranges_for: None,
+                            ranges: Some(listed),
+                            diagnostics: Some(diagnostics),
+                            flushed,
+                            stale: false,
+                        },
+                        current,
+                    );
+                    document.host_diagnostics = taken.diagnostics.unwrap_or_default();
+                    document.read_only_ranges = taken
+                        .ranges
+                        .or_else(|| shown.get(&document.id).cloned())
+                        .unwrap_or_default();
+                    document.read_only_ranges_version = channel.version();
+                    match taken.echo {
+                        None | Some(Echo::Apply) => continue,
+                        Some(Echo::Skip) => {}
+                        Some(Echo::Settle) => settles = true,
+                        Some(Echo::Resend) => {
+                            settles = true;
+                            resend.push((document.id.clone(), current.clone()));
+                        }
                     }
-                    let (kept, stayed) = take(document, current, again, applies);
-                    took.push((
-                        document.id.clone(),
-                        current.clone(),
-                        kept,
-                        stayed,
-                        before_reset,
-                    ));
-                    if applies {
-                        continue;
-                    }
-                    settles |= echo != Echo::Skip;
-                    if echo == Echo::Resend {
-                        resend.push((document.id.clone(), current.clone()));
-                    }
+                    current.clone_into(&mut document.value);
                 }
             })
-        });
-        // The next list compares with the ranges the editors kept.
-        let _ = self.kept.try_update_value(|kept| {
-            for (id, current, ranges, stayed, before_reset) in took {
-                kept.locks.took(&id, &current, ranges, stayed, before_reset);
-            }
-            // Each document's ranges as the handing they now are.
-            for document in &mut listed.documents {
-                document.read_only_ranges_version = kept.locks.version(&document.id, false);
-            }
         });
         (resend, settles)
     }
 
     /// The host gave `value` of its own for the document `id`
-    /// (`replaceValue`): what it holds, no echo to wait for.
-    pub(super) fn given(&self, id: &str, value: &str) {
-        let _ = self.echoes.try_update_value(|echoes| {
-            if let Some(echo) = echoes.get_mut(id) {
-                echo.replaced(value);
-            }
-        });
+    /// (`replaceValue`), its editor holding `current`: the ranges to hand
+    /// it there and their version, `None` when it is `current` (see
+    /// `HostChannel::replaced`).
+    pub(super) fn replaced(
+        &self,
+        id: &str,
+        value: &str,
+        current: &str,
+    ) -> Option<(Vec<TextRange>, u64)> {
+        self.kept
+            .try_update_value(|kept| {
+                let channel = kept.channels.get_mut(id)?;
+                let ranges = channel.replaced(value, current)?;
+                Some((ranges, channel.version()))
+            })
+            .flatten()
     }
 
     /// Sends the documents in `resend` to the host's `onChange` again; with
@@ -139,24 +125,23 @@ impl State {
     /// text hears it again.
     fn settle_all(self) {
         flush_pending_input();
-        let ids: Vec<String> = self
-            .echoes
-            .try_with_value(|echoes| echoes.keys().cloned().collect())
+        let resend = self
+            .kept
+            .try_update_value(|kept| {
+                self.texts.try_with_value(|texts| {
+                    kept.channels
+                        .iter_mut()
+                        .filter_map(|(id, channel)| {
+                            let current = &texts.get(id)?.value;
+                            channel
+                                .settle(current)
+                                .then(|| (id.clone(), current.clone()))
+                        })
+                        .collect::<Vec<_>>()
+                })
+            })
+            .flatten()
             .unwrap_or_default();
-        let mut resend = Vec::new();
-        for id in ids {
-            let Some(texts) = self.texts_of(&id) else {
-                continue;
-            };
-            let again = self.echoes.try_update_value(|echoes| {
-                echoes
-                    .get_mut(&id)
-                    .is_some_and(|echo| echo.settle(&texts.value))
-            });
-            if again == Some(true) {
-                resend.push((id, texts.value));
-            }
-        }
         self.tell(resend);
     }
 

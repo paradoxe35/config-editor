@@ -438,3 +438,52 @@ fn a_range_over_a_comment_keeps_its_text_through_an_edit_as_view() {
     }
     assert!(failures.is_empty(), "{failures:#?}");
 }
+
+/// P1: a host range holding a line break keeps its text through an Edit-as
+/// view, also where it covers a field: the line above it deleted, or the
+/// whole view written over, never takes the range's text from the host
+/// (the range over `\npubl`, and one that is only the last line break).
+#[test]
+fn a_range_holding_a_line_break_keeps_its_text_through_an_edit_as_view() {
+    let text = "listen: 7835\npublic_address: tunnel.example.com\n";
+    let ranges = [
+        (
+            "\npubl",
+            TextRange::new(TextPosition::new(1, 13), TextPosition::new(2, 5)),
+        ),
+        (
+            "\n",
+            TextRange::new(TextPosition::new(2, 35), TextPosition::new(3, 1)),
+        ),
+    ];
+    let mut failures = Vec::new();
+    for view in [Language::JSON, Language::TOML, Language::XML, Language::HCL] {
+        for (locked, range) in &ranges {
+            for whole in [false, true] {
+                let (_owner, state) = TestEditor {
+                    edit_as: Some(view),
+                    read_only_ranges: vec![*range],
+                    ..TestEditor::new(Language::YAML, text)
+                }
+                .mount();
+                let shown_text = shown(state);
+                if whole {
+                    // All selected, a line break typed over it.
+                    input(state, 0..shown_text.len(), "\n", "insertLineBreak");
+                } else {
+                    // The line holding `listen` deleted.
+                    let at = shown_text.find("listen").expect("listen");
+                    let start = shown_text[..at].rfind('\n').map_or(0, |at| at + 1);
+                    let end = line_end(state, "listen") + 1;
+                    input(state, start..end, "", "deleteByCut");
+                }
+                pause(state);
+                let host = host(state);
+                if !host.contains(locked) {
+                    failures.push(format!("{view} {locked:?} whole {whole}: {host:?}"));
+                }
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{failures:#?}");
+}

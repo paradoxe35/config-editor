@@ -3,9 +3,8 @@
 
 use leptos::prelude::*;
 
-use super::super::bridge::links::Links;
 use super::super::fold_ranges::FoldRange;
-use super::super::history::{Selection, Snapshot};
+use super::super::history::{Record, Selection, Snapshot, ViewState};
 use super::super::languages::Language;
 use super::super::positioning::set_caret_visible;
 use super::super::state::{EditorState, directed_selection, select, textarea_selection};
@@ -96,7 +95,10 @@ impl EditorState {
         // Undone or redone back into the host's language with its own text:
         // nothing new to tell it.
         let hosts_own = switching == Some(self.config().host_language)
-            && self.sync().host_text.with_value(|host| *host == edit.text);
+            && self
+                .sync()
+                .session
+                .with_value(|session| *session.host == *edit.text);
         if let Some(language) = switching {
             if language_before == self.config().host_language {
                 self.leave_ranges(&edit.before);
@@ -197,9 +199,9 @@ impl EditorState {
                     return (start, end);
                 };
                 if reveal {
-                    self.doc().text.with_untracked(|text| {
-                        set_caret_visible(&area, text, caret, self.view().scroll_y)
-                    });
+                    self.doc()
+                        .text
+                        .with_untracked(|text| set_caret_visible(&area, text, caret));
                 }
                 // The text between the anchor and the caret stays selected,
                 // the caret at its own end.
@@ -241,8 +243,6 @@ impl EditorState {
                 select(&area, start, end, caret < anchor);
                 area.set_scroll_top(top);
                 area.set_scroll_left(left);
-                self.view().scroll_x.set(f64::from(area.scroll_left()));
-                self.view().scroll_y.set(f64::from(area.scroll_top()));
                 (start, end)
             }
             After::Kept => {
@@ -258,11 +258,11 @@ impl EditorState {
     /// The undo history, by origin; `changed` says whether the edit changed
     /// the text, `after` is the selection the edit left,
     /// `folds` the folds closed before and after a command that said them,
-    /// `links` the links of the text before (see `bridge::links`).
+    /// `view` what the view kept of the text before (see `history::ViewState`).
     fn record(
         &self,
         edit: &Edit,
-        (changed, links): (bool, Links),
+        (changed, links): (bool, ViewState),
         after: Selection,
         language: Language,
         folds: Option<(Vec<FoldRange>, Vec<FoldRange>)>,
@@ -272,7 +272,7 @@ impl EditorState {
             selection: edit.replaced(after.0),
             language: None,
             folds: None,
-            links: links.clone(),
+            view: links.clone(),
         };
         let history = self.doc().history;
         match &edit.origin {
@@ -287,14 +287,20 @@ impl EditorState {
                     folds: closed,
                     ..before()
                 };
-                history.record_command(before, after, left);
+                history.record_command(before, after, left, Record::undoing(edit));
             }),
             Origin::Reload { .. } => {
                 history.update(|history| history.record_action(before(), after));
             }
             Origin::Input { kind, time } => {
                 history.update(|history| {
-                    history.record_input(before(), &edit.text, after, kind, *time);
+                    history.record_input_as(
+                        before(),
+                        &edit.text,
+                        after,
+                        (kind, *time),
+                        Record::undoing(edit),
+                    );
                 });
             }
             Origin::Undo => history.update(|history| {

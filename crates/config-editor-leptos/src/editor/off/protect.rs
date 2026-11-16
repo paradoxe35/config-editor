@@ -12,12 +12,13 @@ use serde_json::Value;
 use web_sys::KeyboardEvent;
 
 use super::completion::{Completion, SuggestionPlace};
-use super::diagnostics::{Diagnostic, SchemaBundle};
+use super::diagnostics::Diagnostic;
 use super::edit::{Edit, Origin};
 use super::language::ConfigLanguage;
 use super::languages::Language;
 use super::line_rows::MarkedLines;
 use super::paths::{FieldPath, TextRange};
+use super::schema::SchemaBundle;
 use super::secret_options::SecretOptions;
 use super::state::EditorState;
 use crate::EditorStrings;
@@ -42,7 +43,8 @@ pub(super) struct Inputs {
     pub(super) edit_language: RwSignal<Language>,
     pub(super) host_language: Language,
     pub(super) schema: Option<Arc<SchemaBundle>>,
-    pub(super) host_text: StoredValue<String>,
+    pub(super) host_text: super::sync::HostTextReader,
+    pub(super) popups: super::popups::PopupState,
 }
 
 /// Nothing protected.
@@ -106,7 +108,12 @@ impl ProtectState {
         false
     }
 
-    pub(super) fn held_problems(&self, _text: &str, _strings: &EditorStrings) -> Vec<Diagnostic> {
+    pub(super) fn held_problems(
+        &self,
+        _behavior: &dyn super::super::language::ConfigLanguage,
+        _text: &str,
+        _strings: &EditorStrings,
+    ) -> Vec<Diagnostic> {
         Vec::new()
     }
 
@@ -132,7 +139,10 @@ impl ProtectState {
         Vec::new()
     }
 
-    pub(super) fn tip_open(&self) -> bool {
+    /// Whether the lock tooltip shows: never, with no locks (the edit
+    /// tests, which need YAML, ask).
+    #[cfg(all(test, feature = "yaml"))]
+    pub(crate) fn tip_open(&self) -> bool {
         false
     }
 
@@ -188,9 +198,7 @@ impl EditorState {
         false
     }
 
-    pub(crate) fn hold_change(&self) -> bool {
-        false
-    }
+    pub(crate) fn note_held_back(&self, _held: bool) {}
 
     pub(crate) fn cuts_a_token(&self, _start: usize, _end: usize) -> bool {
         false

@@ -1,50 +1,35 @@
-//! Whether one locked stretch survives an edit, unit by unit: its text in
-//! what the two texts share, nothing glued onto its ends.
+//! Whether text was glued onto a span's ends: a character beside it that
+//! would read as part of it.
 
 use std::ops::Range;
 
-/// Whether `range` of the old text survives the edit untouched: it lies in
-/// the common prefix or suffix, and nothing new is glued onto its ends.
-pub(super) fn kept(
-    range: &Range<usize>,
+/// Whether the span `was` of `old`, now at `now` of `new`, has text glued
+/// onto an end: a character beside it changed to one that joins it (see
+/// [`neighbour_ok`]).
+pub(super) fn glued(
     old: &[u16],
     new: &[u16],
-    prefix: usize,
-    suffix: usize,
-    strict: &dyn Fn() -> bool,
+    was: &Range<usize>,
+    now: &Range<usize>,
+    strict: bool,
 ) -> bool {
-    if range.start >= range.end {
-        return true;
+    if was.start >= was.end || was.end > old.len() {
+        return false;
     }
-    let last = old[range.end - 1];
-    let in_prefix =
-        range.end <= prefix && neighbour_ok(last, old.get(range.end), new.get(range.end), strict);
-    if in_prefix {
-        return true;
-    }
-    let tail_start = old.len().saturating_sub(suffix);
-    if range.start >= tail_start {
-        let shifted = range.start + new.len() - old.len();
-        let before = range.start.checked_sub(1).and_then(|at| old.get(at));
-        let after = shifted.checked_sub(1).and_then(|at| new.get(at));
-        return neighbour_ok(old[range.start], before, after, strict);
-    }
-    false
+    let before_old = was.start.checked_sub(1).and_then(|at| old.get(at));
+    let before_new = now.start.checked_sub(1).and_then(|at| new.get(at));
+    !neighbour_ok(old[was.start], before_old, before_new, strict)
+        || !neighbour_ok(old[was.end - 1], old.get(was.end), new.get(now.end), strict)
 }
 
 /// A character next to a locked stretch (whose character on that side is
 /// `edge`) may change only to one that cannot join it: whitespace,
 /// punctuation (only whitespace when `strict`), or nothing. Next to a
 /// stretch ending in a blank or punctuation, anything may go.
-fn neighbour_ok(
-    edge: u16,
-    old: Option<&u16>,
-    new: Option<&u16>,
-    strict: &dyn Fn() -> bool,
-) -> bool {
+fn neighbour_ok(edge: u16, old: Option<&u16>, new: Option<&u16>, strict: bool) -> bool {
     old == new
         || !glues(edge)
-        || new.is_none_or(|unit| !glues(*unit) && (is_blank(*unit) || !strict()))
+        || new.is_none_or(|unit| !glues(*unit) && (is_blank(*unit) || !strict))
 }
 
 /// Whether `unit` is whitespace.

@@ -6,7 +6,7 @@
 
 use leptos::prelude::*;
 
-use super::super::caret_tip::caret_tip_style;
+use super::super::popups::caret_tip_style;
 use super::super::state::EditorState;
 use crate::cssom::cssom;
 use crate::reactive::later;

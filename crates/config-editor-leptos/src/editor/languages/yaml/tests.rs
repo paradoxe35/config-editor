@@ -2,14 +2,16 @@ use super::super::super::completion::{
     accept_marked, accept_reopens_suggestions, apply_completion,
     completions as shared_completions, key_hover as shared_key_hover,
 };
-use super::super::super::diagnostics::{
-    Diagnostic, SchemaBundle, build_schema, validate as shared_validate,
-};
+use super::super::super::diagnostics::{Diagnostic, validate as shared_validate};
+use super::super::super::schema::{SchemaBundle, build_schema};
 use super::super::super::keyboard::paired_edit as shared_paired_edit;
 use super::super::super::language::ConfigLanguage;
 use super::YamlBehavior;
 use super::super::super::highlight::{TokenKind, runs};
 use super::{highlight, scalar_kind, split_yaml_comment};
+
+/// The language under test, read as the editor reads one.
+const LANGUAGE: &dyn ConfigLanguage = &YamlBehavior;
 
 fn validate_yaml(
     source: &str,
@@ -38,7 +40,7 @@ fn an_object_accepted_inside_a_flow_mapping_stays_in_flow_style() {
     let accepted = accept_marked("web: { le| }\n", "letsencrypt", &schema, &YamlBehavior);
     assert_eq!(accepted, "web: { letsencrypt: { email: | } }\n");
     let filled = accepted.replace('|', "a@b.c");
-    let document = YamlBehavior.parse(&filled).expect("flow mapping parses");
+    let document = LANGUAGE.parse(&filled).expect("flow mapping parses");
     assert_eq!(document["web"]["letsencrypt"]["email"], "a@b.c");
 }
 
@@ -93,7 +95,7 @@ fn paired_edit(
 }
 
 fn newline_with_indent(source: &str, cursor: usize) -> String {
-    YamlBehavior.newline(source, cursor).text
+    LANGUAGE.newline(source, cursor).text
 }
 
 fn toggle_yaml_line_comments(
@@ -101,7 +103,7 @@ fn toggle_yaml_line_comments(
     selection_start: usize,
     selection_end: usize,
 ) -> Option<(String, usize, usize)> {
-    YamlBehavior.toggle_comments(source, selection_start, selection_end)
+    LANGUAGE.toggle_comments(source, selection_start, selection_end)
 }
 
 fn test_schema() -> SchemaBundle {
@@ -891,7 +893,7 @@ fn enter_aligns_sequence_item_mappings_and_preserves_spacing_after_the_dash() {
     // Enter on an empty item ends the list: the line goes back to the
     // column of the key holding it.
     let empty_item = "services:\n  - ";
-    let ended = YamlBehavior.newline(empty_item, empty_item.len());
+    let ended = LANGUAGE.newline(empty_item, empty_item.len());
     assert_eq!((ended.text.as_str(), ended.replaces_before), ("", 4));
 
     let plain_scalar_key = "services:\n  -web: 8080";
@@ -1490,6 +1492,33 @@ fn comments_are_split_only_outside_yaml_quotes() {
     );
 }
 
+/// A quote inside a plain scalar (`don't`) opens no string: the comment
+/// after it is found by every reading of the line, and the caret after
+/// it is in no string.
+#[test]
+fn an_apostrophe_in_a_plain_scalar_opens_no_string() {
+    let line = "key: don't # note";
+    assert_eq!(LANGUAGE.comment_start(line), Some(11));
+    assert_eq!(LANGUAGE.comments(&format!("{line}\n")), vec![11..17]);
+    let tokens = highlighted(line);
+    assert!(
+        tokens
+            .iter()
+            .any(|(kind, text)| *kind == Some(TokenKind::Comment) && text == "# note"),
+        "{tokens:?}"
+    );
+    let caret = "key: don't".len();
+    let state = LANGUAGE.lexical_state(line, caret);
+    assert_eq!((state.quote, state.in_comment), (None, false));
+    let state = LANGUAGE.lexical_state(line, line.len());
+    assert_eq!((state.quote, state.in_comment), (None, true));
+    // A key holding one is a key.
+    assert_eq!(
+        super::mapping_colon("it's: here # note"),
+        Some(4)
+    );
+}
+
 #[cfg(feature = "schema-validation")]
 #[test]
 fn keys_inside_an_inline_mapping_are_suggested_from_the_schema() {
@@ -1604,7 +1633,7 @@ fn custom_tags_are_valid_yaml_read_as_the_values_under_them() {
 #[test]
 fn several_documents_say_so_in_plain_words_at_the_second() {
     for text in ["a: 1\n---\nb: 2\n", "---\na: 1\n---\nb: 2\n", "a: 1\n...\n---\nb: 2\n"] {
-        let error = YamlBehavior.parse(text).expect_err(text);
+        let error = LANGUAGE.parse(text).expect_err(text);
         assert!(
             error.message.contains("more than one YAML document")
                 && !error.message.contains("deserializ")
@@ -1617,7 +1646,7 @@ fn several_documents_say_so_in_plain_words_at_the_second() {
     }
 }
 
-/// QA 22 L10: a `---` closing the text (comments after it at most) is an
+/// A `---` closing the text (comments after it at most) is an
 /// empty document's start, not a second document; text after it, or an
 /// indented `---` in a block scalar, stays as it reads.
 #[test]
@@ -1629,17 +1658,17 @@ fn a_trailing_document_marker_is_no_second_document() {
         ("---\na: 1\n---\n", json!({"a": 1})),
         ("a: |\n  x\n  ---\n", json!({"a": "x\n---\n"})),
     ] {
-        assert_eq!(YamlBehavior.parse(text).ok(), Some(value), "{text:?}");
+        assert_eq!(LANGUAGE.parse(text).ok(), Some(value), "{text:?}");
     }
-    assert!(YamlBehavior.parse("a: 1\n---\nb: 2\n---\n").is_err());
+    assert!(LANGUAGE.parse("a: 1\n---\nb: 2\n---\n").is_err());
 }
 
-/// QA 22: a complex key's value line (`: y` under `- ? x`) was coloured as
-/// the plain key going on, colon and all; its colon is punctuation.
+/// A complex key's value line (`: y` under `- ? x`) is no plain key going
+/// on: its colon is punctuation.
 #[test]
 fn a_complex_keys_value_line_is_not_a_plain_scalar_going_on() {
     for source in ["list:\n  - ? x\n    : y\n", "? x\n: y\n", "a: b\n  : c\n"] {
-        let constructs = YamlBehavior.multiline_constructs(source);
+        let constructs = LANGUAGE.multiline_constructs(source);
         let colon = source.rfind(':').unwrap();
         let covering: Vec<_> = constructs
             .iter()
@@ -1649,8 +1678,8 @@ fn a_complex_keys_value_line_is_not_a_plain_scalar_going_on() {
     }
 }
 
-/// QA 35: an anchor or a tag before a flow mapping (`obj: &x {|}`,
-/// `- !!map {|}`) left the mapping unseen: no key was offered in it.
+/// An anchor or a tag before a flow mapping (`obj: &x {|}`, `- !!map {|}`)
+/// leaves the mapping seen: its keys are offered in it.
 #[test]
 fn keys_are_offered_in_a_flow_mapping_behind_an_anchor_or_a_tag() {
     let schema = build_schema(

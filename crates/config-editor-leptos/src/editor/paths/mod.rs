@@ -11,10 +11,17 @@ mod types;
 mod walk;
 
 pub(crate) use fields::fields;
+#[cfg(any(feature = "toml", feature = "hcl"))]
+pub(crate) use lines::byte_at_column;
+#[cfg(any(feature = "json", feature = "toml", feature = "hcl"))]
+pub(crate) use lines::first_line_span;
+#[cfg(any(feature = "json", feature = "toml", feature = "hcl", feature = "xml"))]
+pub(crate) use lines::span_between;
 #[cfg(any(feature = "yaml", feature = "toml"))]
 pub(crate) use lines::text_line;
 pub(crate) use lines::{
     Lines, byte_at, line_column, line_of_byte, line_start, lines, offset_of, split_line, units_at,
+    utf16_len,
 };
 #[cfg(any(feature = "yaml", feature = "toml", feature = "hcl", feature = "xml"))]
 pub(crate) use span_memo::batch_cached_as;
@@ -34,7 +41,7 @@ use super::work_count::{Work, note};
 
 /// `pointer`, and for languages that repeat elements or blocks, the pointer
 /// written: without the `/0` after each field the language writes as a lone
-/// item (`ConfigLanguage::lone_item`: an XML element or HCL block written
+/// item (`Repeats::lone_item`: an XML element or HCL block written
 /// once, read as a one-item list too). An index anywhere else (on a scalar,
 /// an attribute, an object of labelled blocks, another index, the document)
 /// is only an index. A list written as one (`ea = []`) has no lone item: its
@@ -392,7 +399,7 @@ pub(crate) fn problem_key_span(
 
 /// `locate` of the pointer the field at `pointer` is written at when the
 /// text writes it once and reads it in several places (a YAML anchor read
-/// through an alias or a merge, `ConfigLanguage::written_at`); `None` when
+/// through an alias or a merge, `Sharing::written_at`); `None` when
 /// it reads through nothing.
 fn through_shared(
     behavior: &dyn ConfigLanguage,

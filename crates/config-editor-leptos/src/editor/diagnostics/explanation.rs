@@ -40,6 +40,7 @@ use jsonschema::error::{ValidationError, ValidationErrorKind};
 use jsonschema::{Keyword, Validator};
 use serde_json::{Map, Value, json};
 
+use crate::editor::schema::Holds;
 #[cfg(test)]
 use crate::editor::work_count::note_many;
 use crate::editor::work_count::{Work, note};
@@ -312,19 +313,6 @@ fn collected(errors: &[ValidationError<'_>]) -> usize {
         .sum()
 }
 
-/// Keywords whose value is data, not schemas: left as written.
-const DATA: [&str; 4] = ["const", "enum", "default", "examples"];
-
-/// Keywords whose value maps names to schemas.
-const NAMED: [&str; 6] = [
-    "properties",
-    "patternProperties",
-    "$defs",
-    "definitions",
-    "dependentSchemas",
-    "dependencies",
-];
-
 /// Wraps each option of each `oneOf` and `anyOf` in `value` (a schema or
 /// a list of them, at the JSON pointer `at` of its resource), numbering
 /// them on from `count` (see [`wrapped`]).
@@ -340,10 +328,11 @@ fn wrap(value: &mut Value, at: &str, count: &mut u64) {
             let at = if starts_resource { "" } else { at };
             for (key, member) in members.iter_mut() {
                 let here = format!("{at}/{}", escape(key));
-                if DATA.contains(&key.as_str()) {
+                let holds = crate::editor::schema::holds(key);
+                if holds == Holds::Data {
                     continue;
                 }
-                if NAMED.contains(&key.as_str()) {
+                if holds == Holds::Named {
                     if let Value::Object(named) = member {
                         for (name, schema) in named.iter_mut() {
                             wrap(schema, &format!("{here}/{}", escape(name)), count);
@@ -431,7 +420,7 @@ fn unwrap(value: &mut Value) {
 
 /// `segment` escaped for a JSON pointer.
 fn escape(segment: &str) -> String {
-    segment.replace('~', "~0").replace('/', "~1")
+    crate::editor::language::pointer_key(segment)
 }
 
 /// The JSON pointer `pointer` written as a URI fragment: each character a

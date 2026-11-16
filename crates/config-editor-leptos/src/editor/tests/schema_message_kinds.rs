@@ -8,7 +8,8 @@
 //! start with a byte order mark.
 
 use crate::editor::Language;
-use crate::editor::diagnostics::{Diagnostic, Schema, build_schema};
+use crate::editor::diagnostics::Diagnostic;
+use crate::editor::schema::{Schema, build_schema};
 
 const LANGUAGES: [Language; 4] = [
     Language::YAML,

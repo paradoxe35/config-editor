@@ -1,4 +1,4 @@
-//! `ConfigLanguage::edits_one_scalar` says yes only when it is so, in
+//! `SaveLayout::edits_one_scalar` says yes only when it is so, in
 //! every language: every character typed at every place of a text full of
 //! constructs over lines (comments, multi-line strings and containers, YAML
 //! anchors and aliases), and every character deleted, that it takes for a

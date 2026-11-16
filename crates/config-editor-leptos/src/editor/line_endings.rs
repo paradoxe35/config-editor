@@ -48,6 +48,13 @@ pub(super) fn editor_text(text: String) -> String {
     }
 }
 
+/// Whether two host texts are the same document as the editor reads them
+/// (see [`editor_text`]): their line breaks and a leading byte order mark
+/// aside. The one rule for "unchanged", shown or not.
+pub(crate) fn same_document(left: &str, right: &str) -> bool {
+    left == right || editor_text(left.to_string()) == editor_text(right.to_string())
+}
+
 impl LineEndings {
     /// The line endings of `text`, a document in `language`.
     pub(super) fn of(text: &str, language: Language) -> Self {
@@ -63,13 +70,33 @@ impl LineEndings {
         this
     }
 
-    /// A new text from the host: its line endings (a text without line
-    /// breaks keeps the most common ending seen before, for new lines) and
-    /// its byte order mark.
-    pub(super) fn note(&self, text: &str) {
+    /// The host's first text: its line endings and its byte order mark,
+    /// recorded once (see [`Self::received`] for the texts after it).
+    fn note(&self, text: &str) {
         let (text, marked) = byte_order_mark::split(text);
+        self.0.update_value(|endings| endings.marked = marked);
+        self.note_endings(text);
+    }
+
+    /// A later text from the host (a new `value`, an echo), as the editor
+    /// works on it: LF breaks, its line endings noted. A leading U+FEFF is
+    /// the byte order mark the host's first text had, and goes; when that
+    /// text had none, it is a character of the document, and stays.
+    pub(super) fn received(&self, text: String) -> String {
+        let marked = self.0.with_value(|endings| endings.marked);
+        let document = match byte_order_mark::split(&text) {
+            (document, true) if marked => document.to_string(),
+            _ => text,
+        };
+        self.note_endings(&document);
+        normalize_newlines(document)
+    }
+
+    /// `text`'s line endings (a text without line breaks keeps the most
+    /// common ending seen before, for new lines), `text` being a document
+    /// (no byte order mark).
+    fn note_endings(&self, text: &str) {
         self.0.update_value(|endings| {
-            endings.marked = marked;
             if text.contains(['\n', '\r']) {
                 endings.common = most_common(text);
             }

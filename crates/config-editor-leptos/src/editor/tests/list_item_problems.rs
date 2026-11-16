@@ -4,8 +4,8 @@
 //! block, and inside an object written where a list is expected, is placed
 //! on the line that writes it, for every kind of problem and language.
 
-use crate::editor::diagnostics::Schema;
 use crate::editor::languages::Language;
+use crate::editor::schema::Schema;
 
 const SCHEMA: &str = r#"{
   "type": "object",

@@ -22,6 +22,7 @@ export {
   type EditorUpdate,
   type EditorView,
   type FieldPath,
+  type HostChannel,
   type HostDiagnostic,
   type InitInput,
   type InitOutput,

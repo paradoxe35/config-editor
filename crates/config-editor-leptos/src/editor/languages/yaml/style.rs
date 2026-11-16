@@ -68,17 +68,7 @@ pub(super) fn yaml_value_like(language: &YamlBehavior, value: &Value, written: &
 pub(super) fn in_flow_collection(source: &str, range: std::ops::Range<usize>) -> bool {
     let line_start = source[..range.start].rfind('\n').map_or(0, |index| index + 1);
     let before = &source[line_start..range.start];
-    let (mut depth, mut quote) = (0i32, None);
-    for character in before.chars() {
-        match (quote, character) {
-            (Some(open), _) if open == character => quote = None,
-            (Some(_), _) => {}
-            (None, '"' | '\'') => quote = Some(character),
-            (None, '[' | '{') => depth += 1,
-            (None, ']' | '}') => depth -= 1,
-            _ => {}
-        }
-    }
+    let depth = super::lexical::read_line(before, before.len()).flow;
     let after = code_before_comment(source[range.end..].split('\n').next().unwrap_or("")).trim_start();
     let previous_line = source[..line_start]
         .trim_end_matches('\n')

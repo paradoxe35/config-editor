@@ -8,8 +8,9 @@ use js_sys::{Array, Object};
 use wasm_bindgen::prelude::*;
 
 use crate::given::Given;
+use crate::host_channel::{HostChannel, Ranges};
 use crate::host_diagnostics::host_diagnostics_from;
-use crate::host_locks::Again;
+use crate::host_locks::print;
 use crate::languages::{language_for_path, language_named, writable_edit_as};
 use crate::options::{bool_option, warn_unknown_keys};
 use crate::protect::{paths_from, ranges_in, secrets_from};
@@ -42,9 +43,11 @@ const DOCUMENT_KEYS: &[&str] = &[
 pub(crate) struct Listed {
     pub(crate) documents: Vec<Document>,
     pub(crate) overrides: Vec<(String, JsValue)>,
-    /// The documents listed with the ranges given last (see
-    /// `host_locks`), and what became of those ranges.
-    pub(crate) ranges_again: HashMap<String, Again>,
+    /// The ranges listed for each document listed before, read (or not)
+    /// as its channel's first step (see `HostChannel::ranges`): the view
+    /// takes the list with the second. A document listed for the first
+    /// time has none here: it is taken as listed.
+    pub(crate) ranges: HashMap<String, Ranges>,
 }
 
 /// What reading the list keeps from one reading to the next: each
@@ -56,8 +59,10 @@ pub(crate) struct Kept {
     secrets: HashMap<String, SecretOptions>,
     pub(crate) texts: Given<String>,
     schemas: Given<(String, Schema)>,
-    /// Each document's `readOnlyRanges` as given (see `host_locks`).
-    pub(crate) locks: crate::host_locks::Listed,
+    /// Whether the host lists every text `onChange` gives back (`echoes`).
+    pub(crate) echoing: bool,
+    /// Each document's channel to the host (see `host_channel`).
+    pub(crate) channels: HashMap<String, HostChannel>,
 }
 
 impl Kept {
@@ -65,7 +70,6 @@ impl Kept {
     pub(crate) fn abandon(&mut self) {
         self.texts.abandon();
         self.schemas.abandon();
-        self.locks.abandon();
     }
 }
 
@@ -104,16 +108,14 @@ fn warn_unclaimed(file_name: &str, fallback: Language) {
 ///
 /// A document's `settings` go over `view`; its `secrets` are built once per
 /// id, and its `schema` compiled once per text (a schema that does not
-/// compile throws, as a `ConfigEditor`'s does), see [`Kept`]. `replaces(id,
-/// value)` says whether the text `value` will replace what the editor of
-/// document `id` holds: not that text, an echo, nor the text the host
-/// listed last (its ranges given again are read in it only then, see
-/// `host_locks`).
-pub(crate) fn documents_from(
+/// compile throws, as a `ConfigEditor`'s does), see [`Kept`]. `current(id)`
+/// is the text the view holds for document `id`, if it was listed before:
+/// its ranges are read as its channel decides (see `HostChannel::ranges`).
+pub(crate) fn documents_from<'a>(
     list: &JsValue,
     view: &EditorSettings,
     kept: &mut Kept,
-    replaces: &dyn Fn(&str, &str) -> bool,
+    current: &dyn Fn(&str) -> Option<&'a str>,
 ) -> Result<Listed, JsError> {
     if !Array::is_array(list) {
         return Err(JsError::new(
@@ -123,7 +125,7 @@ pub(crate) fn documents_from(
     let list: &Array = list.unchecked_ref();
     let mut documents = Vec::with_capacity(list.length() as usize);
     let mut overrides = Vec::new();
-    let mut ranges_again = HashMap::new();
+    let mut ranges = HashMap::new();
     for (index, item) in list.iter().enumerate() {
         let name = |key: &str| format!("documents[{index}].{key}");
         if !item.is_object() || Array::is_array(&item) {
@@ -181,10 +183,10 @@ pub(crate) fn documents_from(
             ));
             document.edit_as_text = None;
         }
-        let again;
-        (document, again) = with_protection(document, &item, index, kept, replaces)?;
-        if let Some(again) = again {
-            ranges_again.insert(document.id.clone(), again);
+        let listed;
+        (document, listed) = with_protection(document, &item, index, kept, current)?;
+        if let Some(listed) = listed {
+            ranges.insert(document.id.clone(), listed);
         }
         let own = field(&item, "settings");
         if !own.is_undefined() && !own.is_null() {
@@ -208,30 +210,28 @@ pub(crate) fn documents_from(
     }
     kept.secrets
         .retain(|id, _| documents.iter().any(|document| document.id == *id));
+    kept.channels
+        .retain(|id, _| documents.iter().any(|document| document.id == *id));
     kept.texts.finish();
     kept.schemas.finish();
-    kept.locks.finish();
     Ok(Listed {
         documents,
         overrides,
-        ranges_again,
+        ranges,
     })
 }
 
 /// A document's host problems, read-only fields and secrets. Its ranges
-/// as given last, listed again with a text that does not replace the one
-/// it holds (that text, an echo), keep where its editor moved them (see
-/// `host_locks`): they are not read again, nor checked, in a text they
-/// were not given for (QA 34, HO34-1). Listed with a text that replaces
-/// it, they are read in it, and the ones its editor was given are
-/// returned too (see [`Again`]).
-fn with_protection(
+/// are read by its channel's first step when it was listed before (see
+/// `HostChannel::ranges`), and returned for the second; listed for the
+/// first time, they are read in its text and it gets its channel.
+fn with_protection<'a>(
     mut document: Document,
     item: &JsValue,
     index: usize,
     kept: &mut Kept,
-    replaces: &dyn Fn(&str, &str) -> bool,
-) -> Result<(Document, Option<Again>), JsError> {
+    current: &dyn Fn(&str) -> Option<&'a str>,
+) -> Result<(Document, Option<Ranges>), JsError> {
     let name = |key: &str| format!("documents[{index}].{key}");
     let diagnostics = field(item, "hostDiagnostics");
     if !diagnostics.is_undefined() && !diagnostics.is_null() {
@@ -240,16 +240,34 @@ fn with_protection(
         document = document.host_diagnostics(list);
     }
     let paths = paths_from(&field(item, "readOnlyPaths"), &name("readOnlyPaths"))?;
+    document = document.read_only_paths(paths);
     let given = field(item, "readOnlyRanges");
-    let (ranges, again) = kept.locks.list(
-        &document.id,
-        crate::host_locks::print(&given),
-        &document.value,
-        || replaces(&document.id, &document.value),
-        |before| ranges_in(&given, &document.value, before, &name("readOnlyRanges")),
-    )?;
-    document.read_only_ranges_version = kept.locks.version(&document.id, true);
-    document = document.read_only_paths(paths).read_only_ranges(ranges);
+    let read =
+        |text: &str, before: Option<&str>| ranges_in(&given, text, before, &name("readOnlyRanges"));
+    let listed = match (current(&document.id), kept.channels.get_mut(&document.id)) {
+        (Some(current), Some(channel)) => Some(channel.ranges(
+            print(&given),
+            Some(&document.value),
+            None,
+            current,
+            false,
+            |text, came_with| read(text, Some(came_with)),
+        )?),
+        _ => {
+            let ranges = read(&document.value, None)?;
+            let channel = HostChannel::new(
+                kept.echoing,
+                &document.value,
+                print(&given),
+                &document.value,
+                ranges.clone(),
+            );
+            document.read_only_ranges_version = channel.version();
+            kept.channels.insert(document.id.clone(), channel);
+            document = document.read_only_ranges(ranges);
+            None
+        }
+    };
     let given = field(item, "secrets");
     if !given.is_undefined() && !given.is_null() {
         let options = match kept.secrets.get(&document.id) {
@@ -262,7 +280,7 @@ fn with_protection(
         };
         document = document.secrets(options);
     }
-    Ok((document, again))
+    Ok((document, listed))
 }
 
 /// Document `id`'s `value` (`name` in errors): a string, as a

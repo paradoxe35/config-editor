@@ -1,5 +1,5 @@
 //! An edit out of every lock's reach: it changes one scalar written on one
-//! line (the language says so, see `ConfigLanguage::edits_one_scalar`) in a
+//! line (the language says so, see `SaveLayout::edits_one_scalar`) in a
 //! text that parses, no lock, nor a key holding one, is on that line, and
 //! the path written there is no locked field's, nor inside or holding one.
 //! Every locked value then reads as it did, so the edit is kept without

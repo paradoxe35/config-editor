@@ -2,17 +2,6 @@
 
 use super::*;
 
-/// The default a suggestion writes for `property`: one JSON reads back as
-/// it is, else none (the caret stays where the value goes).
-fn written_default<'a>(property: &'a Value, root: &'a Value) -> Option<&'a Value> {
-    kept_default(&JsonBehavior, property, root)
-}
-
-/// The `const` a suggestion writes for `property`, as [`written_default`].
-fn written_const<'a>(property: &'a Value, root: &'a Value) -> Option<&'a Value> {
-    kept_const(&JsonBehavior, property, root)
-}
-
 /// The indentation of the root object's entries a blank document's first
 /// key opens (as its `entry_wrap` writes it).
 const ROOT_INDENT: &str = "  ";
@@ -210,22 +199,6 @@ pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionConte
     }
 }
 
-/// Keys already present in the object holding the caret. The partly typed key
-/// is not counted, so it can still be completed.
-pub(super) fn existing_keys(source: &str, cursor_byte: usize) -> Option<HashSet<String>> {
-    let scan = analyze_caret(source, cursor_byte);
-    let Some(Frame::Object { id, .. }) = scan.snapshot?.frame else {
-        return None;
-    };
-    Some(
-        scan.keys
-            .iter()
-            .filter(|(owner, _, _)| *owner == id)
-            .map(|(_, key, _)| key.clone())
-            .collect(),
-    )
-}
-
 /// `children` as the members of an object block (`{` … `}`) under
 /// `base_indent`, each nested object a block of its own; `caret` is set
 /// to the byte offset in `insert` of the value the caret goes to.
@@ -272,63 +245,47 @@ fn write_children(
     insert.push('}');
 }
 
-/// Insert text for a property suggestion, with the caret placed where the user
-/// will type the value. Objects with required children expand into a block.
-pub(super) fn property_insert(
+/// The text a suggestion of `key` inserts for `plan`, with the caret
+/// where the user types the value: an object with required children is a
+/// block of them, a string starts quoted with the caret inside.
+pub(super) fn write_insert(
     key: &str,
-    property: &Value,
-    root: &Value,
+    plan: &InsertPlan<'_>,
     base_indent: &str,
     unit: &str,
 ) -> Option<(String, usize)> {
     let mut insert = format!("{}: ", serde_json::to_string(key).ok()?);
     let mut caret = None;
-    if let Some(value) = written_const(property, root) {
-        insert.push_str(&json_text(value));
-    } else if let Some(array) = array_branch(property, root) {
-        match written_default(property, root)
-            .filter(|value| !value.as_array().is_some_and(Vec::is_empty))
-        {
-            Some(default) => insert.push_str(&json_text(default)),
-            // A list of strings starts with a quoted item, so typing a value
-            // keeps the document valid.
-            None if array
-                .get("items")
-                .is_some_and(|items| placeholder(items, root).is_string()) =>
-            {
-                insert.push_str("[\"\"]");
-                caret = Some(insert.len() - 2);
-            }
-            None => {
-                insert.push_str("[]");
-                caret = Some(insert.len() - 1);
-            }
+    match plan.value {
+        Planned::Value(value) => insert.push_str(&json_text(value)),
+        // A list of strings starts with a quoted item, so typing a value
+        // keeps the document valid.
+        Planned::List {
+            string_items: true,
+            ..
+        } => {
+            insert.push_str("[\"\"]");
+            caret = Some(insert.len() - 2);
         }
-    } else if object_branch(property, root).is_some() {
-        match written_default(property, root)
-            .filter(|value| !value.as_object().is_some_and(Map::is_empty))
-        {
-            Some(default) => insert.push_str(&json_text(default)),
-            None => {
-                let children = required_children(&JsonBehavior, property, root);
-                if children.is_empty() {
-                    insert.push_str("{}");
-                    caret = Some(insert.len() - 1);
-                } else {
-                    write_children(&children, base_indent, unit, &mut insert, &mut caret);
-                }
-            }
+        Planned::List { .. } => {
+            insert.push_str("[]");
+            caret = Some(insert.len() - 1);
         }
-    } else if let Some(default) = written_default(property, root) {
-        insert.push_str(&json_text(default));
-    } else if placeholder(property, root).is_string() {
-        // A string value starts quoted, with the caret inside.
-        insert.push_str("\"\"");
-        caret = Some(insert.len() - 1);
+        Planned::Object { .. } if plan.children.is_empty() => {
+            insert.push_str("{}");
+            caret = Some(insert.len() - 1);
+        }
+        Planned::Object { .. } => {
+            write_children(&plan.children, base_indent, unit, &mut insert, &mut caret);
+        }
+        Planned::Empty { string: true } => {
+            insert.push_str("\"\"");
+            caret = Some(insert.len() - 1);
+        }
+        Planned::Empty { .. } => {}
     }
-    let caret = caret.unwrap_or(insert.len());
-    let caret_units = utf16(&insert[..caret]);
-    Some((insert, caret_units))
+    let caret = utf16_len(&insert[..caret.unwrap_or(insert.len())]);
+    Some((insert, caret))
 }
 
 /// Key under `column` (a character index) on a single line, if the string there

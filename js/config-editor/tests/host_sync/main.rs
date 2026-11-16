@@ -9,14 +9,14 @@
 //! came back the host and the editor agree; nothing panics or places
 //! ranges past a text's end.
 //!
-//! The library's echo, remap and reset code (wasm32-only there) runs here
-//! natively, loaded by path (`host_locks` with it); `editor_sim` and `documents_sim` mirror the
-//! two classes' `update` and `replaceValue` over it, and `model::Core`
-//! the editor's locks. Runs are seeded: `HOST_SYNC_CASES` (runs per view),
-//! `HOST_SYNC_STEPS` (actions per run) and `HOST_SYNC_SEED` (the first
-//! seed) run more locally. Each class of failure prints its smallest run
-//! as a test to paste below; classes an open finding explains are listed
-//! in `known.rs`.
+//! The library's host channel, remap and reset code (wasm32-only there)
+//! runs here natively, loaded by path; `editor_sim` and `documents_sim`
+//! drive it as the two classes' `update` and `replaceValue` do, and
+//! `model::Core` stands for the editor's locks. Runs are seeded:
+//! `HOST_SYNC_CASES` (runs per view), `HOST_SYNC_STEPS` (actions per run)
+//! and `HOST_SYNC_SEED` (the first seed) run more locally. Each class of
+//! failure prints its smallest run as a test to paste below; classes an
+//! open finding explains are listed in `known.rs`.
 
 #[path = "../../src/text_lines.rs"]
 mod text_lines;
@@ -29,12 +29,10 @@ mod remap;
 #[path = "../../src/host_locks.rs"]
 mod host_locks;
 
+// Its diagnostics, revisions and re-mount are for the library.
 #[allow(dead_code)]
-#[path = "../../src/echoes.rs"]
-mod echoes;
-
-#[path = "../../src/documents_view/echo_ranges.rs"]
-mod echo_ranges;
+#[path = "../../src/host_channel.rs"]
+mod host_channel;
 
 mod documents_sim;
 mod editor_sim;

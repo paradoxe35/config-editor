@@ -6,9 +6,10 @@
 //! checked too (once each time it changes), and each problem only the
 //! host's reading has is placed by its value in the view.
 
-use super::{Diagnostic, MORE_PROBLEMS_CODE, SchemaBundle, capped, incomplete, shift_diagnostics};
+use super::{Diagnostic, MORE_PROBLEMS_CODE, capped, incomplete, shift_diagnostics};
 use crate::EditorStrings;
 use crate::editor::language::ConfigLanguage;
+use crate::editor::schema::SchemaBundle;
 
 /// A schema problem's value (its JSON pointer) and keyword: two readings
 /// finding the same one have the same problem.

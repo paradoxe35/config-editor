@@ -87,7 +87,7 @@ pub(super) fn quote_typed_plain(text: &str, value: &Value, bare_keys: &[String])
         .chain(text.match_indices('\n').map(|(at, _)| at + 1))
         .collect();
     for (path, line_number, column, end_column) in super::parse::yaml_path_lines(text) {
-        let pointer: String = path.iter().map(|segment| format!("/{}", segment.replace('~', "~0").replace('/', "~1"))).collect();
+        let pointer: String = path.iter().map(|segment| format!("/{}", crate::editor::language::pointer_key(segment))).collect();
         // A key follows the same rule (`"yes": 1`).
         if let (Some(key), Some(&start)) = (path.last(), line_starts.get(line_number - 1)) {
             let line = &text[start..text[start..].find('\n').map_or(text.len(), |end| start + end)];

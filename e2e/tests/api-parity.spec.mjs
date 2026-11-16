@@ -56,6 +56,8 @@ const PROPS = {
   edit_as: { option: 'editAs', update: 'editAs' },
   initial_value: { exempt: '`value` is both the initial and the live document in JS; the components have `defaultValue`' },
   value: { option: 'value', update: 'value' },
+  value_revision: { option: 'valueRevision', update: 'valueRevision' },
+  echoes: { exempt: 'the JS `echoes` option (see OPTIONS_JS_ONLY): a component\'s binding always sets it' },
   baseline: { option: 'baseline', update: 'baseline' },
   schema: { option: 'schema', fixed: 'the schema is compiled once, when the editor is built' },
   file_name: { option: 'fileName', fixed: 'a toolbar label, read once' },
@@ -84,6 +86,7 @@ const PROPS = {
 const BINDING_ONLY_PROPS = {
   defaultValue: 'the uncontrolled initial document (JS: `value`)',
   onError: 'mount and prop errors, which JS throws instead',
+  valueRevision: 'the revision `onChange` gave the bound value with, handed to `update({ value, valueRevision })` (JS: an `update` key with the value)',
 };
 
 const HANDLE = {
@@ -91,6 +94,7 @@ const HANDLE = {
   is_mounted: { exempt: 'an instance is mounted from its constructor until `destroy()` (a component: its `editor`)' },
   text: { member: 'text' },
   value: { member: 'value' },
+  sent_revision: { exempt: 'JS hands the revision to `onChange` as its second argument' },
   unified_diff: { member: 'unifiedDiff' },
   range_of: { member: 'rangeOf' },
   path_at: { member: 'pathAt' },
@@ -130,23 +134,19 @@ const LANGUAGE = {
 // `separators` replaced by a callback), or why it is Rust-only.
 const RUST_ONLY_REFINEMENT = 'a refinement for one kind of syntax, Rust-only: implement the trait method on a Rust language (`Language::new`) that needs it';
 const SAVE_FORMS = 'how an Edit-as save keeps one built-in syntax\'s own forms; a custom language\'s saves patch the values and lines `keySpan` / `valueSpan` locate and are checked by reading back through `parse`';
+const GROUP = 'the accessor of a group of hooks a Rust language implements beside `ConfigLanguage`; a custom language gives the members its hooks are read from';
 const CONFIG_LANGUAGE = {
   info: { custom: ['label', 'icon', 'extensions'] },
   config: { custom: ['comments', 'brackets', 'separators', 'mapBrackets', 'listBrackets', 'itemSeparator', 'itemMarker', 'literalQuotes', 'writtenSeparator'] },
   parse: { custom: 'parse' },
   serialize: { custom: 'serialize' },
-  one_number_type: { exempt: RUST_ONLY_REFINEMENT },
-  writes_non_finite: { exempt: 'a custom language writes infinities and NaN as the text `inf` / `nan` (JS data holds them as numbers)' },
-  indent_is_structure: { exempt: RUST_ONLY_REFINEMENT },
-  plain_scalars: { exempt: RUST_ONLY_REFINEMENT },
   key_span: { custom: 'keySpan' },
   value_span: { custom: 'valueSpan' },
   value_spans: { custom: 'valueSpan' },
   key_spans: { custom: 'keySpan' },
   first_span: { exempt: 'the first non-blank character: nothing the language says' },
   completion_context: { custom: ['separators', 'contextAt'] },
-  existing_keys: { custom: ['separators', 'contextAt'] },
-  property_insert: { custom: ['separators', 'insertKey'] },
+  write_insert: { custom: ['separators', 'insertKey'] },
   format_value: { custom: ['separators', 'contextAt'] },
   format_value_like: { exempt: RUST_ONLY_REFINEMENT },
   format_value_at: { exempt: RUST_ONLY_REFINEMENT },
@@ -163,7 +163,6 @@ const CONFIG_LANGUAGE = {
   mixed_content: { exempt: SAVE_FORMS },
   detach_shared: { exempt: SAVE_FORMS },
   references_back: { exempt: SAVE_FORMS },
-  forget_kept: { exempt: 'drops the scans a built-in language keeps of its last text once no editor is mounted; a custom language keeps no such state (its definition lives as long as the page)' },
   tags: { exempt: SAVE_FORMS },
   expressions: { exempt: 'values one built-in syntax writes as expressions (HCL references and templates), listed as a conversion\'s losses; a custom language\'s values are what its `parse` returns, and `serialize` writes them back as values' },
   spelled_like: { exempt: SAVE_FORMS },
@@ -175,7 +174,6 @@ const CONFIG_LANGUAGE = {
   flow_map_opener: { exempt: SAVE_FORMS },
   scalar_reads_as: { exempt: SAVE_FORMS },
   number_in_form: { exempt: SAVE_FORMS },
-  scalars_are_text: { exempt: SAVE_FORMS },
   written_value_range: { exempt: SAVE_FORMS },
   kept_value_end: { exempt: SAVE_FORMS },
   comment_scope: { exempt: RUST_ONLY_REFINEMENT },
@@ -183,12 +181,19 @@ const CONFIG_LANGUAGE = {
   auto_close: { exempt: RUST_ONLY_REFINEMENT },
   complete_on_type: { exempt: RUST_ONLY_REFINEMENT },
   reindent_on_type: { exempt: RUST_ONLY_REFINEMENT },
-  repetition: { exempt: RUST_ONLY_REFINEMENT },
+  repeated: { exempt: RUST_ONLY_REFINEMENT },
   lone_item: { exempt: RUST_ONLY_REFINEMENT },
-  repeated_keys: { exempt: RUST_ONLY_REFINEMENT },
-  caret_line_left_out: { exempt: RUST_ONLY_REFINEMENT },
+  rewritable_keys: { exempt: RUST_ONLY_REFINEMENT },
+  delimiters: { exempt: RUST_ONLY_REFINEMENT },
+  text: { exempt: GROUP },
+  typing: { exempt: GROUP },
+  hover: { exempt: GROUP },
+  layout: { exempt: GROUP },
+  markup: { exempt: GROUP },
+  sharing: { exempt: GROUP },
+  repeats: { exempt: GROUP },
   entry_started: { exempt: RUST_ONLY_REFINEMENT },
-  lexical_state: { custom: 'multilineRanges' },
+  lexical_state: { custom: ['comments', 'multilineRanges'] },
   saved_string_lines: { custom: 'multilineRanges' },
   string_body_lines: { custom: 'multilineRanges' },
   comments: { custom: ['comments', 'multilineRanges'] },
@@ -199,11 +204,9 @@ const CONFIG_LANGUAGE = {
   comment_start: { custom: 'comments' },
   has_comments: { custom: 'comments' },
   value_follows_key: { custom: 'separators' },
-  line_has_value: { custom: 'separators' },
   empty_value_slots: { custom: 'separators' },
   closing_markup_len: { exempt: RUST_ONLY_REFINEMENT },
   key_markup_len: { exempt: RUST_ONLY_REFINEMENT },
-  markup_delimiters: { exempt: RUST_ONLY_REFINEMENT },
   element_end: { exempt: SAVE_FORMS },
   unclosed_containers: { custom: 'brackets' },
   container_closer_len: { custom: 'brackets' },
@@ -229,7 +232,6 @@ const CONFIG_LANGUAGE = {
   entries_together: { exempt: SAVE_FORMS },
   aligned_lines: { exempt: SAVE_FORMS },
   items_hold_unshown: { exempt: SAVE_FORMS },
-  holds_wide_integers: { exempt: SAVE_FORMS },
   unheld_numbers: { exempt: RUST_ONLY_REFINEMENT },
   edits_one_scalar: { exempt: 'a speed-up for locks away from an edit; without it (a custom language) every edit reads the document through `parse` while anything is locked' },
 };
@@ -261,6 +263,7 @@ const DOCUMENTS_PROPS = {
   on_close: { option: 'onClose', update: 'onClose' },
   on_add: { option: 'onAdd', update: 'onAdd' },
   on_change: { option: 'onChange', update: 'onChange' },
+  echoes: { exempt: 'the JS `echoes` option (see DOCUMENTS_OPTIONS_JS_ONLY): a component\'s binding always sets it' },
   on_save: { option: 'onSave', update: 'onSave' },
   on_dirty_change: { option: 'onDirtyChange', update: 'onDirtyChange' },
   on_problems: { option: 'onProblems', update: 'onProblems' },
@@ -362,8 +365,10 @@ const CRATE_EXPORTS = {
 // Options of `ConfigEditor` / `ConfigDocuments` that no Rust prop maps to
 // and no component has, and why.
 const OPTIONS_JS_ONLY = {
+  valueRevision: 'passed back with the value through `update`, never to the constructor (a text at construction has no revision yet): the binding hands it to `update({ value, valueRevision })`; the Rust `value_revision` prop',
   rangesFor: 'says which text the ranges were given for (a text the document has moved past): in Rust the ranges props are signals the host sets for the document; a component\'s binding passes its bound value',
-  echoes: 'a host handing every `onChange` text back through `update`: in Rust the `value` prop is a signal the host sets, with no echo to tell apart; a component\'s binding tells its parent\'s echoes apart itself (`ValueSync`)',
+  echoes: 'a host handing every `onChange` text back through `update`: the Rust `echoes` prop, which a component\'s binding always sets (its parent passes every edit back as its value)',
+  channel: 'an editor taking over the channel of the one it replaces (its echoes on their way): a component\'s binding passes it when it re-creates its editor; a Rust component is never re-created by a binding',
 };
 const DOCUMENTS_OPTIONS_JS_ONLY = {
   echoes: 'a host listing every `onChange` text back through `update`: in Rust the `documents` prop is a signal the host sets; a component\'s binding always sets it (its parent lists every edit back)',
@@ -376,7 +381,8 @@ const UPDATE_ONLY = {};
 // does not expose, and why.
 const EDITOR_JS_ONLY = {
   update: 'the props: a component applies each change itself',
-  replaceValue: 'a component\'s parent sets `value`, and the binding tells its late echoes apart itself (its `setValue` replaces the value through it)',
+  replaceValue: 'a component\'s parent sets `value`, and the editor tells its late echoes apart (`echoes`) (its `setValue` replaces the value through it)',
+  channel: 'a component re-creating its editor hands it to the new one itself (its binding does)',
   destroy: 'the component unmounts the editor itself',
   settings: 'the setting props',
 };
@@ -476,14 +482,16 @@ const rust = {
   handle: implMethods(crate('editor/handle.rs') + crate('editor/folding/handle.rs'), 'EditorHandle'),
   language: implMethods(crate('editor/languages/mod.rs'), 'Language'),
   changeSummary: implMethods(crate('editor/change_summary.rs') + crate('editor/changes/mod.rs'), 'ChangeSummary'),
-  schema: implMethods(crate('editor/diagnostics.rs'), 'Schema'),
+  schema: implMethods(crate('editor/schema/mod.rs'), 'Schema'),
   theme: implMethods(crate('editor/theme.rs'), 'EditorTheme'),
   exports: crateExports(),
   documentsProps: componentProps('documents.rs', 'ConfigDocuments'),
   documentsHandle: implMethods(crate('documents/handle.rs'), 'DocumentsHandle'),
   document: implMethods(crate('documents/model.rs'), 'Document'),
   settings: structFields(crate('settings.rs'), 'EditorSettings'),
-  configLanguage: traitMethods(crate('editor/language.rs'), 'ConfigLanguage'),
+  // The core trait and the groups of hooks a language implements beside it.
+  configLanguage: ['ConfigLanguage', 'Text', 'Typing', 'Hover', 'SaveLayout', 'Markup', 'Sharing', 'Repeats']
+    .flatMap((name) => traitMethods(crate('editor/language.rs'), name)),
 };
 
 // --- Reading the JS package. ---------------------------------------------------
@@ -713,7 +721,7 @@ const FRAMEWORKS = {
       const fromSettingTypes = /Object\.entries\(SETTING_TYPES\)/.test(settings);
       const wiring = [];
       for (const [source, what, snippets] of [
-        [editor, 'ConfigEditor', ['new EditorBinding("config-editor-vue")', 'value: modelValue', 'editorClassName: editorClass', 'emit("update:modelValue", value)', '...rest', 'expose(binding.handle)', 'deep: true']],
+        [editor, 'ConfigEditor', ['new EditorBinding("config-editor-vue")', 'value: modelValue', 'editorClassName: editorClass', 'emit("update:modelValue", value, revision)', '...rest', 'expose(binding.handle)', 'deep: true']],
         [documents, 'ConfigDocuments', ['new DocumentsBinding("config-editor-vue")', 'viewClassName: viewClass', '...rest', 'expose(binding.handle)', 'deep: true']],
       ]) {
         for (const snippet of snippets) if (!source.includes(snippet)) wiring.push(`${what}: \`${snippet}\` is missing from how it hands its props to the binding`);
@@ -1215,7 +1223,7 @@ test.describe('API parity between the Rust crate and the JS packages', () => {
       if (!js.documentEditorMembers.has(name)) problems.push(`DocumentEditorView has no \`${name}\` (EditorView)`);
     }
     // A document's value, like its options, comes from the view's list.
-    for (const name of js.members) if (!js.viewMembers.has(name) && !['update', 'destroy', 'replaceValue'].includes(name)) problems.push(`ConfigEditor member \`${name}\` is not in EditorView`);
+    for (const name of js.members) if (!js.viewMembers.has(name) && !['update', 'destroy', 'replaceValue', 'channel'].includes(name)) problems.push(`ConfigEditor member \`${name}\` is not in EditorView`);
     for (const name of js.documentEditorMembers) if (!js.viewMembers.has(name)) problems.push(`DocumentEditorView member \`${name}\` is not in EditorView`);
     expect(problems).toEqual([]);
   });

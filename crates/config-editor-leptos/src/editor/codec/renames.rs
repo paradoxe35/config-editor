@@ -29,7 +29,7 @@ pub(in super::super) fn patch_renames(
 }
 
 /// `previous` with every rename made where the language writes the key
-/// (its [`key_renames`](ConfigLanguage::key_renames), else the key's span),
+/// (its [`key_renames`](SaveLayout::key_renames), else the key's span),
 /// all placed from one read of `previous` (one at a time, each read the
 /// text so far again): each is where `previous` writes the key, by its
 /// pointer there, a key inside a renamed one too. `None` when one cannot be made, or two

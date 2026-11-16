@@ -14,7 +14,7 @@ use super::*;
 #[derive(Clone, Debug, PartialEq)]
 pub struct RequiredChild<'a> {
     /// Its key (as the schema names it, without a language's spelling of
-    /// it: `ConfigLanguage::required_property`).
+    /// it: `Markup::required_property`).
     pub key: &'a str,
     /// Its schema.
     pub schema: &'a Value,
@@ -60,6 +60,18 @@ pub fn required_children<'a>(
     schema: &'a Value,
     root: &'a Value,
 ) -> Vec<RequiredChild<'a>> {
+    required_children_at(language, schema, None, root)
+}
+
+/// [`required_children`] of a value `at` names every schema of: what the
+/// document decides beside it (the `then` of an `if` it takes) asks for
+/// children too.
+pub(crate) fn required_children_at<'a>(
+    language: &dyn ConfigLanguage,
+    schema: &'a Value,
+    at: Option<&Entry<'a>>,
+    root: &'a Value,
+) -> Vec<RequiredChild<'a>> {
     // A block writing the key's default or const writes no children.
     if kept_default(language, schema, root)
         .or_else(|| kept_const(language, schema, root))
@@ -68,7 +80,7 @@ pub fn required_children<'a>(
         return Vec::new();
     }
     let mut caret = false;
-    let mut found = children(language, schema, root, &mut caret, 0);
+    let mut found = children(language, schema, at, root, &mut caret, 0);
     if !caret {
         caret_at_first_value(&mut found);
     }
@@ -91,6 +103,7 @@ fn caret_at_first_value(children: &mut [RequiredChild<'_>]) -> bool {
 fn children<'a>(
     language: &dyn ConfigLanguage,
     schema: &'a Value,
+    at: Option<&Entry<'a>>,
     root: &'a Value,
     caret: &mut bool,
     depth: usize,
@@ -103,16 +116,16 @@ fn children<'a>(
             .and_then(|array| array.get("items"))
             .filter(|items| object_branch(items, root).is_some())
     };
-    let object = if object_branch(schema, root).is_some() {
-        schema
+    let (object, at) = if object_branch(schema, root).is_some() {
+        (schema, at)
     } else {
         match items() {
-            Some(items) => items,
+            Some(items) => (items, None),
             None => return Vec::new(),
         }
     };
     let mut found = Vec::new();
-    for (key, child, at) in required_keys(language, object, root) {
+    for (key, child, at) in required_keys(language, object, at, root) {
         if !writes_key(language, key) {
             continue;
         }
@@ -141,9 +154,13 @@ static ANY_VALUE: std::sync::LazyLock<Value> =
 pub(super) fn required_keys<'a>(
     language: &dyn ConfigLanguage,
     schema: &'a Value,
+    at: Option<&Entry<'a>>,
     root: &'a Value,
 ) -> Vec<(&'a str, &'a Value, Entry<'a>)> {
-    let here = Here::of(schema, root);
+    let here = match at {
+        Some(at) => Here::walk(at.clone(), root, Seen::default()),
+        None => Here::of(schema, root),
+    };
     let mut sources = here.certain();
     if let Some(branch) = object_branch(schema, root)
         && !sources.iter().any(|known| std::ptr::eq(*known, branch))
@@ -223,7 +240,7 @@ fn dependent_required<'a>(sources: &[&'a Value], key: &str) -> Vec<&'a str> {
 fn fill<'a>(
     language: &dyn ConfigLanguage,
     child: &'a Value,
-    at: &Entry<'_>,
+    at: &Entry<'a>,
     root: &'a Value,
     caret: &mut bool,
     depth: usize,
@@ -233,7 +250,12 @@ fn fill<'a>(
     {
         return Some(Fill::Value(default.clone()));
     }
-    if array_branch(child, root).is_some() && object_branch(child, root).is_none() {
+    // A list only where every schema at the child allows one (a pattern
+    // typing the key `null` beside a property's `prefixItems` does not).
+    let lists = Here::walk(at.clone(), root, Seen::default())
+        .types()
+        .allows_type("array");
+    if lists && array_branch(child, root).is_some() && object_branch(child, root).is_none() {
         let empty = Value::Array(Vec::new());
         // A list the language cannot write (XML's empty one) is left out,
         // unless the schema takes a value that is no list there (list
@@ -254,7 +276,7 @@ fn fill<'a>(
         return Some(Fill::Value(list));
     }
     if object_branch(child, root).is_some() {
-        let nested = children(language, child, root, caret, depth + 1);
+        let nested = children(language, child, Some(at), root, caret, depth + 1);
         if !nested.is_empty() {
             return Some(Fill::Children(nested));
         }

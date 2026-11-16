@@ -27,7 +27,7 @@ fn walk(value: &Value, old: &Value, attributes: &AttributePaths, path: &mut Vec<
                         !attribute && !old_key.starts_with(['@', '#'])
                     };
                     if renamed && element && key.contains(':') && child == old_child {
-                        let at = format!("{pointer}/{}", key.replace('~', "~0").replace('/', "~1"));
+                        let at = format!("{pointer}/{}", crate::editor::language::pointer_key(key));
                         return Some(format!(
                             "XML keeps a key with a prefix ({key}) only as an attribute, so the element {old_key} renamed so would become one: rename it without the prefix, or edit it as XML (at {at})"
                         ));
@@ -37,7 +37,7 @@ fn walk(value: &Value, old: &Value, attributes: &AttributePaths, path: &mut Vec<
             map.iter().find_map(|(key, child)| {
                 let was = was.get(key)?;
                 path.push(key.clone());
-                let found = walk(child, was, attributes, path, format!("{pointer}/{}", key.replace('~', "~0").replace('/', "~1")));
+                let found = walk(child, was, attributes, path, format!("{pointer}/{}", crate::editor::language::pointer_key(key)));
                 path.pop();
                 found
             })

@@ -38,6 +38,8 @@ mod page_ruler;
 mod suggestions;
 mod tab;
 mod typing;
+#[cfg(all(test, feature = "protect"))]
+pub(in crate::editor) use navigation::check_before_walk;
 pub(in crate::editor) use typing::WRAP;
 
 use leptos::prelude::*;

@@ -88,12 +88,55 @@ pub(crate) fn key_hover(
     schema: Option<&SchemaBundle>,
     behavior: &dyn ConfigLanguage,
 ) -> Option<KeyHover> {
-    note(Work::HoverLookup);
     let bundle = schema?;
+    let field = field_at(source, line_index, column, behavior)?;
+    field_docs(source, &field, bundle, behavior, Values::Documented)
+}
+
+/// What of a field is under a place of the text.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum Part {
+    /// Its key (or the markup naming it: an XML tag, a TOML header).
+    Key,
+    /// The start of one of its items (a YAML `- `, a repeated block).
+    ItemStart,
+    /// Its value, as the parsed document has it (an item's, for a list).
+    Value,
+}
+
+/// The field under a place of the text (see [`field_at`]).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct FieldHit {
+    /// Its path in the document: an item's, for an item or an item's value.
+    pub(crate) path: Vec<SchemaPathSegment>,
+    /// The key naming it (the list's, for an item).
+    pub(crate) key: String,
+    /// The character column its card is anchored at: where the key, the
+    /// item or the value starts.
+    pub(crate) start_column: usize,
+    pub(crate) part: Part,
+}
+
+/// The field under character `column` of zero-based `line_index`: a key
+/// as the language reads the line, an item the language says starts
+/// there, or a value as the parsed document places it (its span in the
+/// text): a value with spaces or punctuation in it is one value, and a
+/// text that does not parse has none. Hover, `Ctrl+K Ctrl+I` and the
+/// pointer's pause all ask it; only the docs read the schema.
+pub(crate) fn field_at(
+    source: &str,
+    line_index: usize,
+    column: usize,
+    behavior: &dyn ConfigLanguage,
+) -> Option<FieldHit> {
     if let Some((path, key, start_column)) = hovered_key(source, line_index, column, behavior) {
-        return property_hover(source, &path, key, start_column, bundle, behavior);
+        return Some(FieldHit {
+            path,
+            key,
+            start_column,
+            part: Part::Key,
+        });
     }
-    // No key under the pointer: maybe a value the schema documents.
     let line_start = line_start(source, line_index);
     let line = split_line(source, line_index)?;
     if behavior.hover_path(source, line_index, column).is_some()
@@ -103,14 +146,139 @@ pub(crate) fn key_hover(
     }
     if let Some(path) = item_at(source, line_start, line, column, behavior) {
         let key = list_key(&path)?;
-        return property_hover(source, &path, key, column, bundle, behavior);
+        return Some(FieldHit {
+            path,
+            key,
+            start_column: column,
+            part: Part::ItemStart,
+        });
     }
-    value_hover(source, line_start, line, column, bundle, behavior)
+    value_at(source, line_start, line_index, line, column, behavior)
+}
+
+/// The value whose span holds character `column` of `line` (zero-based
+/// `line_index`, starting at byte `line_start`): the field the context
+/// there names, when the parsed document places its value over `column`.
+fn value_at(
+    source: &str,
+    line_start: usize,
+    line_index: usize,
+    line: &str,
+    column: usize,
+    behavior: &dyn ConfigLanguage,
+) -> Option<FieldHit> {
+    let at = line.char_indices().nth(column)?.0;
+    if line[at..].starts_with(char::is_whitespace) {
+        return None;
+    }
+    // Just past the character, as if it had been typed: the context names
+    // the field whose value that is.
+    let after = at + line[at..].chars().next().map_or(0, char::len_utf8);
+    let context = behavior.completion_context(source, units_at(source, line_start + after));
+    let (path, key) = match context.value_key {
+        Some(key) => (path_with_key(&context.path, &key), key),
+        None if context.is_array_item => (context.path.clone(), list_key(&context.path)?),
+        None => return None,
+    };
+    if crate::editor::parse_cache::parsed(behavior, source).is_err() {
+        return None;
+    }
+    let pointer = crate::editor::paths::FieldPath::from(path.clone()).to_pointer();
+    let span = behavior.value_span(source, &pointer)?;
+    let on_it = span.line == line_index + 1
+        && span.start_column <= column + 1
+        && column + 1 < span.end_column;
+    on_it.then(|| FieldHit {
+        path,
+        key,
+        start_column: span.start_column - 1,
+        part: Part::Value,
+    })
+}
+
+/// Which values [`field_docs`] gives docs for.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Values {
+    /// Only a value the schema documents on its own (its key's docs
+    /// with it); none for another value.
+    Documented,
+    /// Any value: its field's docs, with the value's own where the schema
+    /// documents it (the card's, under the pointer and at the caret).
+    Any,
+}
+
+/// The docs of `field` in `source`: its property's, and over a value the
+/// schema documents, that value's with them.
+pub(crate) fn field_docs(
+    source: &str,
+    field: &FieldHit,
+    bundle: &SchemaBundle,
+    behavior: &dyn ConfigLanguage,
+    values: Values,
+) -> Option<KeyHover> {
+    note(Work::HoverLookup);
+    let FieldHit {
+        path,
+        key,
+        start_column,
+        part,
+    } = field;
+    if *part != Part::Value {
+        return property_hover(source, path, key.clone(), *start_column, bundle, behavior);
+    }
+    let documented = value_doc_at(source, path, bundle, behavior);
+    if documented.is_none() && values == Values::Documented {
+        return None;
+    }
+    // The docs of the property the value belongs to (an array's, for an item).
+    let mut hover = property_hover(
+        source,
+        property_path(path),
+        key.clone(),
+        *start_column,
+        bundle,
+        behavior,
+    )?;
+    hover.value = documented;
+    Some(hover)
+}
+
+/// The document's value at `path`, with the docs the schema gives it on
+/// its own (an `enum` entry's `x-enum-descriptions` line, a `const`
+/// branch's title); none for a value it does not document.
+fn value_doc_at(
+    source: &str,
+    path: &[SchemaPathSegment],
+    bundle: &SchemaBundle,
+    behavior: &dyn ConfigLanguage,
+) -> Option<HoverValue> {
+    let root = &bundle.schema;
+    let repeats = behavior.repetition() != Repetition::None;
+    let document = Document::new(source, behavior);
+    let read = || document.get();
+    let applies = Applies::new(root, repeats, &read);
+    let written = applies.value_at(path)?;
+    if written.is_object() || written.is_array() {
+        return None;
+    }
+    // Compared as text: XML writes every value as text.
+    let text = crate::editor::applies::scalar_text(written);
+    applies.at(path).branches().into_iter().find_map(|branch| {
+        schema_value_candidates(branch, false)
+            .into_iter()
+            .find(|candidate| crate::editor::applies::scalar_text(candidate) == text)
+            .and_then(|candidate| {
+                Some(HoverValue {
+                    label: value_label(&candidate),
+                    doc: value_doc(branch, &candidate)?,
+                })
+            })
+    })
 }
 
 /// The path of the list item that character `column` of `line` (starting
 /// at byte `line_start` of `source`) opens, by what the language says opens
-/// one there ([`ConfigLanguage::item_start`]); None elsewhere.
+/// one there ([`Hover::item_start`]); None elsewhere.
 fn item_at(
     source: &str,
     line_start: usize,
@@ -173,57 +341,6 @@ pub(crate) fn hovered_key(
     (!path.is_empty()).then_some((path, key, start_column))
 }
 
-/// Over a value (`fast` of `mode: fast`) that the schema documents on its
-/// own: the value's title and description, with its key's docs.
-fn value_hover(
-    source: &str,
-    line_start: usize,
-    line: &str,
-    column: usize,
-    bundle: &SchemaBundle,
-    behavior: &dyn ConfigLanguage,
-) -> Option<KeyHover> {
-    let (start, end) = value_token(line, column)?;
-    let token = &line[start..end];
-    // Where completion would offer this value: its context names the key.
-    let cursor = source[..line_start + end].encode_utf16().count();
-    let context = behavior.completion_context(source, cursor);
-    let (path, key) = match context.value_key {
-        Some(key) => (path_with_key(&context.path, &key), key),
-        None if context.is_array_item => (context.path.clone(), list_key(&context.path)?),
-        None => return None,
-    };
-    let root = &bundle.schema;
-    let repeats = behavior.repetition() != Repetition::None;
-    let parsed = conditional_document(source, bundle, behavior);
-    let document = parsed.as_deref().and_then(|parsed| parsed.as_ref().ok());
-    let read = || document;
-    let doc = Applies::new(root, repeats, &read)
-        .at(&path)
-        .branches()
-        .into_iter()
-        .find_map(|branch| {
-            schema_value_candidates(branch, false)
-                .into_iter()
-                .find(|candidate| value_label(candidate) == token)
-                .and_then(|candidate| value_doc(branch, &candidate))
-        })?;
-    // The docs of the property the value belongs to (an array's, for an item).
-    let mut hover = property_hover(
-        source,
-        property_path(&path),
-        key,
-        line[..start].chars().count(),
-        bundle,
-        behavior,
-    )?;
-    hover.value = Some(HoverValue {
-        label: token.to_string(),
-        doc,
-    });
-    Some(hover)
-}
-
 /// The path of the property `path` is in: itself, or the array an item
 /// (a repeated block) belongs to.
 fn property_path(path: &[SchemaPathSegment]) -> &[SchemaPathSegment] {
@@ -232,25 +349,6 @@ fn property_path(path: &[SchemaPathSegment]) -> &[SchemaPathSegment] {
         .rposition(|segment| !matches!(segment, SchemaPathSegment::ArrayItem(_)))
         .map_or(0, |last| last + 1);
     &path[..kept]
-}
-
-/// The byte range in `line` of the bare word at character `column`: a
-/// value as written, without its quotes or the punctuation around it.
-fn value_token(line: &str, column: usize) -> Option<(usize, usize)> {
-    let stop = |character: char| character.is_whitespace() || "\"'`,:=[]{}<>#;".contains(character);
-    let at = line.char_indices().nth(column)?.0;
-    if line[at..].chars().next().is_none_or(stop) {
-        return None;
-    }
-    let start = line[..at]
-        .char_indices()
-        .rev()
-        .find(|(_, character)| stop(*character))
-        .map_or(0, |(index, character)| index + character.len_utf8());
-    let end = line[at..]
-        .find(stop)
-        .map_or(line.len(), |offset| at + offset);
-    Some((start, end))
 }
 
 /// The docs of the property at `path` in `source`, named `key`, shown at
@@ -270,9 +368,8 @@ fn property_hover(
     let parent = &property[..property.len().checked_sub(1)?];
     let root = &bundle.schema;
     let repeats = behavior.repetition() != Repetition::None;
-    let parsed = conditional_document(source, bundle, behavior);
-    let document = parsed.as_deref().and_then(|parsed| parsed.as_ref().ok());
-    let read = || document;
+    let document = Document::new(source, behavior);
+    let read = || document.get();
     let applies = Applies::new(root, repeats, &read);
     // The object holding the key, with its `oneOf`/`anyOf` options (the
     // one it is in, or those offering the key): what is said of the key
@@ -290,17 +387,13 @@ fn property_hover(
         return None;
     }
     let documented: Vec<&Value> = owners.iter().chain(&schemas).copied().collect();
-    // The `oneOf`/`anyOf` options of the field's object: an option other
-    // than the matched one documents nothing here, and the matched one's
-    // title and description are its own row (`choice`), not the field's.
-    let options = here.choices();
-    let not_other_option = |branch: &&Value| !matches!(options.of_branch(branch), Some((_, false)));
+    // What documents the field: the list's schemas (for an item) and its
+    // own, walked for its value. An option of its object other than the
+    // matched one documents nothing here, and the matched one's title and
+    // description are its own row (`choice`), not the field's.
     let instance = Seen::value(applies.value_at(path));
-    let field_branches = here.branches();
-    let branches: Vec<&Value> = walked(&documented, root, instance)
-        .into_iter()
-        .filter(not_other_option)
-        .collect();
+    let field = Here::walk(Entry::any_of(&documented), root, instance);
+    let branches = field.documented();
     // The schemas one object schema gives the key when it names it more
     // than once (its property and each pattern matching it), as validation
     // applies them all.
@@ -318,7 +411,7 @@ fn property_hover(
         let each = |name: &str| {
             let mut texts: Vec<String> = Vec::new();
             for schema in &named {
-                let own = field_own(&options, &walked(&[*schema], root, instance));
+                let own = Here::walk(Entry::schema(schema), root, instance).own();
                 if let Some(text) = text_of(&own, name).filter(|text| !texts.contains(text)) {
                     texts.push(text);
                 }
@@ -327,7 +420,7 @@ fn property_hover(
         };
         (each("title"), each("description"), None)
     } else if owners.is_empty() {
-        let own = field_own(&options, &branches);
+        let own = field.own();
         (text_of(&own, "title"), text_of(&own, "description"), None)
     } else {
         // (A repeating language finds the item at the list's path too.)
@@ -342,7 +435,7 @@ fn property_hover(
             Seen::value(applies.value_at(property)),
         )
         .branches();
-        let items = field_own(&options, &field_branches);
+        let items = here.own();
         let (title, description) = (text_of(&list, "title"), text_of(&list, "description"));
         let own = |name: &str, list: &Option<String>| {
             text_of(&items, name).filter(|text| Some(text) != list.as_ref())
@@ -357,10 +450,9 @@ fn property_hover(
             (item != ValueDoc::default()).then_some(item),
         )
     };
-    let default = field_branches
-        .iter()
-        .copied()
-        .filter(not_other_option)
+    let default = here
+        .documented()
+        .into_iter()
         .find_map(|branch| branch.get("default"))
         .map(value_label);
     let mut examples: Vec<String> = Vec::new();
@@ -389,7 +481,8 @@ fn property_hover(
     } else {
         schema_type_label(schemas[0], root, "property")
     };
-    let choice = options
+    let choice = here
+        .choices()
         .hover()
         .or_else(|| parent_object.choices.key_hover(&key))
         // The option's description when it is not the property's own.
@@ -422,31 +515,30 @@ fn property_hover(
     })
 }
 
-/// Every schema applying to a value of one of `schemas`, the value `seen`.
-fn walked<'a>(schemas: &[&'a Value], root: &'a Value, seen: Seen<'_>) -> Vec<&'a Value> {
-    Here::walk(Entry::any_of(schemas), root, seen).branches()
+/// The parsed document, parsed when first asked: `applies` asks only
+/// where a step of a path is decided by it.
+struct Document<'a> {
+    parsed: std::cell::OnceCell<std::rc::Rc<Result<Value, super::super::language::ParseError>>>,
+    source: &'a str,
+    behavior: &'a dyn ConfigLanguage,
 }
 
-/// The schemas of `branches` outside every option of `options`: the
-/// field's own.
-fn field_own<'a>(options: &Choices<'_>, branches: &[&'a Value]) -> Vec<&'a Value> {
-    branches
-        .iter()
-        .filter(|branch| options.of_branch(branch).is_none())
-        .copied()
-        .collect()
-}
+impl<'a> Document<'a> {
+    fn new(source: &'a str, behavior: &'a dyn ConfigLanguage) -> Self {
+        Self {
+            parsed: std::cell::OnceCell::new(),
+            source,
+            behavior,
+        }
+    }
 
-/// The parsed document, when the schema has conditionals its values
-/// decide (see `applies`); not read otherwise.
-fn conditional_document(
-    source: &str,
-    bundle: &SchemaBundle,
-    behavior: &dyn ConfigLanguage,
-) -> Option<std::rc::Rc<Result<Value, super::super::language::ParseError>>> {
-    bundle
-        .has_conditionals
-        .then(|| crate::editor::parse_cache::parsed(behavior, source))
+    fn get(&self) -> Option<&Value> {
+        self.parsed
+            .get_or_init(|| crate::editor::parse_cache::parsed(self.behavior, self.source))
+            .as_ref()
+            .as_ref()
+            .ok()
+    }
 }
 
 /// The first non-blank `name` text (`title`, `description`) of `branches`;
@@ -461,19 +553,4 @@ fn text_of(branches: &[&Value], name: &str) -> Option<String> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::value_token;
-
-    #[test]
-    fn value_tokens_leave_out_quotes_and_markup() {
-        let word = |line: &str, column: usize| {
-            value_token(line, column).map(|(start, end)| line[start..end].to_string())
-        };
-        assert_eq!(word("mode: fast", 7).as_deref(), Some("fast"));
-        assert_eq!(word("mode = \"fast\"", 9).as_deref(), Some("fast"));
-        assert_eq!(word("<mode>fast</mode>", 7).as_deref(), Some("fast"));
-        assert_eq!(word("  \"mode\": \"fast\",", 12).as_deref(), Some("fast"));
-        assert_eq!(word("mode: fast", 4), None, "the separator is no value");
-        assert_eq!(word("mode: fast", 40), None);
-    }
-}
+mod value_tests;

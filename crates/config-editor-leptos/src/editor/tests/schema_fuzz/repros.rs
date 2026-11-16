@@ -329,3 +329,71 @@ fn a_block_read_as_a_list_of_one_does_not_make_an_object_a_list() {
         json!({"b": false, "name": {"b": false}}),
     );
 }
+
+/// A fill (or a key's own value) is one every schema at the field takes:
+/// a default the `else` the object takes refuses is not written, nor a
+/// list where a pattern types the key `null`.
+#[test]
+fn a_fill_writes_only_what_every_schema_at_the_field_takes() {
+    holds_everywhere(
+        super::fill::check,
+        json!({"else": {"properties": {"c": {"type": "boolean"}}}, "if": {"required": ["p"]},
+            "properties": {"c": {"default": 0}}}),
+        json!({"c": false}),
+        json!(null),
+    );
+    holds_everywhere(
+        super::fill::check,
+        json!({"properties": {"mode": {"oneOf": [{"type": "integer"}, {"type": "object",
+            "properties": {"x_one": {"prefixItems": [{}]}}, "required": ["x_one"],
+            "patternProperties": {"^x_": {"type": "null"}}}]}}}),
+        json!({"mode": 0}),
+        json!(null),
+    );
+}
+
+/// A scalar suggested after a key in a language writing only blocks as a
+/// list's items (HCL) is the key's own value, never one of its items.
+#[test]
+fn a_suggested_scalar_is_the_keys_own_value() {
+    holds_everywhere(
+        super::suggestions::check,
+        json!({"properties": {"port": {"anyOf": [{"type": "null"},
+            {"type": "array", "prefixItems": [{"type": "boolean"}]}]}}}),
+        json!({"port": null}),
+        json!({}),
+    );
+}
+
+/// XML text in a list whose `contains` asks a text is read as that text
+/// where the number reading leaves the list refused.
+#[test]
+fn a_list_item_is_read_as_its_text_where_contains_asks_one() {
+    holds_everywhere(
+        super::validation::check,
+        json!({"properties": {"c": {"contains": {"type": "string"}}}}),
+        json!({"c": [false, "8"]}),
+        json!(null),
+    );
+}
+
+/// A lone XML element is the one item of a list where the value alone is
+/// refused and the list taken: an option's bound refusing the number, or
+/// an option its keys only seem to pick typing it otherwise.
+#[test]
+fn a_lone_element_is_one_item_where_only_the_list_is_taken() {
+    holds_everywhere(
+        super::validation::check,
+        json!({"properties": {"mode": {"anyOf": [{"type": "integer", "multipleOf": 5},
+            {"type": "array"}]}}}),
+        json!({"mode": [1]}),
+        json!(null),
+    );
+    holds_everywhere(
+        super::validation::check,
+        json!({"properties": {"d": {"anyOf": [{"properties": {"x_two": {"type": "array"}}},
+            {"anyOf": [{"required": ["x_two"], "properties": {"x_two": {"type": "number"}}}]}]}}}),
+        json!({"d": {"x_two": [{"c": "n"}]}}),
+        json!(null),
+    );
+}

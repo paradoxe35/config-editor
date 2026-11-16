@@ -84,9 +84,10 @@ impl EditorState {
     /// Puts the caret at `offset` in the textarea, in view, and records it.
     pub(super) fn place_caret(&self, offset: usize) {
         match self.textarea() {
-            Some(element) => self.doc().text.with_untracked(|text| {
-                set_caret_visible(&element, text, offset, self.view().scroll_y)
-            }),
+            Some(element) => self
+                .doc()
+                .text
+                .with_untracked(|text| set_caret_visible(&element, text, offset)),
             None => self.note_caret(offset),
         }
     }
@@ -115,7 +116,7 @@ impl EditorState {
         element.set_scroll_left(left);
         self.doc()
             .text
-            .with_untracked(|text| reveal_offset(&element, text, start, self.view().scroll_y));
+            .with_untracked(|text| reveal_offset(&element, text, start));
         self.close_suggestions();
         self.hide_hover();
         Some(())

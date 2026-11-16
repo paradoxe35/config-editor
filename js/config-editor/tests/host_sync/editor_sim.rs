@@ -1,45 +1,36 @@
 //! A `ConfigEditor` with `echoes: true` and its host. `update` and
-//! `replaceValue` are `src/editor.rs`'s, step for step, over the library's
-//! own pieces (`Echoes`, `host_locks::{HostLocks, stay}`, `moved_between`,
-//! `reads_as`), and `protect::ranges_in` written over positions; only the
-//! JavaScript around them is left out (no edit is held back here, so
-//! `told` and the flush change nothing). Keep the two in step when
-//! `editor.rs` changes.
+//! `replaceValue` call the editor's own channel (`HostChannel`, as
+//! `src/editor.rs` does), with `protect::ranges_in` written over
+//! positions; only the JavaScript around it is left out (no edit is held
+//! back here, so `told` and the flush change nothing).
 
 use config_editor_leptos::TextRange;
 
-use crate::echoes::{Echo, Echoes, clock};
 use crate::host::{HostDoc, ranges_in};
-use crate::host_locks::{HostLocks, stay};
+use crate::host_channel::{Given, HostChannel};
 use crate::model::{Act, Class, Core, Failure, Form, Outcome, read_ranges, user_edit};
-use crate::remap::{moved_between, reads_as};
+use config_editor_leptos::js_support::{Echo, echo_clock as clock};
 
 pub(crate) struct EditorSim {
     core: Core,
-    echoes: Echoes,
-    /// The host's ranges as given (`ConfigEditor::locks`).
-    locks: HostLocks,
+    /// `ConfigEditor::channel`.
+    channel: HostChannel,
     settle_armed: bool,
     host: HostDoc,
     form: Form,
-    now: f64,
 }
 
 impl EditorSim {
     pub(crate) fn new(base: &str, form: Form) -> Result<Self, Failure> {
         let (ranges, print) = ranges_in(base, form);
-        let mut echoes = Echoes::new(true);
-        echoes.given(base);
         let mut host = HostDoc::new(base);
         host.last_print.clone_from(&print);
         Ok(Self {
             core: Core::new(base, ranges.clone())?,
-            echoes,
-            locks: HostLocks::given(Some(print), base, base, ranges),
+            channel: HostChannel::new(true, base, Some(print), base, ranges),
             settle_armed: false,
             host,
             form,
-            now: 0.0,
         })
     }
 
@@ -60,68 +51,37 @@ impl EditorSim {
     ) -> Outcome {
         let flushed = clock();
         let latest = self.core.text.clone();
-        let ranges_print = given.as_ref().map(|(_, print)| print.clone());
-        let ranges_again = ranges_for.is_none()
-            && given.is_some()
-            && self.locks.again(ranges_print.as_deref()).is_some();
-        let host_text = ranges_for
-            .clone()
-            .or_else(|| value.clone())
-            .unwrap_or_else(|| latest.clone());
-        let mut read_only_ranges = None;
-        if let Some((ranges, _)) = &given {
-            let mut replaces = || {
-                value
-                    .as_deref()
-                    .is_some_and(|value| self.echoes.replaces(value, &latest))
-            };
-            if !ranges_again || !stay(true, replaces()) {
-                read_only_ranges = Some(read_ranges(
-                    ranges,
-                    &host_text,
-                    Some(self.locks.came_with()),
-                )?);
-            }
-        }
-        let echo = value.as_deref().map(|value| {
-            self.echoes.at(self.now);
-            self.echoes.received(value, &latest, flushed)
-        });
+        let ranges = given
+            .map(|(ranges, print)| {
+                self.channel.ranges(
+                    Some(print),
+                    value.as_deref(),
+                    ranges_for.as_deref(),
+                    &latest,
+                    false,
+                    |text, came_with| read_ranges(&ranges, text, Some(came_with)),
+                )
+            })
+            .transpose()?;
+        let taken = self.channel.received(
+            Given {
+                value: value.as_deref(),
+                revision: None,
+                ranges_for: ranges_for.as_deref(),
+                ranges,
+                diagnostics: None,
+                flushed,
+                stale: false,
+            },
+            &latest,
+        );
         if std::env::var_os("HOST_SYNC_TRACE").is_some() {
-            eprintln!("  update {value:?} over {latest:?}: {echo:?}");
+            eprintln!("  update {value:?} over {latest:?}: {taken:?}");
         }
-        let shown = value.clone().filter(|_| echo == Some(Echo::Apply));
-        let before_reset = shown.is_none()
-            && value
-                .as_deref()
-                .is_some_and(|value| self.echoes.before_reset(value));
-        if before_reset {
-            read_only_ranges = None;
-        }
-        if stay(ranges_again, shown.is_some()) {
-            read_only_ranges = None;
-        }
-        {
-            let document = shown.clone().unwrap_or_else(|| latest.clone());
-            let host_text = ranges_for
-                .clone()
-                .or_else(|| value.clone())
-                .unwrap_or_else(|| document.clone());
-            if read_only_ranges.is_some() && host_text != document {
-                read_only_ranges = moved_between(&host_text, &document, read_only_ranges, None).0;
-            }
-            if before_reset {
-                self.locks.forget();
-            } else if given.is_some() && read_only_ranges.is_none() {
-                self.locks.came(&host_text);
-            } else if let Some(ranges) = &read_only_ranges {
-                self.locks = HostLocks::given(ranges_print, &host_text, &document, ranges.clone());
-            } else if let Some(value) = shown.as_deref().filter(|value| !reads_as(value, &latest)) {
-                read_only_ranges = Some(self.locks.replaced(value));
-            }
-        }
+        let echo = taken.echo;
+        let shown = value.filter(|_| echo == Some(Echo::Apply));
         // Its ranges before its text.
-        if let Some(ranges) = read_only_ranges {
+        if let Some(ranges) = taken.ranges {
             self.core.set_given(ranges);
         }
         if let Some(value) = shown {
@@ -147,9 +107,7 @@ impl EditorSim {
         if value == self.core.text {
             return Ok(false);
         }
-        self.echoes.replaced(value);
-        if !reads_as(value, &self.core.text) {
-            let ranges = self.locks.replaced(value);
+        if let Some(ranges) = self.channel.replaced(value, &self.core.text) {
             self.core.set_given(ranges);
         }
         self.core.host_value(value)?;
@@ -159,7 +117,7 @@ impl EditorSim {
     fn settle(&mut self) {
         if std::mem::take(&mut self.settle_armed) {
             let current = self.core.text.clone();
-            if self.echoes.settle(&current) {
+            if self.channel.settle(&current) {
                 self.tell_host();
             }
         }
@@ -185,14 +143,13 @@ impl EditorSim {
         if !act.same_task() {
             self.core.flush()?;
         }
-        self.now += 10.0;
         match act {
             Act::Type { .. } | Act::Delete { .. } | Act::Enter { .. } | Act::MoveLine { .. } => {
                 if let Some((start, end, insert)) = user_edit(act, &self.core.text)
                     && self.core.edit(start, end, &insert)
                 {
                     let text = self.core.text.clone();
-                    self.echoes.sent(&text);
+                    self.channel.sent(&text);
                     self.tell_host();
                 }
             }
@@ -262,7 +219,6 @@ impl EditorSim {
     pub(crate) fn drain(&mut self) -> Outcome {
         for _ in 0..500 {
             self.core.flush()?;
-            self.now += 10.0;
             if self.settle_armed {
                 self.settle();
             } else if !self.host.queue.is_empty() {

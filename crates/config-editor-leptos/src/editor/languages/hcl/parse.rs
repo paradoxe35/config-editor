@@ -158,15 +158,6 @@ pub(super) fn readable_error(message: &str) -> String {
     }
 }
 
-pub(super) fn span_between(source: &str, start: usize, end: usize) -> (usize, usize, usize) {
-    let (line, column) = line_column(source, start);
-    (
-        line,
-        column,
-        column + source[start..end.min(source.len())].chars().count(),
-    )
-}
-
 /// The block scan of a whole document by path: each attribute (the first
 /// at a path) and the header word or label naming each block path.
 struct Indexed {
@@ -216,7 +207,7 @@ fn indexed(source: &str) -> std::rc::Rc<Indexed> {
 }
 
 /// Whether `path` names a block written once (see
-/// `ConfigLanguage::lone_item`).
+/// `Repeats::lone_item`).
 pub(super) fn hcl_lone_block(source: &str, path: &str) -> bool {
     indexed(source).lone_blocks.contains(&pointer_segments(path))
 }
@@ -431,13 +422,3 @@ fn opens_for_expression(text: &str) -> bool {
     inner.strip_prefix("for").is_some_and(|rest| rest.starts_with(char::is_whitespace))
 }
 
-pub(super) fn first_line_span(source: &str) -> Option<(usize, usize, usize)> {
-    source.lines().enumerate().find_map(|(index, line)| {
-        let start = line.find(|character: char| !character.is_whitespace())?;
-        Some((
-            index + 1,
-            line[..start].chars().count() + 1,
-            line.chars().count() + 1,
-        ))
-    })
-}

@@ -9,17 +9,32 @@
 
 use std::ops::Range;
 
+use super::super::edit::{Assoc, Change, CodeUnits};
 use super::super::text_change::edit_range;
 use super::locate::LineIndex;
 
-/// `ranges` (UTF-16, in `before`) after the edit making `after`, its caret
-/// at `caret`.
+/// `ranges` (UTF-16, in `before`) after the edit making `after`: mapped
+/// through `change`, what the edit recorded it did (text inserted at a
+/// range's start goes before it, at its end after it; a range's lines a
+/// line command moved go with them); for an edit with no record, read off
+/// the two texts and the caret it left (see the module).
 pub(super) fn follow_ranges(
     ranges: &[Range<usize>],
     before: &str,
     after: &str,
     caret: usize,
+    change: Option<&Change<CodeUnits>>,
 ) -> Vec<Range<usize>> {
+    if let Some(change) = change {
+        return ranges
+            .iter()
+            .map(|range| {
+                let start = change.map_pos(range.start, Assoc::After).pos;
+                let end = change.map_pos(range.end, Assoc::Before).pos;
+                start..end.max(start)
+            })
+            .collect();
+    }
     let region = {
         let (start, end) = edit_range(before, after, caret);
         start..end
@@ -32,7 +47,13 @@ pub(super) fn follow_ranges(
         .iter()
         .map(|range| {
             let shifted = shift(range, &region, inserted);
-            if range.end <= region.start || range.start >= region.end || range.is_empty() {
+            // Only lines the edit wrote can hold a range's lines again: a
+            // deletion writes none (the line after it is not the range's).
+            if range.end <= region.start
+                || range.start >= region.end
+                || range.is_empty()
+                || inserted == 0
+            {
                 return shifted;
             }
             let (old, new) =

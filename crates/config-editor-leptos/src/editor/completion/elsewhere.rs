@@ -36,7 +36,7 @@ impl<'a> OtherPlaces<'a> {
     }
 
     /// Where else the key `option` replaces is written (UTF-16 ranges), per
-    /// the language's [`ConfigLanguage::key_renames`]: other dotted keys
+    /// the language's [`SaveLayout::key_renames`]: other dotted keys
     /// and headers through it, other blocks or elements of its name. Empty
     /// unless the replaced text is a whole key written in the document,
     /// other than the option's.
@@ -83,13 +83,13 @@ fn written_places(
         pointer.push('/');
         match segment {
             SchemaPathSegment::Key(key) => {
-                pointer.push_str(&key.replace('~', "~0").replace('/', "~1"))
+                pointer.push_str(&crate::editor::language::pointer_key(key))
             }
             SchemaPathSegment::ArrayItem(index) => pointer.push_str(&index.to_string()),
         }
     }
     pointer.push('/');
-    pointer.push_str(&old.replace('~', "~0").replace('/', "~1"));
+    pointer.push_str(&crate::editor::language::pointer_key(old));
     let none = || Some((old.to_string(), Vec::new()));
     let Some(renamed) = behavior
         .key_renames(source, &pointer, STAND_IN)

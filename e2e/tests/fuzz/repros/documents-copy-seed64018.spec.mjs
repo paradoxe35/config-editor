@@ -3,7 +3,7 @@ import { replay } from '../runner.mjs';
 
 // Shrunk by the browser fuzz from seed 64018 on documents.
 // Fails the `copy` check after step 2: copied "r", selection "«secret 3f2a»"
-test.fixme('documents: copy (seed 64018)', async ({ browser }) => {
+test('documents: copy (seed 64018)', async ({ browser }) => {
   await replay(
     browser,
     'documents',

@@ -9,8 +9,10 @@ use std::sync::Arc;
 use leptos::prelude::*;
 use web_sys::KeyboardEvent;
 
-use super::super::edit::Edit;
+use super::super::bridge::links::Splice;
+use super::super::edit::{Change, CodeUnits, Edit};
 use super::super::input::{UNKNOWN_SELECTION, edit_range};
+use super::super::keyboard::utf16_to_byte_index;
 use super::super::language::ConfigLanguage;
 use super::super::parse_cache;
 use super::super::secret_options::SecretOptions;
@@ -242,24 +244,36 @@ fn ended_at_caret(
 
 impl EditorState {
     /// The placeholders of `text` (UTF-16, in order) no edit may cut: the
-    /// host's tokens where they are, and, in a documents view, the tokens of
-    /// the other documents written here (flagged as theirs, and as solid as
-    /// here: removed whole or kept whole).
+    /// host's tokens where they are, every other copy of one written here
+    /// (a placeholder is one span wherever it is: pasted where no field
+    /// reads it, it is still never split), and, in a documents view, the
+    /// tokens of the other documents written here (flagged as theirs, and
+    /// as solid as here: removed whole or kept whole).
     pub(crate) fn solid_tokens(&self, text: &str) -> Vec<Range<usize>> {
         let secrets = self.protect().secrets;
         let mut tokens = secrets.tokens.get_untracked();
-        // Byte ranges of the other documents' tokens written here.
-        let mut written: Vec<Range<usize>> = self.protect().foreign.with_untracked(|others| {
-            if others.is_empty() {
-                return Vec::new();
-            }
-            secrets.matcher.with_value(|matcher| {
-                secrets.known.with_untracked(|known| {
-                    foreign_tokens(text, matcher, known, others)
-                        .into_iter()
-                        .map(|(range, _)| range)
-                        .collect()
-                })
+        // Another document's tokens are solid here too, also where this
+        // document's host gave none of its own.
+        let others = self.protect().foreign.get_untracked();
+        if secrets.known.with_untracked(Vec::is_empty) && others.is_empty() {
+            return tokens;
+        }
+        // Byte ranges of the copies of the host's tokens and of the other
+        // documents' tokens written here.
+        let mut written: Vec<Range<usize>> = secrets.matcher.with_value(|matcher| {
+            secrets.known.with_untracked(|known| {
+                let own: std::collections::HashSet<&str> =
+                    known.iter().map(|known| known.token.as_str()).collect();
+                matcher
+                    .find(text)
+                    .into_iter()
+                    .filter(|range| own.contains(&text[range.clone()]))
+                    .chain(
+                        foreign_tokens(text, matcher, known, &others)
+                            .into_iter()
+                            .map(|(range, _)| range),
+                    )
+                    .collect()
             })
         });
         if written.is_empty() {
@@ -300,15 +314,36 @@ impl EditorState {
         // agree with it: a token pasted over another shares its first
         // characters, which a diff of the texts would keep.
         let told = edit.selection != UNKNOWN_SELECTION;
-        let (start, end) = Some(edit.selection)
-            .filter(|selection| told && replaces(&edit.before, &edit.text, *selection))
+        let recorded = edit
+            .change()
+            .and_then(|change| change.in_utf16(&edit.before))
+            .and_then(|change| change.hull())
+            .map(|(was, _)| (was.start, was.end));
+        let (start, end) = recorded
+            .or_else(|| {
+                Some(edit.selection)
+                    .filter(|selection| told && replaces(&edit.before, &edit.text, *selection))
+            })
             .or_else(|| {
                 (!told)
                     .then(|| ended_at_caret(&tokens, &edit.before, &edit.text, edit.caret()))
                     .flatten()
             })
             .unwrap_or_else(|| edit_range(&edit.before, &edit.text, edit.caret()));
-        if let Some((text, _, caret)) = widen(&tokens, &edit.before, &edit.text, start..end) {
+        if let Some((text, wide, caret)) = widen(&tokens, &edit.before, &edit.text, start..end) {
+            // What the widened edit does, recorded for the followers.
+            let byte = |at: usize| utf16_to_byte_index(&edit.before, at);
+            let (from, to) = (byte(wide.start), byte(wide.end));
+            let inserted = text
+                .get(from..text.len() - (edit.before.len() - to))
+                .unwrap_or_default()
+                .to_string();
+            edit.splices = Some(vec![Splice {
+                at: from,
+                removed: to - from,
+                inserted,
+                moved: Vec::new(),
+            }]);
             edit.text = text;
             edit.collapse_to(caret);
         }
@@ -321,12 +356,23 @@ impl EditorState {
     /// other edits (a key renamed above one) is checked at the typing pause
     /// ([`Self::recheck_tokens`]): it takes a parse, too slow for every key
     /// on a large document.
-    pub(crate) fn follow_tokens(&self, before: &str, after: &str, caret: usize) {
+    pub(crate) fn follow_tokens(
+        &self,
+        before: &str,
+        after: &str,
+        caret: usize,
+        change: Option<&Change<CodeUnits>>,
+    ) {
         let secrets = self.protect().secrets;
         if secrets.known.with_untracked(Vec::is_empty) {
             return;
         }
-        let (start, end) = edit_range(before, after, caret);
+        // What the edit replaced, as it recorded it; else read off the
+        // texts and its caret.
+        let (start, end) = change.and_then(Change::hull).map_or_else(
+            || edit_range(before, after, caret),
+            |(was, _)| (was.start, was.end),
+        );
         // Tokens the edit wrote again whole are found again by their text.
         let region = secrets.tokens.with_untracked(|tokens| {
             super::rewritten::rewritten_region(tokens, before, after, &(start..end))

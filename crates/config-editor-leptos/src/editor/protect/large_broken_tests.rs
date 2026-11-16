@@ -208,9 +208,10 @@ fn large_texts_broken_in_many_places_keep_their_locks_both_ways() {
     );
 }
 
-/// The most whole reads (parses, path lookups from the top, stand-ins) of
-/// the texts a repair's check makes (about 35 now): a read per line of the
-/// 3000-line text is thousands.
+/// The most whole reads (parses, path lookups from the top, stand-ins) a
+/// repair's check makes beyond finding the locks of the repaired text,
+/// which the check does for the editor (it then holds those locks): a read
+/// per line of the 3000-line text is thousands.
 const REPAIR_READS: usize = 64;
 
 /// The repair that makes a large text parse is checked in a moment, and so
@@ -228,9 +229,12 @@ fn repairs_of_a_large_text_are_checked_quickly() {
                 let (ok, reads) = whole_reads(&repaired, || {
                     allowed(language, &shown, &repaired, &protected)
                 });
-                if !ok || reads > REPAIR_READS {
+                let (_, placing) = whole_reads(&repaired, || {
+                    locks(language, &repaired, from, true, Some(&protected))
+                });
+                if !ok || reads > placing + REPAIR_READS {
                     slow.push(format!(
-                        "{language} ({from:?}) repairing {bad:?}: {reads} whole reads, allowed {ok}"
+                        "{language} ({from:?}) repairing {bad:?}: {reads} whole reads ({placing} placing the locks), allowed {ok}"
                     ));
                 }
                 let previous = std::mem::take(&mut protected);

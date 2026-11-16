@@ -1,8 +1,8 @@
 //! Strings and comments a JavaScript language writes over several lines:
 //! its `multilineRanges(text)` callback, read into the [`ConfigLanguage`]
-//! hooks that color them (`comments`, `multiline_strings`), keep their inner
-//! lines text (`string_body_lines`) and keep suggestions out of them
-//! (`lexical_state`).
+//! hooks that color them (`comments`, `multiline_strings`) and keep their inner
+//! lines text (`string_body_lines`); the core reads where suggestions stay out
+//! of them from these (`lexical_state`).
 
 use std::ops::Range;
 
@@ -68,17 +68,7 @@ pub(super) fn multiline_ranges(language: &JsLanguage, source: &str) -> Multiline
     out
 }
 
-/// Whether UTF-16 `cursor` is inside one of the comments (past its start;
-/// at its end only when it runs to the end of the text, unclosed).
-pub(super) fn in_comment(ranges: &Multiline, source: &str, cursor: usize) -> bool {
-    let byte = utf16_to_byte_index(source, cursor);
-    ranges
-        .comments
-        .iter()
-        .any(|range| range.start < byte && (byte < range.end || range.end == source.len()))
-}
-
-/// [`ConfigLanguage::comments`]: the line comments outside the ranges, and
+/// [`Text::comments`]: the line comments outside the ranges, and
 /// the comments among them, in order.
 pub(super) fn comments(
     language: &JsLanguage,
@@ -95,7 +85,7 @@ pub(super) fn comments(
     let mut comments = ranges.comments.clone();
     let mut line_start = 0;
     for line in source.split('\n') {
-        if let Some(start) = language.comment_start(line)
+        if let Some(start) = (language as &dyn ConfigLanguage).comment_start(line)
             && !inside(line_start + start)
         {
             comments.push(line_start + start..line_start + line.len());
@@ -106,7 +96,7 @@ pub(super) fn comments(
     comments
 }
 
-/// [`ConfigLanguage::string_body_lines`]: the lines wholly inside each
+/// [`Text::string_body_lines`]: the lines wholly inside each
 /// string, past its first line and before its last.
 pub(super) fn body_lines(source: &str, strings: &[Range<usize>]) -> Vec<Range<usize>> {
     let line_of = |byte: usize| source[..byte].matches('\n').count();

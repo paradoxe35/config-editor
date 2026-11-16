@@ -4,7 +4,7 @@
 //!
 //! What it builds on stays in every build: the fold ranges' building blocks
 //! languages combine in
-//! [`ConfigLanguage::fold_ranges`](super::language::ConfigLanguage::fold_ranges)
+//! [`Text::fold_ranges`](super::language::Text::fold_ranges)
 //! (`fold_ranges`), and the textarea showing the document with the folded
 //! lines cut out (`projection`, `source_area`).
 //!

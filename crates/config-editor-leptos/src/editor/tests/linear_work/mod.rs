@@ -104,7 +104,7 @@ fn cases(kind: EditKind) -> Vec<Case> {
 fn work(
     case: &Case,
     size: usize,
-    schema: &std::sync::Arc<crate::editor::diagnostics::SchemaBundle>,
+    schema: &std::sync::Arc<crate::editor::schema::SchemaBundle>,
 ) -> Vec<usize> {
     let mut text = shapes::text(case.host, case.shape, size);
     if case.shape == Shape::Secrets && case.view.is_none() {
@@ -147,7 +147,7 @@ fn work(
 /// unless `whole`.
 fn grown(
     case: &Case,
-    schema: &std::sync::Arc<crate::editor::diagnostics::SchemaBundle>,
+    schema: &std::sync::Arc<crate::editor::schema::SchemaBundle>,
     whole: bool,
 ) -> Vec<String> {
     let sizes = if case.shape == Shape::Deep {

@@ -78,6 +78,15 @@ impl Timeout {
     }
 }
 
+/// Keeps `timer` in `slot` in place of the timer there, which it cancels:
+/// of the timers set through one slot, only the last runs.
+pub(crate) fn replace_in(slot: leptos::prelude::StoredValue<Timeout>, timer: Timeout) {
+    use leptos::prelude::UpdateValue;
+    if let Some(before) = slot.try_update_value(|kept| std::mem::replace(kept, timer)) {
+        before.cancel();
+    }
+}
+
 /// `run(target)`, if `target` is still alive.
 pub(crate) fn guarded<T: Alive>(target: T, run: impl FnOnce(T) + 'static) -> Work {
     Box::new(move || {

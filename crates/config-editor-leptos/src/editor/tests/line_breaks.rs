@@ -3,8 +3,9 @@
 //! field's range, the path at an index, the folds. In every language.
 
 use crate::editor::Language;
-use crate::editor::diagnostics::{Schema, check_syntax};
+use crate::editor::diagnostics::check_syntax;
 use crate::editor::paths::{FieldPath, TextPosition};
+use crate::editor::schema::Schema;
 
 /// A document in `language`, `n` on its third line, its lines ended by
 /// `ending`.

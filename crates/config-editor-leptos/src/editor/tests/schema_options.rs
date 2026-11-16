@@ -3,8 +3,8 @@
 //! pattern naming a key.
 
 use crate::editor::Language;
-use crate::editor::diagnostics::Schema;
 use crate::editor::paths::TextPosition;
+use crate::editor::schema::Schema;
 use serde_json::json;
 
 fn hover(schema: &Schema, text: &str, line: usize, column: usize) -> crate::editor::HoverDocs {

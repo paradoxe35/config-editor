@@ -5,7 +5,7 @@
 
 use crate::editor::Language;
 use crate::editor::bridge::Bridge;
-use crate::editor::diagnostics::build_schema;
+use crate::editor::schema::build_schema;
 
 #[test]
 fn a_value_renamed_onto_a_typed_key_is_written_as_the_view_reads_it() {

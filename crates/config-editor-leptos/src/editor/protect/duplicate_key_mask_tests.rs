@@ -331,7 +331,7 @@ fn text_written_beside_a_copy_of_a_key_written_twice_can_be_taken_out() {
             let host = glued_host(language);
             let (_owner, state, heard) = mount(language, &host);
             if !act(state) || shown(state) == host {
-                let tip = state.protect().tip.get_untracked().map(|tip| tip.message);
+                let tip = state.protect().tip().map(|tip| tip.message);
                 failures.push(format!("{case}: refused ({tip:?}):\n{host}"));
                 continue;
             }

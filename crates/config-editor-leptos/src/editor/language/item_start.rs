@@ -1,5 +1,5 @@
 //! Where a list item opens, for the hover card: the default of
-//! [`ConfigLanguage::item_start`](super::ConfigLanguage::item_start).
+//! [`Hover::item_start`](super::Hover::item_start).
 
 use super::ConfigLanguage;
 

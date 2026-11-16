@@ -40,7 +40,7 @@ pub(super) fn first_non_xml_char(value: &Value, pointer: &str) -> Option<(String
     match value {
         Value::String(text) => bad(text).map(|character| (pointer.to_string(), character)),
         Value::Object(map) => map.iter().find_map(|(key, child)| {
-            let child_pointer = format!("{pointer}/{}", key.replace('~', "~0").replace('/', "~1"));
+            let child_pointer = format!("{pointer}/{}", crate::editor::language::pointer_key(key));
             bad(key)
                 .map(|character| (child_pointer.clone(), character))
                 .or_else(|| first_non_xml_char(child, &child_pointer))
@@ -341,7 +341,7 @@ fn unbound_prefix(
     let names = stack.iter().map(|open| open.name.as_str()).chain([local.as_str()]);
     let pointer: String = names
         .chain(attribute.then_some(qualified.as_str()))
-        .map(|name| format!("/{}", name.replace('~', "~0").replace('/', "~1")))
+        .map(|name| format!("/{}", crate::editor::language::pointer_key(name)))
         .collect();
     let start = markup_start(source, event_start);
     // At the name, in the start tag.
@@ -533,29 +533,8 @@ pub(super) fn markup_start(source: &str, from: usize) -> usize {
         .map_or(from, |offset| from + offset)
 }
 
-pub(super) fn span_between(source: &str, start: usize, end: usize) -> (usize, usize, usize) {
-    let (line, column) = line_column(source, start);
-    (line, column, column + source[start..end].chars().count())
-}
-
 /// Name and value spans of a whole document, as `analyze` records them.
-type DocumentSpans = (Vec<(Vec<String>, usize, usize)>, Vec<(Vec<String>, usize, usize)>);
-
-thread_local! {
-    /// The last document's spans: diagnostics, hover and saves look up many
-    /// positions in one text, and each scan reads all of it.
-    static LAST_SPANS: std::cell::RefCell<Option<(u64, std::rc::Rc<DocumentSpans>)>> = const { std::cell::RefCell::new(None) };
-}
-
-/// Forgets the last document's spans.
-pub(super) fn forget_spans() {
-    let _ = LAST_SPANS.try_with(|last| last.borrow_mut().take());
-}
-
-#[cfg(test)]
-pub(super) fn spans_kept() -> bool {
-    LAST_SPANS.with(|last| last.borrow().is_some())
-}
+struct DocumentSpans(Vec<(Vec<String>, usize, usize)>, Vec<(Vec<String>, usize, usize)>);
 
 fn document_spans(source: &str) -> std::rc::Rc<DocumentSpans> {
     // In a batch of problems, read once without hashing the text each time.
@@ -566,19 +545,14 @@ fn document_spans(source: &str) -> std::rc::Rc<DocumentSpans> {
     remembered_spans(source)
 }
 
-/// The spans of `source`, remembered for the last text.
+/// The spans of `source`, shared through the parse cache: diagnostics,
+/// hover and saves look up many positions in one text, and each scan reads
+/// all of it.
 fn remembered_spans(source: &str) -> std::rc::Rc<DocumentSpans> {
-    use std::hash::{Hash, Hasher};
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    source.hash(&mut hasher);
-    let key = hasher.finish();
-    if let Some(spans) = LAST_SPANS.with(|last| last.borrow().as_ref().filter(|(cached, _)| *cached == key).map(|(_, spans)| spans.clone())) {
-        return spans;
-    }
-    let scan = scan_text(source, 0, true);
-    let spans = std::rc::Rc::new((scan.key_spans, scan.value_spans));
-    LAST_SPANS.with(|last| *last.borrow_mut() = Some((key, spans.clone())));
-    spans
+    crate::editor::parse_cache::reading(source, (), || {
+        let scan = scan_text(source, 0, true);
+        DocumentSpans(scan.key_spans, scan.value_spans)
+    })
 }
 
 /// The lines of `text_bodies::text_body_lines` read off the full span scan,
@@ -672,7 +646,7 @@ fn lone_element(source: &str, names: &[(Vec<String>, usize, usize)], path: &[Str
 }
 
 /// Whether `path` names an element written once (see
-/// `ConfigLanguage::lone_item`).
+/// `Repeats::lone_item`).
 pub(super) fn xml_lone_element(source: &str, path: &str) -> bool {
     let spans = document_spans(source);
     let names = &spans.0;
@@ -752,7 +726,7 @@ pub(super) fn namespace_clash(source: &str) -> Option<String> {
         let pointer: String = stack
             .iter()
             .skip(1)
-            .map(|(name, _)| format!("/{}", name.replace('~', "~0").replace('/', "~1")))
+            .map(|(name, _)| format!("/{}", crate::editor::language::pointer_key(name)))
             .collect();
         let siblings = &mut stack.last_mut()?.1;
         if let Some(other) = siblings.get(&local).filter(|other| **other != qualified) {
@@ -773,7 +747,7 @@ pub(super) fn namespace_clash(source: &str) -> Option<String> {
             let local = text(attribute.key.local_name().as_ref());
             if let Some(other) = attributes.get(&local).filter(|other| **other != qualified) {
                 // At the element holding them.
-                let element = element_local.replace('~', "~0").replace('/', "~1");
+                let element = crate::editor::language::pointer_key(&element_local);
                 return parses().then(|| format!(
                     "the attributes {other} and {qualified} are in different namespaces but read as the same key {local}, which another language cannot tell apart (at {pointer}/{element})"
                 ));
@@ -852,7 +826,7 @@ pub(super) fn mixed_content(source: &str) -> Option<String> {
                     let mut at = &value;
                     for (name, index) in stack.iter().filter_map(|open| open.step.as_ref()) {
                         pointer.push('/');
-                        pointer.push_str(&name.replace('~', "~0").replace('/', "~1"));
+                        pointer.push_str(&crate::editor::language::pointer_key(name));
                         at = at.get(name)?;
                         if let Value::Array(items) = at {
                             pointer.push_str(&format!("/{index}"));
