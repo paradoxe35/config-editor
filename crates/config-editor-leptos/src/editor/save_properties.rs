@@ -12,7 +12,7 @@
 use super::Language;
 use super::bridge::Bridge;
 use super::codec;
-use super::completion::conform_arrays;
+use super::data_reading::conform_arrays;
 use super::diff::{DiffEdit, myers_edits};
 use super::language::Repetition;
 use super::schema::{SchemaBundle, build_schema};

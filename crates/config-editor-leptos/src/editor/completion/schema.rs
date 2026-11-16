@@ -1,6 +1,6 @@
 //! What one schema says of a value, read from the applicability model
 //! (`applies`): types, defaults, the object and array branches, the values
-//! it suggests (reading values to the shapes it expects is `conform`).
+//! it suggests (reading values to the shapes it expects is `data_reading`).
 
 use super::*;
 
@@ -201,7 +201,7 @@ pub(super) fn describes_object(branch: &Value) -> bool {
 }
 
 /// Whether one schema (a branch) describes an array.
-pub(super) fn describes_array(branch: &Value) -> bool {
+pub(crate) fn describes_array(branch: &Value) -> bool {
     branch.get("items").is_some()
         || branch.get("prefixItems").is_some()
         || type_includes(branch, "array")

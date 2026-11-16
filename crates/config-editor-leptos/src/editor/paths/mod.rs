@@ -39,60 +39,26 @@ pub(crate) use written::parsed as parsed_in_batch;
 #[cfg(feature = "protect")]
 pub(crate) use written::{inside, whole_value};
 
-use super::codec::{inline_location, written_inline};
+use super::codec::inline_location;
 use super::completion::{hovered_key, path_with_key};
+use super::data_reading::DataReading;
+#[cfg(feature = "protect")]
+pub(crate) use super::data_reading::lone_spelling;
+#[cfg(not(feature = "protect"))]
+use super::data_reading::lone_spelling;
 use super::keyboard::utf16_to_byte_index;
-use super::language::{ConfigLanguage, Repetition, Span, pointer_index};
+use super::language::{ConfigLanguage, Repetition, Span};
 use super::work_count::{Work, note};
 
 /// `pointer`, and for languages that repeat elements or blocks, the pointer
-/// written: without the `/0` after each field the language writes as a lone
-/// item (`Repeats::lone_item`: an XML element or HCL block written
-/// once, read as a one-item list too). An index anywhere else (on a scalar,
-/// an attribute, an object of labelled blocks, another index, the document)
-/// is only an index. A list written as one (`ea = []`) has no lone item: its
-/// `/0` is only its first item.
+/// written where it names a value written once through its list's index
+/// (see `data_reading::lone_spelling`).
 fn spellings(behavior: &dyn ConfigLanguage, source: &str, pointer: &str) -> Vec<String> {
     let mut spellings = vec![pointer.to_string()];
     if let Some(lone) = lone_spelling(behavior, source, pointer) {
         spellings.push(lone);
     }
     spellings
-}
-
-/// [`spellings`]' second one, when it differs from `pointer`.
-pub(crate) fn lone_spelling(
-    behavior: &dyn ConfigLanguage,
-    source: &str,
-    pointer: &str,
-) -> Option<String> {
-    if behavior.repetition() == Repetition::None || !pointer.contains("/0") {
-        return None;
-    }
-    let mut lone = String::new();
-    // The item just left out: an index on it names nothing (an element or
-    // block is no list).
-    let mut left_out = false;
-    for segment in pointer.split('/').skip(1) {
-        if left_out && pointer_index(segment).is_some() {
-            return None;
-        }
-        if segment == "0" && !lone.is_empty() {
-            if memo_value_span(behavior, source, &lone)
-                .is_some_and(|span| written_inline(behavior, source, span))
-            {
-                return None;
-            }
-            if behavior.lone_item(source, &FieldPath::from(&lone)) {
-                left_out = true;
-                continue;
-            }
-        }
-        left_out = false;
-        lone.push('/');
-        lone.push_str(segment);
-    }
-    (lone != pointer).then_some(lone)
 }
 
 /// Where the value of the field at `pointer` is written, in any spelling of
@@ -326,18 +292,20 @@ pub(crate) fn problem_span(
         })
 }
 
-/// [`problem_span`] of a schema problem, also where the schema read an
-/// object as a one-item list (see [`conformed_spelling`]).
+/// [`problem_span`] of a schema problem, its pointer one in the data
+/// `reading` reads off `source` (as the text writes it where that reading
+/// made a value written once a list of one).
 #[cfg(feature = "schema-validation")]
 pub(crate) fn schema_problem_span(
     behavior: &dyn ConfigLanguage,
     source: &str,
+    reading: &DataReading,
     pointer: &str,
     required: bool,
     written_as_block: bool,
 ) -> Option<Span> {
     problem_span(behavior, source, pointer, required, written_as_block).or_else(|| {
-        let written = conformed_spelling(behavior, source, pointer)?;
+        let written = reading.written(pointer)?;
         problem_span(behavior, source, &written, required, written_as_block)
     })
 }
@@ -346,42 +314,13 @@ pub(crate) fn schema_problem_span(
 pub(crate) fn schema_problem_key_span(
     behavior: &dyn ConfigLanguage,
     source: &str,
+    reading: &DataReading,
     pointer: &str,
 ) -> Option<Span> {
     problem_key_span(behavior, source, pointer).or_else(|| {
-        let written = conformed_spelling(behavior, source, pointer)?;
+        let written = reading.written(pointer)?;
         problem_key_span(behavior, source, &written)
     })
-}
-
-/// `pointer` of a schema problem as the text writes it where the schema
-/// read an object as a one-item list (`codec::conform_arrays`: an HCL
-/// `listen = { … }`, labelled blocks `listen "a" { … }`): without each
-/// `/0` that names nothing written. `None` when there is none to drop.
-/// Only schema problems are read so: without the schema such an index
-/// names nothing.
-fn conformed_spelling(
-    behavior: &dyn ConfigLanguage,
-    source: &str,
-    pointer: &str,
-) -> Option<String> {
-    if behavior.repetition() == Repetition::None || !pointer.contains("/0") {
-        return None;
-    }
-    let mut written = String::new();
-    for segment in pointer.split('/').skip(1) {
-        let indexed = format!("{written}/{segment}");
-        let names_nothing = || {
-            memo_value_span(behavior, source, &indexed).is_none()
-                && memo_key_span(behavior, source, &indexed).is_none()
-                && inline_location(behavior, source, &indexed, false).is_none()
-        };
-        if segment == "0" && !written.is_empty() && names_nothing() {
-            continue;
-        }
-        written = indexed;
-    }
-    (written != pointer).then_some(written)
 }
 
 /// Where the key `pointer` names is written (a key a problem is about), in

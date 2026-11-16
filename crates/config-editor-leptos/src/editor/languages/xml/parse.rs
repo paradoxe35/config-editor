@@ -306,7 +306,7 @@ pub(super) fn open_element(
             return Err(syntax_error(source, start, not_xml_char_message(character)));
         }
         if !markup.holds(&key) {
-            attrs.insert(key, typed_scalar(&value));
+            attrs.insert(key, crate::editor::data_reading::plain_scalar(&value));
         }
     }
     let config_root = top_level && attrs.get(CONFIG_ROOT_ATTRIBUTE) == Some(&Value::Bool(true));
@@ -397,7 +397,7 @@ pub(super) fn finalize(open: OpenElement) -> Value {
         open.text.trim().to_string()
     };
     if open.children.is_empty() && open.attrs.is_empty() && (!text.is_empty() || open.cdata) {
-        return typed_scalar(&text);
+        return crate::editor::data_reading::plain_scalar(&text);
     }
     // An attribute a child element shares its name with is `@name`: the
     // two stay apart, as the serializer writes them.
@@ -443,25 +443,6 @@ pub(super) fn insert_child(map: &mut Map<String, Value>, name: String, value: Va
         None => {
             map.insert(name, value);
         }
-    }
-}
-
-/// Numbers, booleans, and `null` written as their JSON text are recognized;
-/// everything else is a string. Where the schema wants a string, validation
-/// reads them back as text; where it wants a number, boolean or `null`,
-/// text spelled another way (`1.50`, `1e3`, ` 4 `) reads as one (see
-/// `completion::conform_arrays`).
-pub(super) fn typed_scalar(text: &str) -> Value {
-    match text {
-        "true" => Value::Bool(true),
-        "false" => Value::Bool(false),
-        "null" => Value::Null,
-        // Only text a number writes back unchanged (`1e3`, `1.50`, `-0` and
-        // ` 4 ` stay text, so saving them keeps what was typed).
-        _ => match serde_json::from_str::<Value>(text) {
-            Ok(Value::Number(number)) if number.to_string() == text => Value::Number(number),
-            _ => Value::String(text.to_string()),
-        },
     }
 }
 

@@ -149,7 +149,7 @@ fn reading_a_text_as_the_schema_expects_resolves_each_value_s_schema_once() {
         let mut value = language.parse(sample(language)).unwrap();
         let values = values_in(&value);
         let ((), walks) = counted(Work::BranchWalk, || {
-            crate::editor::completion::conform_arrays(&mut value, &bundle.schema, repetition);
+            crate::editor::data_reading::conform_arrays(&mut value, &bundle.schema, repetition);
         });
         assert!(
             walks <= values,

@@ -147,7 +147,7 @@ pub(crate) enum Work {
     /// time.
     CharacterStep,
     /// A byte of a whole document's value read the way a schema expects
-    /// (`completion::conform_arrays`: lone values where only a list is
+    /// (`data_reading`: lone values where only a list is
     /// allowed made lists; one note per byte of its text, see
     /// [`note_many`]), as a host that repeats keys for lists reads a text.
     ConformedBytes,

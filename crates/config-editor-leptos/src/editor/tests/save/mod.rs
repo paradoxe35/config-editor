@@ -136,6 +136,14 @@ mod large_secrets;
     feature = "hcl",
     feature = "xml"
 ))]
+mod lists_of_one;
+#[cfg(all(
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
 mod merge_key_order;
 #[cfg(all(
     feature = "yaml",

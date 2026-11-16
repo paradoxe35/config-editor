@@ -211,9 +211,7 @@ fn value_fits(schema: &Value, value: &Value, root: &Value) -> bool {
     let read;
     let value = match value {
         Value::String(text) if schema.get("type").is_some() && !kind_fits(schema, value) => {
-            read = serde_json::from_str::<Value>(text.trim())
-                .ok()
-                .filter(|read| !read.is_string());
+            read = crate::editor::data_reading::text_literal(text);
             read.as_ref().unwrap_or(value)
         }
         _ => value,

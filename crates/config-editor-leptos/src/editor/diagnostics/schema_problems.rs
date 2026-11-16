@@ -12,41 +12,43 @@ use super::{
     escape_pointer, placeholders, unevaluated, wording,
 };
 use crate::EditorStrings;
+use crate::editor::data_reading::DataReading;
 use crate::editor::language::{ConfigLanguage, Span};
 use crate::strings::fill;
 
-/// A document's value and the language it was read in (how its lists
-/// are written, its text key).
+/// A document read as data and the language it was read in (how its
+/// lists are written, its text key).
 #[derive(Clone, Copy)]
 pub(super) struct Reading<'r> {
-    pub(super) document: &'r Value,
+    pub(super) data: &'r DataReading,
     pub(super) behavior: &'r dyn ConfigLanguage,
 }
 
 /// The schema problems of `reading`'s value (enough for the cap), each
 /// with its [`ProblemKey`] and placed where `placing` finds its value in
-/// `source`; and whether they are all (not when the budget of the
-/// explanations ran out).
+/// `source` (read as data `placed`, whose pointers are the problems'); and
+/// whether they are all (not when the budget of the explanations ran out).
 pub(super) fn found(
     reading: Reading<'_>,
     source: &str,
-    placing: &dyn ConfigLanguage,
+    (placing, placed): (&dyn ConfigLanguage, &DataReading),
     schema: &SchemaBundle,
     accepted: &[(String, String)],
     strings: &EditorStrings,
 ) -> (Vec<(ProblemKey, Diagnostic)>, bool) {
-    let placeholders = Fields::new(accepted_pointers(reading.document, accepted));
+    let document = reading.data.value();
+    let placeholders = Fields::new(accepted_pointers(document, accepted));
     let secrets = secrets(reading, schema);
     // Infinities and NaN are numbers to the schema (see `non_finite`).
     use crate::editor::codec::non_finite::{StandIn, for_validation};
-    let validated = for_validation(reading.document, StandIn::Bounds);
+    let validated = for_validation(document, StandIn::Bounds);
     let restore = matches!(validated, std::borrow::Cow::Owned(_));
     // No one stand-in fails every check an infinity or NaN fails: the
     // other passes add the checks they stand for.
     let further: Vec<(StandIn, std::borrow::Cow<'_, Value>)> = if restore {
         StandIn::ALL[1..]
             .iter()
-            .map(|pass| (*pass, for_validation(reading.document, *pass)))
+            .map(|pass| (*pass, for_validation(document, *pass)))
             .collect()
     } else {
         Vec::new()
@@ -184,7 +186,7 @@ pub(super) fn found(
                                     let block = item.as_object().is_some_and(|map| !map.is_empty())
                                         || item.as_array().is_some_and(|items| !items.is_empty());
                                     let span = crate::editor::paths::schema_problem_span(
-                                        placing, source, &pointer, false, block,
+                                        placing, source, placed, &pointer, false, block,
                                     );
                                     let value = wording.value_at(&pointer, &item);
                                     let message = format!(
@@ -211,7 +213,7 @@ pub(super) fn found(
                                 .map(|key| {
                                     let pointer = format!("{parent}/{}", escape_pointer(key));
                                     let span = crate::editor::paths::schema_problem_key_span(
-                                        placing, source, &pointer,
+                                        placing, source, placed, &pointer,
                                     );
                                     let message =
                                         if reading.behavior.text_key() == Some(key.as_str()) {
@@ -241,6 +243,7 @@ pub(super) fn found(
                             let location = crate::editor::paths::schema_problem_span(
                                 placing,
                                 source,
+                                placed,
                                 &path,
                                 match error.kind() {
                                     ValidationErrorKind::Required { .. } => true,
@@ -283,11 +286,11 @@ pub(super) fn found(
     (found, complete)
 }
 
-/// The secrets of `reading`'s value the schema marks. Where the language
-/// writes a list of one as its item, the value read with every list of
-/// one as its item is walked too: a field one option reads as a list
-/// (so the reader made it one) is a secret's under another option, and
-/// its text is hidden wherever a message quotes it.
+/// The secrets of `reading`'s value the schema marks. Where the reading
+/// made a value written once a list of one, the value with each such list
+/// read as its item is walked too: a field one option reads as a list (so
+/// the reading made it one) is a secret's under another option, and its
+/// text is hidden wherever a message quotes it.
 fn secrets(reading: Reading<'_>, schema: &SchemaBundle) -> Secrets {
     if !schema.has_marks {
         return Secrets::new(&[]);
@@ -296,36 +299,15 @@ fn secrets(reading: Reading<'_>, schema: &SchemaBundle) -> Secrets {
     let marked = |document: &Value| {
         crate::editor::protect::secret_pointers(document, &schema.schema, repeats_arrays)
     };
-    let mut readings = vec![(reading.document, marked(reading.document))];
-    let lone = repeats_arrays
-        .then(|| lone_items(reading.document))
+    let document = reading.data.value();
+    let mut readings = vec![(document, marked(document))];
+    let written = reading
+        .data
+        .has_lists_of_one()
+        .then(|| reading.data.as_parsed())
         .flatten();
-    if let Some(lone) = &lone {
-        readings.push((lone, marked(lone)));
+    if let Some(written) = &written {
+        readings.push((written, marked(written)));
     }
     Secrets::new(&readings)
-}
-
-/// `value` with each list of one read as its item, when it holds one.
-fn lone_items(value: &Value) -> Option<Value> {
-    fn holds_one(value: &Value) -> bool {
-        match value {
-            Value::Array(items) => items.len() == 1 || items.iter().any(holds_one),
-            Value::Object(map) => map.values().any(holds_one),
-            _ => false,
-        }
-    }
-    fn lone(value: &Value) -> Value {
-        match value {
-            Value::Array(items) if items.len() == 1 => lone(&items[0]),
-            Value::Array(items) => Value::Array(items.iter().map(lone).collect()),
-            Value::Object(map) => Value::Object(
-                map.iter()
-                    .map(|(key, child)| (key.clone(), lone(child)))
-                    .collect(),
-            ),
-            scalar => scalar.clone(),
-        }
-    }
-    holds_one(value).then(|| lone(value))
 }

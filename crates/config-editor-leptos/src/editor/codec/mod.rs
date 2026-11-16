@@ -37,10 +37,10 @@ pub(super) use renames::{
 pub(super) use reorder::{patch_reorder, unmoved_comments, with_comma_of};
 pub(super) use steps::steps;
 
-use super::completion::conform_arrays;
+use super::data_reading;
 use super::flow_syntax::Flow;
 use super::item_sources::SaveTold;
-use super::language::{ConfigLanguage, ParseError, Repetition, Span};
+use super::language::{ConfigLanguage, ParseError, Span};
 use serde_json::Value;
 use std::fmt;
 
@@ -89,20 +89,14 @@ impl fmt::Display for ConvertError {
 
 impl std::error::Error for ConvertError {}
 
-/// Parses `source`, reading lone values as the arrays `schema` expects in a
-/// language that repeats keys for arrays; from the last reading of the
-/// same text (see `parse_cache`).
+/// `source` read as data under `schema` (see `data_reading`); from the
+/// last reading of the same text.
 pub(super) fn read(
     language: &dyn ConfigLanguage,
     source: &str,
     schema: Option<&Value>,
 ) -> Result<Value, ParseError> {
-    match schema.filter(|_| language.repetition() != Repetition::None) {
-        Some(schema) => super::parse_cache::conformed(language, source, schema, |value| {
-            conform_arrays(value, schema, language.repetition());
-        }),
-        None => super::parse_cache::parse(language, source),
-    }
+    data_reading::value(language, source, schema)
 }
 
 /// Whether `source` may be saved in `language`, its own: it reads, or
@@ -156,12 +150,7 @@ pub(super) fn read_aside(
     source: &str,
     schema: Option<&Value>,
 ) -> Result<Value, ParseError> {
-    super::work_count::note_many(super::work_count::Work::ParsedBytes, source.len());
-    let mut value = language.parse(source)?;
-    if let Some(schema) = schema.filter(|_| language.repetition() != Repetition::None) {
-        conform_arrays(&mut value, schema, language.repetition());
-    }
-    Ok(value)
+    data_reading::read_aside(language, source, schema).map(data_reading::DataReading::into_value)
 }
 
 /// Renders `value` in `target`, reading the result back to find the losses.
@@ -337,6 +326,9 @@ pub(super) fn patch_scalars(
     if changes.is_empty() {
         return Some(previous.to_string());
     }
+    // A value written once that the schema reads as a list of one is
+    // addressed `…/0/…` but written without it.
+    let reading = data_reading::read(language, previous, schema).ok();
     let mut edits = Vec::with_capacity(changes.len());
     for (pointer, value) in changes {
         // Values inside flow collections and inline tables are found by the
@@ -346,14 +338,7 @@ pub(super) fn patch_scalars(
                 .value_span(previous, &FieldPath::from(pointer))
                 .or_else(|| inline_location(language, previous, pointer, false))
         };
-        // A lone block or element read as a one-item list is addressed
-        // `…/0/…` but written without it.
-        let span = find(&pointer).or_else(|| {
-            (language.repetition() != Repetition::None && pointer.contains("/0")).then(|| {
-                let lone = pointer.replace("/0/", "/");
-                find(lone.strip_suffix("/0").unwrap_or(&lone))
-            })?
-        });
+        let span = find(&pointer).or_else(|| find(&reading.as_ref()?.written(&pointer)?));
         // A value the host does not write there (a YAML merge key's) may
         // follow from another change (its anchor's): the read-back decides.
         let Some(span) = span else {

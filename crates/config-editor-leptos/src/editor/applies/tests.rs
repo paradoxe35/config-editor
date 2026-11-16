@@ -289,7 +289,7 @@ fn values_are_found_at_their_path() {
 
 #[test]
 fn a_lone_xml_value_is_one_item_once() {
-    use crate::editor::completion::conform_arrays;
+    use crate::editor::data_reading::conform_arrays;
     use crate::editor::language::Repetition;
     let schema = json!({"properties": {"a": {"allOf": [{"type": "array"}]}}});
     let mut value = json!({"a": true});
