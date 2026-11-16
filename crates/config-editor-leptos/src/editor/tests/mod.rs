@@ -449,6 +449,15 @@ mod xml_applied_readings;
     feature = "hcl",
     feature = "xml"
 ))]
+mod xml_edited_numbers;
+#[cfg(all(
+    feature = "schema-validation",
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
 mod xml_numeric_strings;
 #[cfg(all(
     feature = "schema-validation",
