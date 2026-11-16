@@ -3,8 +3,7 @@
 
 use super::super::codec::{canonical, same_order};
 use super::super::item_sources::{ItemSource, ItemSources};
-use super::super::language::{ConfigLanguage, Repetition};
-use crate::editor::language::pointer_key;
+use super::super::language::{ConfigLanguage, Repetition, pointer_key};
 use serde_json::{Map, Value};
 
 use super::super::work_count::{Work, note};

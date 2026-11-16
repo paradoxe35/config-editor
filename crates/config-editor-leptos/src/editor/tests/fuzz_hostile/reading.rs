@@ -16,6 +16,7 @@ use crate::editor::highlight::pieces::{RowPieces, splits};
 use crate::editor::highlight::spanning::{Spanning, tokens_after};
 use crate::editor::highlight::{Token, runs_of};
 use crate::editor::language::Span;
+use crate::editor::language::pointer_key;
 use crate::editor::languages::Language;
 use crate::editor::line_endings::editor_text;
 use crate::editor::paths::FieldPath;
@@ -216,7 +217,7 @@ fn pointers(value: &serde_json::Value, prefix: String, out: &mut Vec<String>) {
     match value {
         serde_json::Value::Object(map) => {
             for (key, value) in map {
-                let key = key.replace('~', "~0").replace('/', "~1");
+                let key = pointer_key(key);
                 pointers(value, format!("{prefix}/{key}"), out);
             }
         }

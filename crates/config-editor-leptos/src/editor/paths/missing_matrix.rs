@@ -5,6 +5,7 @@
 //! spans), in every language: never another field's place. The missing
 //! paths are made from the parsed value of each document.
 
+use crate::editor::language::pointer_key;
 use crate::editor::paths::FieldPath;
 use serde_json::{Value, json};
 
@@ -12,7 +13,7 @@ use super::super::Language;
 use super::ranges_matrix::cases;
 
 fn child(at: &str, key: &str) -> String {
-    format!("{at}/{}", key.replace('~', "~0").replace('/', "~1"))
+    format!("{at}/{}", pointer_key(key))
 }
 
 /// Paths `value` does not have, near the ones it has: a leaf under each

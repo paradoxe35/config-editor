@@ -10,6 +10,7 @@
 use crate::editor::Language;
 use crate::editor::bridge::WHOLE_RENDERS;
 use crate::editor::codec::written_range;
+use crate::editor::language::{pointer_key, unescaped_key};
 use crate::editor::paths::FieldPath;
 use crate::editor::save_matrix::{ALL, find_slot, report, save_conversion};
 use serde_json::{Map, Value};
@@ -62,10 +63,6 @@ enum Op {
 }
 
 const OPS: [Op; 4] = [Op::Delete, Op::Rename, Op::MoveLast, Op::MoveOut];
-
-fn escaped(key: &str) -> String {
-    key.replace('~', "~0").replace('/', "~1")
-}
 
 fn renamed(key: &str) -> String {
     if key.starts_with('@') {
@@ -121,7 +118,7 @@ fn scalars(value: &Value, pointer: String, out: &mut Vec<String>) {
     match value {
         Value::Object(map) => {
             for (key, child) in map {
-                scalars(child, format!("{pointer}/{}", escaped(key)), out);
+                scalars(child, format!("{pointer}/{}", pointer_key(key)), out);
             }
         }
         Value::Array(items) => {
@@ -147,7 +144,7 @@ fn moved_to(pointer: &str, touched: &str, op: Op) -> Option<String> {
         Op::Delete | Op::MoveOut => None,
         Op::Rename => Some(format!(
             "{parent}/{}{rest}",
-            escaped(&renamed(&key.replace("~1", "/").replace("~0", "~")))
+            pointer_key(&renamed(&unescaped_key(key)))
         )),
         Op::MoveLast => Some(pointer.to_string()),
     }
@@ -194,7 +191,7 @@ fn a_key_deleted_renamed_or_moved_keeps_every_form_and_is_patched() {
         let mut others = Vec::new();
         scalars(&old, String::new(), &mut others);
         for key in &keys {
-            let touched = format!("{parent}/{}", escaped(key));
+            let touched = format!("{parent}/{}", pointer_key(key));
             for op in OPS {
                 for edit in ALL.into_iter().filter(|edit| *edit != host) {
                     let shown = std::cell::Cell::new(true);

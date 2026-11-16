@@ -6,9 +6,8 @@
 //! Each is kept only if it reads back as the new document.
 
 use super::super::item_sources::{ItemSource, ItemSources, SaveTold};
-use super::super::language::{ConfigLanguage, Span};
+use super::super::language::{ConfigLanguage, Span, pointer_key};
 use super::{byte_range, reads_as, through_long_quote};
-use crate::editor::language::pointer_key;
 use crate::editor::paths::FieldPath;
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};

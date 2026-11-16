@@ -1,10 +1,9 @@
 //! Schema docs for the key or documented value under the pointer.
 
-use super::super::paths::{line_start, split_line, units_at};
+use super::super::paths::{FieldPath, line_start, split_line, units_at};
 use super::super::work_count::{Work, note};
 use super::*;
 use crate::editor::language::cursor_at;
-use crate::editor::paths::FieldPath;
 
 #[derive(Clone, PartialEq, Eq)]
 pub(crate) struct KeyHover {

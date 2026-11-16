@@ -16,6 +16,7 @@
     feature = "folding"
 ))]
 
+use config_editor_leptos::language::pointer_key;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
 use config_editor_leptos::{
@@ -125,7 +126,7 @@ fn pointers(value: &Value, at: String, out: &mut Vec<String>) {
     match value {
         Value::Object(map) => {
             for (key, child) in map {
-                let key = key.replace('~', "~0").replace('/', "~1");
+                let key = pointer_key(key);
                 pointers(child, format!("{at}/{key}"), out);
             }
         }

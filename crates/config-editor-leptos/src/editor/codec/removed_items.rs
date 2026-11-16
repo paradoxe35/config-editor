@@ -4,10 +4,9 @@
 //! comments and tags move into the first places, the rest go.
 
 use super::super::item_sources::SaveTold;
-use super::super::language::ConfigLanguage;
+use super::super::language::{ConfigLanguage, pointer_key};
 use super::reads_as;
 use super::reorder::block_items;
-use crate::editor::language::pointer_key;
 use serde_json::Value;
 
 /// `previous` with the items `new` removes from one block list dropped.

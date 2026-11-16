@@ -26,8 +26,7 @@ mod table_spacing;
 #[cfg(feature = "folding")]
 mod folding;
 
-use crate::editor::paths::FieldPath;
-use crate::editor::paths::{byte_at_column, first_line_span, line_column, span_between};
+use crate::editor::paths::{byte_at_column, first_line_span, line_column, span_between, FieldPath};
 use style::*;
 use parse::*;
 use spans::*;

@@ -4,6 +4,7 @@
 //! the comments of what the session left alone; or else the save waits
 //! with a problem shown.
 
+use crate::editor::language::pointer_key;
 use crate::editor::paths::FieldPath;
 use leptos::prelude::*;
 use serde_json::Value;
@@ -206,7 +207,7 @@ fn pointers(value: &Value) -> Vec<(String, &Value)> {
         match value {
             Value::Object(map) => {
                 for (key, child) in map {
-                    let key = key.replace('~', "~0").replace('/', "~1");
+                    let key = pointer_key(key);
                     walk(child, format!("{pointer}/{key}"), out);
                 }
             }

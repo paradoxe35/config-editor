@@ -5,6 +5,7 @@
 //! stop. Only keys a witness document holds validly are judged (their
 //! schema can be met), in schemas whose defaults and examples fit.
 
+use crate::editor::language::pointer_key;
 use serde_json::Value;
 
 use super::documents::{Shape, document};
@@ -93,7 +94,7 @@ pub(super) fn check(case: &Case) -> Verdict {
             // Empty slots a language does not read (JSON `"a": `).
             continue;
         };
-        let pointer = format!("/{}", option.label.replace('~', "~0").replace('/', "~1"));
+        let pointer = format!("/{}", pointer_key(&option.label));
         if read.pointer(&pointer).is_none() {
             return Verdict::Fails(failure(
                 "an accepted key does not read",
