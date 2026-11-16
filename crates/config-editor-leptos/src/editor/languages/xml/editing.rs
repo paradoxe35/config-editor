@@ -1,7 +1,7 @@
 //! Enter, comments, auto-closing, lexical state, and syntax colors.
 
 use super::*;
-use super::super::super::language::mapped_through;
+use crate::editor::comment_toggle::mapped_through;
 use std::ops::Range;
 
 /// Enter inside an element indents one level deeper; otherwise it keeps the
@@ -352,19 +352,19 @@ pub(super) fn toggle_xml_comments(
         } else {
             (close - usize::from(source[..close].ends_with(' ')), close + 3)
         };
-        let (_, changes) = unescaped_comment_text(&source[open_end..close_start]);
+        let (_, rewrites) = unescaped_comment_text(&source[open_end..close_start]);
         let mut edits = vec![(open..open_end, String::new())];
-        edits.extend(rewrites_at(open_end, &changes));
+        edits.extend(rewrites_at(open_end, &rewrites));
         edits.push((close_start..cut_end, String::new()));
         // Where a position inside the comment's text lands once unwrapped.
         // One inside an escape (`&#4|5;`) lands after the character it
         // writes, so positions keep their order.
         let map = |byte: usize| {
             let mut byte = byte.clamp(open_end, close_start);
-            if let Some((at, removed, _)) =
-                changes.iter().find(|(at, removed, _)| open_end + at < byte && byte < open_end + at + removed)
+            if let Some((at, taken, _)) =
+                rewrites.iter().find(|(at, taken, _)| open_end + at < byte && byte < open_end + at + taken)
             {
-                byte = open_end + at + removed;
+                byte = open_end + at + taken;
             }
             open + unescape_comment_text(&source[open_end..byte]).len()
         };
@@ -426,14 +426,14 @@ pub(super) fn toggle_xml_comments(
                 let open = 4 + usize::from(after_open.starts_with(' '));
                 let before_close = &trimmed[..trimmed.len() - 3];
                 let close = 3 + usize::from(before_close.len() > open && before_close.ends_with(' '));
-                let (_, changes) = unescaped_comment_text(&trimmed[open..trimmed.len() - close]);
+                let (_, rewrites) = unescaped_comment_text(&trimmed[open..trimmed.len() - close]);
                 edits.push((text_start..text_start + open, String::new()));
-                edits.extend(rewrites_at(text_start + open, &changes));
+                edits.extend(rewrites_at(text_start + open, &rewrites));
                 edits.push((text_end - close..text_end, String::new()));
             } else {
-                let (_, changes) = escaped_comment_text(trimmed);
+                let (_, rewrites) = escaped_comment_text(trimmed);
                 edits.push((text_start..text_start, "<!-- ".to_string()));
-                edits.extend(rewrites_at(text_start, &changes));
+                edits.extend(rewrites_at(text_start, &rewrites));
                 edits.push((text_end..text_end, " -->".to_string()));
             }
             edits.push((text_end..line_end, String::new()));
@@ -457,9 +457,9 @@ pub(super) fn wrap_xml_selection(source: &str, start: usize, end: usize) -> Togg
     let end = if end > start && source[..end].ends_with('\n') { end - 1 } else { end };
     let line_end = source[end..].find('\n').map_or(source.len(), |at| end + at);
     let end = start.max(source[..line_end].trim_end().len());
-    let (inner, changes) = escaped_comment_text(&source[start..end]);
+    let (inner, rewrites) = escaped_comment_text(&source[start..end]);
     let mut edits = vec![(start..start, "<!-- ".to_string())];
-    edits.extend(rewrites_at(start, &changes));
+    edits.extend(rewrites_at(start, &rewrites));
     edits.push((end..end, " -->".to_string()));
     // The selection stays on the text, inside the comment, so the next toggle
     // unwraps it.
@@ -482,14 +482,14 @@ const ESCAPED_DASHES: &str = "&#45;&#45;";
 type Rewrite = (usize, usize, &'static str);
 
 /// `text` with what `step` replaces at the start of its rest (the bytes it
-/// takes and what it writes for them), and each replacement as a change.
+/// takes and what it writes for them), and each replacement as a [`Rewrite`].
 fn rewritten(text: &str, step: impl Fn(&str) -> Option<(usize, &'static str)>) -> (String, Vec<Rewrite>) {
     let mut out = String::with_capacity(text.len());
-    let mut changes = Vec::new();
+    let mut rewrites = Vec::new();
     let mut at = 0;
     while let Some(character) = text[at..].chars().next() {
         if let Some((taken, written)) = step(&text[at..]) {
-            changes.push((at, taken, written));
+            rewrites.push((at, taken, written));
             out.push_str(written);
             at += taken;
         } else {
@@ -497,10 +497,10 @@ fn rewritten(text: &str, step: impl Fn(&str) -> Option<(usize, &'static str)>) -
             at += character.len_utf8();
         }
     }
-    (out, changes)
+    (out, rewrites)
 }
 
-/// `text` to put inside a comment the editor writes, and its changes.
+/// `text` to put inside a comment the editor writes, and its rewrites.
 fn escaped_comment_text(text: &str) -> (String, Vec<Rewrite>) {
     // `&` starting what the unescape reads (`&#45;`, `&amp;`) is escaped
     // too, so text already holding them comes back exactly.
@@ -516,7 +516,7 @@ fn escaped_comment_text(text: &str) -> (String, Vec<Rewrite>) {
 }
 
 /// The text of a comment the editor wrote, as it was before, and its
-/// changes.
+/// rewrites.
 fn unescaped_comment_text(text: &str) -> (String, Vec<Rewrite>) {
     rewritten(text, |rest| {
         if rest.starts_with("&#45;") {
