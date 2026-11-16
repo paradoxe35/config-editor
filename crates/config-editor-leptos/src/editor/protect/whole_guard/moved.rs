@@ -38,13 +38,23 @@ fn holds(value: &Value, token: &str) -> bool {
     }
 }
 
-/// The path a token is read at in `document`: where the text writes it
-/// (`path`, the root when none), cut back to the field the document has
-/// (a list's items read where the parse makes them one scalar: the lines
-/// still say `/keys/1`, the document holds `/keys`).
-fn read_at(document: &Value, path: Option<super::super::super::paths::FieldPath>) -> String {
+/// The path `token` is read at in `document`: where the text writes it
+/// (`path`, the root when none), cut back to a value of the document that
+/// holds it. The text's reading of a path may name a field the parse does
+/// not have (a list's items read where the parse makes them one scalar:
+/// the lines still say `/keys/1`, the document holds `/keys`), or one
+/// beside the token's (a quote the language declares that its parser
+/// reads as text, `user:" 'app'; password: '«…»'`): the parse knows which
+/// value holds the token.
+fn read_at(
+    document: &Value,
+    path: Option<super::super::super::paths::FieldPath>,
+    token: &str,
+) -> String {
     let mut pointer = path.map_or_else(String::new, |path| path.to_pointer());
-    while !pointer.is_empty() && field_value(document, &pointer).is_none() {
+    while !pointer.is_empty()
+        && !field_value(document, &pointer).is_some_and(|value| holds(value, token))
+    {
         pointer.truncate(pointer.rfind('/').unwrap_or(0));
     }
     pointer
@@ -243,7 +253,7 @@ impl Placeholders<'_> {
                 })
                 .find_map(|((range, units), _)| {
                     let token = &after[range.clone()];
-                    let pointer = read_at(document, path_at(behavior, after, *units));
+                    let pointer = read_at(document, path_at(behavior, after, *units), token);
                     // The strings there holding it with text beside it, but
                     // one the edit wrote whole and new, or one the text
                     // before held so at the same place (the user's note).
@@ -273,7 +283,7 @@ impl Placeholders<'_> {
                 .filter(|(range, _)| range.end <= start || range.start >= new_end)
                 .filter_map(|(range, units)| {
                     let token = &after[range.clone()];
-                    let pointer = read_at(document, path_at(behavior, after, *units));
+                    let pointer = read_at(document, path_at(behavior, after, *units), token);
                     if self.beside(document, &pointer, token).is_empty()
                         && !self.made_container(document, &pointer, token)
                     {
@@ -314,7 +324,7 @@ impl Placeholders<'_> {
         // a list or map.
         with_spans(behavior, before, &[], || {
             glued.into_iter().find_map(|(token, pointer, (_, units))| {
-                let was = read_at(earlier, path_at(behavior, before, units));
+                let was = read_at(earlier, path_at(behavior, before, units), token);
                 let shared = shared_pointer(&pointer, &was);
                 let more = self.beside(document, &shared, token).len()
                     > self.beside(earlier, &shared, token).len();
