@@ -8,7 +8,7 @@ use super::super::edit::{Assoc, Change};
 use super::super::schema::build_schema;
 use super::Language;
 use super::harness::{At, completing, holds, write};
-use crate::editor::text::{byte_range, text_size};
+use crate::editor::text::{TextRange, TextSize};
 use serde_json::{Value, json};
 
 /// Where a new top-level key is typed in an empty document.
@@ -39,27 +39,23 @@ fn typed_through(language: Language, schema: &str, typed: &[&str]) -> String {
     let (mut text, mut anchor, mut caret) = apply_completion(&source, option);
     let insert_start = caret - option.cursor_offset;
     // Kept by position, mapped through each edit, as the editor keeps them.
-    let mut stops: Vec<(usize, usize)> =
+    let mut stops: Vec<TextRange> =
         stop_ranges(&option.insert, option.cursor_offset, &option.fills)
             .into_iter()
-            .map(|(start, end)| (insert_start + start, insert_start + end))
+            .map(|stop| stop + insert_start)
             .collect();
-    let mut region_end = insert_start + option.insert.len();
+    let mut region_end = insert_start + TextSize::of(option.insert.as_str());
     for value in typed {
         let start = anchor.min(caret);
         let end = anchor.max(caret);
-        let change = Change::replace(&text, byte_range(start..end), value);
+        let change = Change::replace(&text, TextRange::new(start, end), value);
         text = change.apply(&text).expect("made on it");
-        caret = start + value.len();
+        caret = start + TextSize::of(*value);
         stops = stops
             .iter()
-            .filter_map(|(start, end)| change.map_range(&byte_range(*start..*end)))
-            .map(|range| (usize::from(range.start()), usize::from(range.end())))
+            .filter_map(|stop| change.map_range(stop))
             .collect();
-        region_end = change
-            .map_pos(text_size(region_end), Assoc::After)
-            .pos
-            .into();
+        region_end = change.map_pos(region_end, Assoc::After).pos;
         match next_stop(&text, caret, region_end, &stops, language.behavior()) {
             Some((from, to)) => (anchor, caret) = (from, to),
             None => break,

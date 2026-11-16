@@ -14,9 +14,10 @@ use super::super::bridge::links::Splice;
 use super::super::commands::indent_lines_through;
 use super::super::edit::{Edit, change_of_splices};
 use super::super::fold_ranges::FoldRange;
-use super::super::state::{EditorState, is_backward, select, textarea_units};
+use super::super::history::Selection;
+use super::super::state::{EditorState, is_backward, select, textarea_selection};
 use super::line_edit::{Folded, LineCommand, block_lines, fold_units, line_edit, neighbor_units};
-use crate::editor::text::byte_of;
+use crate::editor::text::{byte_of, utf16_of};
 
 /// A line command.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -64,45 +65,58 @@ pub(super) fn line_commands(state: EditorState, event: &KeyboardEvent) -> bool {
     run(
         state,
         command,
-        textarea_units(&element),
+        textarea_selection(&element),
         is_backward(&element),
     );
     true
 }
 
-/// Runs `command` on `selection` (made backward with `backward`).
+/// Runs `command` on `selection` (bytes, made backward with `backward`).
 pub(in crate::editor) fn run(
     state: EditorState,
     command: Command,
-    selection: (usize, usize),
+    selection: Selection,
     backward: bool,
 ) {
     let text = state.doc().text.get_untracked();
+    // The line edits count the text in UTF-16 units, as the folds they
+    // keep do (`FoldRange`).
+    let units = |(start, end): Selection| (utf16_of(&text, start), utf16_of(&text, end));
     let folds = state.with_closed_folds_untracked(<[_]>::to_vec);
-    let units = fold_units(&text, &folds, state.behavior());
+    let fold_spans = fold_units(&text, &folds, state.behavior());
     match command {
         Command::Indent { outdent } => {
-            indent(state, text, selection, (outdent, backward), (folds, &units));
+            indent(
+                state,
+                text,
+                selection,
+                (outdent, backward),
+                (folds, &fold_spans),
+            );
         }
         Command::Lines(command) => {
             let moving = matches!(command, LineCommand::Move { .. });
             // Lines holding a closed fold move past whole constructs, and
             // take no other line into it.
             let neighbors = moving
-                .then(|| neighbors(state, &text, selection, (&folds, &units)))
+                .then(|| neighbors(state, &text, units(selection), (&folds, &fold_spans)))
                 .flatten();
             let folded = Folded {
                 folds: &folds,
-                units: &units,
+                units: &fold_spans,
                 neighbors: neighbors.as_deref().unwrap_or_default(),
             };
-            let edit = line_edit(&text, selection, command, folded)
+            let edit = line_edit(&text, units(selection), command, folded)
                 .filter(|edit| neighbors.is_none() || folds_kept(state, &edit.text, &edit.folds));
             if let Some(edit) = edit {
+                let selected = (
+                    byte_of(&edit.text, edit.selection.0),
+                    byte_of(&edit.text, edit.selection.1),
+                );
                 let (anchor, caret) = if backward {
-                    (edit.selection.1, edit.selection.0)
+                    (selected.1, selected.0)
                 } else {
-                    edit.selection
+                    selected
                 };
                 let restore = if backward {
                     (selection.1, selection.0)
@@ -114,15 +128,11 @@ pub(in crate::editor) fn run(
                     .and_then(|splice| change_of_splices(&text, &[splice]))
                     .filter(|change| change.apply(&text).as_deref() == Some(edit.text.as_str()));
                 let made = match change {
-                    Some(change) => Edit::command_units(text, change, restore),
-                    None => {
-                        let restore = (byte_of(&text, restore.0), byte_of(&text, restore.1));
-                        let written = byte_of(&edit.text, caret);
-                        Edit::new(text, restore, edit.text, written)
-                    }
+                    Some(change) => Edit::command(text, change, restore),
+                    None => Edit::new(text, restore, edit.text, caret),
                 };
                 state.commit(with_folds(
-                    made.selecting_units(anchor, caret),
+                    made.selecting(anchor, caret),
                     &folds,
                     edit.folds,
                 ));
@@ -130,6 +140,22 @@ pub(in crate::editor) fn run(
         }
     }
     state.close_suggestions();
+}
+
+/// [`run`] on a UTF-16 `selection`, as the tests write it.
+#[cfg(test)]
+#[allow(dead_code, reason = "used by the tests of some builds only")]
+pub(in crate::editor) fn run_units(
+    state: EditorState,
+    command: Command,
+    selection: (usize, usize),
+    backward: bool,
+) {
+    let selection = state
+        .doc()
+        .text
+        .with_untracked(|text| (byte_of(text, selection.0), byte_of(text, selection.1)));
+    run(state, command, selection, backward);
 }
 
 /// The constructs a move of `selection`'s lines goes past whole, when they
@@ -178,7 +204,7 @@ fn with_folds(edit: Edit, before: &[FoldRange], after: Vec<FoldRange>) -> Edit {
 fn indent(
     state: EditorState,
     text: String,
-    (start, end): (usize, usize),
+    (start, end): Selection,
     (outdent, backward): (bool, bool),
     (folds, units): (Vec<FoldRange>, &[FoldRange]),
 ) {
@@ -187,7 +213,8 @@ fn indent(
         units,
         neighbors: &[],
     };
-    let Some((_, through)) = block_lines(&text, (start, end), folded) else {
+    let lines = (utf16_of(&text, start), utf16_of(&text, end));
+    let Some((_, through)) = block_lines(&text, lines, folded) else {
         return;
     };
     let unit = state.doc().indent.get_value();
@@ -196,7 +223,7 @@ fn indent(
     };
     let restore = if backward { (end, start) } else { (start, end) };
     let edit = super::tab::selected_through(
-        Edit::command_units(text, indented.change, restore),
+        Edit::command(text, indented.change, restore),
         indented.selection,
         backward,
     );

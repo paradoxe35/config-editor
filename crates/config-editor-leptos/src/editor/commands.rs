@@ -109,16 +109,15 @@ pub(super) fn tab_insert(source: &str, cursor: usize, unit: &str) -> String {
     " ".repeat(unit.len() - column % unit.len())
 }
 
-/// Where Home moves the caret at `cursor` (UTF-16): the line's first
-/// non-blank character, or the line start when already there.
-pub(super) fn smart_home(source: &str, cursor: usize) -> usize {
-    let byte = utf16_to_byte_index(source, cursor);
+/// Where Home moves the caret at byte `at`: the line's first non-blank
+/// character, or the line start when already there.
+pub(super) fn smart_home(source: &str, at: TextSize) -> TextSize {
+    let byte = usize::from(at.min(TextSize::of(source)));
     let line_start = source[..byte].rfind('\n').map_or(0, |index| index + 1);
     let line = &source[line_start..];
     let line = &line[..line.find('\n').unwrap_or(line.len())];
     let first = line_start + (line.len() - line.trim_start_matches([' ', '\t']).len());
-    let target = if byte == first { line_start } else { first };
-    source[..target].encode_utf16().count()
+    text_size(if byte == first { line_start } else { first })
 }
 
 /// For F8: the index of the first of the sorted `offsets` strictly after
@@ -202,8 +201,8 @@ fn read_indent_unit(source: &str) -> String {
     " ".repeat(width)
 }
 
-/// [`indent_lines_through`] on the selection's lines only, as the text
-/// after and the selection then (UTF-16), for the tests.
+/// [`indent_lines_through`] on the selection's lines only (UTF-16), as the
+/// text after and the selection then (UTF-16), for the tests.
 #[cfg(test)]
 pub(super) fn indent_lines(
     source: &str,
@@ -212,8 +211,11 @@ pub(super) fn indent_lines(
     outdent: bool,
     unit: &str,
 ) -> Option<(String, usize, usize)> {
-    let indented =
-        indent_lines_through(source, (selection_start, selection_end), 0, outdent, unit)?;
+    let selection = (
+        crate::editor::text::byte_of(source, selection_start),
+        crate::editor::text::byte_of(source, selection_end),
+    );
+    let indented = indent_lines_through(source, selection, 0, outdent, unit)?;
     let updated = indented.change.apply(source)?;
     let units = |byte: TextSize| updated[..usize::from(byte)].encode_utf16().count();
     let (start, end) = indented.selection;
@@ -227,18 +229,19 @@ pub(super) struct Indented {
     pub(super) selection: (TextSize, TextSize),
 }
 
-/// The selection's lines (UTF-16 offsets of `source`) and on through line
-/// `through` (0-based: the hidden lines of a folded line) indented by
-/// `unit`, or with `outdent` outdented one stop; `None` past the text.
+/// The selection's lines (bytes of `source`) and on through line `through`
+/// (0-based: the hidden lines of a folded line) indented by `unit`, or with
+/// `outdent` outdented one stop; `None` past the text.
 pub(super) fn indent_lines_through(
     source: &str,
-    (selection_start, selection_end): (usize, usize),
+    (selection_start, selection_end): (TextSize, TextSize),
     through: usize,
     outdent: bool,
     unit: &str,
 ) -> Option<Indented> {
-    let start = utf16_to_byte_index(source, selection_start);
-    let end = utf16_to_byte_index(source, selection_end);
+    let len = TextSize::of(source);
+    let start = usize::from(selection_start.min(len));
+    let end = usize::from(selection_end.min(len));
     let first_line = source[..start]
         .bytes()
         .filter(|byte| *byte == b'\n')
@@ -340,10 +343,10 @@ pub(super) fn indent_lines_through(
     })
 }
 
-/// Backspace in leading spaces deletes back to the previous indent stop;
-/// `None` for a plain Backspace.
-pub(super) fn backspace_indent(source: &str, cursor: usize, unit: &str) -> Option<Change> {
-    let byte = utf16_to_byte_index(source, cursor);
+/// Backspace at byte `at` in leading spaces deletes back to the previous
+/// indent stop; `None` for a plain Backspace.
+pub(super) fn backspace_indent(source: &str, at: TextSize, unit: &str) -> Option<Change> {
+    let byte = usize::from(at.min(TextSize::of(source)));
     let line_start = source[..byte].rfind('\n').map_or(0, |index| index + 1);
     let before = &source[line_start..byte];
     if before.is_empty() || !before.bytes().all(|byte| byte == b' ') {
@@ -365,7 +368,7 @@ pub(super) fn backspace_indent(source: &str, cursor: usize, unit: &str) -> Optio
 /// after it; `None` when typing it plainly is already right.
 pub(super) fn typed_closer(
     source: &str,
-    cursor: usize,
+    at: TextSize,
     closer: char,
     behavior: &dyn ConfigLanguage,
 ) -> Option<Change> {
@@ -374,7 +377,7 @@ pub(super) fn typed_closer(
         .brackets
         .iter()
         .find_map(|(open, close)| (*close == closer).then_some(*open))?;
-    let byte = utf16_to_byte_index(source, cursor);
+    let byte = usize::from(at.min(TextSize::of(source)));
     let line_start = source[..byte].rfind('\n').map_or(0, |index| index + 1);
     let before = &source[line_start..byte];
     if !before.bytes().all(|byte| matches!(byte, b' ' | b'\t')) {
@@ -485,6 +488,7 @@ mod tests {
     use super::super::edit::Change;
     use super::super::language::{ConfigLanguage, LanguageConfig, LanguageInfo, ParseError};
     use super::{backspace_indent, indent_lines, typed_closer};
+    use crate::editor::text::TextSize;
 
     /// A language with `#` comments and `{}` / `[]` brackets, for the
     /// bracket scan.
@@ -513,10 +517,10 @@ mod tests {
     }
 
     /// Applies `edit` at the `|` and returns the text with `|` at the new caret.
-    fn at(marked: &str, edit: impl Fn(&str, usize) -> Option<Change>) -> Option<String> {
+    fn at(marked: &str, edit: impl Fn(&str, TextSize) -> Option<Change>) -> Option<String> {
         let at = marked.find('|').unwrap();
         let source = marked.replace('|', "");
-        let change = edit(&source, source[..at].encode_utf16().count())?;
+        let change = edit(&source, crate::editor::text::text_size(at))?;
         let updated = change.apply(&source)?;
         // The caret after the text it wrote (bytes).
         let caret = usize::from(change.hull().map(|(_, written)| written.end())?);

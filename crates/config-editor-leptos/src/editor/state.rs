@@ -57,7 +57,9 @@ use super::schema::SchemaBundle;
 use super::search::{GoToLine, SearchState};
 use super::source_area::SourceArea;
 use super::sync::SyncState;
-use super::text::{TextSize, byte_of};
+use super::text::TextSize;
+#[cfg(feature = "protect")]
+use super::text::byte_of;
 use super::typing::TypingState;
 use crate::{EditorSettings, EditorStrings};
 
@@ -448,8 +450,8 @@ pub(super) fn select(element: &SourceArea, start: TextSize, end: TextSize, backw
 }
 
 /// [`textarea_selection`] as (start, end) UTF-16 offsets of the document:
-/// for the code that still counts the text in UTF-16 units (the keys,
-/// which hand carets to the public language API).
+/// for the code that still counts the text in UTF-16 units (secrets).
+#[cfg(feature = "protect")]
 pub(super) fn textarea_units(element: &SourceArea) -> (usize, usize) {
     let (start, end) = element.selection_utf16();
     (usize::from(start), usize::from(end))
@@ -457,6 +459,7 @@ pub(super) fn textarea_units(element: &SourceArea) -> (usize, usize) {
 
 /// [`directed_selection`] as (anchor, caret) UTF-16 offsets (see
 /// [`textarea_units`]).
+#[cfg(feature = "protect")]
 pub(super) fn directed_units(element: &SourceArea) -> (usize, usize) {
     let (start, end) = textarea_units(element);
     if is_backward(element) {
@@ -468,6 +471,7 @@ pub(super) fn directed_units(element: &SourceArea) -> (usize, usize) {
 
 /// [`select`] of UTF-16 `start..end` of the document (see
 /// [`textarea_units`]).
+#[cfg(feature = "protect")]
 pub(super) fn select_units(element: &SourceArea, start: usize, end: usize, backward: bool) {
     let (start, end) = element
         .state()

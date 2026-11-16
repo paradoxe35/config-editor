@@ -7,7 +7,7 @@ use leptos::prelude::*;
 
 use super::actions::Action::*;
 use crate::editor::keys::line_edit::LineCommand;
-use crate::editor::keys::lines::{Command, run};
+use crate::editor::keys::lines::{Command, run_units as run};
 use crate::editor::languages::Language;
 use crate::editor::test_state::TestEditor;
 

@@ -23,7 +23,7 @@ use super::runner::{Cap, Case, Failure, Rng, cases, run};
 use super::texts::{document, language, literal, shown};
 use crate::editor::edit::Edit;
 use crate::editor::keyboard::utf16_to_byte_index;
-use crate::editor::keys::enter::{Pressed, enter_at};
+use crate::editor::keys::enter::{Pressed, enter_units};
 use crate::editor::paths::{FieldPath, TextPosition, TextRange};
 use crate::editor::protect::ProtectInit;
 use crate::editor::schema::{SchemaBundle, build_schema};
@@ -456,7 +456,7 @@ pub(super) fn check(case: &LiveCase) -> Result<(), Failure> {
             Step::Enter { at } => {
                 let at = offset(&before, *at);
                 state.set_caret_units(at);
-                enter_at(state, (at, at), Pressed::Enter, Some(time));
+                enter_units(state, (at, at), Pressed::Enter, Some(time));
             }
             Step::Cut { at, to } => {
                 let (a, b) = (offset(&before, *at), offset(&before, *to));

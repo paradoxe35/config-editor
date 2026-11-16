@@ -11,9 +11,9 @@ use super::runner::Rng;
 use crate::editor::commands::{indent_lines, tab_insert, toggled_change, toggled_selection};
 use crate::editor::edit::Edit;
 use crate::editor::keyboard::{paired_text, replace_selection, utf16_to_byte_index};
-use crate::editor::keys::enter::{Pressed, enter_at};
+use crate::editor::keys::enter::{Pressed, enter_units};
 use crate::editor::keys::line_edit::LineCommand;
-use crate::editor::keys::lines::{Command, run};
+use crate::editor::keys::lines::{Command, run_units as run};
 use crate::editor::state::EditorState;
 use crate::editor::sync::{convert_now, switch_to};
 
@@ -352,12 +352,12 @@ pub(super) fn apply(state: EditorState, action: &Action, context: &mut Context) 
         Action::Enter { at } => {
             let at = offset(&text, at);
             place(state, at);
-            enter_at(state, (at, at), Pressed::Enter, Some(time));
+            enter_units(state, (at, at), Pressed::Enter, Some(time));
         }
         Action::LineBelow { at } => {
             let at = offset(&text, at);
             place(state, at);
-            enter_at(state, (at, at), Pressed::LineBelow, None);
+            enter_units(state, (at, at), Pressed::LineBelow, None);
         }
         Action::Tab { at, to, shift } => {
             let range = selection(&text, at, to);

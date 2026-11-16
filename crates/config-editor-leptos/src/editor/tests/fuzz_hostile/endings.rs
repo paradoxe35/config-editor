@@ -18,7 +18,7 @@ use super::texts::{document, language, literal, shown};
 use crate::editor::edit::Edit;
 use crate::editor::host_editing::SaveRequest;
 use crate::editor::keyboard::utf16_to_byte_index;
-use crate::editor::keys::enter::{Pressed, enter_at};
+use crate::editor::keys::enter::{Pressed, enter_units};
 use crate::editor::languages::Language;
 use crate::editor::line_endings::editor_text;
 use crate::editor::state::{EditorState, normalize_newlines};
@@ -247,7 +247,7 @@ fn apply(state: EditorState, step: &Step, time: f64) {
         Step::Enter { at } => {
             let at = offset(&text, at);
             state.set_caret_units(at);
-            enter_at(state, (at, at), Pressed::Enter, Some(time));
+            enter_units(state, (at, at), Pressed::Enter, Some(time));
         }
         Step::Cut { at, to } => replace(state, range(at, to), "", "deleteByCut", time),
         Step::Paste {

@@ -16,7 +16,7 @@ use super::super::Language;
 use super::super::codec;
 use super::super::edit::Edit;
 use super::super::keys::line_edit::LineCommand;
-use super::super::keys::lines::{Command, run};
+use super::super::keys::lines::{Command, run_units as run};
 use super::super::state::EditorState;
 use super::super::test_state::TestEditor;
 use super::guarantee_tests::{HOSTS, Tokens, utf16};

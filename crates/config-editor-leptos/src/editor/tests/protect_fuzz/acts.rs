@@ -11,7 +11,7 @@ use super::rng::Rng;
 use crate::editor::edit::Edit;
 use crate::editor::keyboard::{paired_text, replace_selection};
 use crate::editor::keys::line_edit::LineCommand;
-use crate::editor::keys::lines::{Command, run};
+use crate::editor::keys::lines::{Command, run_units as run};
 use crate::editor::state::EditorState;
 use crate::editor::sync::convert_now;
 

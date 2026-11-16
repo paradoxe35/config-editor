@@ -6,9 +6,9 @@
 use leptos::prelude::*;
 
 use crate::editor::edit::Edit;
-use crate::editor::keys::enter::{Pressed, enter_at};
+use crate::editor::keys::enter::{Pressed, enter_units};
 use crate::editor::keys::line_edit::LineCommand;
-use crate::editor::keys::lines::{Command, run};
+use crate::editor::keys::lines::{Command, run_units as run};
 use crate::editor::languages::Language;
 use crate::editor::save_properties::Random;
 use crate::editor::state::EditorState;
@@ -360,7 +360,7 @@ pub(super) fn apply(
         }
         Op::Enter { line, column } => {
             let at = units(&text[..offset(&text, line, column)]);
-            enter_at(state, (at, at), Pressed::Enter, Some(*time));
+            enter_units(state, (at, at), Pressed::Enter, Some(*time));
         }
         Op::DeleteLine { line } | Op::MoveLine { line, .. } | Op::CopyLine { line, .. } => {
             let at = units(&text[..line_start(&text, line_of(&text, line))]);

@@ -4,8 +4,9 @@
 use std::ops::Range;
 
 use super::elsewhere::OtherPlaces;
-use super::offsets::ByteOffsets;
+use super::placed::Placed;
 use super::*;
+use crate::editor::text::text_size;
 
 /// Schemas often give a port a string example (`"7835"`) next to an integer
 /// branch; when numbers are allowed, insert the bare number.
@@ -19,15 +20,10 @@ pub(super) fn numeric_example_as_number(value: Value, numeric_allowed: bool) -> 
     value
 }
 
-#[expect(
-    clippy::too_many_arguments,
-    reason = "one suggestion run's place, schema and language, passed as they are read"
-)]
 pub(super) fn value_completions(
     here: &Here<'_>,
     typed: &str,
-    start: usize,
-    end: usize,
+    replace: TextRange,
     root: &Value,
     leading: &str,
     open: bool,
@@ -76,11 +72,11 @@ pub(super) fn value_completions(
                             label: label.clone(),
                             detail,
                             type_label: type_label.clone(),
-                            cursor_offset: insert.encode_utf16().count(),
+                            cursor_offset: TextSize::of(insert.as_str()),
                             insert,
-                            start,
-                            end,
-                            selected: 0,
+                            start: replace.start(),
+                            end: replace.end(),
+                            selected: TextSize::default(),
                             is_value: true,
                             renames: false,
                             matched: match_ranges(&label, query),
@@ -159,7 +155,7 @@ fn repeats_as_elements(
 /// `insert` holds where [`stop_ranges`] finds them, in order.
 fn written_fills(
     insert: &str,
-    cursor_offset: usize,
+    cursor_offset: TextSize,
     fills: Vec<(String, String)>,
 ) -> Vec<(String, String)> {
     let mut kept: Vec<(String, String)> = Vec::with_capacity(fills.len());
@@ -218,17 +214,18 @@ fn refused_beside(
 /// check costs the same for any object.
 const MAX_READ_BESIDE: usize = 8;
 
-/// `(cursor_offset, selected)` for an inserted key: a scalar default the
-/// insert wrote just before the caret (`max_pending: 512|`, `mode = "fail|"`)
-/// is selected, so typing replaces it instead of appending to it.
+/// `(cursor_offset, selected)` (bytes of `insert`) for an inserted key: a
+/// scalar default the insert wrote just before the caret (`max_pending:
+/// 512|`, `mode = "fail|"`) is selected, so typing replaces it instead of
+/// appending to it.
 pub(super) fn default_selection(
     insert: &str,
-    cursor_offset: usize,
+    cursor_offset: TextSize,
     property: &Value,
     root: &Value,
     behavior: &dyn ConfigLanguage,
-) -> (usize, usize) {
-    let unselected = (cursor_offset, 0);
+) -> (TextSize, TextSize) {
+    let unselected = (cursor_offset, TextSize::default());
     let Some(default) = kept_default(behavior, property, root)
         .or_else(|| kept_const(behavior, property, root))
         .filter(|value| !value.is_object() && !value.is_array() && !value.is_null())
@@ -242,8 +239,10 @@ pub(super) fn default_selection(
     if text.is_empty() {
         return unselected;
     }
-    let before = &insert[..utf16_to_byte_index(insert, cursor_offset)];
-    let length = text.encode_utf16().count();
+    let Some(before) = slice::before(insert, cursor_offset) else {
+        return unselected;
+    };
+    let length = TextSize::of(text.as_str());
     if before.ends_with(&text) {
         return (cursor_offset, length);
     }
@@ -252,7 +251,7 @@ pub(super) fn default_selection(
     if let Some(quoted) = before.strip_suffix(quotes.as_slice())
         && quoted.ends_with(&text)
     {
-        return (cursor_offset - 1, length);
+        return (TextSize::of(quoted), length);
     }
     unselected
 }
@@ -266,8 +265,7 @@ pub(super) fn default_selection(
 pub(super) fn property_completions(
     here: &Here<'_>,
     typed: &str,
-    start: usize,
-    end: usize,
+    replace: TextRange,
     root: &Value,
     existing: Option<&HashSet<String>>,
     repetition: Repetition,
@@ -415,6 +413,8 @@ pub(super) fn property_completions(
             let Some((insert, cursor_offset)) = behavior.write_insert(key, &plan, &another) else {
                 continue;
             };
+            // The language API places the caret in UTF-16 units.
+            let cursor_offset = byte_of(&insert, cursor_offset);
             let children = plan.children;
             // Only the values the insert writes are Tab stops (a list
             // written `[]` writes none of its items' children).
@@ -422,12 +422,13 @@ pub(super) fn property_completions(
             let (cursor_offset, selected) =
                 default_selection(&insert, cursor_offset, written_schema, root, behavior);
             // A list written with items to type: the caret in the first.
-            let (cursor_offset, selected) = if selected == 0 && caret_at_list(&children) {
-                caret_in_list(&insert, cursor_offset, &fills, behavior)
-                    .unwrap_or((cursor_offset, selected))
-            } else {
-                (cursor_offset, selected)
-            };
+            let (cursor_offset, selected) =
+                if selected == TextSize::default() && caret_at_list(&children) {
+                    caret_in_list(&insert, cursor_offset, &fills, behavior)
+                        .unwrap_or((cursor_offset, selected))
+                } else {
+                    (cursor_offset, selected)
+                };
             let title = choices.titles_holding(key);
             let type_label = info.type_label;
             candidates.push((
@@ -445,8 +446,8 @@ pub(super) fn property_completions(
                     .unwrap_or_default(),
                     type_label,
                     insert,
-                    start,
-                    end,
+                    start: replace.start(),
+                    end: replace.end(),
                     cursor_offset,
                     selected,
                     // A name alone (a table header segment) completes the
@@ -494,9 +495,10 @@ pub(crate) fn completions_for(
         return Vec::new();
     }
     let bodies = behavior.string_body_lines(source);
+    // The tests write the caret in UTF-16 units, as the language API does.
     completions_in(
         source,
-        cursor,
+        byte_of(source, cursor),
         force,
         schema,
         enabled,
@@ -506,16 +508,17 @@ pub(crate) fn completions_for(
     )
 }
 
-/// [`completions_for`] with the text's multi-line string bodies already
-/// found (`Text::string_body_lines`): the live editor keeps them
-/// in a memo, so a keystroke does not parse the whole document for them.
+/// The suggestions at byte `at` of `source`, with the text's multi-line
+/// string bodies already found (`Text::string_body_lines`): the live editor
+/// keeps them in a memo, so a keystroke does not parse the whole document
+/// for them.
 #[expect(
     clippy::too_many_arguments,
     reason = "one suggestion run's place, schema and language, passed as they are read"
 )]
 pub(crate) fn completions_in(
     source: &str,
-    cursor: usize,
+    at: TextSize,
     force: bool,
     schema: Option<&SchemaBundle>,
     enabled: bool,
@@ -529,8 +532,12 @@ pub(crate) fn completions_in(
     let Some(bundle) = schema else {
         return Vec::new();
     };
+    let at = at.min(TextSize::of(source));
+    // The language API takes the caret in UTF-16 units.
+    let cursor = utf16_of(source, at);
     // Nothing is suggested inside a comment or a multi-line string.
-    let line = source[..utf16_to_byte_index(source, cursor)]
+    let line = slice::before(source, at)
+        .unwrap_or(source)
         .bytes()
         .filter(|byte| *byte == b'\n')
         .count();
@@ -539,7 +546,7 @@ pub(crate) fn completions_in(
     {
         return Vec::new();
     }
-    let cursor_byte = utf16_to_byte_index(source, cursor);
+    let cursor_byte = usize::from(at);
     // In a line's indentation, before its text: as where the text starts,
     // so a new entry lines up with it instead of splitting its indent.
     let line_start = source[..cursor_byte].rfind('\n').map_or(0, |at| at + 1);
@@ -549,10 +556,9 @@ pub(crate) fn completions_in(
     let indent_end = line_start + source[line_start..line_end].len()
         - source[line_start..line_end].trim_start().len();
     if cursor_byte < indent_end && indent_end < line_end {
-        let text_start = source[..indent_end].encode_utf16().count();
         return completions_in(
             source,
-            text_start,
+            text_size(indent_end),
             force,
             schema,
             enabled,
@@ -562,6 +568,7 @@ pub(crate) fn completions_in(
         );
     }
     let mut context = super::super::parse_cache::completion_context(behavior, source, cursor);
+    let mut placed = Placed::of(source, &context);
     // A closing tag being typed is closed, never renamed.
     if let Some((name, close)) = &context.closing_name {
         let typed = context.typed.to_lowercase();
@@ -575,11 +582,11 @@ pub(crate) fn completions_in(
             type_label: String::new(),
             closes_tag: true,
             read_only: false,
-            cursor_offset: insert.encode_utf16().count(),
+            cursor_offset: TextSize::of(insert.as_str()),
             insert,
-            start: context.replace_start,
-            end: context.replace_end,
-            selected: 0,
+            start: placed.replace.start(),
+            end: placed.replace.end(),
+            selected: TextSize::default(),
             is_value: true,
             renames: true,
             matched: match_ranges(name, &context.typed),
@@ -592,7 +599,7 @@ pub(crate) fn completions_in(
         cursor_byte,
         line_start,
         line_end,
-        &mut context,
+        (&mut context, &mut placed),
         behavior,
     );
     // A dotted head typed in front of an entry of the table it is typed in
@@ -634,24 +641,27 @@ pub(crate) fn completions_in(
     {
         return Vec::new();
     }
-    let mut options =
-        completions_for_context(source, cursor_byte, &context, force, bundle, behavior);
+    let mut options = completions_for_context(
+        source,
+        cursor_byte,
+        (&context, &placed),
+        force,
+        bundle,
+        behavior,
+    );
     let replaces_word =
         replace_word || (!entry_of_table && replaces_word_after_caret(&context, bundle, behavior));
     // Typed in front of a key, that key is a sibling already there.
     if !replaces_word && let Some(word) = context.entry_after.as_deref() {
         options.retain(|option| option.is_value || option.label != word);
     }
-    // The places suggestions name are read off the text once for the list,
-    // not once per suggestion.
-    let mut offsets = ByteOffsets::new(source);
     let mut other_places = OtherPlaces::new(source, &context, behavior);
     for option in &mut options {
-        let renamed = frame_insert(option, &context, replaces_word);
+        let renamed = frame_insert(option, &context, &placed, replaces_word);
         // A whole key replaced: every other place it is written follows.
         let names_a_key = !option.is_value || context.position == EntryPosition::Name;
         let elsewhere = if names_a_key {
-            other_places.of(option, &mut offsets)
+            other_places.of(option)
         } else {
             Vec::new()
         };
@@ -665,61 +675,60 @@ pub(crate) fn completions_in(
                     .map_or("", |at| &option.insert[..at])
                     .to_string();
                 option.insert = format!("{lead}{}", option.label);
-                option.cursor_offset = option.insert.encode_utf16().count();
-                option.selected = 0;
+                option.cursor_offset = TextSize::of(option.insert.as_str());
+                option.selected = TextSize::default();
                 option.renames = true;
             }
-            let mut context = context.clone();
+            let mut paired_names = placed.paired_names.clone();
             for place in elsewhere {
-                if !context.paired_names.contains(&place) {
-                    context.paired_names.push(place);
+                if !paired_names.contains(&place) {
+                    paired_names.push(place);
                 }
             }
             // A rename keeps what the insert writes before the name (`<`)
             // only where the document has it there too (not in `</name>`).
-            let start_byte = offsets.byte(option.start);
             if let Some(at) = option.insert.find(option.label.as_str())
                 && at > 0
-                && !source[start_byte..].starts_with(&option.insert[..at])
+                && !slice::after(source, option.start)
+                    .is_some_and(|rest| rest.starts_with(&option.insert[..at]))
             {
-                let lead = option.insert[..at].encode_utf16().count();
                 option.insert.drain(..at);
-                option.cursor_offset = option.cursor_offset.saturating_sub(lead);
+                option.cursor_offset = option
+                    .cursor_offset
+                    .checked_sub(text_size(at))
+                    .unwrap_or_default();
             }
             // The key's other places get the new name too: the insert runs
             // through them.
             // Places before it (an end tag's start tag) come first.
-            let mut before: Vec<(usize, usize)> = context
-                .paired_names
+            let mut before: Vec<TextRange> = paired_names
                 .iter()
                 .copied()
-                .filter(|(_, end)| *end <= option.start)
+                .filter(|place| place.end() <= option.start)
                 .collect();
-            before.sort_unstable();
-            for (name_start, name_end) in before.into_iter().rev() {
-                let between_start = offsets.byte(name_end);
-                let between_end = offsets.byte(option.start);
-                let prefix = format!("{}{}", option.label, &source[between_start..between_end]);
-                option.cursor_offset += prefix.encode_utf16().count();
+            before.sort_unstable_by_key(|place| (place.start(), place.end()));
+            for place in before.into_iter().rev() {
+                let between = between(source, place.end(), option.start);
+                let prefix = format!("{}{between}", option.label);
+                option.cursor_offset += TextSize::of(prefix.as_str());
                 option.insert.insert_str(0, &prefix);
-                option.start = name_start;
+                option.start = place.start();
             }
-            let mut places: Vec<(usize, usize)> = context
-                .paired_names
+            let mut places: Vec<TextRange> = paired_names
                 .iter()
                 .copied()
-                .filter(|(start, _)| *start >= option.end)
+                .filter(|place| place.start() >= option.end)
                 .collect();
-            places.sort_unstable();
-            for (name_start, name_end) in places {
-                if name_start < option.end {
+            places.sort_unstable_by_key(|place| (place.start(), place.end()));
+            for place in places {
+                if place.start() < option.end {
                     continue;
                 }
-                let between_start = offsets.byte(option.end);
-                let between_end = offsets.byte(name_start);
-                option.insert.push_str(&source[between_start..between_end]);
+                option
+                    .insert
+                    .push_str(between(source, option.end, place.start()));
                 option.insert.push_str(&option.label);
-                option.end = name_end;
+                option.end = place.end();
             }
         }
         // Typing in front of a key (`"|tcp"`) inserts; it never renames it.
@@ -730,58 +739,58 @@ pub(crate) fn completions_in(
                 .is_some_and(|word| !word.is_empty());
         // A new list item (`[| { a = 1 }]`) renames nothing: no key is there.
         if !in_front && !renamed_elsewhere && context.entry_wrap.is_none() {
-            rename_key_with_value(option, source, cursor, behavior, &mut offsets);
+            rename_key_with_value(option, source, at, behavior);
         }
         // The key already written, the caret at its end and the key going on
         // (`tcp|.nodelay`, `tcp|: …`, `tcp| {`): accepting changes nothing.
         let rest = &source[cursor_byte..];
         if !option.is_value && option.label == context.typed && behavior.value_follows_key(rest) {
             option.insert = option.label.clone();
-            option.end = cursor;
-            option.start = cursor - option.label.encode_utf16().count().min(cursor);
-            option.cursor_offset = option.insert.encode_utf16().count();
-            option.selected = 0;
+            option.end = at;
+            option.start = at - TextSize::of(option.label.as_str()).min(at);
+            option.cursor_offset = TextSize::of(option.insert.as_str());
+            option.selected = TextSize::default();
             option.renames = true;
         }
         // A key typed after an auto-paired quote (`"pub|"`) whose insert is
         // written without quotes takes the closing quote along.
-        let typed_start = offsets.byte(option.start);
         let quotes = quote_starts(behavior);
         if !option.is_value
-            && option.end == cursor
-            && let Some(quote) = source[typed_start.min(cursor_byte)..cursor_byte]
+            && option.end == at
+            && let Some(quote) = between(source, option.start.min(at), at)
                 .chars()
                 .next()
                 .filter(|first| quotes.contains(first))
             && !option.insert.starts_with(quote)
             && source[cursor_byte..].starts_with(quote)
         {
-            option.end += 1;
+            option.end += TextSize::of(quote);
         }
         // A value accepted between quotes it is written without (an XML
         // attribute's `mode="|"`) takes the closing quote along, so the caret
         // ends after it, as values written with their quotes do.
-        if option.is_value {
-            let start_byte = offsets.byte(option.start);
-            let end_byte = offsets.byte(option.end);
-            if let Some(quote) = source[..start_byte].chars().next_back()
-                && quotes.contains(&quote)
-                && source[end_byte..].starts_with(quote)
-                && !option.insert.contains(quote)
-            {
-                option.insert.push(quote);
-                option.end += 1;
-                option.cursor_offset = option.insert.encode_utf16().count();
-            }
+        if option.is_value
+            && let Some(quote) =
+                slice::before(source, option.start).and_then(|head| head.chars().next_back())
+            && quotes.contains(&quote)
+            && slice::after(source, option.end).is_some_and(|rest| rest.starts_with(quote))
+            && !option.insert.contains(quote)
+        {
+            option.insert.push(quote);
+            option.end += TextSize::of(quote);
+            option.cursor_offset = TextSize::of(option.insert.as_str());
         }
         // An insert ending in a line break before an existing one would leave
         // a blank line, unless the caret goes on that line (`[pool]\n|`).
-        let end = offsets.byte(option.end);
-        let caret_on_new_line = option.cursor_offset == option.insert.encode_utf16().count();
-        if option.insert.ends_with('\n') && source[end..].starts_with('\n') && !caret_on_new_line {
+        let caret_on_new_line = option.cursor_offset == TextSize::of(option.insert.as_str());
+        if option.insert.ends_with('\n')
+            && slice::after(source, option.end).is_some_and(|rest| rest.starts_with('\n'))
+            && !caret_on_new_line
+        {
             option.insert.pop();
-            let units = option.insert.encode_utf16().count();
-            option.cursor_offset = option.cursor_offset.min(units);
+            option.cursor_offset = option
+                .cursor_offset
+                .min(TextSize::of(option.insert.as_str()));
         }
     }
     options
@@ -796,10 +805,10 @@ fn line_up_on_indented_line(
     cursor_byte: usize,
     line_start: usize,
     line_end: usize,
-    context: &mut CompletionContext,
+    (context, placed): (&mut CompletionContext, &mut Placed),
     behavior: &dyn ConfigLanguage,
 ) {
-    let typed_start = utf16_to_byte_index(source, context.replace_start);
+    let typed_start = usize::from(placed.replace.start());
     if context.value_key.is_some()
         || context.is_array_item
         || typed_start < line_start
@@ -809,14 +818,13 @@ fn line_up_on_indented_line(
     {
         return;
     }
-    if context.replace_end == source[..cursor_byte].encode_utf16().count() {
-        context.replace_end = source[..line_end].encode_utf16().count();
+    if placed.replace.end() == text_size(cursor_byte) {
+        placed.replace = TextRange::new(placed.replace.start(), text_size(line_end));
     }
     if line_start == 0 {
         return;
     }
-    let previous_end = source[..line_start - 1].encode_utf16().count();
-    let newline = behavior.newline(source, previous_end);
+    let newline = behavior.newline(source, utf16_of(source, text_size(line_start - 1)));
     let written = &newline.text[..newline.caret.min(newline.text.len())];
     let target = written.rsplit('\n').next().unwrap_or_default();
     // Only after a sibling (the line above at that indentation): a first
@@ -844,7 +852,7 @@ fn line_up_on_indented_line(
     {
         return;
     }
-    context.replace_start = source[..line_start].encode_utf16().count();
+    placed.replace = TextRange::new(text_size(line_start), placed.replace.end());
     context.entry_prefix = format!("{target}{}", context.entry_prefix);
     context.base_indent = target.to_string();
 }
@@ -932,15 +940,16 @@ fn replaces_word_after_caret(
 /// [`replaces_word_after_caret`]).
 ///
 /// Returns whether the option renames that key.
-pub(crate) fn frame_insert(
+fn frame_insert(
     option: &mut Completion,
     context: &CompletionContext,
+    placed: &Placed,
     replaces_word: bool,
 ) -> bool {
     let expand = !option.is_value && option.insert.contains('\n');
     let mut renamed = false;
-    match context.block.as_ref().filter(|_| expand) {
-        Some(block) => {
+    match context.block.as_ref().zip(placed.block).filter(|_| expand) {
+        Some((block, range)) => {
             let prefix = format!(
                 "{}\n{}",
                 context.entry_prefix.trim_end_matches([' ', '\t']),
@@ -948,9 +957,9 @@ pub(crate) fn frame_insert(
             );
             option.insert.insert_str(0, &prefix);
             option.insert.push_str(&block.after);
-            option.cursor_offset += prefix.encode_utf16().count();
-            option.start = block.start;
-            option.end = block.end;
+            option.cursor_offset += TextSize::of(prefix.as_str());
+            option.start = range.start();
+            option.end = range.end();
         }
         None if context.names_only
             || context.entry_after.as_deref().is_some_and(|word| {
@@ -962,17 +971,17 @@ pub(crate) fn frame_insert(
             option.end += context
                 .entry_after
                 .as_deref()
-                .map_or(0, |word| word.encode_utf16().count());
+                .map_or(TextSize::default(), TextSize::of);
             // What the insert writes before the name stays (XML's `<`).
             let lead = option
                 .insert
                 .find(option.label.as_str())
                 .map_or("", |at| &option.insert[..at]);
             option.insert = format!("{lead}{}", option.label);
-            option.cursor_offset = option.insert.encode_utf16().count();
+            option.cursor_offset = TextSize::of(option.insert.as_str());
             // A rename writes no value: nothing of it is selected, and the
             // list does not reopen on it.
-            option.selected = 0;
+            option.selected = TextSize::default();
             option.renames = true;
             renamed = true;
         }
@@ -982,18 +991,15 @@ pub(crate) fn frame_insert(
             if context.entry_suffix.starts_with('\n') && option.insert.ends_with('\n') {
                 option.insert.pop();
             }
-            if let Some((start, end)) = context.insert_range {
-                option.start = start;
-                option.end = end;
+            if let Some(range) = placed.insert_range {
+                option.start = range.start();
+                option.end = range.end();
             }
-            let before_suffix = option.insert.encode_utf16().count();
+            let before_suffix = TextSize::of(option.insert.as_str());
             option.insert.push_str(&context.entry_suffix);
-            option.cursor_offset += context.entry_prefix.encode_utf16().count();
+            option.cursor_offset += TextSize::of(context.entry_prefix.as_str());
             if context.suffix_caret > 0 {
-                let into_suffix = context.entry_suffix
-                    [..context.suffix_caret.min(context.entry_suffix.len())]
-                    .encode_utf16()
-                    .count();
+                let into_suffix = text_size(context.suffix_caret.min(context.entry_suffix.len()));
                 option.cursor_offset = before_suffix + into_suffix;
                 // In the new entry's body: its keys are offered next.
                 option.is_value = false;
@@ -1006,7 +1012,7 @@ pub(crate) fn frame_insert(
 pub(super) fn completions_for_context(
     source: &str,
     cursor_byte: usize,
-    context: &CompletionContext,
+    (context, placed): (&CompletionContext, &Placed),
     force: bool,
     bundle: &SchemaBundle,
     behavior: &dyn ConfigLanguage,
@@ -1015,6 +1021,7 @@ pub(super) fn completions_for_context(
         read: std::cell::OnceCell::new(),
         source,
         cursor_byte,
+        placed,
         behavior,
     };
     // Read only where a step of the path is decided by the document (a
@@ -1035,6 +1042,8 @@ struct Around<'s> {
     read: std::cell::OnceCell<Option<Value>>,
     source: &'s str,
     cursor_byte: usize,
+    /// The places the run's context names, as bytes.
+    placed: &'s Placed,
     behavior: &'s dyn ConfigLanguage,
 }
 
@@ -1062,11 +1071,12 @@ fn completions_around(
     bundle: &SchemaBundle,
 ) -> Vec<Completion> {
     let (source, cursor_byte, behavior) = (around.source, around.cursor_byte, around.behavior);
+    let placed = around.placed;
     let here = applies.at(&context.path);
     let branches = here.branches();
     // An empty document under a schema whose root is a list: its first
     // entry opens the list's first item.
-    if let Some(options) = root_values(context, &branches, applies, behavior) {
+    if let Some(options) = root_values((context, placed), &branches, applies, behavior) {
         return options;
     }
     if let Some((open, close, indent)) = context.root_item
@@ -1111,8 +1121,7 @@ fn completions_around(
         let mut options = value_completions(
             &scalar_here,
             &context.typed,
-            context.replace_start,
-            context.replace_end,
+            placed.replace,
             &bundle.schema,
             leading,
             force || typed_value.is_empty(),
@@ -1143,14 +1152,19 @@ fn completions_around(
             let mut options = value_completions(
                 &here,
                 &context.typed,
-                context.replace_start,
-                context.replace_end,
+                placed.replace,
                 &bundle.schema,
                 "",
                 force || unquoted(behavior, &context.typed).is_empty(),
                 behavior,
             );
-            separate_from_next_item(&mut options, source, cursor_byte, context, behavior);
+            separate_from_next_item(
+                &mut options,
+                source,
+                cursor_byte,
+                (context, placed),
+                behavior,
+            );
             return options;
         }
     }
@@ -1196,8 +1210,7 @@ fn completions_around(
     let mut options = property_completions(
         &object,
         query,
-        context.replace_start,
-        context.replace_end,
+        placed.replace,
         &bundle.schema,
         existing_keys.as_ref(),
         behavior.repetition(),
@@ -1218,9 +1231,15 @@ fn completions_around(
     if let Some((open, close)) = context.entry_wrap {
         for option in &mut options {
             option.insert = format!("{open}{}{close}", option.insert);
-            option.cursor_offset += open.encode_utf16().count();
+            option.cursor_offset += TextSize::of(open);
         }
-        separate_from_next_item(&mut options, source, cursor_byte, context, behavior);
+        separate_from_next_item(
+            &mut options,
+            source,
+            cursor_byte,
+            (context, placed),
+            behavior,
+        );
     }
     options
 }
@@ -1230,7 +1249,10 @@ fn completions_around(
 /// A key whose default is left selected is a placeholder: typing replaces it,
 /// so there is nothing to suggest.
 pub(crate) fn accept_reopens_suggestions(completion: &Completion, auto_trigger: bool) -> bool {
-    auto_trigger && !completion.is_value && !completion.renames && completion.selected == 0
+    auto_trigger
+        && !completion.is_value
+        && !completion.renames
+        && completion.selected == TextSize::default()
 }
 
 /// The first character of each of the language's quotes.
@@ -1241,4 +1263,13 @@ fn quote_starts(behavior: &dyn ConfigLanguage) -> Vec<char> {
         .iter()
         .filter_map(|quote| quote.chars().next())
         .collect()
+}
+
+/// The text of `source` from byte `from` to byte `to`; empty when they do
+/// not cut it (in that order, on character boundaries).
+fn between(source: &str, from: TextSize, to: TextSize) -> &str {
+    (from <= to)
+        .then(|| slice::slice(source, TextRange::new(from, to)))
+        .flatten()
+        .unwrap_or_default()
 }

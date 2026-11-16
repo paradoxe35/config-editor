@@ -8,7 +8,7 @@
 use leptos::prelude::*;
 
 use super::super::Language;
-use super::super::keys::lines::{Command, run};
+use super::super::keys::lines::{Command, run_units as run};
 use super::super::secret_options::SecretOptions;
 use super::super::test_state::TestEditor;
 use super::super::work_count::{Work, counted, counted_all};

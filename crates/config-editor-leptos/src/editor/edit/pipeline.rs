@@ -123,7 +123,7 @@ impl EditorState {
         // problems found before it.
         let mapping = edit.mapping();
         if changed {
-            self.follow_typing_aids(&mapping, &edit.before, switching.is_some());
+            self.follow_typing_aids(&mapping, switching.is_some());
             self.follow_current_match(&mapping);
         }
         self.follow_problems(&mapping, &edit.before);

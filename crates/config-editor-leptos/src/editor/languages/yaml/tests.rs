@@ -428,7 +428,7 @@ fn object_completion_expands_required_fields_and_places_cursor_at_first_value() 
     let (updated, _, cursor) = apply_completion("", option);
     assert_eq!(updated, option.insert);
     assert_eq!(
-        cursor,
+        usize::from(cursor),
         "auth:\n  enabled: false\n  token: ".encode_utf16().count()
     );
 }
@@ -750,7 +750,7 @@ fn quoted_partial_keys_are_replaced_with_the_quoted_schema_key() {
     assert_eq!(option.insert, "\"display:name\": ");
     let (updated, _, cursor) = apply_completion(input, option);
     assert_eq!(updated, "\"display:name\": ");
-    assert_eq!(cursor, updated.encode_utf16().count());
+    assert_eq!(usize::from(cursor), updated.encode_utf16().count());
 }
 
 #[cfg(feature = "schema-validation")]
@@ -870,7 +870,7 @@ fn fixture_web_http_value_completion_stays_on_the_same_line() {
         .expect("Bind examples should be offered for web.http");
     let (updated, _, cursor) = apply_completion(input, option);
     assert_eq!(updated, "web:\n  http: \"0.0.0.0:7835\"");
-    assert_eq!(cursor, updated.encode_utf16().count());
+    assert_eq!(usize::from(cursor), updated.encode_utf16().count());
 }
 
 #[test]
@@ -991,7 +991,7 @@ fn value_directly_after_a_bare_colon_gets_a_separating_space() {
     .expect("web.http example should be suggested after a bare colon");
     let (updated, _, cursor) = apply_completion(input, &option);
     assert_eq!(updated, "web:\n  http: \"0.0.0.0:7835\"");
-    assert_eq!(cursor, updated.encode_utf16().count());
+    assert_eq!(usize::from(cursor), updated.encode_utf16().count());
 }
 
 #[cfg(feature = "schema-validation")]
@@ -1144,7 +1144,7 @@ fn value_for_an_expanded_required_key_stays_on_its_line() {
     let (updated, _, cursor_after) = apply_completion(input, &option);
     assert_eq!(updated, "metrics:\n  listen: \"0.0.0.0:7835\"\n");
     assert_eq!(
-        cursor_after,
+        usize::from(cursor_after),
         "metrics:\n  listen: \"0.0.0.0:7835\""
             .encode_utf16()
             .count()
@@ -1163,7 +1163,7 @@ fn typing_inside_a_value_uses_the_text_before_the_caret_and_replaces_the_token()
         .expect("typing before existing text should suggest the matching value");
     let (updated, _, cursor_after) = apply_completion(input, &option);
     assert_eq!(updated, "update:\n  remote: false");
-    assert_eq!(cursor_after, updated.encode_utf16().count());
+    assert_eq!(usize::from(cursor_after), updated.encode_utf16().count());
 }
 
 #[cfg(feature = "schema-validation")]

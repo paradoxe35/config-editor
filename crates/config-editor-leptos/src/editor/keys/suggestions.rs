@@ -4,8 +4,8 @@ use leptos::prelude::*;
 use web_sys::KeyboardEvent;
 
 use super::super::completion::{ListMode, apply_completion};
-use super::super::keyboard::utf16_to_byte_index;
-use super::super::state::{EditorState, select_units};
+use super::super::state::{EditorState, select};
+use crate::editor::text::slice;
 
 /// Ctrl+Space opens the list, schema examples included.
 pub(super) fn request(state: EditorState, event: &KeyboardEvent) -> bool {
@@ -74,7 +74,7 @@ pub(super) fn step_past_unchanged(state: EditorState, event: &KeyboardEvent) -> 
         state.say_why_read_only(option);
     }
     if let Some(element) = state.textarea() {
-        select_units(&element, caret, caret, false);
+        select(&element, caret, caret, false);
     }
     // After an explicit Ctrl+Space, Enter on what is already written only
     // closes the list.
@@ -85,10 +85,8 @@ pub(super) fn step_past_unchanged(state: EditorState, event: &KeyboardEvent) -> 
     // editor inserted (`</mode>`) is stepped out of by Enter instead.
     let line_continues = state.closer_at(caret).is_none()
         && state.doc().text.with_untracked(|text| {
-            let byte = utf16_to_byte_index(text, caret);
-            text[byte..]
-                .lines()
-                .next()
+            slice::after(text, caret)
+                .and_then(|rest| rest.lines().next())
                 .is_some_and(|rest| !rest.trim().is_empty())
         });
     if key == "Tab" || line_continues || asked {
@@ -102,7 +100,7 @@ pub(super) fn step_past_unchanged(state: EditorState, event: &KeyboardEvent) -> 
 pub(super) fn list_keys(state: EditorState, event: &KeyboardEvent) -> bool {
     let count = state.completion().suggestions.with_untracked(Vec::len);
     // With a modifier the keys keep their editing meaning (Shift+arrows
-    // select_units, Ctrl+Enter opens a line below).
+    // select, Ctrl+Enter opens a line below).
     if count == 0 || super::modified(event) {
         return false;
     }

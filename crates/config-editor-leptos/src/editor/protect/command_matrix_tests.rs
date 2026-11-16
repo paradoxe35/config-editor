@@ -9,7 +9,7 @@ use leptos::prelude::*;
 
 use super::super::Language;
 use super::super::keys::line_edit::LineCommand;
-use super::super::keys::lines::{Command, run};
+use super::super::keys::lines::{Command, run_units as run};
 use super::super::paths::{TextPosition, TextRange};
 use super::super::test_state::TestEditor;
 

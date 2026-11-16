@@ -145,7 +145,7 @@ impl Placed for Diagnostic {
 
 impl Placed for Suggestion {
     fn placed(self) -> Self {
-        self.moved(MARK.len_utf16())
+        self.moved(super::text::text_size(MARK.len_utf8()))
     }
 }
 

@@ -1,8 +1,8 @@
 //! Writing an accepted suggestion into the document, and what the editor
 //! remembers about it (inserted closers, Tab slots).
 
-use super::offsets::ByteOffsets;
 use super::*;
+use crate::editor::text::text_size;
 
 pub(crate) fn should_auto_trigger(input_type: &str, previous: &str, current: &str) -> bool {
     if current == previous || current.matches('\n').count() > previous.matches('\n').count() {
@@ -49,16 +49,19 @@ pub(super) fn line_value_before(
 pub(super) fn rename_key_with_value(
     option: &mut Completion,
     source: &str,
-    cursor: usize,
+    at: TextSize,
     behavior: &dyn ConfigLanguage,
-    offsets: &mut ByteOffsets<'_>,
 ) {
-    if option.is_value || option.start > cursor {
+    if option.is_value || option.start > at {
         return;
     }
-    let caret = offsets.byte(cursor);
-    let line_rest = source[caret..].split('\n').next().unwrap_or("");
-    let typed = source[offsets.byte(option.start)..caret].to_string();
+    let (Some(head), Some(rest)) = (slice::before(source, at), slice::after(source, at)) else {
+        return;
+    };
+    let line_rest = rest.split('\n').next().unwrap_or("");
+    let typed = slice::after(head, option.start)
+        .unwrap_or_default()
+        .to_string();
     // Inside a quoted key (`"pub|lic": 1`, `'pub|lic': 1`) the rest of the
     // key goes too, and its quotes stay as written.
     let config = behavior.config();
@@ -99,31 +102,31 @@ pub(super) fn rename_key_with_value(
         None => option.label.clone(),
     };
     // Up to the caret, plus the rest of a quoted key and its closing quote.
-    let rest_of_key = source[caret..caret + word].encode_utf16().count();
-    option.end = cursor
-        + rest_of_key
-        + if quoted.is_some() {
-            line_rest.len() - after_quote.len()
-        } else {
-            0
-        };
-    option.cursor_offset = option.insert.encode_utf16().count();
-    option.selected = 0;
+    let closing_quote = if quoted.is_some() {
+        line_rest.len() - after_quote.len()
+    } else {
+        0
+    };
+    option.end = at + text_size(word + closing_quote);
+    option.cursor_offset = TextSize::of(option.insert.as_str());
+    option.selected = TextSize::default();
     option.renames = true;
 }
 
-/// The next empty value slot after UTF-16 `caret` and before `end` in
+/// The next empty value slot after byte `caret` and before byte `end` of
 /// `source`: inside `""`, or where the language sees an empty value
 /// (`key: `, `<k></k>`). Tab walks the slots of an accepted block.
 pub(crate) fn next_slot(
     source: &str,
-    caret: usize,
-    end: usize,
+    caret: TextSize,
+    end: TextSize,
     behavior: &dyn ConfigLanguage,
-) -> Option<usize> {
-    let from = utf16_to_byte_index(source, caret);
-    let until = utf16_to_byte_index(source, end).min(source.len());
-    let region = source.get(from..until)?;
+) -> Option<TextSize> {
+    let len = TextSize::of(source);
+    let (from, until) = (caret.min(len), end.min(len));
+    let region = (from <= until)
+        .then(|| slice::slice(source, TextRange::new(from, until)))
+        .flatten()?;
     // Inside an empty string of one of the language's quotes.
     let mut candidates: Vec<usize> = behavior
         .config()
@@ -142,7 +145,7 @@ pub(crate) fn next_slot(
         .into_iter()
         .filter(|at| *at > 0)
         .min()
-        .map(|at| source[..from + at].encode_utf16().count())
+        .map(|at| from + text_size(at))
 }
 
 /// The closers `completion` wrote after the caret: brackets and quotes
@@ -152,28 +155,29 @@ pub(crate) fn next_slot(
 pub(crate) fn inserted_closers(
     completion: &Completion,
     updated: &str,
-    (anchor, caret): (usize, usize),
+    (anchor, caret): (TextSize, TextSize),
     behavior: &dyn ConfigLanguage,
 ) -> Vec<Closer> {
     let insert = completion.insert.as_str();
-    let mut offset = caret.saturating_sub(completion.cursor_offset);
+    let insert_start = caret
+        .checked_sub(completion.cursor_offset)
+        .unwrap_or_default();
     let mut closers = Vec::new();
     // The character before the value a closer ends: before the anchor for
     // the closer at the caret (a default may sit in between), right before
     // the closer for empty ones further on (`""`, `<k></k>`).
-    let units: Vec<u16> = updated.encode_utf16().collect();
-    let opener = |at: usize| {
+    let opener = |at: TextSize| {
         let value_start = if at == caret { anchor } else { at };
-        let before = value_start.checked_sub(1)?;
-        char::decode_utf16([*units.get(before)?]).next()?.ok()
+        slice::before(updated, value_start)?.chars().next_back()
     };
     let config = behavior.config();
     for (byte, character) in insert.char_indices() {
+        let offset = insert_start + text_size(byte);
         if offset >= caret {
             if config.brackets.iter().any(|(_, close)| *close == character) {
                 closers.push(Closer {
                     start: offset,
-                    len: 1,
+                    len: TextSize::of(character),
                     opener: None,
                     completion: false,
                 });
@@ -184,34 +188,40 @@ pub(crate) fn inserted_closers(
             {
                 closers.push(Closer {
                     start: offset,
-                    len: 1,
+                    len: TextSize::of(character),
                     opener: opener(offset),
                     completion: false,
                 });
             } else if let Some(len) = behavior.closing_markup_len(&insert[byte..]) {
                 closers.push(Closer {
                     start: offset,
-                    len: insert[byte..byte + len].encode_utf16().count(),
+                    len: text_size(len),
                     opener: opener(offset),
                     completion: false,
                 });
             }
         }
-        offset += character.len_utf16();
     }
     closers
 }
 
 /// The text with `completion` applied, and the selection after it as
-/// `(anchor, caret)`; they are equal unless a default is left selected.
-pub(crate) fn apply_completion(source: &str, completion: &Completion) -> (String, usize, usize) {
-    let (updated, end_cursor) =
-        replace_selection(source, completion.start, completion.end, &completion.insert);
-    let end_offset = completion.insert.encode_utf16().count();
-    let caret = end_cursor
-        .saturating_sub(end_offset)
-        .saturating_add(completion.cursor_offset);
-    (updated, caret.saturating_sub(completion.selected), caret)
+/// `(anchor, caret)` (bytes of it); they are equal unless a default is
+/// left selected.
+pub(crate) fn apply_completion(
+    source: &str,
+    completion: &Completion,
+) -> (String, TextSize, TextSize) {
+    let len = TextSize::of(source);
+    let start = completion.start.min(len);
+    let end = completion.end.clamp(start, len);
+    let (Some(head), Some(tail)) = (slice::before(source, start), slice::after(source, end)) else {
+        return (source.to_string(), start, start);
+    };
+    let updated = format!("{head}{}{tail}", completion.insert);
+    let caret = start + completion.cursor_offset;
+    let anchor = caret.checked_sub(completion.selected).unwrap_or_default();
+    (updated, anchor, caret)
 }
 
 /// Accepts `label` at the `|` in `marked` (as after Ctrl+Space) and returns
@@ -239,11 +249,6 @@ pub(crate) fn accept_marked(
         panic!("{label} is not offered at the caret; offered {labels:?}");
     };
     let (updated, _, caret) = apply_completion(&source, option);
-    let byte = updated
-        .char_indices()
-        .map(|(index, _)| index)
-        .chain([updated.len()])
-        .find(|index| updated[..*index].encode_utf16().count() == caret)
-        .expect("caret on a character boundary");
+    let byte = usize::from(caret);
     format!("{}|{}", &updated[..byte], &updated[byte..])
 }

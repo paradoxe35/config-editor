@@ -9,6 +9,7 @@ use super::super::keyboard::{is_closer, paired_edit, replace_selection};
 use super::super::keys::complete::{completed, reindented};
 use super::Language;
 use super::harness::{At, every_language, report, write};
+use crate::editor::text::{byte_of, utf16_of};
 use serde_json::json;
 
 /// Types `typed` at the `|` of `marked`, as the editor's keys do with
@@ -46,25 +47,34 @@ fn type_in(language: Language, marked: &str, typed: &str) -> String {
             let at = updated[..end].encode_utf16().count();
             (updated, at)
         };
-        let (updated, new_caret, closed, completion) =
-            if let Some(change) = reindented(behavior, &text, caret, character) {
-                let (updated, at) = made(change);
-                (updated, at, 0, false)
-            } else if let Some(done) = completed(behavior, &text, caret, character) {
-                let (updated, _) = made(done.change);
-                (updated, done.caret, done.len, true)
-            } else if let Some(closing) = behavior.auto_close(&text, caret, character) {
-                let (updated, _) =
-                    replace_selection(&text, caret, caret, &format!("{character}{closing}"));
-                (updated, caret + 1, closing.encode_utf16().count(), false)
-            } else if let Some((change, start, _)) =
-                paired_edit(&text, caret, caret, character, behavior)
-            {
-                (made(change).0, start, 1, false)
-            } else {
-                let (updated, at) = replace_selection(&text, caret, caret, &character.to_string());
-                (updated, at, 0, false)
-            };
+        let (updated, new_caret, closed, completion) = if let Some(change) =
+            reindented(behavior, &text, byte_of(&text, caret), character)
+        {
+            let (updated, at) = made(change);
+            (updated, at, 0, false)
+        } else if let Some(done) = completed(behavior, &text, byte_of(&text, caret), character) {
+            let (updated, _) = made(done.change);
+            let at = utf16_of(&updated, done.caret);
+            let len = utf16_of(&updated, done.caret + done.len) - at;
+            (updated, at, len, true)
+        } else if let Some(closing) = behavior.auto_close(&text, caret, character) {
+            let (updated, _) =
+                replace_selection(&text, caret, caret, &format!("{character}{closing}"));
+            (updated, caret + 1, closing.encode_utf16().count(), false)
+        } else if let Some((change, start, _)) = paired_edit(
+            &text,
+            byte_of(&text, caret),
+            byte_of(&text, caret),
+            character,
+            behavior,
+        ) {
+            let (updated, _) = made(change);
+            let start = utf16_of(&updated, start);
+            (updated, start, 1, false)
+        } else {
+            let (updated, at) = replace_selection(&text, caret, caret, &character.to_string());
+            (updated, at, 0, false)
+        };
         let grown = units(&updated).len() - before_len;
         for (at, _) in &mut closers {
             if *at >= caret {

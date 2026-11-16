@@ -262,7 +262,7 @@ fn a_key_inserted_before_an_existing_key_gets_a_comma_after_it() {
         .expect("insecure_plaintext should be suggested");
     let (updated, _, caret) = apply_completion(source, &option);
     assert_eq!(updated, r#"{"insecure_plaintext": , "listen": 1}"#);
-    assert_eq!(caret, r#"{"insecure_plaintext": "#.encode_utf16().count());
+    assert_eq!(usize::from(caret), r#"{"insecure_plaintext": "#.len());
 }
 
 #[cfg(feature = "schema-validation")]

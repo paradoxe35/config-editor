@@ -35,11 +35,14 @@ fn theme_names_and_layout_families_are_stable() {
 
 #[test]
 fn closing_pair_typing_moves_over_the_existing_character() {
-    assert_eq!(skip_closing_pair("text)", 4, ')'), Some(5));
-    assert_eq!(skip_closing_pair("text]", 4, ')'), None);
+    assert_eq!(skip_closing_pair("text)", 4.into(), ')'), Some(5.into()));
+    assert_eq!(skip_closing_pair("text]", 4.into(), ')'), None);
     // An escaped quote is text, not the string's end.
-    assert_eq!(skip_closing_pair("\"a\\\"", 3, '"'), None);
-    assert_eq!(skip_closing_pair("\"a\\\\\"", 4, '"'), Some(5));
+    assert_eq!(skip_closing_pair("\"a\\\"", 3.into(), '"'), None);
+    assert_eq!(
+        skip_closing_pair("\"a\\\\\"", 4.into(), '"'),
+        Some(5.into())
+    );
 }
 
 #[cfg(feature = "schema-validation")]

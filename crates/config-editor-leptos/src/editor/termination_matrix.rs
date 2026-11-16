@@ -16,7 +16,7 @@ use leptos::prelude::*;
 use super::completion::completions;
 use super::handle::EditorHandle;
 use super::highlight::spanning::{Spanning, tokens_after};
-use super::keys::enter::{Pressed, enter_at};
+use super::keys::enter::{Pressed, enter_units};
 use super::languages::Language;
 use super::test_state::TestEditor;
 
@@ -213,11 +213,11 @@ fn edit_all(language: Language, edit_as: Option<Language>, text: &str) {
     }
     for offset in offsets {
         let before = state.doc().text.get_untracked();
-        enter_at(state, (offset, offset), Pressed::Enter, None);
+        enter_units(state, (offset, offset), Pressed::Enter, None);
         read_view(state);
         let _ = handle.value();
-        enter_at(state, (offset, offset), Pressed::LineBelow, None);
-        enter_at(state, (offset, offset), Pressed::LineAbove, None);
+        enter_units(state, (offset, offset), Pressed::LineBelow, None);
+        enter_units(state, (offset, offset), Pressed::LineAbove, None);
         read_view(state);
         let _ = handle.value();
         // Back to the text before, as an edit (the views' links follow

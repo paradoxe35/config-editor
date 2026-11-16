@@ -2,20 +2,23 @@
 //! language's [`newline`](Typing::newline), except where the line
 //! break is text (inside a comment or a multi-line string's body).
 
-use super::super::keyboard::utf16_to_byte_index;
 use super::super::language::{ConfigLanguage, Newline};
+use crate::editor::text::{TextSize, utf16_of};
 
 mod construct_start;
 
-/// What Enter writes at `cursor` (UTF-16) in `text`; `in_body` says whether
-/// a line (by index) is inside a multi-line string's body.
+/// What Enter writes at byte `at` of `text`; `in_body` says whether a line
+/// (by index) is inside a multi-line string's body.
 pub(in crate::editor) fn newline_at(
     behavior: &dyn ConfigLanguage,
     text: &str,
-    cursor: usize,
+    at: TextSize,
     in_body: &dyn Fn(usize) -> bool,
 ) -> Newline {
-    let byte = utf16_to_byte_index(text, cursor);
+    let at = at.min(TextSize::of(text));
+    let byte = usize::from(at);
+    // The language API takes the caret in UTF-16 units.
+    let cursor = utf16_of(text, at);
     let line_start = text[..byte].rfind('\n').map_or(0, |at| at + 1);
     let line_end = text[byte..].find('\n').map_or(text.len(), |at| byte + at);
     let line = &text[line_start..line_end];
@@ -40,7 +43,7 @@ pub(in crate::editor) fn newline_at(
     }
     // At the end of a construct written over lines (`2]`, `b */`, a
     // heredoc's `EOT`), the line it starts on sets the indentation, as if
-    // the caret's line were indented as that one (QA `E35-2`).
+    // the caret's line were indented as that one.
     let own = indent_of(line);
     if byte > line_start + own.len()
         && let Some(from) = construct_start::line_of_start(behavior, text, line_start, byte)

@@ -2,7 +2,9 @@
 //! an item already written gets the separator before it, and in an empty
 //! document under a root list of values, the values open the list.
 
+use super::placed::Placed;
 use super::*;
+use crate::editor::text::text_size;
 
 /// `options` for a new list item, written in front of an item already
 /// there (see [`before_item`]): each ends at the caret, then the separator.
@@ -10,10 +12,10 @@ pub(super) fn separate_from_next_item(
     options: &mut [Completion],
     source: &str,
     cursor_byte: usize,
-    context: &CompletionContext,
+    (context, placed): (&CompletionContext, &Placed),
     behavior: &dyn ConfigLanguage,
 ) {
-    if let Some((end, separator)) = before_item(source, cursor_byte, context, behavior) {
+    if let Some((end, separator)) = before_item(source, cursor_byte, (context, placed), behavior) {
         for option in options {
             option.end = end;
             option.insert.push(separator);
@@ -28,9 +30,9 @@ pub(super) fn separate_from_next_item(
 fn before_item(
     source: &str,
     cursor_byte: usize,
-    context: &CompletionContext,
+    (context, placed): (&CompletionContext, &Placed),
     behavior: &dyn ConfigLanguage,
-) -> Option<(usize, char)> {
+) -> Option<(TextSize, char)> {
     let config = behavior.config();
     let separator = config.item_separator?;
     // The language wrote it already (JSON before a quoted item).
@@ -40,7 +42,7 @@ fn before_item(
     let cursor_byte = cursor_byte.min(source.len());
     // Only in a list written inline: right after its opener or a separator
     // (a block list's `- ` item is no such place).
-    let start = utf16_to_byte_index(source, context.replace_start).min(cursor_byte);
+    let start = usize::from(placed.replace.start()).min(cursor_byte);
     let opens_list = |character: char| {
         super::super::flow_syntax::Flow::of(behavior)
             .list()
@@ -64,7 +66,7 @@ fn before_item(
     if before != separator && !opens_list(before) {
         return None;
     }
-    let end = utf16_to_byte_index(source, context.replace_end).max(cursor_byte);
+    let end = usize::from(placed.replace.end()).max(cursor_byte);
     // The range up to the caret only, when the rest of it is the next
     // item's (past a blank), not the rest of the one at the caret.
     let typed_end = if source[cursor_byte..end].starts_with(char::is_whitespace) {
@@ -86,19 +88,14 @@ fn before_item(
     }
     let next = rest.chars().next()?;
     let closes = config.brackets.iter().any(|(_, close)| *close == next);
-    (!closes && next != separator).then(|| {
-        (
-            crate::editor::paths::api_units(source, typed_end),
-            separator,
-        )
-    })
+    (!closes && next != separator).then(|| (text_size(typed_end), separator))
 }
 
 /// In an empty document under a schema whose root is a list of values
 /// (not objects): each value its items allow, written as the list's first
 /// item (see `CompletionContext::root_value`). `None` elsewhere.
 pub(super) fn root_values(
-    context: &CompletionContext,
+    (context, placed): (&CompletionContext, &Placed),
     branches: &[&Value],
     applies: &Applies<'_, '_>,
     behavior: &dyn ConfigLanguage,
@@ -116,8 +113,7 @@ pub(super) fn root_values(
     let mut options = value_completions(
         &items,
         &context.typed,
-        context.replace_start,
-        context.replace_end,
+        placed.replace,
         root,
         "",
         true,
@@ -125,7 +121,7 @@ pub(super) fn root_values(
     );
     for option in &mut options {
         option.insert = format!("{open}{}{close}", option.insert);
-        option.cursor_offset += open.encode_utf16().count();
+        option.cursor_offset += TextSize::of(open);
     }
     Some(options)
 }

@@ -50,7 +50,7 @@ pub(super) struct ViewState {
     pub(super) visible_lines: Memo<Vec<usize>>,
     /// Where the last page key left the caret, and the x it keeps
     /// going for, in the text area's pixels (see `keys::page_keys`).
-    pub(super) page_goal: StoredValue<Option<(usize, f64)>>,
+    pub(super) page_goal: StoredValue<Option<(crate::editor::text::TextSize, f64)>>,
 }
 
 impl ViewState {
@@ -151,14 +151,14 @@ pub(super) fn spanning(
 }
 
 impl super::state::EditorState {
-    /// Whether UTF-16 `offset` of the document is on a line inside a
+    /// Whether byte `offset` of the document is on a line inside a
     /// multi-line string's body. Read off the view's memo, which the code
     /// layer keeps anyway: the keys asking on every keystroke never parse
     /// the whole document again.
-    pub(super) fn in_string_body(&self, offset: usize) -> bool {
+    pub(super) fn in_string_body(&self, offset: crate::editor::text::TextSize) -> bool {
         self.settle_readings();
         let line = self.doc().text.with_untracked(|text| {
-            let byte = super::keyboard::utf16_to_byte_index(text, offset);
+            let byte = usize::from(offset).min(text.len());
             line_breaks(&text.as_bytes()[..byte])
         });
         self.view()

@@ -202,9 +202,13 @@ fn a_keystroke_keeping_the_lines_reads_the_whole_text_once_the_frame_is_drawn() 
             assert!(state.view().string_bodies.with_untracked(|_| true));
             // Something acting on them reads them first.
             type_x(state, at + 2);
+            let byte = state
+                .doc()
+                .text
+                .with_untracked(|text| crate::editor::text::byte_of(text, at));
             assert_eq!(
                 readings(|| {
-                    let _ = state.in_string_body(at);
+                    let _ = state.in_string_body(byte);
                     read_view(state);
                 }),
                 [1; 4],
@@ -239,7 +243,7 @@ fn a_keystroke_keeping_the_lines_reads_the_whole_text_once_the_frame_is_drawn() 
 #[test]
 fn a_line_command_keeping_the_lines_reads_the_whole_text_once_the_frame_is_drawn() {
     use crate::editor::keys::line_edit::LineCommand;
-    use crate::editor::keys::lines::{Command, run};
+    use crate::editor::keys::lines::{Command, run_units as run};
     crate::editor::parse_cache::hold();
     for (language, text) in samples() {
         hold(|| {

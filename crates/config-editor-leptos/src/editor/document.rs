@@ -12,7 +12,9 @@ use super::paths::{FieldPath, KeptSpans, path_at};
 use super::positioning::{reveal_offset, set_caret_visible};
 use super::readings::Readings;
 use super::state::EditorState;
-use super::text::{TextSize, byte_of, slice, text_size};
+#[cfg(any(test, feature = "protect"))]
+use super::text::byte_of;
+use super::text::{TextSize, slice, text_size};
 
 /// The document part of the editor state.
 #[derive(Clone, Copy)]
@@ -111,13 +113,6 @@ impl EditorState {
         }
     }
 
-    /// [`Self::place_caret`] at UTF-16 `offset` of the text (for the code
-    /// that still counts in UTF-16 units, see `state::textarea_units`).
-    pub(super) fn place_caret_units(&self, offset: usize) {
-        let offset = self.doc().text.with_untracked(|text| byte_of(text, offset));
-        self.place_caret(offset);
-    }
-
     /// The caret as a UTF-16 offset of the text, as the tests read it.
     #[cfg(test)]
     #[cfg_attr(
@@ -143,8 +138,8 @@ impl EditorState {
         self.doc().caret.set(offset);
     }
 
-    /// [`Self::note_caret`] at UTF-16 `offset` of the text (see
-    /// [`Self::place_caret_units`]).
+    /// [`Self::note_caret`] at UTF-16 `offset` of the text, for the code
+    /// that still counts in UTF-16 units (see `state::textarea_units`).
     #[cfg(feature = "protect")]
     pub(super) fn note_caret_units(&self, offset: usize) {
         let offset = self.doc().text.with_untracked(|text| byte_of(text, offset));

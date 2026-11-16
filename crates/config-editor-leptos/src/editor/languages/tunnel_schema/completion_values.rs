@@ -59,7 +59,7 @@ fn selected_after_accept(language: Language, marked: &str, label: &str) -> Strin
     );
     let option = options.iter().find(|option| option.label == label).unwrap();
     let (updated, anchor, caret) = crate::editor::completion::apply_completion(&source, option);
-    String::from_utf16(&updated.encode_utf16().collect::<Vec<_>>()[anchor..caret]).unwrap()
+    updated[crate::editor::text::TextRange::new(anchor, caret)].to_string()
 }
 
 #[test]

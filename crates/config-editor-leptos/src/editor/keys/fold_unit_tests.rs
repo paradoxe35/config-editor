@@ -14,7 +14,7 @@ use super::super::languages::Language;
 use super::super::state::EditorState;
 use super::super::test_state::TestEditor;
 use super::line_edit::LineCommand;
-use super::lines::{Command, run};
+use super::lines::{Command, run_units as run};
 
 /// A document whose last block (`tls`) follows a block (`limits`) and,
 /// before it, a field (`listen`), in `language`; the blocks' header lines.

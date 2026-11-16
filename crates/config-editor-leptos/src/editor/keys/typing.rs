@@ -9,19 +9,19 @@ use super::super::commands::{backspace_indent, toggled_change, toggled_selection
 use super::super::completion::ListMode;
 use super::super::edit::{Assoc, Change, Edit};
 use super::super::keyboard::{
-    delete_empty_pair, is_closer, is_closing_bracket, is_quote, paired_edit, skip_closing_pair,
-    utf16_to_byte_index,
+    delete_empty_pair, is_closer, is_closing_bracket, is_quote, pair_of, paired_edit,
+    skip_closing_pair,
 };
-use super::super::state::{EditorState, is_backward, select_units, textarea_units};
+use super::super::state::{EditorState, is_backward, select, textarea_selection};
 use super::super::typing::Closer;
 use super::{complete, typed_character, unmodified};
-use crate::editor::text::{byte_range, text_size};
+use crate::editor::text::{TextRange, TextSize, byte_of, byte_range, slice, text_size, utf16_of};
 
 /// Whether the caret is in a multi-line string's body, where typing is text.
 fn caret_in_string_body(state: EditorState) -> bool {
     state
         .textarea()
-        .map(|element| textarea_units(&element).0)
+        .map(|element| textarea_selection(&element).0)
         .is_some_and(|caret| state.in_string_body(caret))
 }
 
@@ -37,17 +37,23 @@ pub(super) fn toggle_comments(state: EditorState, event: &KeyboardEvent) -> bool
     let Some(element) = state.textarea() else {
         return true;
     };
-    let (start, end) = textarea_units(&element);
+    let (start, end) = textarea_selection(&element);
     let backward = is_backward(&element);
     let before = state.doc().text.get_untracked();
-    let Some(toggled) = state.behavior().toggle_comments(&before, start, end) else {
+    // The language API counts the selection in UTF-16 units.
+    let units = (utf16_of(&before, start), utf16_of(&before, end));
+    let Some(toggled) = state.behavior().toggle_comments(&before, units.0, units.1) else {
         return true;
     };
     let Some((change, updated)) = toggled_change(&before, &toggled) else {
         return true;
     };
     let (selection_start, selection_end) =
-        toggled_selection(&before, (start, end), &updated, toggled.selection);
+        toggled_selection(&before, units, &updated, toggled.selection);
+    let (selection_start, selection_end) = (
+        byte_of(&updated, selection_start),
+        byte_of(&updated, selection_end),
+    );
     // The caret is the end that moves: the start of a backward selection.
     let (anchor, caret) = if backward {
         (selection_end, selection_start)
@@ -55,12 +61,12 @@ pub(super) fn toggle_comments(state: EditorState, event: &KeyboardEvent) -> bool
         (selection_start, selection_end)
     };
     let restore = if backward { (end, start) } else { (start, end) };
-    let edit = Edit::command_units(before.clone(), change, restore);
+    let edit = Edit::command(before.clone(), change, restore);
     // Refused (a read-only editor or field): the selection stays.
-    if updated != before && !state.commit(edit.selecting_units(anchor, caret)) {
+    if updated != before && !state.commit(edit.selecting(anchor, caret)) {
         return true;
     }
-    select_units(&element, selection_start, selection_end, backward);
+    select(&element, selection_start, selection_end, backward);
     state.close_suggestions();
     true
 }
@@ -77,7 +83,7 @@ pub(super) fn pairs_and_tags(state: EditorState, event: &KeyboardEvent) -> bool 
     let Some(element) = state.textarea() else {
         return false;
     };
-    let (start, end) = textarea_units(&element);
+    let (start, end) = textarea_selection(&element);
     let typed = typed_character(event);
     if start == end
         && let Some(typed) = typed
@@ -105,7 +111,7 @@ fn string_body_pairs(state: EditorState, event: &KeyboardEvent) -> bool {
     let Some(element) = state.textarea() else {
         return false;
     };
-    let (start, end) = textarea_units(&element);
+    let (start, end) = textarea_selection(&element);
     if start != end {
         return false;
     }
@@ -121,7 +127,12 @@ fn string_body_pairs(state: EditorState, event: &KeyboardEvent) -> bool {
 
 /// Typed over: closers the editor wrote, and the quote that ends the
 /// string the caret is in.
-fn type_over_closer(state: EditorState, event: &KeyboardEvent, start: usize, typed: char) -> bool {
+fn type_over_closer(
+    state: EditorState,
+    event: &KeyboardEvent,
+    start: TextSize,
+    typed: char,
+) -> bool {
     let source = state.doc().text.get_untracked();
     // A `>` typed before a tag's own `>` (`<tcp|></tcp>`) in a markup
     // language moves over it rather than closing the tag a second time.
@@ -130,17 +141,17 @@ fn type_over_closer(state: EditorState, event: &KeyboardEvent, start: usize, typ
         .markup_delimiters()
         .is_some_and(|(_, close)| typed == close)
     {
-        let byte = utf16_to_byte_index(&source, start);
-        if source[byte..].starts_with(typed)
+        if slice::after(&source, start).is_some_and(|rest| rest.starts_with(typed))
             && state
                 .behavior()
-                .lexical_state(&source, start)
+                .lexical_state(&source, utf16_of(&source, start))
                 .quote
                 .is_none()
         {
             event.prevent_default();
-            stepped_over(state, event, start, start + 1);
-            state.place_caret_units(start + 1);
+            let past = start + TextSize::of(typed);
+            stepped_over(state, event, start, past);
+            state.place_caret(past);
             return true;
         }
         return false;
@@ -153,7 +164,11 @@ fn type_over_closer(state: EditorState, event: &KeyboardEvent, start: usize, typ
     }
     let ours = ours.is_some();
     let ends_string = is_quote(state.behavior(), typed)
-        && state.behavior().lexical_state(&source, start).quote == Some(typed);
+        && state
+            .behavior()
+            .lexical_state(&source, utf16_of(&source, start))
+            .quote
+            == Some(typed);
     if !(ours || ends_string) {
         return false;
     }
@@ -165,7 +180,7 @@ fn type_over_closer(state: EditorState, event: &KeyboardEvent, start: usize, typ
     state.forget_closer_at(start);
     // A longer closer (`"""`) is typed over one quote at a time.
     if let Some(closer) = closer
-        && closer.len > 1
+        && closer.len > next - start
     {
         state.remember(Closer {
             start: next,
@@ -174,22 +189,15 @@ fn type_over_closer(state: EditorState, event: &KeyboardEvent, start: usize, typ
         });
     }
     stepped_over(state, event, start, next);
-    state.place_caret_units(next);
+    state.place_caret(next);
     // The value or container is finished: its suggestions are done too.
     state.close_suggestions();
     true
 }
 
 /// Typing goes on past a closer typed over, in one undo step: the caret
-/// steps from UTF-16 `from` to `to` of the text (unchanged by the step),
-/// which the history keeps in bytes.
-fn stepped_over(state: EditorState, event: &KeyboardEvent, from: usize, to: usize) {
-    let (from, to) = state.doc().text.with_untracked(|text| {
-        (
-            text_size(utf16_to_byte_index(text, from)),
-            text_size(utf16_to_byte_index(text, to)),
-        )
-    });
+/// steps from byte `from` to `to` of the text (unchanged by the step).
+fn stepped_over(state: EditorState, event: &KeyboardEvent, from: TextSize, to: TextSize) {
     state
         .doc()
         .history
@@ -203,11 +211,11 @@ fn stepped_over(state: EditorState, event: &KeyboardEvent, from: usize, to: usiz
 fn closer_already_there(
     state: EditorState,
     event: &KeyboardEvent,
-    start: usize,
+    start: TextSize,
     typed: char,
 ) -> bool {
     let source = state.doc().text.get_untracked();
-    let byte = utf16_to_byte_index(&source, start);
+    let byte = usize::from(start.min(TextSize::of(source.as_str())));
     let line_start = source[..byte].rfind('\n').map_or(0, |at| at + 1);
     let line_end = source[byte..]
         .find('\n')
@@ -245,7 +253,7 @@ fn closer_already_there(
         let change = Change::replace(&source, byte_range(typed_from..byte), "");
         let past = byte + closer.len();
         state.commit(
-            Edit::command_units(source, change, (start, start))
+            Edit::command(source, change, (start, start))
                 .keeping_caret(text_size(past), Assoc::After)
                 .typed("insertText", event.time_stamp()),
         );
@@ -256,7 +264,7 @@ fn closer_already_there(
     // indent of the line that opened the block: that block's closer.
     let target = state
         .behavior()
-        .reindent_on_type(&source, start, typed)
+        .reindent_on_type(&source, utf16_of(&source, start), typed)
         .map(|indent| indent.len())
         .or_else(|| opener_indent(state.behavior(), &source[..line_start], typed));
     let same_place = next_line.trim() == closer && Some(indent_of(next_line)) == target;
@@ -272,7 +280,7 @@ fn closer_already_there(
     let change = Change::replace(&source, byte_range(line_start..next_start), "");
     let past = next_start + indent_of(next_line) + closer.len();
     state.commit(
-        Edit::command_units(source, change, (start, start))
+        Edit::command(source, change, (start, start))
             .keeping_caret(text_size(past), Assoc::After)
             .typed("insertText", event.time_stamp()),
     );
@@ -317,37 +325,39 @@ fn opener_indent(behavior: &dyn ConfigLanguage, before: &str, closer: char) -> O
 }
 
 /// Backspace between a pair the editor inserted deletes both.
-fn delete_pair(state: EditorState, event: &KeyboardEvent, start: usize) -> bool {
+fn delete_pair(state: EditorState, event: &KeyboardEvent, start: TextSize) -> bool {
     let Some(closer) = state.closer_at(start) else {
         return false;
     };
     let before = state.doc().text.get_untracked();
     // A quote run the editor wrote (`"""|"""`): one quote goes on each side.
-    if closer.len > 1 && start > 0 {
-        let byte = utf16_to_byte_index(&before, start);
-        let after = before[byte..].chars().next();
-        if after.is_some_and(|quote| is_quote(state.behavior(), quote))
-            && before[..byte].ends_with(after.unwrap_or_default())
-        {
-            event.prevent_default();
-            let quote_len = after.map_or(1, char::len_utf8);
-            let change =
-                Change::replace(&before, byte_range(byte - quote_len..byte + quote_len), "");
-            let edit = Edit::command_units(before, change, (start, start))
-                .typed("deleteContentBackward", event.time_stamp());
-            // The edit takes the closer it cuts; what is left of it stays.
-            if state.commit(edit) {
-                state.remember_closer(start - 1, closer.len - 1, closer.opener);
-            }
-            return true;
+    if let (Some(head), Some(tail)) = (slice::before(&before, start), slice::after(&before, start))
+        && let Some(quote) = tail.chars().next()
+        && closer.len > TextSize::of(quote)
+        && is_quote(state.behavior(), quote)
+        && head.ends_with(quote)
+    {
+        event.prevent_default();
+        let quote_len = TextSize::of(quote);
+        let change = Change::replace(
+            &before,
+            TextRange::new(start - quote_len, start + quote_len),
+            "",
+        );
+        let edit = Edit::command(before, change, (start, start))
+            .typed("deleteContentBackward", event.time_stamp());
+        // The edit takes the closer it cuts; what is left of it stays.
+        if state.commit(edit) {
+            state.remember_closer(start - quote_len, closer.len - quote_len, closer.opener);
         }
+        return true;
     }
     let Some(change) = delete_empty_pair(&before, start, state.behavior()) else {
         return false;
     };
     event.prevent_default();
     state.commit(
-        Edit::command_units(before, change, (start, start))
+        Edit::command(before, change, (start, start))
             .typed("deleteContentBackward", event.time_stamp()),
     );
     true
@@ -355,17 +365,22 @@ fn delete_pair(state: EditorState, event: &KeyboardEvent, start: usize) -> bool 
 
 /// Text the language closes as it is typed (`>` finishing `<k>` writes
 /// `</k>`; `"""` writes its closing `"""`).
-fn auto_close(state: EditorState, event: &KeyboardEvent, start: usize, typed: char) -> bool {
+fn auto_close(state: EditorState, event: &KeyboardEvent, start: TextSize, typed: char) -> bool {
     let before = state.doc().text.get_untracked();
-    let Some(closing) = state.behavior().auto_close(&before, start, typed) else {
+    let units = utf16_of(&before, start);
+    let Some(closing) = state.behavior().auto_close(&before, units, typed) else {
         return false;
     };
     event.prevent_default();
-    let change = Change::insert_units(&before, start, &format!("{typed}{closing}"));
+    let change = Change::replace(
+        &before,
+        TextRange::empty(start),
+        &format!("{typed}{closing}"),
+    );
     // The caret after the typed character, the closing after it.
-    let caret = start + typed.len_utf16();
-    let edit = Edit::command_units(before, change, (start, start))
-        .caret_at_units(caret)
+    let caret = start + TextSize::of(typed);
+    let edit = Edit::command(before, change, (start, start))
+        .caret_at(caret)
         .typed("insertText", event.time_stamp());
     if state.commit(edit)
         && let Some((len, opener)) = kept_closer(state.behavior(), &closing, typed)
@@ -377,15 +392,15 @@ fn auto_close(state: EditorState, event: &KeyboardEvent, start: usize, typed: ch
 }
 
 /// The closer `closing`, which typing `typed` wrote, leaves to type over:
-/// its UTF-16 length and the opener a value typed in it follows.
+/// its length in bytes and the opener a value typed in it follows.
 fn kept_closer(
     behavior: &dyn ConfigLanguage,
     closing: &str,
     typed: char,
-) -> Option<(usize, Option<char>)> {
+) -> Option<(TextSize, Option<char>)> {
     if let Some(len) = behavior.closing_markup_len(closing) {
         // Closing markup is the editor's: Enter after a value steps past it.
-        return Some((closing[..len].encode_utf16().count(), Some(typed)));
+        return Some((text_size(len.min(closing.len())), Some(typed)));
     }
     let mut characters = closing.chars();
     if characters
@@ -395,12 +410,12 @@ fn kept_closer(
     {
         // A bracket the language closes (HCL's `${` in a string): typed
         // over, deleted with its opener.
-        return Some((1, Some(typed)));
+        return Some((TextSize::of(closing), Some(typed)));
     }
     // A closing quote run (TOML's `"""`) is typed over and deleted with its
     // opener; Enter inside it is a line break of the string.
     (!closing.is_empty() && closing.chars().all(|quote| is_quote(behavior, quote)))
-        .then(|| (closing.encode_utf16().count(), None))
+        .then(|| (TextSize::of(closing), None))
 }
 
 /// The history kind of a selection wrapped in a typed pair (see
@@ -411,7 +426,7 @@ pub(in crate::editor) const WRAP: &str = "wrapSelection";
 fn open_pair(
     state: EditorState,
     event: &KeyboardEvent,
-    (start, end): (usize, usize),
+    (start, end): (TextSize, TextSize),
     opening: char,
 ) -> bool {
     let before = state.doc().text.get_untracked();
@@ -434,25 +449,29 @@ fn open_pair(
     // undo step.
     let kind = if start == end { "insertText" } else { WRAP };
     let restore = if backward { (end, start) } else { (start, end) };
-    let edit = Edit::command_units(before, change, restore)
-        .selecting_units(anchor, caret)
+    let edit = Edit::command(before, change, restore)
+        .selecting(anchor, caret)
         .typed(kind, event.time_stamp());
     // A prevented keydown fires no input event, so open suggestions here
     // when the pair starts an entry.
     let opens_entry = selection_start == selection_end
-        && state.behavior().entry_started(&edit.text, selection_start);
+        && state
+            .behavior()
+            .entry_started(&edit.text, utf16_of(&edit.text, selection_start));
     // A quote ends a string value; Enter opens a bracket pair instead of
     // stepping out of it.
     let opener = is_quote(state.behavior(), opening).then_some(opening);
+    let closer_len = pair_of(state.behavior(), opening)
+        .map_or(TextSize::of(opening), |(closing, _)| TextSize::of(closing));
     if state.commit(edit) {
-        state.remember_closer(selection_end, 1, opener);
+        state.remember_closer(selection_end, closer_len, opener);
     }
     // A wrapped selection keeps its direction.
     if backward
         && selection_start != selection_end
         && let Some(element) = state.textarea()
     {
-        select_units(&element, selection_start, selection_end, true);
+        select(&element, selection_start, selection_end, true);
     }
     state.set_list_mode(if opens_entry {
         ListMode::TYPED
@@ -471,17 +490,17 @@ pub(super) fn join_with_next_line(state: EditorState, event: &KeyboardEvent) -> 
     let Some(element) = state.textarea() else {
         return false;
     };
-    let (start, end) = textarea_units(&element);
+    let (start, end) = textarea_selection(&element);
     let text = state.doc().text.get_untracked();
-    let byte = utf16_to_byte_index(&text, start);
-    if start != end || !text[byte..].starts_with('\n') {
+    let byte = usize::from(start);
+    if start != end || !slice::after(&text, start).is_some_and(|rest| rest.starts_with('\n')) {
         return false;
     }
     event.prevent_default();
     let rest = &text[byte + 1..];
     let indentation = rest.len() - rest.trim_start_matches([' ', '\t']).len();
     let change = Change::replace(&text, byte_range(byte..byte + 1 + indentation), "");
-    state.commit(Edit::command_units(text, change, (start, end)));
+    state.commit(Edit::command(text, change, (start, end)));
     true
 }
 
@@ -494,7 +513,7 @@ pub(super) fn indentation(state: EditorState, event: &KeyboardEvent) -> bool {
     let Some(element) = state.textarea() else {
         return false;
     };
-    let (start, end) = textarea_units(&element);
+    let (start, end) = textarea_selection(&element);
     if start != end {
         return false;
     }
@@ -511,6 +530,6 @@ pub(super) fn indentation(state: EditorState, event: &KeyboardEvent) -> bool {
         return false;
     };
     event.prevent_default();
-    state.commit(Edit::command_units(text, change, (start, end)));
+    state.commit(Edit::command(text, change, (start, end)));
     true
 }

@@ -7,12 +7,11 @@ use web_sys::KeyboardEvent;
 use super::super::a11y::problem_announcement;
 use super::super::commands::smart_home as home_target;
 use super::super::completion::visual_column;
-use super::super::keyboard::utf16_to_byte_index;
 use super::super::metrics::read_editor_metrics;
 use super::super::positioning::reveal_offset;
 use super::super::problem_walk::next_stop;
-use super::super::state::{EditorState, directed_units, select_units, textarea_units};
-use crate::editor::text::{byte_of, utf16_of};
+use super::super::state::{EditorState, directed_selection, select, textarea_selection};
+use crate::editor::text::{TextSize, slice, utf16_of};
 
 /// Smart Home: the first non-blank character, then the line start.
 pub(super) fn smart_home(state: EditorState, event: &KeyboardEvent) -> bool {
@@ -22,7 +21,7 @@ pub(super) fn smart_home(state: EditorState, event: &KeyboardEvent) -> bool {
     let Some(element) = state.textarea() else {
         return false;
     };
-    let (anchor, caret) = directed_units(&element);
+    let (anchor, caret) = directed_selection(&element);
     let target = state
         .doc()
         .text
@@ -34,20 +33,19 @@ pub(super) fn smart_home(state: EditorState, event: &KeyboardEvent) -> bool {
         } else {
             "forward"
         };
-        select_units(
+        select(
             &element,
             anchor.min(target),
             anchor.max(target),
             direction == "backward",
         );
     } else {
-        select_units(&element, target, target, false);
+        select(&element, target, target, false);
     }
     // Bring the caret back into view when the line is scrolled sideways.
     let column = state.doc().text.with_untracked(|text| {
-        let byte = utf16_to_byte_index(text, target);
-        let line_start = text[..byte].rfind('\n').map_or(0, |index| index + 1);
-        visual_column(&text[line_start..byte])
+        let head = slice::before(text, target).unwrap_or_default();
+        visual_column(head.rsplit('\n').next().unwrap_or_default())
     });
     let metrics = read_editor_metrics(element.element());
     let caret_x = column * metrics.char_width;
@@ -58,7 +56,7 @@ pub(super) fn smart_home(state: EditorState, event: &KeyboardEvent) -> bool {
     state
         .doc()
         .text
-        .with_untracked(|text| reveal_offset(&element, text, byte_of(text, target)));
+        .with_untracked(|text| reveal_offset(&element, text, target));
     true
 }
 
@@ -77,20 +75,21 @@ pub(super) fn keep_placeholder(state: EditorState, event: &KeyboardEvent) -> boo
         return false;
     };
     state.completion().placeholder.set_value(None);
-    if textarea_units(&element) != (start, end) {
+    if textarea_selection(&element) != (start, end) {
         return false;
     }
     let end = state.doc().text.with_untracked(|text| {
-        let byte = utf16_to_byte_index(text, end);
-        let rest = &text[byte..];
+        let rest = slice::after(text, end).unwrap_or_default();
         let skip = if key == "Enter" {
-            rest.find('\n').unwrap_or(rest.len())
+            rest.split('\n').next().unwrap_or_default()
         } else {
-            usize::from(rest.starts_with(['"', '\'']))
+            rest.get(..1)
+                .filter(|quote| matches!(*quote, "\"" | "'"))
+                .unwrap_or_default()
         };
-        end + rest[..skip].encode_utf16().count()
+        end + TextSize::of(skip)
     });
-    select_units(&element, end, end, false);
+    select(&element, end, end, false);
     state.close_suggestions();
     if key == "Tab" {
         event.prevent_default();
@@ -201,10 +200,10 @@ pub(super) fn escape(state: EditorState, event: &KeyboardEvent) {
         return;
     }
     if let Some(element) = state.textarea() {
-        let (start, end) = textarea_units(&element);
+        let (start, end) = textarea_selection(&element);
         if start != end {
-            let (_, caret) = directed_units(&element);
-            select_units(&element, caret, caret, false);
+            let (_, caret) = directed_selection(&element);
+            select(&element, caret, caret, false);
         }
     }
 }

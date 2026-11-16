@@ -11,7 +11,7 @@ use super::actions::TYPED;
 use super::docs::{CUSTOM, LANGUAGES, document, literal, selection, units};
 use super::runner::{Case, Failure, Rng, cases, run};
 use crate::editor::keys::line_edit::LineCommand;
-use crate::editor::keys::lines::{Command, run as run_command};
+use crate::editor::keys::lines::{Command, run_units as run_command};
 use crate::editor::languages::Language;
 use crate::editor::test_state::TestEditor;
 

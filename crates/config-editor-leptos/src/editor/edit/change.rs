@@ -65,6 +65,13 @@ pub(crate) struct Bytes;
 
 /// Positions in UTF-16 code units (the browser's offsets).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(
+    not(feature = "protect"),
+    allow(
+        dead_code,
+        reason = "only protection still counts changes in UTF-16 units"
+    )
+)]
 pub(crate) struct CodeUnits;
 
 impl Unit for Bytes {
@@ -703,6 +710,13 @@ impl Change<Bytes> {
 
     /// The same change counted in UTF-16 code units of `before` (the text
     /// it is made on).
+    #[cfg_attr(
+        not(feature = "protect"),
+        allow(
+            dead_code,
+            reason = "only protection still counts changes in UTF-16 units"
+        )
+    )]
     pub(crate) fn in_utf16(&self, before: &str) -> Option<Change<CodeUnits>> {
         let mut units = Utf16::default();
         let mut at = 0;

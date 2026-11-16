@@ -21,8 +21,12 @@ fn entered(language: Language, marked: &str) -> String {
     let behavior = language.behavior();
     let bodies = behavior.string_body_lines(&source);
     let in_body = |line: usize| bodies.iter().any(|lines| lines.contains(&line));
-    let cursor = source[..at].encode_utf16().count();
-    let newline = newline_at(behavior, &source, cursor, &in_body);
+    let newline = newline_at(
+        behavior,
+        &source,
+        crate::editor::text::text_size(at),
+        &in_body,
+    );
     let start = at - newline.replaces_before;
     let end = (at + newline.replaces).min(source.len());
     format!(

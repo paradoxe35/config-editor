@@ -74,7 +74,12 @@ pub(in super::super) fn accepted_at(
                 options.iter().map(|o| &o.label).collect::<Vec<_>>()
             )
         })?;
-    Ok(apply_completion(&written.text, option))
+    let (text, anchor, caret) = apply_completion(&written.text, option);
+    let (anchor, caret) = (
+        crate::editor::text::utf16_of(&text, anchor),
+        crate::editor::text::utf16_of(&text, caret),
+    );
+    Ok((text, anchor, caret))
 }
 
 /// The document after accepting `label` at the caret, with the selection

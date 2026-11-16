@@ -15,7 +15,7 @@ use serde_json::Value;
 use super::super::Language;
 use super::super::codec;
 use super::super::edit::Edit;
-use super::super::keys::enter::{Pressed, enter_at};
+use super::super::keys::enter::{Pressed, enter_units};
 use super::super::paths::{TextPosition, TextRange};
 use super::super::state::EditorState;
 use super::super::test_state::TestEditor;
@@ -166,11 +166,11 @@ fn case(language: Language, style: Style, open: Open, write: Write) -> Vec<Strin
         .with_untracked(|ranges| ranges[0].start);
     let accepted = match open {
         Open::Enter => {
-            enter_at(state, (start, start), Pressed::Enter, None);
+            enter_units(state, (start, start), Pressed::Enter, None);
             state.doc().text.get_untracked() != text
         }
         Open::LineAbove => {
-            enter_at(state, (start, start), Pressed::LineAbove, None);
+            enter_units(state, (start, start), Pressed::LineAbove, None);
             state.doc().text.get_untracked() != text
         }
         // After the line's indentation, the break pasted with it.

@@ -383,9 +383,7 @@ fn a_secret_field_offers_reference_forms_in_every_language() {
             continue;
         }
         let variable = &options[0];
-        let caret: String = String::from_utf16_lossy(
-            &variable.insert.encode_utf16().collect::<Vec<_>>()[..variable.cursor_offset],
-        );
+        let caret = variable.insert[..usize::from(variable.cursor_offset)].to_string();
         if !caret.ends_with("${") {
             failures.push(format!(
                 "{language}: caret after {caret:?} in {:?}",

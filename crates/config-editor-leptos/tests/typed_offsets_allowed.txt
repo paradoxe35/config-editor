@@ -3,17 +3,12 @@
 editor/changes/unified.rs 1 still counts in UTF-16 or str `usize` bytes; to type with its area
 editor/comment_scope.rs 4 still counts in UTF-16 or str `usize` bytes; to type with its area
 editor/comment_toggle.rs 4 public `Toggled` edits and selection are `usize` by the public API (crate edge)
-editor/completion/accept.rs 2 suggestions are placed at the public API's UTF-16 offsets; to type with the completion area
-editor/completion/candidates.rs 6 suggestions are placed at the public API's UTF-16 offsets; to type with the completion area
-editor/completion/mod.rs 3 suggestions are placed at the public API's UTF-16 offsets; to type with the completion area
-editor/completion/offsets.rs 1 suggestions are placed at the public API's UTF-16 offsets; to type with the completion area
-editor/completion/stops.rs 3 suggestions are placed at the public API's UTF-16 offsets; to type with the completion area
 editor/completion/typed_entry.rs 1 suggestions are placed at the public API's UTF-16 offsets; to type with the completion area
 editor/diagnostics/cut.rs 2 still counts in UTF-16 or str `usize` bytes; to type with its area
 editor/diagnostics/follow.rs 1 still counts in UTF-16 or str `usize` bytes; to type with its area
-editor/document.rs 3 the `_units` adapters (UTF-16 `usize` in, bytes inside) for the areas that still count in UTF-16; they go with those areas
+editor/document.rs 2 the `_units` adapters (UTF-16 `usize` in, bytes inside) for the areas that still count in UTF-16; they go with those areas
 editor/edit/change.rs 3 the `_units` adapters (UTF-16 `usize` in, bytes inside) for the areas that still count in UTF-16; they go with those areas
-editor/edit/mod.rs 5 the `_units` adapters (UTF-16 `usize` in, bytes inside) for the areas that still count in UTF-16; they go with those areas
+editor/edit/mod.rs 3 the `_units` adapters (UTF-16 `usize` in, bytes inside) for the areas that still count in UTF-16; they go with those areas
 editor/flat_keys/context.rs 1 flat-key helpers behind the public language API; to type with the languages
 editor/flat_keys/mod.rs 1 flat-key helpers behind the public language API; to type with the languages
 editor/flow_syntax/mod.rs 5 shared syntax helpers behind the public language API; to type with the languages
@@ -24,13 +19,9 @@ editor/highlight/mod.rs 6 public `Token` spans are `usize` by the public API (cr
 editor/highlight/pieces.rs 6 public `Token` spans are `usize` by the public API (crate edge)
 editor/highlight/spanning.rs 2 public `Token` spans are `usize` by the public API (crate edge)
 editor/host_diagnostics/fields.rs 2 still counts in UTF-16 or str `usize` bytes; to type with its area
-editor/keyboard.rs 7 the `_units` adapters (UTF-16 `usize` in, bytes inside) for the areas that still count in UTF-16; they go with those areas
-editor/keys/complete.rs 5 key handlers count in UTF-16 behind `textarea_units`; to move to bytes with the keys area
-editor/keys/enter.rs 4 key handlers count in UTF-16 behind `textarea_units`; to move to bytes with the keys area
+editor/keyboard.rs 5 the `_units` adapters (UTF-16 `usize` in, bytes inside) for the areas that still count in UTF-16; they go with those areas
 editor/keys/line_edit.rs 1 key handlers count in UTF-16 behind `textarea_units`; to move to bytes with the keys area
 editor/keys/page_keys.rs 2 key handlers count in UTF-16 behind `textarea_units`; to move to bytes with the keys area
-editor/keys/tab.rs 5 key handlers count in UTF-16 behind `textarea_units`; to move to bytes with the keys area
-editor/keys/typing.rs 4 key handlers count in UTF-16 behind `textarea_units`; to move to bytes with the keys area
 editor/language.rs 18 public language API: its carets and ranges are UTF-16 `usize` by the API (crate edge)
 editor/language/item_start.rs 1 public language API helpers: UTF-16 `usize` by the API (crate edge)
 editor/languages/hcl/big_objects.rs 1 implements the public language API (UTF-16 `usize` carets) and cuts str by `usize`; to type with its writers/readers
@@ -63,7 +54,6 @@ editor/languages/yaml/hover.rs 2 implements the public language API (UTF-16 `usi
 editor/languages/yaml/lexical.rs 2 implements the public language API (UTF-16 `usize` carets) and cuts str by `usize`; to type with its writers/readers
 editor/languages/yaml/mod.rs 2 implements the public language API (UTF-16 `usize` carets) and cuts str by `usize`; to type with its writers/readers
 editor/languages/yaml/suggestions.rs 3 implements the public language API (UTF-16 `usize` carets) and cuts str by `usize`; to type with its writers/readers
-editor/layout.rs 1 still counts in UTF-16 or str `usize` bytes; to type with its area
 editor/paths/mod.rs 1 path lookups take the public API's UTF-16 caret; to type with the paths area
 editor/paths/types.rs 1 path lookups take the public API's UTF-16 caret; to type with the paths area
 editor/popups/caret_tip.rs 1 popups are placed by UTF-16 offsets of the mirror text (browser edge); to type as `Utf16`
@@ -86,5 +76,4 @@ editor/state.rs 2 the `_units` adapters (UTF-16 `usize` in, bytes inside) for th
 editor/sync.rs 1 still counts in UTF-16 or str `usize` bytes; to type with its area
 editor/text_change.rs 1 still counts in UTF-16 or str `usize` bytes; to type with its area
 editor/text_change_tests.rs 1 still counts in UTF-16 or str `usize` bytes; to type with its area
-editor/typing.rs 4 still counts in UTF-16 or str `usize` bytes; to type with its area
 lib.rs 1 still plain; to type with its area

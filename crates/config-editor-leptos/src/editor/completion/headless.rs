@@ -42,13 +42,14 @@ impl Suggestion {
     /// default selected so typing replaces it.
     pub fn accept(&self, source: &str) -> (String, std::ops::Range<usize>) {
         let (text, anchor, caret) = apply_completion(source, &self.0);
+        let (anchor, caret) = (utf16_of(&text, anchor), utf16_of(&text, caret));
         (text, anchor..caret)
     }
 
-    /// The suggestion for a text with `units` (UTF-16) more before it.
-    pub(crate) fn moved(mut self, units: usize) -> Self {
-        self.0.start += units;
-        self.0.end += units;
+    /// The suggestion for a text with `bytes` more before it.
+    pub(crate) fn moved(mut self, bytes: TextSize) -> Self {
+        self.0.start += bytes;
+        self.0.end += bytes;
         self
     }
 }
@@ -96,7 +97,7 @@ pub(crate) fn schema_suggestions(
     let bodies = super::super::parse_cache::string_bodies(behavior, source);
     completions_in(
         source,
-        cursor,
+        byte_of(source, cursor),
         true,
         Some(bundle),
         true,

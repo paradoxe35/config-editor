@@ -6,7 +6,7 @@
 use leptos::prelude::*;
 
 use crate::editor::fold_ranges::FoldRange;
-use crate::editor::keys::enter::{Pressed, enter_at};
+use crate::editor::keys::enter::{Pressed, enter_units};
 use crate::editor::languages::Language;
 use crate::editor::test_state::TestEditor;
 
@@ -61,7 +61,7 @@ fn ctrl_enter_on_a_folded_line_opens_after_the_block_and_keeps_the_fold() {
         assert!(state.fold_line(header), "{language:?}: folds line {header}");
         let folded = state.fold().folded.get_untracked();
         let caret = end_of_line(text, header);
-        enter_at(state, (caret, caret), Pressed::LineBelow, None);
+        enter_units(state, (caret, caret), Pressed::LineBelow, None);
         assert_eq!(state.doc().text.get_untracked(), expected, "{language:?}");
         assert_eq!(
             state.fold().folded.get_untracked(),
@@ -90,7 +90,7 @@ fn ctrl_enter_on_a_line_not_folded_opens_right_below_it() {
     let text = "metadata:\n  name: web\n";
     let (_owner, state) = TestEditor::new(Language::YAML, text).mount();
     let caret = end_of_line(text, 0);
-    enter_at(state, (caret, caret), Pressed::LineBelow, None);
+    enter_units(state, (caret, caret), Pressed::LineBelow, None);
     assert_eq!(
         state.doc().text.get_untracked(),
         "metadata:\n  \n  name: web\n"

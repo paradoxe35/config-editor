@@ -9,17 +9,17 @@ use super::edit::{Assoc, Change};
 use super::history::{EditHistory, Selection};
 use super::input::{InputBurst, UNKNOWN_SELECTION};
 use super::state::EditorState;
-use crate::editor::text::Utf16;
+use crate::editor::text::{TextRange, TextSize};
 
 /// Closing text the editor wrote after the caret: a bracket, a quote, or
 /// markup such as an XML end tag.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct Closer {
-    /// UTF-16 offset where it starts, mapped through every edit (see
+    /// The byte where it starts, mapped through every edit (see
     /// [`EditorState::follow_typing_aids`]): typing before it moves it on.
-    pub(super) start: usize,
-    /// UTF-16 length.
-    pub(super) len: usize,
+    pub(super) start: TextSize,
+    /// Its length in bytes.
+    pub(super) len: TextSize,
     /// For a closer that ends a value (a string, an element's text): the
     /// character just before the value (`"`, the `>` of `<k>`). Once the text
     /// before the caret no longer ends with it, a value was typed, and Enter
@@ -72,8 +72,8 @@ impl TypingState {
 }
 
 impl EditorState {
-    /// The inserted closer starting at UTF-16 `offset`, if any.
-    pub(super) fn closer_at(&self, offset: usize) -> Option<Closer> {
+    /// The inserted closer starting at byte `offset`, if any.
+    pub(super) fn closer_at(&self, offset: TextSize) -> Option<Closer> {
         self.typing().closers.with_value(|closers| {
             closers
                 .iter()
@@ -82,16 +82,16 @@ impl EditorState {
         })
     }
 
-    /// Forgets the inserted closer starting at UTF-16 `offset`.
-    pub(super) fn forget_closer_at(&self, offset: usize) {
+    /// Forgets the inserted closer starting at byte `offset`.
+    pub(super) fn forget_closer_at(&self, offset: TextSize) {
         self.typing()
             .closers
             .update_value(|closers| closers.retain(|closer| closer.start != offset));
     }
 
-    /// Remembers a closer the edit just made wrote at UTF-16 `start` of the
-    /// document.
-    pub(super) fn remember_closer(&self, start: usize, len: usize, opener: Option<char>) {
+    /// Remembers a closer of `len` bytes the edit just made wrote at byte
+    /// `start` of the document.
+    pub(super) fn remember_closer(&self, start: TextSize, len: TextSize, opener: Option<char>) {
         self.remember(Closer {
             start,
             len,
@@ -122,7 +122,7 @@ impl EditorState {
     /// and the values an accepted suggestion left for Tab. One whose own
     /// text the edit changed goes. A text in another language (`switching`,
     /// an Edit-as switch) keeps none of them.
-    pub(super) fn follow_typing_aids(&self, change: &Change, before: &str, switching: bool) {
+    pub(super) fn follow_typing_aids(&self, change: &Change, switching: bool) {
         let (typing, completion) = (self.typing(), self.completion());
         let kept = typing.closers.with_value(|closers| !closers.is_empty())
             || completion.placeholder.with_value(Option::is_some)
@@ -131,52 +131,49 @@ impl EditorState {
         if !kept {
             return;
         }
-        let change = (!switching).then(|| change.in_utf16(before)).flatten();
-        let Some(change) = change else {
+        if switching {
             typing.closers.update_value(Vec::clear);
             completion.placeholder.set_value(None);
             completion.slot_region.set_value(None);
             completion.value_stops.update_value(Vec::clear);
             return;
-        };
-        let span = |(start, end): (usize, usize)| {
-            change
-                .map_range(&(Utf16::count(start)..Utf16::count(end)))
-                .map(|range| (usize::from(range.start), usize::from(range.end)))
-        };
+        }
         typing.closers.update_value(|closers| {
-            closers.retain_mut(
-                |closer| match span((closer.start, closer.start + closer.len)) {
-                    Some((start, _)) => {
-                        closer.start = start;
+            closers.retain_mut(|closer| {
+                match change.map_range(&TextRange::at(closer.start, closer.len)) {
+                    Some(range) => {
+                        closer.start = range.start();
                         true
                     }
                     None => false,
-                },
-            );
+                }
+            });
         });
         completion.placeholder.update_value(|placeholder| {
             // (anchor, caret), the caret at either end.
             *placeholder = placeholder.and_then(|(anchor, caret)| {
-                let (start, end) = span((anchor.min(caret), anchor.max(caret)))?;
+                let range =
+                    change.map_range(&TextRange::new(anchor.min(caret), anchor.max(caret)))?;
                 Some(if caret < anchor {
-                    (end, start)
+                    (range.end(), range.start())
                 } else {
-                    (start, end)
+                    (range.start(), range.end())
                 })
             });
         });
         completion.slot_region.update_value(|region| {
             // Text typed at either end of the block is in it.
-            *region = region.map(|(start, end)| {
-                (
-                    usize::from(change.map_pos(Utf16::count(start), Assoc::Before).pos),
-                    usize::from(change.map_pos(Utf16::count(end), Assoc::After).pos),
-                )
+            *region = region.map(|region| {
+                let start = change.map_pos(region.start(), Assoc::Before).pos;
+                let end = change.map_pos(region.end(), Assoc::After).pos;
+                TextRange::new(start, end.max(start))
             });
         });
-        completion
-            .value_stops
-            .update_value(|stops| *stops = stops.iter().copied().filter_map(span).collect());
+        completion.value_stops.update_value(|stops| {
+            *stops = stops
+                .iter()
+                .filter_map(|stop| change.map_range(stop))
+                .collect();
+        });
     }
 }

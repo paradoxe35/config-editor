@@ -14,6 +14,7 @@ use super::Language;
 use super::harness::{
     At, completing, every_language, hovering, key_place, key_text, report, text, value_place, write,
 };
+use crate::editor::text::{TextRange, TextSize};
 use serde_json::{Value, json};
 
 fn help() -> SchemaBundle {
@@ -221,21 +222,25 @@ fn required_children_take_examples_and_tab_selects_each_written_value() {
         let source = marked.replacen('|', "", 1);
         let (updated, _, caret) = apply_completion(&source, option);
         let insert_start = caret - option.cursor_offset;
-        let stops: Vec<(usize, usize)> =
+        let stops: Vec<TextRange> =
             stop_ranges(&option.insert, option.cursor_offset, &option.fills)
                 .into_iter()
-                .map(|(start, end)| (insert_start + start, insert_start + end))
+                .map(|stop| stop + insert_start)
                 .collect();
-        let region_end = insert_start + option.insert.encode_utf16().count();
-        let units: Vec<u16> = updated.encode_utf16().collect();
+        let region_end = insert_start + TextSize::of(option.insert.as_str());
         let mut walked = Vec::new();
         let mut at = caret;
         while let Some((anchor, end)) =
             next_stop(&updated, at, region_end, &stops, language.behavior())
         {
-            walked.push(String::from_utf16_lossy(&units[anchor..end]));
+            walked.push(updated[TextRange::new(anchor, end)].to_string());
             // Past the value, and its closing quote, as Tab steps.
-            at = end + usize::from(units.get(end) == Some(&u16::from(b'"')));
+            at = end
+                + if updated[usize::from(end)..].starts_with('"') {
+                    TextSize::of('"')
+                } else {
+                    TextSize::default()
+                };
             if walked.len() > 4 {
                 break;
             }

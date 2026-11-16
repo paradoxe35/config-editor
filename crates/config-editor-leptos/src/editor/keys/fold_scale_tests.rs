@@ -10,7 +10,7 @@ use super::super::languages::Language;
 use super::super::test_state::TestEditor;
 use super::super::work_count::{Work, counted};
 use super::line_edit::LineCommand;
-use super::lines::{Command, run};
+use super::lines::{Command, run_units as run};
 
 /// `blocks` blocks of two fields each, in `language`.
 pub(in crate::editor) fn blocks(language: Language, blocks: usize) -> String {

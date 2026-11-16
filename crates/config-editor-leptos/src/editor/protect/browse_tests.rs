@@ -47,7 +47,7 @@ fn listed_with_reason(
         let behavior = language.behavior();
         let options = completions_in(
             &text,
-            cursor,
+            crate::editor::text::text_size(cursor),
             true,
             Some(&bundle),
             true,

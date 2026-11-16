@@ -94,7 +94,9 @@ use super::history::Selection;
 use super::input::UNKNOWN_SELECTION;
 use super::languages::Language;
 use super::state::{EditorState, directed_selection};
-use super::text::{TextRange, TextSize, byte_of};
+#[cfg(test)]
+use super::text::byte_of;
+use super::text::{TextRange, TextSize};
 
 /// A change to the document: the text before, what the edit did to it
 /// (the text after is made from that), the selection it was made on,
@@ -241,29 +243,19 @@ impl Edit {
         self
     }
 
-    /// [`Self::selecting`] at UTF-16 offsets of the text after, for the code
-    /// that still counts in UTF-16 units (see `state::textarea_units`).
+    /// [`Self::selecting`] at UTF-16 offsets of the text after, as the tests
+    /// write them.
+    #[cfg(test)]
+    #[allow(dead_code, reason = "used by the tests of some builds only")]
     pub(super) fn selecting_units(self, anchor: usize, caret: usize) -> Self {
         let (anchor, caret) = (byte_of(&self.text, anchor), byte_of(&self.text, caret));
         self.selecting(anchor, caret)
     }
 
-    /// [`Self::caret_at`] UTF-16 `caret` of the text after (see
-    /// [`Self::selecting_units`]).
-    pub(super) fn caret_at_units(self, caret: usize) -> Self {
-        let caret = byte_of(&self.text, caret);
-        self.caret_at(caret)
-    }
-
-    /// [`Self::keeping_caret`] for UTF-16 `at` of the text before (see
-    /// [`Self::selecting_units`]).
-    pub(super) fn keeping_caret_units(self, at: usize, assoc: Assoc) -> Self {
-        let at = byte_of(&self.before, at);
-        self.keeping_caret(at, assoc)
-    }
-
-    /// [`Self::command`] from the UTF-16 selection `restore` of `before`
-    /// (see [`Self::selecting_units`]).
+    /// [`Self::command`] from the UTF-16 selection `restore` of `before`, as
+    /// the tests write it.
+    #[cfg(test)]
+    #[allow(dead_code, reason = "used by the tests of some builds only")]
     pub(super) fn command_units(before: String, change: Change, restore: (usize, usize)) -> Self {
         let restore = (byte_of(&before, restore.0), byte_of(&before, restore.1));
         Self::command(before, change, restore)

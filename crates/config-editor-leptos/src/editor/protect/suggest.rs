@@ -13,6 +13,7 @@ use super::locks::Protected;
 use super::marks::marks_at;
 use super::texts;
 use crate::EditorStrings;
+use crate::editor::text::{TextRange, TextSize, byte_of, text_size};
 
 /// What the suggestions are adjusted for.
 pub(crate) struct Around<'a> {
@@ -53,12 +54,10 @@ pub(crate) fn adjust(options: Vec<Completion>, around: &Around<'_>) -> Vec<Compl
                 return options;
             }
             let leading = if context.value_needs_space { " " } else { "" };
-            return references(
-                around,
-                leading,
-                typed,
-                context.replace_start..context.replace_end,
-            );
+            // The language API places the range in UTF-16 units.
+            let start = byte_of(around.source, context.replace_start);
+            let end = byte_of(around.source, context.replace_end).max(start);
+            return references(around, leading, typed, TextRange::new(start, end));
         }
     }
     // Browsing a read-only region: on its text, or on a new line inside a
@@ -134,7 +133,7 @@ fn references(
     around: &Around<'_>,
     leading: &str,
     typed: &str,
-    replaced: std::ops::Range<usize>,
+    replaced: TextRange,
 ) -> Vec<Completion> {
     around
         .prefixes
@@ -159,13 +158,11 @@ fn references(
                 matched: match_ranges(&label, typed),
                 detail: texts::reference_detail(around.strings, prefix),
                 type_label: around.strings.reference_type.clone(),
-                cursor_offset: format!("{leading}{}", &written[..caret])
-                    .encode_utf16()
-                    .count(),
+                cursor_offset: text_size(leading.len() + caret),
                 insert,
-                start: replaced.start,
-                end: replaced.end,
-                selected: 0,
+                start: replaced.start(),
+                end: replaced.end(),
+                selected: TextSize::default(),
                 is_value: true,
                 renames: false,
                 deprecated: false,

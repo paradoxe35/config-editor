@@ -18,7 +18,7 @@ use super::{
     stop_ranges,
 };
 use crate::EditorStrings;
-use crate::editor::text::{TextSize, utf16_of};
+use crate::editor::text::{TextRange, TextSize, utf16_of};
 use crate::strings::fill;
 
 /// The suggestions part of the editor state.
@@ -38,17 +38,16 @@ pub(crate) struct CompletionState {
     pub(crate) row_size: Memo<RowSize>,
     /// How far the list is scrolled, in pixels (see `window`).
     pub(crate) list_top: RwSignal<f64>,
-    /// An inserted default left selected after an accept, as UTF-16
-    /// (anchor, caret): typing replaces it, Tab keeps it and moves past it,
+    /// An inserted default left selected after an accept, as (anchor,
+    /// caret) bytes: typing replaces it, Tab keeps it and moves past it,
     /// Enter keeps it and starts a new line. It, the block and its values
     /// follow every edit (see `EditorState::follow_typing_aids`).
-    pub(crate) placeholder: StoredValue<Option<(usize, usize)>>,
-    /// The block an accepted suggestion wrote, as UTF-16 (start, end):
-    /// Tab walks its empty value slots.
-    pub(crate) slot_region: StoredValue<Option<(usize, usize)>>,
-    /// The values that block wrote (defaults, examples), as UTF-16 (start,
-    /// end): Tab selects them.
-    pub(crate) value_stops: StoredValue<Vec<(usize, usize)>>,
+    pub(crate) placeholder: StoredValue<Option<(TextSize, TextSize)>>,
+    /// The block an accepted suggestion wrote: Tab walks its empty value
+    /// slots.
+    pub(crate) slot_region: StoredValue<Option<TextRange>>,
+    /// The values that block wrote (defaults, examples): Tab selects them.
+    pub(crate) value_stops: StoredValue<Vec<TextRange>>,
 }
 
 /// Where suggestions are asked for, for what adjusts them (see `protect`).
@@ -112,9 +111,6 @@ impl CompletionState {
             let behavior = edit_language.get_untracked().behavior();
             let at = caret.get();
             text.with(|text| {
-                // Suggestions are placed at UTF-16 offsets (the public
-                // language API's).
-                let at = utf16_of(text, at);
                 let options = string_bodies.with(|bodies| {
                     completions_in(
                         text,
@@ -136,7 +132,9 @@ impl CompletionState {
                             &SuggestionPlace {
                                 behavior,
                                 source: text,
-                                cursor: at,
+                                // Protection reads the caret as the
+                                // language API counts it.
+                                cursor: utf16_of(text, at),
                                 explicit,
                                 schema: schema.as_deref().map(|bundle| &bundle.schema),
                             },
@@ -205,17 +203,21 @@ impl EditorState {
         let mode = self.list_mode();
         let before = self.doc().text.get_untracked();
         // The word it replaces, written over with its insert.
-        let change = Change::replace_units(&before, option.start, option.end, &option.insert);
+        let replaced = TextRange::new(option.start, option.end.max(option.start));
+        let change = Change::replace(&before, replaced, &option.insert);
         let at = self.doc().caret.get_untracked();
         let edit = Edit::command(before.clone(), change, (at, at));
         // The caret where the option puts it in its insert, a default it
-        // wrote left selected. The option counts in UTF-16 units.
-        let inserted = option.insert.encode_utf16().count();
-        let caret = utf16_of(&edit.text, edit.selected().1)
-            .saturating_sub(inserted)
-            .saturating_add(option.cursor_offset);
-        let anchor = caret.saturating_sub(option.selected);
-        let edit = edit.selecting_units(anchor, caret);
+        // wrote left selected.
+        let insert_len = TextSize::of(option.insert.as_str());
+        let caret = edit
+            .selected()
+            .1
+            .checked_sub(insert_len)
+            .unwrap_or_default()
+            + option.cursor_offset;
+        let anchor = caret.checked_sub(option.selected).unwrap_or_default();
+        let edit = edit.selecting(anchor, caret);
         let updated = edit.text.clone();
         if updated == before {
             self.say_why_read_only(option);
@@ -226,17 +228,17 @@ impl EditorState {
         let inserted = inserted_closers(option, &updated, (anchor, caret), self.behavior());
         // Tab walks the empty values the insert wrote after the caret, on one
         // line (`{ server = "|", key_name = "" }`) or several.
-        let insert_start = caret.saturating_sub(option.cursor_offset);
-        let insert_end = insert_start + option.insert.encode_utf16().count();
+        let insert_start = caret.checked_sub(option.cursor_offset).unwrap_or_default();
+        let insert_end = insert_start + insert_len;
         let has_slots = next_slot(&updated, caret, insert_end, self.behavior()).is_some();
         // The values it wrote are stops too.
-        let stops: Vec<(usize, usize)> =
+        let stops: Vec<TextRange> =
             stop_ranges(&option.insert, option.cursor_offset, &option.fills)
                 .into_iter()
-                .map(|(start, end)| (insert_start + start, insert_start + end))
+                .map(|stop| stop + insert_start)
                 .collect();
         let region = (option.insert.contains('\n') || has_slots || !stops.is_empty())
-            .then_some((insert_start, insert_end));
+            .then(|| TextRange::new(insert_start, insert_end));
         let reopen =
             accept_reopens_suggestions(option, self.config().settings.auto_trigger.get_untracked());
         self.hide_hover();

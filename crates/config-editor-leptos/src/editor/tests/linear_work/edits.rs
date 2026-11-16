@@ -6,9 +6,9 @@
 use leptos::prelude::*;
 
 use crate::editor::edit::Edit;
-use crate::editor::keys::enter::{Pressed, enter_at};
+use crate::editor::keys::enter::{Pressed, enter_units};
 use crate::editor::keys::line_edit::LineCommand;
-use crate::editor::keys::lines::{Command, run};
+use crate::editor::keys::lines::{Command, run_units as run};
 use crate::editor::state::EditorState;
 use crate::editor::sync::convert_now;
 
@@ -287,7 +287,7 @@ pub(super) fn make(state: EditorState, kind: EditKind, last: &str) {
         EditKind::Enter => {
             let text = shown(state);
             let at = line_end(&text, middle(&text, "port"));
-            enter_at(state, (at, at), Pressed::Enter, None);
+            enter_units(state, (at, at), Pressed::Enter, None);
             read_view(state);
             pause(state);
         }
@@ -334,7 +334,7 @@ pub(super) fn make(state: EditorState, kind: EditKind, last: &str) {
         EditKind::Suggest => {
             let text = shown(state);
             let at = line_end(&text, middle(&text, "port"));
-            enter_at(state, (at, at), Pressed::Enter, None);
+            enter_units(state, (at, at), Pressed::Enter, None);
             state.set_list_mode(crate::editor::completion::ListMode::TYPED);
             let at = state.caret_units();
             type_at(state, at, "h");

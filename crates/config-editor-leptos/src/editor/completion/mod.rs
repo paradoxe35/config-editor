@@ -18,8 +18,8 @@ mod list_items;
 mod list_mode;
 mod live;
 mod matching;
-mod offsets;
 mod patterns;
+mod placed;
 mod popup;
 mod required;
 mod schema;
@@ -64,7 +64,7 @@ pub(crate) use super::applies::{
     item_schema, named_properties, ref_target, type_includes,
 };
 use super::commands::indent_unit;
-use super::keyboard::{replace_selection, utf16_to_byte_index};
+use super::keyboard::utf16_to_byte_index;
 use super::language::{
     CompletionContext, ConfigLanguage, EntryPosition, InsertContext, Repetition, SchemaPathSegment,
 };
@@ -73,6 +73,7 @@ use super::positioning::{POPUP_MARGIN, PopupFrame};
 use super::schema::SchemaBundle;
 use super::state::EditorState;
 use super::typing::Closer;
+use crate::editor::text::{TextRange, TextSize, byte_of, slice, utf16_of};
 pub(crate) use patterns::{pattern_decides, pattern_matches};
 use serde_json::Value;
 use std::collections::HashSet;
@@ -84,12 +85,14 @@ pub(super) struct Completion {
     pub(super) detail: String,
     pub(super) type_label: String,
     pub(super) insert: String,
-    pub(super) start: usize,
-    pub(super) end: usize,
-    pub(super) cursor_offset: usize,
-    /// UTF-16 length of the text before the caret that is left selected (an
-    /// inserted default), so typing replaces it.
-    pub(super) selected: usize,
+    /// The bytes of the text accepting it replaces: `start..end`.
+    pub(super) start: TextSize,
+    pub(super) end: TextSize,
+    /// The byte of `insert` the caret goes to.
+    pub(super) cursor_offset: TextSize,
+    /// Bytes of `insert` before the caret left selected (an inserted
+    /// default), so typing replaces it.
+    pub(super) selected: TextSize,
     pub(super) is_value: bool,
     /// Renames a key that already has its value (`ht|: 80`): accepting it
     /// completes the entry, so the list does not reopen.
@@ -233,28 +236,32 @@ mod tests {
 mod slot_tests {
     use super::super::Language;
     use super::next_slot;
+    use crate::editor::language::ConfigLanguage;
+    use crate::editor::text::text_size;
+
+    /// [`next_slot`] at byte offsets written as `usize`.
+    fn slot(text: &str, caret: usize, end: usize, behavior: &dyn ConfigLanguage) -> Option<usize> {
+        next_slot(text, text_size(caret), text_size(end), behavior).map(usize::from)
+    }
 
     #[test]
     fn slots_are_empty_values_after_the_caret() {
         let yaml_behavior = Language::YAML.behavior();
         let yaml = "rfc2136:\n  server: \n  key_name: \n  secret: \n";
         let first = yaml.find("server: ").unwrap() + "server: ".len();
-        let second = next_slot(yaml, first, yaml.len(), yaml_behavior).unwrap();
+        let second = slot(yaml, first, yaml.len(), yaml_behavior).unwrap();
         assert_eq!(&yaml[..second], "rfc2136:\n  server: \n  key_name: ");
         let json = "{\"a\": \"\", \"b\": \"\"}";
         assert_eq!(
-            next_slot(json, 7, json.len(), Language::JSON.behavior()),
+            slot(json, 7, json.len(), Language::JSON.behavior()),
             Some(16)
         );
         let xml = "<x>\n  <a></a>\n  <b></b>\n</x>";
         let after_a = xml.find("<a>").unwrap() + 3;
         assert_eq!(
-            next_slot(xml, after_a, xml.len(), Language::XML.behavior()),
+            slot(xml, after_a, xml.len(), Language::XML.behavior()),
             Some(xml.find("<b>").unwrap() + 3)
         );
-        assert_eq!(
-            next_slot(yaml, yaml.len() - 1, yaml.len(), yaml_behavior),
-            None
-        );
+        assert_eq!(slot(yaml, yaml.len() - 1, yaml.len(), yaml_behavior), None);
     }
 }
