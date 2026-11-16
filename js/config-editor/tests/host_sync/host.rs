@@ -1,8 +1,8 @@
 //! The host of a simulated view: per document, the text it stores (each
 //! `onChange` text once it comes back from its store, late), the texts on
-//! their way back to the editor, and the text it listed last.
+//! their way back to the editor, and the texts it listed and gave last.
 
-use crate::model::{Form, LOCKED, ResetKind, host_lock, new_version};
+use crate::model::{Class, Form, LOCKED, ResetKind, host_lock, new_version};
 use config_editor_leptos::TextRange;
 
 pub(crate) struct HostDoc {
@@ -133,9 +133,7 @@ impl HostDoc {
         .filter(|text| text.contains(LOCKED))
         .collect()
     }
-}
 
-impl HostDoc {
     /// It gives `replaceValue` `text`, the editor holding `shown`.
     pub(crate) fn reset(&mut self, text: &str, shown: &str) {
         self.resets.push(text.to_string());
@@ -145,8 +143,7 @@ impl HostDoc {
     }
 
     /// The class of a text handed back that replaced newer typing.
-    pub(crate) fn lost_by(&self, text: &str) -> crate::model::Class {
-        use crate::model::Class;
+    pub(crate) fn lost_by(&self, text: &str) -> Class {
         if self.same_resets.iter().any(|reset| reset == text) {
             Class::RevertedBySameListing
         } else if self.resets.iter().any(|reset| reset == text) {

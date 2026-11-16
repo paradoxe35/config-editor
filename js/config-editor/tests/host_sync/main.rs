@@ -16,7 +16,7 @@
 //! `HOST_SYNC_CASES` (runs per view), `HOST_SYNC_STEPS` (actions per run)
 //! and `HOST_SYNC_SEED` (the first seed) run more locally. Each class of
 //! failure prints its smallest run as a test to paste below; classes an
-//! open finding explains are listed in `known.rs`.
+//! open finding or the design explains are listed in `known.rs`.
 
 #[path = "../../src/text_lines.rs"]
 mod text_lines;
@@ -89,7 +89,6 @@ fn assert_ok(setup: run::Setup, acts: &[model::Act]) {
 }
 
 /// A run that ends in `class` (the repros of a class by design).
-#[allow(dead_code)]
 fn assert_class(setup: run::Setup, acts: &[model::Act], class: model::Class) {
     match run::replay(setup, acts) {
         Err(failure) => assert_eq!(failure.class, class, "{}", failure.detail),
@@ -97,7 +96,8 @@ fn assert_class(setup: run::Setup, acts: &[model::Act], class: model::Class) {
     }
 }
 
-/// Smallest runs of fixed classes, pasted from a failure.
+/// Smallest runs of fixed classes, and of the classes by design in
+/// `known.rs`, pasted from a failure.
 #[allow(unused_imports)]
 mod repros {
     use super::{assert_class, assert_ok};

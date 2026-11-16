@@ -1,7 +1,8 @@
-//! Classes of failure an open finding explains: the standing tests let
-//! them through, naming the finding; its fix removes the entry (and the
-//! test then holds the class out). Each class is a kind of failure at a
-//! kind of step (`model::Act::kind`), in a view.
+//! Classes of failure an open finding or the design explains: the
+//! standing tests let them through, naming the finding (or why it is by
+//! design); a fix removes the entry (and the test then holds the class
+//! out). Each class is a kind of failure at a kind of step
+//! (`model::Act::kind`), in a view.
 
 use crate::model::Class;
 use crate::run::View;
@@ -11,7 +12,7 @@ pub(crate) struct Known {
     pub(crate) class: Class,
     /// Whether it is the class at this kind of step.
     pub(crate) step: fn(&str) -> bool,
-    /// The finding (qa38-findings.md), or why.
+    /// The finding (qa38-findings.md), or why it is by design.
     pub(crate) finding: &'static str,
 }
 

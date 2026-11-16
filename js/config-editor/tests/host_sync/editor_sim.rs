@@ -8,7 +8,7 @@ use config_editor_leptos::TextRange;
 
 use crate::host::{HostDoc, ranges_in};
 use crate::host_channel::{Given, HostChannel};
-use crate::model::{Act, Class, Core, Failure, Form, Outcome, read_ranges, user_edit};
+use crate::model::{Act, Class, Core, Failure, Form, Outcome, ResetKind, read_ranges, user_edit};
 use config_editor_leptos::js_support::{Echo, echo_clock as clock};
 
 pub(crate) struct EditorSim {
@@ -176,9 +176,7 @@ impl EditorSim {
                 }
             }
             Act::Own { edit, ranges, .. } => {
-                let resets = self
-                    .host
-                    .resets(crate::model::ResetKind::NewVersion(*edit), "");
+                let resets = self.host.resets(ResetKind::NewVersion(*edit), "");
                 if let Some(text) = resets.into_iter().next() {
                     self.host.own(&text);
                     text.clone_into(&mut self.host.last_listed);
