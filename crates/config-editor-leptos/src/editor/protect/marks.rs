@@ -19,15 +19,14 @@ pub(crate) struct SchemaMarks {
 /// Whether `schema` mentions any of the marks at all, so documents under a
 /// schema without them skip the walk.
 pub(crate) fn mentions_marks(schema: &Value) -> bool {
-    match schema {
-        Value::Object(map) => map.iter().any(|(key, value)| {
-            (matches!(key.as_str(), "readOnly" | "writeOnly" | "x-secret")
-                && value == &Value::Bool(true))
-                || mentions_marks(value)
-        }),
-        Value::Array(items) => items.iter().any(mentions_marks),
-        _ => false,
-    }
+    let mut found = false;
+    crate::editor::schema::each_schema(schema, &(), &mut |_, members, ()| {
+        found |= ["readOnly", "writeOnly", "x-secret"]
+            .iter()
+            .any(|mark| members.get(*mark) == Some(&Value::Bool(true)));
+        (!found).then_some(())
+    });
+    found
 }
 
 /// The keys of the fields `root` marks read-only, wherever they are (a
@@ -213,6 +212,12 @@ mod tests {
         assert!(!mentions_marks(
             &json!({"properties": {"readOnly": {"type": "boolean"}}})
         ));
+        // Data is no schema: a default or an example that looks marked
+        // marks nothing.
+        assert!(!mentions_marks(&json!({
+            "default": {"readOnly": true},
+            "properties": {"a": {"examples": [{"x-secret": true}], "const": {"writeOnly": true}}}
+        })));
     }
 
     /// The keys that may name a read-only field: the field's own, by what

@@ -147,6 +147,57 @@ impl<'s> Here<'s> {
         types::types(&self.tree)
     }
 
+    /// Whether some value of the kind `name` (`object` or `array`) may be
+    /// taken here: the kinds allow it, and its empty value is not refused,
+    /// or is refused only as too few entries (a `required` key, a
+    /// `minProperties`; a `minItems`, a `contains`) where items may be
+    /// written. A list two `oneOf` options both take, or one asked items
+    /// its `items: false` refuses, meets nothing.
+    pub(crate) fn may_hold(&self, name: &str) -> bool {
+        if !self.types().allows_type(name) {
+            return false;
+        }
+        let empty = match name {
+            "object" => Value::Object(serde_json::Map::new()),
+            "array" => Value::Array(Vec::new()),
+            _ => return true,
+        };
+        if self.accepts(&empty) != Some(false) {
+            return true;
+        }
+        let asked = |leaf: &&Value| match name {
+            "object" => {
+                leaf.get("required")
+                    .and_then(Value::as_array)
+                    .is_some_and(|keys| !keys.is_empty())
+                    || leaf.get("minProperties").and_then(Value::as_u64) > Some(0)
+            }
+            _ => {
+                leaf.get("minItems").and_then(Value::as_u64) > Some(0)
+                    || leaf.get("contains").is_some()
+            }
+        };
+        let no_items = |leaf: &&Value| {
+            name == "array"
+                && leaf.get("items") == Some(&Value::Bool(false))
+                && leaf
+                    .get("prefixItems")
+                    .and_then(Value::as_array)
+                    .is_none_or(Vec::is_empty)
+        };
+        self.branches().iter().any(asked) && !self.certain().iter().any(no_items)
+    }
+
+    /// Whether a `oneOf`/`anyOf` applies here.
+    pub(crate) fn has_options(&self) -> bool {
+        query::has_options(&self.tree)
+    }
+
+    /// Whether the value refutes an option of a `oneOf`/`anyOf` here.
+    pub(crate) fn refutes(&self) -> bool {
+        query::refutes(&self.tree)
+    }
+
     /// The `oneOf`/`anyOf` options of the object here.
     pub(crate) fn choices(&self) -> Choices<'s> {
         Choices::of(&self.tree)
