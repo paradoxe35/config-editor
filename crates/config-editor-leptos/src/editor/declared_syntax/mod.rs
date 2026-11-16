@@ -5,7 +5,8 @@
 //! "Dot": `key: value` lines, `#` comments, maps `<a: 1; b: 'x'>` and lists
 //! `(1; 2)` on one line, `'…'` literal strings, and `*` before each list item
 //! written on a line of its own. Edit-as saves through it must work from
-//! what it declares, as through a built-in language.
+//! what it declares, as through a built-in language, and so must schema
+//! suggestions, read as the bridge reads a language without `contextAt`.
 
 mod read;
 mod save_tests;

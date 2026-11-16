@@ -72,8 +72,9 @@ pub(super) fn only(named: &[&str]) -> Vec<Language> {
 
 /// The languages a suggestion case fits: those that read where the caret
 /// is (`completion_context`), so a key half typed is told from nothing
-/// typed. A language keeping the trait's default (Odd, and Dot, which
-/// declares no `contextAt`) has no suggestions to check.
+/// typed. A language keeping the trait's default (Odd, and DotBare, which
+/// declares no brackets to read the caret inside one-line values) has no
+/// suggestions to check.
 pub(super) fn completing() -> Vec<Language> {
     every_language()
         .into_iter()

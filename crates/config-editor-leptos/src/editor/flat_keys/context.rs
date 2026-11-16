@@ -276,7 +276,46 @@ fn read_frames(config: &LanguageConfig, flow: &Flow, body: &str, root: Root) -> 
 
 #[cfg(test)]
 mod tests {
+    use super::super::tests::{COLON, ENV};
     use super::*;
+
+    #[test]
+    fn contexts_on_flat_lines() {
+        // (source with `|` for the caret, typed, value key, needs a space)
+        type Expected = Option<(&'static str, Option<&'static str>, bool)>;
+        let cases: &[(&LanguageConfig, &str, Expected)] = &[
+            (&ENV, "|", Some(("", None, false))),
+            (&ENV, "PO|", Some(("PO", None, false))),
+            (&ENV, "A=1\n  PO|", Some(("PO", None, false))),
+            (&ENV, "export PO|", Some(("PO", None, false))),
+            (&ENV, "PORT=|", Some(("", Some("PORT"), false))),
+            (&ENV, "PORT = 80|", Some(("80", Some("PORT"), false))),
+            (&ENV, "URL=a=b|", Some(("a=b", Some("URL"), false))),
+            (&COLON, "level:|", Some(("", Some("level"), true))),
+            (&COLON, "level: d|", Some(("d", Some("level"), false))),
+            (&ENV, "# PO|", None),
+            (&ENV, "=x|", None),
+        ];
+        let mut failures = Vec::new();
+        for (config, marked, expected) in cases {
+            let cursor = marked.find('|').unwrap();
+            let source = marked.replace('|', "");
+            let context = config.flat_completion_context(&source, cursor);
+            let got = (!context.no_properties).then_some({
+                (
+                    context.typed.as_str(),
+                    context.value_key.as_deref(),
+                    context.value_needs_space,
+                )
+            });
+            let replace_ok = context.replace_end == cursor
+                && context.replace_start == cursor - context.typed.len();
+            if got != *expected || !replace_ok {
+                failures.push(format!("{marked:?}: {got:?}, expected {expected:?}"));
+            }
+        }
+        assert!(failures.is_empty(), "{failures:#?}");
+    }
 
     fn dot() -> LanguageConfig {
         LanguageConfig {

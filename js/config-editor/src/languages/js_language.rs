@@ -25,9 +25,11 @@ const TOKEN_KINDS: &str = "\"key\", \"string\", \"value\", \"literal\", \"commen
 /// with positions, conversion to and from every other language, Edit-as,
 /// the editing behavior its configuration describes, and schema completion
 /// and hover: through its optional `contextAt`, `insertKey` and `keyAt`
-/// callbacks, each one in place of its part of the flat default that its
-/// `separators` give (one `KEY=value` entry per line; see
-/// [`LanguageConfig::flat_completion_context`]). A flat language without
+/// callbacks, each one in place of its part of the default its declared
+/// syntax gives (`KEY=value` lines and values written on one line between
+/// its brackets, see [`LanguageConfig::flat_completion_context`]; entries
+/// written as its `serialize` writes them, see [`flat_write_insert`]). A
+/// flat language without
 /// `keySpan` / `valueSpan` (or where they return `null` or `undefined`)
 /// has its fields found on their lines; any other
 /// has its read-only fields checked by value alone. Constructs written over

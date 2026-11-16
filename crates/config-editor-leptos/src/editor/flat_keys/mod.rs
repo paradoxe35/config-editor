@@ -37,9 +37,12 @@ impl LanguageConfig {
         Some(self.written_separator.unwrap_or(separator).to_string())
     }
 
-    /// [`ConfigLanguage::write_insert`](super::language::ConfigLanguage::write_insert)
-    /// for a flat language: the key and [`flat_separator`](Self::flat_separator),
-    /// the caret after them. `None` without separators.
+    /// The key and [`flat_separator`](Self::flat_separator), the caret
+    /// after them: what a language writes for a new key with no writer of
+    /// its own (the default
+    /// [`ConfigLanguage::write_insert`](super::language::ConfigLanguage::write_insert),
+    /// and [`flat_write_insert`] when `serialize` refuses the entry).
+    /// `None` without separators.
     ///
     /// ```
     /// use config_editor_leptos::language::LanguageConfig;
@@ -392,7 +395,7 @@ struct FlatEntry {
 mod tests {
     use super::*;
 
-    const ENV: LanguageConfig = LanguageConfig {
+    pub(super) const ENV: LanguageConfig = LanguageConfig {
         line_comments: &["#"],
         block_comment: None,
         brackets: &[],
@@ -407,49 +410,11 @@ mod tests {
         traits: crate::editor::language::LanguageTraits::NONE,
     };
 
-    const COLON: LanguageConfig = LanguageConfig {
+    pub(super) const COLON: LanguageConfig = LanguageConfig {
         separators: &[":"],
         written_separator: Some(": "),
         ..ENV
     };
-
-    #[test]
-    fn contexts_on_flat_lines() {
-        // (source with `|` for the caret, typed, value key, needs a space)
-        type Expected = Option<(&'static str, Option<&'static str>, bool)>;
-        let cases: &[(&LanguageConfig, &str, Expected)] = &[
-            (&ENV, "|", Some(("", None, false))),
-            (&ENV, "PO|", Some(("PO", None, false))),
-            (&ENV, "A=1\n  PO|", Some(("PO", None, false))),
-            (&ENV, "export PO|", Some(("PO", None, false))),
-            (&ENV, "PORT=|", Some(("", Some("PORT"), false))),
-            (&ENV, "PORT = 80|", Some(("80", Some("PORT"), false))),
-            (&ENV, "URL=a=b|", Some(("a=b", Some("URL"), false))),
-            (&COLON, "level:|", Some(("", Some("level"), true))),
-            (&COLON, "level: d|", Some(("d", Some("level"), false))),
-            (&ENV, "# PO|", None),
-            (&ENV, "=x|", None),
-        ];
-        let mut failures = Vec::new();
-        for (config, marked, expected) in cases {
-            let cursor = marked.find('|').unwrap();
-            let source = marked.replace('|', "");
-            let context = config.flat_completion_context(&source, cursor);
-            let got = (!context.no_properties).then_some({
-                (
-                    context.typed.as_str(),
-                    context.value_key.as_deref(),
-                    context.value_needs_space,
-                )
-            });
-            let replace_ok = context.replace_end == cursor
-                && context.replace_start == cursor - context.typed.len();
-            if got != *expected || !replace_ok {
-                failures.push(format!("{marked:?}: {got:?}, expected {expected:?}"));
-            }
-        }
-        assert!(failures.is_empty(), "{failures:#?}");
-    }
 
     #[test]
     fn no_separators_no_context() {
