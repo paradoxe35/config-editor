@@ -339,6 +339,8 @@ mod schema_walk;
 mod deep_option_completion_work;
 #[cfg(all(feature = "yaml", feature = "json"))]
 mod drag_under_switch;
+#[cfg(all(feature = "yaml", feature = "json", feature = "toml"))]
+mod duplicate_parent_suggestions;
 #[cfg(all(feature = "json", feature = "xml", feature = "schema-validation"))]
 mod edit_as_host_problems;
 #[cfg(all(
