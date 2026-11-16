@@ -2093,3 +2093,83 @@ fn a_cut_after_an_undo_in_a_switched_view_saves_what_the_view_reads() {
         ],
     );
 }
+
+/// P2: an entry copied in a JSON view of a TOML host and pasted in a YAML
+/// view: the original, left alone, keeps its host text (`3.5e2`).
+#[test]
+fn a_value_copied_across_views_leaves_the_originals_text_alone() {
+    replay(
+        Language::TOML,
+        Language::JSON,
+        "[beta]\nk5 = 3.5e2\n",
+        &[
+            Op::Copy {
+                line: 61,
+                how: Take::Entry,
+            },
+            Op::Switch { to: 0 },
+            Op::Paste {
+                line: 55,
+                how: Put::Before,
+            },
+        ],
+    );
+}
+
+/// P2: a line copied up in an XML view of a YAML host: the original list
+/// item, left alone, keeps its host text (`'q'`).
+#[test]
+fn a_line_copied_in_a_view_leaves_the_originals_text_alone() {
+    replay(
+        Language::YAML,
+        Language::XML,
+        "alpha:\n  k1:\n    - !Ref A\n    - 'q'\n    - 3\n  k2: >-\n  k3: plain words\nbeta:\n  k4: [a, 'b', 3] # note 5\n  k5: !Ref Param\n",
+        &[
+            Op::MoveLine {
+                line: 40,
+                down: true,
+            },
+            Op::CopyLine {
+                line: 1,
+                down: false,
+            },
+        ],
+    );
+}
+
+/// P2: a TOML host shown as HCL, then as YAML: a comment pasted over a
+/// line in the view is saved, or the save waits saying why.
+#[test]
+fn a_comment_pasted_over_a_line_in_a_switched_view_is_saved() {
+    replay(
+        Language::TOML,
+        Language::HCL,
+        "# note 2\n[alpha]\nk1 = [1, 0x2, 3]\n# note 1\nk2 = 3.5e2\n\n# note 6\n[beta]\n# note 3\nk3 = 1_000\n# note 4\nk4 = 0x1F # note 5\nk5 = 0x1F\n\n[gamma]\nk6 = [1, 0x2, 3]\nk7 = true\nk8 = 0o17\n",
+        &[
+            Op::Switch { to: 2 },
+            Op::Copy {
+                line: 28,
+                how: Take::Line,
+            },
+            Op::Switch { to: 3 },
+            Op::Paste {
+                line: 13,
+                how: Put::Before,
+            },
+            Op::Backspace {
+                line: 54,
+                column: 1000,
+                count: 1,
+            },
+            Op::Switch { to: 0 },
+            Op::Paste {
+                line: 0,
+                how: Put::Before,
+            },
+            Op::Paste {
+                line: 8,
+                how: Put::OverLine,
+            },
+        ],
+    );
+}
