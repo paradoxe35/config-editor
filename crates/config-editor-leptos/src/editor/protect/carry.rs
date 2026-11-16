@@ -189,6 +189,14 @@ impl<'a> Moves<'a> {
         })
     }
 
+    /// The UTF-16 range of the text before that the edit replaced, the
+    /// range of the text after it wrote there, and that text.
+    pub(super) fn replaced(&self) -> (Range<usize>, Range<usize>, String) {
+        let wrote = self.prefix..self.new_len - self.suffix;
+        let written = String::from_utf16_lossy(&self.new[wrote.clone()]);
+        (self.prefix..self.old_len - self.suffix, wrote, written)
+    }
+
     /// `span` moved as `old` moved to `new`, when it is on the line `old`
     /// starts on and its text is written there in the text after.
     fn along(

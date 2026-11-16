@@ -1,6 +1,7 @@
 //! How protected fields are worded, from the `strings` setting, and the
 //! defaults of secret placeholders that are patterns, not texts.
 
+use super::locks::HoldCause;
 use crate::EditorStrings;
 use crate::strings::fill;
 
@@ -64,14 +65,38 @@ pub(crate) fn save_waits(strings: &EditorStrings, pointer: &str) -> String {
 }
 
 /// A save waiting while the read-only field at `pointer`, locked for
-/// `reason`, reads otherwise than the host gave it (a duplicate shadows it,
-/// it moved).
-pub(crate) fn save_held(strings: &EditorStrings, pointer: &str, reason: &Reason) -> String {
+/// `reason`, is held for `cause` (see `locks::Protected::held`).
+pub(crate) fn save_held(
+    strings: &EditorStrings,
+    pointer: &str,
+    reason: &Reason,
+    cause: HoldCause,
+) -> String {
     let place = if pointer.is_empty() { "/" } else { pointer };
+    let template = match cause {
+        HoldCause::Duplicate => &strings.save_held_duplicate,
+        HoldCause::Renamed => &strings.save_held_renamed,
+        HoldCause::Moved => &strings.save_held_moved,
+        HoldCause::ListItem => &strings.save_held_list_item,
+        HoldCause::Commented => &strings.save_held_commented,
+        HoldCause::Removed => &strings.save_held_removed,
+        HoldCause::Added => &strings.save_held_added,
+        HoldCause::Spanless => &strings.save_held_spanless,
+        HoldCause::RangeMoved => &strings.save_held_range,
+        HoldCause::ChangedBeforeLock => &strings.save_held_before_lock,
+        HoldCause::Unclear => &strings.save_held,
+    };
     fill(
-        &strings.save_held,
+        template,
         &[("pointer", &place), ("reason", &reason.text(strings))],
     )
+}
+
+/// A save waiting while the secret field at `pointer` reads text beside a
+/// placeholder the host gave as its whole value.
+pub(crate) fn save_held_placeholder(strings: &EditorStrings, pointer: &str) -> String {
+    let place = if pointer.is_empty() { "/" } else { pointer };
+    fill(&strings.save_held_placeholder, &[("pointer", &place)])
 }
 
 /// A placeholder the host did not give, in a secret field.
