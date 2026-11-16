@@ -519,8 +519,16 @@ pub(super) fn check(case: &LiveCase) -> Result<(), Failure> {
             }),
         };
         let fresh_owner = Owner::new();
+        // The fresh editor's host text is its first, whose leading U+FEFF
+        // is the byte order mark: a document starting with one (a string's,
+        // which a cut brought there) is handed over after a mark.
+        let host_text = if after.starts_with('\u{feff}') {
+            crate::editor::byte_order_mark::marked(after.clone())
+        } else {
+            after.clone()
+        };
         let mut new = fresh_owner.with(|| {
-            let fresh = mount(case, &after, fresh_props, schema.clone());
+            let fresh = mount(case, &host_text, fresh_props, schema.clone());
             seen(fresh, ranges_placed)
         });
         fresh_owner.cleanup();

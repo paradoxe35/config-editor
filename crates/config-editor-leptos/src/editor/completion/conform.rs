@@ -150,6 +150,14 @@ fn reread_for_object(value: &mut Value, at: &Entry<'_>, children: &[Entry<'_>], 
         if item && read_kept(value, &slot, at, root, Reading::Item) {
             return;
         }
+        // The one item read the other way (`<x>-3</x>` as `["-3"]` where
+        // the list asks a text and the number alone is refused).
+        if item
+            && let Some(other) = value.pointer(&slot).and_then(other_reading)
+            && read_kept(value, &slot, at, root, Reading::ItemOf(other))
+        {
+            return;
+        }
     }
     // A scalar one level further down, which an option of this object
     // (not of the child holding it) refuses as read.
@@ -193,6 +201,8 @@ enum Reading {
     Other(Value),
     /// The value as a list's one item.
     Item,
+    /// This value as a list's one item.
+    ItemOf(Value),
 }
 
 /// The value at `slot` of `value` read as `reading`, kept where the
@@ -209,6 +219,7 @@ fn read_kept(
     };
     let before = match reading {
         Reading::Other(other) => Some(std::mem::replace(held, other)),
+        Reading::ItemOf(other) => Some(std::mem::replace(held, Value::Array(vec![other]))),
         Reading::Item => {
             *held = Value::Array(vec![held.take()]);
             None

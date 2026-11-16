@@ -368,6 +368,23 @@ fn a_feff_cut_to_the_start_is_text_not_a_byte_order_mark() {
     }
 }
 
+/// A cut that leaves a string's U+FEFF first in a live editor's text: it
+/// is a character of the document there, and a fresh editor on the same
+/// document reads the same text and problems.
+#[test]
+fn a_feff_cut_to_the_start_of_a_live_editor_is_text_as_in_a_fresh_one() {
+    use super::live::Step;
+    super::live::replay(super::live::LiveCase {
+        language: "TOML",
+        schema: false,
+        text: "\"é\" = \"\u{feff}\"\n".into(),
+        steps: vec![Step::Cut {
+            at: 1348233,
+            to: 11198418,
+        }],
+    });
+}
+
 /// P1: Enter between a JSON key inside a locked map and its scalar: the
 /// map's lock covers the scalar below the key and the map's closer, as in
 /// a fresh editor.
