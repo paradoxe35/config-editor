@@ -25,6 +25,9 @@ pub(in crate::editor) struct Replaced {
     pub(in crate::editor) first: Range<usize>,
     /// Matches left alone because `skip` refused them.
     pub(in crate::editor) skipped: usize,
+    /// Each match replaced: its byte range in the text before, and what
+    /// was written there.
+    pub(in crate::editor) pieces: Vec<(Range<usize>, String)>,
 }
 
 /// The document with every match replaced except those `skip` refuses
@@ -41,6 +44,7 @@ pub(in crate::editor) fn replace_all_except(
     let mut count = 0;
     let mut skipped = 0;
     let mut first = None;
+    let mut pieces = Vec::new();
     let mut from = 0;
     while let Some(found) = matcher.find_from(text, from) {
         from = Matcher::after(text, &found);
@@ -56,6 +60,7 @@ pub(in crate::editor) fn replace_all_except(
         result.push_str(&inserted);
         copied = found.end;
         count += 1;
+        pieces.push((found, inserted));
     }
     let first = first?;
     result.push_str(&text[copied..]);
@@ -64,6 +69,7 @@ pub(in crate::editor) fn replace_all_except(
         count,
         first,
         skipped,
+        pieces,
     })
 }
 

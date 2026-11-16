@@ -1,7 +1,8 @@
 //! Map keys put in another order in a view: each entry's lines move with
 //! the comment lines right above it, so the host reads its keys in the
-//! view's order (round 26: the order never reached the host).
+//! view's order.
 
+use super::super::item_sources::SaveTold;
 use super::super::language::ConfigLanguage;
 use super::super::paths;
 use super::reorder::{comment_only, indent_of};
@@ -38,6 +39,7 @@ pub(in super::super) fn patch_key_order(
     old: &Value,
     new: &Value,
     schema: Option<&Value>,
+    _told: SaveTold<'_>,
 ) -> Option<String> {
     if old != new || same_order(old, new) {
         return None;

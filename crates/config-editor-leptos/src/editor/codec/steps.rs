@@ -9,7 +9,11 @@ use std::collections::HashMap;
 /// The values between `old` and `new`, ending with `new`: `old` with its
 /// changed scalars set, then with each container whose keys or length
 /// changed made like `new`'s, one at a time. Empty when there is one step.
-pub(in super::super) fn steps(old: &Value, new: &Value) -> Vec<Value> {
+pub(in super::super) fn steps(
+    old: &Value,
+    new: &Value,
+    sources: Option<&ItemSources>,
+) -> Vec<Value> {
     let mut steps = Vec::new();
     let scalars = with_scalar_changes(old, new);
     if scalars != *old && scalars != *new {
@@ -18,11 +22,10 @@ pub(in super::super) fn steps(old: &Value, new: &Value) -> Vec<Value> {
     let mut current = steps.last().cloned().unwrap_or_else(|| old.clone());
     // The keys the edit brought from elsewhere (cut and pasted, its links
     // tell) are added first, while each is still where it came from: the
-    // save writes it from there, in its host's form (QA `E38-2`: an XML
-    // element with markup pasted over another's line was written in a
-    // step after its source was gone, its markup lost).
-    if let Some(sources) = super::super::item_sources::told_to_save() {
-        let brought = with_brought(&current, new, "", &sources);
+    // save writes it from there, in its host's form (an XML element pasted over
+    // another's line keeps its markup).
+    if let Some(sources) = sources {
+        let brought = with_brought(&current, new, "", sources);
         if brought != current && brought != *new {
             steps.push(brought.clone());
             current = brought;
@@ -40,9 +43,12 @@ pub(in super::super) fn steps(old: &Value, new: &Value) -> Vec<Value> {
 
 /// `old` with the keys renamed that the save's links tell were renamed in
 /// `new`, each holding what it held; `None` when they tell none.
-pub(in super::super) fn renamed_by_links(old: &Value, new: &Value) -> Option<Value> {
-    let sources = super::super::item_sources::told_to_save()?;
-    let renamed = with_told_renames(old, new, "", &sources);
+pub(in super::super) fn renamed_by_links(
+    old: &Value,
+    new: &Value,
+    sources: Option<&ItemSources>,
+) -> Option<Value> {
+    let renamed = with_told_renames(old, new, "", sources?);
     (renamed != *old).then_some(renamed)
 }
 
@@ -311,7 +317,7 @@ mod tests {
     fn a_save_of_several_edits_splits_into_values_then_one_structure_at_a_time() {
         let old = json!({"listen": 1, "udp": {"max_peers": 2}, "self": {"allow": ["a"]}, "pool": {"min": 1}});
         let new = json!({"listen": 2, "udp": {"max_peers": 2}, "self": {"allow": ["a", "b"]}, "pool": {"min": 1, "max": 3}});
-        let steps = steps(&old, &new);
+        let steps = steps(&old, &new, None);
         assert_eq!(steps.len(), 3);
         assert_eq!(steps[0]["listen"], 2);
         assert_eq!(steps[0]["self"]["allow"], json!(["a"]));
@@ -319,6 +325,6 @@ mod tests {
         assert_eq!(steps[1]["pool"], json!({"min": 1}));
         assert_eq!(steps[2], new);
         // One edit: no steps.
-        assert!(super::steps(&old, &json!({"listen": 1, "udp": {"max_peers": 3}, "self": {"allow": ["a"]}, "pool": {"min": 1}})).is_empty());
+        assert!(super::steps(&old, &json!({"listen": 1, "udp": {"max_peers": 3}, "self": {"allow": ["a"]}, "pool": {"min": 1}}), None).is_empty());
     }
 }

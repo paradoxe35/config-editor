@@ -7,6 +7,7 @@
 //! was; one the edit changed is written out by the serializer instead.
 
 use super::super::flow_syntax::Flow;
+use super::super::item_sources::ItemSources;
 use super::super::language::{ConfigLanguage, OneLine, Span};
 use super::escape;
 use serde_json::Value;
@@ -83,12 +84,13 @@ pub(super) fn hide(
     previous: &str,
     old: &Value,
     new: &Value,
+    sources: Option<&ItemSources>,
 ) -> Option<Kept> {
     if previous.contains("config-editor-kept-") {
         return None;
     }
     let kept = hide_in_place(language, previous, old, new);
-    moved::with_moved(language, previous, old, new, kept)
+    moved::with_moved(language, previous, old, new, kept, sources)
 }
 
 /// [`hide`] of the containers where `previous` writes them.

@@ -321,12 +321,8 @@ impl EditorState {
         } else if matches!(origin, Origin::Command | Origin::Input { .. }) {
             let mut links = before.links.clone();
             self.sync().clipboard.update_value(|clipboard| {
-                links.edited(
-                    language.behavior(),
-                    &edit.before,
-                    &edit.replaced_splices(),
-                    clipboard,
-                );
+                let pieces = bridge::links::pieces(edit, clipboard);
+                links.edited(language.behavior(), &edit.before, &pieces, clipboard);
             });
             links
         } else if saved {
@@ -358,12 +354,13 @@ impl EditorState {
         language: Language,
         text: &str,
         previous: &str,
-    ) -> Option<bridge::links::Told> {
+    ) -> (Option<bridge::links::Told>, Vec<bridge::links::Untouched>) {
         let identity = bridge.host.behavior().items_hold_unshown(previous);
         let mut links = self.sync().links.get_value();
         let told = links.told(language.behavior(), text, previous, identity);
+        let untouched = links.untouched(language.behavior(), text);
         self.sync().links.set_value(links);
-        told
+        (told, untouched)
     }
 
     /// `text` (UTF-16 `start..end` of the text on screen) copied or cut:
@@ -701,10 +698,12 @@ pub(super) fn convert_now(state: EditorState, text: String, language: Language) 
                 // Which host item each item is, as the edits kept it; a
                 // host whose items hold what no view shows (XML markup)
                 // reads it even when only typed.
-                let told = on_screen
-                    .then(|| state.told(&bridge, language, &text, &previous))
-                    .flatten();
-                bridge.to_host_linked(&text, &previous, &origin, told.as_ref())
+                let (told, untouched) = if on_screen {
+                    state.told(&bridge, language, &text, &previous)
+                } else {
+                    Default::default()
+                };
+                bridge.to_host_linked(&text, &previous, &origin, told.as_ref(), &untouched)
             }
         };
         // However the edit got there, the gate decides whether the host
@@ -778,12 +777,13 @@ pub(super) fn save_pending(state: EditorState) {
     };
     let (host, origin) = (session.host.to_string(), session.origin.to_string());
     // Told which item is which by the links, as a pause's save is.
-    let told = state
+    let (told, untouched) = state
         .sync()
         .links
         .try_get_value()
-        .and_then(|_| state.told(&bridge, edit, &text, &host));
-    if let Ok(saved) = bridge.to_host_linked(&text, &host, &origin, told.as_ref())
+        .map(|_| state.told(&bridge, edit, &text, &host))
+        .unwrap_or_default();
+    if let Ok(saved) = bridge.to_host_linked(&text, &host, &origin, told.as_ref(), &untouched)
         && saved != host
         && state.admit(&host, &saved, Made::Converted).is_ok()
     {
@@ -969,9 +969,15 @@ pub(super) fn switch_to(state: EditorState, next: Language) {
             .filter(|_| next == state.config().host_language)
         {
             Some(bridge) => {
-                let told = state.told(&bridge, current, &text, &host_text);
+                let (told, untouched) = state.told(&bridge, current, &text, &host_text);
                 bridge
-                    .to_host_linked(&text, &host_text, &state.sync().origin(), told.as_ref())
+                    .to_host_linked(
+                        &text,
+                        &host_text,
+                        &state.sync().origin(),
+                        told.as_ref(),
+                        &untouched,
+                    )
                     .and_then(|saved| {
                         // The guard holding the text shows it in the host's
                         // language, the host not told; a save the host

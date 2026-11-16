@@ -11,7 +11,7 @@ use leptos::prelude::*;
 use web_sys::KeyboardEvent;
 
 use super::super::bridge::links::Splice;
-use super::super::commands::indent_lines_through;
+use super::super::commands::{Indented, indented_through};
 use super::super::edit::Edit;
 use super::super::fold_ranges::FoldRange;
 use super::super::state::{EditorState, is_backward, select, textarea_selection};
@@ -174,8 +174,12 @@ fn indent(
         return;
     };
     let unit = state.doc().indent.get_value();
-    let Some((updated, selection_start, selection_end)) =
-        indent_lines_through(&text, (start, end), through, outdent, &unit)
+    let Some(Indented {
+        text: updated,
+        start: selection_start,
+        end: selection_end,
+        pieces,
+    }) = indented_through(&text, (start, end), through, outdent, &unit)
     else {
         return;
     };
@@ -185,7 +189,7 @@ fn indent(
         (selection_start, selection_end)
     };
     let made = if updated != text {
-        let splices = Splice::per_line(&text, &updated);
+        let splices = Some(Splice::each(pieces));
         let made = Edit::new(text, (start, end), updated, caret)
             .selecting_from(anchor)
             .splicing(splices);

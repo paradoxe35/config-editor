@@ -10,7 +10,9 @@
 
 use crate::editor::Language;
 use crate::editor::bridge::Bridge;
-use crate::editor::bridge::links::{Clipboard, Links, Splice};
+use crate::editor::bridge::links::{Clipboard, Links, pieces};
+use crate::editor::edit::Edit;
+use crate::editor::input::UNKNOWN_SELECTION;
 use crate::editor::save_matrix::report;
 
 const XSI: &str = "xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\"";
@@ -92,15 +94,17 @@ fn session(
     for step in steps {
         match step {
             Step::Edit(next, caret) => {
-                let splices = Splice::of(&view, &next, (usize::MAX, usize::MAX), caret);
-                links.edited(edit.behavior(), &view, &splices, &mut clipboard);
+                // An edit that says nothing of what it replaced.
+                let made = Edit::new(view.clone(), UNKNOWN_SELECTION, next.clone(), caret);
+                let pieces = pieces(&made, &clipboard);
+                links.edited(edit.behavior(), &view, &pieces, &mut clipboard);
                 view = next;
             }
             Step::Pause => {
                 let identity = Language::XML.behavior().items_hold_unshown(&saved);
                 let told = links.told(edit.behavior(), &view, &saved, identity);
                 saved = bridge
-                    .to_host_linked(&view, &saved, host, told.as_ref())
+                    .to_host_linked(&view, &saved, host, told.as_ref(), &[])
                     .map_err(|error| format!("{error:?}"))?;
                 links = Links::fresh(&saved, &view);
             }

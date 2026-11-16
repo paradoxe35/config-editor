@@ -2,7 +2,7 @@
 //! language showed of it.
 
 use super::super::codec::{canonical, same_order};
-use super::super::item_sources::ItemSource;
+use super::super::item_sources::{ItemSource, ItemSources};
 use super::super::language::{ConfigLanguage, Repetition};
 use serde_json::{Map, Value};
 
@@ -46,6 +46,8 @@ pub(super) struct View<'a> {
     /// one as its item (an HCL block) reads it as a list only where the
     /// schema says so, under its key.
     pub(super) host_repetition: Repetition,
+    /// Which host item each item is, when the edit's links tell it.
+    pub(super) told: Option<&'a ItemSources>,
 }
 
 /// Whether the keys `edited` holds in another order than `seen` were moved
@@ -171,12 +173,11 @@ fn merge_at(
             }
             // A key gone and a new one in its place, its value changed
             // too (a Replace All over a key and the values inside it): the
-            // same entry renamed, its values merged as the host holds them
-            // (QA `E33-2`).
+            // same entry renamed, its values merged as the host holds them.
             // Not where the links tell the old entry went inside the new
             // one (a block's label typed before its body: a level added,
             // no rename).
-            let told = super::super::item_sources::told_to_save();
+            let told = view.told;
             let nested = |old: &str, key: &str| {
                 told.as_ref().is_some_and(|told| {
                     let (old, key) = (child(old), format!("{}/", child(key)));

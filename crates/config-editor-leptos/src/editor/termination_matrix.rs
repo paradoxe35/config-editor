@@ -220,7 +220,11 @@ fn edit_all(language: Language, edit_as: Option<Language>, text: &str) {
         enter_at(state, (offset, offset), Pressed::LineAbove, None);
         read_view(state);
         let _ = handle.value();
-        state.doc().text.set(before);
+        // Back to the text before, as an edit (the views' links follow
+        // every write of the text).
+        let now = state.doc().text.get_untracked();
+        let end = now.encode_utf16().count();
+        state.commit(super::edit::Edit::new(now, (0, end), before, 0));
     }
 }
 

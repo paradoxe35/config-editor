@@ -432,10 +432,10 @@ pub(super) fn apply(
                 return;
             }
             let word = &words[pick % words.len()];
-            let replaced = replace_words(&text, word, &format!("{word}{suffix}"));
+            let (replaced, pieces) = replace_words(&text, word, &format!("{word}{suffix}"));
             let caret = units(&replaced);
             // As the Replace all command says what it replaced.
-            let splices = crate::editor::bridge::links::Splice::per_line(&text, &replaced);
+            let splices = Some(crate::editor::bridge::links::Splice::each(pieces));
             state.commit(Edit::new(text, (0, 0), replaced, caret).splicing(splices));
         }
         Op::PasteWhole { line } => {
@@ -483,8 +483,13 @@ pub(super) fn words(text: &str) -> Vec<String> {
 }
 
 /// `text` with every whole word `word` replaced by `with`.
-fn replace_words(text: &str, word: &str, with: &str) -> String {
+fn replace_words(
+    text: &str,
+    word: &str,
+    with: &str,
+) -> (String, Vec<(std::ops::Range<usize>, String)>) {
     let mut out = String::new();
+    let mut pieces = Vec::new();
     let mut rest = text;
     let part = |character: char| character.is_alphanumeric() || character == '_';
     while let Some(at) = rest.find(word) {
@@ -494,12 +499,14 @@ fn replace_words(text: &str, word: &str, with: &str) -> String {
         if before.is_some_and(part) || after.is_some_and(part) {
             out.push_str(word);
         } else {
+            let start = text.len() - rest.len() + at;
+            pieces.push((start..start + word.len(), with.to_string()));
             out.push_str(with);
         }
         rest = &rest[at + word.len()..];
     }
     out.push_str(rest);
-    out
+    (out, pieces)
 }
 
 /// `text` with line `line` changed a little: its last digit made a 7, or

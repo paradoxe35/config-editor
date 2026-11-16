@@ -252,8 +252,8 @@ pub(in crate::editor) fn replace_all(state: EditorState) {
         .textarea()
         .map_or((0, 0), |element| textarea_selection(&element));
     let caret = utf16(&replaced.text, replaced.first.end);
-    // Each line's change its own (an Edit-as view's items keep their links).
-    let splices = Splice::per_line(&before, &replaced.text);
+    // Each match its own change (an Edit-as view's items keep their links).
+    let splices = Some(Splice::each(replaced.pieces));
     if !state.commit(Edit::new(before, selection, replaced.text, caret).splicing(splices)) {
         return;
     }

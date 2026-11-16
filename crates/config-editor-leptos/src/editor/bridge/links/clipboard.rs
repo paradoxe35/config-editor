@@ -103,13 +103,22 @@ fn put(shape: &Shape, links: &[Placed]) -> Vec<Link> {
         .collect()
 }
 
-/// The links `links` of `removed` (from its start) on `inserted`, when
-/// it is the same text, its indents written otherwise (lines re-indented
-/// in place).
-pub(super) fn reindented(removed: &str, links: Vec<Link>, inserted: &str) -> Option<Vec<Link>> {
-    let (key, placed) = placed(removed, links)?;
-    let shape = Shape::of(inserted)?;
-    (shape.key == key).then(|| put(&shape, &placed))
+/// Whether `inserted` is `removed` written again, its lines indented
+/// otherwise.
+pub(super) fn same_shape(removed: &str, inserted: &str) -> bool {
+    match (Shape::of(removed), Shape::of(inserted)) {
+        (Some(removed), Some(inserted)) => removed.key == inserted.key,
+        _ => false,
+    }
+}
+
+/// The links `links` of `removed` (from its start) on `inserted`, the
+/// same text with its lines indented otherwise (see [`same_shape`]).
+pub(super) fn reindented(removed: &str, links: Vec<Link>, inserted: &str) -> Vec<Link> {
+    match (placed(removed, links), Shape::of(inserted)) {
+        (Some((_, placed)), Some(shape)) => put(&shape, &placed),
+        _ => Vec::new(),
+    }
 }
 
 impl Clipboard {

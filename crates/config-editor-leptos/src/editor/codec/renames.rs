@@ -5,19 +5,21 @@
 //! scalar was (`listen = 1 # port` → `listen = { inner = 1 } # port`).
 //! Each is kept only if it reads back as the new document.
 
+use super::super::item_sources::SaveTold;
 use super::super::language::{ConfigLanguage, Span};
 use super::{byte_range, escape, reads_as, through_long_quote};
 use serde_json::Value;
 
 /// `previous` with renamed keys renamed where they are written, when `new`
 /// is `old` with only keys renamed (same values, same positions): an
-/// inline table renamed with the keys inside it stays inline (QA `E32-5`).
+/// inline table renamed with the keys inside it stays inline.
 pub(in super::super) fn patch_renames(
     language: &dyn ConfigLanguage,
     previous: &str,
     old: &Value,
     new: &Value,
     schema: Option<&Value>,
+    _told: SaveTold<'_>,
 ) -> Option<String> {
     let mut renames = Vec::new();
     renamed_keys(old, new, String::new(), &mut renames)?;
@@ -190,6 +192,7 @@ pub(in super::super) fn patch_scalar_to_container(
     old: &Value,
     new: &Value,
     schema: Option<&Value>,
+    _told: SaveTold<'_>,
 ) -> Option<String> {
     let pointer = only_change(old, new, String::new())?;
     let value = new.pointer(&pointer)?;

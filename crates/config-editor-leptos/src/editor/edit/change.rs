@@ -181,11 +181,13 @@ impl<U: Unit> Change<U> {
         Some((before, start..end))
     }
 
+    /// The stretches of the text before the change moved whole, by where
+    /// they were.
+    pub(crate) fn moved(&self) -> &[Moved] {
+        &self.moved
+    }
+
     /// The replacements, as ranges of the text before and their texts.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "read by the tests of the change")
-    )]
     pub(crate) fn edits(&self) -> impl Iterator<Item = (Range<usize>, &str)> {
         self.replaced
             .iter()

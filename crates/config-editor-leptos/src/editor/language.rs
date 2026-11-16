@@ -67,6 +67,7 @@ pub use super::fold_ranges::{
     indent_fold_ranges, merge_fold_ranges, string_body_fold_ranges,
 };
 pub use super::highlight::{ConstructKind, MultilineConstruct, Token, TokenKind, Tokens};
+pub use super::item_sources::SaveTold;
 pub use super::keyboard::utf16_to_byte_index;
 pub use super::languages::inline::{
     InlineCaret, InlineEntry, InlineKey, caret_value_end, entry_follows, in_front_of_inline_entry,
@@ -1828,9 +1829,26 @@ pub trait SaveLayout {
     /// readers: an HCL block and an object attribute (`name = { … }`), an
     /// expression (`var.x`, read as `${var.x}`) and a literal string. A
     /// patch that switches one is not taken, and a save that would write
-    /// one waits.
-    fn changed_form(&self, previous: &str, patched: &str) -> Option<String> {
-        let _ = (previous, patched);
+    /// one waits. `told` says which host item each saved item is, when the
+    /// edit's links tell it (a map moved keeps its form).
+    fn changed_form(&self, previous: &str, patched: &str, told: SaveTold<'_>) -> Option<String> {
+        let _ = (previous, patched, told);
+        None
+    }
+
+    /// The document for `value` written by an Edit-as save over `previous`
+    /// (the host's text), told which host item each item of `value` is
+    /// (see [`SaveTold`]): a write that takes each item's markup or form
+    /// from its host item (XML elements, HCL blocks) takes it from the item
+    /// the edit moved. `None` (the default) writes it as
+    /// [`ConfigLanguage::serialize`] does.
+    fn serialize_over(
+        &self,
+        value: &Value,
+        previous: Option<&str>,
+        told: SaveTold<'_>,
+    ) -> Option<Result<String, String>> {
+        let _ = (value, previous, told);
         None
     }
 
@@ -2469,8 +2487,29 @@ impl dyn ConfigLanguage {
     }
 
     /// See [`SaveLayout::changed_form`].
-    pub fn changed_form(&self, previous: &str, patched: &str) -> Option<String> {
-        self.layout().changed_form(previous, patched)
+    pub fn changed_form(
+        &self,
+        previous: &str,
+        patched: &str,
+        told: SaveTold<'_>,
+    ) -> Option<String> {
+        self.layout().changed_form(previous, patched, told)
+    }
+
+    /// See [`SaveLayout::serialize_over`].
+    ///
+    /// # Errors
+    ///
+    /// As [`ConfigLanguage::serialize`].
+    pub fn serialize_over(
+        &self,
+        value: &Value,
+        previous: Option<&str>,
+        told: SaveTold<'_>,
+    ) -> Result<String, String> {
+        self.layout()
+            .serialize_over(value, previous, told)
+            .unwrap_or_else(|| self.serialize(value, previous))
     }
 
     /// See [`SaveLayout::changed_form_reason`].

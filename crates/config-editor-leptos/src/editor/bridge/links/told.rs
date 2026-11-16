@@ -8,8 +8,8 @@ use super::super::super::language::ConfigLanguage;
 use super::super::super::parse_cache;
 use super::super::super::work_count::{Work, note, note_many};
 use super::items::items;
-use super::{Link, Links, Source, content};
-use std::collections::{BTreeMap, HashMap};
+use super::{Link, Links, Shown, Source, content};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 
 /// What a save is told of the view's items: each one's source, by its
@@ -28,7 +28,7 @@ pub(crate) struct Told {
 /// Whether `before` and `after` (in `language`) read as values with the
 /// same keys in the same order and lists of the same lengths, all the
 /// way down; `false` when either does not read.
-fn same_keys(language: &dyn ConfigLanguage, before: &str, after: &str) -> bool {
+pub(super) fn same_keys(language: &dyn ConfigLanguage, before: &str, after: &str) -> bool {
     fn shape(left: &serde_json::Value, right: &serde_json::Value) -> bool {
         use serde_json::Value;
         match (left, right) {
@@ -109,9 +109,9 @@ impl Links {
     ) -> Option<Told> {
         // Typing only, its keys all where they were: each item is where
         // the patches find it by its values. Typing that renames a key or
-        // a table's header moves every item under it (QA `FZ38-4`).
+        // a table's header moves every item under it.
         // Not when the links are of another host text than the last (an
-        // undo back past a save, QA `FZ38-12`): its items are no longer
+        // undo back past a save): its items are no longer
         // where the last text has them.
         if let Links::Fresh { base, host, .. } = self
             && !identity
@@ -172,7 +172,7 @@ impl Links {
     /// Each item of `text` (in `language`) with a link, and its source:
     /// paired with the links starting on its first line, outermost first;
     /// `None` when no item has one.
-    fn paired(
+    pub(super) fn paired(
         &mut self,
         language: &dyn ConfigLanguage,
         text: &str,
@@ -271,6 +271,14 @@ impl Links {
         language: &dyn ConfigLanguage,
         text: &str,
     ) -> Links {
+        // The scalars the user left as the editor wrote them, which the
+        // new text writes at the same pointers.
+        let kept: Arc<HashSet<String>> = Arc::new(
+            self.untouched(from_language, from_text)
+                .into_iter()
+                .map(|untouched| untouched.pointer)
+                .collect(),
+        );
         let sources: HashMap<String, Arc<Source>> = self
             .paired(from_language, from_text)
             .unwrap_or_default()
@@ -288,14 +296,25 @@ impl Links {
             Ok(before) => super::super::moved_forms::as_written(before, pointer),
             Err(_) => pointer.to_string(),
         };
+        // The switch wrote the new text: its items are shown there.
+        let shown: Arc<str> = Arc::from(text);
         let mut links: Vec<Link> = items(language, text, value)
             .into_iter()
             .filter_map(|item| {
                 let source = sources
                     .get(&item.pointer)
-                    .or_else(|| sources.get(&spelled(&item.pointer)))?
-                    .clone();
+                    .or_else(|| sources.get(&spelled(&item.pointer)))?;
                 let (start, end) = content(text, item.lines.start, item.lines.end)?;
+                let source = Arc::new(Source {
+                    host: source.host.clone(),
+                    pointer: source.pointer.clone(),
+                    shown: Some(Shown {
+                        text: shown.clone(),
+                        pointer: item.pointer,
+                        language: language.info().label,
+                        kept: Some(kept.clone()),
+                    }),
+                });
                 Some(Link { start, end, source })
             })
             .collect();

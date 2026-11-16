@@ -3,6 +3,7 @@
 //! of a tagged map, which no serializer writes): the kept items' lines,
 //! comments and tags move into the first places, the rest go.
 
+use super::super::item_sources::SaveTold;
 use super::super::language::ConfigLanguage;
 use super::reorder::block_items;
 use super::{escape, reads_as};
@@ -15,6 +16,7 @@ pub(in super::super) fn patch_removed_items(
     old: &Value,
     new: &Value,
     schema: Option<&Value>,
+    _told: SaveTold<'_>,
 ) -> Option<String> {
     let (pointer, before, after) = shrunk_list(old, new, String::new())?;
     let lines: Vec<&str> = previous.split('\n').collect();

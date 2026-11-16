@@ -4,7 +4,7 @@ use leptos::prelude::*;
 use web_sys::KeyboardEvent;
 
 use super::super::bridge::links::Splice;
-use super::super::commands::{indent_lines, line_range, tab_insert};
+use super::super::commands::{Indented, indented_through, line_range, tab_insert};
 use super::super::completion::next_stop;
 use super::super::edit::Edit;
 use super::super::keyboard::{replace_selection, utf16_to_byte_index};
@@ -154,8 +154,18 @@ fn indent_block(
     outdent: bool,
     backward: bool,
 ) {
-    let Some((updated, selection_start, selection_end)) =
-        indent_lines(&text, start, end, outdent, &state.doc().indent.get_value())
+    let Some(Indented {
+        text: updated,
+        start: selection_start,
+        end: selection_end,
+        pieces,
+    }) = indented_through(
+        &text,
+        (start, end),
+        0,
+        outdent,
+        &state.doc().indent.get_value(),
+    )
     else {
         return;
     };
@@ -166,7 +176,7 @@ fn indent_block(
         (selection_start, selection_end)
     };
     let made = if updated != text {
-        let splices = Splice::per_line(&text, &updated);
+        let splices = Some(Splice::each(pieces));
         state.commit(
             Edit::new(text, (start, end), updated, caret)
                 .selecting_from(anchor)

@@ -184,6 +184,7 @@ fn read_indent_unit(source: &str) -> String {
     " ".repeat(width)
 }
 
+#[cfg(test)]
 pub(super) fn indent_lines(
     source: &str,
     selection_start: usize,
@@ -196,13 +197,36 @@ pub(super) fn indent_lines(
 
 /// [`indent_lines`] on the selection's lines and on through line
 /// `through` (0-based): the hidden lines of a folded line.
+#[cfg(test)]
 pub(super) fn indent_lines_through(
+    source: &str,
+    selection: (usize, usize),
+    through: usize,
+    outdent: bool,
+    unit: &str,
+) -> Option<(String, usize, usize)> {
+    indented_through(source, selection, through, outdent, unit)
+        .map(|indented| (indented.text, indented.start, indented.end))
+}
+
+/// Lines indented or outdented: the text, the selection after (UTF-16),
+/// and each line's change (a byte range of the text before and what was
+/// written there), which the Edit-as links follow.
+pub(super) struct Indented {
+    pub(super) text: String,
+    pub(super) start: usize,
+    pub(super) end: usize,
+    pub(super) pieces: Vec<(std::ops::Range<usize>, String)>,
+}
+
+/// [`indent_lines_through`], with each line's change.
+pub(super) fn indented_through(
     source: &str,
     (selection_start, selection_end): (usize, usize),
     through: usize,
     outdent: bool,
     unit: &str,
-) -> Option<(String, usize, usize)> {
+) -> Option<Indented> {
     let start = utf16_to_byte_index(source, selection_start);
     let end = utf16_to_byte_index(source, selection_end);
     let first_line = source[..start]
@@ -312,7 +336,16 @@ pub(super) fn indent_lines_through(
     };
     let updated_selection_start = updated[..updated_start].encode_utf16().count();
     let updated_selection_end = updated[..updated_end].encode_utf16().count();
-    Some((updated, updated_selection_start, updated_selection_end))
+    let pieces = edits
+        .iter()
+        .map(|&(at, removed, inserted)| (at..at + removed, unit[..inserted].to_string()))
+        .collect();
+    Some(Indented {
+        text: updated,
+        start: updated_selection_start,
+        end: updated_selection_end,
+        pieces,
+    })
 }
 
 /// Backspace in leading spaces deletes back to the previous indent stop.

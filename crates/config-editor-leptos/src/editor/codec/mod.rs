@@ -35,6 +35,7 @@ pub(super) use steps::{renamed_by_links, steps};
 
 use super::completion::conform_arrays;
 use super::flow_syntax::Flow;
+use super::item_sources::SaveTold;
 use super::language::{ConfigLanguage, ParseError, Repetition, Span};
 use serde_json::Value;
 use std::fmt;
@@ -166,7 +167,18 @@ pub(super) fn render(
     previous: Option<&str>,
     schema: Option<&Value>,
 ) -> Result<Conversion, ConvertError> {
-    let text = serialize(target, value, previous)?;
+    render_told(value, target, previous, schema, SaveTold::default())
+}
+
+/// [`render`] for a save, told which host item each item is.
+pub(super) fn render_told(
+    value: &Value,
+    target: &dyn ConfigLanguage,
+    previous: Option<&str>,
+    schema: Option<&Value>,
+    told: SaveTold<'_>,
+) -> Result<Conversion, ConvertError> {
+    let text = serialize_told(target, value, previous, told)?;
     let reread = read(target, &text, schema).map_err(|error| {
         ConvertError::Unsupported(format!(
             "the converted document does not read back: {}",
@@ -187,6 +199,16 @@ pub(super) fn serialize(
     value: &Value,
     previous: Option<&str>,
 ) -> Result<String, ConvertError> {
+    serialize_told(language, value, previous, SaveTold::default())
+}
+
+/// [`serialize`] for a save, told which host item each item is.
+pub(super) fn serialize_told(
+    language: &dyn ConfigLanguage,
+    value: &Value,
+    previous: Option<&str>,
+    told: SaveTold<'_>,
+) -> Result<String, ConvertError> {
     // A language without infinities writes them as text, which reads back
     // as a string: a loss (see `non_finite`).
     let value = if language.writes_non_finite() {
@@ -196,7 +218,7 @@ pub(super) fn serialize(
     };
     let value = emptied_items::without_emptied(language, previous, value);
     let mut text = language
-        .serialize(&value, previous)
+        .serialize_over(&value, previous, told)
         .map_err(ConvertError::Unsupported)?;
     text.truncate(text.trim_end_matches('\n').len());
     text.push('\n');
@@ -301,10 +323,11 @@ pub(super) fn patch_scalars(
     old: &Value,
     new: &Value,
     schema: Option<&Value>,
+    told: SaveTold<'_>,
 ) -> Option<String> {
     // Whatever the language cannot express must still be refused, even when
     // a patch would read back equal.
-    language.serialize(new, Some(previous)).ok()?;
+    language.serialize_over(new, Some(previous), told).ok()?;
     let mut changes = Vec::new();
     scalar_changes(old, new, String::new(), &mut changes)?;
     if changes.is_empty() {
@@ -407,6 +430,7 @@ pub(super) fn patch_inline(
     old: &Value,
     new: &Value,
     schema: Option<&Value>,
+    _told: SaveTold<'_>,
 ) -> Option<String> {
     let changed = changed_container(old, new, String::new())?;
     // The container that changed, or the nearest inline one around it.

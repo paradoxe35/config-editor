@@ -9,7 +9,7 @@ use super::commands::{copied_lines, line_range};
 use super::completion::should_auto_trigger;
 use super::edit::{After, Edit};
 use super::history::EditHistory;
-use super::keyboard::replace_selection;
+use super::keyboard::{replace_selection, utf16_to_byte_index};
 use super::positioning::pointer_text_position;
 use super::problem_hit::column_at_cell;
 use super::source_area::SourceArea;
@@ -722,7 +722,11 @@ fn copy_line(state: EditorState, event: &web_sys::ClipboardEvent, cut: bool) {
     let ends_with_newline =
         updated.encode_utf16().nth(next_line.1.wrapping_sub(1)) == Some(u16::from(b'\n'));
     let caret = (next_line.0 + column).min(next_line.1 - usize::from(ends_with_newline));
-    let splices = Splice::of(&text, &updated, (removed_start, line_end), caret);
+    let (from, to) = (
+        utf16_to_byte_index(&text, removed_start),
+        utf16_to_byte_index(&text, line_end),
+    );
+    let splices = vec![Splice::replace(from, to - from, "")];
     state.commit(
         Edit::new(text, (start, end), updated, caret.max(next_line.0)).splicing(Some(splices)),
     );
@@ -792,7 +796,11 @@ fn paste_line(state: EditorState, event: &web_sys::ClipboardEvent) {
     let (line_start, _) = line_range(&text, start);
     let (updated, _) = replace_selection(&text, line_start, line_start, &pasted);
     let caret = start + pasted.encode_utf16().count();
-    let splices = Splice::of(&text, &updated, (line_start, line_start), caret);
+    let splices = vec![Splice::replace(
+        utf16_to_byte_index(&text, line_start),
+        0,
+        pasted.clone(),
+    )];
     state.commit(Edit::new(text, (start, end), updated, caret).splicing(Some(splices)));
 }
 

@@ -60,8 +60,14 @@
 //! What a caller does around an edit (closing suggestions, typing aids) is
 //! its own; [`EditorState::commit`] returns whether the edit was made.
 
-// Only protection follows positions through a change so far.
-#[cfg(feature = "protect")]
+// Protection and the Edit-as links follow positions through a change.
+#[cfg_attr(
+    not(feature = "protect"),
+    allow(
+        dead_code,
+        reason = "without protection only the Edit-as links read a change"
+    )
+)]
 mod change;
 #[cfg(all(test, feature = "protect"))]
 mod change_tests;
@@ -70,8 +76,10 @@ mod pipeline;
 #[cfg(all(test, feature = "yaml"))]
 mod tests;
 
+pub(super) use change::Change;
+use change::Moved;
 #[cfg(feature = "protect")]
-pub(super) use change::{Assoc, Change, CodeUnits, Moved};
+pub(super) use change::{Assoc, CodeUnits};
 pub(super) use origin::Origin;
 #[cfg(all(test, feature = "yaml"))]
 pub(super) use pipeline::{Stage, take_trace};
@@ -82,11 +90,9 @@ use super::bridge::links::Splice;
 use super::fold_ranges::FoldRange;
 use super::history::{Selection, Snapshot};
 use super::input::{UNKNOWN_SELECTION, edit_range};
-#[cfg(feature = "protect")]
 use super::keyboard::utf16_to_byte_index;
 use super::languages::Language;
 use super::state::{EditorState, textarea_selection};
-#[cfg(feature = "protect")]
 use super::text::{TextRange, TextSize};
 
 /// A change to the document: the text before and after, the selection it
@@ -195,20 +201,6 @@ impl Edit {
         self
     }
 
-    /// What the edit replaced, in bytes of the text before (see
-    /// [`Self::splices`]).
-    pub(super) fn replaced_splices(&self) -> Vec<Splice> {
-        match &self.splices {
-            // As said, unless the edit was made otherwise (widened).
-            Some(splices)
-                if Splice::make(&self.before, splices).as_deref() == Some(self.text.as_str()) =>
-            {
-                splices.clone()
-            }
-            _ => Splice::of(&self.before, &self.text, self.selection, self.caret()),
-        }
-    }
-
     /// What the edit did, exactly, as the code making it recorded it: the
     /// splices a command gave (a line command's lines moved with them),
     /// else the selection the edit replaced, when the texts agree it did
@@ -229,9 +221,11 @@ impl Edit {
         self.recorded()?.narrowed(&self.before)
     }
 
-    /// [`Self::change`] as recorded, before it is narrowed.
-    #[cfg(feature = "protect")]
-    fn recorded(&self) -> Option<Change> {
+    /// [`Self::change`] as recorded, before it is narrowed (a paste keeps
+    /// the whole text it put, which the Edit-as links match with the
+    /// clipboard's records).
+    pub(in crate::editor) fn recorded(&self) -> Option<Change> {
+        #[cfg(feature = "protect")]
         if matches!(self.origin, Origin::Undo | Origin::Redo) {
             return self.stepped.clone().filter(|change| {
                 change.apply(&self.before).as_deref() == Some(self.text.as_str())
@@ -415,7 +409,6 @@ impl Edit {
 
 /// The change `splices` (sorted, apart) make of `before`, each one's
 /// moved stretches carried to where its inserted text writes them.
-#[cfg(feature = "protect")]
 fn change_of_splices(before: &str, splices: &[Splice]) -> Option<Change> {
     let mut shift: isize = 0;
     let mut moved = Vec::new();

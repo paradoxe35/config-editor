@@ -51,6 +51,7 @@ use super::inline::{InlineEntry as CaretEntry, inline_caret, inline_key_at, inli
 use super::super::completion::{Fill, InsertPlan, Planned, RequiredChild};
 use super::super::keyboard::utf16_to_byte_index;
 use super::super::language::pointer_segments;
+use super::super::item_sources::SaveTold;
 use super::super::language::{Text, Typing, Hover, SaveLayout, Sharing, Repeats, Repeated, LanguageTraits};
 use super::super::language::{EntryPosition, OneLine, LanguageConfig, bracket_newline, CompletionContext, Newline, InlineBlock, InsertContext, ConfigLanguage, LanguageInfo, Lexical, Span, ParseError, SchemaPathSegment,
     inline_block, unclosed_brackets,
@@ -148,29 +149,7 @@ impl ConfigLanguage for HclBehavior {
     /// An object whose keys are all identifiers becomes a block (`web { … }`),
     /// anything else an attribute. `hcl-rs` escapes `${` as `$${`.
     fn serialize(&self, value: &Value, previous: Option<&str>) -> Result<String, String> {
-        let Value::Object(map) = value else {
-            return Err("an HCL document is a body: the top level must be an object".to_string());
-        };
-        // Maps are written in the host's forms again: labelled blocks,
-        // attributes, blocks on one line.
-        let mut forms = previous.map(host_forms).unwrap_or_default();
-        if let Some(previous) = previous {
-            renamed_labelled_types(&mut forms, previous, map);
-            // A map the save moves keeps its form (see `moved_maps`).
-            let held = (std::mem::take(&mut forms.attributes), std::mem::take(&mut forms.blocks));
-            (forms.attributes, forms.blocks) = moved_maps::with_moved(held, previous, convert::forms_of);
-        }
-        let rendered = splice::writing(|| hcl::format::to_string(&hcl_body(map, &forms, &[])?).map_err(|error| error.to_string()))?;
-        let rendered = fold_one_line_blocks(&rendered, &forms.one_line);
-        // List items have no span of their own: the shared scanner finds them.
-        let spans = |text: &str, pointers: &[String]| -> Vec<Option<Span>> {
-            hcl_value_spans(text, pointers)
-                .into_iter()
-                .zip(pointers)
-                .map(|(span, pointer)| span.map(Span::from).or_else(|| super::super::codec::inline_location(self, text, pointer, false)))
-                .collect()
-        };
-        Ok(floats::with_whole_floats(&rendered, value, spans))
+        self.written(value, previous, SaveTold::default())
     }
 
     fn text(&self) -> &dyn Text {
@@ -331,6 +310,10 @@ impl Hover for HclBehavior {
 }
 
 impl SaveLayout for HclBehavior {
+    fn serialize_over(&self, value: &Value, previous: Option<&str>, told: SaveTold<'_>) -> Option<Result<String, String>> {
+        Some(self.written(value, previous, told))
+    }
+
     fn edits_one_scalar(&self, source: &str, range: std::ops::Range<usize>, inserted: &str) -> bool {
         super::scalar_lines::one_scalar_line(self, source, range, inserted, &SCALAR_LINE).is_some()
     }
@@ -343,8 +326,8 @@ impl SaveLayout for HclBehavior {
 
     /// A block stays a block and an object attribute an attribute; an
     /// expression stays an expression and a literal string a literal.
-    fn changed_form(&self, previous: &str, patched: &str) -> Option<String> {
-        changed_form(previous, patched).or_else(|| expressions::changed_expression(previous, patched))
+    fn changed_form(&self, previous: &str, patched: &str, told: SaveTold<'_>) -> Option<String> {
+        changed_form(previous, patched, told).or_else(|| expressions::changed_expression(previous, patched))
     }
 
     fn changed_form_reason(&self, value: &Value) -> Option<String> {
@@ -518,3 +501,33 @@ mod read_tests;
 mod big_errors_tests;
 #[cfg(test)]
 mod expressions_scale_tests;
+
+impl HclBehavior {
+    /// [`ConfigLanguage::serialize`], told which host item each item of
+    /// `value` is by an Edit-as save (see `SaveTold`).
+    fn written(&self, value: &Value, previous: Option<&str>, told: SaveTold<'_>) -> Result<String, String> {
+        let Value::Object(map) = value else {
+            return Err("an HCL document is a body: the top level must be an object".to_string());
+        };
+        // Maps are written in the host's forms again: labelled blocks,
+        // attributes, blocks on one line.
+        let mut forms = previous.map(host_forms).unwrap_or_default();
+        if let Some(previous) = previous {
+            renamed_labelled_types(&mut forms, previous, map);
+            // A map the save moves keeps its form (see `moved_maps`).
+            let held = (std::mem::take(&mut forms.attributes), std::mem::take(&mut forms.blocks));
+            (forms.attributes, forms.blocks) = moved_maps::with_moved(held, told, convert::forms_of);
+        }
+        let rendered = splice::writing(|| hcl::format::to_string(&hcl_body(map, &forms, &[])?).map_err(|error| error.to_string()))?;
+        let rendered = fold_one_line_blocks(&rendered, &forms.one_line);
+        // List items have no span of their own: the shared scanner finds them.
+        let spans = |text: &str, pointers: &[String]| -> Vec<Option<Span>> {
+            hcl_value_spans(text, pointers)
+                .into_iter()
+                .zip(pointers)
+                .map(|(span, pointer)| span.map(Span::from).or_else(|| super::super::codec::inline_location(self, text, pointer, false)))
+                .collect()
+        };
+        Ok(floats::with_whole_floats(&rendered, value, spans))
+    }
+}

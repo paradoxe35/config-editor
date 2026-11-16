@@ -23,7 +23,7 @@ pub(super) fn detached(
     if undone != *target {
         let kept = host.detach_shared(previous, old, &undone).filter(reads_old);
         let base = kept.as_deref().unwrap_or(previous);
-        if codec::patch_renames(host, base, old, target, shape).is_some() {
+        if codec::patch_renames(host, base, old, target, shape, Default::default()).is_some() {
             return kept;
         }
     }
