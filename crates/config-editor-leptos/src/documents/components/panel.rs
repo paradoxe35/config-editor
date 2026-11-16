@@ -192,6 +192,7 @@ fn editor(
             language=language
             edit_as=edit_as
             value=entry.value
+            echoes=documents.callbacks.echoes
             baseline=entry.baseline
             read_only=entry.read_only
             read_only_reason=read_only_reason

@@ -145,8 +145,16 @@ pub(crate) fn view(state: State, latest: Latest, setup: Setup) -> AnyView {
             .unwrap_or_else(|poisoned| poisoned.into_inner()) = text.clone();
         let _ = state.value.try_set(text.clone());
         if let Some(callback) = state.on_change.try_get_value().flatten() {
-            let _ = state.echoes.try_update_value(|echoes| echoes.sent(&text));
-            call_host(&callback, &JsValue::from_str(&text));
+            // Its revision goes with it: a host passing it back with the
+            // value (`valueRevision`) has its echo matched exactly.
+            let revision = state
+                .echoes
+                .try_update_value(|echoes| echoes.sent(&text))
+                .unwrap_or_default();
+            call_host_with(
+                &callback,
+                &[JsValue::from_str(&text), JsValue::from_f64(revision as f64)],
+            );
         } else {
             let _ = state.echoes.try_update_value(Echoes::unsent);
         }

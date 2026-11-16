@@ -191,6 +191,7 @@ export class EditorBinding extends Binding {
   // The `value` prop as last handed to the editor: an unchanged prop is not
   // a new value from the parent.
   #handledValue = undefined;
+  #handledRevision = undefined;
   // What a re-mount (language, schema, … changed) starts from, so an
   // uncontrolled document and its diff baseline survive it.
   #carried = null;
@@ -262,9 +263,9 @@ export class EditorBinding extends Binding {
       readOnly: props.readOnly,
       readOnlyReason: props.readOnlyReason ?? undefined,
       className: props.editorClassName,
-      onChange: (text) => {
+      onChange: (text, revision) => {
         if (this.#carried) this.#carried.value = text;
-        this.props.onChange?.(text);
+        this.props.onChange?.(text, revision);
       },
       onEditAsChange: (language) => this.props.onEditAsChange?.(language),
       onSyncChange: (inSync) => this.props.onSyncChange?.(inSync),
@@ -341,10 +342,15 @@ export class EditorBinding extends Binding {
     };
     const value = props.value;
     // The editor tells the parent's echoes from its own values (`echoes`).
-    if (this.instance && value !== undefined && value !== this.#handledValue) {
+    const handled = value === this.#handledValue && props.valueRevision === this.#handledRevision;
+    if (this.instance && value !== undefined && !handled) {
       this.guard((editor) => {
         this.#handledValue = value;
-        editor.update({ value });
+        this.#handledRevision = props.valueRevision;
+        // The revision the parent stored with it, when it passes it back:
+        // its echo is then matched exactly.
+        const revision = props.valueRevision;
+        editor.update(revision === undefined ? { value } : { value, valueRevision: revision });
       });
     }
     // The live props that changed, each in its own `update`: a bad one

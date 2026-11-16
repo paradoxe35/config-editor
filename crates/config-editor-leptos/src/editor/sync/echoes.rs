@@ -273,9 +273,13 @@ impl Echoes {
     }
 
     /// The editor sent `text`, the document, to the host (its `onChange`).
-    pub fn sent(&mut self, text: &str) {
+    /// Returns the text's revision: a host that passes it back with the
+    /// text (see [`Echoes::received_at`]) is matched exactly.
+    pub fn sent(&mut self, text: &str) -> u64 {
         if self.on {
-            self.send(Print::of(text));
+            self.send(Print::of(text))
+        } else {
+            tick()
         }
     }
 
@@ -284,7 +288,7 @@ impl Echoes {
         self.document = None;
     }
 
-    fn send(&mut self, print: Print) {
+    fn send(&mut self, print: Print) -> u64 {
         let serial = tick();
         self.order.insert(serial, print);
         self.copies.entry(print).or_default().push_back(Sent {
@@ -293,6 +297,7 @@ impl Echoes {
             doubted: false,
         });
         self.document = Some(print);
+        serial
     }
 
     /// The document `current`'s print: the one known (the text sent,
@@ -470,6 +475,72 @@ impl Echoes {
         }
     }
 
+    /// The host gave `value` with `revision`, the revision `on_change` sent
+    /// it with: the revision protocol, for a host that keeps the newest
+    /// revision it was sent and never goes back to an older one. Known
+    /// exactly, with no pause: a value that is the text sent at `revision`
+    /// is its echo, and confirms it and every text sent before; while a
+    /// newer text is on its way the host is behind but catching up, and
+    /// with none it hears the document again (the host may have dropped
+    /// it). A value that is not the text sent at `revision` is the host's
+    /// own, as [`Echoes::received`] reads it.
+    pub fn received_at(&mut self, value: &str, revision: u64, current: &str, flushed: u64) -> Echo {
+        let print = Print::of(value);
+        if self.on
+            && !self.order.contains_key(&revision)
+            && self.came_back.is_some_and(|back| revision <= back)
+        {
+            // Confirmed already: the host gives back a revision it moved
+            // past (a render of an old value), no news.
+            return Echo::Skip;
+        }
+        if !self.on || self.order.get(&revision) != Some(&print) {
+            return self.received(value, current, flushed);
+        }
+        self.last_given = Some(print);
+        self.last_listed = Some(print);
+        let confirmed: Vec<u64> = self
+            .order
+            .range(..=revision)
+            .map(|(serial, _)| *serial)
+            .collect();
+        for serial in confirmed {
+            if let Some(print) = self.order.remove(&serial)
+                && let Some(copies) = self.copies.get_mut(&print)
+            {
+                copies.retain(|sent| sent.serial != serial);
+                if copies.is_empty() {
+                    self.copies.remove(&print);
+                }
+            }
+        }
+        if self.reset.is_some_and(|reset| reset <= revision) {
+            self.reset = None;
+        }
+        if self.came_back.is_none_or(|back| revision > back) {
+            self.came_back = Some(revision);
+        }
+        if self.same(value, print, current) {
+            self.document = Some(print);
+            return if value == current {
+                Echo::Apply
+            } else {
+                Echo::Skip
+            };
+        }
+        let document = self.document_print(current);
+        if self.order.values().any(|sent| *sent == document) {
+            return Echo::Skip;
+        }
+        self.send(document);
+        Echo::Resend
+    }
+
+    /// The revision of the text sent last, if any is on its way.
+    pub fn latest_revision(&self) -> Option<u64> {
+        self.order.last_key_value().map(|(serial, _)| *serial)
+    }
+
     /// Whether [`Echoes::received`] would take `value` for a text that
     /// replaces the document `current`, without taking it: ranges given
     /// with it are read in it only then (see `crate::host_locks`).
@@ -569,6 +640,47 @@ mod tests {
             "{value:?} over {current:?}: {echo:?}"
         );
         echo
+    }
+
+    /// With revisions passed back, a host that drops the document's echo
+    /// in a render (it keeps the newest revision it was sent, so an older
+    /// one given back means a newer one is still on its way) is matched
+    /// exactly: no pause, the host ends on the document, and it hears each
+    /// text at most twice.
+    #[test]
+    fn revisions_passed_back_need_no_pause_and_end_on_the_document() {
+        let mut echoes = Echoes::new(true);
+        echoes.given("");
+        let a = echoes.sent("a");
+        let ab = echoes.sent("ab");
+        // Given back in order: behind, but catching up.
+        assert_eq!(echoes.received_at("a", a, "ab", NONE), Echo::Skip);
+        assert_eq!(echoes.received_at("ab", ab, "ab", NONE), Echo::Apply);
+        assert_eq!(waiting(&echoes), 0);
+        // A render that took `abcd` and then a late `abc` cannot happen: the
+        // host keeps the newest revision, so `abc` given back means `abcd`
+        // is still on its way, and nothing is sent again.
+        let abc = echoes.sent("abc");
+        let abcd = echoes.sent("abcd");
+        assert_eq!(echoes.received_at("abc", abc, "abcd", NONE), Echo::Skip);
+        // Given again (a render): no news.
+        assert_eq!(echoes.received_at("abc", abc, "abcd", NONE), Echo::Skip);
+        assert_eq!(echoes.received_at("abcd", abcd, "abcd", NONE), Echo::Apply);
+        assert_eq!(waiting(&echoes), 0);
+        // A text of the host's own comes without a revision.
+        assert_eq!(echoes.received("own", "abcd", NONE), Echo::Apply);
+    }
+
+    /// A late echo older than one already passed back (a host that went
+    /// back, which the protocol rules out) is still never applied.
+    #[test]
+    fn an_old_revision_passed_back_late_never_rolls_back() {
+        let mut echoes = Echoes::new(true);
+        echoes.given("");
+        let a = echoes.sent("a");
+        let ab = echoes.sent("ab");
+        assert_eq!(echoes.received_at("ab", ab, "ab", NONE), Echo::Apply);
+        assert_ne!(echoes.received_at("a", a, "ab", NONE), Echo::Apply);
     }
 
     /// Without the option every text applies and nothing is kept.

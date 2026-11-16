@@ -583,7 +583,18 @@ leaves your store holding an older text and nothing still on its way brings
 it back, `onChange` gives it the document again. A store that takes
 several texts in one render passes only the last, so the echo that would
 bring it back may never be seen: if the store is still on an older text
-250 ms after such an echo, `onChange` gives it the document again then. To go back to a text
+250 ms after such an echo, `onChange` gives it the document again then.
+That pause is the one place time enters, and only without revisions: the
+editor cannot tell an echo lost in a render from one still on its way by the
+texts alone.
+
+With revisions there is no pause. `onChange(text, revision)` gives each text
+a revision; store it beside the text, keep only the newest revision you were
+given (never go back to an older one), and pass it back:
+`update({ value, valueRevision })`. The echo is then matched exactly: that
+revision and every earlier one are confirmed, an older value given back means
+a newer one is still on its way, and nothing is sent again. Give a text of
+your own without `valueRevision`. To go back to a text
 `onChange` gave that may still be on its way (a discard to what you saved, a
 revert), or to reset while the echoes of what was typed are still to come,
 call `replaceValue(text)`: it always applies, and the echoes on their way
@@ -600,10 +611,8 @@ The ranges you give next, the same ones too, are read in the text they come
 with. The promise is
 yours to keep: a host that hands back only some texts (the latest of
 several) leaves the others counted as echoes (every text sent is
-remembered until its echo comes, a text of your own replaces the
-document, or 5 seconds after a text sent later came back: an echo
-handed back out of order more than 5 seconds after a later one is taken
-for your own text), so set those with `replaceValue` too.
+remembered until its echo comes or a text of your own replaces the
+document), so set those with `replaceValue` too.
 
 ### Instance members
 

@@ -15,7 +15,7 @@ use crate::handle_calls;
 use crate::host_diagnostics::host_diagnostics_from;
 use crate::host_locks::{HostLocks, print, stay};
 use crate::languages::{language_named, writable_edit_as};
-use crate::mount::{self, IN_CALLBACK, Latest, Setup, State, call_host};
+use crate::mount::{self, IN_CALLBACK, Latest, Setup, State, call_host, call_host_with};
 use crate::options::{
     EDITOR_OPTIONS, EDITOR_REMOUNT_OPTIONS, bool_option, function_option, string_option,
     warn_unknown_options,
@@ -378,6 +378,12 @@ impl ConfigEditor {
         }
         let options = crate::reentry::without_newer(&options, &newer);
         let value = value.filter(|_| !newer.contains("value"));
+        // The revision `onChange` sent the value with, when the host passes
+        // it back: its echo is matched exactly (see `Echoes::received_at`).
+        let value_revision = given(&options, "valueRevision")
+            .and_then(|revision| revision.as_f64())
+            .filter(|revision| *revision >= 0.0)
+            .map(|revision| revision as u64);
         // Ranges are in the text they were given for: `rangesFor`, else the
         // update's `value` (an echo skipped included), else the document.
         let ranges_for = given(&options, "rangesFor")
@@ -491,7 +497,10 @@ impl ConfigEditor {
             }
             state
                 .echoes
-                .try_update_value(|echoes| echoes.received(value, &latest, flushed))
+                .try_update_value(|echoes| match value_revision {
+                    Some(revision) => echoes.received_at(value, revision, &latest, flushed),
+                    None => echoes.received(value, &latest, flushed),
+                })
                 .unwrap_or(Echo::Apply)
         });
         let shown = value.as_ref().filter(|_| echo == Some(Echo::Apply));
@@ -852,6 +861,11 @@ fn tell_host(state: State, latest: &Latest) {
     if let Some(callback) = state.on_change.try_get_value().flatten() {
         // Read before the call: the host may update the editor from it.
         let text = JsValue::from_str(&latest.lock().unwrap_or_else(PoisonError::into_inner));
-        call_host(&callback, &text);
+        let revision = state
+            .echoes
+            .try_with_value(Echoes::latest_revision)
+            .flatten()
+            .unwrap_or_default();
+        call_host_with(&callback, &[text, JsValue::from_f64(revision as f64)]);
     }
 }

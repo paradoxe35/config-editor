@@ -33,6 +33,7 @@ pub(crate) const EDITOR_OPTIONS: &[&str] = &[
     "readOnlyPaths",
     "readOnlyRanges",
     "rangesFor",
+    "valueRevision",
     "secrets",
 ];
 

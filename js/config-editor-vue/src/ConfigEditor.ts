@@ -57,6 +57,8 @@ const editorProps = {
   readOnlyPaths: optional(Array as PropType<FieldPath[]>),
   /** Stretches of the document (in `language`) the user cannot change. Updates live. */
   readOnlyRanges: optional(Array as PropType<TextRangeInput[]>),
+  /** The `revision` `@update:model-value` gave the value with (its second argument), when the parent stores it beside the value and never goes back to an older one: a late echo is then matched exactly, with no pause. `v-model` keeps the value alone. */
+  valueRevision: optional(Number),
   /** How secret placeholders are matched, described and completed. Changing `placeholder`, `hint` or `referencePrefixes`, or adding or removing `isPlaceholder`, re-mounts; a new `isPlaceholder` function in its place does not. */
   secrets: optional(Object as PropType<SecretOptions>),
   /** JSON Schema as JSON or YAML text. Changing it re-mounts. */
@@ -88,7 +90,7 @@ export const configEditorProps: typeof editorProps & SettingProps = { ...editorP
 
 /** The props `<ConfigEditor>` accepts (`v-model` is `modelValue` and `@update:model-value`). */
 export type ConfigEditorProps = ExtractPublicPropTypes<typeof configEditorProps> & {
-  "onUpdate:modelValue"?: (value: string) => void;
+  "onUpdate:modelValue"?: (value: string, revision: number) => void;
 };
 
 /**
@@ -105,7 +107,7 @@ export const ConfigEditor = defineComponent({
   props: configEditorProps,
   emits: {
     /** The document after every edit (`v-model`). */
-    "update:modelValue": (value: string) => typeof value === "string",
+    "update:modelValue": (value: string, _revision?: number) => typeof value === "string",
   },
   setup(props, { emit, expose }) {
     const host = ref<HTMLDivElement>();
@@ -113,7 +115,7 @@ export const ConfigEditor = defineComponent({
     // the bound value through the editor's `echoes`), shared with the React and
     // Svelte packages: `EditorBinding` from `@pngwasi/config-editor`.
     const binding = new EditorBinding("config-editor-vue");
-    const onChange = (value: string) => emit("update:modelValue", value);
+    const onChange = (value: string, revision: number) => emit("update:modelValue", value, revision);
     // The props as the binding names them (a listener given twice, as an
     // array, made one function); the watcher below follows each one, deeply.
     const current = (): EditorBindingProps => {

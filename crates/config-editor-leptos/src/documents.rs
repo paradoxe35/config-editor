@@ -147,6 +147,12 @@ pub fn ConfigDocuments(
     /// every edit. Store the text as the document's `value`.
     #[prop(optional, into)]
     on_change: Option<Callback<(String, String)>>,
+    /// Whether the host lists every `on_change` text back as the document's
+    /// `value`, maybe late and in any order: each document's editor tells
+    /// such an echo from a text of the host's own (see the `echoes` prop of
+    /// [`ConfigEditor`](crate::ConfigEditor)). Read at mount.
+    #[prop(optional)]
+    echoes: bool,
     /// Called with a document's id and what to save when the user saves it
     /// (`Ctrl+S` / `Cmd+S` in its editor) or the host calls
     /// [`DocumentsHandle::save`] or [`DocumentsHandle::save_all`]. Without
@@ -212,6 +218,7 @@ pub fn ConfigDocuments(
             on_problems,
             on_edit_as_change,
             on_sync_change,
+            echoes,
         },
         settings,
     );

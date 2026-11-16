@@ -37,9 +37,9 @@
   const binding = new EditorBinding("config-editor-svelte");
   const { handle } = binding;
 
-  function changed(text: string) {
+  function changed(text: string, revision: number) {
     value = text;
-    onChange?.(text);
+    onChange?.(text, revision);
   }
 
   // The props as the binding names them; the effect below follows each one,

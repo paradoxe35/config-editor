@@ -269,6 +269,8 @@ pub(super) struct Callbacks {
     pub(super) on_problems: Option<Callback<(String, Vec<Diagnostic>)>>,
     pub(super) on_edit_as_change: Option<Callback<(String, Language)>>,
     pub(super) on_sync_change: Option<Callback<(String, bool)>>,
+    /// The host lists every `on_change` text back (the `echoes` prop).
+    pub(super) echoes: bool,
 }
 
 /// The view's state that each document's tab, panel and editor follow.

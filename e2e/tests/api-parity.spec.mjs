@@ -85,6 +85,7 @@ const PROPS = {
 const BINDING_ONLY_PROPS = {
   defaultValue: 'the uncontrolled initial document (JS: `value`)',
   onError: 'mount and prop errors, which JS throws instead',
+  valueRevision: 'the revision `onChange` gave the bound value with, handed to `update({ value, valueRevision })` (JS: an `update` key with the value)',
 };
 
 const HANDLE = {
@@ -262,6 +263,7 @@ const DOCUMENTS_PROPS = {
   on_close: { option: 'onClose', update: 'onClose' },
   on_add: { option: 'onAdd', update: 'onAdd' },
   on_change: { option: 'onChange', update: 'onChange' },
+  echoes: { exempt: 'the JS `echoes` option (see DOCUMENTS_OPTIONS_JS_ONLY): a component\'s binding always sets it' },
   on_save: { option: 'onSave', update: 'onSave' },
   on_dirty_change: { option: 'onDirtyChange', update: 'onDirtyChange' },
   on_problems: { option: 'onProblems', update: 'onProblems' },
@@ -365,6 +367,7 @@ const CRATE_EXPORTS = {
 const OPTIONS_JS_ONLY = {
   rangesFor: 'says which text the ranges were given for (a text the document has moved past): in Rust the ranges props are signals the host sets for the document; a component\'s binding passes its bound value',
   echoes: 'a host handing every `onChange` text back through `update`: the Rust `echoes` prop, which a component\'s binding always sets (its parent passes every edit back as its value)',
+  valueRevision: 'the revision `onChange` gave the value with, passed back for an exact echo match: no Rust prop yet (the Leptos `value` is a signal of text alone, so the Rust side keeps the text rule and its pause)',
 };
 const DOCUMENTS_OPTIONS_JS_ONLY = {
   echoes: 'a host listing every `onChange` text back through `update`: in Rust the `documents` prop is a signal the host sets; a component\'s binding always sets it (its parent lists every edit back)',
@@ -714,7 +717,7 @@ const FRAMEWORKS = {
       const fromSettingTypes = /Object\.entries\(SETTING_TYPES\)/.test(settings);
       const wiring = [];
       for (const [source, what, snippets] of [
-        [editor, 'ConfigEditor', ['new EditorBinding("config-editor-vue")', 'value: modelValue', 'editorClassName: editorClass', 'emit("update:modelValue", value)', '...rest', 'expose(binding.handle)', 'deep: true']],
+        [editor, 'ConfigEditor', ['new EditorBinding("config-editor-vue")', 'value: modelValue', 'editorClassName: editorClass', 'emit("update:modelValue", value, revision)', '...rest', 'expose(binding.handle)', 'deep: true']],
         [documents, 'ConfigDocuments', ['new DocumentsBinding("config-editor-vue")', 'viewClassName: viewClass', '...rest', 'expose(binding.handle)', 'deep: true']],
       ]) {
         for (const snippet of snippets) if (!source.includes(snippet)) wiring.push(`${what}: \`${snippet}\` is missing from how it hands its props to the binding`);
