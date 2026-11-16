@@ -188,9 +188,31 @@ impl<'s> Here<'s> {
         self.branches().iter().any(asked) && !self.certain().iter().any(no_items)
     }
 
-    /// Whether a `oneOf`/`anyOf` applies here.
-    pub(crate) fn has_options(&self) -> bool {
-        query::has_options(&self.tree)
+    /// Whether the schemas here judge a child together with the value
+    /// holding it, so that only a check of the whole value tells which
+    /// reading of the child they take: an option of a `oneOf`/`anyOf` is
+    /// taken by the whole value, a `not` or an `if` reads it whole, and a
+    /// `contains` or `uniqueItems` reads every item, an `enum` or `const`
+    /// the whole value. Every other keyword says of a child only what the
+    /// schemas the path leads to there say.
+    pub(crate) fn judges_children_together(&self) -> bool {
+        const TOGETHER: [&str; 8] = [
+            "oneOf",
+            "anyOf",
+            "not",
+            "if",
+            "contains",
+            "uniqueItems",
+            "enum",
+            "const",
+        ];
+        self.branches().iter().any(|schema| {
+            schema.as_object().is_some_and(|members| {
+                TOGETHER
+                    .iter()
+                    .any(|keyword| members.contains_key(*keyword))
+            })
+        })
     }
 
     /// Whether the value refutes an option of a `oneOf`/`anyOf` here.

@@ -729,10 +729,9 @@ fn a_number_under_an_overlapping_one_of_saves_as_the_view_reads_it() {
 /// P2: a number typed in an XML view where options nearer the value
 /// (`anyOf` in the items) take the host's string, but an outer `oneOf`
 /// with an anything option takes only the view's reading, saves as the
-/// view reads it. The save keeps the host's string `"0"` today: the
-/// reading is put back only by the nearest options above the value.
+/// view reads it: the outermost schema
+/// telling the two readings apart decides.
 #[test]
-#[ignore = "open: an outer oneOf deciding a value's reading is not consulted (bridge::schema_readings)"]
 fn a_number_under_nested_options_saves_as_the_outer_one_of_reads_it() {
     holds_everywhere(
         super::edit_as::check,
@@ -745,10 +744,8 @@ fn a_number_under_nested_options_saves_as_the_outer_one_of_reads_it() {
 
 /// P2: text typed in an XML view as a list's item, where only the list's
 /// `contains` decides its reading (`true` taken, the host's string type
-/// `"true"` refused), saves as the view reads it. The save keeps the
-/// host's string today: `contains` is not one of the schemas consulted.
+/// `"true"` refused), saves as the view reads it.
 #[test]
-#[ignore = "open: a list's contains deciding its item's reading is not consulted (bridge::schema_readings)"]
 fn an_item_only_contains_decides_saves_as_the_view_reads_it() {
     holds_everywhere(
         super::edit_as::check,
@@ -760,9 +757,8 @@ fn an_item_only_contains_decides_saves_as_the_view_reads_it() {
 
 /// P2: a host's string respelled as a number in an XML view (`"8"` typed
 /// `08`) where options above take only the number saves as the view reads
-/// it. The save keeps `"8"` today, as if the view had not changed it.
+/// it: the view showed the string as 8, and the edit wrote it anew.
 #[test]
-#[ignore = "open: a string respelled as a number the options above take keeps the host's text (bridge)"]
 fn a_string_respelled_as_a_number_the_options_take_saves_as_the_view_reads_it() {
     holds_everywhere(
         super::edit_as::check,
@@ -770,5 +766,22 @@ fn a_string_respelled_as_a_number_the_options_take_saves_as_the_view_reads_it() 
             {"properties": {"c": {"type": "integer"}}}]}}}}}),
         json!({"x_one": {"d": {"c": "8"}}}),
         json!({"x_one": {"d": {"c": "08"}}}),
+    );
+}
+
+/// A required child under a `oneOf` with an option taking anything is
+/// filled with a value only one option takes. The fill writes the first
+/// option's required `b` today, which the anything option takes too, so
+/// the `oneOf` refuses it.
+#[test]
+#[ignore = "open: a fill under a oneOf with an anything option writes a value two options take"]
+fn a_fill_under_a_one_of_with_an_anything_option_writes_a_value_one_option_takes() {
+    holds_everywhere(
+        super::fill::check,
+        json!({"properties": {"name": {"required": ["x_one", "mode"], "properties": {"mode": {"oneOf": [
+            {"required": ["b"], "properties": {"b": {"type": "boolean"}}}, {},
+            {"dependentSchemas": {"x_one": {"required": ["s"]}}}]}}}}}),
+        json!({"name": {"mode": {"x_one": null}, "x_one": false}}),
+        Value::Null,
     );
 }

@@ -97,20 +97,12 @@ pub(super) const KNOWN: &[Known] = &[
         applies: |case| asks_list_items(&case.schema),
     },
     // The same list told by the count of its items: a key at the root
-    // whose own list asks items.
+    // whose own list asks items (its schema, or one it refers to).
     Known {
         finding: "documented: a key's own list is written empty, the caret inside",
         property: "fill",
         class: "a fill writes too few list items",
-        applies: |case| {
-            case.schema
-                .get("properties")
-                .and_then(Value::as_object)
-                .is_some_and(|keys| {
-                    keys.values()
-                        .any(|key| key.get("minItems").is_some() || key.get("contains").is_some())
-                })
-        },
+        applies: |case| root_list_asks_items(&case.schema),
     },
     Known {
         finding: "documented: a key's own list is written empty, the caret inside",
@@ -246,6 +238,23 @@ pub(super) const KNOWN: &[Known] = &[
         applies: |case| recurses_through_options(&case.schema),
     },
 ];
+
+/// Whether a key `schema` names at the root is a list asking items
+/// (`minItems`, `contains`) by a schema applying to it there.
+fn root_list_asks_items(schema: &Value) -> bool {
+    let mut keys = schema
+        .get("properties")
+        .and_then(Value::as_object)
+        .into_iter()
+        .flat_map(|keys| keys.keys());
+    keys.any(|key| {
+        let mut at = Vec::new();
+        schemas_at(schema, schema, std::slice::from_ref(key), 0, &mut at);
+        at.iter().any(|applying| {
+            applying.get("minItems").is_some() || applying.get("contains").is_some()
+        })
+    })
+}
 
 /// Whether `schema` has a list asking items (`minItems`, `contains`).
 fn asks_list_items(schema: &Value) -> bool {
@@ -590,6 +599,23 @@ mod tests {
         assert!(fill(additional(json!("f"))).is_some());
         assert!(fill(additional(Value::Null)).is_none());
         assert!(fill(json!({"properties": {"x_one": {"const": 0}}, "patternProperties": {"^y_": {"type": "string"}}})).is_none());
+
+        // A key's own list is written empty: a root key's list asking
+        // items, through a reference too; not a list below it.
+        let own_list = |schema: Value| {
+            excused(
+                "fill",
+                "a fill writes too few list items (minItems)",
+                &case(Language::YAML, schema, json!({})),
+            )
+        };
+        let strings = json!({"minItems": 2, "items": {"type": "string"}});
+        assert!(own_list(json!({"properties": {"c": strings}})).is_some());
+        assert!(
+            own_list(json!({"$defs": {"d": strings}, "properties": {"c": {"$ref": "#/$defs/d"}}}))
+                .is_some()
+        );
+        assert!(own_list(json!({"properties": {"c": {"properties": {"l": strings}}}})).is_none());
 
         let secret = |language: Language, doc: Value| {
             excused(

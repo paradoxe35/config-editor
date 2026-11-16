@@ -292,3 +292,100 @@ fn saving_a_retyped_value_walks_its_schema_only() {
     let retyped = walks(200, "8") - walks(50, "8");
     assert_eq!(retyped, plain, "retyped {retyped}, plain {plain}");
 }
+
+/// A schema whose verdict on a value is given only where it judges the
+/// value together with what holds it, a document holding the value as the
+/// string `"x"` at `pointer`, the text typed over it in an XML view and
+/// the value saved: the view's reading where that judgement takes only
+/// it, the host's type where it takes only that.
+fn judged_above() -> Vec<(Value, Value, &'static str, Value)> {
+    let nested = json!({"server": {"a": {"b": {"n": "x"}}}});
+    let or_anything = |inner: Value| json!({"oneOf": [inner, {}]});
+    vec![
+        // A `oneOf` at the root with an option taking anything: the
+        // string is in both options (the view reads the number, which only
+        // the other one takes).
+        (
+            or_anything(
+                json!({"properties": {"server": {"properties": {"n": {"type": "string"}}}}}),
+            ),
+            json!({"server": {"n": "x"}}),
+            "/server/n",
+            json!(8),
+        ),
+        // The same outside nearer options that take the string.
+        (
+            json!({"properties": {"server": or_anything(json!({"properties": {"a":
+                {"anyOf": [{"properties": {"n": {"type": "string"}}}]}}}))}}),
+            json!({"server": {"a": {"n": "x"}}}),
+            "/server/a/n",
+            json!(8),
+        ),
+        // Four levels above the value: a `not` refusing the string.
+        (
+            json!({"properties": {"server": {"not": {"properties": {"a": {"properties":
+                {"b": {"properties": {"n": {"type": "string"}}}}}}}}}}),
+            nested.clone(),
+            "/server/a/b/n",
+            json!(8),
+        ),
+        // An `enum` of whole objects.
+        (
+            json!({"properties": {"server": {"enum": [{"a": {"b": {"n": 8}}}]}}}),
+            nested,
+            "/server/a/b/n",
+            json!(8),
+        ),
+        // A list's `contains`: only the number meets it.
+        (
+            json!({"properties": {"server": {"properties": {"list":
+                {"type": "array", "contains": {"const": 8}}}}}}),
+            json!({"server": {"list": ["x", "y"]}}),
+            "/server/list/0",
+            json!(8),
+        ),
+        // `uniqueItems`: the number would repeat the item beside it, the
+        // host's string does not.
+        (
+            json!({"properties": {"server": {"properties": {"list":
+                {"type": "array", "uniqueItems": true}}}}}),
+            json!({"server": {"list": ["x", 8]}}),
+            "/server/list/0",
+            json!("8"),
+        ),
+    ]
+}
+
+/// P2: `8` typed in an XML view of any host saves as the view reads it
+/// where only a schema above it (options, `not`, `enum`, `contains`,
+/// `uniqueItems`) tells the view's reading from the host's type.
+#[test]
+fn a_value_judged_by_a_schema_above_it_saves_as_that_schema_takes_it() {
+    let mut failures = Vec::new();
+    for (schema, document, pointer, saved_as) in judged_above() {
+        let bundle = Arc::new(build_schema(&schema.to_string()).unwrap());
+        let mut expected = document.clone();
+        *expected.pointer_mut(pointer).unwrap() = saved_as;
+        for host_language in [
+            Language::JSON,
+            Language::YAML,
+            Language::TOML,
+            Language::HCL,
+        ] {
+            let host = host_language.serialize(&document).unwrap();
+            let bridge = Bridge::new(host_language, Language::XML, Some(bundle.clone())).unwrap();
+            let shown = bridge.to_edit(&host).unwrap().text;
+            let edited = shown.replacen(">x<", ">8<", 1);
+            match bridge
+                .to_host(&edited, &host)
+                .map(|saved| host_language.parse(&saved))
+            {
+                Ok(Ok(read)) if read == expected => {}
+                other => failures.push(format!(
+                    "{schema} at {pointer}, saved to {host_language}: {other:?}"
+                )),
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}

@@ -18,11 +18,6 @@ pub(crate) fn leaves<'s>(tree: &Tree<'s>, walked: Walked) -> Vec<&'s Value> {
     found.leaves
 }
 
-/// Whether `tree` holds a `oneOf`/`anyOf`.
-pub(crate) fn has_options(tree: &Tree<'_>) -> bool {
-    finds_options(tree, |_| true)
-}
-
 /// Whether `tree` holds a `oneOf`/`anyOf` option the value refutes.
 pub(crate) fn refutes(tree: &Tree<'_>) -> bool {
     finds_options(tree, |choices| {

@@ -19,31 +19,49 @@ use serde_json::Value;
 /// the view's reading is saved: what the view validated.
 ///
 /// So is a value the merge kept as the host held it where the view reads
-/// it otherwise (`edited`): a key renamed onto one the schema types (the
-/// host's string `"true"` under a key whose schema is `boolean`) is saved
-/// as the view means it.
+/// it otherwise (`edited`) and the edit wrote it: a key renamed onto one
+/// the schema types (the host's string `"true"` under a key whose schema
+/// is `boolean`), or the view's number typed in another spelling
+/// (`respelled`: `08` over the host's `"8"`, which the view showed as 8),
+/// is saved as the view means it.
 pub(in crate::editor::bridge) fn in_host_types(
     old: &Value,
     (seen, edited): (&Value, &Value),
     value: Value,
-    schema: Option<&Value>,
+    (schema, respelled): (Option<&Value>, &[String]),
 ) -> Result<Value, String> {
     let mut retyped = Vec::new();
     let mut value = in_host_types_at(old, Some(seen), value, "", &mut retyped)?;
     if let Some(schema) = schema {
-        read_otherwise(&value, (seen, edited), &mut String::new(), &mut retyped);
+        let written = Written { seen, respelled };
+        read_otherwise(&value, edited, &written, &mut String::new(), &mut retyped);
         schema_readings::keep(&mut value, retyped, schema);
     }
     Ok(value)
 }
 
+/// What tells the values the edit wrote: the view's value before it,
+/// and the numbers it kept but typed in another spelling.
+struct Written<'a> {
+    seen: &'a Value,
+    respelled: &'a [String],
+}
+
+impl Written<'_> {
+    /// Whether the edit wrote `value` at `at`: the view showed no such
+    /// reading there, or the edit spelled it anew.
+    fn wrote(&self, at: &str, value: &Value) -> bool {
+        self.seen.pointer(at) != Some(value) || self.respelled.iter().any(|pointer| pointer == at)
+    }
+}
+
 /// Each scalar of `value` the view reads otherwise in `edited` (at the
-/// same pointer), with the view's reading, where the edit wrote it (the
-/// view showed no such reading there, in `seen`): an untouched value
-/// keeps the host's text.
+/// same pointer), with the view's reading, where the edit wrote it: an
+/// untouched value keeps the host's text.
 fn read_otherwise(
     value: &Value,
-    (seen, edited): (&Value, &Value),
+    edited: &Value,
+    written: &Written<'_>,
     at: &mut String,
     out: &mut Retyped,
 ) {
@@ -54,7 +72,7 @@ fn read_otherwise(
                 if let Some(other) = theirs.get(key) {
                     at.push('/');
                     at.push_str(&pointer_key(key));
-                    read_otherwise(child, (seen, other), at, out);
+                    read_otherwise(child, other, written, at, out);
                     at.truncate(length);
                 }
             }
@@ -63,12 +81,12 @@ fn read_otherwise(
             for (index, (child, other)) in items.iter().zip(theirs).enumerate() {
                 at.push('/');
                 at.push_str(&index.to_string());
-                read_otherwise(child, (seen, other), at, out);
+                read_otherwise(child, other, written, at, out);
                 at.truncate(length);
             }
         }
         (Value::Object(_) | Value::Array(_), _) | (_, Value::Object(_) | Value::Array(_)) => {}
-        (value, other) if value != other && seen.pointer(at) != Some(other) => {
+        (value, other) if value != other && written.wrote(at, other) => {
             out.push((at.clone(), other.clone()));
         }
         _ => {}

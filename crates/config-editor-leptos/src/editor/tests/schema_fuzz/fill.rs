@@ -110,6 +110,9 @@ pub(super) fn check(case: &Case) -> Verdict {
             if at.matches('/').count() > FILL_DEPTH {
                 continue;
             }
+            if language == Language::XML && in_a_list_in_a_list(&read, &at) {
+                continue;
+            }
             let keyword = error.kind().keyword();
             let class = match keyword {
                 "required" => "a fill leaves out a required child",
@@ -130,6 +133,34 @@ pub(super) fn check(case: &Case) -> Verdict {
     }
 }
 
+/// Whether the place `at` in `read` is a list that is an item of a list,
+/// or inside one. XML writes no list in a list (documented, see
+/// `xml_cannot_hold`): an empty element where the schema wants one (the
+/// least list of a list of lists, written `<a></a>`) reads as a list of
+/// one inner list, which is not what the fill wrote, so its items are
+/// not judged.
+fn in_a_list_in_a_list(read: &Value, at: &str) -> bool {
+    let mut value = read;
+    for segment in at.split('/').skip(1) {
+        let next = match value {
+            Value::Array(items) => segment
+                .parse::<usize>()
+                .ok()
+                .and_then(|index| items.get(index)),
+            Value::Object(map) => map.get(&segment.replace("~1", "/").replace("~0", "~")),
+            _ => None,
+        };
+        let Some(next) = next else {
+            return false;
+        };
+        if value.is_array() && next.is_array() {
+            return true;
+        }
+        value = next;
+    }
+    false
+}
+
 #[test]
 fn accepted_keys_fill_what_their_schema_requires_with_a_stop_per_value() {
     run(&Property {
@@ -140,4 +171,17 @@ fn accepted_keys_fill_what_their_schema_requires_with_a_stop_per_value() {
         draw,
         check,
     });
+}
+
+/// Only a list that is an item of a list, or what is inside one, is the
+/// XML spelling the check leaves alone.
+#[test]
+fn only_a_list_in_a_list_is_left_alone() {
+    let read = serde_json::json!({"a": [[{}], {"b": [1]}], "c": [1, 2]});
+    for at in ["/a/0", "/a/0/0"] {
+        assert!(in_a_list_in_a_list(&read, at), "{at}");
+    }
+    for at in ["", "/a", "/a/1", "/a/1/b", "/a/1/b/0", "/c", "/c/0", "/x/0"] {
+        assert!(!in_a_list_in_a_list(&read, at), "{at}");
+    }
 }
