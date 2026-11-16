@@ -130,11 +130,13 @@ pub(super) fn run(property: &Property) {
                     );
                 }
                 // A class is told apart by the finding allowing it: a case
-                // the first one's finding does not explain is shrunk too.
+                // the first one's finding does not explain is shrunk too,
+                // and a shrunk case keeps its class's finding.
+                let excused = known::excused(property.name, &found.class, &case);
                 let key = format!(
                     "{}{}",
                     found.class,
-                    known::excused(property.name, &found.class, &case)
+                    excused
                         .map(|finding| format!(" [{finding}]"))
                         .unwrap_or_default()
                 );
@@ -151,7 +153,6 @@ pub(super) fn run(property: &Property) {
                     Verdict::Fails(failure) => failure.detail,
                     _ => found.detail.clone(),
                 };
-                let excused = known::excused(property.name, &found.class, &shrunk);
                 classes.insert(
                     key,
                     Class {

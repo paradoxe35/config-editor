@@ -687,7 +687,11 @@ pub(in crate::editor) struct Tokens {
 
 impl Tokens {
     pub(super) fn new<'t>(texts: impl IntoIterator<Item = &'t str>) -> Self {
-        let texts: HashSet<String> = texts.into_iter().map(str::to_string).collect();
+        let texts: HashSet<String> = texts
+            .into_iter()
+            .filter(|text| !text.is_empty())
+            .map(str::to_string)
+            .collect();
         let lengths = texts.iter().map(String::len).collect();
         Self { texts, lengths }
     }
