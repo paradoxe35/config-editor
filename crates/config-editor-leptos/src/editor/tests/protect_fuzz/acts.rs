@@ -126,6 +126,31 @@ fn cuts_locked(state: EditorState, range: std::ops::Range<usize>) -> bool {
     })
 }
 
+/// Whether an edit replacing `regions` (bytes of `before`, the text on
+/// screen; an empty one inserts) writes inside text a host range covers,
+/// where the editor holds it: the range's own lock or a field it covers.
+/// Of two alike lines only the editor knows which one the range followed
+/// (a copy pasted above it, or typed into), so the model asks it.
+fn writes_in_range(state: EditorState, before: &str, regions: &[std::ops::Range<usize>]) -> bool {
+    state.protect().protected.with_untracked(|protected| {
+        protected
+            .locks
+            .iter()
+            .filter(|lock| lock.by_range())
+            .flat_map(|lock| &lock.ranges)
+            .any(|locked| {
+                regions.iter().any(|region| {
+                    let (start, end) = (utf16(before, region.start), utf16(before, region.end));
+                    if start == end {
+                        locked.start < start && start < locked.end
+                    } else {
+                        start < locked.end && locked.start < end
+                    }
+                })
+            })
+    })
+}
+
 fn utf16(text: &str, byte: usize) -> usize {
     text[..byte].encode_utf16().count()
 }
@@ -257,7 +282,9 @@ pub(super) fn make(setup: &Setup, mounted: &Mounted, act: &Act) -> Result<(), (C
             } else {
                 type_at(state, at, &entry, setup.pairs)
             };
-            if ordinary(setup, view, protected, &before, &expected, false) {
+            if ordinary(setup, view, protected, &before, &expected, false)
+                && !writes_in_range(state, &before, std::slice::from_ref(&(at..at)))
+            {
                 return expect(taken, &expected, &format!("entry {entry:?}"));
             }
         }
@@ -277,7 +304,9 @@ pub(super) fn make(setup: &Setup, mounted: &Mounted, act: &Act) -> Result<(), (C
             }
             let expected = format!("{}{}", &before[..start], &before[end..]);
             let taken = paste(state, start, end, "");
-            if ordinary(setup, view, protected, &before, &expected, true) {
+            if ordinary(setup, view, protected, &before, &expected, true)
+                && !writes_in_range(state, &before, std::slice::from_ref(&(start..end)))
+            {
                 return expect(taken, &expected, &format!("cut {:?}", &before[start..end]));
             }
         }
@@ -316,9 +345,14 @@ pub(super) fn make(setup: &Setup, mounted: &Mounted, act: &Act) -> Result<(), (C
                 .find(|line| line.contains(protected))
                 .unwrap_or_default();
             let expected = before.replace(query, with);
+            let matches: Vec<std::ops::Range<usize>> = before
+                .match_indices(query)
+                .map(|(at, found)| at..at + found.len())
+                .collect();
             if !line.contains(query)
                 && before.contains(query)
                 && ordinary(setup, view, protected, &before, &expected, false)
+                && !writes_in_range(state, &before, &matches)
             {
                 return expect(true, &expected, &format!("Replace all {query:?}"));
             }

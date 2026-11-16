@@ -66,6 +66,13 @@ impl Lock {
             .iter()
             .any(|range| range.start < offset && offset < range.end)
     }
+
+    /// Whether a host range locks it: the range's own lock, or a field
+    /// the range covers.
+    #[cfg(test)]
+    pub(crate) fn by_range(&self) -> bool {
+        self.reason == Reason::Range
+    }
 }
 
 /// What protects one text: its locks, the document they were found in, and

@@ -119,7 +119,9 @@ fn keeps(before: &[(String, String)], after: &[(String, String)]) -> bool {
 
 /// Whether editing `before` to `after` (in `language`) is ordinary: both
 /// parse, the protected pairs are as they were and, unless `removes`
-/// (a line cut), every other pair is kept; a range's locked line stays.
+/// (a line cut), every other pair is kept. Where a host range is, the
+/// caller judges (`acts::writes_in_range`): of alike lines, only the
+/// editor knows which one the range followed.
 pub(super) fn ordinary(
     setup: &Setup,
     language: Language,
@@ -145,16 +147,6 @@ pub(super) fn ordinary(
     }
     if !removes && !keeps(&old_pairs, &new_pairs) {
         return false;
-    }
-    if setup.lock == Lock::Range {
-        let line = |text: &str| {
-            text.lines()
-                .find(|line| line.contains(value))
-                .map(str::to_string)
-        };
-        if line(before) != line(after) {
-            return false;
-        }
     }
     true
 }
