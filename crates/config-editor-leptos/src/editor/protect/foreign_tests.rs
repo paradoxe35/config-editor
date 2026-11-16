@@ -77,6 +77,11 @@ fn another_documents_placeholder_pasted_in_is_never_cut() {
         (language, plain)
     });
     for (language, text) in documents().into_iter().chain(without_own) {
+        let own = if text.contains(SECRET) {
+            "own"
+        } else {
+            "none of its own"
+        };
         let name = text.find("name").expect("a name field") + 4;
         let at = name + text[name..].find('a').expect("its value") + 1;
         let end = at + OTHER.len();
@@ -99,7 +104,7 @@ fn another_documents_placeholder_pasted_in_is_never_cut() {
         let shown = state.doc().text.get_untracked();
         let units = |byte: usize| shown[..byte].encode_utf16().count();
         if !state.cuts_a_token(units(at + '«'.len_utf8()), units(end)) {
-            failures.push(format!("{language}: a drag of part of it taken"));
+            failures.push(format!("{language} ({own}): a drag of part of it taken"));
         }
         // Replace All exists only with find and replace.
         #[cfg(feature = "search")]
@@ -108,7 +113,7 @@ fn another_documents_placeholder_pasted_in_is_never_cut() {
             .iter()
             .any(|range| range.start <= at && end <= range.end)
         {
-            failures.push(format!("{language}: Replace all may cut it"));
+            failures.push(format!("{language} ({own}): Replace all may cut it"));
         }
         for (what, cut) in [
             ("Backspace on its last character", end - '»'.len_utf8()..end),
@@ -118,7 +123,7 @@ fn another_documents_placeholder_pasted_in_is_never_cut() {
             replace(state, cut, "");
             let now = state.doc().text.get_untracked();
             if now.contains("9b1c") || now.matches('«').count() != text.matches('«').count() {
-                failures.push(format!("{language}: {what}: {now:?}"));
+                failures.push(format!("{language} ({own}): {what}: {now:?}"));
             }
         }
     }

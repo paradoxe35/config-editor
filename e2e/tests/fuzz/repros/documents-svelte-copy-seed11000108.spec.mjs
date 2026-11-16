@@ -1,10 +1,10 @@
 import { test } from '@playwright/test';
 import { replay } from '../runner.mjs';
 
-// P1 guard (for the redesign): a copy of a selection holding only a secret placeholder puts a line break on the clipboard.
+// P1: a copy of a selection snapped to a secret placeholder copies the placeholder whole.
 // Shrunk by the browser fuzz from seed 11000108 on documents-svelte (?random).
-// Fails the `copy` check after step 19: copied "\n", selection "«secret 3f2a»"
-test("SW3-4 documents-svelte: copy (seed 11000108)", async ({ browser }) => {
+// Failed the `copy` check after step 19: copied "\n", selection "«secret 3f2a»".
+test("documents-svelte: copy (seed 11000108)", async ({ browser }) => {
   await replay(browser, "documents-svelte", "?random", [
     {
       "k": "suggest",
