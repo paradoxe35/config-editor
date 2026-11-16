@@ -62,6 +62,7 @@ method and headless function here has a JS option, method or function there
   - [Without a feature](#without-a-feature)
   - [Size](#size)
 - [License](#license)
+
 <!-- /toc -->
 
 ## Install
@@ -70,7 +71,7 @@ method and headless function here has a JS option, method or function there
 cargo add config-editor-leptos
 ```
 
-Requires Leptos 0.8 with client-side rendering (`csr`), a Rust 1.88+
+Requires Leptos 0.8 with client-side rendering (`csr`), a Rust 1.89+
 toolchain, and the `wasm32-unknown-unknown` target for the browser build.
 The headless API also works natively (servers, CLIs, tests).
 
@@ -2009,17 +2010,17 @@ headless functions) is left out by the linker, feature or not.
 
 | Build                                                           | wasm, gzip -9 |
 | --------------------------------------------------------------- | ------------- |
-| Everything (the default features)                               | 1815 KB       |
-| YAML + JSON, every optional feature, no `schema-validation`     | 721 KB        |
-| YAML + JSON, every optional feature, with `schema-validation`   | 1417 KB       |
-| Minimal: YAML only, no optional feature, no `schema-validation` | 579 KB        |
-| Saved by leaving out `schema-validation` (from everything)      | -700 KB       |
-| Saved by leaving out `search` (from everything)                 | -34 KB        |
-| Saved by leaving out `folding` (from everything)                | -30 KB        |
-| Saved by leaving out `diff` (from everything)                   | -25 KB        |
-| Saved by leaving out `protect` (from everything)                | -53 KB        |
+| Everything (the default features)                               | 2615 KB       |
+| YAML + JSON, every optional feature, no `schema-validation`     | 1367 KB       |
+| YAML + JSON, every optional feature, with `schema-validation`   | 2174 KB       |
+| Minimal: YAML only, no optional feature, no `schema-validation` | 1093 KB       |
+| Saved by leaving out `schema-validation` (from everything)      | -805 KB       |
+| Saved by leaving out `search` (from everything)                 | -41 KB        |
+| Saved by leaving out `folding` (from everything)                | -35 KB        |
+| Saved by leaving out `diff` (from everything)                   | -32 KB        |
+| Saved by leaving out `protect` (from everything)                | -147 KB       |
 
-Measured 2026-11-07 with rustc 1.99.1, without wasm-opt (not installed), by `scripts/wasm-sizes.sh`.
+Measured 2026-11-16 with rustc 1.99.1, without wasm-opt (not installed), by `scripts/wasm-sizes.sh`.
 
 <!-- wasm-sizes:end -->
 

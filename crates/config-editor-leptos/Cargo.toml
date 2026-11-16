@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 description = "A fast, VS Code-style Leptos editor for YAML, JSON, TOML, HCL, and XML configs, with JSON Schema completion, diagnostics, and conversion"
 license = "MIT"
-rust-version = "1.88"
+rust-version = "1.89"
 readme = "README.md"
 repository = "https://github.com/paradoxe35/config-editor"
 homepage = "https://github.com/paradoxe35/config-editor"
@@ -44,7 +44,7 @@ diff = []
 folding = []
 
 [dependencies]
-jsonschema = { version = "0.60", default-features = false, optional = true }
+jsonschema = { version = "0.61.2", default-features = false, optional = true }
 # Matching `patternProperties`: the full engine `jsonschema` brings anyway when
 # validating, else the small one (an unused engine is not linked).
 regex = { version = "1", optional = true }
@@ -52,7 +52,7 @@ regex-lite = "0.1"
 # Byte offsets as newtypes (`TextSize`, `TextRange`), see `editor/text`.
 text-size = "1.1.1"
 leptos = { version = "0.8.14", default-features = false, features = ["csr"] }
-noyalib = { version = "0.0.58", optional = true, default-features = false, features = ["std", "fast-int", "fast-float", "strict-deserialise", "compat-serde-yaml"] }
+noyalib = { version = "0.0.60", optional = true, default-features = false, features = ["std", "fast-int", "fast-float", "strict-deserialise", "compat-serde-yaml"] }
 hcl-rs = { version = "0.20", optional = true }
 # Its parser, for the heredoc text `hcl-rs` gives re-escaped (see `hcl/heredoc.rs`).
 hcl-edit = { version = "0.10", optional = true }

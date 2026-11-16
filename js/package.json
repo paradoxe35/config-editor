@@ -15,8 +15,8 @@
   "devDependencies": {
     "@sveltejs/package": "^2.5.0",
     "@types/react": "^19.1.0",
-    "esbuild": "^0.25.0",
-    "prettier": "3.7.4",
+    "esbuild": "^0.28.2",
+    "prettier": "3.10.1",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "svelte": "^5.40.0",

@@ -20,6 +20,7 @@ editing one language as another, and eleven themes.
 - [Keyboard and screen readers](#keyboard-and-screen-readers)
 - [Exports](#exports)
 - [License](#license)
+
 <!-- /toc -->
 
 ## Install

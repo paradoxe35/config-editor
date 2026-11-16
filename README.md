@@ -23,6 +23,7 @@ React, Vue and Svelte.
 - [Development](#development)
 - [Releasing](#releasing)
 - [License](#license)
+
 <!-- /toc -->
 
 ## Features
@@ -223,7 +224,7 @@ The crate has no JavaScript in it, so a Rust project can vendor
 
 How the editor is built, its design rules and the checks to run before a commit: [CONTRIBUTING.md](CONTRIBUTING.md). `make help` lists the everyday commands (`make dev`, `make check`, `make e2e`, `make fmt`, …).
 
-Requirements: Rust 1.88+ with the `wasm32-unknown-unknown` target,
+Requirements: Rust 1.89+ with the `wasm32-unknown-unknown` target,
 [trunk](https://trunkrs.dev), `wasm-bindgen-cli` matching the version in
 `Cargo.lock`, and Node.js 20+.
 
