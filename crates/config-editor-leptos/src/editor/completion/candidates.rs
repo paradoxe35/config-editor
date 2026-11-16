@@ -173,91 +173,49 @@ fn written_fills(
 }
 
 /// Whether writing `key` (its value `property`'s placeholder) into the
-/// object `written` makes a dependent schema of `key` refuse what else
-/// the object holds (a `const`, `enum` or type it asks of another key).
-/// Keys such a schema requires are not counted: the problem then names
-/// the key to write next. Where values are text (`text_values`, XML) a
-/// value is read either way its text reads (`-3`, `"-3"`) that the
-/// schemas at it (`here`'s child) take: refused when no reading is.
+/// object `written` makes the schemas at the object refuse a value it
+/// already holds: what applies to each value is walked again for the
+/// object with the key (a dependent schema of the key, the `then` of an
+/// `if` the key decides, the option the key picks), and a value they took
+/// is refused. Keys the object then requires are not counted: the problem
+/// then names the key to write next. Where values are text
+/// (`text_values`, XML) a value is taken in any reading its text has
+/// (`-3`, `"-3"`).
 fn refused_beside(
     key: &str,
     property: &Value,
     here: &Here<'_>,
-    certain: &[&Value],
     written: Option<&Value>,
     root: &Value,
     text_values: bool,
 ) -> bool {
-    let dependents: Vec<&Value> = certain
-        .iter()
-        .filter_map(|branch| {
-            ["dependentSchemas", "dependencies"]
-                .iter()
-                .find_map(|keyword| branch.get(*keyword)?.get(key))
-        })
-        .filter(|dependent| dependent.is_object())
-        .collect();
-    if dependents.is_empty() {
+    let Some(object) = written.and_then(Value::as_object) else {
         return false;
-    }
-    let mut object = written
-        .and_then(Value::as_object)
-        .cloned()
-        .unwrap_or_default();
-    let asked: Vec<Value> = dependents
-        .into_iter()
-        .map(|dependent| {
-            let mut asked = dependent.clone();
-            if let Some(members) = asked.as_object_mut() {
-                members.remove("required");
-            }
-            asked
-        })
-        .collect();
-    let refused = |object: &serde_json::Map<String, Value>| {
-        let object = Value::Object(object.clone());
-        asked
-            .iter()
-            .any(|asked| decides(asked, &object, root) == Some(false))
     };
-    if !text_values {
-        object.insert(key.to_string(), placeholder(property, root));
-        return refused(&object);
-    }
-    // Each value's readings its schemas take, the one as read first.
-    let readings: Vec<(String, Vec<Value>)> = object
+    let mut with_key = object.clone();
+    with_key.insert(key.to_string(), placeholder(property, root));
+    let with_key = Value::Object(with_key);
+    let after = here.rewalk(Seen::value(Some(&with_key)));
+    object
         .iter()
+        .filter(|(name, _)| *name != key)
         .take(MAX_READ_BESIDE)
-        .map(|(name, value)| {
-            let at = here.child(&SchemaPathSegment::Key(name.clone()));
-            let taken: Vec<Value> = std::iter::once(value.clone())
-                .chain(other_reading(value))
-                .filter(|reading| at.accepts(reading, root) != Some(false))
+        .any(|(name, value)| {
+            let segment = SchemaPathSegment::Key(name.clone());
+            let (before, after) = (here.child(&segment), after.child(&segment));
+            let readings: Vec<Value> = std::iter::once(value.clone())
+                .chain(text_values.then(|| other_reading(value)).flatten())
+                .filter(|reading| before.accepts(reading, root) != Some(false))
                 .collect();
-            (name.clone(), taken)
+            !readings.is_empty()
+                && readings
+                    .iter()
+                    .all(|reading| after.accepts(reading, root) == Some(false))
         })
-        .collect();
-    for (name, taken) in &readings {
-        if let Some(first) = taken.first() {
-            object.insert(name.clone(), first.clone());
-        }
-    }
-    object.insert(key.to_string(), placeholder(property, root));
-    if !refused(&object) {
-        return false;
-    }
-    // One value read its other way at a time.
-    !readings.iter().any(|(name, taken)| {
-        taken.get(1).is_some_and(|other| {
-            let mut changed = object.clone();
-            changed.insert(name.clone(), other.clone());
-            !refused(&changed)
-        })
-    })
 }
 
-/// Values beside a suggested key [`refused_beside`] reads both ways at
-/// most: the check costs the same for any object.
+/// Values beside a suggested key [`refused_beside`] judges at most: the
+/// check costs the same for any object.
 const MAX_READ_BESIDE: usize = 8;
 
 /// `(cursor_offset, selected)` for an inserted key: a scalar default the
@@ -387,15 +345,14 @@ pub(super) fn property_completions(
                 continue;
             }
             // A key a `not` keeps apart from keys written (`git` beside
-            // `path`): writing it would break the `not`. Nor a key whose
-            // dependent schema refuses a value written beside it.
+            // `path`): writing it would break the `not`. Nor a key that
+            // makes the schemas refuse a value written beside it.
             if existing.is_some_and(|existing| excluded_by_not(key, branches, existing, root))
                 || (!present
                     && refused_beside(
                         key,
                         property,
                         here,
-                        &object.certain,
                         written,
                         root,
                         repetition == Repetition::Elements,

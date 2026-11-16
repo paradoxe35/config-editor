@@ -126,8 +126,68 @@ fn children<'a>(
         }
     };
     let caret_before = *caret;
+    let found = written(
+        language,
+        required_keys(language, object, at, root),
+        root,
+        caret,
+        depth,
+    );
+    let here = Here::of(object, root);
+    let taken = |found: &[RequiredChild<'_>]| here.accepts(&preview(found, root));
+    if found.is_empty() || taken(&found) != Some(false) {
+        return found;
+    }
+    let caret_after = *caret;
+    // Keys an option requires, where the object they make is refused and
+    // the empty one taken (an option beside `{}` in a `oneOf`, which the
+    // filled object meets too), are not written.
+    if here.accepts(&Value::Object(serde_json::Map::new())) == Some(true) {
+        *caret = caret_before;
+        return Vec::new();
+    }
+    if here.judges_children_together() {
+        // The schemas judge the object whole (its options): another
+        // option's own required children, in order, the first they take.
+        let first = object_branch(object, root);
+        for branch in here.branches().into_iter().filter(|branch| {
+            describes_object(branch) && !first.is_some_and(|first| std::ptr::eq(first, *branch))
+        }) {
+            *caret = caret_before;
+            let other = written(
+                language,
+                required_keys(language, branch, None, root),
+                root,
+                caret,
+                depth,
+            );
+            if !other.is_empty() && taken(&other) == Some(true) {
+                return other;
+            }
+        }
+        // None is taken, and the option the keys were written for takes
+        // them: another option takes them too, so no value typed there is
+        // ever taken. The object is left to type.
+        if first.is_some_and(|first| decides(first, &preview(&found, root), root) == Some(true)) {
+            *caret = caret_before;
+            return Vec::new();
+        }
+    }
+    *caret = caret_after;
+    found
+}
+
+/// What a block writes for each of `keys` (a key, its schema, and what
+/// applies to its value), left out where nothing is.
+fn written<'a>(
+    language: &dyn ConfigLanguage,
+    keys: Vec<(&'a str, &'a Value, Entry<'a>)>,
+    root: &'a Value,
+    caret: &mut bool,
+    depth: usize,
+) -> Vec<RequiredChild<'a>> {
     let mut found = Vec::new();
-    for (key, child, at) in required_keys(language, object, at, root) {
+    for (key, child, at) in keys {
         if !writes_key(language, key) {
             continue;
         }
@@ -140,31 +200,20 @@ fn children<'a>(
             fill,
         });
     }
-    // Keys an option requires, where the object they make is refused and
-    // the empty one taken (an option beside `{}` in a `oneOf`, which the
-    // filled object meets too), are not written.
-    let here = Here::of(object, root);
-    if !found.is_empty()
-        && here.accepts(&preview(&found)) == Some(false)
-        && here.accepts(&Value::Object(serde_json::Map::new())) == Some(true)
-    {
-        *caret = caret_before;
-        return Vec::new();
-    }
     found
 }
 
-/// The object `children` write, a value left to type as an empty one.
-fn preview(children: &[RequiredChild<'_>]) -> Value {
+/// The object `children` write, a value left to type as its schema's
+/// [`placeholder`]: what the user is to type there.
+fn preview(children: &[RequiredChild<'_>], root: &Value) -> Value {
     Value::Object(
         children
             .iter()
             .map(|child| {
                 let value = match &child.fill {
                     Fill::Value(value) | Fill::CaretAt(value) => value.clone(),
-                    Fill::Children(nested) => preview(nested),
-                    Fill::Caret { string: true } => Value::String(String::new()),
-                    Fill::Caret { string: false } | Fill::Empty(None) => Value::Null,
+                    Fill::Children(nested) => preview(nested, root),
+                    Fill::Caret { .. } | Fill::Empty(None) => placeholder(child.schema, root),
                     Fill::Empty(Some(value)) => value.clone(),
                 };
                 (child.key.to_string(), value)

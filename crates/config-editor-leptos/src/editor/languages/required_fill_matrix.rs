@@ -212,3 +212,43 @@ fn the_children_written_follow_the_branch_the_document_takes() {
     }
     report(&failures);
 }
+
+/// A required child under a `oneOf` is filled with a value one option
+/// alone takes, in every language: the next option's required keys where
+/// the first one's are taken by another option too; and no key (the value
+/// left to type) where every option's are taken twice, as beside an
+/// option taking anything, never keys the `oneOf` refuses.
+#[test]
+fn a_required_child_under_one_of_is_filled_with_what_one_option_takes() {
+    let first_taken_twice = json!({"oneOf": [
+        {"required": ["a"], "properties": {"a": {"const": 1}}},
+        {"required": ["b"], "properties": {"b": {"const": 2}}},
+        {"properties": {"a": {"const": 1}}, "additionalProperties": false, "minProperties": 1}]});
+    let beside_anything = json!({"oneOf": [
+        {"required": ["b"], "properties": {"b": {"type": "boolean"}}}, {},
+        {"dependentSchemas": {"x": {"required": ["s"]}}}]});
+    let mut failures = Vec::new();
+    for (mode, wanted) in [(first_taken_twice, vec!["b"]), (beside_anything, vec![])] {
+        let schema = json!({"type": "object", "properties": {"svc": {
+            "type": "object", "required": ["mode"], "properties": {"mode": mode}}}});
+        let bundle = build_schema(&schema.to_string()).unwrap();
+        for language in completing() {
+            let accepted = accept_marked("sv|", "svc", &bundle, language.behavior());
+            // The value the caret is at typed: `2`, which `b` takes.
+            let text = accepted.replace('|', "2");
+            let read = super::super::codec::read(language.behavior(), &text, Some(&bundle.schema));
+            let found = read
+                .as_ref()
+                .ok()
+                .and_then(|read| read.pointer("/svc/mode"));
+            let keys: Vec<&str> = found
+                .and_then(Value::as_object)
+                .map(|mode| mode.keys().map(String::as_str).collect())
+                .unwrap_or_default();
+            if keys != wanted {
+                failures.push(format!("{language}\n{accepted}\nreads {read:?}"));
+            }
+        }
+    }
+    report(&failures);
+}

@@ -10,7 +10,7 @@ use serde_json::Value;
 
 use super::documents::{Shape, document};
 use super::random::Rng;
-use super::reference::{annotations_fit, compile, holds_empty};
+use super::reference::{Both, annotations_fit, compile, holds_empty};
 use super::runner::{Case, Property, Verdict, failure, language, run};
 use super::schemas::{Draw, schema};
 use crate::editor::Language;
@@ -113,6 +113,15 @@ pub(super) fn check(case: &Case) -> Verdict {
             if language == Language::XML && in_a_list_in_a_list(&read, &at) {
                 continue;
             }
+            if only_unwritable_left_out(
+                &both,
+                language,
+                &option.label,
+                &read,
+                (&at, error.kind().keyword()),
+            ) {
+                continue;
+            }
             let keyword = error.kind().keyword();
             let class = match keyword {
                 "required" => "a fill leaves out a required child",
@@ -130,6 +139,90 @@ pub(super) fn check(case: &Case) -> Verdict {
         Verdict::Holds
     } else {
         Verdict::Skipped
+    }
+}
+
+/// Whether the problem at `at` (a `keyword` one) goes once the values
+/// `language` cannot write are put back where YAML's fill of the key
+/// `label` has them. TOML writes no `null` and XML no `null` nor empty
+/// list (documented): a fill leaves such a value out (a required child, a
+/// list's only kind of item), which only its schema refuses.
+fn only_unwritable_left_out(
+    both: &Both,
+    language: Language,
+    label: &str,
+    read: &Value,
+    (at, keyword): (&str, &str),
+) -> bool {
+    let unwritable = |value: &Value| match language.label() {
+        "TOML" => value.is_null(),
+        "XML" => value.is_null() || value.as_array().is_some_and(Vec::is_empty),
+        _ => false,
+    };
+    if !matches!(language.label(), "TOML" | "XML") {
+        return false;
+    }
+    let source = root(Language::YAML).replacen('|', "", 1);
+    let offered = completions(
+        &source,
+        0,
+        true,
+        Some(&both.editor.bundle),
+        true,
+        Language::YAML.behavior(),
+    );
+    let Some(yaml) = offered
+        .iter()
+        .find(|option| !option.is_value && option.label == label)
+        .and_then(|option| both.read(Language::YAML, &apply_completion(&source, option).0))
+    else {
+        return false;
+    };
+    let restored = put_back(read, &yaml, &unwritable);
+    restored != *read
+        && !both
+            .reference
+            .iter_errors(&restored)
+            .any(|error| error.instance_path().as_str() == at && error.kind().keyword() == keyword)
+}
+
+/// `read` with each value of `full` that `unwritable` names and `read`
+/// lacks put back: a member, or the items of a list `read` holds without
+/// them.
+fn put_back(read: &Value, full: &Value, unwritable: &dyn Fn(&Value) -> bool) -> Value {
+    match (read, full) {
+        (Value::Object(read), Value::Object(full)) => {
+            let mut restored = read.clone();
+            for (key, value) in full {
+                match read.get(key) {
+                    Some(held) => {
+                        restored.insert(key.clone(), put_back(held, value, unwritable));
+                    }
+                    None if unwritable(value) => {
+                        restored.insert(key.clone(), value.clone());
+                    }
+                    None => {}
+                }
+            }
+            Value::Object(restored)
+        }
+        (Value::Array(items), Value::Array(full)) => {
+            let kept: Vec<&Value> = full.iter().filter(|item| !unwritable(item)).collect();
+            if kept.len() < full.len() && kept.iter().copied().eq(items.iter()) {
+                Value::Array(full.clone())
+            } else if items.len() == full.len() {
+                Value::Array(
+                    items
+                        .iter()
+                        .zip(full)
+                        .map(|(item, full)| put_back(item, full, unwritable))
+                        .collect(),
+                )
+            } else {
+                Value::Array(items.clone())
+            }
+        }
+        _ => read.clone(),
     }
 }
 
@@ -184,4 +277,23 @@ fn only_a_list_in_a_list_is_left_alone() {
     for at in ["", "/a", "/a/1", "/a/1/b", "/a/1/b/0", "/c", "/c/0", "/x/0"] {
         assert!(!in_a_list_in_a_list(&read, at), "{at}");
     }
+}
+
+/// Only the values a language cannot write are put back, where the read
+/// value lacks them.
+#[test]
+fn only_unwritable_values_are_put_back() {
+    use serde_json::json;
+    let null = |value: &Value| value.is_null();
+    let full = json!({"a": null, "b": [null, 1], "c": {"d": null, "e": 2}, "f": 3});
+    assert_eq!(
+        put_back(&json!({"b": [1], "c": {}}), &full, &null),
+        json!({"a": null, "b": [null, 1], "c": {"d": null}})
+    );
+    // A value the read one holds otherwise, or a list with other items,
+    // stays as read.
+    assert_eq!(
+        put_back(&json!({"a": 0, "b": [2]}), &full, &null),
+        json!({"a": 0, "b": [2]})
+    );
 }

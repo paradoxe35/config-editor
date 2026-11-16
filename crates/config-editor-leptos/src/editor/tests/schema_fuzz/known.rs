@@ -76,15 +76,16 @@ pub(super) const KNOWN: &[Known] = &[
         class: xml_spelling::KEPT_TEXT,
         applies: |_| true,
     },
-    // `completion::candidates::refused_beside`: a key whose dependent
-    // schema (or `dependentRequired`) requires another key is offered,
-    // and the problem it adds names the key to write next; one whose
-    // dependent schema refuses a value written beside it is not offered.
+    // `completion::candidates::refused_beside`: a key that makes another
+    // key required (a dependent schema, `dependentRequired`, the `then` of
+    // an `if` it decides) is offered, and the problem it adds names the
+    // key to write next; one that makes the schemas refuse a value
+    // written beside it is not offered. Only a `required` problem is so.
     Known {
-        finding: "documented: a key whose dependency requires another is offered",
+        finding: "documented: a key that makes another one required is offered",
         property: "suggestions",
         class: "a suggested key adds a problem elsewhere (required)",
-        applies: |case| case.schema.to_string().contains("\"dependen"),
+        applies: |_| true,
     },
     // Each language's insert writes a key's own list as `[]`, the caret
     // inside to type its items (README, "required children on accept"),

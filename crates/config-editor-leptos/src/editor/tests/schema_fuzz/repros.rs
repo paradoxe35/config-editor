@@ -769,13 +769,27 @@ fn a_string_respelled_as_a_number_the_options_take_saves_as_the_view_reads_it() 
     );
 }
 
-/// A required child under a `oneOf` with an option taking anything is
-/// filled with a value only one option takes. The fill writes the first
-/// option's required `b` today, which the anything option takes too, so
-/// the `oneOf` refuses it.
+/// P2: text typed over a host's boolean where the schema takes only text
+/// (`"true"` over `true`, `d` a string) saves as the view reads it, in
+/// every view and host, spelled anew or not (`True`).
 #[test]
-#[ignore = "open: a fill under a oneOf with an anything option writes a value two options take"]
-fn a_fill_under_a_one_of_with_an_anything_option_writes_a_value_one_option_takes() {
+fn text_typed_over_a_boolean_the_schema_types_text_saves_as_the_view_reads_it() {
+    for typed in ["true", "True"] {
+        holds_everywhere(
+            super::edit_as::check,
+            json!({"properties": {"d": {"type": "string"}}}),
+            json!({"d": true}),
+            json!({ "d": typed }),
+        );
+    }
+}
+
+/// A required child under a `oneOf` with an option taking anything is
+/// not filled with the first option's required `b`, which the anything
+/// option takes too: no option's fill is taken, so the slot is left to
+/// type.
+#[test]
+fn a_fill_under_a_one_of_with_an_anything_option_writes_no_value_two_options_take() {
     holds_everywhere(
         super::fill::check,
         json!({"properties": {"name": {"required": ["x_one", "mode"], "properties": {"mode": {"oneOf": [
@@ -783,5 +797,55 @@ fn a_fill_under_a_one_of_with_an_anything_option_writes_a_value_one_option_takes
             {"dependentSchemas": {"x_one": {"required": ["s"]}}}]}}}}}),
         json!({"name": {"mode": {"x_one": null}, "x_one": false}}),
         Value::Null,
+    );
+}
+
+/// An accepted key's value is a list only where every schema at the key
+/// takes one: a pattern typing `x_` keys text beside the property's list
+/// keywords makes it text to type, not `[]`.
+#[test]
+fn an_accepted_key_is_written_as_every_schema_at_it_takes() {
+    holds_everywhere(
+        super::fill::check,
+        json!({"$defs": {"d0": {"anyOf": [{"items": {}}]}}, "patternProperties": {"^x_": {"type": "string"}},
+            "properties": {"x_one": {"$ref": "#/$defs/d0"}}}),
+        json!({"x_one": "1"}),
+        Value::Null,
+    );
+}
+
+/// A fill leaves out the values a language cannot write (TOML a `null`
+/// item, XML an empty list a required child is) and is otherwise JSON's:
+/// only that documented limit makes the schema refuse it.
+#[test]
+fn a_fill_leaves_out_only_what_its_language_cannot_write() {
+    holds_everywhere(
+        super::fill::check,
+        json!({"properties": {"port": {"properties": {"size": {"minItems": 1, "items": {"type": "null"}}},
+            "required": ["size"]}}}),
+        json!({"port": {"size": null}}),
+        Value::Null,
+    );
+    holds_everywhere(
+        super::fill::check,
+        json!({"properties": {"b": {"properties": {"mode": {"anyOf": [{"dependentSchemas":
+            {"name": {"required": ["p"]}}, "properties": {"name": {"type": "array"}}, "required": ["name"]}]}},
+            "required": ["port", "mode"]}}}),
+        json!({"b": {"port": {}, "mode": 0}}),
+        Value::Null,
+    );
+}
+
+/// A key whose `if` turns on a `then` refusing a value written beside it
+/// (`size` a string once `b` is written) is not suggested, as a key whose
+/// dependent schema does.
+#[test]
+fn a_key_whose_if_refuses_a_value_beside_it_is_not_suggested() {
+    holds_everywhere(
+        super::suggestions::check,
+        json!({"if": {"required": ["b"]}, "then": {"properties": {"size": {"type": "string"}}},
+            "properties": {"b": {}, "size": {"type": "integer"}}}),
+        json!({"size": 0}),
+        json!({"b": "8"}),
     );
 }
