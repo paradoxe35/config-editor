@@ -366,3 +366,30 @@ fn undo_steps_in_an_xml_host_shown_as_json_follow_the_grouping() {
         ],
     });
 }
+
+/// P5: Ctrl+/ over XML lines after typing, Tab and Enter does not panic,
+/// and the undo steps follow the grouping.
+#[test]
+fn commenting_xml_lines_after_enter_and_tab_does_not_panic() {
+    super::undo::replay(super::undo::UndoCase {
+        host: Language::XML,
+        view: None,
+        schema: false,
+        text: "<!-- c -->\n<tcp><nodelay>true</nodelay></tcp>\n<udp>\n  <nodelay>true</nodelay> <!-- u -->\n</udp>\n<listen>1</listen>\n".into(),
+        interleaved: false,
+        actions: vec![
+            Enter { at: 9834217 },
+            Type { at: 10839747, text: "]" },
+            Indent { at: 5009972, to: 5009972, outdent: false },
+            Type { at: 13796691, text: "é" },
+            Tab { at: 9398777, to: 2106124, shift: false },
+            Line { at: 7183816, to: 7183816, command: 0 },
+            Comment { at: 13342472, to: 801295 },
+            Enter { at: 3941629 },
+            Type { at: 11486710, text: "é" },
+            Comment { at: 7086843, to: 105480 },
+            LineBelow { at: 2708258 },
+            Comment { at: 3942386, to: 3023994 },
+        ],
+    });
+}

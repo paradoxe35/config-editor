@@ -643,6 +643,21 @@ impl Bridge {
             ))
             .into());
         }
+        // Nor one the view still shows (its item gone, the comment's line
+        // kept or pasted back): the save writes values, not the view's
+        // comments, so it waits.
+        if let Some(words) = kept_comments::dropped_but_shown(
+            host,
+            self.edit.behavior(),
+            (host_previous, &conversion.text),
+            edit_text,
+        ) {
+            return Err(ConvertError::Unsupported(format!(
+                "this edit would drop the comment `{words}`, which the view still shows: delete it in the view too, or make the edit editing as {}",
+                self.host.label()
+            ))
+            .into());
+        }
         // Nor does what is written read back otherwise, or keys in another
         // order than the user moved them to.
         let saved = read_back::Saved {

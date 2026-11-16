@@ -33,15 +33,13 @@ pub(crate) fn restore(source: &str, text: String) -> String {
     if split(source).1 { marked(text) } else { text }
 }
 
-/// `text` starting with the mark, once. An emptied document keeps it: the
-/// mark belongs to the file's encoding, not to what was typed, so undoing
-/// back to nothing is the file the host started with.
+/// `text`, a document (which never holds the mark), with the mark before
+/// it. A U+FEFF the document starts with (a string's, brought to the start
+/// by a cut) is its own character, written after the mark. An emptied
+/// document keeps the mark: it belongs to the file's encoding, not to what
+/// was typed, so undoing back to nothing is the file the host started with.
 pub(crate) fn marked(text: String) -> String {
-    if split(&text).1 {
-        text
-    } else {
-        format!("{MARK}{text}")
-    }
+    format!("{MARK}{text}")
 }
 
 /// `read` of the document in `source` (the text after a leading mark),

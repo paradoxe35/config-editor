@@ -327,3 +327,100 @@ fn a_path_lock_covers_a_json_scalar_moved_below_its_key() {
         steps: vec![Step::Paths { mask: 11 }, Step::Enter { at: 13400940 }],
     });
 }
+
+/// P1: Enter between a JSON key and the `:` of its list: the path lock
+/// covers the key, the `: [` line below it and the items, as in a fresh
+/// editor.
+#[test]
+fn a_path_lock_covers_a_json_colon_moved_below_its_key() {
+    use super::live::Step;
+    super::live::replay(super::live::LiveCase {
+        language: "JSON",
+        schema: true,
+        text: "{\n  \"k\": \"web\",\n  \"port\": [\n    null,\n    \"web\"\n  ]\n}\n".into(),
+        steps: vec![Step::Enter { at: 3757294 }],
+    });
+}
+
+/// P2: cuts that leave a string's U+FEFF first in the text: it is text,
+/// heard as on screen, and a file with a byte order mark keeps the mark
+/// before it.
+#[test]
+fn a_feff_cut_to_the_start_is_text_not_a_byte_order_mark() {
+    use super::endings::Step;
+    for text in ["k := \"\u{feff}\"\n", "\u{feff}k := \"\u{feff}\"\n"] {
+        super::endings::replay(super::endings::EndingsCase {
+            language: "ODD",
+            view: None,
+            text: text.into(),
+            steps: vec![
+                Step::Cut {
+                    at: 4232130,
+                    to: 153915,
+                },
+                Step::Cut {
+                    at: 1556216,
+                    to: 5670085,
+                },
+                Step::Save,
+            ],
+        });
+    }
+}
+
+/// P1: Enter between a JSON key inside a locked map and its scalar: the
+/// map's lock covers the scalar below the key and the map's closer, as in
+/// a fresh editor.
+#[test]
+fn a_map_lock_covers_a_scalar_moved_below_its_key_inside_it() {
+    use super::live::Step;
+    super::live::replay(super::live::LiveCase {
+        language: "JSON",
+        schema: true,
+        text: "{\n  \"é\": \"x\\\"y\",\n  \"port\": {\n    \"k\": [\n      5e-324\n    ],\n    \"name\": null\n  }\n}\n".into(),
+        steps: vec![
+            Step::Type {
+                at: 13417223,
+                text: " ",
+            },
+            Step::Enter { at: 10221065 },
+        ],
+    });
+}
+
+/// P1: a path named while an Enter breaks the YAML text, then the Enter
+/// undone: the root `name` is locked, not the nested one, as in a fresh
+/// editor.
+#[test]
+fn a_root_path_named_in_broken_yaml_locks_the_root_field_after_an_undo() {
+    use super::live::Step;
+    super::live::replay(super::live::LiveCase {
+        language: "YAML",
+        schema: false,
+        text:
+            "k:\n  é:\n    x_1: 0.5\n    name: 39051\n    a b: 85951\nname: \"8080\"\nport: 22528\n"
+                .into(),
+        steps: vec![
+            Step::Enter { at: 12341837 },
+            Step::Paths { mask: 17 },
+            Step::Undo,
+        ],
+    });
+}
+
+/// P1: a path lock given after an Enter, then the Enter undone: the lock
+/// covers what a fresh editor's covers.
+#[test]
+fn a_path_lock_given_after_an_enter_follows_its_undo() {
+    use super::live::Step;
+    super::live::replay(super::live::LiveCase {
+        language: "JSON",
+        schema: false,
+        text: "{\n  \"k\": {\n    \"name\": 95016,\n    \"a b\": {\n      \"é\": \"a b\"\n    }\n  },\n  \"a\": [\n    true\n  ],\n  \"a b\": {\n    \"name\": false,\n    \"k\": \"\\u000b\",\n    \"a b\": {\n      \"x_1\": null\n    }\n  }\n}\n".into(),
+        steps: vec![
+            Step::Enter { at: 5308467 },
+            Step::Paths { mask: 12 },
+            Step::Undo,
+        ],
+    });
+}

@@ -19,7 +19,7 @@ use crate::editor::keyboard::utf16_to_byte_index;
 use crate::editor::keys::enter::{Pressed, enter_at};
 use crate::editor::languages::Language;
 use crate::editor::line_endings::editor_text;
-use crate::editor::state::EditorState;
+use crate::editor::state::{EditorState, normalize_newlines};
 use crate::editor::sync::convert_now;
 use crate::editor::test_state::TestEditor;
 
@@ -284,7 +284,20 @@ fn reads_lone_cr(language: Language, text: &str) -> bool {
     !lone || language.parse(text).is_ok() || language.parse(&editor_text(text.to_string())).is_err()
 }
 
-/// Why `heard` breaks a promise, after `before` (the text heard last).
+/// `text` (the file, or a text heard) without the file's byte order mark,
+/// when it had one: any other U+FEFF, first in a file without a mark or
+/// after the mark, is text.
+fn unmarked(text: &str, marked: bool) -> &str {
+    if marked {
+        text.strip_prefix('\u{feff}').unwrap_or(text)
+    } else {
+        text
+    }
+}
+
+/// Why `heard` breaks a promise, after `before` (the text heard last). A
+/// U+FEFF of the text that an edit brings to its start is no mark: the
+/// check that `heard` reads as the text on screen catches one added.
 fn broken(
     case: &EndingsCase,
     before: &str,
@@ -292,7 +305,7 @@ fn broken(
     marked: bool,
     lone_cr: bool,
 ) -> Option<(&'static str, String)> {
-    if heard.starts_with('\u{feff}') != marked
+    if (marked && !heard.starts_with('\u{feff}'))
         || heard.matches('\u{feff}').count() > case.text.matches('\u{feff}').count()
     {
         return Some((
@@ -300,8 +313,8 @@ fn broken(
             format!("{} after {}", shown(heard), shown(before)),
         ));
     }
-    let old = split_lines(before.strip_prefix('\u{feff}').unwrap_or(before));
-    let new = split_lines(heard.strip_prefix('\u{feff}').unwrap_or(heard));
+    let old = split_lines(unmarked(before, marked));
+    let new = split_lines(unmarked(heard, marked));
     // The lines the step left alone, at each end.
     let prefix = old
         .iter()
@@ -403,7 +416,8 @@ pub(super) fn check(case: &EndingsCase) -> Result<(), Failure> {
         }
         if let Some(last) = all.last()
             && view.is_none()
-            && editor_text(last.clone()) != state.doc().text.get_untracked()
+            && normalize_newlines(unmarked(last, marked).to_string())
+                != state.doc().text.get_untracked()
         {
             return Err(Failure::new(
                 format!(
