@@ -129,7 +129,7 @@ pub(super) fn table_of_selected_header(source: &str, start: usize, end: usize) -
         return (start, end);
     };
     let last_end = table_end(source, line_end, &segments, is_array);
-    (start, end.max(crate::editor::paths::units_at(source, last_end)))
+    (start, end.max(crate::editor::paths::api_units(source, last_end)))
 }
 
 /// The end of the last line with code of the table whose header `segments`

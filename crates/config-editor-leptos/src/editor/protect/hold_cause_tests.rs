@@ -23,6 +23,7 @@ use super::spanless_tests::{ENV, TEXT as ENV_TEXT};
 use super::texts::{Reason, save_held};
 use super::whole_guard::Held;
 use crate::EditorSettings;
+use crate::editor::text::{byte_range, text_size};
 use crate::strings::default_strings;
 
 /// The warnings starting "Not saved" of the text on screen, and the
@@ -68,8 +69,9 @@ fn replace_every(state: EditorState, old: &str, new: &str) {
     let before = state.doc().text.get_untracked();
     let matches = before
         .match_indices(old)
-        .map(|(at, _)| (at..at + old.len(), new.to_string()));
-    let change = Change::replacing(before.len(), matches).expect("the matches fit the text");
+        .map(|(at, _)| (byte_range(at..at + old.len()), new.to_string()));
+    let change =
+        Change::replacing(text_size(before.len()), matches).expect("the matches fit the text");
     assert!(
         state.commit(Edit::command(before.clone(), change, (0, 0))),
         "the Replace all of {old:?} is taken"

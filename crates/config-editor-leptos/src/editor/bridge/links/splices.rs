@@ -187,15 +187,20 @@ pub(crate) fn pieces(edit: &Edit, clipboard: &Clipboard) -> Vec<Piece> {
     let mut shift: isize = 0;
     let mut out = Vec::new();
     for (range, inserted) in change.edits() {
+        let range = std::ops::Range::<usize>::from(range);
         let at_after = range.start.wrapping_add_signed(shift);
         shift += inserted.len() as isize - range.len() as isize;
         let carried: Vec<Moved> = moved
             .iter()
+            .map(|stretch| Moved {
+                from: usize::from(stretch.from),
+                len: usize::from(stretch.len),
+                to: usize::from(stretch.to),
+            })
             .filter(|stretch| at_after <= stretch.to && stretch.to < at_after + inserted.len())
             .map(|stretch| Moved {
-                from: stretch.from,
-                len: stretch.len,
                 to: stretch.to - at_after,
+                ..stretch
             })
             .collect();
         let removed = &before[range.clone()];

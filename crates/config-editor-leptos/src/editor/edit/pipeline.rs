@@ -4,11 +4,12 @@
 use leptos::prelude::*;
 
 use super::super::fold_ranges::FoldRange;
-use super::super::history::{Made, Record, Selection, Snapshot, ViewState};
+use super::super::history::{Kept, Made, Record, Selection, Snapshot, ViewState};
 use super::super::keyboard::utf16_to_byte_index;
 use super::super::languages::Language;
 use super::super::positioning::set_caret_visible;
 use super::super::state::{EditorState, directed_selection, select};
+use super::super::text;
 use super::{After, Assoc, Change, Edit, Origin};
 
 /// The stages, in the order an edit passes them.
@@ -363,10 +364,10 @@ impl EditorState {
 }
 
 /// `(anchor, caret)` UTF-16 offsets of `text` as bytes.
-fn bytes(text: &str, (anchor, caret): Selection) -> Selection {
+fn bytes(text: &str, (anchor, caret): Selection) -> Kept {
     (
-        utf16_to_byte_index(text, anchor),
-        utf16_to_byte_index(text, caret),
+        text::text_size(utf16_to_byte_index(text, anchor)),
+        text::text_size(utf16_to_byte_index(text, caret)),
     )
 }
 

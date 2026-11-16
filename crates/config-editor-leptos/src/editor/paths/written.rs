@@ -192,7 +192,7 @@ fn bytes(source: &str, span: Span) -> Range<usize> {
     let range = spanning(source, span);
     let at = |line: usize, column: usize| {
         let index = line.saturating_sub(1);
-        let start = line_start(source, index);
+        let start = usize::from(line_start(source, index));
         let text = split_line(source, index).unwrap_or("");
         start
             + text

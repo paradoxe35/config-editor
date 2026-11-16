@@ -304,7 +304,7 @@ impl Hover for HclBehavior {
         // Just past the hovered key's `=`, so a key inside a value map
         // resolves under that map.
         code_before_comment(line)
-            .and_then(|code| inline_key_at(code, b'=', byte_at_column(line, column)))
+            .and_then(|code| inline_key_at(code, b'=', usize::from(byte_at_column(line, column))))
             .map_or(line.len(), |key| key.after_separator)
     }
 }

@@ -42,6 +42,7 @@ use leptos::prelude::*;
 use super::edit::Change;
 use super::live_settings::on_switch_off;
 use super::state::EditorState;
+use crate::editor::text::byte_range;
 use matcher::{Matcher, find_matches};
 
 /// Switching the `search` or `go_to_line` setting off closes its widget.
@@ -186,8 +187,8 @@ impl EditorState {
         let stepped = self.search().stepped;
         if let Some((start, end)) = stepped.get_untracked() {
             let mapped = change
-                .map_range(&(start..end))
-                .map(|range| (range.start, range.end));
+                .map_range(&byte_range(start..end))
+                .map(|range| (usize::from(range.start()), usize::from(range.end())));
             stepped.set(mapped);
         }
     }

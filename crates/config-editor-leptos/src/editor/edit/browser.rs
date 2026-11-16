@@ -16,6 +16,7 @@ use super::super::input::UNKNOWN_SELECTION;
 use super::super::keyboard::utf16_to_byte_index;
 use super::super::paths::utf16_len;
 use super::Change;
+use crate::editor::text::byte_range;
 
 /// The change input of `kind` made of `before` to give `after`: made on
 /// `selection` (UTF-16 of `before`, either direction), leaving `typed`
@@ -82,9 +83,9 @@ pub(super) fn said(
     let agree = before.get(..from_before)? == after.get(..from_after)?
         && before.get(to_before..)? == after.get(written_after..)?;
     agree.then(|| {
-        Change::replace_bytes(
+        Change::replace(
             before,
-            from_before..to_before,
+            byte_range(from_before..to_before),
             &after[from_after..written_after],
         )
     })
@@ -99,7 +100,7 @@ mod tests {
         change.map(|change| {
             change
                 .edits()
-                .map(|(range, text)| (range, text.to_string()))
+                .map(|(range, text)| (range.into(), text.to_string()))
                 .collect()
         })
     }

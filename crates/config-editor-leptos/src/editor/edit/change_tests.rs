@@ -4,8 +4,13 @@
 //! over another meets it (`a.compose(b.map(a))` makes what
 //! `b.compose(a.map(b, true))` makes), and positions map in order.
 
-use super::super::text::{TextSize, Utf16};
+use super::super::text::{TextRange, TextSize, Utf16, byte_range, text_size};
 use super::change::{Assoc, Bytes, Change, CodeUnits, Moved};
+
+/// The byte range `start..end`.
+fn r(start: u32, end: u32) -> TextRange {
+    TextRange::new(start.into(), end.into())
+}
 
 /// A small seeded generator (xorshift).
 struct Rng(u64);
@@ -53,14 +58,15 @@ fn change(rng: &mut Rng, text: &str) -> Change<Bytes> {
         })
         .collect();
     // Two replacements at one place are one (the later one's text kept).
-    let mut apart: Vec<(std::ops::Range<usize>, String)> = Vec::new();
+    let mut apart: Vec<(TextRange, String)> = Vec::new();
     for (range, insert) in edits {
+        let range = byte_range(range);
         match apart.last() {
-            Some((last, _)) if last.end > range.start => {}
+            Some((last, _)) if last.end() > range.start() => {}
             _ => apart.push((range, insert)),
         }
     }
-    Change::replacing(text.len(), apart).expect("sorted and apart")
+    Change::replacing(TextSize::of(text), apart).expect("sorted and apart")
 }
 
 fn seed() -> u64 {
@@ -86,7 +92,7 @@ fn a_change_and_its_inverse_give_the_text_back() {
         let before = text(&mut rng);
         let change = change(&mut rng, &before);
         let after = change.apply(&before).expect("made for it");
-        assert_eq!(after.len(), change.len_after());
+        assert_eq!(TextSize::of(after.as_str()), change.len_after());
         let back = change.invert(&before).expect("inverts");
         assert_eq!(back.apply(&after).as_deref(), Some(before.as_str()));
     }
@@ -135,16 +141,16 @@ fn positions_map_in_order_and_kept_text_stays_on_its_text() {
         let change = change(&mut rng, &before);
         let after = change.apply(&before).expect("made for it");
         let bounds = boundaries(&before);
-        let mapped: Vec<usize> = bounds
+        let mapped: Vec<TextSize> = bounds
             .iter()
-            .map(|at| change.map_pos(*at, Assoc::Before).pos)
+            .map(|at| change.map_pos(text_size(*at), Assoc::Before).pos)
             .collect();
         assert!(
             mapped.windows(2).all(|pair| pair[0] <= pair[1]),
             "{before:?} {change:?}"
         );
         for pair in bounds.windows(2) {
-            let range = pair[0]..pair[1];
+            let range = byte_range(pair[0]..pair[1]);
             if let Some(now) = change.map_range(&range) {
                 assert_eq!(&after[now], &before[range], "{before:?} {change:?}");
             }
@@ -154,10 +160,13 @@ fn positions_map_in_order_and_kept_text_stays_on_its_text() {
 
 #[test]
 fn text_inserted_at_a_range_goes_outside_it() {
-    let change: Change<Bytes> =
-        Change::replacing(6, [(2..2, "x".to_string()), (4..4, "y".to_string())]).unwrap();
+    let change: Change<Bytes> = Change::replacing(
+        6.into(),
+        [(r(2, 2), "x".to_string()), (r(4, 4), "y".to_string())],
+    )
+    .unwrap();
     // `ab|cd|ef`: the range `cd` keeps out of both insertions.
-    assert_eq!(change.map_range(&(2..4)), Some(3..5));
+    assert_eq!(change.map_range(&r(2, 4)), Some(r(3, 5)));
     assert_eq!(change.apply("abcdef").as_deref(), Some("abxcdyef"));
 }
 
@@ -165,48 +174,57 @@ fn text_inserted_at_a_range_goes_outside_it() {
 fn a_moved_stretch_carries_its_positions() {
     // `a\nb\n` with the line `a\n` moved below `b\n`.
     let before = "a\nb\n";
-    let change: Change<Bytes> =
-        Change::replacing(4, [(0..2, String::new()), (4..4, "a\n".to_string())])
-            .unwrap()
-            .with_moved([Moved {
-                from: 0,
-                len: 1,
-                to: 2,
-            }]);
+    let change: Change<Bytes> = Change::replacing(
+        4.into(),
+        [(r(0, 2), String::new()), (r(4, 4), "a\n".to_string())],
+    )
+    .unwrap()
+    .with_moved([Moved {
+        from: 0.into(),
+        len: 1.into(),
+        to: 2.into(),
+    }]);
     let after = change.apply(before).unwrap();
     assert_eq!(after, "b\na\n");
-    assert_eq!(change.map_range(&(0..1)), Some(2..3));
+    assert_eq!(change.map_range(&r(0, 1)), Some(r(2, 3)));
     let back = change.invert(before).unwrap();
     assert_eq!(back.apply(&after).as_deref(), Some(before));
-    assert_eq!(back.map_range(&(2..3)), Some(0..1));
+    assert_eq!(back.map_range(&r(2, 3)), Some(r(0, 1)));
 }
 
 #[test]
 fn a_change_counts_in_utf16_as_the_browser_does() {
     let before = "é😀ab";
-    let change = Change::replacing_selection(before, "é😀xb", 6..7).unwrap();
+    let change = Change::replacing_selection(before, "é😀xb", r(6, 7)).unwrap();
     let units: Change<CodeUnits> = change.in_utf16(before).unwrap();
+    let u = Utf16::new;
     // `é` is one unit, `😀` two.
-    assert_eq!(units.edits().next().map(|(range, _)| range), Some(3..4));
-    assert_eq!(units.map_range(&(4..5)), Some(4..5));
+    assert_eq!(
+        units.edits().next().map(|(range, _)| range),
+        Some(u(3)..u(4))
+    );
+    assert_eq!(units.map_range(&(u(4)..u(5))), Some(u(4)..u(5)));
     let b = TextSize::from(7);
-    assert_eq!(change.map_offset(b, Assoc::Before), b);
-    assert_eq!(Utf16::of_byte(before, b), Some(Utf16(4)));
+    assert_eq!(change.map_pos(b, Assoc::Before).pos, b);
+    assert_eq!(Utf16::of_byte(before, b), Some(u(4)));
 }
 
 #[test]
 fn a_narrowed_change_leaves_out_what_it_writes_back() {
     let before = "a: 1\nb: 2\n";
     let whole: Change<Bytes> = Change::replacing(
-        before.len(),
-        [(0..before.len(), "a: 1\nb: 3\n".to_string())],
+        TextSize::of(before),
+        [(
+            TextRange::up_to(TextSize::of(before)),
+            "a: 1\nb: 3\n".to_string(),
+        )],
     )
     .unwrap();
     let narrow = whole.narrowed(before).unwrap();
-    assert_eq!(narrow.edits().next(), Some((8..9, "3")));
+    assert_eq!(narrow.edits().next(), Some((r(8, 9), "3")));
     // Written over itself: no change.
     let same: Change<Bytes> =
-        Change::replacing(before.len(), [(0..4, "a: 1".to_string())]).unwrap();
+        Change::replacing(TextSize::of(before), [(r(0, 4), "a: 1".to_string())]).unwrap();
     assert!(same.narrowed(before).unwrap().edits().next().is_none());
 }
 
@@ -235,9 +253,9 @@ fn a_change_read_off_two_texts_makes_the_second() {
     let lines = Change::diffed_by_lines("a: 1\nb: 2\nc: 3x\n", "a: 100\nb: 2\nc: 3\n");
     assert_eq!(
         lines.edits().collect::<Vec<_>>(),
-        vec![(4..4, "00"), (14..15, "")]
+        vec![(r(4, 4), "00"), (r(14, 15), "")]
     );
-    assert_eq!(lines.map_range(&(5..9)), Some(7..11));
+    assert_eq!(lines.map_range(&r(5, 9)), Some(r(7, 11)));
     let added = Change::diffed_by_lines("b\n", "a\nb\nc\n");
-    assert_eq!(added.map_range(&(0..1)), Some(2..3));
+    assert_eq!(added.map_range(&r(0, 1)), Some(r(2, 3)));
 }

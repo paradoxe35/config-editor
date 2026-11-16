@@ -14,6 +14,7 @@ use super::super::edit::{Change, CodeUnits};
 use super::locate::LineIndex;
 use super::locks::Lock;
 use super::texts::Reason;
+use crate::editor::text::Utf16;
 
 /// How the UTF-16 offsets of one text map onto the text an edit made of it.
 pub(super) struct Moves<'a> {
@@ -203,12 +204,13 @@ impl<'a> Moves<'a> {
     pub(super) fn pieces(&self) -> Vec<Piece> {
         if let Some(change) = self
             .change
-            .filter(|change| change.len_after() == self.new_len)
+            .filter(|change| usize::from(change.len_after()) == self.new_len)
         {
             let mut shift: isize = 0;
             return change
                 .edits()
                 .map(|(replaced, written)| {
+                    let replaced = usize::from(replaced.start)..usize::from(replaced.end);
                     let start = (replaced.start as isize + shift) as usize;
                     let wrote = start..start + written.encode_utf16().count();
                     shift += wrote.len() as isize - replaced.len() as isize;
@@ -252,7 +254,8 @@ impl<'a> Moves<'a> {
             // Whitespace re-flowed inside it (a reformat in one edit) moves
             // each end with the characters beside it.
             return change
-                .map_range(range)
+                .map_range(&(Utf16::count(range.start)..Utf16::count(range.end)))
+                .map(|range| usize::from(range.start)..usize::from(range.end))
                 .or_else(|| self.through_spacing(range));
         }
         if range.end <= self.prefix {

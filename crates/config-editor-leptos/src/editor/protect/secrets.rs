@@ -24,6 +24,7 @@ use super::tokens::{
 };
 use super::unplaced::placed_where_written;
 use super::whole_guard::{Held, WholeIndex};
+use crate::editor::text::byte_range;
 
 /// Known tokens one edit may write and still have found by path (a
 /// paste); more (an undo restoring a whole text) are found by text.
@@ -316,7 +317,7 @@ impl EditorState {
             .change()
             .and_then(|change| change.in_utf16(&edit.before))
             .and_then(|change| change.hull())
-            .map(|(was, _)| (was.start, was.end));
+            .map(|(was, _)| (usize::from(was.start), usize::from(was.end)));
         let (start, end) = recorded
             .or_else(|| ended_at_caret(&tokens, &edit.before, &edit.text, edit.caret()))
             .unwrap_or_else(|| edit_range(&edit.before, &edit.text, edit.caret()));
@@ -328,7 +329,11 @@ impl EditorState {
                 .get(from..text.len() - (edit.before.len() - to))
                 .unwrap_or_default()
                 .to_string();
-            edit.rewrite(Change::replace_bytes(&edit.before, from..to, &inserted));
+            edit.rewrite(Change::replace(
+                &edit.before,
+                byte_range(from..to),
+                &inserted,
+            ));
             edit.collapse_to(caret);
         }
     }
@@ -355,7 +360,7 @@ impl EditorState {
         // texts and its caret.
         let (start, end) = change.and_then(Change::hull).map_or_else(
             || edit_range(before, after, caret),
-            |(was, _)| (was.start, was.end),
+            |(was, _)| (usize::from(was.start), usize::from(was.end)),
         );
         // Tokens the edit wrote again whole are found again by their text.
         let region = secrets.tokens.with_untracked(|tokens| {

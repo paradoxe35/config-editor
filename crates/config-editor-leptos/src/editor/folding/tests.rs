@@ -5,6 +5,7 @@ use super::super::edit::Change;
 use super::super::fold_ranges::*;
 use super::super::projection::{Projection, Side};
 use super::follow::{follow_edit, keep_valid};
+use crate::editor::text::{byte_range, text_size};
 use crate::language::LanguageConfig;
 
 fn fold(start: usize, end: usize) -> FoldRange {
@@ -204,7 +205,7 @@ fn folds_follow_edits_and_open_when_touched() {
     for (from, to, expected) in cases {
         let at = old.find(from).expect("in the text");
         // As the pipeline follows it: without the text written back.
-        let change = Change::replace_bytes(old, at..at + from.len(), to)
+        let change = Change::replace(old, byte_range(at..at + from.len()), to)
             .narrowed(old)
             .expect("made on it");
         let new = change.apply(old).expect("made on it");
@@ -233,7 +234,7 @@ e:
   f: 3";
     let folds = [fold(0, 1), fold(2, 3), fold(4, 5)];
     // `c|:` + `:`: typed at 11, before the line's end at 12.
-    let typed = Change::replace_bytes(old, 11..11, ":");
+    let typed = Change::replace(old, byte_range(11..11), ":");
     let new = typed.apply(old).unwrap();
     assert_eq!(
         new,
@@ -248,8 +249,11 @@ e:
     // `1` and `3` replaced by `9` at once (a Replace All): the folds
     // holding them open, the one between them stays.
     let replaced = Change::replacing(
-        old.len(),
-        [(8..9, "9".to_string()), (28..29, "9".to_string())],
+        text_size(old.len()),
+        [
+            (byte_range(8..9), "9".to_string()),
+            (byte_range(28..29), "9".to_string()),
+        ],
     )
     .unwrap();
     let new = replaced.apply(old).unwrap();

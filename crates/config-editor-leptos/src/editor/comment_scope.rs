@@ -11,6 +11,7 @@ use super::keyboard::utf16_to_byte_index;
 use super::language::ConfigLanguage;
 use super::paths::{batch_kept, line_of_byte, line_start, split_line, units_at};
 use super::work_count::{Work, note};
+use crate::editor::text::{TextSize, text_size};
 
 /// The state at each line start: the nesting depth there, and whether a
 /// string (or another construct the language reads as one) is open.
@@ -58,9 +59,10 @@ pub(crate) fn selection_over(
     if (first, last) == selected_lines(source, start, end) {
         return (start, end);
     }
-    let last_end = line_start(source, last) + split_line(source, last).map_or(0, str::len);
-    let new_start = units_at(source, line_start(source, first)).min(start);
-    let new_end = units_at(source, last_end).max(end);
+    let last_end = line_start(source, last)
+        + split_line(source, last).map_or(TextSize::default(), TextSize::of);
+    let new_start = usize::from(units_at(source, line_start(source, first))).min(start);
+    let new_end = usize::from(units_at(source, last_end)).max(end);
     (new_start, new_end)
 }
 
@@ -232,8 +234,8 @@ fn line_states(behavior: &dyn ConfigLanguage, source: &str) -> (Vec<LineState>, 
 pub(crate) fn selected_lines(source: &str, start: usize, end: usize) -> (usize, usize) {
     let start_byte = utf16_to_byte_index(source, start);
     let end_byte = utf16_to_byte_index(source, end);
-    let first = line_of_byte(source, start_byte);
-    let last = line_of_byte(source, end_byte);
+    let first = line_of_byte(source, text_size(start_byte));
+    let last = line_of_byte(source, text_size(end_byte));
     let last = if end_byte > start_byte && source[..end_byte].ends_with('\n') {
         last - 1
     } else {

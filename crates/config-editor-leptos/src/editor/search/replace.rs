@@ -6,6 +6,7 @@ use std::ops::Range;
 
 use super::super::edit::Change;
 use super::matcher::Matcher;
+use crate::editor::text::{TextSize, byte_range};
 
 /// The document with every match replaced, how many were, and the byte
 /// range the first replacement took in the result; `None` with no match.
@@ -53,12 +54,12 @@ pub(in crate::editor) fn replace_all_except(
         if first.is_none() {
             first = Some(found.start..found.start + inserted.len());
         }
-        edits.push((found, inserted));
+        edits.push((byte_range(found), inserted));
     }
     let first = first?;
     let count = edits.len();
     Some(Replaced {
-        change: Change::replacing(text.len(), edits)?,
+        change: Change::replacing(TextSize::of(text), edits)?,
         count,
         first,
         skipped,
@@ -75,5 +76,5 @@ pub(in crate::editor) fn replace_one(
 ) -> (Change, Range<usize>) {
     let inserted = matcher.replacement_for(text, &range, replacement);
     let taken = range.start..range.start + inserted.len();
-    (Change::replace_bytes(text, range, &inserted), taken)
+    (Change::replace(text, byte_range(range), &inserted), taken)
 }

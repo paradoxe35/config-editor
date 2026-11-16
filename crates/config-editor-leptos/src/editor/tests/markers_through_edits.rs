@@ -10,6 +10,7 @@ use crate::editor::edit::{Change, Edit};
 use crate::editor::languages::Language;
 use crate::editor::schema::build_schema;
 use crate::editor::test_state::TestEditor;
+use crate::editor::text::{byte_range, text_size};
 
 const SCHEMA: &str = r#"{"type": "object", "additionalProperties": {"type": "integer"}}"#;
 
@@ -41,8 +42,11 @@ fn markers_follow_an_edit_at_two_places_on_their_lines() {
     assert_eq!(marked(state, text), ["one", "two"]);
 
     let change = Change::replacing(
-        text.len(),
-        [(0..2, "x".to_string()), (8..10, "x".to_string())],
+        text_size(text.len()),
+        [
+            (byte_range(0..2), "x".to_string()),
+            (byte_range(8..10), "x".to_string()),
+        ],
     )
     .expect("fits");
     assert!(state.commit(Edit::command(text.to_string(), change, (0, 0))));
@@ -67,7 +71,11 @@ fn a_marker_stays_on_its_line_when_a_line_like_it_is_added_above() {
     );
 
     // `b: bad\n` written at the start of line 2: the marked line is now 3.
-    let change = Change::replacing(text.len(), [(5..5, "b: bad\n".to_string())]).expect("fits");
+    let change = Change::replacing(
+        text_size(text.len()),
+        [(byte_range(5..5), "b: bad\n".to_string())],
+    )
+    .expect("fits");
     assert!(state.commit(Edit::command(text.to_string(), change, (5, 5))));
     let lines: Vec<Option<usize>> = state
         .problems()

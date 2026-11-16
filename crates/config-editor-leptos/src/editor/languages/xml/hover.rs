@@ -93,7 +93,7 @@ pub(super) fn hover_context_end(line: &str, column: usize) -> usize {
 /// start column there. An end tag is its element's, as its start tag.
 pub(super) fn element_hover_path(source: &str, line_index: usize, column: usize) -> Option<(Vec<SchemaPathSegment>, String, usize)> {
     let line = crate::editor::paths::split_line(source, line_index)?;
-    let line_start = crate::editor::paths::line_start(source, line_index);
+    let line_start = usize::from(crate::editor::paths::line_start(source, line_index));
     let byte = line_start + line.char_indices().nth(column).map_or(line.len(), |(at, _)| at);
     let walked = super::scan::walked(source);
     let read;

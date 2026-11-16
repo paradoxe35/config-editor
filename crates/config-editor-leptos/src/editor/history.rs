@@ -18,6 +18,7 @@ use super::bridge::links::Links;
 use super::edit::Change;
 use super::fold_ranges::FoldRange;
 use super::languages::Language;
+use crate::editor::text::TextSize;
 use std::sync::Arc;
 
 mod rebase;
@@ -30,11 +31,15 @@ pub(super) use record::Record;
 /// `(anchor, caret)`.
 pub(super) type Selection = (usize, usize);
 
+/// A selection as the history keeps it: (anchor, caret) byte offsets of
+/// its side's text.
+pub(super) type Kept = (TextSize, TextSize);
+
 /// One side of a step, besides its text: the selection there (anchor,
 /// caret, bytes of that side's text), and what else the step puts back.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct Snapshot {
-    pub(super) selection: Selection,
+    pub(super) selection: Kept,
     /// The language the side's text is in, for a step that changed the
     /// language on screen (an Edit-as switch); `None` for every other step.
     pub(super) language: Option<Language>,
@@ -94,7 +99,7 @@ impl ViewState {
 struct Step {
     before: Snapshot,
     /// The selection the step left (anchor, caret, bytes of its text).
-    after: Selection,
+    after: Kept,
     /// The language the step left, when it changed it.
     after_language: Option<Language>,
     /// The folds the step left closed, when it said them.
@@ -160,7 +165,7 @@ pub(super) const UNDO_GROUPING_WINDOW_MS: f64 = 800.0;
 /// leaves, what pops it, and the document versions it was made between.
 pub(super) struct Made {
     pub(super) before: Snapshot,
-    pub(super) after: Selection,
+    pub(super) after: Kept,
     pub(super) record: Record,
     pub(super) between: (u64, u64),
 }
@@ -242,7 +247,7 @@ impl EditHistory {
     /// byte `to` (a `"` typed before the `"` it put there) at `timestamp`:
     /// typing still open goes on past it in the same step, so one undo
     /// takes back a member typed in one go, its pairs with it.
-    pub(super) fn stepped_over(&mut self, from: usize, to: usize, timestamp: f64) {
+    pub(super) fn stepped_over(&mut self, from: TextSize, to: TextSize, timestamp: f64) {
         if !self.open.is_some_and(|(open, at)| {
             open == Group::Typing && timestamp - at <= UNDO_GROUPING_WINDOW_MS
         }) {

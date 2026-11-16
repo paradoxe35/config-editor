@@ -424,7 +424,7 @@ pub(super) fn children_of_selected_keys(source: &str, start: usize, end: usize) 
     if last_end == line_end {
         return (start, end);
     }
-    (start, end.max(crate::editor::paths::units_at(source, last_end)))
+    (start, end.max(crate::editor::paths::api_units(source, last_end)))
 }
 
 /// The UTF-16 offset of the start of the entry a plain value over lines
@@ -471,5 +471,5 @@ fn continued_entry_start(source: &str, start: usize) -> usize {
     if line_start == own_line {
         return start;
     }
-    crate::editor::paths::units_at(source, line_start).min(start)
+    crate::editor::paths::api_units(source, line_start).min(start)
 }

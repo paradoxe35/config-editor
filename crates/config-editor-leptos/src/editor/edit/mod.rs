@@ -84,13 +84,13 @@ use leptos::prelude::*;
 #[cfg(test)]
 use super::bridge::links::Splice;
 use super::fold_ranges::FoldRange;
-use super::history::Selection;
+use super::history::{Kept, Selection};
 use super::input::UNKNOWN_SELECTION;
 use super::keyboard::utf16_to_byte_index;
 use super::languages::Language;
 use super::paths::utf16_len;
 use super::state::{EditorState, directed_selection};
-use super::text::{TextRange, TextSize};
+use super::text::{TextRange, TextSize, text_size};
 
 /// A change to the document: the text before, what the edit did to it
 /// (the text after is made from that), the selection it was made on,
@@ -146,7 +146,7 @@ pub(super) struct Stepped {
     pub(super) change: Change,
     pub(super) told: bool,
     /// The selection it puts back, (anchor, caret) bytes of the text after.
-    pub(super) selection: Selection,
+    pub(super) selection: Kept,
     pub(super) language: Option<Language>,
     pub(super) folds: Option<Vec<FoldRange>>,
 }
@@ -196,9 +196,11 @@ impl Edit {
     /// text a reload writes, and the tests'.
     pub(super) fn new(before: String, selection: Selection, text: String, caret: usize) -> Self {
         let (start, end) = (selection.0.min(selection.1), selection.0.max(selection.1));
-        let byte = |at: usize| utf16_to_byte_index(&before, at);
+        let byte = |at: usize| text_size(utf16_to_byte_index(&before, at));
         let said = (selection != UNKNOWN_SELECTION)
-            .then(|| Change::replacing_selection(&before, &text, byte(start)..byte(end)))
+            .then(|| {
+                Change::replacing_selection(&before, &text, TextRange::new(byte(start), byte(end)))
+            })
             .flatten();
         let (made, told) = match said {
             Some(change) => (change, true),
@@ -261,13 +263,13 @@ impl Edit {
     }
 
     /// [`Self::keeping_caret`] for byte `at` of the text before.
-    pub(super) fn keeping_byte(self, at: usize, assoc: Assoc) -> Self {
+    pub(super) fn keeping_byte(self, at: TextSize, assoc: Assoc) -> Self {
         let caret = units(&self.text, self.made.map_pos(at, assoc).pos);
         self.caret_at(caret)
     }
 
     /// Leaves `anchor..caret` selected, as byte offsets of the text after.
-    pub(super) fn selecting_bytes(self, anchor: usize, caret: usize) -> Self {
+    pub(super) fn selecting_bytes(self, anchor: TextSize, caret: TextSize) -> Self {
         let (anchor, caret) = (units(&self.text, anchor), units(&self.text, caret));
         self.selecting(anchor, caret)
     }
@@ -275,7 +277,7 @@ impl Edit {
     /// Where the change takes UTF-16 `at` of the text before, in UTF-16 of
     /// the text after.
     pub(super) fn map_units(&self, at: usize, assoc: Assoc) -> usize {
-        let byte = utf16_to_byte_index(&self.before, at);
+        let byte = text_size(utf16_to_byte_index(&self.before, at));
         units(&self.text, self.made.map_pos(byte, assoc).pos)
     }
 
@@ -283,7 +285,7 @@ impl Edit {
     /// with nothing written, the caret it was made at.
     fn written_to(&self) -> usize {
         match self.made.hull() {
-            Some((_, written)) => units(&self.text, written.end),
+            Some((_, written)) => units(&self.text, written.end()),
             None => self.restore.1,
         }
     }
@@ -395,7 +397,7 @@ impl Edit {
             selection
         } else {
             made.hull().map_or((typed.0, typed.0), |(range, _)| {
-                (units(&before, range.start), units(&before, range.end))
+                (units(&before, range.start()), units(&before, range.end()))
             })
         };
         let after = After::Typed {
@@ -421,10 +423,10 @@ impl Edit {
     ) -> Self {
         let hull = change.hull();
         let restore = hull.as_ref().map_or((0, 0), |(range, _)| {
-            (units(&before, range.start), units(&before, range.end))
+            (units(&before, range.start()), units(&before, range.end()))
         });
         let mut edit = Self::making(before, change, told, restore, After::Kept);
-        let caret = hull.map_or(restore.1, |(_, written)| units(&edit.text, written.end));
+        let caret = hull.map_or(restore.1, |(_, written)| units(&edit.text, written.end()));
         edit.after = After::Typed {
             selection: (caret, caret),
             forced: false,
@@ -581,8 +583,8 @@ impl Edit {
 }
 
 /// The UTF-16 offset of byte `at` of `text`.
-pub(super) fn units(text: &str, at: usize) -> usize {
-    utf16_len(text.get(..at).unwrap_or(text))
+pub(super) fn units(text: &str, at: TextSize) -> usize {
+    utf16_len(text.get(..usize::from(at)).unwrap_or(text))
 }
 
 /// The change `splices` (sorted, apart) make of `before`, each one's
@@ -596,9 +598,9 @@ pub(super) fn change_of_splices(
     for splice in splices {
         let at = splice.at.checked_add_signed(shift)?;
         moved.extend(splice.moved.iter().map(|piece| Moved {
-            from: piece.from,
-            len: piece.len,
-            to: at + piece.to,
+            from: text_size(piece.from),
+            len: text_size(piece.len),
+            to: text_size(at + piece.to),
         }));
         shift += splice.inserted.len() as isize - splice.removed as isize;
     }

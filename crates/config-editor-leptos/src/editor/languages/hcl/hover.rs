@@ -7,7 +7,7 @@ use super::*;
 /// reads values, and headers open no value. Comment-only lines yield `None`.
 pub(super) fn key_at_column(line: &str, column: usize) -> Option<(String, usize)> {
     let code = code_before_comment(line)?;
-    let byte = byte_at_column(line, column);
+    let byte = usize::from(byte_at_column(line, column));
     if let Some(key) = inline_key_at(code, b'=', byte) {
         // `""` is the empty key; nothing before the `=` is none.
         let written = line[key.start..key.end].trim();
@@ -37,7 +37,7 @@ pub(super) fn key_at_column(line: &str, column: usize) -> Option<(String, usize)
 /// (`/b/1`), as the document lists it.
 pub(super) fn header_path(source: &str, line_index: usize, column: usize) -> Option<(Vec<SchemaPathSegment>, String, usize)> {
     let line = crate::editor::paths::split_line(source, line_index)?;
-    let line_start = crate::editor::paths::line_start(source, line_index);
+    let line_start = usize::from(crate::editor::paths::line_start(source, line_index));
     let indent = line.len() - line.trim_start().len();
     if line.trim().is_empty() {
         return None;

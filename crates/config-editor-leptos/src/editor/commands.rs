@@ -3,6 +3,7 @@ use super::keyboard::utf16_to_byte_index;
 use super::language::{ConfigLanguage, LanguageConfig, Toggled};
 use super::projection::Projection;
 use super::work_count::{Work, note};
+use crate::editor::text::{TextSize, byte_range, checked_range, text_size};
 
 pub(super) fn line_at_cursor(source: &str, cursor: usize) -> usize {
     source[..utf16_to_byte_index(source, cursor)]
@@ -53,7 +54,12 @@ pub(super) fn copied_lines(
 /// after; `None` when they do not fit it (a custom language's mistake,
 /// which then changes nothing).
 pub(super) fn toggled_change(before: &str, toggled: &Toggled) -> Option<(Change, String)> {
-    let change = Change::replacing(before.len(), toggled.edits.iter().cloned())?;
+    let edits = toggled
+        .edits
+        .iter()
+        .map(|(range, text)| Some((checked_range(range)?, text.clone())))
+        .collect::<Option<Vec<_>>>()?;
+    let change = Change::replacing(TextSize::of(before), edits)?;
     let text = change.apply(before)?;
     Some((change, text))
 }
@@ -207,7 +213,7 @@ pub(super) fn indent_lines(
     let indented =
         indent_lines_through(source, (selection_start, selection_end), 0, outdent, unit)?;
     let updated = indented.change.apply(source)?;
-    let units = |byte: usize| updated[..byte].encode_utf16().count();
+    let units = |byte: TextSize| updated[..usize::from(byte)].encode_utf16().count();
     let (start, end) = indented.selection;
     Some((updated.clone(), units(start), units(end)))
 }
@@ -216,7 +222,7 @@ pub(super) fn indent_lines(
 /// selection then, as byte offsets of the text after.
 pub(super) struct Indented {
     pub(super) change: Change,
-    pub(super) selection: (usize, usize),
+    pub(super) selection: (TextSize, TextSize),
 }
 
 /// The selection's lines (UTF-16 offsets of `source`) and on through line
@@ -275,19 +281,19 @@ pub(super) fn indent_lines_through(
         offset += line.len();
     }
     let change = Change::replacing(
-        source.len(),
-        edits
-            .iter()
-            .map(|&(at, removed, inserted)| (at..at + removed, unit[..inserted].to_string())),
+        TextSize::of(source),
+        edits.iter().map(|&(at, removed, inserted)| {
+            (byte_range(at..at + removed), unit[..inserted].to_string())
+        }),
     )?;
-    let len_after = change.len_after();
+    let len_after = usize::from(change.len_after());
     let map_offset = |position: usize, right_biased: bool| {
         let assoc = if right_biased {
             Assoc::After
         } else {
             Assoc::Before
         };
-        change.map_pos(position, assoc).pos
+        usize::from(change.map_pos(text_size(position), assoc).pos)
     };
     // As in VS Code, a selection starting at a line's start keeps covering
     // the new indent; one starting in the line moves with its text, and one
@@ -328,7 +334,7 @@ pub(super) fn indent_lines_through(
     };
     Some(Indented {
         change,
-        selection: (updated_start, updated_end),
+        selection: (text_size(updated_start), text_size(updated_end)),
     })
 }
 
@@ -349,7 +355,7 @@ pub(super) fn backspace_indent(source: &str, cursor: usize, unit: &str) -> Optio
         0 => unit.len(),
         partial => partial,
     };
-    Some(Change::replace_bytes(source, byte - remove..byte, ""))
+    Some(Change::replace(source, byte_range(byte - remove..byte), ""))
 }
 
 /// Typing `}`, `]`, or `)` on a blank line re-indents it to match the opening
@@ -405,9 +411,9 @@ pub(super) fn typed_closer(
     if indent == before {
         return None;
     }
-    Some(Change::replace_bytes(
+    Some(Change::replace(
         source,
-        line_start..byte,
+        byte_range(line_start..byte),
         &format!("{indent}{closer}"),
     ))
 }
@@ -511,7 +517,7 @@ mod tests {
         let change = edit(&source, source[..at].encode_utf16().count())?;
         let updated = change.apply(&source)?;
         // The caret after the text it wrote (bytes).
-        let caret = change.hull().map(|(_, written)| written.end)?;
+        let caret = usize::from(change.hull().map(|(_, written)| written.end())?);
         Some(format!("{}|{}", &updated[..caret], &updated[caret..]))
     }
 

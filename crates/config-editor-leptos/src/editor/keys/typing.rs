@@ -15,6 +15,7 @@ use super::super::keyboard::{
 use super::super::state::{EditorState, is_backward, select, textarea_selection};
 use super::super::typing::Closer;
 use super::{complete, typed_character, unmodified};
+use crate::editor::text::{byte_range, text_size};
 
 /// Whether the caret is in a multi-line string's body, where typing is text.
 fn caret_in_string_body(state: EditorState) -> bool {
@@ -179,8 +180,16 @@ fn type_over_closer(state: EditorState, event: &KeyboardEvent, start: usize, typ
     true
 }
 
-/// Typing goes on past a closer typed over, in one undo step.
+/// Typing goes on past a closer typed over, in one undo step: the caret
+/// steps from UTF-16 `from` to `to` of the text (unchanged by the step),
+/// which the history keeps in bytes.
 fn stepped_over(state: EditorState, event: &KeyboardEvent, from: usize, to: usize) {
+    let (from, to) = state.doc().text.with_untracked(|text| {
+        (
+            text_size(utf16_to_byte_index(text, from)),
+            text_size(utf16_to_byte_index(text, to)),
+        )
+    });
     state
         .doc()
         .history
@@ -233,11 +242,11 @@ fn closer_already_there(
     // typed of it goes, the caret steps past the one written.
     if closer.len() > 1 && after.starts_with(&closer) {
         event.prevent_default();
-        let change = Change::replace_bytes(&source, typed_from..byte, "");
+        let change = Change::replace(&source, byte_range(typed_from..byte), "");
         let past = byte + closer.len();
         state.commit(
             Edit::command(source, change, (start, start))
-                .keeping_byte(past, Assoc::After)
+                .keeping_byte(text_size(past), Assoc::After)
                 .typed("insertText", event.time_stamp()),
         );
         state.close_suggestions();
@@ -260,11 +269,11 @@ fn closer_already_there(
     }
     event.prevent_default();
     // This line goes; the caret steps past the closer on the next one.
-    let change = Change::replace_bytes(&source, line_start..next_start, "");
+    let change = Change::replace(&source, byte_range(line_start..next_start), "");
     let past = next_start + indent_of(next_line) + closer.len();
     state.commit(
         Edit::command(source, change, (start, start))
-            .keeping_byte(past, Assoc::After)
+            .keeping_byte(text_size(past), Assoc::After)
             .typed("insertText", event.time_stamp()),
     );
     state.close_suggestions();
@@ -322,7 +331,8 @@ fn delete_pair(state: EditorState, event: &KeyboardEvent, start: usize) -> bool 
         {
             event.prevent_default();
             let quote_len = after.map_or(1, char::len_utf8);
-            let change = Change::replace_bytes(&before, byte - quote_len..byte + quote_len, "");
+            let change =
+                Change::replace(&before, byte_range(byte - quote_len..byte + quote_len), "");
             let edit = Edit::command(before, change, (start, start))
                 .typed("deleteContentBackward", event.time_stamp());
             // The edit takes the closer it cuts; what is left of it stays.
@@ -470,7 +480,7 @@ pub(super) fn join_with_next_line(state: EditorState, event: &KeyboardEvent) -> 
     event.prevent_default();
     let rest = &text[byte + 1..];
     let indentation = rest.len() - rest.trim_start_matches([' ', '\t']).len();
-    let change = Change::replace_bytes(&text, byte..byte + 1 + indentation, "");
+    let change = Change::replace(&text, byte_range(byte..byte + 1 + indentation), "");
     state.commit(Edit::command(text, change, (start, end)));
     true
 }

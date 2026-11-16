@@ -1,6 +1,7 @@
 //! Parsing to a JSON value, and the source spans of keys and values.
 
 use super::*;
+use crate::editor::text::{text_size, byte_range};
 
 /// References, interpolations, and function calls arrive as their
 /// `${ ... }`-style source text; a heredoc without them reads as its text,
@@ -40,7 +41,7 @@ pub(super) fn hcl_parse(source: &str) -> Result<Value, ParseError> {
         }
     })?;
     if let Some((offset, message)) = super::words::string_over_lines(source).or_else(|| shadowed_name(source)) {
-        let (line, column) = line_column(source, offset);
+        let (line, column) = line_column(source, text_size(offset));
         return Err(ParseError { message, line: Some(line), column: Some(column) });
     }
     let written = |pointer: &str| written_at(source, hcl_value_span(source, pointer)?);
@@ -242,7 +243,7 @@ pub(super) fn hcl_key_spans(source: &str, paths: &[String]) -> Vec<Option<(usize
     }
     found
         .into_iter()
-        .map(|span| span.map(|(start, end)| span_between(source, start, end)))
+        .map(|span| span.map(|(start, end)| span_between(source, byte_range(start..end))))
         .collect()
 }
 
@@ -362,13 +363,13 @@ fn span_in_scan(
         let (_, _, value_start) = inline?;
         let start = value_start + (source[value_start..].len() - source[value_start..].trim_start().len());
         if source[start..].starts_with(['{', '[']) && !opens_for_expression(&source[start..]) {
-            let (line, column) = line_column(source, start);
+            let (line, column) = line_column(source, text_size(start));
             return Some((line, column, column + 1));
         }
         let end = start + entry_value_len(&source[start..]);
         // Up to a comment after the value (`3 # three` in an object).
         let end = start + source[start..end].find([' ', '\t']).filter(|at| line_comment_start(source[start + at..end].trim_start()) == Some(0)).unwrap_or(end - start);
-        return (end > start).then(|| span_between(source, start, end));
+        return (end > start).then(|| span_between(source, byte_range(start..end)));
     };
     let (start, end) = value_span;
     if end <= start {
@@ -377,10 +378,10 @@ fn span_in_scan(
     if source[start..].starts_with(['{', '[']) && !opens_for_expression(&source[start..end]) {
         // A container is marked at its opening bracket, not its whole body
         // (a `for` expression in brackets is one value, read as its text).
-        let (line, column) = line_column(source, start);
+        let (line, column) = line_column(source, text_size(start));
         return Some((line, column, column + 1));
     }
-    Some(span_between(source, start, end))
+    Some(span_between(source, byte_range(start..end)))
 }
 
 /// Whether `text` starts with a `for` expression (`[for s in l : s]`,

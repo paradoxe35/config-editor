@@ -8,6 +8,7 @@ use super::super::paths;
 use super::reorder::{comment_only, indent_of};
 use super::{byte_range, comment_start, key_markup_start, read};
 use crate::editor::paths::FieldPath;
+use crate::editor::text::text_size;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::ops::Range;
@@ -250,12 +251,12 @@ pub(in super::super) fn own_lines(
         paths::memo_value_span(language, text, pointer).and_then(|span| byte_range(text, span))
     {
         let end = value.start + text[value.clone()].trim_end_matches('\n').len();
-        last = last.max(paths::line_column(text, end).0 - 1);
+        last = last.max(paths::line_column(text, text_size(end)).0 - 1);
     }
     // An entry the language writes as lines of its own (a TOML table)
     // ends where it says.
     if let Some(own) = language.item_lines(text, &FieldPath::from(pointer)) {
-        last = last.max(paths::line_column(text, own.end).0 - 1);
+        last = last.max(paths::line_column(text, text_size(own.end)).0 - 1);
     }
     // A container opened on its lines runs to where it closes.
     while last + 1 < lines.len() && language.unclosed_containers(&lines[line..=last].join("\n")) > 0
@@ -310,6 +311,6 @@ fn written_at_its_place(
     pointer: &str,
     start: usize,
 ) -> Option<bool> {
-    let at = paths::units_at(text, start);
+    let at = paths::api_units(text, start);
     Some(paths::path_at(language, text, at)?.to_pointer() == pointer)
 }

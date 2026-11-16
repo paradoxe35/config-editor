@@ -8,6 +8,7 @@ use super::super::completion::next_stop;
 use super::super::edit::{Change, Edit};
 use super::super::keyboard::utf16_to_byte_index;
 use super::super::state::{EditorState, is_backward, select, textarea_selection};
+use crate::editor::text::TextSize;
 
 pub(super) fn tab(state: EditorState, event: &KeyboardEvent) {
     event.prevent_default();
@@ -164,7 +165,11 @@ fn indent_block(
 
 /// `edit` leaving `selection` (bytes of the text after) selected, its
 /// caret at the start with `backward` (the end that moves).
-pub(super) fn selected_through(edit: Edit, (start, end): (usize, usize), backward: bool) -> Edit {
+pub(super) fn selected_through(
+    edit: Edit,
+    (start, end): (TextSize, TextSize),
+    backward: bool,
+) -> Edit {
     if backward {
         edit.selecting_bytes(end, start)
     } else {

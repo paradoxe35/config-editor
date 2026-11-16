@@ -3,6 +3,7 @@
 
 use super::super::edit::{Assoc, Change};
 use super::super::fold_ranges::FoldRange;
+use crate::editor::text::text_size;
 
 /// `folds` (closed in `old`) moved through `change`, which makes `new` of
 /// `old`. A replacement at or inside a fold's hidden text, from its first
@@ -28,19 +29,20 @@ pub(crate) fn follow_edit(
         .iter()
         .filter_map(|fold| {
             let (hidden_start, hidden_end) = (line_end(fold.start), line_end(fold.end));
+            let (hidden_start, hidden_end) = (text_size(hidden_start), text_size(hidden_end));
             let moved_whole = change
                 .moved()
                 .iter()
                 .any(|moved| moved.from <= hidden_start && hidden_end <= moved.from + moved.len);
             let touched = change
                 .edits()
-                .any(|(range, _)| range.start <= hidden_end && range.end >= hidden_start);
+                .any(|(range, _)| range.start() <= hidden_end && range.end() >= hidden_start);
             if touched && !moved_whole {
                 return None;
             }
             let start = change.map_pos(hidden_start, Assoc::Before).pos;
             let end = change.map_pos(hidden_end, Assoc::Before).pos;
-            Some(FoldRange::new(line_of(start), line_of(end)))
+            Some(FoldRange::new(line_of(start.into()), line_of(end.into())))
         })
         .collect()
 }

@@ -1,6 +1,7 @@
 //! Parsing to a JSON value, and the source spans of keys and values.
 
 use super::*;
+use crate::editor::text::{text_size, byte_range};
 
 /// Every error carries a one-based line and character column.
 pub(super) fn xml_parse(source: &str) -> Result<Value, ParseError> {
@@ -11,7 +12,7 @@ pub(super) fn xml_parse(source: &str) -> Result<Value, ParseError> {
     }
     // `<>` and `</>` name no element.
     if let Some(at) = source.find("<>").or_else(|| source.find("</>")) {
-        let (line, column) = line_column(source, at);
+        let (line, column) = line_column(source, text_size(at));
         return Err(ParseError {
             message: "an element needs a name".to_string(),
             line: Some(line),
@@ -475,7 +476,7 @@ pub(super) fn bad_character_reference(name: &str) -> Option<String> {
 }
 
 pub(super) fn syntax_error(source: &str, byte: usize, message: impl Into<String>) -> ParseError {
-    let (line, column) = line_column(source, byte.min(source.len()));
+    let (line, column) = line_column(source, text_size(byte.min(source.len())));
     ParseError {
         message: super::words::plain(&message.into()),
         line: Some(line),
@@ -636,7 +637,7 @@ pub(super) fn xml_lone_element(source: &str, path: &str) -> bool {
 
 pub(super) fn xml_name_span(source: &str, path: &str) -> Option<(usize, usize, usize)> {
     let (start, end) = recorded(source, true, &pointer_segments(path))?;
-    Some(span_between(source, start, end))
+    Some(span_between(source, byte_range(start..end)))
 }
 
 pub(super) fn xml_value_span(source: &str, path: &str) -> Option<(usize, usize, usize)> {
@@ -647,7 +648,7 @@ pub(super) fn xml_value_span(source: &str, path: &str) -> Option<(usize, usize, 
         segments.pop();
     }
     let (start, end) = recorded(source, false, &segments)?;
-    Some(span_between(source, start, end))
+    Some(span_between(source, byte_range(start..end)))
 }
 
 /// [`build_value`] for a check of `source` beside its parse (which

@@ -24,6 +24,7 @@ use super::super::language::{ConfigLanguage, Span, pointer_key};
 use super::super::paths;
 use super::ItemMap;
 use crate::editor::paths::FieldPath;
+use crate::editor::text::text_size;
 use serde_json::Value;
 use std::collections::{BTreeMap, HashMap};
 use std::ops::Range;
@@ -234,7 +235,7 @@ pub(super) fn first_lost(
             if in_list
                 && let Some(own) = host.item_lines(previous, &FieldPath::from(pointer.as_str()))
             {
-                lines.push(paths::line_of_byte(previous, own.start));
+                lines.push(paths::line_of_byte(previous, text_size(own.start)));
             }
             lines.sort_unstable();
             lines.dedup();

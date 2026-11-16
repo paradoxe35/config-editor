@@ -7,6 +7,7 @@ use super::super::item_sources::SaveTold;
 use super::super::language::{ConfigLanguage, pointer_key};
 use super::{byte_range, comment_start, inline_location, reads_as};
 use crate::editor::paths::FieldPath;
+use crate::editor::text::text_size;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::ops::Range;
@@ -88,7 +89,7 @@ fn line_items(
     pointer: &str,
     before: &[Value],
 ) -> Option<Vec<(usize, usize, usize)>> {
-    let line_of = |byte: usize| super::super::paths::line_column(previous, byte).0 - 1;
+    let line_of = |byte: usize| super::super::paths::line_column(previous, text_size(byte)).0 - 1;
     let flow = Flow::of(language);
     let mut slots: Vec<(usize, usize, usize)> = Vec::new();
     // The last line an item before ends on.
@@ -387,7 +388,7 @@ pub(in super::super) fn unmoved_comments(
         return None;
     }
     let lines: Vec<&str> = previous.split('\n').collect();
-    let line_of = |byte: usize| super::super::paths::line_column(previous, byte).0 - 1;
+    let line_of = |byte: usize| super::super::paths::line_column(previous, text_size(byte)).0 - 1;
     lists.into_iter().find_map(|(pointer, before, _)| {
         // The lines from the first item to the end of the last.
         let span: Range<usize> = match block_items(language, previous, &lines, &pointer) {

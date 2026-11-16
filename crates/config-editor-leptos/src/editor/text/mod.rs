@@ -6,12 +6,5 @@
 
 mod offset;
 
-#[cfg_attr(
-    not(test),
-    expect(
-        unused_imports,
-        reason = "the browser's offsets move onto it from `usize`"
-    )
-)]
-pub(crate) use offset::Utf16;
+pub(crate) use offset::{Utf16, byte_range, checked_range, text_size};
 pub(crate) use text_size::{TextRange, TextSize};

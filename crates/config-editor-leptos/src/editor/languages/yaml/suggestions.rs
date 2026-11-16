@@ -525,7 +525,7 @@ pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionConte
             if source[content..].starts_with("- ") {
                 content += 2;
             }
-            let base = completion_context(source, crate::editor::paths::units_at(source, content)).path;
+            let base = completion_context(source, crate::editor::paths::api_units(source, content)).path;
             Some((base, content))
         }
         Some(_) => Some((path.clone(), current_line_start + content_start)),
@@ -542,8 +542,8 @@ pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionConte
         let context = |path, typed, start: usize, end: usize| CompletionContext {
             path,
             typed,
-            replace_start: crate::editor::paths::units_at(source, content_byte + start),
-            replace_end: crate::editor::paths::units_at(source, end),
+            replace_start: crate::editor::paths::api_units(source, content_byte + start),
+            replace_end: crate::editor::paths::api_units(source, end),
             base_indent: base_indent.clone(),
             position: EntryPosition::Inline,
             ..Default::default()
@@ -607,10 +607,10 @@ pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionConte
         return CompletionContext {
             path,
             typed,
-            replace_start: crate::editor::paths::units_at(source, current_line_start),
+            replace_start: crate::editor::paths::api_units(source, current_line_start),
             // A lookup while a batch asks many places (counting
             // the text before each place again would be quadratic).
-            replace_end: crate::editor::paths::units_at(source, if splits || entry_after_space { caret_byte + gap } else { replace_end_byte.min(source.len()) }),
+            replace_end: crate::editor::paths::api_units(source, if splits || entry_after_space { caret_byte + gap } else { replace_end_byte.min(source.len()) }),
             entry_prefix: siblings.clone(),
             entry_suffix: if splits || entry_after_space { format!("\n{siblings}") } else { String::new() },
             entry_after: (splits && gap == 0).then_some(word_after),
@@ -628,8 +628,8 @@ pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionConte
     CompletionContext {
         path,
         typed,
-        replace_start: crate::editor::paths::units_at(source, typed_start_byte),
-        replace_end: crate::editor::paths::units_at(source, replace_end_byte.min(source.len())),
+        replace_start: crate::editor::paths::api_units(source, typed_start_byte),
+        replace_end: crate::editor::paths::api_units(source, replace_end_byte.min(source.len())),
         root_item,
         root_value: root_item.map(|_| ("- ", "")),
         value_key,

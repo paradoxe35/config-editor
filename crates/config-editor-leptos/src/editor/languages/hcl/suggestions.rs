@@ -83,7 +83,7 @@ fn in_one_line_block(
     entry_suffix.push('\n');
     entry_suffix.push_str(base_indent);
     entry_suffix.push('}');
-    let utf16_at = |byte: usize| crate::editor::paths::units_at(source, line_start + byte);
+    let utf16_at = |byte: usize| crate::editor::paths::api_units(source, line_start + byte);
     Some(CompletionContext {
         path: path.to_vec(),
         typed: line[typed_start..caret].to_string(),
@@ -134,8 +134,8 @@ pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionConte
     {
         return CompletionContext {
             path,
-            replace_start: crate::editor::paths::units_at(source, cursor),
-            replace_end: crate::editor::paths::units_at(source, cursor),
+            replace_start: crate::editor::paths::api_units(source, cursor),
+            replace_end: crate::editor::paths::api_units(source, cursor),
             base_indent,
             no_properties: true,
             ..Default::default()
@@ -147,8 +147,8 @@ pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionConte
         return CompletionContext {
             path,
             typed: String::new(),
-            replace_start: crate::editor::paths::units_at(source, cursor),
-            replace_end: crate::editor::paths::units_at(source, cursor),
+            replace_start: crate::editor::paths::api_units(source, cursor),
+            replace_end: crate::editor::paths::api_units(source, cursor),
             value_key: None,
             value_needs_space: false,
             is_array_item: false,
@@ -164,8 +164,8 @@ pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionConte
     if in_block_label(before_caret) {
         return CompletionContext {
             path,
-            replace_start: crate::editor::paths::units_at(source, cursor),
-            replace_end: crate::editor::paths::units_at(source, cursor),
+            replace_start: crate::editor::paths::api_units(source, cursor),
+            replace_end: crate::editor::paths::api_units(source, cursor),
             base_indent,
             no_properties: true,
             ..Default::default()
@@ -200,9 +200,9 @@ pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionConte
             CaretEntry::Key { start } => in_front_of_inline_entry(
                 CompletionContext {
                     typed: typed(start),
-                    replace_start: crate::editor::paths::units_at(source, statement + caret.separator_at.unwrap_or(start)),
+                    replace_start: crate::editor::paths::api_units(source, statement + caret.separator_at.unwrap_or(start)),
                     entry_prefix: if caret.separator_at.is_some() { ", ".into() } else { String::new() },
-                    replace_end: crate::editor::paths::units_at(source, swallow_existing_assignment(source, cursor)),
+                    replace_end: crate::editor::paths::api_units(source, swallow_existing_assignment(source, cursor)),
                     explicit_entry_start: true,
                     block: hcl_block(source, statement + start, cursor),
                     base_indent,
@@ -216,8 +216,8 @@ pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionConte
             ),
             CaretEntry::Value { key, start } => CompletionContext {
                 typed: typed(start),
-                replace_start: crate::editor::paths::units_at(source, statement + start),
-                replace_end: crate::editor::paths::units_at(source, value_end),
+                replace_start: crate::editor::paths::api_units(source, statement + start),
+                replace_end: crate::editor::paths::api_units(source, value_end),
                 value_key: Some(key),
                 value_needs_space: start == before_caret.len() && !before_caret.ends_with([' ', '\t']),
                 base_indent,
@@ -228,8 +228,8 @@ pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionConte
                 full.push(SchemaPathSegment::ArrayItem(index));
                 CompletionContext {
                     typed: typed(start),
-                    replace_start: crate::editor::paths::units_at(source, statement + start),
-                    replace_end: crate::editor::paths::units_at(source, value_end),
+                    replace_start: crate::editor::paths::api_units(source, statement + start),
+                    replace_end: crate::editor::paths::api_units(source, value_end),
                     is_array_item: true,
                     entry_wrap: Some(("{ ", " }")),
                     base_indent,
@@ -261,8 +261,8 @@ pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionConte
                 let value_end = caret_value_end(source, cursor, line_end);
                 return CompletionContext {
                     typed: source[typed_start..cursor].trim_end().to_string(),
-                    replace_start: crate::editor::paths::units_at(source, typed_start),
-                    replace_end: crate::editor::paths::units_at(source, value_end),
+                    replace_start: crate::editor::paths::api_units(source, typed_start),
+                    replace_end: crate::editor::paths::api_units(source, value_end),
                     value_key: Some(key),
                     value_needs_space: typed_start == cursor && !before_caret.ends_with([' ', '\t']),
                     base_indent,
@@ -299,8 +299,8 @@ pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionConte
             return CompletionContext {
                 block: hcl_block(source, typed_start, replace_end),
                 typed,
-                replace_start: crate::editor::paths::units_at(source, typed_start),
-                replace_end: crate::editor::paths::units_at(source, replace_end),
+                replace_start: crate::editor::paths::api_units(source, typed_start),
+                replace_end: crate::editor::paths::api_units(source, replace_end),
                 value_key: None,
                 value_needs_space: false,
                 is_array_item: false,
@@ -324,8 +324,8 @@ pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionConte
             .min(line_end);
         return CompletionContext {
             typed: source[typed_start..cursor].trim_end().to_string(),
-            replace_start: crate::editor::paths::units_at(source, typed_start),
-            replace_end: crate::editor::paths::units_at(source, replace_end),
+            replace_start: crate::editor::paths::api_units(source, typed_start),
+            replace_end: crate::editor::paths::api_units(source, replace_end),
             value_key: Some(key),
             // Only directly after `=`; a space already typed is kept as is.
             value_needs_space: snapshot.partial.is_none() && source[..cursor].ends_with('='),
@@ -343,8 +343,8 @@ pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionConte
         let value_len = value_token_len(&source[cursor..line_end]);
         return CompletionContext {
             typed: source[typed_start..cursor].trim_end().to_string(),
-            replace_start: crate::editor::paths::units_at(source, typed_start),
-            replace_end: crate::editor::paths::units_at(source, cursor + value_len),
+            replace_start: crate::editor::paths::api_units(source, typed_start),
+            replace_end: crate::editor::paths::api_units(source, cursor + value_len),
             value_key: Some(key),
             value_needs_space: source[typed_start..cursor].is_empty()
                 && before_caret.trim_end().ends_with('='),
@@ -400,8 +400,8 @@ pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionConte
         block: hcl_block(source, typed_start, replace_end.min(source.len())),
         path,
         typed,
-        replace_start: crate::editor::paths::units_at(source, typed_start),
-        replace_end: crate::editor::paths::units_at(source, replace_end.min(source.len())),
+        replace_start: crate::editor::paths::api_units(source, typed_start),
+        replace_end: crate::editor::paths::api_units(source, replace_end.min(source.len())),
         entry_suffix: if splits { format!("\n{base_indent}") } else { String::new() },
         entry_after: splits.then_some(word_after),
         base_indent,

@@ -20,11 +20,12 @@ use leptos::prelude::Callback;
 
 use super::super::language::ConfigLanguage;
 use super::super::parse_cache;
-use super::super::paths::{field_key, in_batch, path_at, units_at, with_spans};
+use super::super::paths::{api_units, field_key, in_batch, path_at, with_spans};
 use super::super::work_count::{Work, note};
 use super::glued::written_alone;
 use super::marks::escape;
 use super::unplaced::{in_open_comment, runs_open, written_in};
+use crate::editor::text::text_size;
 
 /// A token of the host's text: the field it stands in (or the text's
 /// comments), and how often that field's value (or the comments) hold it.
@@ -68,7 +69,7 @@ impl Known {
 
 /// The pointer of the field holding the token at byte `start` of `text`.
 fn field_at(behavior: &dyn ConfigLanguage, text: &str, start: usize) -> String {
-    path_at(behavior, text, units_at(text, start))
+    path_at(behavior, text, api_units(text, start))
         .map(|path| path.to_pointer())
         .unwrap_or_default()
 }
@@ -232,7 +233,9 @@ impl SecretMatcher {
                 // checked against where its value is written.
                 let broken_at = error.line.map(|line| (line, error.column.unwrap_or(1)));
                 let past_error = |start: usize| {
-                    broken_at.is_some_and(|at| at <= super::super::paths::line_column(text, start))
+                    broken_at.is_some_and(|at| {
+                        at <= super::super::paths::line_column(text, text_size(start))
+                    })
                 };
                 // A construct over lines left open (a list, a character
                 // data section) runs over the rest of the text, the token

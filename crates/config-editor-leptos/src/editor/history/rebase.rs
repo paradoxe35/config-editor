@@ -6,7 +6,8 @@
 //! carried over: it and every older one go.
 
 use super::super::edit::{Assoc, Change};
-use super::Selection;
+use super::Kept;
+use crate::editor::text::TextSize;
 
 /// `undo` (popping a step) and the host's change `host`, both made on the
 /// text the host changed, carried past each other: `undo` made on the
@@ -17,7 +18,7 @@ use super::Selection;
 /// the user deleted), and carrying the step over would write it twice.
 pub(super) fn carried(undo: &Change, host: &Change) -> Option<(Change, Change)> {
     if let (Some((mine, _)), Some((theirs, _))) = (undo.hull(), host.hull())
-        && !(mine.end < theirs.start || theirs.end < mine.start)
+        && !(mine.end() < theirs.start() || theirs.end() < mine.start())
     {
         return None;
     }
@@ -26,8 +27,8 @@ pub(super) fn carried(undo: &Change, host: &Change) -> Option<(Change, Change)> 
 
 /// `selection` (bytes of the text `host` is made on) where the host's
 /// change takes it: a position inside what it replaced goes to its start.
-pub(super) fn mapped(host: &Change, (anchor, caret): Selection) -> Selection {
-    let map = |at: usize| host.map_pos(at, Assoc::Before).pos;
+pub(super) fn mapped(host: &Change, (anchor, caret): Kept) -> Kept {
+    let map = |at: TextSize| host.map_pos(at, Assoc::Before).pos;
     (map(anchor), map(caret))
 }
 

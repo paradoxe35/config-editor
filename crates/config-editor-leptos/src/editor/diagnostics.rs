@@ -726,6 +726,7 @@ mod cap_tests {
 #[cfg(test)]
 mod follow_tests {
     use super::super::edit::Change;
+    use super::super::text::{TextSize, byte_range};
     use super::{Diagnostic, Severity, follow_diagnostics};
 
     fn on(line: usize) -> Diagnostic {
@@ -754,8 +755,11 @@ mod follow_tests {
         inserted: &str,
         diagnostics: &[Diagnostic],
     ) -> Vec<Diagnostic> {
-        let change: Change =
-            Change::replacing(checked.len(), [(range, inserted.to_string())]).expect("fits");
+        let change: Change = Change::replacing(
+            TextSize::of(checked),
+            [(byte_range(range), inserted.to_string())],
+        )
+        .expect("fits");
         let current = change.apply(checked).expect("made for it");
         follow_diagnostics(&change, checked, &current, diagnostics)
     }

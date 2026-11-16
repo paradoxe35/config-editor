@@ -12,6 +12,7 @@ use std::ops::Range;
 use super::super::edit::{Assoc, Change, CodeUnits};
 use super::super::text_change::edit_range;
 use super::locate::LineIndex;
+use crate::editor::text::Utf16;
 
 /// `ranges` (UTF-16, in `before`) after the edit making `after`: mapped
 /// through `change`, what the edit recorded it did (text inserted at a
@@ -29,9 +30,9 @@ pub(super) fn follow_ranges(
         return ranges
             .iter()
             .map(|range| {
-                let start = change.map_pos(range.start, Assoc::After).pos;
-                let end = change.map_pos(range.end, Assoc::Before).pos;
-                start..end.max(start)
+                let start = change.map_pos(Utf16::count(range.start), Assoc::After).pos;
+                let end = change.map_pos(Utf16::count(range.end), Assoc::Before).pos;
+                usize::from(start)..usize::from(end.max(start))
             })
             .collect();
     }

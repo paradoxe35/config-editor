@@ -2,12 +2,13 @@
 
 use super::*;
 use super::words;
+use crate::editor::text::{text_size};
 
 pub(super) fn yaml_parse(source: &str) -> Result<Value, ParseError> {
     let mut parser_config = match super::limits::parser_config(source) {
         Ok(config) => config.duplicate_key_policy(DuplicateKeyPolicy::Error),
         Err(alias) => {
-            let (line, column) = crate::editor::paths::line_column(source, alias);
+            let (line, column) = crate::editor::paths::line_column(source, text_size(alias));
             return Err(ParseError {
                 message: super::limits::EXPANSION_REFUSED.to_string(),
                 line: Some(line),
@@ -30,7 +31,7 @@ pub(super) fn yaml_parse(source: &str) -> Result<Value, ParseError> {
                 noyalib::from_str_with_config::<noyalib::Value>(prefix, &parser_config).map(drop)
             });
             let (line, column) = at.map_or((None, None), |at| {
-                let (line, column) = crate::editor::paths::line_column(source, at);
+                let (line, column) = crate::editor::paths::line_column(source, text_size(at));
                 (Some(line), Some(column))
             });
             return ParseError {
@@ -358,7 +359,7 @@ fn continues_as_text(value: &str) -> bool {
 /// past `owner_indent`; the column counts on past this line, as a block
 /// scalar's does. `None` when it ends on its line.
 fn multi_line_scalar_end(source: &str, line_number: usize, column: usize, value: &str, owner_indent: usize) -> Option<usize> {
-    let line_start = crate::editor::paths::line_start(source, line_number - 1);
+    let line_start = usize::from(crate::editor::paths::line_start(source, line_number - 1));
     let full_line = source[line_start..].split('\n').next()?;
     let start = line_start + full_line.char_indices().nth(column - 1)?.0;
     let line_end = line_start + full_line.len();
@@ -613,7 +614,7 @@ pub(super) fn yaml_scalar_below_key(source: &str, path: &str) -> Option<std::ops
     let (line_number, key_column, _) = path_line(source, &wanted)?;
     let line = crate::editor::paths::text_line(source, line_number - 1)?;
     let key_start = line.char_indices().nth(key_column - 1)?.0;
-    let mut offset = crate::editor::paths::line_start(source, line_number);
+    let mut offset = usize::from(crate::editor::paths::line_start(source, line_number));
     // An explicit key (`? port`): its value follows the `:` starting a
     // line of its own below it.
     if line[..key_start].trim_end().ends_with('?') {
@@ -676,7 +677,7 @@ fn block_scalar_end(source: &str, line_number: usize, value: &str, owner_indent:
     let full_line = crate::editor::paths::text_line(source, line_number - 1)?;
     let mut end_chars = full_line.chars().count() + 1;
     let mut text_end = full_line.chars().count();
-    let below = crate::editor::paths::line_start(source, line_number);
+    let below = usize::from(crate::editor::paths::line_start(source, line_number));
     for next in source[below..].lines() {
         let indent = next.len() - next.trim_start().len();
         if !next.trim().is_empty() && indent <= owner_indent {

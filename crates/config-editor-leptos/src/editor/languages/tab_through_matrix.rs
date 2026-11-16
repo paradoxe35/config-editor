@@ -8,6 +8,7 @@ use super::super::edit::{Assoc, Change};
 use super::super::schema::build_schema;
 use super::Language;
 use super::harness::{At, completing, holds, write};
+use crate::editor::text::{byte_range, text_size};
 use serde_json::{Value, json};
 
 /// Where a new top-level key is typed in an empty document.
@@ -47,15 +48,18 @@ fn typed_through(language: Language, schema: &str, typed: &[&str]) -> String {
     for value in typed {
         let start = anchor.min(caret);
         let end = anchor.max(caret);
-        let change = Change::replace_bytes(&text, start..end, value);
+        let change = Change::replace(&text, byte_range(start..end), value);
         text = change.apply(&text).expect("made on it");
         caret = start + value.len();
         stops = stops
             .iter()
-            .filter_map(|(start, end)| change.map_range(&(*start..*end)))
-            .map(|range| (range.start, range.end))
+            .filter_map(|(start, end)| change.map_range(&byte_range(*start..*end)))
+            .map(|range| (usize::from(range.start()), usize::from(range.end())))
             .collect();
-        region_end = change.map_pos(region_end, Assoc::After).pos;
+        region_end = change
+            .map_pos(text_size(region_end), Assoc::After)
+            .pos
+            .into();
         match next_stop(&text, caret, region_end, &stops, language.behavior()) {
             Some((from, to)) => (anchor, caret) = (from, to),
             None => break,

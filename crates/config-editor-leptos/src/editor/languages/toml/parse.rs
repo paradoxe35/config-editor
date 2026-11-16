@@ -1,6 +1,7 @@
 //! Parsing to a JSON value, and the source spans of keys and values.
 
 use super::*;
+use crate::editor::text::{text_size, byte_range};
 
 /// Datetimes become strings. Parsing as a `Table`, not a bare `Value`,
 /// reports a duplicate key at its second occurrence rather than at line end.
@@ -9,7 +10,7 @@ pub(super) fn toml_parse(source: &str) -> Result<Value, ParseError> {
         let line_count = source.split('\n').count().max(1);
         let (line, column) = error
             .span()
-            .map(|span| line_column(source, span.start))
+            .map(|span| line_column(source, text_size(span.start)))
             .unwrap_or((1, 1));
         let (line, column) = (line.clamp(1, line_count), column.max(1));
         let (column, message) = super::super::wide_integers::out_of_range(source, line, column).unwrap_or_else(|| {
@@ -440,10 +441,10 @@ pub(super) fn inline_entries_on(code: &str, base: &[String]) -> Vec<InlineEntry>
 /// `offset`): a container is marked at its opening bracket.
 pub(super) fn value_span_at(source: &str, code: &str, offset: usize, start: usize, end: usize) -> (usize, usize, usize) {
     if code[start..].trim_start().starts_with(['{', '[']) {
-        let (line_number, column) = line_column(source, offset + start);
+        let (line_number, column) = line_column(source, text_size(offset + start));
         return (line_number, column, column + 1);
     }
-    span_between(source, offset + start, multi_line_string_end(source, offset + start).unwrap_or(offset + end))
+    span_between(source, byte_range(offset + start..multi_line_string_end(source, offset + start).unwrap_or(offset + end)))
 }
 
 /// Where a multi-line string starting at byte `start` (`"""`, `'''`) and

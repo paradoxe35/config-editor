@@ -4,6 +4,7 @@
 
 use super::*;
 use std::collections::HashMap;
+use crate::editor::text::{text_size};
 
 /// An anchor (`&name`) or alias (`*name`) token on a line.
 pub(super) struct Shared {
@@ -103,7 +104,7 @@ pub(super) fn alias_key_span(source: &str, pointer: &str) -> Option<Span> {
             && alias.pointer == map
             && anchors.get(&alias.name).and_then(|anchor| value.pointer(anchor)).and_then(Value::as_str) == Some(key.as_str())
     })?;
-    let (line, column) = crate::editor::paths::line_column(source, alias.start);
+    let (line, column) = crate::editor::paths::line_column(source, text_size(alias.start));
     let width = source[alias.start..alias.end].chars().count();
     Some(Span { line, start_column: column, end_column: column + width })
 }

@@ -1,12 +1,13 @@
 use super::edit::Change;
 use super::language::ConfigLanguage;
+use crate::editor::text::{TextRange, TextSize, Utf16, byte_range, text_size};
 
 /// The byte index of UTF-16 offset `offset` (as the browser reports carets),
 /// clamped to the end of `source`.
 pub fn utf16_to_byte_index(source: &str, offset: usize) -> usize {
     // Read off the text's lines while a batch runs for it.
-    if let Some(byte) = super::paths::byte_at(source, offset) {
-        return byte;
+    if let Some(byte) = super::paths::byte_at(source, Utf16::count(offset)) {
+        return byte.into();
     }
     // ASCII runs a block at a time (one unit per byte), the rest by
     // character: a long document is mostly ASCII.
@@ -130,10 +131,10 @@ pub(super) fn paired_edit(
     // A closer already ahead belongs to an outer pair, so the new pair is
     // complete on its own (`{"web": |}` → `{"web": {|}}`).
     let change = Change::replacing(
-        source.len(),
+        TextSize::of(source),
         [
-            (start_byte..start_byte, opening.to_string()),
-            (end_byte..end_byte, closing.to_string()),
+            (TextRange::empty(text_size(start_byte)), opening.to_string()),
+            (TextRange::empty(text_size(end_byte)), closing.to_string()),
         ],
     )?;
     let selection_start = start + opening.len_utf16();
@@ -167,7 +168,9 @@ pub(super) fn deleted_pair_text(
 ) -> Option<(String, usize)> {
     let change = delete_empty_pair(source, cursor, behavior)?;
     let text = change.apply(source)?;
-    let at = change.hull().map_or(0, |(_, written)| written.end);
+    let at = change
+        .hull()
+        .map_or(0, |(_, written)| usize::from(written.end()));
     let caret = text[..at].encode_utf16().count();
     Some((text, caret))
 }
@@ -203,7 +206,7 @@ pub(super) fn delete_empty_pair(
 
     let start = byte_index - previous.len_utf8();
     let end = byte_index + next.len_utf8();
-    Some(Change::replace_bytes(source, start..end, ""))
+    Some(Change::replace(source, byte_range(start..end), ""))
 }
 
 /// Whether `character` closes what `behavior` pairs: one of its closing

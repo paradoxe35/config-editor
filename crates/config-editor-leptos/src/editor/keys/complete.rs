@@ -10,6 +10,7 @@ use super::super::keyboard::utf16_to_byte_index;
 use super::super::language::ConfigLanguage;
 use super::super::state::EditorState;
 use super::super::typing::Closer;
+use crate::editor::text::byte_range;
 
 /// `typed` typed at `start` (UTF-16 of `source`) on a line that re-indents
 /// for it: the line up to it written again at the new indent, the caret
@@ -24,9 +25,9 @@ pub(in crate::editor) fn reindented(
     let byte = utf16_to_byte_index(source, start);
     let line_start = source[..byte].rfind('\n').map_or(0, |index| index + 1);
     let content = source[line_start..byte].trim_start();
-    Some(Change::replace_bytes(
+    Some(Change::replace(
         source,
-        line_start..byte,
+        byte_range(line_start..byte),
         &format!("{indent}{content}{typed}"),
     ))
 }
@@ -63,7 +64,7 @@ pub(in crate::editor) fn completed(
         Some(reindent) => lead.compose(&reindent)?,
         None => Change::insert_units(source, start, &written),
     };
-    let end = change.hull().map(|(_, written)| written.end)?;
+    let end = usize::from(change.hull().map(|(_, written)| written.end())?);
     let text = change.apply(source)?;
     let len = rest.encode_utf16().count();
     Some(Completed {

@@ -4,6 +4,7 @@
 //! named and pointed at where it was opened.
 
 use super::unclosed::{Open, first_open};
+use crate::editor::text::{text_size};
 
 /// A parse error as shown: its line and column (one-based) and message.
 pub(super) type Placed = (usize, usize, String);
@@ -21,7 +22,7 @@ pub(super) fn plain(source: &str, line: usize, column: usize, raw: &str) -> Plac
     if vague
         && let Some((offset, open)) = first_open(source)
     {
-        let (open_line, open_column) = super::line_column(source, offset);
+        let (open_line, open_column) = super::line_column(source, text_size(offset));
         // A mistake on an earlier line is the first thing to fix.
         if open_line <= line {
             return (open_line, open_column, unclosed_words(&open));

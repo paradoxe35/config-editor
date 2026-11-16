@@ -6,7 +6,7 @@ use leptos::prelude::*;
 use super::bridge::links::Clipboard;
 
 use super::paths::{
-    FieldPath, TextPosition, TextRange, field_range, lines, offset_of, path_at, units_at,
+    FieldPath, TextPosition, TextRange, api_units, field_range, lines, offset_of, path_at,
 };
 use super::protect::DocumentPlaceholders;
 use super::state::EditorState;
@@ -263,7 +263,8 @@ impl EditorHandle {
                     kept.with(behavior, text, || {
                         let range = field_range(behavior, text, &pointer)?;
                         let line_breaks_only = !text.contains('\r');
-                        let offset = |position| offset_of(text, position, line_breaks_only);
+                        let offset =
+                            |position| usize::from(offset_of(text, position, line_breaks_only));
                         Some((range, offset(range.start), offset(range.end)))
                     })
                 })
@@ -277,7 +278,7 @@ impl EditorHandle {
     pub fn path_at(&self, position: TextPosition) -> Option<FieldPath> {
         self.path_in_text(|text| {
             (position.line <= lines(text).count())
-                .then(|| offset_of(text, position, !text.contains('\r')))
+                .then(|| usize::from(offset_of(text, position, !text.contains('\r'))))
         })
     }
 
@@ -288,10 +289,10 @@ impl EditorHandle {
             if text.contains('\r') {
                 // As a position: a place inside a `\r\n` is the line's end.
                 let position = TextPosition::from_offset(text, offset);
-                return (offset <= units_at(text, text.len()))
-                    .then(|| offset_of(text, position, false));
+                return (offset <= api_units(text, text.len()))
+                    .then(|| usize::from(offset_of(text, position, false)));
             }
-            (offset <= units_at(text, text.len())).then_some(offset)
+            (offset <= api_units(text, text.len())).then_some(offset)
         })
     }
 

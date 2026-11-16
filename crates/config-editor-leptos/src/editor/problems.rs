@@ -24,6 +24,7 @@ use super::schema::SchemaBundle;
 use super::state::EditorState;
 use super::sync::SyncState;
 use crate::EditorStrings;
+use crate::editor::text::TextSize;
 
 /// The problems part of the editor state.
 #[derive(Clone, Copy)]
@@ -280,7 +281,7 @@ impl ProblemsState {
                     since_check.with_value(|since: &Option<SinceCheck>| match since {
                         Some(since)
                             if since.from_len == checked.len()
-                                && since.change.len_after() == current.len() =>
+                                && since.change.len_after() == TextSize::of(current.as_str()) =>
                         {
                             follow_diagnostics(&since.change, checked, current, &found)
                         }

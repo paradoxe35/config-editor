@@ -383,7 +383,7 @@ pub(super) fn text_typed(
 }
 
 pub(super) fn cursor_bytes(source: &str, cursor: usize) -> usize {
-    crate::editor::paths::units_at(source, cursor)
+    crate::editor::paths::api_units(source, cursor)
 }
 
 /// The text a suggestion of `key` inserts for `plan`: an element

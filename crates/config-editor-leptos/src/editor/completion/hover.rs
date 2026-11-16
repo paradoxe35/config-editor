@@ -1,6 +1,6 @@
 //! Schema docs for the key or documented value under the pointer.
 
-use super::super::paths::{FieldPath, line_start, split_line, units_at};
+use super::super::paths::{FieldPath, api_units, line_start, split_line};
 use super::super::work_count::{Work, note};
 use super::*;
 use crate::editor::language::cursor_at;
@@ -137,7 +137,7 @@ pub(crate) fn field_at(
             part: Part::Key,
         });
     }
-    let line_start = line_start(source, line_index);
+    let line_start = usize::from(line_start(source, line_index));
     let line = split_line(source, line_index)?;
     if behavior.hover_path(source, line_index, column).is_some()
         || behavior.hover_key(line, column).is_some()
@@ -174,7 +174,7 @@ fn value_at(
     // Just past the character, as if it had been typed: the context names
     // the field whose value that is.
     let after = at + line[at..].chars().next().map_or(0, char::len_utf8);
-    let context = behavior.completion_context(source, units_at(source, line_start + after));
+    let context = behavior.completion_context(source, api_units(source, line_start + after));
     let (path, key) = match context.value_key {
         Some(key) => (path_with_key(&context.path, &key), key),
         None if context.is_array_item => (context.path.clone(), list_key(&context.path)?),
@@ -311,13 +311,13 @@ pub(crate) fn hovered_key(
     behavior: &dyn ConfigLanguage,
 ) -> Option<(Vec<SchemaPathSegment>, String, usize)> {
     let line = split_line(source, line_index)?;
-    let line_start = line_start(source, line_index);
+    let line_start = usize::from(line_start(source, line_index));
     let resolved = behavior.hover_path(source, line_index, column);
     let (key, start_column) = match &resolved {
         Some((_, key, start)) => (key.clone(), *start),
         None => behavior.hover_key(line, column)?,
     };
-    let cursor = units_at(source, line_start + behavior.hover_cursor(line, column));
+    let cursor = api_units(source, line_start + behavior.hover_cursor(line, column));
     let context = behavior.completion_context(source, cursor);
     // The hovered key is either the key whose value the context is in, or the
     // container the context is inside (a TOML `[table]` header, an HCL block

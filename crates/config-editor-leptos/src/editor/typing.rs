@@ -9,6 +9,7 @@ use super::edit::{Assoc, Change};
 use super::history::{EditHistory, Selection};
 use super::input::{InputBurst, UNKNOWN_SELECTION};
 use super::state::EditorState;
+use crate::editor::text::Utf16;
 
 /// Closing text the editor wrote after the caret: a bracket, a quote, or
 /// markup such as an XML end tag.
@@ -140,8 +141,8 @@ impl EditorState {
         };
         let span = |(start, end): (usize, usize)| {
             change
-                .map_range(&(start..end))
-                .map(|range| (range.start, range.end))
+                .map_range(&(Utf16::count(start)..Utf16::count(end)))
+                .map(|range| (usize::from(range.start), usize::from(range.end)))
         };
         typing.closers.update_value(|closers| {
             closers.retain_mut(
@@ -169,8 +170,8 @@ impl EditorState {
             // Text typed at either end of the block is in it.
             *region = region.map(|(start, end)| {
                 (
-                    change.map_pos(start, Assoc::Before).pos,
-                    change.map_pos(end, Assoc::After).pos,
+                    usize::from(change.map_pos(Utf16::count(start), Assoc::Before).pos),
+                    usize::from(change.map_pos(Utf16::count(end), Assoc::After).pos),
                 )
             });
         });

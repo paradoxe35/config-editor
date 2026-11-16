@@ -40,7 +40,9 @@ fn type_in(language: Language, marked: &str, typed: &str) -> String {
         let before_len = units(&text).len();
         let made = |change: super::super::edit::Change| {
             let updated = change.apply(&text).expect("made on the text");
-            let end = change.hull().map_or(0, |(_, written)| written.end);
+            let end = change
+                .hull()
+                .map_or(0, |(_, written)| usize::from(written.end()));
             let at = updated[..end].encode_utf16().count();
             (updated, at)
         };

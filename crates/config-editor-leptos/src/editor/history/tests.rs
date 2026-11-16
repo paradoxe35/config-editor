@@ -3,10 +3,26 @@
 
 use super::*;
 
+/// A selection as the tests write it: (anchor, caret) bytes.
+type Pair = (u32, u32);
+
+fn kept((anchor, caret): Pair) -> Kept {
+    (anchor.into(), caret.into())
+}
+
+fn pair((anchor, caret): Kept) -> Pair {
+    (anchor.into(), caret.into())
+}
+
+/// The byte range `start..end`.
+fn range(start: u32, end: u32) -> crate::editor::text::TextRange {
+    crate::editor::text::TextRange::new(start.into(), end.into())
+}
+
 /// The side of a step with the caret at byte `at`.
-fn side(selection: Selection) -> Snapshot {
+fn side(selection: Pair) -> Snapshot {
     Snapshot {
-        selection,
+        selection: kept(selection),
         language: None,
         folds: None,
         view: ViewState::default(),
@@ -14,10 +30,10 @@ fn side(selection: Selection) -> Snapshot {
 }
 
 /// The step `before` → `after`, made on the selection `from`, leaving `to`.
-fn made(before: &str, after: &str, from: Selection, to: Selection) -> Made {
+fn made(before: &str, after: &str, from: Pair, to: Pair) -> Made {
     Made {
         before: side(from),
-        after: to,
+        after: kept(to),
         record: Record::of_texts(before, after),
         between: (0, 0),
     }
@@ -27,8 +43,8 @@ fn made(before: &str, after: &str, from: Selection, to: Selection) -> Made {
 /// `to` after.
 fn input(
     history: &mut EditHistory,
-    (before, from): (&str, usize),
-    (after, to): (&str, usize),
+    (before, from): (&str, u32),
+    (after, to): (&str, u32),
     kind: &str,
     time: f64,
 ) {
@@ -40,32 +56,28 @@ fn input(
 }
 
 /// A command `before` → `after`.
-fn command(
-    history: &mut EditHistory,
-    (before, from): (&str, Selection),
-    (after, to): (&str, Selection),
-) {
+fn command(history: &mut EditHistory, (before, from): (&str, Pair), (after, to): (&str, Pair)) {
     history.record_command(made(before, after, from, to), None);
 }
 
 /// Undoes the newest step of `current`: the text it gives back and the
 /// selection there.
-fn undo(history: &mut EditHistory, current: &str) -> Option<(String, Selection)> {
+fn undo(history: &mut EditHistory, current: &str) -> Option<(String, Pair)> {
     let next = history.next(false)?;
     let text = next.change.apply(current)?;
     history.undo_with(current, ViewState::default());
-    Some((text, next.to.selection))
+    Some((text, pair(next.to.selection)))
 }
 
 /// Redoes the newest undone step of `current`.
-fn redo(history: &mut EditHistory, current: &str) -> Option<(String, Selection)> {
+fn redo(history: &mut EditHistory, current: &str) -> Option<(String, Pair)> {
     let next = history.next(true)?;
     let text = next.change.apply(current)?;
     history.redo_with(current, ViewState::default());
-    Some((text, next.to.selection))
+    Some((text, pair(next.to.selection)))
 }
 
-fn at(text: &str, caret: usize) -> Option<(String, Selection)> {
+fn at(text: &str, caret: u32) -> Option<(String, Pair)> {
     Some((text.to_string(), (caret, caret)))
 }
 
@@ -95,18 +107,14 @@ fn typing_somewhere_else_is_a_separate_step() {
 #[test]
 fn an_ime_composition_is_one_step() {
     let mut history = EditHistory::default();
-    let composing = |history: &mut EditHistory,
-                     before: &str,
-                     from: Selection,
-                     after: &str,
-                     to: usize,
-                     time: f64| {
-        history.record_input(
-            made(before, after, from, (to, to)),
-            after,
-            ("insertCompositionText", time),
-        );
-    };
+    let composing =
+        |history: &mut EditHistory, before: &str, from: Pair, after: &str, to: u32, time: f64| {
+            history.record_input(
+                made(before, after, from, (to, to)),
+                after,
+                ("insertCompositionText", time),
+            );
+        };
     composing(&mut history, "name: ", (6, 6), "name: に", 9, 0.0);
     // Each update replaces the composed text (selected by the browser).
     composing(&mut history, "name: に", (6, 9), "name: にほ", 12, 2000.0);
@@ -185,7 +193,7 @@ fn typing_on_past_a_closer_stepped_over_is_one_step() {
         "insertText",
         100.0,
     );
-    history.stepped_over(3, 4, 200.0);
+    history.stepped_over(3.into(), 4.into(), 200.0);
     input(
         &mut history,
         ("{\"k\"}", 4),
@@ -205,7 +213,7 @@ fn typing_on_past_a_closer_stepped_over_is_one_step() {
     // Past a pause, or once the caret moved, stepping over starts nothing.
     let mut history = EditHistory::default();
     input(&mut history, ("{}", 1), ("{\"\"}", 3), "insertText", 0.0);
-    history.stepped_over(3, 4, 2000.0);
+    history.stepped_over(3.into(), 4.into(), 2000.0);
     input(
         &mut history,
         ("{\"\"}", 4),
@@ -216,7 +224,7 @@ fn typing_on_past_a_closer_stepped_over_is_one_step() {
     assert_eq!(undo(&mut history, "{\"\":}"), at("{\"\"}", 4));
     let mut history = EditHistory::default();
     input(&mut history, ("{}", 1), ("{\"\"}", 3), "insertText", 0.0);
-    history.stepped_over(1, 2, 100.0);
+    history.stepped_over(1.into(), 2.into(), 100.0);
     input(
         &mut history,
         ("{\"\"}", 2),
@@ -312,7 +320,7 @@ fn a_switch_is_a_step_undone_into_the_language_it_left() {
     history.record_switch(
         Made {
             before: yaml.clone(),
-            after: (4, 4),
+            after: kept((4, 4)),
             record: Record::of_texts("a: 1\n", "{\"a\": 1}\n"),
             between: (0, 1),
         },
@@ -421,11 +429,11 @@ fn undo_and_redo_make_the_change_their_step_recorded() {
     let first = typed("a\na\n", 3, "a");
     let second = typed("a\naa\n", 4, "a");
     for (edit, time) in [(&first, 0.0), (&second, 100.0)] {
-        let caret = edit.caret();
+        let caret = u32::try_from(edit.caret()).expect("a short text");
         history.record_input(
             Made {
                 before: side((caret - 1, caret - 1)),
-                after: (caret, caret),
+                after: kept((caret, caret)),
                 record: Record::undoing(edit).expect("its own text"),
                 between: (0, 0),
             },
@@ -436,16 +444,25 @@ fn undo_and_redo_make_the_change_their_step_recorded() {
     assert_eq!(history.undo.len(), 1);
     let undo_change = history.next(false).expect("the undo").change;
     assert_eq!(undo_change.apply("a\naaa\n").as_deref(), Some("a\na\n"));
-    assert_eq!(undo_change.edits().collect::<Vec<_>>(), vec![(3..5, "")]);
+    assert_eq!(
+        undo_change.edits().collect::<Vec<_>>(),
+        vec![(range(3, 5), "")]
+    );
     undo(&mut history, "a\naaa\n");
     let redo_change = history.next(true).expect("the redo").change;
-    assert_eq!(redo_change.edits().collect::<Vec<_>>(), vec![(3..3, "aa")]);
+    assert_eq!(
+        redo_change.edits().collect::<Vec<_>>(),
+        vec![(range(3, 3), "aa")]
+    );
     // Carried over a host change above it: the same edit, moved down.
     redo(&mut history, "a\na\n");
     history.rebase(&Change::diffed("a\naaa\n", "b\na\naaa\n"));
     let next = history.next(false).expect("still a step");
     assert!(next.told);
-    assert_eq!(next.change.edits().collect::<Vec<_>>(), vec![(5..7, "")]);
+    assert_eq!(
+        next.change.edits().collect::<Vec<_>>(),
+        vec![(range(5, 7), "")]
+    );
     assert_eq!(
         next.change.apply("b\na\naaa\n").as_deref(),
         Some("b\na\na\n")

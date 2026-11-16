@@ -64,7 +64,9 @@ fn line_fields(text: &str, language: Language, lines: &[usize]) -> Vec<Option<St
                     .take_while(|character| character.is_whitespace())
                     .count();
                 let end = written.trim_end().chars().count();
-                let at = |column: usize| offset_of(text, TextPosition::new(line + 1, column), true);
+                let at = |column: usize| {
+                    usize::from(offset_of(text, TextPosition::new(line + 1, column), true))
+                };
                 Some((at(indent + 2), at(end)))
             })
             .collect();

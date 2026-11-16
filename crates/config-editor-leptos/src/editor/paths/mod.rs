@@ -11,6 +11,7 @@ mod types;
 mod walk;
 mod written;
 
+use crate::editor::text::text_size;
 pub(crate) use fields::fields;
 #[cfg(any(feature = "toml", feature = "hcl"))]
 pub(crate) use lines::byte_at_column;
@@ -21,8 +22,8 @@ pub(crate) use lines::span_between;
 #[cfg(any(feature = "yaml", feature = "toml"))]
 pub(crate) use lines::text_line;
 pub(crate) use lines::{
-    Lines, byte_at, line_column, line_of_byte, line_start, lines, offset_of, split_line, units_at,
-    utf16_len,
+    Lines, api_units, byte_at, line_column, line_of_byte, line_start, lines, offset_of, split_line,
+    units_at, utf16_len,
 };
 #[cfg(any(feature = "yaml", feature = "toml", feature = "hcl", feature = "xml"))]
 pub(crate) use span_memo::batch_cached_as;
@@ -417,12 +418,12 @@ pub(crate) fn path_at(
     if !in_batch(source) {
         note(Work::PathLookup);
     }
-    if cursor > units_at(source, source.len()) {
+    if cursor > api_units(source, source.len()) {
         return None;
     }
     let byte = utf16_to_byte_index(source, cursor);
     let line_start = source[..byte].rfind('\n').map_or(0, |index| index + 1);
-    let line_index = line_column(source, line_start).0 - 1;
+    let line_index = line_column(source, text_size(line_start)).0 - 1;
     let column = source[line_start..byte].chars().count();
     let line = source[line_start..].split('\n').next().unwrap_or("");
     // In markup closing a value (`<a>1</a|>`): the value it closes; past
@@ -434,7 +435,7 @@ pub(crate) fn path_at(
         open = start;
     }
     if open < in_line {
-        let value_end = units_at(source, line_start + open);
+        let value_end = api_units(source, line_start + open);
         return path_at(behavior, source, value_end);
     }
     // On the key, just past it, past it and its separator (`listen =| 1`),
@@ -501,9 +502,9 @@ fn in_string_over_lines(
         .find(|body| body.start <= line_index && line_index <= body.end && body.start > 0)
         .map(|body| body.start - 1)?;
     // The key's line ends before the next line's start (the body follows).
-    let key_line_end = units_at(
+    let key_line_end = api_units(
         source,
-        lines::line_start(source, key_line + 1).checked_sub(1)?,
+        usize::from(lines::line_start(source, key_line + 1)).checked_sub(1)?,
     );
     if key_line == line_index || key_line_end >= cursor {
         return None;

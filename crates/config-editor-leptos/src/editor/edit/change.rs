@@ -10,9 +10,9 @@
 //! The text after is made from the change ([`Change::apply`]), so the two
 //! cannot disagree.
 //!
-//! Positions are counted in a [`Unit`]: bytes for the text itself, UTF-16
-//! code units for what follows the browser's offsets (the protected
-//! spans); [`Change::in_utf16`] converts one to the other.
+//! Positions are counted in a [`Unit`]: bytes ([`TextSize`]) for the text
+//! itself, UTF-16 code units ([`Utf16`]) for what follows the browser's
+//! offsets; [`Change::in_utf16`] converts one to the other.
 //!
 //! - [`Change::map_pos`] maps a position, with an [`Assoc`] saying which
 //!   side of an insertion made right at it the position keeps to, and
@@ -22,23 +22,41 @@
 //!   the same text (`a.compose(&b.map(&a, false))` reads as
 //!   `b.compose(&a.map(&b, true))`).
 //!
-//! The code making an edit says its change ([`Change::replace_units`] and
-//! the like, from the browser's UTF-16 offsets). Only a text from outside
-//! is read off two texts ([`Change::diffed`], [`Change::diffed_by_lines`]):
-//! a host value, a reload, a browser input that does not say what it did.
+//! The code making an edit says its change ([`Change::replace`] and the
+//! like). Only a text from outside is read off two texts
+//! ([`Change::diffed`], [`Change::diffed_by_lines`]): a host value, a
+//! reload, a browser input that does not say what it did.
 
+use std::fmt::Debug;
 use std::marker::PhantomData;
-use std::ops::Range;
+use std::ops::{Add, AddAssign, Range, Sub, SubAssign};
 
 use super::super::diff::{DiffEdit, myers_edits};
 use super::super::keyboard::utf16_to_byte_index;
-use super::super::text::{TextRange, TextSize};
+use super::super::text::{TextRange, TextSize, Utf16, text_size};
 use super::super::text_change::{changed_bytes, edit_range};
 
+/// A position or a length in a [`Unit`].
+pub(crate) trait Offset:
+    Copy + Debug + Default + Ord + Add<Output = Self> + Sub<Output = Self> + AddAssign + SubAssign
+{
+}
+
+impl Offset for TextSize {}
+impl Offset for Utf16 {}
+
 /// How positions are counted.
-pub(crate) trait Unit: Copy + std::fmt::Debug + PartialEq + Eq {
+pub(crate) trait Unit: Copy + Debug + PartialEq + Eq {
+    /// A position in this unit.
+    type Offset: Offset;
+    /// A range of positions in this unit.
+    type Range: Clone + Debug + PartialEq + Eq;
     /// The length of `text` in this unit.
-    fn len(text: &str) -> usize;
+    fn len(text: &str) -> Self::Offset;
+    /// The range `start..end` (`start <= end`).
+    fn range(start: Self::Offset, end: Self::Offset) -> Self::Range;
+    /// Where `range` starts and ends.
+    fn bounds(range: &Self::Range) -> (Self::Offset, Self::Offset);
 }
 
 /// Positions in bytes of UTF-8.
@@ -50,14 +68,30 @@ pub(crate) struct Bytes;
 pub(crate) struct CodeUnits;
 
 impl Unit for Bytes {
-    fn len(text: &str) -> usize {
-        text.len()
+    type Offset = TextSize;
+    type Range = TextRange;
+    fn len(text: &str) -> TextSize {
+        TextSize::of(text)
+    }
+    fn range(start: TextSize, end: TextSize) -> TextRange {
+        TextRange::new(start, end)
+    }
+    fn bounds(range: &TextRange) -> (TextSize, TextSize) {
+        (range.start(), range.end())
     }
 }
 
 impl Unit for CodeUnits {
-    fn len(text: &str) -> usize {
-        text.encode_utf16().count()
+    type Offset = Utf16;
+    type Range = Range<Utf16>;
+    fn len(text: &str) -> Utf16 {
+        Utf16::of(text)
+    }
+    fn range(start: Utf16, end: Utf16) -> Range<Utf16> {
+        start..end
+    }
+    fn bounds(range: &Range<Utf16>) -> (Utf16, Utf16) {
+        (range.start, range.end)
     }
 }
 
@@ -72,8 +106,8 @@ pub(crate) enum Assoc {
 
 /// A position mapped through a change.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct Mapped {
-    pub(crate) pos: usize,
+pub(crate) struct Mapped<O = TextSize> {
+    pub(crate) pos: O,
     /// The text on both sides of it was deleted (it lay strictly inside a
     /// replaced range).
     pub(crate) deleted: bool,
@@ -82,57 +116,80 @@ pub(crate) struct Mapped {
 /// One replacement: `delete` units at `at` of the text before replaced by
 /// `insert`.
 #[derive(Clone, Debug, PartialEq, Eq)]
-struct Replace {
-    at: usize,
-    delete: usize,
+struct Replace<O> {
+    at: O,
+    delete: O,
     insert: String,
 }
 
 /// A stretch of the text before written whole at `to` of the text after
 /// (its own place deleted): positions inside it go with it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct Moved {
-    pub(crate) from: usize,
-    pub(crate) len: usize,
-    pub(crate) to: usize,
+pub(crate) struct Moved<O = TextSize> {
+    pub(crate) from: O,
+    pub(crate) len: O,
+    pub(crate) to: O,
 }
 
 /// The replacements an edit made to a text of `len` units (see the
 /// module).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Change<U: Unit = Bytes> {
-    len: usize,
-    replaced: Vec<Replace>,
-    moved: Vec<Moved>,
+    len: U::Offset,
+    replaced: Vec<Replace<U::Offset>>,
+    moved: Vec<Moved<U::Offset>>,
     unit: PhantomData<U>,
+}
+
+/// What the replacements before a place wrote and deleted: the place moves
+/// by `grown - shrunk`, kept as two sums so no step goes below zero.
+#[derive(Clone, Copy, Default)]
+struct Shift<O> {
+    grown: O,
+    shrunk: O,
+}
+
+impl<O: Offset> Shift<O> {
+    /// Where `at` of the text before (at or past every replacement summed)
+    /// is in the text after.
+    fn of(self, at: O) -> O {
+        at + self.grown - self.shrunk
+    }
+
+    fn add(&mut self, inserted: O, deleted: O) {
+        self.grown += inserted;
+        self.shrunk += deleted;
+    }
 }
 
 impl<U: Unit> Change<U> {
     /// The change replacing each of `edits` (ranges of a text of `len`
     /// units, sorted and apart) by its text; `None` when they do not fit.
     pub(crate) fn replacing(
-        len: usize,
-        edits: impl IntoIterator<Item = (Range<usize>, String)>,
+        len: U::Offset,
+        edits: impl IntoIterator<Item = (U::Range, String)>,
     ) -> Option<Self> {
-        let mut replaced: Vec<Replace> = Vec::new();
-        let mut end = 0;
+        let mut replaced: Vec<Replace<U::Offset>> = Vec::new();
+        let mut end = U::Offset::default();
         for (range, insert) in edits {
-            if range.start < end || range.end < range.start || range.end > len {
+            let (start, range_end) = U::bounds(&range);
+            if start < end || range_end < start || range_end > len {
                 return None;
             }
-            end = range.end;
-            if range.is_empty() && insert.is_empty() {
+            end = range_end;
+            let delete = range_end - start;
+            if delete == U::Offset::default() && insert.is_empty() {
                 continue;
             }
             // Touching replacements are one.
             match replaced.last_mut() {
-                Some(last) if last.at + last.delete == range.start => {
-                    last.delete += range.len();
+                Some(last) if last.at + last.delete == start => {
+                    last.delete += delete;
                     last.insert.push_str(&insert);
                 }
                 _ => replaced.push(Replace {
-                    at: range.start,
-                    delete: range.len(),
+                    at: start,
+                    delete,
                     insert,
                 }),
             }
@@ -148,10 +205,13 @@ impl<U: Unit> Change<U> {
     /// The same change, with `moved` (stretches of the text before written
     /// whole elsewhere): kept where each is deleted at its place and
     /// written at its destination.
-    pub(crate) fn with_moved(mut self, moved: impl IntoIterator<Item = Moved>) -> Self {
-        let mut kept: Vec<Moved> = moved
+    pub(crate) fn with_moved(mut self, moved: impl IntoIterator<Item = Moved<U::Offset>>) -> Self {
+        let mut kept: Vec<Moved<U::Offset>> = moved
             .into_iter()
-            .filter(|moved| moved.len > 0 && self.deleted_whole(moved.from..moved.from + moved.len))
+            .filter(|moved| {
+                moved.len > U::Offset::default()
+                    && self.deleted_whole(moved.from..moved.from + moved.len)
+            })
             .collect();
         kept.sort_by_key(|moved| moved.from);
         self.moved = kept;
@@ -159,53 +219,56 @@ impl<U: Unit> Change<U> {
     }
 
     /// Whether the change deletes all of `range` (of the text before).
-    fn deleted_whole(&self, range: Range<usize>) -> bool {
+    fn deleted_whole(&self, range: Range<U::Offset>) -> bool {
         self.replaced
             .iter()
             .any(|edit| edit.at <= range.start && range.end <= edit.at + edit.delete)
     }
 
     /// The length of the text after.
-    pub(crate) fn len_after(&self) -> usize {
-        self.replaced.iter().fold(self.len, |len, edit| {
-            len + U::len(&edit.insert) - edit.delete
-        })
+    pub(crate) fn len_after(&self) -> U::Offset {
+        let mut shift = Shift::default();
+        for edit in &self.replaced {
+            shift.add(U::len(&edit.insert), edit.delete);
+        }
+        shift.of(self.len)
     }
 
     /// From the start of the first replacement to the end of the last, in
     /// the text before, and the same in the text after; `None` for a change
     /// that replaces nothing.
-    pub(crate) fn hull(&self) -> Option<(Range<usize>, Range<usize>)> {
+    pub(crate) fn hull(&self) -> Option<(U::Range, U::Range)> {
         let first = self.replaced.first()?;
         let last = self.replaced.last()?;
-        let before = first.at..last.at + last.delete;
-        let shift = |edit: &Replace| U::len(&edit.insert) as isize - edit.delete as isize;
-        let until_last: isize = self.replaced[..self.replaced.len() - 1]
-            .iter()
-            .map(shift)
-            .sum();
-        let start = first.at;
-        let end = (last.at as isize + until_last) as usize + U::len(&last.insert);
-        Some((before, start..end))
+        let before = U::range(first.at, last.at + last.delete);
+        let mut shift = Shift::default();
+        for edit in &self.replaced[..self.replaced.len() - 1] {
+            shift.add(U::len(&edit.insert), edit.delete);
+        }
+        let end = shift.of(last.at) + U::len(&last.insert);
+        Some((before, U::range(first.at, end)))
     }
 
     /// The stretches of the text before the change moved whole, by where
     /// they were.
-    pub(crate) fn moved(&self) -> &[Moved] {
+    pub(crate) fn moved(&self) -> &[Moved<U::Offset>] {
         &self.moved
     }
 
     /// The replacements, as ranges of the text before and their texts.
-    pub(crate) fn edits(&self) -> impl Iterator<Item = (Range<usize>, &str)> {
-        self.replaced
-            .iter()
-            .map(|edit| (edit.at..edit.at + edit.delete, edit.insert.as_str()))
+    pub(crate) fn edits(&self) -> impl Iterator<Item = (U::Range, &str)> {
+        self.replaced.iter().map(|edit| {
+            (
+                U::range(edit.at, edit.at + edit.delete),
+                edit.insert.as_str(),
+            )
+        })
     }
 
     /// Where `pos` (of the text before) is in the text after (see
     /// [`Assoc`]). A position inside a stretch the change moved goes with
     /// it.
-    pub(crate) fn map_pos(&self, pos: usize, assoc: Assoc) -> Mapped {
+    pub(crate) fn map_pos(&self, pos: U::Offset, assoc: Assoc) -> Mapped<U::Offset> {
         for moved in &self.moved {
             let inside = moved.from < pos && pos < moved.from + moved.len
                 || (pos == moved.from && assoc == Assoc::After)
@@ -217,18 +280,18 @@ impl<U: Unit> Change<U> {
                 };
             }
         }
-        let mut shift: isize = 0;
+        let mut shift = Shift::default();
         for edit in &self.replaced {
             let end = edit.at + edit.delete;
             let inserted = U::len(&edit.insert);
-            let at = (edit.at as isize + shift) as usize;
+            let at = shift.of(edit.at);
             if pos < edit.at {
                 break;
             }
             if pos <= end {
                 let deleted = edit.at < pos && pos < end;
                 // Its own end, past what was deleted: after the insertion.
-                let past = pos == end && edit.delete > 0;
+                let past = pos == end && edit.delete > U::Offset::default();
                 let pos = match assoc {
                     _ if past => at + inserted,
                     Assoc::Before => at,
@@ -236,10 +299,10 @@ impl<U: Unit> Change<U> {
                 };
                 return Mapped { pos, deleted };
             }
-            shift += inserted as isize - edit.delete as isize;
+            shift.add(inserted, edit.delete);
         }
         Mapped {
-            pos: (pos as isize + shift) as usize,
+            pos: shift.of(pos),
             deleted: false,
         }
     }
@@ -247,30 +310,35 @@ impl<U: Unit> Change<U> {
     /// `range` (of the text before) in the text after: its start keeps
     /// after text inserted at it, its end before; `None` when the change
     /// deleted text inside it or wrote inside it.
-    pub(crate) fn map_range(&self, range: &Range<usize>) -> Option<Range<usize>> {
+    pub(crate) fn map_range(&self, range: &U::Range) -> Option<U::Range> {
+        let (from, to) = U::bounds(range);
+        let range = from..to;
         let start = self.map_pos(range.start, Assoc::After);
         let end = self.map_pos(range.end, Assoc::Before);
+        let none = U::Offset::default();
         let inside = self.replaced.iter().any(|edit| {
             let end = edit.at + edit.delete;
             (range.start < edit.at && edit.at < range.end)
                 || (range.start < end && end < range.end)
-                || (edit.at <= range.start && range.end <= end && edit.delete > 0)
+                || (edit.at <= range.start && range.end <= end && edit.delete > none)
         });
-        let moved = |at: usize| {
+        let moved = |at: U::Offset| {
             self.moved
                 .iter()
                 .any(|moved| moved.from <= at && at <= moved.from + moved.len)
         };
-        let whole_moved = !range.is_empty()
+        let whole_moved = range.start < range.end
             && self
                 .moved
                 .iter()
                 .any(|moved| moved.from <= range.start && range.end <= moved.from + moved.len);
+        // A stretch moved whole keeps its length: its end maps past its
+        // start.
         if whole_moved {
-            return Some(start.pos..end.pos);
+            return Some(U::range(start.pos, end.pos.max(start.pos)));
         }
         (!inside && !start.deleted && !end.deleted && !(moved(range.start) ^ moved(range.end)))
-            .then_some(start.pos..end.pos.max(start.pos))
+            .then(|| U::range(start.pos, end.pos.max(start.pos)))
     }
 }
 
@@ -282,12 +350,7 @@ impl Change<Bytes> {
         len: TextSize,
         edits: impl IntoIterator<Item = (TextRange, String)>,
     ) -> Option<Self> {
-        Self::replacing(
-            usize::from(len),
-            edits
-                .into_iter()
-                .map(|(range, text)| (usize::from(range.start())..usize::from(range.end()), text)),
-        )
+        Self::replacing(len, edits)
     }
 
     /// The change replacing UTF-16 `start..end` of `text` (the browser's
@@ -295,7 +358,11 @@ impl Change<Bytes> {
     pub(crate) fn replace_units(text: &str, start: usize, end: usize, insert: &str) -> Self {
         let start = utf16_to_byte_index(text, start);
         let end = utf16_to_byte_index(text, end).max(start);
-        Self::replace_bytes(text, start..end, insert)
+        Self::replace(
+            text,
+            TextRange::new(text_size(start), text_size(end)),
+            insert,
+        )
     }
 
     /// The change inserting `insert` at UTF-16 `at` of `text`.
@@ -305,17 +372,20 @@ impl Change<Bytes> {
 
     /// The change replacing `range` (bytes of `text`, on character
     /// boundaries) by `insert`; a range past the text is cut at its end.
-    pub(crate) fn replace_bytes(text: &str, range: Range<usize>, insert: &str) -> Self {
-        let end = range.end.min(text.len());
-        let start = range.start.min(end);
-        Self::replacing(text.len(), [(start..end, insert.to_string())])
-            .unwrap_or_else(|| Self::unchanged(text))
+    pub(crate) fn replace(text: &str, range: TextRange, insert: &str) -> Self {
+        let end = range.end().min(TextSize::of(text));
+        let start = range.start().min(end);
+        Self::replacing(
+            TextSize::of(text),
+            [(TextRange::new(start, end), insert.to_string())],
+        )
+        .unwrap_or_else(|| Self::unchanged(text))
     }
 
     /// The change that changes nothing in `text`.
     pub(crate) fn unchanged(text: &str) -> Self {
         Change {
-            len: text.len(),
+            len: TextSize::of(text),
             replaced: Vec::new(),
             moved: Vec::new(),
             unit: PhantomData,
@@ -328,7 +398,11 @@ impl Change<Bytes> {
     /// host's change an input burst is replayed over.
     pub(crate) fn diffed(before: &str, after: &str) -> Self {
         let (start, end_before, end_after) = changed_bytes(before, after);
-        Self::replace_bytes(before, start..end_before, &after[start..end_after])
+        Self::replace(
+            before,
+            TextRange::new(text_size(start), text_size(end_before)),
+            &after[start..end_after],
+        )
     }
 
     /// [`Self::diffed`] line by line: each run of lines the line diff finds
@@ -344,22 +418,24 @@ impl Change<Bytes> {
             return Self::diffed(before, after);
         };
         let (mut old_lines, mut new_lines) = (old.iter(), new.iter());
-        let mut edits: Vec<(Range<usize>, String)> = Vec::new();
+        let mut edits: Vec<(TextRange, String)> = Vec::new();
         // The run of lines being replaced: where it starts, what it writes.
-        let mut run: Option<(usize, String)> = None;
-        let mut at = 0;
+        let mut run: Option<(TextSize, String)> = None;
+        let mut at = TextSize::default();
+        let line_len =
+            |line: Option<&&str>| line.map_or(TextSize::default(), |line| TextSize::of(*line));
         for step in script {
             match step {
                 DiffEdit::Equal => {
                     if let Some((start, text)) = run.take() {
-                        edits.push((start..at, text));
+                        edits.push((TextRange::new(start, at), text));
                     }
-                    at += old_lines.next().map_or(0, |line| line.len());
+                    at += line_len(old_lines.next());
                     new_lines.next();
                 }
                 DiffEdit::Delete => {
                     run.get_or_insert_with(|| (at, String::new()));
-                    at += old_lines.next().map_or(0, |line| line.len());
+                    at += line_len(old_lines.next());
                 }
                 DiffEdit::Insert => {
                     let (_, text) = run.get_or_insert_with(|| (at, String::new()));
@@ -368,9 +444,9 @@ impl Change<Bytes> {
             }
         }
         if let Some((start, text)) = run {
-            edits.push((start..at, text));
+            edits.push((TextRange::new(start, at), text));
         }
-        let lines = Self::replacing(before.len(), edits)
+        let lines = Self::replacing(TextSize::of(before), edits)
             .filter(|change| change.apply(before).as_deref() == Some(after));
         match lines {
             Some(change) => change.clone().narrowed(before).unwrap_or(change),
@@ -384,7 +460,10 @@ impl Change<Bytes> {
     /// (`aa|a` + `a`).
     pub(crate) fn diffed_at(before: &str, after: &str, caret: usize) -> Self {
         let (start, end) = edit_range(before, after, caret);
-        let range = utf16_to_byte_index(before, start)..utf16_to_byte_index(before, end);
+        let range = TextRange::new(
+            text_size(utf16_to_byte_index(before, start)),
+            text_size(utf16_to_byte_index(before, end)),
+        );
         Self::replacing_selection(before, after, range)
             .unwrap_or_else(|| Self::diffed(before, after))
     }
@@ -392,9 +471,10 @@ impl Change<Bytes> {
     /// Whether it writes back what it replaces everywhere: `before` (the
     /// text it is made on) stays as it is.
     pub(crate) fn is_identity(&self, before: &str) -> bool {
-        self.replaced
-            .iter()
-            .all(|edit| before.get(edit.at..edit.at + edit.delete) == Some(edit.insert.as_str()))
+        self.replaced.iter().all(|edit| {
+            before.get(Range::<usize>::from(TextRange::at(edit.at, edit.delete)))
+                == Some(edit.insert.as_str())
+        })
     }
 
     /// Bytes it holds: the text it writes, and its pieces (the undo
@@ -402,16 +482,9 @@ impl Change<Bytes> {
     pub(crate) fn held_bytes(&self) -> usize {
         self.replaced
             .iter()
-            .map(|edit| edit.insert.len() + std::mem::size_of::<Replace>())
+            .map(|edit| edit.insert.len() + std::mem::size_of::<Replace<TextSize>>())
             .sum::<usize>()
             + self.moved.len() * std::mem::size_of::<Moved>()
-    }
-
-    /// Where byte `at` of the text before is in the text after.
-    #[cfg_attr(not(test), expect(dead_code, reason = "byte positions move onto it"))]
-    pub(crate) fn map_offset(&self, at: TextSize, assoc: Assoc) -> TextSize {
-        let mapped = self.map_pos(usize::from(at), assoc).pos;
-        TextSize::try_from(mapped).unwrap_or(at)
     }
 
     /// The change made by replacing `selection` of `before` (bytes) such
@@ -420,20 +493,18 @@ impl Change<Bytes> {
     pub(crate) fn replacing_selection(
         before: &str,
         after: &str,
-        selection: Range<usize>,
+        selection: TextRange,
     ) -> Option<Self> {
-        let kept = before.len().checked_sub(selection.len())?;
-        let inserted_end = selection.start + after.len().checked_sub(kept)?;
-        let agree = before.get(..selection.start)? == after.get(..selection.start)?
-            && before.get(selection.end..)? == after.get(inserted_end..)?;
+        let (start, end) = (usize::from(selection.start()), usize::from(selection.end()));
+        let kept = before.len().checked_sub(usize::from(selection.len()))?;
+        let inserted_end = start + after.len().checked_sub(kept)?;
+        let agree = before.get(..start)? == after.get(..start)?
+            && before.get(end..)? == after.get(inserted_end..)?;
         agree
             .then(|| {
                 Self::replacing(
-                    before.len(),
-                    [(
-                        selection.clone(),
-                        after[selection.start..inserted_end].to_string(),
-                    )],
+                    TextSize::of(before),
+                    [(selection, after[start..inserted_end].to_string())],
                 )
             })
             .flatten()
@@ -450,7 +521,7 @@ impl Change<Bytes> {
         }
         let mut edits = Vec::with_capacity(self.replaced.len());
         for edit in &self.replaced {
-            let removed = before.get(edit.at..edit.at + edit.delete)?;
+            let removed = before.get(Range::<usize>::from(TextRange::at(edit.at, edit.delete)))?;
             let inserted = edit.insert.as_str();
             let mut prefix = removed
                 .bytes()
@@ -472,9 +543,9 @@ impl Change<Bytes> {
             {
                 suffix -= 1;
             }
-            let start = edit.at + prefix;
+            let start = edit.at + text_size(prefix);
             edits.push((
-                start..start + removed_rest.len() - suffix,
+                TextRange::at(start, text_size(removed_rest.len() - suffix)),
                 inserted_rest[..inserted_rest.len() - suffix].to_string(),
             ));
         }
@@ -484,15 +555,15 @@ impl Change<Bytes> {
     /// `text` with the change made; `None` when it is not the text the
     /// change was made for.
     pub(crate) fn apply(&self, text: &str) -> Option<String> {
-        if text.len() != self.len {
+        if TextSize::try_from(text.len()).ok()? != self.len {
             return None;
         }
-        let mut out = String::with_capacity(self.len_after());
+        let mut out = String::with_capacity(usize::from(self.len_after()));
         let mut at = 0;
         for edit in &self.replaced {
-            out.push_str(text.get(at..edit.at)?);
+            out.push_str(text.get(at..usize::from(edit.at))?);
             out.push_str(&edit.insert);
-            at = edit.at + edit.delete;
+            at = usize::from(edit.at + edit.delete);
         }
         out.push_str(text.get(at..)?);
         Some(out)
@@ -501,15 +572,18 @@ impl Change<Bytes> {
     /// The change undoing this one: made on the text after, giving back
     /// `before` (the text this one was made on).
     pub(crate) fn invert(&self, before: &str) -> Option<Self> {
-        let mut shift: isize = 0;
+        let mut shift = Shift::default();
         let mut edits = Vec::with_capacity(self.replaced.len());
         for edit in &self.replaced {
-            let at = (edit.at as isize + shift) as usize;
+            let at = shift.of(edit.at);
+            let inserted = TextSize::of(edit.insert.as_str());
             edits.push((
-                at..at + edit.insert.len(),
-                before.get(edit.at..edit.at + edit.delete)?.to_string(),
+                TextRange::at(at, inserted),
+                before
+                    .get(Range::<usize>::from(TextRange::at(edit.at, edit.delete)))?
+                    .to_string(),
             ));
-            shift += edit.insert.len() as isize - edit.delete as isize;
+            shift.add(inserted, edit.delete);
         }
         let moved: Vec<Moved> = self
             .moved
@@ -517,16 +591,12 @@ impl Change<Bytes> {
             .map(|moved| Moved {
                 from: moved.to,
                 len: moved.len,
-                to: self.unmoved_place(moved),
+                // Its place in the text before, which the inverse writes
+                // back.
+                to: moved.from,
             })
             .collect();
         Some(Self::replacing(self.len_after(), edits)?.with_moved(moved))
-    }
-
-    /// Where `moved`'s source is in the text the inverse makes: its place
-    /// in the text before, which the inverse writes back.
-    fn unmoved_place(&self, moved: &Moved) -> usize {
-        moved.from
     }
 
     /// The change making `next` after this one, as one change of this
@@ -596,7 +666,7 @@ impl Change<Bytes> {
                         a = mine.next();
                         b = Some(Piece::Insert(their));
                     } else {
-                        out.retain(their.len());
+                        out.retain(TextSize::of(their.as_str()));
                         a = Some(Piece::Insert(text));
                         b = theirs.next();
                     }
@@ -607,7 +677,7 @@ impl Change<Bytes> {
                     b = other;
                 }
                 (other, Some(Piece::Insert(their))) => {
-                    out.retain(their.len());
+                    out.retain(TextSize::of(their.as_str()));
                     a = other;
                     b = theirs.next();
                 }
@@ -632,10 +702,11 @@ impl Change<Bytes> {
     /// The same change counted in UTF-16 code units of `before` (the text
     /// it is made on).
     pub(crate) fn in_utf16(&self, before: &str) -> Option<Change<CodeUnits>> {
-        let mut units = 0;
+        let mut units = Utf16::default();
         let mut at = 0;
-        let mut to_units = |byte: usize| -> Option<usize> {
-            units += before.get(at..byte)?.encode_utf16().count();
+        let mut to_units = |byte: TextSize| -> Option<Utf16> {
+            let byte = usize::from(byte);
+            units += Utf16::of(before.get(at..byte)?);
             at = byte;
             Some(units)
         };
@@ -649,19 +720,17 @@ impl Change<Bytes> {
                 insert: edit.insert.clone(),
             });
         }
-        let len = to_units(before.len())?;
+        let len = to_units(TextSize::of(before))?;
         let after = self.apply(before)?;
-        let units_of =
-            |text: &str, byte: usize| text.get(..byte).map(|head| head.encode_utf16().count());
         let moved = self
             .moved
             .iter()
             .map(|moved| {
-                let from = units_of(before, moved.from)?;
+                let from = Utf16::of_byte(before, moved.from)?;
                 Some(Moved {
                     from,
-                    len: units_of(before, moved.from + moved.len)? - from,
-                    to: units_of(&after, moved.to)?,
+                    len: Utf16::of_byte(before, moved.from + moved.len)? - from,
+                    to: Utf16::of_byte(&after, moved.to)?,
                 })
             })
             .collect::<Option<Vec<_>>>()?;
@@ -676,12 +745,12 @@ impl Change<Bytes> {
     /// The change as retain, delete and insert pieces over the text.
     fn pieces(&self) -> Vec<Piece> {
         let mut pieces = Vec::with_capacity(self.replaced.len() * 3 + 1);
-        let mut at = 0;
+        let mut at = TextSize::default();
         for edit in &self.replaced {
             if edit.at > at {
                 pieces.push(Piece::Retain(edit.at - at));
             }
-            if edit.delete > 0 {
+            if edit.delete > TextSize::default() {
                 pieces.push(Piece::Delete(edit.delete));
             }
             if !edit.insert.is_empty() {
@@ -699,22 +768,22 @@ impl Change<Bytes> {
 /// A piece of a change, read over the text before from its start.
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum Piece {
-    Retain(usize),
-    Delete(usize),
+    Retain(TextSize),
+    Delete(TextSize),
     Insert(String),
 }
 
 impl Piece {
     /// How much of the text the piece reads (an insertion: what it writes).
-    fn len(&self) -> usize {
+    fn len(&self) -> TextSize {
         match self {
             Piece::Retain(len) | Piece::Delete(len) => *len,
-            Piece::Insert(text) => text.len(),
+            Piece::Insert(text) => TextSize::of(text.as_str()),
         }
     }
 
     /// The first `len` of it, and the rest when any is left.
-    fn split(self, len: usize) -> (Piece, Option<Piece>) {
+    fn split(self, len: TextSize) -> (Piece, Option<Piece>) {
         match self {
             Piece::Retain(all) => (
                 Piece::Retain(len),
@@ -725,9 +794,9 @@ impl Piece {
                 (all > len).then(|| Piece::Delete(all - len)),
             ),
             Piece::Insert(text) => {
-                let rest = text[len..].to_string();
+                let rest = text[usize::from(len)..].to_string();
                 (
-                    Piece::Insert(text[..len].to_string()),
+                    Piece::Insert(text[..usize::from(len)].to_string()),
                     (!rest.is_empty()).then_some(Piece::Insert(rest)),
                 )
             }
@@ -738,37 +807,37 @@ impl Piece {
 /// Pieces gathered into a change.
 #[derive(Default)]
 struct Pieces {
-    at: usize,
-    edits: Vec<(Range<usize>, String)>,
+    at: TextSize,
+    edits: Vec<(TextRange, String)>,
 }
 
 impl Pieces {
-    fn retain(&mut self, len: usize) {
+    fn retain(&mut self, len: TextSize) {
         self.at += len;
     }
 
-    fn delete(&mut self, len: usize) {
+    fn delete(&mut self, len: TextSize) {
         self.edit(len, "");
     }
 
     fn insert(&mut self, text: &str) {
-        self.edit(0, text);
+        self.edit(TextSize::default(), text);
     }
 
-    fn edit(&mut self, delete: usize, insert: &str) {
+    fn edit(&mut self, delete: TextSize, insert: &str) {
         match self.edits.last_mut() {
-            Some((range, text)) if range.end == self.at => {
-                range.end += delete;
+            Some((range, text)) if range.end() == self.at => {
+                *range = TextRange::new(range.start(), range.end() + delete);
                 text.push_str(insert);
             }
             _ => self
                 .edits
-                .push((self.at..self.at + delete, insert.to_string())),
+                .push((TextRange::at(self.at, delete), insert.to_string())),
         }
         self.at += delete;
     }
 
-    fn into_change(self, len: usize) -> Option<Change<Bytes>> {
+    fn into_change(self, len: TextSize) -> Option<Change<Bytes>> {
         Change::replacing(len, self.edits)
     }
 }

@@ -864,7 +864,7 @@ mod tests {
     fn input_is_replayed_on_a_document_replaced_meanwhile() {
         let replayed = |before: &str, latest: &str, current: &str| {
             let change = replay(&Change::diffed(before, latest), before, current)?;
-            let caret = change.hull().map(|(_, written)| written.end);
+            let caret = change.hull().map(|(_, written)| usize::from(written.end()));
             Some((change.apply(current)?, caret?))
         };
         assert_eq!(

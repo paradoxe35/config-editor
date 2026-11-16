@@ -19,6 +19,7 @@ mod line_diff;
 mod rows;
 mod unified;
 
+use crate::editor::text::{TextSize, byte_range, text_size};
 pub(super) use commands::{ChangesState, report_changes};
 pub(super) use components::{
     ChangeMarkers, ChangeStatus, DiffPeekPopup, tab_around_preview, tab_into_preview,
@@ -99,7 +100,7 @@ pub(super) fn hunk_for_peek<'a>(line_diff: &'a LineDiff, peek: &DiffPeek) -> Opt
 pub(super) fn revert_hunk(text: &str, hunk: &Hunk) -> (String, usize) {
     let (change, caret) = reverting(text, hunk);
     let reverted = change.apply(text).expect("made on the text");
-    let caret = reverted[..caret].encode_utf16().count();
+    let caret = reverted[..usize::from(caret)].encode_utf16().count();
     (reverted, caret)
 }
 
@@ -107,7 +108,7 @@ pub(super) fn revert_hunk(text: &str, hunk: &Hunk) -> (String, usize) {
 /// between them and the rest) replaced by the baseline's, and the caret at
 /// the start of the restored lines (a byte offset of the text after; the
 /// text's end when none are restored there).
-pub(super) fn reverting(text: &str, hunk: &Hunk) -> (Change, usize) {
+pub(super) fn reverting(text: &str, hunk: &Hunk) -> (Change, TextSize) {
     let lines = document_lines(text);
     let end = hunk.current.end.min(lines.len());
     let start = hunk.current.start.min(end);
@@ -129,7 +130,10 @@ pub(super) fn reverting(text: &str, hunk: &Hunk) -> (Change, usize) {
     } else {
         (0..text.len(), baseline.join("\n"), 0)
     };
-    (Change::replace_bytes(text, range, &written), caret)
+    (
+        Change::replace(text, byte_range(range), &written),
+        text_size(caret),
+    )
 }
 
 /// The zero-based line a change starts on, where moving to it puts the

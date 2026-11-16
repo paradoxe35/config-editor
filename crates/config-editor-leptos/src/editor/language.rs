@@ -457,8 +457,8 @@ pub fn inline_block(
     // Off the lines while a batch runs for the text (many places asked at
     // once each counted the text up to theirs).
     Some(InlineBlock {
-        start: super::paths::units_at(source, block_start),
-        end: super::paths::units_at(source, block_end),
+        start: super::paths::api_units(source, block_start),
+        end: super::paths::api_units(source, block_end),
         indent,
         after,
     })
@@ -2696,8 +2696,12 @@ pub fn over_whole_strings(
                         .all(|character| character.is_alphanumeric() || character == '_'))
         })
     };
-    let line_of =
-        |utf16: usize| super::paths::line_of_byte(source, utf16_to_byte_index(source, utf16));
+    let line_of = |utf16: usize| {
+        super::paths::line_of_byte(
+            source,
+            super::text::text_size(utf16_to_byte_index(source, utf16)),
+        )
+    };
     let (first_line, last_line) = (line_of(start), line_of(end));
     let (mut first, mut last) = (first_line, last_line);
     // On a closing delimiter (`EOF`): its body and opening line too.
@@ -2724,11 +2728,11 @@ pub fn over_whole_strings(
     if (first, last) == (first_line, last_line) {
         return (start, end);
     }
-    let line_start = |line: usize| super::paths::line_start(source, line);
+    let line_start = |line: usize| usize::from(super::paths::line_start(source, line));
     let last_end = line_start(last) + super::paths::split_line(source, last).map_or(0, str::len);
     (
-        super::paths::units_at(source, line_start(first)),
-        super::paths::units_at(source, last_end),
+        super::paths::api_units(source, line_start(first)),
+        super::paths::api_units(source, last_end),
     )
 }
 

@@ -1,6 +1,7 @@
 //! Parsing to a JSON value, and the source spans of keys and values.
 
 use super::*;
+use crate::editor::text::{text_size, byte_range};
 
 /// Parses with `serde_json` for syntax, then rejects duplicate keys in the same
 /// object, which `serde_json` would otherwise silently keep the last of.
@@ -31,7 +32,7 @@ pub(super) fn json_parse(source: &str) -> Result<Value, ParseError> {
         if full.starts_with("trailing comma")
             && let Some(comma) = source[..at].rfind(',')
         {
-            (line, column) = line_column(source, comma);
+            (line, column) = line_column(source, text_size(comma));
         }
         let (column, message) = super::super::wide_integers::out_of_range(source, line, column).unwrap_or((column, message));
         ParseError {
@@ -46,7 +47,7 @@ pub(super) fn json_parse(source: &str) -> Result<Value, ParseError> {
     };
     if let Some((pointer, text)) = super::super::wide_integers::first_past_64_bits(&document, &written) {
         let start = scanned(source).values.get(&pointer_segments(&pointer)).map(|(start, _)| *start);
-        let (line, column) = start.map(|start| line_column(source, start)).unzip();
+        let (line, column) = start.map(|start| line_column(source, text_size(start))).unzip();
         return Err(ParseError {
             message: super::super::wide_integers::message(&text),
             line,
@@ -56,7 +57,7 @@ pub(super) fn json_parse(source: &str) -> Result<Value, ParseError> {
     let mut seen = HashSet::new();
     for (owner, key, start) in analyze_caret(source, 0).keys {
         if !seen.insert((owner, key.clone())) {
-            let (line, column) = line_column(source, start);
+            let (line, column) = line_column(source, text_size(start));
             return Err(ParseError {
                 message: format!("duplicate key \"{key}\""),
                 line: Some(line),
@@ -110,7 +111,7 @@ fn scanned(source: &str) -> std::rc::Rc<Spans> {
 
 pub(super) fn json_key_span(source: &str, path: &str) -> Option<(usize, usize, usize)> {
     let (start, end) = *scanned(source).keys.get(&pointer_segments(path))?;
-    Some(span_between(source, start, end))
+    Some(span_between(source, byte_range(start..end)))
 }
 
 /// The byte range of the value at `path` whole, a container through its
@@ -124,9 +125,9 @@ pub(super) fn json_value_span(source: &str, path: &str) -> Option<(usize, usize,
     let (start, end) = *scanned(source).values.get(&pointer_segments(path))?;
     if source[start..].starts_with(['{', '[']) {
         // A container is marked at its opening bracket, not its whole body.
-        let (line, column) = line_column(source, start);
+        let (line, column) = line_column(source, text_size(start));
         return Some((line, column, column + 1));
     }
-    Some(span_between(source, start, end))
+    Some(span_between(source, byte_range(start..end)))
 }
 

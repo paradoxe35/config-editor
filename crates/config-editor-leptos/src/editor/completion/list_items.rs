@@ -86,8 +86,12 @@ fn before_item(
     }
     let next = rest.chars().next()?;
     let closes = config.brackets.iter().any(|(_, close)| *close == next);
-    (!closes && next != separator)
-        .then(|| (crate::editor::paths::units_at(source, typed_end), separator))
+    (!closes && next != separator).then(|| {
+        (
+            crate::editor::paths::api_units(source, typed_end),
+            separator,
+        )
+    })
 }
 
 /// In an empty document under a schema whose root is a list of values

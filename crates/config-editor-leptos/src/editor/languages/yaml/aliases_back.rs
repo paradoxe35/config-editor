@@ -8,6 +8,7 @@
 use super::aliases::shared_of;
 use super::*;
 use crate::editor::paths::{memo_key_span, memo_value_span, with_spans};
+use crate::editor::text::{text_size};
 
 /// `saved` with each value `origin` wrote as an alias (`*p`) of an anchor
 /// `saved` writes before it, that `saved` writes out on its key's line
@@ -43,7 +44,7 @@ pub(super) fn aliases_back(saved: &str, origin: &str) -> Option<String> {
                 let range = written_out(saved, pointer)?;
                 // An alias reads only an anchor written before it.
                 let anchor_line = memo_key_span(&YamlBehavior, saved, anchor)?.line;
-                let line = crate::editor::paths::line_column(saved, range.start).0;
+                let line = crate::editor::paths::line_column(saved, text_size(range.start)).0;
                 (anchor_line < line).then(|| (range, format!("*{name}")))
             })
             .collect()

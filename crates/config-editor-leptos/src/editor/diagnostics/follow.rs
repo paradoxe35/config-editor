@@ -3,6 +3,7 @@
 
 use super::super::edit::{Assoc, Change};
 use super::Diagnostic;
+use crate::editor::text::text_size;
 
 /// Where each line of a text starts, to turn (line, character column)
 /// places into byte offsets and back.
@@ -69,8 +70,8 @@ pub(in crate::editor) fn follow_diagnostics(
     }
     let (before, after) = (Lines::new(checked), Lines::new(current));
     let moved = |(at, past_end): (usize, usize), assoc: Assoc| {
-        let mapped = change.map_pos(at, assoc);
-        let (line, column) = after.place(mapped.pos);
+        let mapped = change.map_pos(text_size(at), assoc);
+        let (line, column) = after.place(mapped.pos.into());
         Moved {
             line,
             column: column + past_end,

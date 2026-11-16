@@ -22,6 +22,7 @@ mod steps;
 
 use super::language::pointer_key;
 use crate::editor::paths::FieldPath;
+use crate::editor::text::text_size;
 use compare::{canonical_number, comment_start, comparable};
 #[cfg(test)]
 #[allow(unused_imports, reason = "the save property tests read through it")]
@@ -742,7 +743,10 @@ pub(super) fn inline_location(
 /// value `span`, past its properties (a YAML tag or anchor); `None` when
 /// the value there is no inline container.
 fn inline_start(behavior: &dyn ConfigLanguage, source: &str, span: Span) -> Option<usize> {
-    let line_start = super::paths::line_start(source, span.line.saturating_sub(1));
+    let line_start = usize::from(super::paths::line_start(
+        source,
+        span.line.saturating_sub(1),
+    ));
     let start = line_start
         + source[line_start..]
             .char_indices()
@@ -800,7 +804,7 @@ pub(super) fn in_flow_container(
         Some(comment) if comment > 0 => from + source[from..from + comment].trim_end().len(),
         _ => to,
     };
-    let (line, column) = super::paths::line_column(source, from);
+    let (line, column) = super::paths::line_column(source, text_size(from));
     let to_column = if source[from..to].contains('\n') {
         column + 1
     } else {
@@ -915,7 +919,10 @@ fn through_long_quote(
 pub(super) fn byte_range(source: &str, span: Span) -> Option<std::ops::Range<usize>> {
     // (A lookup while a batch runs for the text; past its last line, the
     // empty text at its end.)
-    let line_start = crate::editor::paths::line_start(source, span.line.saturating_sub(1));
+    let line_start = usize::from(crate::editor::paths::line_start(
+        source,
+        span.line.saturating_sub(1),
+    ));
     let line = &source[line_start..];
     let byte_of = |column: usize| {
         line.char_indices()
