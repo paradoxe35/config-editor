@@ -52,8 +52,7 @@ pub(super) fn under(entered: Option<usize>, line: usize, stopped: bool, shows_ow
 mod tests {
     use super::{Under, under};
 
-    /// QA 29 (M29-U1, L29-U2): a pointer that came onto a card from beside
-    /// it waits while it moves along the line it came in on; off that line
+    /// A pointer that came onto a card from beside it waits while it moves along the line it came in on; off that line
     /// the card takes it; where it stops on that line decides: on text
     /// with docs or problems of its own, that text's; elsewhere, the
     /// card's.

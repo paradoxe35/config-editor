@@ -226,14 +226,14 @@ fn leave_tip_focus(state: EditorState, event: &web_sys::FocusEvent) {
 
 /// The pointer came onto the tip: from its underline, it stays; another
 /// way, it lets the pointer through to the text under it (see
-/// `popup_pointer`).
+/// `popups::pointer`).
 fn enter_tip(state: EditorState, event: &web_sys::MouseEvent) {
     if let Some(tip) = state.popups().tip_ref.get_untracked() {
         enter_popup(state, &tip, event);
     }
 }
 
-/// A wheel over the tip: see `popup_pointer`.
+/// A wheel over the tip: see `popups::pointer`.
 fn wheel_tip(state: EditorState, event: &web_sys::WheelEvent) {
     if let Some(tip) = state.popups().tip_ref.get_untracked() {
         popup_wheel(state, &tip, event);
@@ -408,9 +408,9 @@ mod tests {
         assert!(placed.top + height <= AREA.bottom, "{placed:?}");
     }
 
-    /// QA 19: a tall tip near the bottom went off the top, its first
-    /// messages out of reach. It goes where it fits, else on the roomier
-    /// side no taller than the room there (it scrolls).
+    /// A tall tip near the bottom keeps its first messages in reach: it goes
+    /// where it fits, else on the roomier side no taller than the room there
+    /// (it scrolls).
     #[test]
     fn the_tip_stays_inside_the_editor_above_below_or_scrolled() {
         // A short tip above its line, as before.
@@ -434,9 +434,8 @@ mod tests {
         assert!(placed.left + placed.width <= AREA.right);
     }
 
-    /// QA 20: in an editor too short for a one-message tip on either side
-    /// of its line, the tip used the roomier side and scrolled. It takes
-    /// the window's room instead, whole.
+    /// In an editor too short for a one-message tip on either side of its
+    /// line, the tip takes the window's room, whole, rather than scrolling.
     #[test]
     fn a_short_editor_lends_the_tip_the_windows_room() {
         let short = Area {

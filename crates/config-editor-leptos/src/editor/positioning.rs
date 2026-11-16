@@ -1,3 +1,8 @@
+//! Where the popups go and what the pointer is over: the frame fixed
+//! popups count from (a host's transformed container), the hover card's
+//! side and size, the cell under the pointer, and bringing the caret into
+//! view.
+
 use super::metrics::read_editor_metrics;
 use super::source_area::SourceArea;
 use super::state::EditorState;
@@ -384,9 +389,9 @@ mod tests {
         ]
     }
 
-    /// QA 20: in a transformed, filtered or zoomed container the popups
-    /// landed 80 to 150 px off. A point measured in the window comes back to
-    /// the same point once placed, in every container.
+    /// A point measured in the window comes back to the same point once
+    /// placed, in every container a host may put the editor in
+    /// (transformed, filtered, zoomed).
     #[test]
     fn a_popup_lands_on_its_window_point_in_every_container() {
         let mut failures = Vec::new();
@@ -429,9 +434,8 @@ mod tests {
         assert!(failures.is_empty(), "{}", failures.join("\n"));
     }
 
-    /// QA 23 (L23-U3): a card with many problems ran off the window. It is
-    /// no taller than the window's room on its side of the line (it
-    /// scrolls), above or below, in every container.
+    /// A card with many problems is no taller than the window's room on its
+    /// side of the line (it scrolls), above or below, in every container.
     #[test]
     fn the_hover_card_is_no_taller_than_the_windows_room() {
         let mut failures = Vec::new();
@@ -476,14 +480,11 @@ mod tests {
         }
     }
 
-    /// QA 25 (U25-4): a key on an editor's first lines near the window's
-    /// bottom (the page scrolled so the editor starts low) opened its card
-    /// below, squeezed into the few pixels left and run off the window,
-    /// with the window's room above it unused. QA 26 (M26-U1): a card
-    /// below its line covered the next lines, where the pointer goes on.
-    /// As in VS Code, the card goes above whenever it fits there whole,
-    /// else below when it fits there, else where the window has more room,
-    /// in every container.
+    /// As in VS Code, the card goes above whenever it fits there whole (so
+    /// the next lines, where the pointer goes on, stay free; an editor
+    /// starting low on the page uses the room above it), else below when
+    /// it fits there, else where the window has more room, in every
+    /// container.
     #[test]
     fn the_hover_card_goes_above_when_it_fits_there() {
         let mut failures = Vec::new();

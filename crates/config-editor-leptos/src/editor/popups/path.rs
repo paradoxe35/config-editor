@@ -241,11 +241,10 @@ mod tests {
         bottom: 200.0,
     };
 
-    /// QA 23 (M23-U1): the pointer heading for the card across the next
-    /// line's key swapped the card for that key's (or the problem tip), so
-    /// the card's docs could not be reached. Every small step towards a
-    /// point inside it heads for it; a step away, or along the line, does
-    /// not.
+    /// The pointer heading for the card across the next line's key keeps
+    /// the card (that key's card or problem tip waits): every small step
+    /// towards a point inside it heads for it; a step away, or along the
+    /// line, does not.
     #[test]
     fn small_steps_towards_the_card_head_for_it() {
         let key = (60.0, 45.0);
@@ -314,12 +313,10 @@ mod tests {
         walk(&[start, end], length / steps as f64, card, anchor)
     }
 
-    /// QA 27 (M27-U1): a card above its line closed on the way up to it
-    /// (the pointer at its bottom pixel row counted as on it, which let it
-    /// through), and one above a long value was not taken from the value's
-    /// end (it came across the card's side, not its bottom). Every way in
-    /// small steps from anywhere on the anchor to anywhere on the card, at
-    /// 15 to 40 steps, gets onto it on its way, above or below the line.
+    /// Every way in small steps from anywhere on the anchor to anywhere on
+    /// the card, at 15 to 40 steps, gets onto it on its way, above or below
+    /// the line: across its bottom pixel row (which is past it, not on it),
+    /// and across its side from the end of a value longer than the card.
     #[test]
     fn every_small_step_way_from_the_anchor_reaches_the_card() {
         // A long value at y 140..160 from x 40 to 700, cards 4 px from it.
@@ -362,12 +359,10 @@ mod tests {
         }
     }
 
-    /// QA 28 (F1): a card above its line let the pointer through (and
-    /// closed under it) when it got there after straying into the
-    /// indentation or the gutter. A detour off the lines the card covers
-    /// (left, right, onto the line past the key, past the card's far
-    /// edge), at 4 to 16 px a move, keeps the way, above or below the
-    /// line.
+    /// A detour off the lines the card covers (into the indentation or the
+    /// gutter, onto the line past the key, past the card's far edge), at 4
+    /// to 16 px a move, keeps the way, above or below the line: the card
+    /// takes the pointer that gets there after it.
     #[test]
     fn a_detour_off_the_covered_lines_keeps_the_way() {
         let anchor = Rect {
@@ -417,11 +412,9 @@ mod tests {
         }
     }
 
-    /// QA 26 (M26-U1): a card below its line took the pointer that came
-    /// onto the lines it covers from beside it, so those lines could not
-    /// be hovered, clicked or scrolled. A way from beside the card, or from
-    /// its line past its side and then down, has lost its way when it
-    /// gets onto it (the card lets it through).
+    /// A way from beside the card, or from its line past its side and then
+    /// down, has lost its way when it gets onto it: the card lets it through,
+    /// so the lines it covers can still be hovered, clicked and scrolled.
     #[test]
     fn a_way_from_beside_the_card_is_not_on_the_way() {
         let anchor = Rect {
@@ -474,12 +467,11 @@ mod tests {
         assert_eq!(spot((560.0, 138.0), above, false, Some(520.0)), Spot::Away);
     }
 
-    /// QA 29 (L29-U2): a pointer going straight up or down along the
-    /// card's side, in the gutter or the indentation, stayed within a pixel
-    /// of the triangle to it at each step, so it counted as heading for it
-    /// and a line the card covers could not be reached from there. Along
-    /// its side on the lines it covers, it gets no closer: the way is
-    /// lost, whatever the step, however near the side.
+    /// A pointer going straight up or down along the card's side (in the
+    /// gutter or the indentation) stays within a pixel of the triangle to
+    /// it, but on the lines it covers it gets no closer: the way is lost,
+    /// whatever the step, however near the side, so those lines can be
+    /// reached from there.
     #[test]
     fn a_way_along_the_cards_side_is_lost() {
         let anchor = Rect {
@@ -514,11 +506,10 @@ mod tests {
         }
     }
 
-    /// QA 24 (L24-U1): the pointer resting in the 4 px gap between the
-    /// line and the card let it close. The gap above and below it counts
-    /// as on the way; the line itself, and beside the card, do not. QA 26
-    /// (M26-U1): nor does the card itself, or the lines just beside it
-    /// (which it lets the pointer through to when it came another way).
+    /// The 4 px gap above and below the card counts as on the way, so a
+    /// pointer resting there keeps it; the line itself, beside the card,
+    /// the card itself and the lines just beside it (which it lets the
+    /// pointer through to when it came another way) do not.
     #[test]
     fn the_gap_between_the_line_and_the_card_is_on_the_way() {
         for y in [56.5, 58.0, 59.5, 203.0] {

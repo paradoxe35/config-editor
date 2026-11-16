@@ -210,14 +210,14 @@ fn press_card(event: &web_sys::MouseEvent) {
 
 /// The pointer came onto the card: from its key, it stays, with the
 /// problems it lists; another way, it lets the pointer through to the
-/// text under it (see `popup_pointer`).
+/// text under it (see `popups::pointer`).
 fn enter_card(state: EditorState, event: &web_sys::MouseEvent) {
     if let Some(card) = state.popups().card_ref.get_untracked() {
         enter_popup(state, &card, event);
     }
 }
 
-/// A wheel over the card: see `popup_pointer`.
+/// A wheel over the card: see `popups::pointer`.
 fn wheel_card(state: EditorState, event: &web_sys::WheelEvent) {
     if let Some(card) = state.popups().card_ref.get_untracked() {
         popup_wheel(state, &card, event);
