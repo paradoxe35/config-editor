@@ -112,10 +112,10 @@ impl<'a> Identity<'a> {
                 _ => new_at.clone(),
             };
             // Pasted back from the session's first text: that item (or
-            // key, which the host's last text may not hold, QA `E35-1`);
-            // or moved from another element of the host's last text (QA
-            // `E36-2`), one of its descendants too (QA `E37-6`), also into
-            // an element pasted back or one the edit added: that one.
+            // key, which the host's last text may not hold); or moved from
+            // another element of the host's last text, a descendant of one
+            // too, also into an element pasted back or one the edit added:
+            // that one.
             let added = old.is_none();
             let moved = self.told.and_then(|(sources, origin)| match sources.of(&item_at(index), !new_child.is_array())? {
                 ItemSource::Origin(from) if added || side == Host::Previous || !of_parent(from, &old_at) => {
