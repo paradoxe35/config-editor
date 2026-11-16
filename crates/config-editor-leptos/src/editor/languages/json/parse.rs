@@ -77,11 +77,6 @@ fn byte_at(source: &str, line: usize, column: usize) -> usize {
             .map_or(source.len() - line_start, |(index, _)| index)
 }
 
-pub(super) fn span_between(source: &str, start: usize, end: usize) -> (usize, usize, usize) {
-    let (line, column) = line_column(source, start);
-    (line, column, column + source[start..end].chars().count())
-}
-
 /// The spans of every key and value of a document, by path (the first
 /// written, for a duplicate).
 struct Spans {
@@ -120,13 +115,3 @@ pub(super) fn json_value_span(source: &str, path: &str) -> Option<(usize, usize,
     Some(span_between(source, start, end))
 }
 
-pub(super) fn first_line_span(source: &str) -> Option<(usize, usize, usize)> {
-    source.lines().enumerate().find_map(|(index, line)| {
-        let start = line.find(|character: char| !character.is_whitespace())?;
-        Some((
-            index + 1,
-            line[..start].chars().count() + 1,
-            line.chars().count() + 1,
-        ))
-    })
-}

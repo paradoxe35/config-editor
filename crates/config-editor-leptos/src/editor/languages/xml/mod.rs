@@ -49,6 +49,7 @@ mod namespace_scopes;
 #[cfg(feature = "folding")]
 mod folding;
 
+use crate::editor::paths::{line_column, span_between, utf16_len};
 use tokens::*;
 use scan::*;
 use plan::*;
@@ -94,7 +95,6 @@ fn top_attribute_message(key: &str) -> String {
     )
 }
 
-
 /// An XML scalar edit (see `ConfigLanguage::edits_one_scalar`): an
 /// `<name>text</name>` line read as a document of its own; the edit adds
 /// and removes no markup or reference, and no `--`, `]]>` or `?>` (which
@@ -107,13 +107,6 @@ const SCALAR_LINE: super::scalar_lines::LineRules = super::scalar_lines::LineRul
 };
 
 impl ConfigLanguage for XmlBehavior {
-    fn forget_kept(&self) {
-        forget_scan();
-        forget_spans();
-        forget_tokens();
-        forget_plan();
-    }
-
     fn edits_one_scalar(&self, source: &str, range: std::ops::Range<usize>, inserted: &str) -> bool {
         super::scalar_lines::one_scalar_line(self, source, range, inserted, &SCALAR_LINE).is_some()
     }
@@ -354,7 +347,6 @@ impl ConfigLanguage for XmlBehavior {
     fn entry_started(&self, source: &str, cursor: usize) -> bool {
         completion_context(source, cursor).explicit_entry_start
     }
-
 
     /// Object keys become elements and arrays repeated siblings. The output is
     /// rootless unless `previous` had a config root, which is kept along with
@@ -615,7 +607,6 @@ fn empty_key(value: &Value, pointer: String) -> Option<String> {
         _ => None,
     }
 }
-
 
 #[cfg(test)]
 mod tests;

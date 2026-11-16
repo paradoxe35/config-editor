@@ -321,80 +321,18 @@ pub(super) fn property_completion_insert(
 /// Finds the mapping colon on a single line, ignoring colons inside quoted
 /// scalars and comments.
 pub(super) fn mapping_colon(line: &str) -> Option<usize> {
-    let mut quote = None;
-    let mut escaped = false;
-    for (index, character) in line.char_indices() {
-        if escaped {
-            escaped = false;
-            continue;
-        }
-        if quote.is_none() && character == '#' {
-            let starts_comment = index == 0
-                || line[..index]
-                    .chars()
-                    .next_back()
-                    .is_some_and(char::is_whitespace);
-            if starts_comment {
-                return None;
-            }
-        }
-        match (quote, character) {
-            (Some('"'), '\\') => escaped = true,
-            (Some(active), character) if active == character => quote = None,
-            (None, '"' | '\'') => quote = Some(character),
-            (None, ':')
-                if line[index + 1..]
-                    .chars()
-                    .next()
-                    .is_none_or(char::is_whitespace) =>
-            {
-                return Some(index);
-            }
-            _ => {}
-        }
-    }
-    None
+    super::lexical::key_colon(line, super::lexical::Comments::End)
 }
 
 /// Comment-blind variant of [`mapping_colon`], used when scanning value
 /// context: a `#` never ends the scan, so colons after it still count.
 pub(super) fn mapping_colon_anywhere(line: &str) -> Option<usize> {
-    let mut quote = None;
-    let mut escaped = false;
-    for (index, character) in line.char_indices() {
-        if escaped {
-            escaped = false;
-            continue;
-        }
-        match (quote, character) {
-            (Some('"'), '\\') => escaped = true,
-            (Some(active), character) if active == character => quote = None,
-            (None, '"' | '\'') => quote = Some(character),
-            (None, ':')
-                if line[index + 1..]
-                    .chars()
-                    .next()
-                    .is_none_or(char::is_whitespace) =>
-            {
-                return Some(index);
-            }
-            _ => {}
-        }
-    }
-    None
+    super::lexical::key_colon(line, super::lexical::Comments::AsCode)
 }
 
 /// Length of the scalar at the start of `text`, stopping before an inline comment.
 pub(super) fn value_token_len(text: &str) -> usize {
-    let mut end = text.len();
-    for (index, character) in text.char_indices() {
-        let comment_start =
-            character == '#' && (index == 0 || text[..index].ends_with([' ', '\t']));
-        if comment_start {
-            end = index;
-            break;
-        }
-    }
+    let end = line_comment_start(text).unwrap_or(text.len());
     text[..end].trim_end().len()
 }
 

@@ -125,35 +125,10 @@ impl PathPlan {
     }
 }
 
-thread_local! {
-    static LAST_PLAN: std::cell::RefCell<Option<(u64, usize, std::rc::Rc<PathPlan>)>> = const { std::cell::RefCell::new(None) };
-}
-
-/// Forgets the last text's plan.
-pub(super) fn forget_plan() {
-    let _ = LAST_PLAN.try_with(|last| last.borrow_mut().take());
-}
-
-#[cfg(test)]
-pub(super) fn plan_kept() -> bool {
-    LAST_PLAN.with(|last| last.borrow().is_some())
-}
-
-/// [`plan_text`] of `source` (whose tokens are `tokens`), remembered for
-/// the last text.
+/// [`plan_text`] of `source` (whose tokens are `tokens`), shared through
+/// the parse cache.
 pub(super) fn plan_paths(source: &str, tokens: &[Token]) -> std::rc::Rc<PathPlan> {
-    use std::hash::{Hash, Hasher};
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    source.hash(&mut hasher);
-    let key = (hasher.finish(), source.len());
-    if let Some(plan) = LAST_PLAN.with(|last| {
-        last.borrow().as_ref().filter(|(hash, len, _)| (*hash, *len) == key).map(|(_, _, plan)| plan.clone())
-    }) {
-        return plan;
-    }
-    let plan = std::rc::Rc::new(plan_text(source, tokens));
-    LAST_PLAN.with(|last| *last.borrow_mut() = Some((key.0, key.1, plan.clone())));
-    plan
+    crate::editor::parse_cache::reading(source, (), || plan_text(source, tokens))
 }
 
 pub(super) fn plan_text(source: &str, tokens: &[Token]) -> PathPlan {

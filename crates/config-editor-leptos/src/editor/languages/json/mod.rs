@@ -16,6 +16,7 @@ mod editing;
 #[cfg(feature = "folding")]
 mod folding;
 
+use crate::editor::paths::{first_line_span, line_column, span_between, utf16_len};
 use tokens::*;
 use scan::*;
 use parse::*;
@@ -34,7 +35,6 @@ use serde_json::{Map, Value};
 use std::collections::HashSet;
 
 pub(super) struct JsonBehavior;
-
 
 /// A JSON scalar edit (see `ConfigLanguage::edits_one_scalar`): a
 /// `"key": value` line read as an object of its own; the edit adds and
@@ -211,11 +211,7 @@ impl ConfigLanguage for JsonBehavior {
 
 }
 
-
 // Conversion
-
-
-
 
 #[cfg(test)]
 mod tests;

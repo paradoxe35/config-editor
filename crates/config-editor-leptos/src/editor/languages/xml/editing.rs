@@ -17,11 +17,11 @@ pub(super) fn newline_with_indent(source: &str, cursor: usize) -> String {
 
 /// The indent a new line at byte `byte` starts from: its line's, or after
 /// a tag written over lines (`<bean id="a"` then `class="b">`) the line
-/// the tag starts on, not the attribute line it ends on (QA `E32-6`). A
+/// the tag starts on, not the attribute line it ends on. A
 /// line that begins inside markup written over lines (`b --> <y/>`, the
 /// end of a comment begun above) indents from the line that markup starts
-/// on (QA `E34-2`), and one that begins inside an element's text and ends
-/// it before `byte` from the line that text starts on (QA `E35-2`).
+/// on, and one that begins inside an element's text and ends it before
+/// `byte` from the line that text starts on.
 fn line_indent(source: &str, byte: usize) -> String {
     let before = source[..byte].trim_end_matches([' ', '\t']);
     let mut from = markup_start(before).unwrap_or(byte);
@@ -40,7 +40,7 @@ fn line_indent(source: &str, byte: usize) -> String {
 }
 
 /// Where the markup `before` ends with starts: a tag, or a comment, CDATA
-/// section or processing instruction, whatever `<` it holds (QA `E33-5`).
+/// section or processing instruction, whatever `<` it holds.
 fn markup_start(before: &str) -> Option<usize> {
     if before.ends_with("-->") {
         before.rfind("<!--")
@@ -600,7 +600,6 @@ pub(super) fn xml_lexical_state(source: &str, cursor: usize) -> (Option<char>, b
     (None, false)
 }
 
-
 /// Colors a line: tags and their parts, comments, declarations, CDATA, and
 /// element text. Whitespace between tokens and inside tags stays plain.
 pub(super) fn highlight(line: &str) -> Vec<HighlightToken> {
@@ -608,7 +607,7 @@ pub(super) fn highlight(line: &str) -> Vec<HighlightToken> {
     // Text words with only blanks between them: one value run, as the other
     // languages draw a value (a long text line was one span per word).
     let mut text: Option<std::ops::Range<usize>> = None;
-    for token in tokenize(line) {
+    for token in tokenize_text(line) {
         let words = matches!(token.kind, Kind::Text { .. } | Kind::Equals)
             && !line[token.start..token.end].starts_with(CDATA_CLOSE);
         if words {

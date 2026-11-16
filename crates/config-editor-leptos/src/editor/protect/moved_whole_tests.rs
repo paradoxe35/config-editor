@@ -399,8 +399,12 @@ fn a_moved_mask_costs_a_key_no_pass_over_the_masks() {
         let (large_far, large_beside) = renamed_work(language, 400);
         for (kind, work) in Work::ALL.iter().enumerate() {
             // Placing the typed key's UTF-16 offset passes the text before
-            // it, with or without placeholders.
-            let placing = matches!(work, Work::CharacterStep | Work::OffsetSeek);
+            // it, with or without placeholders; reading the text the key
+            // made (the caret's place in it) reads all of it once.
+            let placing = matches!(
+                work,
+                Work::CharacterStep | Work::OffsetSeek | Work::ScannedBytes
+            );
             if !placing && large_far[kind] > small_far[kind] {
                 costly.push(format!(
                     "{language}: {work:?} {} for a key far from 100 masks, {} from 400",

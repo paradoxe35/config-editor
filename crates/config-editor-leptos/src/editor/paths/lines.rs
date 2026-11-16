@@ -156,6 +156,46 @@ pub(crate) fn byte_at(source: &str, offset: usize) -> Option<usize> {
     in_batch(source).then(|| lines(source).byte_at(source, offset))
 }
 
+/// The place of `source[start..end]` as its line and its first and end
+/// (one-based, in characters) columns on it.
+#[cfg(any(feature = "json", feature = "toml", feature = "hcl", feature = "xml"))]
+pub(crate) fn span_between(source: &str, start: usize, end: usize) -> (usize, usize, usize) {
+    let (line, column) = line_column(source, start);
+    let end = end.clamp(start, source.len());
+    (line, column, column + source[start..end].chars().count())
+}
+
+/// The first line of `source` with text, from its first character to its
+/// end (one-based columns, in characters).
+#[cfg(any(feature = "json", feature = "toml", feature = "hcl"))]
+pub(crate) fn first_line_span(source: &str) -> Option<(usize, usize, usize)> {
+    source.lines().enumerate().find_map(|(index, line)| {
+        let start = line.find(|character: char| !character.is_whitespace())?;
+        Some((
+            index + 1,
+            line[..start].chars().count() + 1,
+            line.chars().count() + 1,
+        ))
+    })
+}
+
+/// The UTF-16 length of `text`.
+pub(crate) fn utf16_len(text: &str) -> usize {
+    // One unit per character, two for one outside the BMP (a 4-byte one).
+    text.bytes()
+        .map(|byte| usize::from(byte & 0xC0 != 0x80) + usize::from(byte >= 0xF0))
+        .sum()
+}
+
+/// The byte offset of character `column` (from 0) of `line`; its length
+/// past its end.
+#[cfg(any(feature = "toml", feature = "hcl"))]
+pub(crate) fn byte_at_column(line: &str, column: usize) -> usize {
+    line.char_indices()
+        .nth(column)
+        .map_or(line.len(), |(index, _)| index)
+}
+
 /// `position.to_offset(source)`, from the lines read once for the text
 /// while a batch runs for it, when only `\n` ends them
 /// (`line_breaks_only`): one pass up to it each time otherwise.

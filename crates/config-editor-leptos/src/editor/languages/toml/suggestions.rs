@@ -728,13 +728,6 @@ pub(super) fn dotted_hover_path(
     Some((path, segments[index].clone(), start_column))
 }
 
-/// The byte offset of character `column` (0-based) in `line`.
-pub(super) fn byte_at_column(line: &str, column: usize) -> usize {
-    line.char_indices()
-        .nth(column)
-        .map_or(line.len(), |(index, _)| index)
-}
-
 /// Where hover reads the context for the key at `column`: just past its `=`,
 /// so a key inside an inline table resolves under that table.
 pub(super) fn hover_context_offset(line: &str, column: usize) -> usize {

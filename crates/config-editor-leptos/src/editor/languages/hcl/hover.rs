@@ -77,9 +77,3 @@ pub(super) fn header_path(source: &str, line_index: usize, column: usize) -> Opt
     Some((path, name.clone(), char_column(start) + quoted))
 }
 
-/// The byte offset of character `column` (0-based) in `line`.
-pub(super) fn byte_at_column(line: &str, column: usize) -> usize {
-    line.char_indices()
-        .nth(column)
-        .map_or(line.len(), |(index, _)| index)
-}

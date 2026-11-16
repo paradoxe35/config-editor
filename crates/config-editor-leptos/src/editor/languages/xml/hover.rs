@@ -5,7 +5,7 @@ use super::*;
 /// The element or attribute name under `column` (a character index) on a
 /// single line, with its starting column. Comment-only lines yield `None`.
 pub(super) fn hover_name(line: &str, column: usize) -> Option<(String, usize)> {
-    let tokens = tokenize(line);
+    let tokens = tokenize_text(line);
     let mut columns = super::super::columns::Columns::new(line);
     let mut column_of = |byte: usize| columns.at(byte);
     for token in &tokens {

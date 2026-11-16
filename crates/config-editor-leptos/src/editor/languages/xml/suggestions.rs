@@ -256,7 +256,7 @@ pub(super) fn xml_block(source: &str, start: usize, end: usize) -> Option<Inline
     let line_start = source[..start].rfind('\n').map_or(0, |index| index + 1);
     let line = &source[line_start..start];
     let mut depth = 0usize;
-    for token in tokenize(line) {
+    for token in tokenize_text(line) {
         match token.kind {
             Kind::OpenTag { .. }
                 if !token_name(line, &token).is_empty()
@@ -489,7 +489,7 @@ pub(super) fn property_insert(
         .filter(|value| is_filled_container(value))
         .and_then(|value| written_elements(key, value, base_indent, unit))
     {
-        let caret = utf16(&elements);
+        let caret = utf16_len(&elements);
         return Some((elements, caret));
     }
     let mut insert = format!("<{key}>");
@@ -507,7 +507,7 @@ pub(super) fn property_insert(
     }
     let caret = caret.unwrap_or(insert.len());
     insert.push_str(&format!("</{key}>"));
-    let caret = utf16(&insert[..caret]);
+    let caret = utf16_len(&insert[..caret]);
     Some((insert, caret))
 }
 
@@ -579,7 +579,7 @@ pub(super) fn attribute_insert(name: &str, property: &Value, root: &Value) -> Op
     } else if let Some(default) = written_default(property, root) {
         insert.push_str(&escape_attribute(&xml_text(default)));
     }
-    let caret = utf16(&insert);
+    let caret = utf16_len(&insert);
     insert.push('"');
     Some((insert, caret))
 }

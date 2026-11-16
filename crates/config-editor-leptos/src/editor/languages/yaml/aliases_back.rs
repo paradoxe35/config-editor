@@ -29,7 +29,8 @@ pub(super) fn aliases_back(saved: &str, origin: &str) -> Option<String> {
     if candidates.is_empty() {
         return None;
     }
-    let value = YamlBehavior.parse(saved).ok()?;
+    let parsed = crate::editor::parse_cache::parsed(&YamlBehavior, saved);
+    let value = parsed.as_ref().as_ref().ok()?;
     // Each place's spans, and its anchor's, read at once.
     let pointers: Vec<String> =
         candidates.iter().flat_map(|(pointer, name)| [(*pointer).clone(), anchors[*name].clone()]).collect();
@@ -55,7 +56,8 @@ pub(super) fn aliases_back(saved: &str, origin: &str) -> Option<String> {
     for (range, alias) in back {
         text.replace_range(range, &alias);
     }
-    (YamlBehavior.parse(&text).ok()? == value).then_some(text)
+    let reads = crate::editor::parse_cache::parsed(&YamlBehavior, &text);
+    (reads.as_ref().as_ref().ok()? == value).then_some(text)
 }
 
 /// The byte range of the value at `pointer`, written on its key's line

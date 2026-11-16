@@ -186,45 +186,11 @@ pub(super) fn take_snapshot(
     }
 }
 
-/// A text's hash and length, a cursor, and the scan there.
-type RememberedScan = (u64, usize, usize, std::rc::Rc<Scan>);
-
-thread_local! {
-    /// The last scan: a check's problem spans, and one keystroke's
-    /// suggestions and their read-only check, each read the same text at
-    /// the same place.
-    static LAST_SCAN: std::cell::RefCell<Option<RememberedScan>> = const { std::cell::RefCell::new(None) };
-}
-
-/// Forgets the last scan.
-pub(super) fn forget_scan() {
-    let _ = LAST_SCAN.try_with(|last| last.borrow_mut().take());
-}
-
-#[cfg(test)]
-pub(super) fn scan_kept() -> bool {
-    LAST_SCAN.with(|last| last.borrow().is_some())
-}
-
-/// [`scan_text`] of `source` at `cursor`, remembered for the last text and
-/// cursor.
+/// [`scan_text`] of `source` at `cursor`, shared through the parse cache:
+/// a check's problem spans, and one keystroke's suggestions and their
+/// read-only check, each read the same text at the same place.
 pub(super) fn analyze(source: &str, cursor: usize) -> std::rc::Rc<Scan> {
-    use std::hash::{Hash, Hasher};
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    source.hash(&mut hasher);
-    let key = (hasher.finish(), source.len(), cursor);
-    let remembered = LAST_SCAN.with(|last| {
-        last.borrow()
-            .as_ref()
-            .filter(|(hash, len, at, _)| (*hash, *len, *at) == key)
-            .map(|(.., scan)| scan.clone())
-    });
-    if let Some(scan) = remembered {
-        return scan;
-    }
-    let scan = std::rc::Rc::new(scan_text(source, cursor));
-    LAST_SCAN.with(|last| *last.borrow_mut() = Some((key.0, key.1, key.2, scan.clone())));
-    scan
+    crate::editor::parse_cache::reading(source, cursor, || scan_text(source, cursor))
 }
 
 /// Walks the whole document, tolerating invalid syntax, and captures the

@@ -327,7 +327,7 @@ pub(super) fn property_insert(
         caret = Some(insert.len() - 1);
     }
     let caret = caret.unwrap_or(insert.len());
-    let caret_units = utf16(&insert[..caret]);
+    let caret_units = utf16_len(&insert[..caret]);
     Some((insert, caret_units))
 }
 

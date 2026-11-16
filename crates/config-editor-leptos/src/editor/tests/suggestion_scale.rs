@@ -84,10 +84,11 @@ fn on_middle_name(text: &str) -> usize {
 
 /// The work noted once per byte or character read; any other is noted
 /// once per pass.
-const PER_BYTE: [Work; 5] = [
+const PER_BYTE: [Work; 6] = [
     Work::OffsetSeek,
     Work::OffsetBytes,
     Work::ParsedBytes,
+    Work::ScannedBytes,
     Work::RowText,
     Work::CharacterStep,
 ];
@@ -160,6 +161,9 @@ fn suggestions_cost_their_values_plus_the_document_not_their_product() {
             let mut counts = [[[0usize; Work::ALL.len()]; 2]; 2];
             for (values, schema) in schemas.iter().enumerate() {
                 for (size, text) in documents.iter().enumerate() {
+                    // Each ask from a cold start: what an earlier one read
+                    // of the same text is not kept for it.
+                    crate::editor::parse_cache::forget_readings();
                     let (listed, work) = counted_all(|| ask(schema, language, text));
                     assert!(
                         listed > 0,
