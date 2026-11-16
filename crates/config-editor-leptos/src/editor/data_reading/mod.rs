@@ -207,6 +207,14 @@ impl DataReading {
     }
 }
 
+/// Whether `language` writes a list by repeating its key, so a key written
+/// once is one value or its list's only item (see the module docs): what
+/// `applies` reads under a key, its schemas and, where they name a list,
+/// its item's.
+pub(crate) fn lone_items(language: &dyn ConfigLanguage) -> bool {
+    language.repetition() != Repetition::None
+}
+
 /// `text` read in `language` as data, under `schema` when the language
 /// writes data otherwise than JSON's shapes (see the module docs); from
 /// the last reading of the same text (see `parse_cache`).

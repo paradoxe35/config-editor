@@ -910,9 +910,12 @@ fn blind_branches<'a>(
     path: &[SchemaPathSegment],
     behavior: &dyn ConfigLanguage,
 ) -> Vec<&'a Value> {
-    Applies::blind(&bundle.schema, behavior.repetition() != Repetition::None)
-        .at(path)
-        .branches()
+    Applies::blind(
+        &bundle.schema,
+        crate::editor::data_reading::lone_items(behavior),
+    )
+    .at(path)
+    .branches()
 }
 
 /// Whether one of `branches` names `key` as a property.
@@ -1062,7 +1065,7 @@ pub(super) fn completions_for_context(
     let document = || around.document();
     let applies = Applies::new(
         &bundle.schema,
-        behavior.repetition() != Repetition::None,
+        crate::editor::data_reading::lone_items(behavior),
         &document,
     );
     completions_around(&around, &applies, context, force, bundle)

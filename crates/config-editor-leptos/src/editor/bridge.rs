@@ -271,7 +271,10 @@ impl Bridge {
         // A scalar left as the editor wrote it is its host value, whatever
         // the view read it as (see `links::untouched`).
         let edited = self.host_values(edited, untouched);
-        let Ok(old) = codec::read(host, previous_host, self.shape()) else {
+        // The host's reading notes the lists it reads a value written once
+        // as (the merge keeps the rest as the host writes them).
+        let host_reading = super::data_reading::read(host, previous_host, self.shape()).ok();
+        let Some(old) = host_reading.as_ref().map(|reading| reading.value().clone()) else {
             return Ok(codec::render(
                 &edited,
                 host,
@@ -340,7 +343,7 @@ impl Bridge {
                     unshown: &unshown,
                     repetition: self.edit.behavior().repetition(),
                     moves: moved,
-                    host_repetition: host.repetition(),
+                    host_reading: host_reading.as_deref(),
                     told: view_sources.as_ref(),
                 },
             )
@@ -671,10 +674,27 @@ impl Bridge {
         // from (see `moved_forms`), else the save waits.
         let conversion = match items {
             Some((items, earlier)) => {
+                // The view's pointers as the save spells them: a view that
+                // writes a list of one as its item (XML) names `/l/x` for
+                // the save's `/l/0/x`. The sources name the host's paths
+                // already.
+                let respelled = items.keys().any(|to| intended.pointer(to).is_none());
+                let view =
+                    respelled.then(|| super::parse_cache::parsed(self.edit.behavior(), edit_text));
+                let items: ItemMap = match view.as_ref().map(|view| view.as_ref().as_ref()) {
+                    Some(Ok(view)) => {
+                        let paths = links::HostPaths::between(intended, view);
+                        items
+                            .iter()
+                            .map(|(to, source)| (paths.item(to).0, source.clone()))
+                            .collect()
+                    }
+                    _ => items.clone(),
+                };
                 let text = self.moved_kept(
                     conversion.text,
                     intended,
-                    items,
+                    &items,
                     (previous_host, &old),
                     earlier,
                     over,

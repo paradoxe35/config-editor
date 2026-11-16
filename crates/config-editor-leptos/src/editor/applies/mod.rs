@@ -262,7 +262,8 @@ impl<'s> Here<'s> {
 pub(crate) struct Applies<'s, 'd> {
     root: &'s Value,
     /// With it a key naming an array is one of its items as well (each XML
-    /// `<dns>` element is one entry of `dns`).
+    /// `<dns>` element is one entry of `dns`): the language writes lists by
+    /// repeating keys (`data_reading::lone_items`).
     repeats_arrays: bool,
     /// The document, read only at a step it decides (a parse of the
     /// whole text, which most steps of most paths need none of).

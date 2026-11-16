@@ -4,7 +4,7 @@
 //! otherwise), and every value of the data is placed where the text
 //! writes it, as problems and locks place theirs.
 
-use serde_json::Value;
+use serde_json::{Value, json};
 
 use super::documents::{Shape, document};
 use super::random::Rng;
@@ -29,7 +29,11 @@ pub(super) fn draw(rng: &mut Rng, index: usize) -> Case {
         secrets: false,
         every_key: false,
     };
-    let doc = document(rng, &schema, shape);
+    let mut schema = schema;
+    let mut doc = document(rng, &schema, shape);
+    if rng.chance(40) {
+        options_asking_a_list(rng, &mut schema, &mut doc);
+    }
     Case {
         language: if index.is_multiple_of(2) {
             Language::XML
@@ -41,6 +45,64 @@ pub(super) fn draw(rng: &mut Rng, index: usize) -> Case {
         doc,
         other: Value::Null,
     }
+}
+
+/// A field whose options each take the member written once as it reads
+/// alone, while the options together refuse the object holding it unless
+/// the member is a list (one option asks a list of it, the others a key the
+/// object lacks): the reading makes the member a list of one only while
+/// re-reading the object, the rarest place it makes one. Put at a random
+/// key of the root, alone or one level down, with the value written once.
+fn options_asking_a_list(rng: &mut Rng, schema: &mut Value, doc: &mut Value) {
+    let member = *rng.pick(&["s", "port", "mode"]);
+    let (item, written) = match rng.below(4) {
+        0 => (json!({"type": "string"}), json!("a")),
+        1 => (json!({"type": "integer"}), json!(rng.below(9))),
+        2 => (json!({"type": "boolean"}), json!(rng.chance(50))),
+        _ => (
+            json!({"type": "object", "properties": {"n": {"type": "integer"}}}),
+            json!({"n": rng.below(9)}),
+        ),
+    };
+    let list = json!({"type": "array", "items": item.clone()});
+    let mut options = vec![
+        json!({"properties": one(member, list), "required": [member]}),
+        json!({"properties": one(member, item), "required": [member, "t"]}),
+    ];
+    if rng.chance(30) {
+        options.push(json!({"required": ["u"]}));
+    }
+    if rng.chance(50) {
+        options.reverse();
+    }
+    let keyword = *rng.pick(&["oneOf", "anyOf"]);
+    let mut field = one(keyword, Value::Array(options));
+    let mut value = one(member, written);
+    if rng.chance(30) {
+        value[*rng.pick(&["x_one", "name"])] = json!("b");
+    }
+    if rng.chance(30) {
+        field = json!({"type": "object", "properties": {"inner": field}});
+        value = json!({"inner": value});
+    }
+    let key = *rng.pick(&["a", "b", "c", "d"]);
+    let Some(root) = schema.as_object_mut() else {
+        return;
+    };
+    if let Some(properties) = root
+        .entry("properties")
+        .or_insert_with(|| json!({}))
+        .as_object_mut()
+        && let Some(held) = doc.as_object_mut()
+    {
+        properties.insert(key.to_string(), field);
+        held.insert(key.to_string(), value);
+    }
+}
+
+/// An object of one entry.
+fn one(key: &str, value: Value) -> Value {
+    Value::Object(std::iter::once((key.to_string(), value)).collect())
 }
 
 /// Every scalar's pointer in `value`.

@@ -42,6 +42,9 @@ mod spacing;
 mod spans;
 mod stretch;
 
+#[cfg(test)]
+pub(super) use spans::named;
+
 use serde_json::Value;
 
 use super::super::edit::{Change, CodeUnits};

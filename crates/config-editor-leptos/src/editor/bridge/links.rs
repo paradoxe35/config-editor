@@ -17,6 +17,7 @@ use super::super::work_count::{Work, note};
 use std::sync::Arc;
 
 mod clipboard;
+mod held;
 mod items;
 pub(crate) mod splices;
 #[cfg(all(test, feature = "yaml"))]
@@ -25,6 +26,7 @@ mod told;
 mod untouched;
 
 pub(crate) use clipboard::Clipboard;
+pub(crate) use held::{Held, HostPaths};
 use items::items;
 pub(crate) use splices::{Inserted, Piece, Splice, pieces};
 pub(crate) use told::Told;
@@ -39,6 +41,10 @@ const MOST_PENDING: usize = 64;
 pub(crate) struct Source {
     pub(crate) host: Arc<str>,
     pub(crate) pointer: String,
+    /// How the host holds the item, recorded where the view was written
+    /// from it (see `held`): a list of one the view writes as its item
+    /// holds what the view writes inside it under its `/0`.
+    pub(crate) held: Held,
     /// Where the editor wrote the item in a view (built from the host
     /// text, or converted by a switch): what tells the scalars the user
     /// left as the editor wrote them (see `untouched`).
@@ -286,32 +292,35 @@ impl Links {
             return links.clone();
         };
         let parsed = parse_cache::parsed(language, base);
-        let host_value = reading.as_ref().and_then(|reading| reading.read(host));
         let mut links: Vec<Link> = match parsed.as_ref() {
-            Ok(value) => items(language, base, value)
-                .into_iter()
-                .filter_map(|item| {
-                    let (start, end) = content(base, item.lines.start, item.lines.end)?;
-                    let pointer = match &host_value {
-                        Some(host_value) => spelled_in(host_value, &item.pointer),
-                        None => item.pointer.clone(),
-                    };
-                    Some(Link {
-                        start,
-                        end,
-                        source: Arc::new(Source {
-                            host: host.clone(),
-                            shown: Some(Shown {
-                                text: base.clone(),
-                                pointer: item.pointer,
-                                language: language.info().label,
-                                kept: None,
+            Ok(value) => {
+                let paths = reading
+                    .as_ref()
+                    .and_then(|reading| reading.paths(host, value))
+                    .unwrap_or_default();
+                items(language, base, value)
+                    .into_iter()
+                    .filter_map(|item| {
+                        let (start, end) = content(base, item.lines.start, item.lines.end)?;
+                        let (pointer, held) = paths.item(&item.pointer);
+                        Some(Link {
+                            start,
+                            end,
+                            source: Arc::new(Source {
+                                host: host.clone(),
+                                shown: Some(Shown {
+                                    text: base.clone(),
+                                    pointer: item.pointer,
+                                    language: language.info().label,
+                                    kept: None,
+                                }),
+                                pointer,
+                                held,
                             }),
-                            pointer,
-                        }),
+                        })
                     })
-                })
-                .collect(),
+                    .collect()
+            }
             Err(_) => Vec::new(),
         };
         // By where they start, an outer item before the ones inside it
@@ -350,51 +359,18 @@ impl std::fmt::Debug for HostReading {
 
 impl HostReading {
     /// `host` read (after a byte order mark), `None` when it does not read.
-    pub(crate) fn read(&self, host: &str) -> Option<serde_json::Value> {
+    fn read(&self, host: &str) -> Option<serde_json::Value> {
         let (host, _) = super::super::byte_order_mark::split(host);
         let schema = self.schema.as_deref().map(|bundle| &bundle.schema);
         super::super::codec::read(self.language.behavior(), host, schema).ok()
     }
-}
 
-/// `pointer` (a view's) as `value` spells it, where the view writes a
-/// list of one otherwise than `value` holds it: `/l/x` for `value`'s
-/// `/l/0/x` (an XML view writes the item alone), `/b` for a view's `/b/0`
-/// where `value` holds the item alone (an HCL block written once). The
-/// view and `value` hold the same document, so the two spellings name
-/// the same item.
-pub(crate) fn spelled_in(value: &serde_json::Value, pointer: &str) -> String {
-    use serde_json::Value;
-    if value.pointer(pointer).is_some() {
-        return pointer.to_string();
+    /// Each node of `view` (a view's value, written from `host`) paired
+    /// with the host's (see [`HostPaths`]); `None` when `host` does not
+    /// read.
+    pub(crate) fn paths(&self, host: &str, view: &serde_json::Value) -> Option<HostPaths> {
+        self.read(host).map(|host| HostPaths::between(&host, view))
     }
-    let mut out = String::new();
-    let mut at = value;
-    for segment in pointer.split('/').skip(1) {
-        let index = super::super::language::pointer_index(segment);
-        if let Value::Array(items) = at
-            && items.len() == 1
-            && index.is_none()
-        {
-            out.push_str("/0");
-            at = &items[0];
-        }
-        if segment == "0" && !at.is_array() && at.get("0").is_none() {
-            continue;
-        }
-        out.push('/');
-        out.push_str(segment);
-        let child = match at {
-            Value::Object(map) => map.get(&super::super::language::unescaped_key(segment)),
-            Value::Array(items) => index.and_then(|index| items.get(index)),
-            _ => None,
-        };
-        match child {
-            Some(child) => at = child,
-            None => return pointer.to_string(),
-        }
-    }
-    out
 }
 
 /// The text of the lines `start..end` of `text` from its first character

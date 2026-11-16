@@ -2,6 +2,7 @@
 //! language showed of it.
 
 use super::super::codec::{canonical, same_order};
+use super::super::data_reading::{DataReading, Occurs};
 use super::super::item_sources::{ItemSource, ItemSources};
 use super::super::language::{ConfigLanguage, Repetition, pointer_key};
 use serde_json::{Map, Value};
@@ -42,10 +43,9 @@ pub(super) struct View<'a> {
     /// Whether keys the edit holds in another order than it showed them
     /// were moved by the user, not by the edit language's writer.
     pub(super) moves: bool,
-    /// How the host repeats items for a list: one that writes a list of
-    /// one as its item (an HCL block) reads it as a list only where the
-    /// schema says so, under its key.
-    pub(super) host_repetition: Repetition,
+    /// How the host's last text reads (see `data_reading`): which of its
+    /// lists are a value written once that its schema reads as a list.
+    pub(super) host_reading: Option<&'a DataReading>,
     /// Which host item each item is, when the edit's links tell it.
     pub(super) told: Option<&'a ItemSources>,
 }
@@ -245,15 +245,17 @@ fn merge_at(
                         } else {
                             merge_at(host_value, seen_value, value, &child(to), view)?
                         };
-                        // A list of one a host that writes it as its item
-                        // (an HCL block) reads so under the old key's
-                        // schema is the item under the new key, where the
-                        // edit holds no list.
+                        // A value the host writes once (an HCL block) that
+                        // the old key's schema reads as a list of one is
+                        // the item under the new key, where the edit holds
+                        // no list. A list the host writes as one stays one.
                         let merged = match merged {
                             Value::Array(mut items)
                                 if items.len() == 1
-                                    && view.host_repetition != Repetition::None
-                                    && !value.is_array() =>
+                                    && !value.is_array()
+                                    && view.host_reading.is_some_and(|reading| {
+                                        reading.node(&child(key)).occurs == Occurs::ListOfOne
+                                    }) =>
                             {
                                 items.remove(0)
                             }

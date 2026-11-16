@@ -36,3 +36,29 @@ fn a_value_beside_a_first_item_inside_an_element_written_once_is_patched_in_plac
     let saved = bridge.to_host(&edited, host).unwrap();
     assert_eq!(saved, host.replace("<ports>8<", "<ports>7<"));
 }
+
+/// P1 (no silent data change): a key renamed in an XML view keeps a list
+/// of one the HCL host writes as a list; a block the schema reads as a
+/// list of one stays a block under a key the schema does not list.
+#[test]
+fn a_renamed_key_keeps_a_list_the_host_writes_as_one() {
+    let rename = |view: &str| view.replace("<a>", "<c>").replace("</a>", "</c>");
+    let bridge = Bridge::new(Language::HCL, Language::XML, None).unwrap();
+    for (host, saved) in [
+        ("a = [\"x\"]\nb = 1\n", "c = [\"x\"]\nb = 1\n"),
+        ("a = [{ x = 1 }]\nb = 1\n", "c = [{ x = 1 }]\nb = 1\n"),
+    ] {
+        let shown = bridge.to_edit(host).unwrap().text;
+        assert_eq!(bridge.to_host(&rename(&shown), host).unwrap(), saved);
+    }
+    let schema = std::sync::Arc::new(
+        build_schema(r#"{"properties":{"a":{"type":"array","items":{"type":"object"}}}}"#).unwrap(),
+    );
+    let bridge = Bridge::new(Language::HCL, Language::XML, Some(schema)).unwrap();
+    let host = "a {\n  x = 1\n}\nb = 1\n";
+    let shown = bridge.to_edit(host).unwrap().text;
+    assert_eq!(
+        bridge.to_host(&rename(&shown), host).unwrap(),
+        "c {\n  x = 1\n}\nb = 1\n"
+    );
+}

@@ -253,7 +253,7 @@ fn value_doc_at(
     behavior: &dyn ConfigLanguage,
 ) -> Option<HoverValue> {
     let root = &bundle.schema;
-    let repeats = behavior.repetition() != Repetition::None;
+    let repeats = crate::editor::data_reading::lone_items(behavior);
     let document = Document::new(source, behavior);
     let read = || document.get();
     let applies = Applies::new(root, repeats, &read);
@@ -367,7 +367,7 @@ fn property_hover(
     let property = property_path(path);
     let parent = &property[..property.len().checked_sub(1)?];
     let root = &bundle.schema;
-    let repeats = behavior.repetition() != Repetition::None;
+    let repeats = crate::editor::data_reading::lone_items(behavior);
     let document = Document::new(source, behavior);
     let read = || document.get();
     let applies = Applies::new(root, repeats, &read);
