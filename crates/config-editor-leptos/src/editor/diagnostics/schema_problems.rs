@@ -54,11 +54,11 @@ pub(super) fn found(
     // The errors shown (enough for the cap), then where each is
     // written: the spans of their values read at once (see
     // `paths::with_spans`), not a read of the document each.
-    let (main, mut complete) = schema.errors(&validated);
+    let (main, mut complete) = schema.validation.errors(&validated);
     let further: Vec<(StandIn, Vec<ValidationError<'_>>)> = further
         .iter()
         .map(|(pass, value)| {
-            let (errors, all) = schema.errors(value);
+            let (errors, all) = schema.validation.errors(value);
             complete &= all;
             (*pass, errors)
         })
@@ -188,7 +188,7 @@ pub(super) fn found(
                                     let value = wording.value_at(&pointer, &item);
                                     let message = format!(
                                         "{pointer}: {}",
-                                        crate::editor::false_schema::message(&value)
+                                        crate::editor::schema::false_schema_message(&value)
                                     );
                                     Some((span, message))
                                 })

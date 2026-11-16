@@ -85,29 +85,9 @@ pub(super) fn strings(path: &[Seg]) -> Vec<String> {
         .collect()
 }
 
-/// A text's hash and length, a cursor, whether the spans were recorded,
-/// and the scan there.
-type RememberedScan = (u64, usize, usize, bool, std::rc::Rc<Scan>);
-
-thread_local! {
-    /// The last scan: one keystroke's suggestions, the check of their
-    /// read-only fields and the keys already written each read the same
-    /// text at the same place.
-    static LAST_SCAN: std::cell::RefCell<Option<RememberedScan>> = const { std::cell::RefCell::new(None) };
-}
-
-/// Forgets the last scan.
-pub(super) fn forget_scan() {
-    let _ = LAST_SCAN.try_with(|last| last.borrow_mut().take());
-}
-
-#[cfg(test)]
-pub(super) fn scan_kept() -> bool {
-    LAST_SCAN.with(|last| last.borrow().is_some())
-}
-
-/// [`scan_text`] of `source` at `cursor`, remembered for the last text and
-/// cursor.
+/// [`scan_text`] of `source` at `cursor`, shared through the parse cache:
+/// one keystroke's suggestions, the check of their read-only fields and
+/// the keys already written each read the same text at the same place.
 pub(super) fn analyze(source: &str, cursor: usize) -> std::rc::Rc<Scan> {
     remembered(source, cursor, true)
 }
@@ -121,23 +101,21 @@ pub(super) fn analyze_caret(source: &str, cursor: usize) -> std::rc::Rc<Scan> {
 }
 
 fn remembered(source: &str, cursor: usize, spans: bool) -> std::rc::Rc<Scan> {
-    use std::hash::{Hash, Hasher};
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    source.hash(&mut hasher);
-    let key = (hasher.finish(), source.len(), cursor);
-    let remembered = LAST_SCAN.with(|last| {
-        last.borrow()
-            .as_ref()
-            // A scan with its spans serves one without.
-            .filter(|(hash, len, at, with_spans, _)| (*hash, *len, *at) == key && (*with_spans || !spans))
-            .map(|(.., scan)| scan.clone())
-    });
-    if let Some(scan) = remembered {
+    use crate::editor::parse_cache::{kept, reading};
+    /// A scan without spans, kept apart from the one with them: a
+    /// keystroke reads both, and neither pushes the other out.
+    struct CaretScan(std::rc::Rc<Scan>);
+    if spans {
+        return reading(source, cursor, || scan_text(source, cursor, true));
+    }
+    // A scan with its spans serves one without.
+    if let Some(scan) = kept::<Scan, _>(source, &cursor) {
         return scan;
     }
-    let scan = std::rc::Rc::new(scan_text(source, cursor, spans));
-    LAST_SCAN.with(|last| *last.borrow_mut() = Some((key.0, key.1, key.2, spans, scan.clone())));
-    scan
+    let caret = reading(source, cursor, || {
+        CaretScan(std::rc::Rc::new(scan_text(source, cursor, false)))
+    });
+    caret.0.clone()
 }
 
 /// Walks the whole document, tolerating invalid syntax, and captures the parser
@@ -616,15 +594,6 @@ pub(super) fn record_attribute_values(source: &str, tokens: &[Token], plan: &Pat
         }
         index += 1;
     }
-}
-
-pub(super) fn utf16(text: &str) -> usize {
-    text.encode_utf16().count()
-}
-
-/// One-based line and character column of a byte offset.
-pub(super) fn line_column(source: &str, byte: usize) -> (usize, usize) {
-    crate::editor::paths::line_column(source, byte)
 }
 
 pub(super) fn xml_text(value: &Value) -> String {

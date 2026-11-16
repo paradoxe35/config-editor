@@ -30,10 +30,6 @@ mod document;
 mod drag_move;
 mod edit;
 mod edit_as;
-// `"$ref": ""` read as the root, for validation, completion and hover alike.
-mod empty_refs;
-#[cfg(feature = "schema-validation")]
-mod false_schema;
 // What a `$ref` the editor cannot follow is told.
 mod fill;
 mod flat_keys;
@@ -53,8 +49,11 @@ mod kept_focus;
 #[cfg(feature = "schema-validation")]
 mod schema_refs;
 mod ui_refs;
+pub(crate) use bridge::links::Clipboard;
 pub use input::flush_pending_input;
+pub(crate) use line_endings::same_document;
 pub use sync::flush_pending_edits;
+pub use sync::{Echo, Echoes, SETTLE_MS, echo_clock};
 mod keyboard;
 mod keys;
 pub mod language;
@@ -77,6 +76,7 @@ mod projection;
 #[cfg_attr(not(feature = "protect"), path = "editor/off/protect.rs")]
 mod protect;
 mod readings;
+mod schema;
 mod scroll_through;
 #[cfg_attr(not(feature = "search"), path = "editor/off/search.rs")]
 mod search;
@@ -88,6 +88,8 @@ mod sync;
 mod platform;
 #[cfg(all(test, feature = "yaml"))]
 mod test_state;
+#[cfg(feature = "protect")]
+mod text;
 mod text_change;
 mod theme;
 mod touch;
@@ -100,9 +102,7 @@ pub use changes::unified_diff;
 pub use codec::{Conversion, ConvertError, float_of, float_value, string_of, string_value};
 pub use completion::{HoverDocs, Suggestion};
 pub use components::{ConfigEditorFooter, ConfigEditorToolbar};
-pub use diagnostics::{
-    Diagnostic, DiagnosticOrigin, Schema, SchemaError, SchemaSource, Severity, check_syntax,
-};
+pub use diagnostics::{Diagnostic, DiagnosticOrigin, Severity, check_syntax};
 pub use handle::EditorHandle;
 pub use host_diagnostics::{DiagnosticTarget, HostDiagnostic, is_web_url};
 pub use host_editing::{BaselineConflict, SaveRequest};
@@ -110,6 +110,7 @@ pub use language::ParseError;
 pub use languages::{Language, UnknownLanguage};
 pub use paths::{FieldPath, TextPosition, TextRange};
 pub(crate) use protect::DocumentPlaceholders;
+pub use schema::{Schema, SchemaError, SchemaSource};
 pub use secret_options::SecretOptions;
 pub use theme::{EditorTheme, ThemeColor, ThemeColors, UnknownTheme};
 
@@ -168,6 +169,14 @@ pub fn ConfigEditor(
     /// `on_change` to keep the host as the source of truth.
     #[prop(optional, into)]
     value: Option<Signal<String>>,
+    /// Whether the host hands every `on_change` text back as `value`, maybe
+    /// late and in any order (a store saving each text, then giving it
+    /// back): each such echo is told apart from a text of the host's own,
+    /// so a late one never rolls back what was typed since, and a host left
+    /// on an older text hears the document again. Off, every new `value`
+    /// is the host's own and replaces the document. Read at mount.
+    #[prop(optional)]
+    echoes: bool,
     /// Text to diff against, in `language`: the version the host last saved
     /// or loaded. Set it to the saved text after saving to clear the diff.
     /// Unset, it is the document at mount (`value`, else `initial_value`).
@@ -350,6 +359,7 @@ pub fn ConfigEditor(
         },
         on_save,
         on_baseline_conflict,
+        clipboard: handle.and_then(EditorHandle::take_clipboard),
     });
     // After the editor is made, not while: the host has its handle (a
     // JavaScript `new ConfigEditor` has returned) when it hears them.
@@ -366,6 +376,7 @@ pub fn ConfigEditor(
             on_edit_as_change,
             initial_pending,
             on_sync_change,
+            echoes,
         },
     );
     host_editing::connect(

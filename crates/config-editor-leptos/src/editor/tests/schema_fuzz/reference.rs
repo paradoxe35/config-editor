@@ -6,8 +6,9 @@ use serde_json::Value;
 use crate::editor::Language;
 use crate::editor::codec;
 use crate::editor::diagnostics::{
-    Diagnostic, Schema, Severity, host_problems, validate_keyed, with_host_problems,
+    Diagnostic, Severity, host_problems, validate_keyed, with_host_problems,
 };
+use crate::editor::schema::Schema;
 
 /// The editor's compiled schema and the reference validator, both from
 /// `schema`; `None` when either refuses it.

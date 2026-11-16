@@ -4,7 +4,7 @@
 //! `minItems` asks, and the first ones matching its `contains`.
 
 use super::super::completion::accept_marked;
-use super::super::diagnostics::{Schema, build_schema};
+use super::super::schema::{Schema, build_schema};
 use super::Language;
 use serde_json::{Value, json};
 

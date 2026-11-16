@@ -8,9 +8,9 @@
 use leptos::prelude::*;
 
 use super::super::Language;
-use super::super::diagnostics::build_schema;
 use super::super::edit::Edit;
 use super::super::save_matrix::{ALL, report};
+use super::super::schema::build_schema;
 use super::super::state::EditorState;
 use super::super::sync::convert_now;
 use super::super::test_state::TestEditor;

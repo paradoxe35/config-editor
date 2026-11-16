@@ -6,11 +6,11 @@ use std::sync::Arc;
 
 use leptos::prelude::*;
 
-use super::super::diagnostics::SchemaBundle;
 use super::super::edit::Edit;
 use super::super::language::ConfigLanguage;
 use super::super::languages::Language;
 use super::super::protect::ProtectState;
+use super::super::schema::SchemaBundle;
 use super::super::state::EditorState;
 use super::{
     Completion, RowSize, accept_reopens_suggestions, apply_completion, completions_in,

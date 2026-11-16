@@ -7,54 +7,21 @@
 
 use serde_json::{Map, Value};
 
-/// Keywords whose value is data, not schemas: left as written.
-const DATA: [&str; 4] = ["const", "enum", "default", "examples"];
+use super::subschemas::each_schema_mut;
 
 /// `schema` as the validator is built from: each object schema with
 /// `"additionalProperties": false` and no `properties` or
 /// `patternProperties` gets an empty `properties`. `None` when none needs it.
-pub(super) fn for_validation(schema: &Value) -> Option<Value> {
+pub(crate) fn for_validation(schema: &Value) -> Option<Value> {
     let mut copy = schema.clone();
-    add_properties(&mut copy).then_some(copy)
-}
-
-/// Keywords whose value maps names to schemas.
-const NAMED: [&str; 5] = [
-    "properties",
-    "patternProperties",
-    "$defs",
-    "definitions",
-    "dependentSchemas",
-];
-
-/// Whether it added any, in the schema (or list of schemas) `value`.
-fn add_properties(value: &mut Value) -> bool {
-    match value {
-        Value::Object(members) => {
-            let mut added = false;
-            if needs_properties(members) {
-                members.insert("properties".to_string(), Value::Object(Map::new()));
-                added = true;
-            }
-            for (key, member) in members.iter_mut() {
-                let key = key.as_str();
-                if NAMED.contains(&key) {
-                    if let Value::Object(named) = member {
-                        for schema in named.values_mut() {
-                            added |= add_properties(schema);
-                        }
-                    }
-                } else if !DATA.contains(&key) {
-                    added |= add_properties(member);
-                }
-            }
-            added
+    let mut added = false;
+    each_schema_mut(&mut copy, &mut |members| {
+        if needs_properties(members) {
+            members.insert("properties".to_string(), Value::Object(Map::new()));
+            added = true;
         }
-        Value::Array(items) => items
-            .iter_mut()
-            .fold(false, |added, item| add_properties(item) | added),
-        _ => false,
-    }
+    });
+    added.then_some(copy)
 }
 
 fn needs_properties(members: &Map<String, Value>) -> bool {
@@ -64,7 +31,7 @@ fn needs_properties(members: &Map<String, Value>) -> bool {
 }
 
 /// What a false schema says about `instance` (as JSON).
-pub(super) fn message(instance: &str) -> String {
+pub(crate) fn message(instance: &str) -> String {
     format!("{instance} is not allowed")
 }
 

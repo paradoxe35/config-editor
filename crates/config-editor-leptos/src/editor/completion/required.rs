@@ -233,7 +233,12 @@ fn fill<'a>(
     {
         return Some(Fill::Value(default.clone()));
     }
-    if array_branch(child, root).is_some() && object_branch(child, root).is_none() {
+    // A list only where every schema at the child allows one (a pattern
+    // typing the key `null` beside a property's `prefixItems` does not).
+    let lists = Here::walk(at.clone(), root, Seen::default())
+        .types()
+        .allows_type("array");
+    if lists && array_branch(child, root).is_some() && object_branch(child, root).is_none() {
         let empty = Value::Array(Vec::new());
         // A list the language cannot write (XML's empty one) is left out,
         // unless the schema takes a value that is no list there (list

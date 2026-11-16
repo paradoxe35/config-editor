@@ -11,10 +11,9 @@
 use serde_json::{Value, json};
 
 use crate::editor::codec::serialize;
-use crate::editor::diagnostics::{
-    Diagnostic, MORE_PROBLEMS_CODE, SchemaBundle, build_schema, validate,
-};
+use crate::editor::diagnostics::{Diagnostic, MORE_PROBLEMS_CODE, validate};
 use crate::editor::languages::Language;
+use crate::editor::schema::{SchemaBundle, build_schema};
 use crate::editor::work_count::{Work, counted};
 use crate::strings::default_strings;
 

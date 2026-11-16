@@ -7,7 +7,8 @@
 //! beside them, a list too short for its `minContains`.
 
 use super::super::Language;
-use super::super::diagnostics::{build_schema, validate, validate_with};
+use super::super::diagnostics::{validate, validate_with};
+use super::super::schema::build_schema;
 use super::super::secret_options::SecretOptions;
 use super::tokens::SecretMatcher;
 

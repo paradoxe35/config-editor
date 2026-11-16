@@ -343,6 +343,29 @@ pub(super) fn property_completions(
                     .unwrap_or(property),
                 _ => property,
             };
+            // A default (or const) another schema at the key refuses (the
+            // `else` the object takes typing it otherwise) is not written:
+            // the key is written as a schema there whose value is not
+            // refused describes it.
+            let written_schema = if another.another_item {
+                written_schema
+            } else {
+                let at_key = here.child(&SchemaPathSegment::Key(key.to_string()));
+                let refused = |schema: &Value| {
+                    kept_default(behavior, schema, root)
+                        .or_else(|| kept_const(behavior, schema, root))
+                        .is_some_and(|value| at_key.accepts(value, root) == Some(false))
+                };
+                if refused(written_schema) {
+                    at_key
+                        .schemas()
+                        .into_iter()
+                        .find(|schema| !refused(schema))
+                        .unwrap_or(written_schema)
+                } else {
+                    written_schema
+                }
+            };
             let Some((insert, cursor_offset)) =
                 behavior.property_insert(key, written_schema, root, &another)
             else {
@@ -944,15 +967,9 @@ pub(super) fn completions_for_context(
         cursor_byte,
         behavior,
     };
-    // A schema the document decides (a conditional, `oneOf`/`anyOf`
-    // options) reads it, where a step of the path is decided by it.
-    let document = || {
-        if bundle.has_conditionals {
-            around.document()
-        } else {
-            None
-        }
-    };
+    // Read only where a step of the path is decided by the document (a
+    // conditional, `oneOf`/`anyOf` options), see `applies`.
+    let document = || around.document();
     let applies = Applies::new(
         &bundle.schema,
         behavior.repetition() != Repetition::None,
@@ -1015,11 +1032,26 @@ fn completions_around(
         if !force && !typed_value.is_empty() && typed_value.parse::<f64>().is_ok() {
             return Vec::new();
         }
-        let value_here = applies.at(&path_with_key(&context.path, key));
+        let value_path = path_with_key(&context.path, key);
+        let value_here = applies.at(&value_path);
         let value_branches = value_here.branches();
+        // A value written after a key is the key's own in a language that
+        // writes only blocks as a list's items (HCL): no scalar there is
+        // one of its list's items.
+        let scalar_here = if behavior.repetition() == Repetition::Blocks {
+            std::rc::Rc::new(Here::walk(
+                applies
+                    .at(&context.path)
+                    .child(&SchemaPathSegment::Key(key.to_string())),
+                &bundle.schema,
+                Seen::value(applies.value_at(&value_path)),
+            ))
+        } else {
+            value_here.clone()
+        };
         let leading = if context.value_needs_space { " " } else { "" };
         let mut options = value_completions(
-            &value_here,
+            &scalar_here,
             &context.typed,
             context.replace_start,
             context.replace_end,

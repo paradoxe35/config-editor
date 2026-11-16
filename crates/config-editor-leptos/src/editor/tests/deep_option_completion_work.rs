@@ -7,8 +7,8 @@
 use serde_json::json;
 
 use crate::editor::completion::completions_for;
-use crate::editor::diagnostics::{SchemaBundle, build_schema};
 use crate::editor::languages::Language;
+use crate::editor::schema::{SchemaBundle, build_schema};
 use crate::editor::work_count::{Work, counted};
 
 fn schema(options: usize) -> SchemaBundle {

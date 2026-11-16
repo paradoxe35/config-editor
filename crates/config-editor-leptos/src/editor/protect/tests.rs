@@ -15,8 +15,8 @@ use serde_json::{Value, json};
 use super::super::Language;
 use super::super::bridge::Bridge;
 use super::super::codec;
-use super::super::diagnostics::build_schema;
 use super::super::paths::FieldPath;
+use super::super::schema::build_schema;
 use super::guard::check;
 use super::locks::{Protected, Sources, protect};
 use super::save::{check_save, locked_pointers};
@@ -79,6 +79,7 @@ fn locks_of(
             range_fields: &[],
             previous: None,
             caret: None,
+            change: None,
         },
     )
 }
@@ -509,6 +510,7 @@ fn a_save_changing_a_read_only_value_is_refused_in_every_language() {
             range_fields: &[],
             previous: None,
             caret: None,
+            change: None,
         };
         let pointers = locked_pointers(language.behavior(), text, sources);
         let behavior = language.behavior();
@@ -726,6 +728,7 @@ fn random_edits_never_change_a_read_only_value() {
                         range_fields: &[],
                         previous: None,
                         caret: None,
+                        change: None,
                     },
                 );
                 if check_save(

@@ -3,7 +3,7 @@ use super::super::super::completion::{
 };
 #[cfg(feature = "schema-validation")]
 use super::super::super::diagnostics::validate;
-use super::super::super::diagnostics::{SchemaBundle, build_schema};
+use super::super::super::schema::{SchemaBundle, build_schema};
 use super::super::super::language::{InsertContext, ConfigLanguage};
 
 const INSERT_AT_ROOT: InsertContext<'static> = InsertContext {
@@ -774,15 +774,15 @@ fn whole_floats_are_written_with_a_fraction() {
     assert_eq!(HclBehavior.parse(&text).unwrap()["l"][0].as_f64(), Some(2.0));
 }
 
-/// The last editor unmounted, what HCL keeps of the last text it read goes
-/// (normal round 22's `D22.memory-1`).
+/// The last editor unmounted, what HCL read of its last text goes.
 #[test]
 fn the_last_editor_gone_drops_what_hcl_keeps() {
     let text = "a = 1\nblock {\n  b = 2\n}\n";
     crate::editor::parse_cache::hold();
     let behavior = super::HclBehavior;
     let _ = behavior.completion_context(text, 18);
-    assert!(super::scan::scan_kept(), "the scan kept");
+    let kept = crate::editor::parse_cache::any_kept::<super::scan::Scan>;
+    assert!(kept(), "the scan kept");
     crate::editor::parse_cache::release();
-    assert!(!super::scan::scan_kept());
+    assert!(!kept());
 }

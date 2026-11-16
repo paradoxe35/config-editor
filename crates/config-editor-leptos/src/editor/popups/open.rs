@@ -7,8 +7,8 @@ use wasm_bindgen::JsCast;
 use super::super::components::HoverCard;
 use super::super::problem_hit::{column_at_cell, covering};
 use super::super::state::EditorState;
-use super::Popup;
 use super::machine::{Fire, Kind, Opener, Settled, Then};
+use super::{PendingCard, Popup};
 
 impl EditorState {
     /// Opens `card`, shown at the caret (`Ctrl+K Ctrl+I`, a tap): the
@@ -17,6 +17,39 @@ impl EditorState {
     pub(crate) fn show_card_at_caret(&self, card: HoverCard) {
         self.hide_hover();
         self.open_card(card, Opener::Caret);
+    }
+
+    /// The pointer's pause over `pending` is over: its card shows its
+    /// field's docs. A field the schema says nothing of stays pending: the
+    /// pointer moving on it waits for nothing more.
+    fn open_pending_card(&self, pending: PendingCard) {
+        let PendingCard {
+            line,
+            field,
+            anchor,
+        } = pending;
+        let Some(info) = self
+            .doc()
+            .text
+            .with_untracked(|text| self.field_docs(text, &field))
+        else {
+            self.step(|machine| {
+                machine.pend_quietly(PendingCard {
+                    line,
+                    field,
+                    anchor,
+                });
+            });
+            return;
+        };
+        let card = HoverCard {
+            info,
+            line,
+            problems: None,
+            anchor,
+        };
+        self.open_card(card, Opener::Pointer);
+        self.popups().note_card_field(line, field);
     }
 
     fn open_card(&self, mut card: HoverCard, by: Opener) {
@@ -101,19 +134,6 @@ impl EditorState {
             .get_untracked()
             .is_some_and(|text| text.is_same_node(Some(to)));
         into_card || into_text
-    }
-
-    /// Whether the card shows the docs `info` found on zero-based `line`
-    /// (from any place on the line that has them: the pointer moving
-    /// between an element's tags keeps it).
-    pub(crate) fn card_shows(
-        &self,
-        line: usize,
-        info: &super::super::completion::KeyHover,
-    ) -> bool {
-        self.popups().with_card(|card| {
-            card.is_some_and(|card| card.line == line && card.info.same_docs(info))
-        })
     }
 
     /// Shows the problems covering one-based `place` (under the pointer, or
@@ -232,7 +252,7 @@ impl EditorState {
             return;
         };
         match fire {
-            Fire::Open(card) => self.open_card(card, Opener::Pointer),
+            Fire::Open(pending) => self.open_pending_card(pending),
             Fire::Close {
                 kind: Kind::Card,
                 then,

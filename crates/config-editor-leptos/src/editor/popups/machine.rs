@@ -355,6 +355,19 @@ impl<K: Clone> Machine<K> {
         self.enter(Phase::Pending { key, behind });
     }
 
+    /// The pause over `key` is over, but there was nothing to show: it
+    /// stays pending without a timer, so the pointer moving on the same
+    /// field waits for nothing more (the popup shown meanwhile goes on).
+    pub(crate) fn pend_quietly(&mut self, key: K) {
+        let behind = match std::mem::replace(&mut self.phase, Phase::Closed) {
+            Phase::Closed => None,
+            Phase::Pending { behind, .. } => behind,
+            phase => Some(Box::new(phase)),
+        };
+        // Entered without a restart: no timer runs.
+        self.phase = Phase::Pending { key, behind };
+    }
+
     /// The card waiting out its pause does not show after all; the popup
     /// shown meanwhile goes on (its timer again).
     pub(crate) fn cancel_pending(&mut self) {

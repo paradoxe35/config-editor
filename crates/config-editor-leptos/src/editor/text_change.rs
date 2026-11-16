@@ -2,13 +2,7 @@
 //! offsets), read off the two texts' bytes: every edit asks, so the texts
 //! are compared in place instead of copied into UTF-16 first.
 
-/// The UTF-16 length of `text`.
-pub(super) fn utf16_len(text: &str) -> usize {
-    // One unit per character, two for one outside the BMP (a 4-byte one).
-    text.bytes()
-        .map(|byte| usize::from(byte & 0xC0 != 0x80) + usize::from(byte >= 0xF0))
-        .sum()
-}
+pub(super) use super::paths::utf16_len;
 
 /// The bytes two texts share at their start, and at their end: `suffix`
 /// past the shared start, `full_suffix` regardless of it (the two may

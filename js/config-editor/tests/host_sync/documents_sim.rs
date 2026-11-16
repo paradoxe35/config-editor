@@ -13,11 +13,11 @@ use std::collections::HashMap;
 use config_editor_leptos::{Document, TextRange};
 
 use crate::echo_ranges::take;
-use crate::echoes::{Echo, Echoes, clock};
 use crate::host::{HostDoc, ranges_in};
 use crate::host_locks::{Again, Listed};
 use crate::model::{Act, Class, Core, Failure, Form, Outcome, ResetKind, read_ranges, user_edit};
 use crate::remap::reads_as;
+use config_editor_leptos::js_support::{Echo, Echoes, echo_clock as clock};
 
 /// One document: the `documents` signal's copy, its entry, its editor.
 struct Doc {
@@ -84,7 +84,6 @@ pub(crate) struct DocumentsSim {
     active: usize,
     settle_armed: bool,
     form: Form,
-    now: f64,
 }
 
 impl DocumentsSim {
@@ -97,7 +96,6 @@ impl DocumentsSim {
             active: 0,
             settle_armed: false,
             form,
-            now: 0.0,
         };
         for (index, base) in bases.into_iter().enumerate() {
             let id = ["a", "b"][index].to_string();
@@ -162,7 +160,6 @@ impl DocumentsSim {
         }
         self.locks.finish();
         // `keep_moved_past`.
-        let now = self.now;
         let mut resend = Vec::new();
         let mut settles = false;
         let mut took = Vec::new();
@@ -175,7 +172,6 @@ impl DocumentsSim {
                 echo.given(&document.value);
                 continue;
             };
-            echo.at(now);
             let received = echo.received(&document.value, current, flushed);
             let mut again = ranges_again.remove(&document.id);
             let applies = received == Echo::Apply;
@@ -302,7 +298,6 @@ impl DocumentsSim {
         if !act.same_task() {
             self.flush()?;
         }
-        self.now += 10.0;
         match act {
             Act::Type { .. } | Act::Delete { .. } | Act::Enter { .. } | Act::MoveLine { .. } => {
                 let doc = &mut self.docs[self.active];
@@ -407,7 +402,6 @@ impl DocumentsSim {
     pub(crate) fn drain(&mut self) -> Outcome {
         for _ in 0..500 {
             self.flush()?;
-            self.now += 10.0;
             if self.settle_armed {
                 self.settle();
             } else if let Some(index) = self.docs.iter().position(|doc| !doc.host.queue.is_empty())

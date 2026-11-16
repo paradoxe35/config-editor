@@ -5,7 +5,7 @@
 //! a one-keyword `not` refuses is told in words, not as the `not`'s JSON.
 
 use crate::editor::Language;
-use crate::editor::diagnostics::{Schema, build_schema};
+use crate::editor::schema::{Schema, build_schema};
 
 #[test]
 fn schema_text_problems_read_plainly() {

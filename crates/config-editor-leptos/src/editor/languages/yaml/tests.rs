@@ -2,9 +2,8 @@ use super::super::super::completion::{
     accept_marked, accept_reopens_suggestions, apply_completion,
     completions as shared_completions, key_hover as shared_key_hover,
 };
-use super::super::super::diagnostics::{
-    Diagnostic, SchemaBundle, build_schema, validate as shared_validate,
-};
+use super::super::super::diagnostics::{Diagnostic, validate as shared_validate};
+use super::super::super::schema::{SchemaBundle, build_schema};
 use super::super::super::keyboard::paired_edit as shared_paired_edit;
 use super::super::super::language::ConfigLanguage;
 use super::YamlBehavior;
@@ -1487,6 +1486,33 @@ fn comments_are_split_only_outside_yaml_quotes() {
     assert_eq!(
         split_yaml_comment("'it''s # still quoted'"),
         ("'it''s # still quoted'", None)
+    );
+}
+
+/// A quote inside a plain scalar (`don't`) opens no string: the comment
+/// after it is found by every reading of the line, and the caret after
+/// it is in no string.
+#[test]
+fn an_apostrophe_in_a_plain_scalar_opens_no_string() {
+    let line = "key: don't # note";
+    assert_eq!(YamlBehavior.comment_start(line), Some(11));
+    assert_eq!(YamlBehavior.comments(&format!("{line}\n")), vec![11..17]);
+    let tokens = highlighted(line);
+    assert!(
+        tokens
+            .iter()
+            .any(|(kind, text)| *kind == Some(TokenKind::Comment) && text == "# note"),
+        "{tokens:?}"
+    );
+    let caret = "key: don't".len();
+    let state = YamlBehavior.lexical_state(line, caret);
+    assert_eq!((state.quote, state.in_comment), (None, false));
+    let state = YamlBehavior.lexical_state(line, line.len());
+    assert_eq!((state.quote, state.in_comment), (None, true));
+    // A key holding one is a key.
+    assert_eq!(
+        super::mapping_colon("it's: here # note"),
+        Some(4)
     );
 }
 

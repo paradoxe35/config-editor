@@ -114,7 +114,7 @@ impl Wording<'_> {
                 *value,
                 Value::from(pattern.as_str())
             ),
-            ValidationErrorKind::FalseSchema => super::super::false_schema::message(&value),
+            ValidationErrorKind::FalseSchema => super::super::schema::false_schema_message(&value),
             ValidationErrorKind::Contains => self.contains(error),
             // Counts, not the whole list or object printed.
             ValidationErrorKind::MinItems { limit } => {
@@ -224,7 +224,7 @@ impl Wording<'_> {
                 .as_object()
                 .is_some_and(|members| members.keys().all(|keyword| annotation(keyword)))
         {
-            return super::super::false_schema::message(value);
+            return super::super::schema::false_schema_message(value);
         }
         // A `type` beside a `const` or `enum` adds nothing to their names.
         let only = schema.as_object().and_then(|members| {

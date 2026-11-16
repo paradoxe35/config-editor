@@ -150,12 +150,12 @@ fn line_code(text: &str, line: &str) -> (usize, usize) {
 }
 
 /// A schema marking `pointer` read-only.
-fn schema(pointer: &str) -> std::sync::Arc<super::super::diagnostics::SchemaBundle> {
+fn schema(pointer: &str) -> std::sync::Arc<super::super::schema::SchemaBundle> {
     let mut schema = serde_json::json!({ "readOnly": true });
     for key in pointer.trim_start_matches('/').split('/').rev() {
         schema = serde_json::json!({ "type": "object", "properties": { key: schema } });
     }
-    let bundle = super::super::diagnostics::build_schema(&schema.to_string()).expect("a schema");
+    let bundle = super::super::schema::build_schema(&schema.to_string()).expect("a schema");
     std::sync::Arc::new(bundle)
 }
 

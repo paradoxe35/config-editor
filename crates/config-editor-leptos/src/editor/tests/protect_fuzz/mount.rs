@@ -5,9 +5,9 @@ use leptos::prelude::*;
 
 use super::cases::{CASES, Case, Lock, schema, value};
 use crate::editor::Language;
-use crate::editor::diagnostics::build_schema;
 use crate::editor::host_editing::SaveRequest;
 use crate::editor::paths::{FieldPath, TextPosition, TextRange};
+use crate::editor::schema::build_schema;
 use crate::editor::secret_options::SecretOptions;
 use crate::editor::state::EditorState;
 use crate::editor::test_state::TestEditor;

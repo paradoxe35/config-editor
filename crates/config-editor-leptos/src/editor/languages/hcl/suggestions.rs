@@ -663,7 +663,7 @@ pub(super) fn property_insert(
     let mut insert = format!("{written_key} = ");
     if let Some(value) = written_const(property, root) {
         insert.push_str(&hcl_text(value));
-        let caret = utf16(&insert);
+        let caret = utf16_len(&insert);
         return Some((insert, caret));
     }
     if array_branch(property, root).is_some() {
@@ -673,11 +673,11 @@ pub(super) fn property_insert(
             Some(default) => insert.push_str(&hcl_text(default)),
             None => {
                 insert.push_str("[]");
-                let caret = utf16(&insert) - 1;
+                let caret = utf16_len(&insert) - 1;
                 return Some((insert, caret));
             }
         }
-        let caret = utf16(&insert);
+        let caret = utf16_len(&insert);
         return Some((insert, caret));
     }
     if object_branch(property, root).is_some() {
@@ -685,7 +685,7 @@ pub(super) fn property_insert(
             .filter(|value| !value.as_object().is_some_and(serde_json::Map::is_empty))
         {
             insert.push_str(&hcl_text(default));
-            let caret = utf16(&insert);
+            let caret = utf16_len(&insert);
             return Some((insert, caret));
         }
         let children = required_children(&HclBehavior, property, root);
@@ -699,7 +699,7 @@ pub(super) fn property_insert(
         }
         let mut caret = None;
         write_object(&children, block, base_indent, unit, &mut insert, &mut caret);
-        let caret = caret.map_or_else(|| utf16(&insert), |at| utf16(&insert[..at]));
+        let caret = caret.map_or_else(|| utf16_len(&insert), |at| utf16_len(&insert[..at]));
         return Some((insert, caret));
     }
     if let Some(default) = written_default(property, root) {
@@ -707,10 +707,10 @@ pub(super) fn property_insert(
     } else if placeholder(property, root).is_string() {
         // A string value starts quoted, with the caret inside.
         insert.push_str("\"\"");
-        let caret = utf16(&insert) - 1;
+        let caret = utf16_len(&insert) - 1;
         return Some((insert, caret));
     }
-    let caret = utf16(&insert);
+    let caret = utf16_len(&insert);
     Some((insert, caret))
 }
 
@@ -731,7 +731,7 @@ pub(super) fn another_block(
     let mut insert = format!("{} ", hcl::Identifier::new(key).ok()?);
     let mut caret = None;
     write_object(&children, true, base_indent, unit, &mut insert, &mut caret);
-    let caret = caret.map_or_else(|| utf16(&insert), |at| utf16(&insert[..at]));
+    let caret = caret.map_or_else(|| utf16_len(&insert), |at| utf16_len(&insert[..at]));
     Some((insert, caret))
 }
 

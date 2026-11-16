@@ -91,8 +91,8 @@ mod tests {
 
     use leptos::prelude::*;
 
-    use super::super::super::diagnostics::build_schema;
     use super::super::super::languages::Language;
+    use super::super::super::schema::build_schema;
     use super::super::super::test_state::TestEditor;
     use super::super::super::work_count::{Work, counted};
     use super::super::RowSize;

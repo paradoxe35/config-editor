@@ -5,7 +5,8 @@
 //! problem per key (S.combinators-9). In every language.
 
 use crate::editor::Language;
-use crate::editor::diagnostics::{Diagnostic, Schema};
+use crate::editor::diagnostics::Diagnostic;
+use crate::editor::schema::Schema;
 
 const LANGUAGES: [Language; 5] = [
     Language::YAML,

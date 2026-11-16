@@ -456,6 +456,38 @@ fn loose(value: &Value) -> Value {
     }
 }
 
+/// `value` with each list of one map that `view` writes as that map (an
+/// HCL block written once) replaced by the map.
+fn blocks_as_written(value: &Value, view: &Value) -> Value {
+    match (value, view) {
+        (Value::Array(items), Value::Object(_)) if items.len() == 1 && items[0].is_object() => {
+            blocks_as_written(&items[0], view)
+        }
+        (Value::Array(items), Value::Array(written)) => Value::Array(
+            items
+                .iter()
+                .enumerate()
+                .map(|(index, item)| match written.get(index) {
+                    Some(written) => blocks_as_written(item, written),
+                    None => item.clone(),
+                })
+                .collect(),
+        ),
+        (Value::Object(map), Value::Object(written)) => Value::Object(
+            map.iter()
+                .map(|(key, child)| {
+                    let child = match written.get(key) {
+                        Some(written) => blocks_as_written(child, written),
+                        None => child.clone(),
+                    };
+                    (key.clone(), child)
+                })
+                .collect(),
+        ),
+        _ => value.clone(),
+    }
+}
+
 /// `value` with every one-item list replaced by its item.
 /// HCL writes a list of one map as one block, read back as the map.
 fn lone_blocks(value: &Value) -> Value {
@@ -616,6 +648,14 @@ fn check_save(state: EditorState, start: &Start, held: &HostCopy) -> Result<(), 
             } else {
                 loose(value)
             }
+        };
+        // An HCL view's block written once is also its list's only item
+        // (`ConfigLanguage::lone_item`), which the host may hold as a list.
+        let shown = match (&shown, &meant) {
+            (Some(shown), Some(meant)) if view.label() == "HCL" => {
+                Some(blocks_as_written(shown, meant))
+            }
+            _ => shown,
         };
         if shown.as_ref().map(read) != meant.as_ref().map(read) {
             return Err(Failure::new(

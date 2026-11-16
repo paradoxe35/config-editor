@@ -2013,3 +2013,83 @@ fn a_comment_goes_with_its_cut_element_though_the_name_comes_back() {
         ],
     );
 }
+
+/// P2: XML elements moved into an element the user added (a cut and paste,
+/// then typing in an HCL view) keep their own namespace when saved.
+#[test]
+fn xml_elements_moved_into_an_added_element_keep_their_namespace() {
+    replay(
+        Language::XML,
+        Language::HCL,
+        "<root xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" xmlns:p=\"urn:p\">\n  <alpha>\n    <p:k1>v</p:k1>\n    <k2>42</k2>\n    <k3 id=\"1\">text</k3>\n  </alpha>\n  <beta>\n    <k4 id=\"1\">text</k4>\n    <k5>\n      <item>a</item>\n      <item>b</item>\n    </k5>\n  </beta>\n</root>\n",
+        &[
+            Op::Cut {
+                line: 34,
+                how: Take::Entry,
+            },
+            Op::Paste {
+                line: 40,
+                how: Put::OverLine,
+            },
+            Op::Type {
+                line: 4,
+                column: 8,
+                text: "x",
+            },
+        ],
+    );
+}
+
+/// P5: an item below an element the edit added, at a place its list
+/// does not hold, is no host element (and no crash).
+#[test]
+fn an_item_below_an_added_element_past_its_list_is_new() {
+    replay(
+        Language::XML,
+        Language::YAML,
+        "<project xmlns=\"http://maven.apache.org/POM/4.0.0\" xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\">\n  <modelVersion>4.0.0</modelVersion>\n  <groupId>com.example</groupId>\n  <artifactId>demo</artifactId>\n  <version>1.0.0</version>\n  <properties>\n    <java.version>17</java.version>\n  </properties>\n  <dependencies>\n    <dependency>\n      <groupId>org.slf4j</groupId>\n      <artifactId>slf4j-api</artifactId>\n      <version>2.0.13</version> <!-- logging -->\n    </dependency>\n    <dependency>\n      <groupId>junit</groupId>\n      <artifactId>junit</artifactId>\n      <scope>test</scope>\n    </dependency>\n  </dependencies>\n</project>\n",
+        &[
+            Op::Type {
+                line: 8,
+                column: 1001,
+                text: ":",
+            },
+            Op::Cut {
+                line: 43,
+                how: Take::Text,
+            },
+        ],
+    );
+}
+
+/// P2: after an edit, a switch, an undo and a cut in an XML view of a
+/// YAML host, the saved host reads as the view.
+#[test]
+fn a_cut_after_an_undo_in_a_switched_view_saves_what_the_view_reads() {
+    replay(
+        Language::YAML,
+        Language::XML,
+        "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  labels: {app: web, tier: \"front\"}\nspec:\n  replicas: 0x3\n  selector:\n    matchLabels:\n      app: web\n  template:\n    spec:\n      containers:\n        - name: web\n          image: \"nginx:1.25\"\n          args: [--port, '8080']\n          env:\n            - name: GREETING\n              value: |\n                hello\n                world\n            - name: LEVEL\n              value: !!str 3\n          resources:\n            limits: {cpu: 500m, memory: 128Mi}\n",
+        &[
+            Op::Enter {
+                line: 36,
+                column: 1000,
+            },
+            Op::MoveLine {
+                line: 47,
+                down: true,
+            },
+            Op::Switch { to: 3 },
+            Op::Type {
+                line: 37,
+                column: 1000,
+                text: "x",
+            },
+            Op::Undo,
+            Op::Cut {
+                line: 53,
+                how: Take::Entry,
+            },
+        ],
+    );
+}

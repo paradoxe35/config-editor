@@ -11,9 +11,9 @@ use leptos::prelude::*;
 use wasm_bindgen::prelude::*;
 
 use crate::catalog::language_name;
-use crate::echoes::Echoes;
 use crate::told::Told;
 use crate::values::{ChangeSummaryOut, diagnostics_to_js, path_to_js, to_js};
+use config_editor_leptos::js_support::Echoes;
 
 thread_local! {
     /// How many host callbacks are running: `destroy` from inside one waits
@@ -145,8 +145,16 @@ pub(crate) fn view(state: State, latest: Latest, setup: Setup) -> AnyView {
             .unwrap_or_else(|poisoned| poisoned.into_inner()) = text.clone();
         let _ = state.value.try_set(text.clone());
         if let Some(callback) = state.on_change.try_get_value().flatten() {
-            let _ = state.echoes.try_update_value(|echoes| echoes.sent(&text));
-            call_host(&callback, &JsValue::from_str(&text));
+            // Its revision goes with it: a host passing it back with the
+            // value (`valueRevision`) has its echo matched exactly.
+            let revision = state
+                .echoes
+                .try_update_value(|echoes| echoes.sent(&text))
+                .unwrap_or_default();
+            call_host_with(
+                &callback,
+                &[JsValue::from_str(&text), JsValue::from_f64(revision as f64)],
+            );
         } else {
             let _ = state.echoes.try_update_value(Echoes::unsent);
         }

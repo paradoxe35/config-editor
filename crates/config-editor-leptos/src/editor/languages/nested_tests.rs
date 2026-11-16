@@ -3,7 +3,7 @@
 //! one-line objects, value maps, attributes) and in nested blocks.
 
 use super::super::completion::{completions, key_hover};
-use super::super::diagnostics::{SchemaBundle, build_schema};
+use super::super::schema::{SchemaBundle, build_schema};
 use super::Language;
 
 fn schema() -> SchemaBundle {

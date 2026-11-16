@@ -4,6 +4,7 @@ use super::language::ConfigLanguage;
 use jsonschema::error::ValidationError;
 use serde_json::Value;
 
+use super::schema::{SchemaBundle, schema_message};
 use crate::EditorStrings;
 use crate::strings::{default_strings, fill};
 
@@ -92,41 +93,43 @@ fn incomplete(mut diagnostics: Vec<Diagnostic>, strings: &EditorStrings) -> Vec<
 /// states do not flash squiggles.
 pub(super) const DIAGNOSTICS_DEBOUNCE_MS: i32 = 250;
 
-pub(super) struct SchemaBundle {
-    pub(super) schema: Value,
-    /// What the editor cannot use in the schema (see [`Schema::warnings`]).
-    pub(super) warnings: Vec<String>,
-    /// Whether the warnings went to the console already: the editors that
-    /// share this compiled schema (a documents view's, of one schema text)
-    /// say them there once.
-    pub(super) warned_console: std::sync::atomic::AtomicBool,
-    /// Some property is `deprecated`: documents are checked for its key.
-    pub(super) has_deprecated: bool,
-    /// Some field is `readOnly`, `writeOnly` or `x-secret`: documents are
-    /// walked for them.
-    pub(super) has_marks: bool,
-    /// Some schema is decided by the document (`if`, a dependent schema,
-    /// `oneOf`/`anyOf` options): completion and hover read the document to
-    /// decide it.
-    pub(super) has_conditionals: bool,
-    #[cfg(feature = "schema-validation")]
+/// The validator of a compiled schema, and the validators that say why a
+/// document is invalid, built when first asked.
+#[cfg(feature = "schema-validation")]
+pub(crate) struct Validation {
     validator: jsonschema::Validator,
     /// The schema the validators are built from.
-    #[cfg(feature = "schema-validation")]
     validated_schema: Value,
     /// The validator that says why a document is invalid (see
     /// [`explanation`]), built for the first one; `None` when it does not
     /// build.
-    #[cfg(feature = "schema-validation")]
     explainer: std::sync::OnceLock<Option<jsonschema::Validator>>,
     /// The validator that says why when the explaining one does not
     /// build (see [`explanation::bounded`]).
-    #[cfg(feature = "schema-validation")]
     bounded: std::sync::OnceLock<Option<jsonschema::Validator>>,
 }
 
 #[cfg(feature = "schema-validation")]
-impl SchemaBundle {
+impl Validation {
+    /// The validator of `schema` (its empty references read as the root
+    /// already), or why it does not build.
+    pub(crate) fn build(schema: &Value) -> Result<Self, String> {
+        let validated_schema =
+            super::schema::for_validation(schema).unwrap_or_else(|| schema.clone());
+        let validator = jsonschema::validator_for(&validated_schema).map_err(|error| {
+            if let Some(message) = super::schema_refs::message(error.kind(), schema) {
+                return message;
+            }
+            meta_wording::message(&error)
+        })?;
+        Ok(Self {
+            validator,
+            validated_schema,
+            explainer: std::sync::OnceLock::new(),
+            bounded: std::sync::OnceLock::new(),
+        })
+    }
+
     /// Why `value` is invalid: none when it is valid; else the errors of
     /// the explaining validator, each value explained a bounded number of
     /// times (see [`explanation`]), and whether they are all: not when
@@ -155,54 +158,6 @@ impl SchemaBundle {
                 explanation::errors(bounded, value)
             })
     }
-}
-
-/// The compiled schema, or why `schema_text` (JSON, or YAML with the
-/// `yaml` feature) is no JSON Schema (worded by the `invalidSchema` text
-/// where it is shown, see [`schema_message`]): empty for a text that is
-/// empty or only white space.
-pub(super) fn build_schema(schema_text: &str) -> Result<SchemaBundle, String> {
-    // A byte order mark (a file saved by an editor that writes one) is no
-    // part of the schema.
-    let schema_text = schema_text.strip_prefix('\u{feff}').unwrap_or(schema_text);
-    if schema_text.trim().is_empty() {
-        return Err(String::new());
-    }
-    let mut schema = super::languages::read_schema_text(schema_text)?;
-    super::empty_refs::to_root(&mut schema);
-    #[cfg(feature = "schema-validation")]
-    let validated_schema =
-        super::false_schema::for_validation(&schema).unwrap_or_else(|| schema.clone());
-    #[cfg(feature = "schema-validation")]
-    let validator = jsonschema::validator_for(&validated_schema).map_err(|error| {
-        if let Some(message) = super::schema_refs::message(error.kind(), &schema) {
-            return message;
-        }
-        meta_wording::message(&error)
-    })?;
-    // The validator resolves `$id` and `$anchor` references itself;
-    // completion and hover read them as pointers.
-    super::ui_refs::to_pointers(&mut schema);
-    let warnings = super::completion::unsupported_patterns(&schema);
-    let has_conditionals = super::completion::mentions_conditionals(&schema);
-    let has_deprecated = super::completion::mentions_deprecated(&schema);
-    let has_marks = super::protect::mentions_marks(&schema);
-    Ok(SchemaBundle {
-        schema,
-        warnings,
-        warned_console: std::sync::atomic::AtomicBool::new(false),
-        has_deprecated,
-        has_marks,
-        has_conditionals,
-        #[cfg(feature = "schema-validation")]
-        validator,
-        #[cfg(feature = "schema-validation")]
-        validated_schema,
-        #[cfg(feature = "schema-validation")]
-        explainer: std::sync::OnceLock::new(),
-        #[cfg(feature = "schema-validation")]
-        bounded: std::sync::OnceLock::new(),
-    })
 }
 
 /// A problem in a document: the editor's own (syntax, schema, Edit-as) or
@@ -312,232 +267,6 @@ impl std::str::FromStr for Severity {
     }
 }
 
-/// The message for a schema that does not compile, `error` as
-/// [`build_schema`] gives it (empty: the text is).
-pub(super) fn schema_message(strings: &EditorStrings, error: &str) -> String {
-    if error.is_empty() {
-        strings.empty_schema.clone()
-    } else {
-        fill(&strings.invalid_schema, &[("error", &error)])
-    }
-}
-
-/// A JSON Schema that failed to compile, with the reason.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct SchemaError(pub String);
-
-impl std::fmt::Display for SchemaError {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str(&self.0)
-    }
-}
-
-impl std::error::Error for SchemaError {}
-
-/// A compiled JSON Schema, cheap to clone.
-///
-/// One schema validates documents in every language, because every language
-/// parses into the same data model.
-///
-/// ```
-/// # #[cfg(all(feature = "schema-validation", feature = "yaml", feature = "toml"))] {
-/// use config_editor_leptos::{Language, Schema};
-/// let schema = Schema::compile(r#"{"properties":{"listen":{"type":"integer"}}}"#).unwrap();
-/// assert!(schema.validate(Language::YAML, "listen: 7835\n").is_empty());
-/// let problems = schema.validate(Language::TOML, "listen = \"x\"\n");
-/// assert_eq!(problems[0].line, Some(1));
-/// # }
-/// ```
-#[derive(Clone)]
-pub struct Schema {
-    pub(super) bundle: std::sync::Arc<SchemaBundle>,
-}
-
-impl std::fmt::Debug for Schema {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let title = self.bundle.schema.get("title").and_then(Value::as_str);
-        formatter
-            .debug_struct("Schema")
-            .field("title", &title)
-            .finish_non_exhaustive()
-    }
-}
-
-/// The `schema` of a [`ConfigEditor`](crate::ConfigEditor): a JSON Schema
-/// document as JSON or YAML text, or a [`Schema`] compiled once and shared
-/// between editors.
-///
-/// Converts from `&str`, `String`, and `Schema`, so `schema=SCHEMA_JSON` and
-/// `schema=compiled.clone()` both work.
-#[derive(Clone, Debug)]
-#[non_exhaustive]
-pub enum SchemaSource {
-    /// A JSON Schema document as JSON text, or as YAML text (feature
-    /// `yaml`), compiled when the editor mounts; a compile error is shown
-    /// inline.
-    Text(String),
-    /// An already compiled schema.
-    Compiled(Schema),
-}
-
-impl From<&str> for SchemaSource {
-    fn from(text: &str) -> Self {
-        SchemaSource::Text(text.to_string())
-    }
-}
-
-impl From<String> for SchemaSource {
-    fn from(text: String) -> Self {
-        SchemaSource::Text(text)
-    }
-}
-
-impl From<Schema> for SchemaSource {
-    fn from(schema: Schema) -> Self {
-        SchemaSource::Compiled(schema)
-    }
-}
-
-impl Schema {
-    /// Whether both are handles on one compiled schema (clones of each
-    /// other), not merely equal ones.
-    pub(crate) fn shares(&self, other: &Schema) -> bool {
-        std::sync::Arc::ptr_eq(&self.bundle, &other.bundle)
-    }
-}
-
-impl SchemaSource {
-    pub(super) fn resolve(self) -> Result<std::sync::Arc<SchemaBundle>, String> {
-        match self {
-            SchemaSource::Text(text) => build_schema(&text).map(std::sync::Arc::new),
-            SchemaSource::Compiled(schema) => Ok(schema.bundle),
-        }
-    }
-}
-
-impl Schema {
-    /// Compiles a JSON Schema document written as JSON, or as YAML
-    /// (feature `yaml`). A text that is JSON is read as JSON; one that is
-    /// not and does not start with `{` or `[` is read as YAML.
-    ///
-    /// ```
-    /// # #[cfg(feature = "yaml")] {
-    /// use config_editor_leptos::Schema;
-    /// let from_yaml = Schema::compile("properties:\n  listen: {type: integer}\n").unwrap();
-    /// assert!(from_yaml.warnings().is_empty());
-    /// # }
-    /// ```
-    ///
-    /// # Errors
-    ///
-    /// Returns [`SchemaError`] when `schema_text` is neither JSON nor YAML,
-    /// or not a valid schema.
-    pub fn compile(schema_text: &str) -> Result<Self, SchemaError> {
-        build_schema(schema_text)
-            .map(|bundle| Schema {
-                bundle: std::sync::Arc::new(bundle),
-            })
-            .map_err(|error| SchemaError(schema_message(default_strings(), &error)))
-    }
-
-    /// What the editor cannot use in this schema, one message each, such as
-    /// a `patternProperties` regex its engine cannot compile (keys it was
-    /// meant to match get no completions or hover docs). The editor passes
-    /// each to `on_schema_warning` when it mounts.
-    ///
-    /// ```
-    /// use config_editor_leptos::Schema;
-    /// let schema = Schema::compile(r#"{"patternProperties":{"^(?!x-)":{}}}"#).unwrap();
-    /// assert_eq!(schema.warnings().len(), 1);
-    /// ```
-    pub fn warnings(&self) -> &[String] {
-        &self.bundle.warnings
-    }
-
-    /// Syntax and schema diagnostics for `source`, as the editor shows them
-    /// (the editor's own messages in English, the `strings` defaults).
-    pub fn validate(&self, language: super::Language, source: &str) -> Vec<Diagnostic> {
-        byte_order_mark::read(source, |source, _| {
-            headless_validate(source, Some(&self.bundle), language.behavior())
-        })
-    }
-
-    /// The suggestions the editor lists at `cursor` (a UTF-16 offset in
-    /// `source`) on `Ctrl+Space`, best first: the keys and values this schema
-    /// allows there, written as `language` writes them. Accept one with
-    /// [`Suggestion::accept`](super::Suggestion::accept). A custom language
-    /// checks its completion methods with it, no browser needed.
-    ///
-    /// ```
-    /// # #[cfg(feature = "toml")] {
-    /// use config_editor_leptos::{Language, Schema};
-    /// let schema = Schema::compile(r#"{"properties":{"listen":{"type":"integer"}}}"#).unwrap();
-    /// let offered = schema.suggestions(Language::TOML, "lis", 3);
-    /// assert_eq!(offered[0].label(), "listen");
-    /// assert_eq!(offered[0].accept("lis").0, "listen = ");
-    /// # }
-    /// ```
-    pub fn suggestions(
-        &self,
-        language: super::Language,
-        source: &str,
-        cursor: usize,
-    ) -> Vec<super::Suggestion> {
-        byte_order_mark::read(source, |source, to| {
-            let source = super::line_breaks::as_lf(source);
-            super::completion::schema_suggestions(
-                &self.bundle,
-                language.behavior(),
-                &source,
-                to.document(cursor),
-            )
-        })
-    }
-
-    /// The docs the hover card shows for the key at `position` in `source`
-    /// (or for the key of a value the schema documents), as `language` reads
-    /// it; `None` where no schema key is.
-    pub fn hover(
-        &self,
-        language: super::Language,
-        source: &str,
-        position: super::TextPosition,
-    ) -> Option<super::HoverDocs> {
-        byte_order_mark::read(source, |source, to| {
-            let source = super::line_breaks::as_lf(source);
-            super::completion::schema_hover(
-                &self.bundle,
-                language.behavior(),
-                &source,
-                to.document(position),
-            )
-        })
-    }
-
-    /// Converts `source` from one language to another, reading it as this
-    /// schema expects: a single XML element where the schema wants an array
-    /// is a one-item array, and converts to one.
-    ///
-    /// # Errors
-    ///
-    /// As [`Language::convert`](super::Language::convert).
-    pub fn convert(
-        &self,
-        from: super::Language,
-        source: &str,
-        to: super::Language,
-    ) -> Result<super::Conversion, super::ConvertError> {
-        byte_order_mark::read(source, |source, _| {
-            super::codec::convert_away(
-                source,
-                from.behavior(),
-                to.behavior(),
-                Some(&self.bundle.schema),
-            )
-        })
-    }
-}
-
 /// Syntax diagnostics for `source`, for documents without a schema.
 ///
 /// ```
@@ -556,7 +285,7 @@ pub fn check_syntax(language: super::Language, source: &str) -> Vec<Diagnostic> 
 /// [`validate`] of a text from outside the editor, its line breaks read as
 /// the editor reads them (see `line_breaks`): every position is one in
 /// `source`, and a lone CR the language rejects is its problem.
-fn headless_validate(
+pub(super) fn headless_validate(
     source: &str,
     schema: Option<&SchemaBundle>,
     behavior: &dyn ConfigLanguage,
@@ -971,7 +700,7 @@ fn escape_pointer(segment: &str) -> String {
 #[cfg(all(test, feature = "schema-validation", feature = "yaml"))]
 mod message_tests {
     use super::super::Language;
-    use super::Schema;
+    use crate::editor::schema::Schema;
 
     fn messages(yaml: &str) -> Vec<String> {
         Schema::compile(include_str!("../../tests/fixtures/tunnel.schema.json"))
@@ -1031,7 +760,7 @@ mod cap_tests {
     use super::{Diagnostic, MAX_DIAGNOSTICS, MORE_PROBLEMS_CODE, Severity, capped};
     use crate::EditorStrings;
 
-    /// QA 19 (H19-F4): the cap keeps the most serious problems: warnings
+    /// the cap keeps the most serious problems: warnings
     /// listed first no longer crowd the errors out.
     #[test]
     fn the_cap_keeps_errors_over_less_serious_problems_in_their_order() {
@@ -1147,7 +876,7 @@ mod shift_tests {
 #[cfg(all(test, feature = "schema-validation", feature = "yaml"))]
 mod scale_tests {
     use super::super::Language;
-    use super::Schema;
+    use crate::editor::schema::Schema;
 
     #[test]
     fn many_unknown_keys_stay_fast_and_messages_stay_short() {
@@ -1198,9 +927,9 @@ mod scale_tests {
 ))]
 mod placing_tests {
     use super::super::Language;
-    use super::Schema;
+    use crate::editor::schema::Schema;
 
-    /// QA 17: the pause after a key in a 10,000-line TOML or HCL document
+    /// the pause after a key in a 10,000-line TOML or HCL document
     /// with thousands of schema problems took a second: each of the 20
     /// problems shown, and each of its ancestors, was looked up with a read
     /// of the whole document. Their spans are read in one pass now, in
@@ -1247,9 +976,9 @@ mod placing_tests {
 mod key_placing_tests {
     use super::super::Language;
     use super::super::work_count::{Work, counted};
-    use super::Schema;
+    use crate::editor::schema::Schema;
 
-    /// QA 18: switching a large document to YAML or JSON paused 300-650 ms,
+    /// switching a large document to YAML or JSON paused 300-650 ms,
     /// most of it placing the problems shown: each unknown key's marker read
     /// the whole document again (its key lines, or its JSON scan). One read
     /// serves every problem of a pass now.

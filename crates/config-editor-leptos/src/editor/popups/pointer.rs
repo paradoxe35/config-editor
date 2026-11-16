@@ -24,9 +24,10 @@ use super::super::problem_hit::{column_at_cell, covering};
 use super::super::scroll_through::{scroll_past, wheel_pixels};
 use super::super::source_area::SourceArea;
 use super::super::state::EditorState;
+use super::PendingCard;
 use super::machine::{Over, Sight};
 use super::path::popup_box;
-use crate::editor::components::HoverCard;
+use crate::editor::completion::Part;
 
 impl EditorState {
     /// The pointer is at `(x, y)` in the window over the text (`free`: no
@@ -51,40 +52,43 @@ impl EditorState {
         if !self.config().settings.hover_docs.get_untracked() {
             return;
         }
-        let Some(info) = self.docs_under_pointer(line, column) else {
+        // Only the field is found on a move; its docs are read after the
+        // pause.
+        let Some(field) = self.field_under_pointer(line, column) else {
             self.leave_hover();
             return;
         };
         // The value's own message takes the place of its key's docs there.
-        if on_protected && column >= info.start_column + info.key.chars().count() {
+        if on_protected
+            && (field.part == Part::Value
+                || column >= field.start_column + field.key.chars().count())
+        {
             self.leave_hover();
             return;
         }
         let waiting = self.with_machine(|machine| {
-            machine.pending().is_some_and(|card| {
-                card.line == line
-                    && card.info.start_column == info.start_column
-                    && card.info.key == info.key
-            })
+            machine
+                .pending()
+                .is_some_and(|pending| pending.line == line && pending.field == field)
         });
         if waiting {
             return;
         }
-        if self.card_shows(line, &info) {
+        if self.card_shows(line, &field) {
             // Back on its key within the moment it was given to be
             // reached: it stays.
             self.keep_hover();
             return;
         }
         self.hide_hover();
-        let anchor = hover_card_anchor(element, line, self.cell_at(line, info.start_column));
-        let card = HoverCard {
-            info,
-            line,
-            problems: None,
-            anchor,
-        };
-        self.step(|machine| machine.pend(card));
+        let anchor = hover_card_anchor(element, line, self.cell_at(line, field.start_column));
+        self.step(|machine| {
+            machine.pend(PendingCard {
+                line,
+                field,
+                anchor,
+            });
+        });
     }
 
     /// The character column of rendered cell `cell` of zero-based `line`.
@@ -180,8 +184,8 @@ impl EditorState {
     fn on_popup_anchor(&self, line: usize, cell: usize) -> bool {
         if self.popups().with_card(|card| card.is_some()) {
             return self
-                .docs_under_pointer(line, self.column_at(line, cell))
-                .is_some_and(|info| self.card_shows(line, &info));
+                .field_under_pointer(line, self.column_at(line, cell))
+                .is_some_and(|field| self.card_shows(line, &field));
         }
         let Some((hovered_line, hovered_column)) = self.popups().hovered_problem() else {
             return false;

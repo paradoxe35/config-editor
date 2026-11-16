@@ -7,11 +7,11 @@
 use serde_json::json;
 
 use crate::editor::completion::completions_for;
-use crate::editor::diagnostics::build_schema;
 use crate::editor::languages::Language;
+use crate::editor::schema::build_schema;
 use crate::editor::work_count::{Work, counted};
 
-fn schema() -> crate::editor::diagnostics::SchemaBundle {
+fn schema() -> crate::editor::schema::SchemaBundle {
     let option = |kind: &str, key: &str| {
         json!({"type": "object", "required": ["kind"], "properties": {
             "kind": {"const": kind},

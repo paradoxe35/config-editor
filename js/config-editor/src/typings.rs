@@ -31,10 +31,11 @@ export interface EditorOptions extends EditorSettings {
   readOnlyReason?: string;
   /** Extra class on the editor root. */
   className?: string;
-  /** Set it when you hand every `onChange` text back through `update({ value })`, possibly late and in any order (a store that re-renders after a delay, a fetch per edit): a `value` that `onChange` gave and that has not come back yet is then its echo and keeps the document, so nothing typed is lost (until 5 s after a later text came back: one skipped before it is then yours). A text it never gave applies; go back to one it gave with `replaceValue`. Without it (the default) every `value` applies. Fixed for the editor's life. */
+  /** Set it when you hand every `onChange` text back through `update({ value })`, possibly late and in any order (a store that re-renders after a delay, a fetch per edit): a `value` that `onChange` gave and that has not come back yet is then its echo and keeps the document, so nothing typed is lost. A text it never gave applies; go back to one it gave with `replaceValue`. Without it (the default) every `value` applies. Fixed for the editor's life. */
   echoes?: boolean;
   /** Called with the document, in `language`, after every edit. */
-  onChange?: (value: string) => void;
+  /** Called with the document after every edit, and the text's `revision`: pass it back as `valueRevision` with the value for an exact echo match (no pause, see `valueRevision`). */
+  onChange?: (value: string, revision: number) => void;
   /** Called with the language on screen: once on mount, then each time an `editAs` switch completes and when undo or redo steps back across one (it waits while the document cannot convert yet, the host's language staying on screen). */
   onEditAsChange?: (language: LanguageName) => void;
   /** Called with whether the text on screen is written back to the document (`value`): once on mount, then each time that changes. `false` while an `editAs` edit cannot convert back (`value` stays the last document, `onChange` waits), from whatever brought it there (typing, paste, undo, a switch, a reload, a new `value`); read after each pause in typing. Always `true` while editing in `language`. */
@@ -61,6 +62,8 @@ export interface EditorOptions extends EditorSettings {
   readOnlyRanges?: TextRangeInput[];
   /** The text `readOnlyRanges` and `hostDiagnostics` ranges were given for, when it is not `value` (a check of a text the document has moved past): they are checked in it and moved to `value`. Default: `value`. */
   rangesFor?: string;
+  /** The `revision` of `value`, read by `update` (see `EditorUpdate.valueRevision`); none at construction. */
+  valueRevision?: number;
   /** How secret placeholders (`«secret 3f2a»`) are matched, described and completed in fields the schema marks `writeOnly` or `x-secret`. */
   secrets?: SecretOptions;
 }
@@ -130,6 +133,8 @@ export type SettingsUpdate = {
 export interface EditorUpdate extends SettingsUpdate {
   /** Replaces the document (in `language`), as a host update, whatever it is (the text given last included): the caret stays when the text is unchanged. With `echoes`, a text `onChange` gave that has not come back yet is its echo and keeps the document, and so does the text given last, given again (a render with a store behind the typing): reset to it with `replaceValue`. */
   value?: string;
+  /** With `echoes`: the `revision` `onChange` gave `value` with, for a host that stores the newest revision it hears and never goes back to an older one. The echo is then matched exactly, with no pause: that revision and every earlier one are confirmed. Leave it out for a text of your own. Without it, an echo is told apart by its text, and an echo left behind by the document is checked again a pause (250 ms) later. */
+  valueRevision?: number;
   /** The text this update's `readOnlyRanges` and `hostDiagnostics` ranges were given for, when it is not the document (a check of a text the user has typed past): they are checked in it and moved to the document. Default: `value`, else the document. */
   rangesFor?: string;
   /** The text the diff gutter compares against. */
@@ -146,7 +151,7 @@ export interface EditorUpdate extends SettingsUpdate {
   readOnlyPaths?: FieldPath[] | null;
   /** Replaces the stretches the user cannot change (in `rangesFor`, else `value`, else the document); `null` or `[]` clears them. The ones given last, given again with no new text, stay where the editor moved them as the user typed. */
   readOnlyRanges?: TextRangeInput[] | null;
-  onChange?: ((value: string) => void) | null;
+  onChange?: ((value: string, revision: number) => void) | null;
   onEditAsChange?: ((language: LanguageName) => void) | null;
   onSyncChange?: ((inSync: boolean) => void) | null;
   onChangeSummary?: ((summary: ChangeSummary) => void) | null;
@@ -400,7 +405,7 @@ export interface DocumentsOptions extends EditorSettings {
   className?: string;
   /** The tab list's accessible name. Default `"Open files"`. */
   label?: string;
-  /** Set it when you list every `onChange` text back as the document's `value` in `update({ documents })`, possibly late and in any order: a `value` its editor gave that has not come back yet is then its echo and keeps what the editor holds (until 5 s after a later text came back: one skipped before it is then yours). A text it never gave applies; go back to one it gave with `replaceValue(id, text)`. Without it (the default) every listed `value` applies. Fixed for the view's life. */
+  /** Set it when you list every `onChange` text back as the document's `value` in `update({ documents })`, possibly late and in any order: a `value` its editor gave that has not come back yet is then its echo and keeps what the editor holds. A text it never gave applies; go back to one it gave with `replaceValue(id, text)`. Without it (the default) every listed `value` applies. Fixed for the view's life. */
   echoes?: boolean;
   /** Called with a document's id when it becomes the active one (a tab, `Alt+PageDown` / `Alt+PageUp`, `select()`, or the active one closing). */
   onSelect?: (id: string) => void;

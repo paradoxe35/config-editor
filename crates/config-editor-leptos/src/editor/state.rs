@@ -29,11 +29,12 @@ use std::sync::Arc;
 
 use leptos::prelude::*;
 
+use super::bridge::links::Clipboard;
+
 use super::a11y::A11yState;
 #[cfg(feature = "diff")]
 use super::changes::ChangesState;
 use super::completion::{self, CompletionState};
-use super::diagnostics::SchemaBundle;
 use super::document::DocState;
 use super::edit_as::EditAsState;
 #[cfg(feature = "folding")]
@@ -51,6 +52,7 @@ use super::popups::PopupState;
 use super::problems::{self, ProblemsState};
 use super::projection::Projection;
 use super::protect::{Inputs, ProtectInit, ProtectState};
+use super::schema::SchemaBundle;
 #[cfg(feature = "search")]
 use super::search::{GoToLine, SearchState};
 use super::source_area::SourceArea;
@@ -100,6 +102,9 @@ pub(super) struct Init {
     pub(super) protect: ProtectInit,
     pub(super) on_save: Option<Callback<SaveRequest>>,
     pub(super) on_baseline_conflict: Option<Callback<BaselineConflict>>,
+    /// The clipboard records the editor shares with others (a documents
+    /// view's editors of one host language), else its own.
+    pub(super) clipboard: Option<StoredValue<Clipboard>>,
 }
 
 /// The editor's state, shared by every handler: one handle to its
@@ -222,6 +227,7 @@ impl EditorState {
             protect,
             on_save,
             on_baseline_conflict,
+            clipboard,
         } = init;
         let settings = LiveSettings::new(settings, schema.is_some());
         let config = Config {
@@ -241,7 +247,7 @@ impl EditorState {
         let host_on_change =
             host_on_change.map(|callback| noting_sent(sent, line_endings.on_change(callback)));
         let on_save = on_save.map(|callback| line_endings.on_save(callback));
-        let (sync, shown, pending) = SyncState::load(
+        let (mut sync, shown, pending) = SyncState::load(
             host_language,
             edit_language,
             config.schema,
@@ -250,6 +256,10 @@ impl EditorState {
             host_on_change,
             line_endings,
         );
+        // Shared with other editors (a documents view's), else its own.
+        if let Some(clipboard) = clipboard {
+            sync.clipboard = clipboard;
+        }
         let doc = DocState::new(&shown, sync.edit_language);
         let popups = PopupState::new();
         let protect = ProtectState::new(

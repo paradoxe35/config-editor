@@ -31,7 +31,6 @@
     "binding.d.ts",
     "load.js",
     "load.d.ts",
-    "sync.js",
     "setting-types.js",
     "preset.css",
     "pkg/config_editor.js",

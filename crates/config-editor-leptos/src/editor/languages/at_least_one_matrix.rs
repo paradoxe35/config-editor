@@ -6,7 +6,7 @@
 //! `|` marks the caret.
 
 use super::super::completion::completions;
-use super::super::diagnostics::build_schema;
+use super::super::schema::build_schema;
 use super::Language;
 
 const SCHEMA: &str = r#"{"type":"object","properties":{"dep":{"type":"object",
@@ -85,7 +85,7 @@ fn a_key_s_hover_card_agrees_with_its_suggestion() {
             {"properties":{"git":true},"required":["git"]}
         ],
         "oneOf":[{"required":["version"]},{"required":["git"]}]}}}"#;
-    let compiled = crate::editor::diagnostics::Schema::compile(schema).unwrap();
+    let compiled = crate::editor::schema::Schema::compile(schema).unwrap();
     let bundle = build_schema(schema).unwrap();
     // Each text, and the lines of `name` and `version` in it.
     let cases = [

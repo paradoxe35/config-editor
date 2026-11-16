@@ -3,7 +3,7 @@ use super::super::super::completion::{
 };
 #[cfg(feature = "schema-validation")]
 use super::super::super::diagnostics::validate;
-use super::super::super::diagnostics::{SchemaBundle, build_schema};
+use super::super::super::schema::{SchemaBundle, build_schema};
 use super::super::super::language::ConfigLanguage;
 use super::super::super::highlight::{TokenKind, runs};
 use super::{TomlBehavior, highlight};
@@ -660,4 +660,17 @@ fn the_key_under_the_pointer_on_a_long_inline_table_costs_the_line_once() {
         Some("k9999".to_string())
     );
     assert!(growth.ratio() < 8.0, "2500 keys, then 10000: {growth}");
+}
+
+/// A `#` right after a value starts a comment (TOML reads `n = 1#c` as
+/// `1`): every reading of the line agrees, the comment hook, the comments
+/// and the caret's lexical state.
+#[test]
+fn a_hash_right_after_a_value_starts_a_comment_in_every_reading() {
+    let line = "n = 1#c";
+    assert_eq!(TomlBehavior.comment_start(line), Some(5));
+    assert_eq!(TomlBehavior.comments(&format!("{line}\n")), vec![5..7]);
+    let state = TomlBehavior.lexical_state(line, line.len());
+    assert_eq!((state.quote, state.in_comment), (None, true));
+    assert_eq!(TomlBehavior.parse(line).unwrap(), serde_json::json!({"n": 1}));
 }

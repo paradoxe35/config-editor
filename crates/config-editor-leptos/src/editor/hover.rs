@@ -6,15 +6,10 @@ use leptos::prelude::*;
 use super::a11y::{
     caret_position, caret_problem_docs, caret_problems_said, hover_text, problems_at_caret,
 };
-use super::completion::{KeyHover, key_hover};
+use super::completion::{FieldHit, KeyHover, Part, Values, field_at, field_docs};
 use super::components::HoverCard;
-use super::paths::split_line;
 use super::positioning::hover_card_anchor;
 use super::state::EditorState;
-
-/// How many characters before the caret `Ctrl+K Ctrl+I` looks for the key
-/// of the value it is on.
-const LOOK_BACK: usize = 400;
 
 impl EditorState {
     /// Shows the hover card for the key (or documented value) at the caret,
@@ -32,30 +27,20 @@ impl EditorState {
         let found = self.doc().text.with_untracked(|text| {
             let (line, column) = caret_position(text, caret);
             let (line, column) = (line - 1, column - 1);
-            self.config().schema.with_value(|schema| {
-                // On the key, just past its end, or on the `<`
-                // before an XML start tag's name; else on a value, its
-                // field's: the nearest key before the caret on its line.
-                let near = [
-                    Some(column),
-                    column.checked_sub(1),
-                    past_tag_open(self.behavior(), text, line, column),
-                ];
-                // Only where the line writes a key (read off the line
-                // alone): each look further reads the document.
-                let line_text = split_line(text, line).unwrap_or_default();
-                let before = (0..column.saturating_sub(1))
-                    .rev()
-                    .take(LOOK_BACK)
-                    .filter(|at| self.behavior().hover_key(line_text, *at).is_some());
-                near.into_iter()
-                    .flatten()
-                    .chain(before)
-                    .find_map(|at| key_hover(text, line, at, schema.as_deref(), self.behavior()))
-                    .map(|info| (line, info))
-            })
+            // On the key or the value, just past its end, or on the `<`
+            // before an XML start tag's name.
+            let field = [
+                Some(column),
+                column.checked_sub(1),
+                past_tag_open(self.behavior(), text, line, column),
+            ]
+            .into_iter()
+            .flatten()
+            .find_map(|at| field_at(text, line, at, self.behavior()))?;
+            let info = self.field_docs(text, &field)?;
+            Some((line, field, info))
         });
-        let Some((line, info)) = found else {
+        let Some((line, field, info)) = found else {
             return false;
         };
         // On a protected value its own message takes the place of its key's
@@ -64,7 +49,9 @@ impl EditorState {
             .doc()
             .text
             .with_untracked(|text| caret_position(text, caret).1 - 1);
-        if protected.is_some() && column >= info.start_column + info.key.chars().count() {
+        if protected.is_some()
+            && (field.part == Part::Value || column >= info.start_column + info.key.chars().count())
+        {
             return false;
         }
         self.hide_hover();
@@ -90,55 +77,76 @@ impl EditorState {
             problems: caret,
             anchor,
         });
+        self.popups().note_card_field(line, field);
         self.a11y().announce(said);
         true
     }
 
-    /// The docs for the key (or documented value) under character
-    /// `column` of zero-based `line`; on a value, its field's, as
-    /// `Ctrl+K Ctrl+I` and a tap there show them: the nearest key before it
-    /// on its line. None over blank space.
-    pub(super) fn docs_under_pointer(&self, line: usize, column: usize) -> Option<KeyHover> {
+    /// The field under character `column` of zero-based `line` (see
+    /// [`field_at`]): what the pointer's pause waits on, no schema read.
+    /// None over blank space.
+    pub(super) fn field_under_pointer(&self, line: usize, column: usize) -> Option<FieldHit> {
         self.doc().text.with_untracked(|text| {
             let line_text = text.split('\n').nth(line)?;
-            let chars: Vec<char> = line_text.chars().collect();
-            if chars
-                .get(column)
-                .is_none_or(|character| character.is_whitespace())
+            if line_text
+                .chars()
+                .nth(column)
+                .is_none_or(char::is_whitespace)
             {
                 return None;
             }
-            self.config().schema.with_value(|schema| {
-                let docs = |at| key_hover(text, line, at, schema.as_deref(), self.behavior());
-                // The nearest key before it: looked up only where the line
-                // writes one (read off the line alone), as each look reads
-                // the document (a pointer over a long comment looked up
-                // every word before it: seconds per move).
-                let keyed = |at: usize| self.behavior().hover_key(line_text, at).is_some();
-                docs(column).or_else(|| {
-                    word_starts(&chars, column).take(LOOK_BACK).find_map(|at| {
-                        [at, at + 1]
-                            .into_iter()
-                            .filter(|at| keyed(*at))
-                            .find_map(docs)
-                    })
-                })
-            })
+            field_at(text, line, column, self.behavior())
         })
     }
-}
 
-/// The columns before `column` in `chars` where a word or a run of
-/// non-blank characters starts, nearest first: where a key may start.
-fn word_starts(chars: &[char], column: usize) -> impl Iterator<Item = usize> + '_ {
-    let word = |character: char| character.is_alphanumeric() || character == '_';
-    (0..column.min(chars.len())).rev().filter(move |&at| {
-        let before = at.checked_sub(1).map(|before| chars[before]);
-        let here = chars[at];
-        let run = !here.is_whitespace() && before.is_none_or(char::is_whitespace);
-        let starts_word = word(here) && !before.is_some_and(word);
-        run || starts_word
-    })
+    /// The card's docs of `field` in `text`: its key's, and over a value
+    /// its field's with the value's own where the schema documents it.
+    pub(super) fn field_docs(&self, text: &str, field: &FieldHit) -> Option<KeyHover> {
+        self.config().schema.with_value(|schema| {
+            field_docs(
+                text,
+                field,
+                schema.as_deref()?,
+                self.behavior(),
+                Values::Any,
+            )
+        })
+    }
+
+    /// The docs the card shows for the field under character `column` of
+    /// zero-based `line`, as `Ctrl+K Ctrl+I` and a tap there show them.
+    /// None over blank space.
+    pub(super) fn docs_under_pointer(&self, line: usize, column: usize) -> Option<KeyHover> {
+        let field = self.field_under_pointer(line, column)?;
+        self.doc()
+            .text
+            .with_untracked(|text| self.field_docs(text, &field))
+    }
+
+    /// Whether the card shows the docs of `field` on zero-based `line`:
+    /// the field it was shown for, or another part of the line with the
+    /// same docs (an element's end tag, a key's value), looked up once.
+    pub(super) fn card_shows(&self, line: usize, field: &FieldHit) -> bool {
+        let popups = self.popups();
+        if popups.shows_field(line, field) {
+            return popups.with_card(|card| card.is_some());
+        }
+        let Some(card) = popups.with_card(|card| {
+            card.filter(|card| card.line == line)
+                .map(|card| card.info.clone())
+        }) else {
+            return false;
+        };
+        let same = self
+            .doc()
+            .text
+            .with_untracked(|text| self.field_docs(text, field))
+            .is_some_and(|info| card.same_docs(&info));
+        if same {
+            popups.note_card_field(line, field.clone());
+        }
+        same
+    }
 }
 
 /// The column of the key after the markup opening it at character
@@ -162,7 +170,7 @@ mod tests {
     use crate::editor::completion::hovered_key;
     use crate::editor::languages::Language;
 
-    /// QA 20: `Ctrl+K Ctrl+I` with the caret on the `<` of an XML tag found
+    /// `Ctrl+K Ctrl+I` with the caret on the `<` of an XML tag found
     /// nothing: the name after the `<` is the key there.
     #[test]
     fn the_caret_on_a_tags_open_bracket_finds_its_element() {

@@ -35,7 +35,8 @@ use std::collections::HashMap;
 use jsonschema::error::{ValidationError, ValidationErrorKind};
 use serde_json::{Map, Value, json};
 
-use super::{DATA, MARK, NAMED, mentions_key};
+use super::{MARK, mentions_key};
+use crate::editor::schema::{Holds, holds};
 
 /// The keyword of [`Form::Explained`].
 pub(super) const KEYWORD: &str = "x-config-editor-ref-explained";
@@ -213,7 +214,7 @@ impl Walk<'_> {
                 }
                 for (key, member) in members.iter_mut() {
                     let key = key.as_str();
-                    if DATA.contains(&key) || key == "not" {
+                    if holds(key) == Holds::Data || key == "not" {
                         continue;
                     }
                     if key == "$ref" || (key == "$dynamicRef" && self.form != Form::Explained) {
@@ -225,7 +226,7 @@ impl Walk<'_> {
                         }
                         continue;
                     }
-                    if NAMED.contains(&key) {
+                    if holds(key) == Holds::Named {
                         if let Value::Object(named) = member {
                             for schema in named.values_mut() {
                                 self.visit(schema, definitions, false);

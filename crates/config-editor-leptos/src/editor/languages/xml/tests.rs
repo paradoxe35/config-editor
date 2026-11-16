@@ -3,7 +3,7 @@ use super::super::super::completion::{
 };
 #[cfg(feature = "schema-validation")]
 use super::super::super::diagnostics::validate;
-use super::super::super::diagnostics::{SchemaBundle, build_schema};
+use super::super::super::schema::{SchemaBundle, build_schema};
 use super::super::super::language::ConfigLanguage;
 use super::super::super::highlight::{TokenKind, runs};
 use super::XmlBehavior;
@@ -724,9 +724,9 @@ fn a_very_deep_document_is_planned_without_quadratic_memory() {
     assert!(XmlBehavior.string_body_lines(&source).is_empty());
 }
 
-/// QA 21 (U21-6): the caret's place, read without the spans of every name
-/// and value (each keystroke reads it), is the one the full scan finds, at
-/// every place of a document written in XML's forms.
+/// The caret's place, read without the spans of every name and value
+/// (each keystroke reads it), is the one the full scan finds, at every
+/// place of a document written in XML's forms.
 #[test]
 fn the_caret_scan_without_spans_finds_the_place_the_full_scan_does() {
     use super::scan::scan_text;
@@ -748,19 +748,23 @@ fn the_caret_scan_without_spans_finds_the_place_the_full_scan_does() {
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
-/// The last editor unmounted, what XML keeps of the last text it read goes
-/// (normal round 22's `D22.memory-1`: a closed editor's scan stayed until the
-/// next XML text).
+/// The last editor unmounted, what XML read of its last text goes: a
+/// closed editor's scan does not stay until the next XML text.
 #[test]
 fn the_last_editor_gone_drops_what_xml_keeps() {
-    use super::{plan::plan_kept, parse::spans_kept, scan::scan_kept, tokens::tokens_kept};
+    use crate::editor::parse_cache::any_kept;
+    let kept = || {
+        any_kept::<super::scan::Scan>()
+            || any_kept::<Vec<super::tokens::Token>>()
+            || any_kept::<super::plan::PathPlan>()
+    };
     let text = "<r>\n  <a>1</a>\n  <b k=\"v\">2</b>\n</r>\n";
     crate::editor::parse_cache::hold();
     let behavior = XmlBehavior;
     let _ = behavior.completion_context(text, 12);
     let _ = behavior.value_span(text, "/r/b");
     let _ = behavior.key_span(text, "/r/a");
-    assert!(scan_kept() || spans_kept() || tokens_kept() || plan_kept(), "something kept");
+    assert!(kept(), "something kept");
     crate::editor::parse_cache::release();
-    assert!(!scan_kept() && !spans_kept() && !tokens_kept() && !plan_kept());
+    assert!(!kept());
 }

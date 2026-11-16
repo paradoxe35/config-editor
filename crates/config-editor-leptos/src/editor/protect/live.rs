@@ -8,21 +8,21 @@ use std::sync::Arc;
 use leptos::prelude::*;
 
 use super::super::codec;
-use super::super::diagnostics::SchemaBundle;
-use super::super::edit::{Edit, Origin};
+use super::super::edit::{Change, CodeUnits, Edit, Origin};
 use super::super::edit_as::SaveError;
 use super::super::language::ConfigLanguage;
 use super::super::languages::Language;
 use super::super::parse_cache;
 use super::super::paths::{FieldPath, TextRange};
 use super::super::popups::PopupState;
+use super::super::schema::SchemaBundle;
 use super::super::secret_options::SecretOptions;
 use super::super::state::EditorState;
 use super::carry::Moves;
 use super::follow::follow_ranges;
 use super::foreign::DocumentPlaceholders;
 use super::glued::{first_glued, glued_elsewhere, glued_in_save, glued_message};
-use super::guard::{Blocked, check_at};
+use super::guard::{Blocked, Carets, judge};
 use super::host_ranges::{HostRanges, offsets};
 use super::locate::LineIndex;
 use super::locks::{Protected, Sources, protect};
@@ -49,13 +49,26 @@ pub(crate) struct Marks {
     /// The placeholder a mouse press landed inside, until it is released.
     pub(crate) pressed: Option<Range<usize>>,
     /// The last change event was held back (see
-    /// [`EditorState::hold_change`]): new locks from the host that release
+    /// [`EditorState::note_held_back`]): new locks from the host that release
     /// it send the text on screen then.
     held_back: bool,
-    /// The last edit followed: the length (bytes) of the text it made and
-    /// the caret it left there (UTF-16), so the locks follow it as the
-    /// guard judged it (see `locks::Sources::caret`).
-    followed: Option<(usize, usize)>,
+    /// The last edit followed, so the locks follow it as the guard judged
+    /// it (see `locks::Sources::caret` and `change`).
+    followed: Option<Followed>,
+    /// The locks the guard found for the text of the edit it took (see
+    /// `guard::judge`): the memo of locks takes them for that text instead
+    /// of finding them again, so the editor holds the spans as judged.
+    foreseen: Option<(String, Protected)>,
+}
+
+/// An edit the locks follow: the length (bytes) of the text it made, the
+/// caret it left there (UTF-16; none for an undo or redo) and what it
+/// recorded it did (`Edit::change`, in UTF-16).
+#[derive(Clone)]
+struct Followed {
+    len: usize,
+    caret: Option<usize>,
+    change: Option<Arc<Change<CodeUnits>>>,
 }
 
 /// The protection signals of one editor.
@@ -93,7 +106,7 @@ pub(crate) struct Inputs {
     pub(crate) edit_language: RwSignal<Language>,
     pub(crate) host_language: Language,
     pub(crate) schema: Option<Arc<SchemaBundle>>,
-    pub(crate) host_text: StoredValue<String>,
+    pub(crate) host_text: super::super::sync::HostTextReader,
     pub(crate) popups: PopupState,
 }
 
@@ -163,10 +176,36 @@ impl ProtectState {
                     Vec::new()
                 };
                 source.with(|text| {
-                    let caret = marks
-                        .with_value(|marks| marks.followed)
-                        .filter(|(length, _)| *length == text.len())
-                        .map(|(_, caret)| caret);
+                    let followed = marks
+                        .with_value(|marks| marks.followed.clone())
+                        .filter(|followed| followed.len == text.len());
+                    let caret = followed.as_ref().and_then(|followed| followed.caret);
+                    let change = followed
+                        .as_ref()
+                        .and_then(|followed| followed.change.clone());
+                    // Taken only for the text it was found for: the memo may
+                    // run between the check and the write (the host's
+                    // ranges followed first), on the text before.
+                    let fits = |(before, foreseen): &(String, Protected)| {
+                        previous.is_some_and(|previous| previous.text == *before)
+                            && foreseen_fits(foreseen, previous, text, &fields, &local_ranges)
+                            && foreseen.range_fields == range_fields
+                            && foreseen.marking == marking.is_some()
+                    };
+                    let foreseen = marks
+                        .try_update_value(|marks| {
+                            marks
+                                .foreseen
+                                .as_ref()
+                                .is_some_and(fits)
+                                .then(|| marks.foreseen.take())
+                        })
+                        .flatten()
+                        .flatten();
+                    if let Some((_, mut protected)) = foreseen {
+                        protected.epoch = epoch;
+                        return Arc::new(protected);
+                    }
                     let mut protected = protect(
                         edit.behavior(),
                         text,
@@ -178,6 +217,7 @@ impl ProtectState {
                             range_fields: &range_fields,
                             previous,
                             caret,
+                            change: change.as_deref(),
                         },
                     );
                     protected.epoch = epoch;
@@ -348,6 +388,41 @@ fn text_ranges_kept(
     Ok(())
 }
 
+/// What `edit` recorded it did, in UTF-16 code units of its text before.
+fn recorded(edit: &Edit) -> Option<Change<CodeUnits>> {
+    edit.change()?.in_utf16(&edit.before)
+}
+
+/// Whether the locks the guard found (`foreseen`) are those the memo would
+/// find for `text`: from the same locks before, paths and host ranges.
+fn foreseen_fits(
+    foreseen: &Protected,
+    previous: Option<&Protected>,
+    text: &str,
+    paths: &[FieldPath],
+    ranges: &[Range<usize>],
+) -> bool {
+    let Some(previous) = previous else {
+        return false;
+    };
+    let placed: Vec<Range<usize>> = foreseen
+        .locks
+        .iter()
+        .filter(|lock| lock.pointer.is_none())
+        .flat_map(|lock| lock.ranges.iter().cloned())
+        .collect();
+    let wanted: Vec<&Range<usize>> = ranges.iter().filter(|range| !range.is_empty()).collect();
+    foreseen.text == text
+        && foreseen.origin == previous.origin
+        && foreseen.paths.len() == paths.len()
+        && foreseen
+            .paths
+            .iter()
+            .zip(paths)
+            .all(|(pointer, path)| *pointer == path.to_pointer())
+        && placed.iter().eq(wanted)
+}
+
 /// Whether the locks memo has news for its readers: the text it was read
 /// from and the documents alone do not count.
 fn locks_changed(old: Option<&Arc<Protected>>, new: Option<&Arc<Protected>>) -> bool {
@@ -409,7 +484,7 @@ impl EditorState {
         let text = self.doc().text.get_untracked();
         let edit = self.sync().edit_language.get_untracked();
         if edit != self.config().host_language {
-            if text != self.sync().synced_edit.get_value() {
+            if !self.sync().is_synced(&text) {
                 super::super::sync::convert_now(*self, text, edit);
             }
             return;
@@ -419,35 +494,44 @@ impl EditorState {
         }
     }
 
-    /// Whether the change event for the text on screen waits (see
-    /// [`Self::changes_held`]), noting it for [`Self::locks_changed_by_host`].
-    pub(crate) fn hold_change(&self) -> bool {
-        let held = self.changes_held();
+    /// Notes whether the host's gate (see `sync::gate`) held the last text
+    /// back, for [`Self::locks_changed_by_host`].
+    pub(crate) fn note_held_back(&self, held: bool) {
         self.protect()
             .marks
             .update_value(|marks| marks.held_back = held);
-        held
     }
 
     /// The edit pipeline's check stage: whether `edit` keeps every lock;
     /// when not, why the field is locked.
     pub(crate) fn check_edit(&self, edit: &Edit) -> Result<(), String> {
-        self.protect()
+        let change = recorded(edit);
+        let carets = Carets {
+            caret: Some(edit.caret()),
+            written: edit.written_end(),
+            change: change.as_ref(),
+        };
+        let followed = self
+            .protect()
             .protected
             .with_untracked(|protected| {
                 self.config().schema.with_value(|schema| {
-                    check_at(
+                    judge(
                         self.behavior(),
                         schema.as_deref().map(|bundle| &bundle.schema),
                         protected,
                         (&edit.before, &edit.text),
-                        edit.written_end(),
+                        carets,
                     )
                 })
             })
             .map_err(|blocked: Blocked| {
                 self.strings_untracked(|strings| blocked.message(strings))
             })?;
+        let foreseen = followed.map(|followed| (edit.before.clone(), followed));
+        self.protect()
+            .marks
+            .update_value(|marks| marks.foreseen = foreseen);
 
         match self.glued_by(&edit.before, &edit.text) {
             Some(pointer) => {
@@ -547,15 +631,20 @@ impl EditorState {
     /// ranges, the secret placeholders).
     pub(crate) fn follow_edit(&self, edit: &Edit) {
         let (before, after, caret) = (edit.before.as_str(), edit.text.as_str(), edit.caret());
+        let change = recorded(edit).map(Arc::new);
         self.protect().marks.update_value(|marks| {
-            marks.followed = edit.written_end().map(|end| (after.len(), end));
+            marks.followed = Some(Followed {
+                len: after.len(),
+                caret: edit.written_end(),
+                change: change.clone(),
+            });
         });
-        self.follow_tokens(before, after, caret);
+        self.follow_tokens(before, after, caret, change.as_deref());
         if self.protect().ranges.with_untracked(Vec::is_empty) {
             return;
         }
         self.protect().ranges.update(|ranges| {
-            *ranges = follow_ranges(ranges, before, after, caret);
+            *ranges = follow_ranges(ranges, before, after, caret, change.as_deref());
         });
     }
 
@@ -798,6 +887,7 @@ impl EditorState {
                     range_fields: &[],
                     previous: None,
                     caret: None,
+                    change: None,
                 },
             );
             check_save(behavior, reading, old, new, &pointers)?;

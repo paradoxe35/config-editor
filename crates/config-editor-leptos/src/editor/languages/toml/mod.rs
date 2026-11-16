@@ -19,12 +19,14 @@ mod spans;
 mod lines;
 mod suggestions;
 mod editing;
+mod lexical;
 mod colors;
 mod table_spacing;
 // The fold ranges (the `folding` feature).
 #[cfg(feature = "folding")]
 mod folding;
 
+use crate::editor::paths::{byte_at_column, first_line_span, line_column, span_between};
 use style::*;
 use parse::*;
 use spans::*;
@@ -46,7 +48,6 @@ use super::super::parse_cache::string_bodies;
 use std::collections::{HashMap, HashSet};
 
 pub(super) struct TomlBehavior;
-
 
 /// A TOML scalar edit (see `ConfigLanguage::edits_one_scalar`): a
 /// `key = value` line read as a document of its own; the edit adds and
@@ -320,6 +321,10 @@ impl ConfigLanguage for TomlBehavior {
         Lexical { quote, in_comment }
     }
 
+    /// A `#` outside a string, wherever it is (see `lexical`).
+    fn comment_start(&self, line: &str) -> Option<usize> {
+        lexical::read_line(line, line.len()).comment
+    }
 
     fn serialize(&self, value: &Value, previous: Option<&str>) -> Result<String, String> {
         use super::super::codec::first_pointer;
@@ -350,7 +355,6 @@ impl ConfigLanguage for TomlBehavior {
         })
     }
 
-
     /// `inf`, `-inf` and `nan`.
     fn writes_non_finite(&self) -> bool {
         true
@@ -378,16 +382,7 @@ impl ConfigLanguage for TomlBehavior {
     }
 }
 
-/// One-based line and character column of a byte offset.
-fn line_column(source: &str, byte: usize) -> (usize, usize) {
-    crate::editor::paths::line_column(source, byte)
-}
-
-
 // Conversion
-
-
-
 
 #[cfg(test)]
 mod tests;

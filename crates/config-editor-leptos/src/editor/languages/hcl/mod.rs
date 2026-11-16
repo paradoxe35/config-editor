@@ -34,6 +34,7 @@ mod moved_maps;
 #[cfg(feature = "folding")]
 mod folding;
 
+use crate::editor::paths::{byte_at_column, first_line_span, line_column, span_between, utf16_len};
 use tokens::*;
 use scan::*;
 use parse::*;
@@ -58,7 +59,6 @@ use std::collections::{HashMap, HashSet};
 
 pub(super) struct HclBehavior;
 
-
 /// An HCL scalar edit (see `ConfigLanguage::edits_one_scalar`): a
 /// `key = value` line read as a body of its own; the edit adds and removes
 /// no quote or escape (a heredoc's text), template, bracket or comma, and
@@ -70,10 +70,6 @@ const SCALAR_LINE: super::scalar_lines::LineRules = super::scalar_lines::LineRul
 };
 
 impl ConfigLanguage for HclBehavior {
-    fn forget_kept(&self) {
-        scan::forget_scan();
-    }
-
     fn edits_one_scalar(&self, source: &str, range: std::ops::Range<usize>, inserted: &str) -> bool {
         super::scalar_lines::one_scalar_line(self, source, range, inserted, &SCALAR_LINE).is_some()
     }
@@ -393,7 +389,6 @@ impl ConfigLanguage for HclBehavior {
             .then(|| "}".to_string())
     }
 
-
     /// An object whose keys are all identifiers becomes a block (`web { … }`),
     /// anything else an attribute. `hcl-rs` escapes `${` as `$${`.
     fn serialize(&self, value: &Value, previous: Option<&str>) -> Result<String, String> {
@@ -435,7 +430,6 @@ impl ConfigLanguage for HclBehavior {
         let block_body = rest.starts_with('{') || (rest.starts_with('"') && rest.contains('{'));
         rest.starts_with(':') || (rest.starts_with('=') && !rest.starts_with("==")) || block_body
     }
-
 
     #[cfg(feature = "folding")]
     fn fold_ranges(&self, source: &str) -> Vec<super::super::language::FoldRange> {
@@ -489,16 +483,6 @@ impl ConfigLanguage for HclBehavior {
         out.finish()
     }
 }
-
-fn utf16(text: &str) -> usize {
-    text.encode_utf16().count()
-}
-
-/// One-based line and character column of a byte offset.
-fn line_column(source: &str, byte: usize) -> (usize, usize) {
-    crate::editor::paths::line_column(source, byte)
-}
-
 
 #[cfg(test)]
 mod tests;

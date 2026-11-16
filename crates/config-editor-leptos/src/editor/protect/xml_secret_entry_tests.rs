@@ -10,9 +10,9 @@
 use leptos::prelude::*;
 
 use super::super::Language;
-use super::super::diagnostics::build_schema;
 use super::super::host_editing::SaveRequest;
 use super::super::save_matrix::report;
+use super::super::schema::build_schema;
 use super::super::state::EditorState;
 use super::super::test_state::TestEditor;
 use super::guarantee_tests::problems;

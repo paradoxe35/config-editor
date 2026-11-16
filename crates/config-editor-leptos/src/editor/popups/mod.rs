@@ -27,7 +27,9 @@ mod under;
 use leptos::html::Div;
 use leptos::prelude::*;
 
+use super::completion::FieldHit;
 use super::components::HoverCard;
+use super::positioning::CardAnchor;
 use super::state::EditorState;
 use crate::reactive::later::{self, Timeout};
 
@@ -39,6 +41,16 @@ pub(super) use outside_press::{close_popups_on_escape_over_them, close_popups_on
 pub(super) use pointer::{back_on_text, enter_popup, list_wheel, popup_wheel};
 
 use machine::{Machine, Opener};
+
+/// A card waiting out the pointer's pause: the field under the pointer on
+/// zero-based `line` (its docs are read when the pause is over) and where
+/// the card would point.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct PendingCard {
+    pub(crate) line: usize,
+    pub(crate) field: FieldHit,
+    pub(crate) anchor: CardAnchor,
+}
 
 /// The popup open.
 #[derive(Clone)]
@@ -56,7 +68,11 @@ pub(crate) struct PopupState {
     /// The one popup open.
     open: RwSignal<Option<Popup>>,
     /// The pointer's phase and its timer.
-    machine: RwSignal<Machine<HoverCard>>,
+    machine: RwSignal<Machine<PendingCard>>,
+    /// A field the card open shows the docs of, and its line: the one it
+    /// was shown for, or another part of its line found to have the same
+    /// docs (looked up once).
+    shown_field: StoredValue<Option<(usize, FieldHit)>>,
     /// The lock tip, and the timer a refusal's goes with.
     #[cfg(feature = "protect")]
     lock: RwSignal<Option<LockTip>>,
@@ -81,6 +97,7 @@ impl PopupState {
         Self {
             open: RwSignal::new(None),
             machine: RwSignal::new(Machine::default()),
+            shown_field: StoredValue::new(None),
             #[cfg(feature = "protect")]
             lock: RwSignal::new(None),
             #[cfg(feature = "protect")]
@@ -117,6 +134,9 @@ impl PopupState {
         let Some(old) = self.open.try_update(|open| std::mem::replace(open, popup)) else {
             return;
         };
+        if matches!(old, Some(Popup::Card { .. })) {
+            self.shown_field.set_value(None);
+        }
         match old {
             Some(_) if closes => {
                 self.machine.update(|machine| {
@@ -169,6 +189,22 @@ impl PopupState {
         })
     }
 
+    /// Notes that the card open shows the docs of `field` on zero-based
+    /// `line`.
+    pub(super) fn note_card_field(&self, line: usize, field: FieldHit) {
+        self.shown_field.set_value(Some((line, field)));
+    }
+
+    /// Whether the card open is known to show the docs of `field` on
+    /// zero-based `line`.
+    pub(super) fn shows_field(&self, line: usize, field: &FieldHit) -> bool {
+        self.shown_field.with_value(|shown| {
+            shown
+                .as_ref()
+                .is_some_and(|(at, shown)| *at == line && shown == field)
+        })
+    }
+
     /// Whether the popup shown lets the pointer through (tracked).
     pub(super) fn passing(&self) -> bool {
         self.machine.with(Machine::passing)
@@ -178,7 +214,7 @@ impl PopupState {
 impl EditorState {
     /// Runs `change` on the pointer's phase, then starts the timer of a
     /// phase it entered (the one before's cancelled).
-    fn step<R>(&self, change: impl FnOnce(&mut Machine<HoverCard>) -> R) -> Option<R> {
+    fn step<R>(&self, change: impl FnOnce(&mut Machine<PendingCard>) -> R) -> Option<R> {
         let machine = self.popups().machine;
         let (result, restart) = machine.try_update(|machine| {
             let result = change(machine);
@@ -198,7 +234,7 @@ impl EditorState {
     }
 
     /// The pointer's phase, read.
-    fn with_machine<R>(&self, read: impl FnOnce(&Machine<HoverCard>) -> R) -> R {
+    fn with_machine<R>(&self, read: impl FnOnce(&Machine<PendingCard>) -> R) -> R {
         self.popups().machine.with_untracked(read)
     }
 }

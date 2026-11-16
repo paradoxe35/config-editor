@@ -7,9 +7,10 @@ use std::sync::Arc;
 
 use leptos::prelude::*;
 
-use super::super::diagnostics::{Diagnostic, Severity, build_schema};
+use super::super::diagnostics::{Diagnostic, Severity};
 use super::super::edit::Edit;
 use super::super::languages::Language;
+use super::super::schema::build_schema;
 use super::super::state::EditorState;
 use super::super::sync::convert_now;
 use super::super::test_state::TestEditor;
