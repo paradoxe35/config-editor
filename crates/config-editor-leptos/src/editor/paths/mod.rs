@@ -41,11 +41,7 @@ pub(crate) use written::{inside, whole_value};
 
 use super::codec::inline_location;
 use super::completion::{hovered_key, path_with_key};
-use super::data_reading::DataReading;
-#[cfg(feature = "protect")]
-pub(crate) use super::data_reading::lone_spelling;
-#[cfg(not(feature = "protect"))]
-use super::data_reading::lone_spelling;
+use super::data_reading::{DataReading, lone_spelling};
 use super::keyboard::utf16_to_byte_index;
 use super::language::{ConfigLanguage, Repetition, Span};
 use super::work_count::{Work, note};
