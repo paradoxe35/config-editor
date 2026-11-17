@@ -272,7 +272,10 @@ fn asks_list_items(schema: &Value) -> bool {
 /// from those, by name and by each pattern its key matches) that type it
 /// apart or list only values another one's `type` refuses
 /// (`allOf: [{enum: [true]}, {type: string}]`; `properties: {x_a:
-/// {const: 0}}` beside `patternProperties: {^x_: {type: string}}`).
+/// {const: 0}}` beside `patternProperties: {^x_: {type: string}}`; a
+/// required key's dependent schema typing another required key a number
+/// where `additionalProperties` types it a string). The dependent schemas
+/// of the required keys count among the schemas applying together.
 fn meets_nothing(schema: &Value) -> bool {
     let mut found = false;
     walk(schema, &mut |node| {
@@ -283,7 +286,7 @@ fn meets_nothing(schema: &Value) -> bool {
         let always = node
             .get("if")
             .is_some_and(|condition| *condition == json!({}) || *condition == json!(true));
-        let together: Vec<&Value> = std::iter::once(node)
+        let mut together: Vec<&Value> = std::iter::once(node)
             .chain(
                 node.get("allOf")
                     .and_then(Value::as_array)
@@ -292,6 +295,26 @@ fn meets_nothing(schema: &Value) -> bool {
             )
             .chain(node.get("then").filter(|_| always))
             .collect();
+        // A key the schemas require is always there, so the dependent
+        // schema it brings applies too.
+        let required: Vec<&str> = together
+            .iter()
+            .filter_map(|source| source.get("required").and_then(Value::as_array))
+            .flatten()
+            .filter_map(Value::as_str)
+            .collect();
+        let dependent: Vec<&Value> = together
+            .iter()
+            .flat_map(|source| {
+                ["dependentSchemas", "dependencies"]
+                    .into_iter()
+                    .filter_map(|keyword| source.get(keyword).and_then(Value::as_object))
+            })
+            .flatten()
+            .filter(|(key, schema)| required.contains(&key.as_str()) && schema.is_object())
+            .map(|(_, schema)| schema)
+            .collect();
+        together.extend(dependent);
         found |= apart(&together);
         let keys: std::collections::BTreeSet<&String> = together
             .iter()

@@ -849,3 +849,38 @@ fn a_key_whose_if_refuses_a_value_beside_it_is_not_suggested() {
         json!({"b": "8"}),
     );
 }
+
+/// A required child object an only `oneOf` option describes is filled the
+/// same nested inside a required object (where the caret went to an
+/// earlier value, so its first key is written whole) as at the root: met
+/// where some object meets it; else its field no value meets (`c` a
+/// number by a required key's dependent schema and a string by
+/// `additionalProperties`) is the documented class, found through the
+/// dependent schema.
+#[test]
+fn a_fill_nested_under_a_one_of_option_is_met_or_has_a_field_no_value_meets() {
+    let option = |properties: Value| {
+        json!({"oneOf": [{"dependentSchemas": {"d": {"properties": {"c": {"type": "number"}}}},
+            "additionalProperties": {"type": "string", "pattern": "^[a-z]+$"},
+            "properties": properties, "required": ["d", "c"]}]})
+    };
+    let nested = |size: Value| {
+        json!({"properties": {"size": {"properties": {"b": {"enum": ["s"]}, "size": size},
+            "required": ["b", "size"]}}})
+    };
+    // `c` is named a number: met.
+    holds_everywhere(
+        super::fill::check,
+        nested(option(json!({"c": {"type": "number"}}))),
+        json!({"size": []}),
+        json!(null),
+    );
+    // `c` is met by no value.
+    holds_everywhere_but_known(
+        "fill",
+        super::fill::check,
+        nested(option(json!({}))),
+        json!({"size": []}),
+        json!(null),
+    );
+}
