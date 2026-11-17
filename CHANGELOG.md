@@ -45,13 +45,12 @@ versions move together.
 
 ### Reading XML by the schema
 
-- With a schema, XML attribute values and element text are read as the type
-  the schema gives their place instead of guessed: `1.50`, `+5`, `007` and
-  `1e3` are numbers where it wants a number, `true`, `null` and `80` stay
-  strings where it wants a string, and the spellings a schema lists for a
-  boolean (`"x-true"`, `"x-false"`) are booleans. Saves keep the text as written.
+- The spellings a schema lists for a boolean (`"x-true"`, `"x-false"`, as XSD
+  has `1` and `0`) are read as booleans, and `"x-whitespace"` (replace,
+  collapse) is applied to the value that is checked. Saves keep the text as
+  written.
 - A custom language whose values are all text gets the same reading
-  (`Scalars::Text`; `scalars: "text"` in JavaScript).
+  (`LanguageTraits::scalars_are_text`; `scalars: "text"` in JavaScript).
 - A property the schema marks `"xml": {"attribute": true}` is written as an
   attribute where the text does not write it yet (a conversion to XML, a key
   added in another view), and completion offers attributes in a start tag
