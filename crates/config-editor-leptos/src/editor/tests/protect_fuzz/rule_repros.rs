@@ -698,3 +698,62 @@ fn an_entry_typed_after_an_item_moved_out_of_a_locked_xml_list_is_taken() {
         assert_ok(&setup, &acts);
     }
 }
+
+/// Over-refusal: in XML, the locked item of a list moved out of it (the
+/// list left with one element, which its host path `…/key/0` now names, so
+/// it reads as the lone `…/key`), another item added, then an entry typed a
+/// key at a time: taken. The host path keeps the one spelling it is held
+/// under, so no second field (and no second hold, the lone element's,
+/// which nothing re-places once the list has two items) is made of it.
+#[test]
+fn xml_list_items_outside_their_list_next_to_a_held_item_take_an_entry() {
+    for (pairs, acts) in [
+        (
+            false,
+            vec![
+                Act::Line {
+                    line: 61706,
+                    command: 1,
+                },
+                Act::Entry {
+                    anchor: 1,
+                    name: 2,
+                    paste: true,
+                },
+                Act::Entry {
+                    anchor: 3,
+                    name: 15,
+                    paste: false,
+                },
+            ],
+        ),
+        (
+            true,
+            vec![
+                Act::Line {
+                    line: 53977,
+                    command: 0,
+                },
+                Act::PasteCopy { line: 44105 },
+                Act::Entry {
+                    anchor: 2,
+                    name: 8,
+                    paste: true,
+                },
+                Act::Entry {
+                    anchor: 1,
+                    name: 4,
+                    paste: false,
+                },
+            ],
+        ),
+    ] {
+        let setup = Setup {
+            case: 7,
+            lock: Lock::Path,
+            host: None,
+            pairs,
+        };
+        assert_ok(&setup, &acts);
+    }
+}

@@ -132,11 +132,19 @@ fn marked_unparsed(reading: &Reading<'_>, schema: &Value) -> Vec<(String, Reason
 pub(super) fn outermost(
     reading: &Reading<'_>,
     marked: &[(String, Reason)],
+    held: &dyn Fn(&str) -> bool,
 ) -> Vec<(String, Reason)> {
     let mut fields = marked.to_vec();
     let mut known: HashSet<String> = fields.iter().map(|(pointer, _)| pointer.clone()).collect();
     for path in reading.sources.paths {
-        let pointer = written_spelling(reading, path.to_pointer());
+        // A path held keeps the spelling it was held under: another
+        // spelling of it would be a second field, held and locked on the
+        // text its path now names (the lone element a list was cut to),
+        // which is not the field it holds.
+        let pointer = match path.to_pointer() {
+            pointer if held(&pointer) => pointer,
+            pointer => written_spelling(reading, pointer),
+        };
         let written = reading
             .document
             .as_ref()

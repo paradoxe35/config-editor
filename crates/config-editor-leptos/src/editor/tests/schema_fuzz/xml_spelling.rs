@@ -76,23 +76,8 @@ fn classes_at(
     );
     pointers
         .iter()
-        .map(|inner| {
-            let shown = Shown {
-                value: view.pointer(inner)?,
-                parent: inner
-                    .rsplit_once('/')
-                    .and_then(|(parent, _)| view.pointer(parent)),
-            };
-            spelling(sides, &format!("{at}{inner}"), shown, listed)
-        })
+        .map(|inner| spelling(sides, &format!("{at}{inner}"), view.pointer(inner)?, listed))
         .collect()
-}
-
-/// A value of the view, and the value holding it.
-#[derive(Clone, Copy)]
-struct Shown<'a> {
-    value: &'a Value,
-    parent: Option<&'a Value>,
 }
 
 /// The pointers at which `saved` and `view` differ, each the outermost
@@ -128,11 +113,10 @@ fn differing(saved: &Value, view: &Value, at: &mut String, out: &mut Vec<String>
 }
 
 /// Which documented spelling explains the saved value at `at`, which the
-/// view holds as `shown`, if one does.
-fn spelling(sides: &Sides<'_>, at: &str, shown: Shown<'_>, listed: bool) -> Option<&'static str> {
-    let view = shown.value;
+/// view holds as `view`, if one does.
+fn spelling(sides: &Sides<'_>, at: &str, view: &Value, listed: bool) -> Option<&'static str> {
     let saved = sides.saved.pointer(at)?;
-    let before = held(sides, at, shown.parent, saved);
+    let before = held(sides, at, saved);
     let into_xml = sides.host == Language::XML;
     let from_xml = sides.edit == Language::XML;
     match (before, view, saved) {
@@ -171,20 +155,17 @@ fn spelling(sides: &Sides<'_>, at: &str, shown: Shown<'_>, listed: bool) -> Opti
 }
 
 /// The host's value at `at` before the save, or, where the view renamed a
-/// key to it, the value of that key (one of the same object the view's
-/// object `shown` no longer has) of the saved value's kind.
-fn held<'a>(
-    sides: &Sides<'a>,
-    at: &str,
-    shown: Option<&Value>,
-    saved: &Value,
-) -> Option<&'a Value> {
+/// key to it (or a key above it, each level followed the same way), the
+/// value of that key (one of the same object the view's object there no
+/// longer has) of the saved value's kind.
+fn held<'a>(sides: &Sides<'a>, at: &str, saved: &Value) -> Option<&'a Value> {
     if let Some(before) = sides.before.pointer(at) {
         return Some(before);
     }
     let (parent, _) = at.rsplit_once('/')?;
-    match (sides.before.pointer(parent), shown) {
-        (Some(Value::Object(held)), Some(Value::Object(shown))) => held
+    let holder = held(sides, parent, sides.saved.pointer(parent)?)?;
+    match (holder, sides.view.pointer(parent)) {
+        (Value::Object(held), Some(Value::Object(shown))) => held
             .iter()
             .find(|(key, value)| kind(value) == kind(saved) && !shown.contains_key(*key))
             .map(|(_, value)| value),
@@ -346,6 +327,13 @@ mod tests {
         // A list renamed and cut to one item; a list typed over a string.
         let renamed = (json!({"a": [0, 0]}), json!({"b": 0}), json!({"b": [0]}));
         assert_eq!(class(&any, false, renamed), Some(KEPT_LIST));
+        // The same through two renames (a key and the one inside it).
+        let twice = (
+            json!({"name": {"b": [0]}}),
+            json!({"x_one": {"port": 0}}),
+            json!({"x_one": {"port": [0]}}),
+        );
+        assert_eq!(class(&any, false, twice), Some(KEPT_LIST));
         let over_text = (json!({"a": "x"}), json!({"a": "y"}), json!({"a": ["y"]}));
         assert_eq!(class(&any, false, over_text), None);
 
