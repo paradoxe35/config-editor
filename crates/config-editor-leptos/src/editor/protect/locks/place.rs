@@ -221,6 +221,11 @@ impl<'r, 'a> Placer<'r, 'a> {
             .collect()
     }
 
+    /// Whether the field at `pointer` is held (see `Protected::held`).
+    pub(super) fn holds(&self, pointer: &str) -> bool {
+        self.held.iter().any(|pin| pin.pointer == pointer)
+    }
+
     /// Holds a locked field with no value pinned yet (the host's text never
     /// parsed, or the host named its path after edits were made) that the
     /// text, now parsing, reads otherwise than the host's text (its parse,
