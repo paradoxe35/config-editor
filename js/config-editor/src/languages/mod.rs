@@ -14,7 +14,7 @@ use crate::typings::CustomLanguage;
 use crate::values::{field, string_field};
 
 mod assist;
-mod interned;
+pub(crate) mod interned;
 mod js_language;
 mod ranges;
 mod syntax;
@@ -97,6 +97,7 @@ const DEFINITION_KEYS: &[&str] = &[
     "insertKey",
     "keyAt",
     "multilineRanges",
+    "scalars",
 ];
 
 /// A list of strings, or one string, as `name` (absent is empty).
@@ -123,6 +124,20 @@ fn string_list(value: &JsValue, name: &str) -> Result<Vec<String>, JsError> {
                 .ok_or_else(|| JsError::new(&format!("{name} must hold non-empty strings")))
         })
         .collect()
+}
+
+/// A definition's `scalars`: `"typed"` (the default) or `"text"` (every value
+/// `parse` gives is text, which the schema types where it says a type).
+fn scalars_are_text(definition: &JsValue) -> Result<bool, JsError> {
+    let scalars = field(definition, "scalars");
+    if scalars.is_undefined() || scalars.is_null() {
+        return Ok(false);
+    }
+    match scalars.as_string().as_deref() {
+        Some("typed") => Ok(false),
+        Some("text") => Ok(true),
+        _ => Err(JsError::new("scalars must be \"typed\" or \"text\"")),
+    }
 }
 
 /// The declarative part of a JavaScript language definition.
@@ -191,7 +206,10 @@ fn language_config(definition: &JsValue) -> Result<LanguageConfig, JsError> {
         item_marker: syntax::item_marker(definition)?,
         // What a language registered from JavaScript is like it says
         // only through `parse` and `serialize`.
-        traits: LanguageTraits::NONE,
+        traits: LanguageTraits {
+            scalars_are_text: scalars_are_text(definition)?,
+            ..LanguageTraits::NONE
+        },
     })
 }
 
